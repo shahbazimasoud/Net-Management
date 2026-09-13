@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.38.5';
+export const APP_VERSION = '1.39.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.39.0',
+    releaseDate: '2026-09-13',
+    type: 'minor',
+    title: 'قابلیت جابه‌جایی چند یونیته تجهیزات رک، اصلاح هایلایت شفاف هاور و مشکی شدن فلش‌های انتقال در تم روشن',
+    title_en: 'Multi-Unit Rack Device Step Movement, Transparent Hover Highlight and High-Contrast Black Move Arrows in Light Mode',
+    changes: [
+      'افزودن قابلیت جابه‌جایی چند یونیته (Multi-Unit Move) به دکمه‌های Move Up و Move Down در منوی هاور تجهیزات رک با امکان انتخاب گام حرکتی (۱ تا ۵ یونیت).',
+      'اصلاح هایلایت هاور روی تجهیزات رک در تم روشن به صورت کادر شفاف و بدون پوشش رنگ سفید مات تا دیوایس به صورت صددرصد واضح و خوانا زیر هاور دیده شود.',
+      'اصلاح کامل دکمه‌های انتقال به بالا و پایین (Move Up / Move Down) در تم روشن با فلش‌های مشکی پررنگ و برجسته و ضخامت خط بیشتر برای وضوح بصری کامل.',
+      'همگام‌سازی بلادرنگ موقعیت هایلایت دیوایس همزمان با جابه‌جایی به بالا یا پایین در رک.'
+    ],
+    changes_en: [
+      'Added multi-unit step movement (1U to 5U) to the Move Up and Move Down buttons on the rack device hover action menu.',
+      'Fixed the rack device hover highlight in light theme with a transparent fill and distinct border so hardware faceplates remain 100% visible and un-obscured.',
+      'Rendered bold, high-contrast dark black arrows for Move Up and Move Down buttons in light theme with increased stroke weight.',
+      'Synchronized real-time device highlight positioning when shifting devices across rack units.'
+    ]
+  },
   {
     version: '1.38.5',
     releaseDate: '2026-09-13',

@@ -91,6 +91,8 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
   const [hoveredMountedDev, setHoveredMountedDev] = useState<{ dev: MountedHardwareDevice; yPos: number; uNumber: number } | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [localConfirmDeleteDev, setLocalConfirmDeleteDev] = useState<MountedHardwareDevice | null>(null);
+  // Configurable move step for quick move (e.g. 1U, 2U, 3U, 4U, 5U)
+  const [moveStepUnits, setMoveStepUnits] = useState<number>(1);
 
   useEffect(() => {
     return () => {
@@ -218,15 +220,26 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
     };
   }, [draggingDevice, dragStartY, dragTargetU, rack]);
 
-  // Quick move Up/Down actions
-  const handleQuickMove = (e: React.MouseEvent, dev: MountedHardwareDevice, direction: 'up' | 'down') => {
+  // Quick move Up/Down actions with configurable step units (e.g. 1U, 2U, 3U...)
+  const handleQuickMove = (e: React.MouseEvent, dev: MountedHardwareDevice, direction: 'up' | 'down', stepCount: number = moveStepUnits) => {
     e.stopPropagation();
     if (!onMoveDevice) return;
-    const step = direction === 'up' ? 1 : -1;
+    const step = direction === 'up' ? stepCount : -stepCount;
     const newU = dev.startU + step;
     const col = checkCollision(dev, newU);
     if (!col.isBlocked) {
       onMoveDevice(rack.id, dev.id, newU);
+      // Immediately update hoveredMountedDev position so highlight overlay moves with device
+      setHoveredMountedDev((prev) => {
+        if (!prev || prev.dev.id !== dev.id) return prev;
+        const newYPos = 8 + (rack.units - (newU + dev.heightU - 1)) * U_HEIGHT;
+        return {
+          ...prev,
+          dev: { ...prev.dev, startU: newU },
+          yPos: newYPos,
+          uNumber: newU + dev.heightU - 1,
+        };
+      });
     }
   };
 
@@ -773,7 +786,7 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
               pointerEvents: 'none',
               zIndex: 45,
             }}
-            className="rounded border-2 border-cyan-400 bg-cyan-500/10 shadow-[0_0_15px_rgba(34,211,238,0.45)] transition-all"
+            className="rack-device-hover-highlight rounded border-2 border-cyan-400 bg-cyan-400/5 shadow-[0_0_15px_rgba(34,211,238,0.35)] transition-all"
           />
         )}
 
@@ -832,31 +845,63 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
                   )}
                 </div>
 
-                {/* Move Up/Down 1U */}
+                {/* Move Up/Down with multi-unit selector */}
                 <div className="flex items-center gap-0.5 shrink-0 bg-slate-950/80 border border-slate-800 rounded-md p-0.5">
                   <button
                     type="button"
-                    onClick={(e) => handleQuickMove(e, hoveredMountedDev.dev, 'up')}
+                    onClick={(e) => handleQuickMove(e, hoveredMountedDev.dev, 'up', moveStepUnits)}
                     disabled={
-                      !checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU + 1) ||
-                      checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU + 1).isBlocked
+                      !checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU + moveStepUnits) ||
+                      checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU + moveStepUnits).isBlocked
                     }
                     className="rack-btn-chevron p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-cyan-300 disabled:opacity-20 disabled:cursor-not-allowed transition"
-                    title={isEn ? 'Move Up 1U' : 'انتقال ۱ یونیت به بالا'}
+                    title={
+                      isEn
+                        ? `Move Up ${moveStepUnits}U (Click to move)`
+                        : `انتقال ${moveStepUnits} یونیت به بالا`
+                    }
                   >
-                    <ChevronUp className="w-3 h-3" />
+                    <ChevronUp className="w-3.5 h-3.5" strokeWidth={2.5} />
                   </button>
+
+                  {/* Step unit selector (1U / 2U / 3U / 4U / 5U) */}
                   <button
                     type="button"
-                    onClick={(e) => handleQuickMove(e, hoveredMountedDev.dev, 'down')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMoveStepUnits((prev) => {
+                        if (prev === 1) return 2;
+                        if (prev === 2) return 3;
+                        if (prev === 3) return 4;
+                        if (prev === 4) return 5;
+                        return 1;
+                      });
+                    }}
+                    className="rack-btn-step px-1 py-0.5 text-[9px] font-mono font-bold text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/60 rounded transition select-none shrink-0 leading-none"
+                    title={
+                      isEn
+                        ? `Move step: ${moveStepUnits}U (click to toggle 1U-5U)`
+                        : `گام جابه‌جایی: ${moveStepUnits} یونیت (کلیک برای تغییر ۱ تا ۵ یونیت)`
+                    }
+                  >
+                    {moveStepUnits}U
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleQuickMove(e, hoveredMountedDev.dev, 'down', moveStepUnits)}
                     disabled={
-                      !checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU - 1) ||
-                      checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU - 1).isBlocked
+                      !checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU - moveStepUnits) ||
+                      checkCollision(hoveredMountedDev.dev, hoveredMountedDev.dev.startU - moveStepUnits).isBlocked
                     }
                     className="rack-btn-chevron p-1 rounded hover:bg-slate-800 text-slate-300 hover:text-cyan-300 disabled:opacity-20 disabled:cursor-not-allowed transition"
-                    title={isEn ? 'Move Down 1U' : 'انتقال ۱ یونیت به پایین'}
+                    title={
+                      isEn
+                        ? `Move Down ${moveStepUnits}U (Click to move)`
+                        : `انتقال ${moveStepUnits} یونیت به پایین`
+                    }
                   >
-                    <ChevronDown className="w-3 h-3" />
+                    <ChevronDown className="w-3.5 h-3.5" strokeWidth={2.5} />
                   </button>
                 </div>
               </div>

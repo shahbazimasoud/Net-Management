@@ -1892,11 +1892,37 @@
 
 .theme-light .rack-device-hover-card .rack-btn-chevron,
 .theme-light .rack-device-hover-card .rack-btn-chevron svg {
-  color: #cbd5e1 !important;
+  color: #0f172a !important;
+  stroke: #0f172a !important;
+  stroke-width: 2.8 !important;
 }
 .theme-light .rack-device-hover-card .rack-btn-chevron:hover,
 .theme-light .rack-device-hover-card .rack-btn-chevron:hover svg {
-  color: #67e8f9 !important;
+  color: #000000 !important;
+  stroke: #000000 !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-chevron:disabled,
+.theme-light .rack-device-hover-card .rack-btn-chevron:disabled svg {
+  color: #94a3b8 !important;
+  stroke: #94a3b8 !important;
+  opacity: 0.4 !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-step {
+  color: #0f172a !important;
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  font-weight: 800 !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-step:hover {
+  background-color: #e2e8f0 !important;
+  color: #000000 !important;
+}
+
+/* Light mode rack device hover highlight outline: clean transparent fill so device stays 100% visible */
+.theme-light .rack-device-hover-highlight {
+  background-color: transparent !important;
+  border-color: #0284c7 !important;
+  box-shadow: 0 0 0 1.5px rgba(2, 132, 199, 0.6), 0 0 12px rgba(2, 132, 199, 0.3) !important;
 }
 
 .theme-light .rack-device-hover-card .rack-btn-props,
