@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.37.1';
+export const APP_VERSION = '1.38.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.38.0',
+    releaseDate: '2026-09-13',
+    type: 'minor',
+    title: 'سیستم هوشمند بررسی به‌روزرسانی مخزن، نشانگر اعلان قرمز روی پروفایل و ارتقای خودکار پنل با یک کلیک',
+    title_en: 'Automated Repository Update Checker, Pulsating Profile Notification, and One-Click In-Panel Updater',
+    changes: [
+      'پیاده‌سازی اندپوینت‌های سرور (/api/system/check-update و /api/system/perform-update) جهت پایش برخط مخزن Net-Management و مقایسه نگارش با سمانتیک ورژن.',
+      'افزودن نشانگر چشمک‌زن قرمز پویا (Pulsating Red Ping Dot) روی آیکون پروفایل و کارت مدیریت در هدر پنل هنگام انتشار نسخه جدید.',
+      'امکان کلیک روی نشانگر و مشاهده کارت رسمی نگارش جدید شامل تاریخ انتشار، نوع ارتقا و لیست کامل تغییرات (Release Notes).',
+      'پیاده‌سازی دکمه و موتور اجرای خودکار ارتقا (One-Click Update Engine) با فرآیند همگام‌سازی فایل‌های مخزن، نصب پکیج‌ها، بازسازی پروژکشن باندل و تازه‌سازی خودکار صفحه.',
+      'افزودن امکان تست و شبیه‌سازی اعلان آپدیت (Simulate Update Alert) جهت بررسی بصری عملکرد بدون نیاز به انتظار برای انتشار نسخه جدید.'
+    ],
+    changes_en: [
+      'Implemented server-side endpoints (/api/system/check-update and /api/system/perform-update) for live GitHub Net-Management repository tracking and SemVer evaluation.',
+      'Added a dynamic pulsating red indicator badge on the profile avatar and navigation header when a new release is available.',
+      'Interactive release note preview modal detailing new features, changes, and release dates directly from the repository.',
+      'Integrated one-click in-panel software updater with repository synchronization, package installation, build re-generation, and automated interface refresh.',
+      'Added simulated update testing mode for developer demonstration and verification.'
+    ]
+  },
   {
     version: '1.37.1',
     releaseDate: '2026-09-13',

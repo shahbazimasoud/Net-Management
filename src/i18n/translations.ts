@@ -40,6 +40,26 @@ export const translations = {
     profile_theme_title: 'Color Palette & Theme',
     profile_active_session: 'Active Session',
 
+    // Update System & Release Checker
+    update_available_title: 'New Version Available!',
+    update_available_badge: 'UPDATE',
+    update_available_desc: 'Version v{version} is published and ready in GitHub repository.',
+    update_btn_view_release: 'View Release Notes & Update',
+    update_btn_perform_update: 'Update Panel to Latest Version',
+    update_status_checking: 'Checking GitHub repository for updates...',
+    update_status_latest: 'NetTopology is up to date (v{version})',
+    update_status_updating: 'Updating panel to v{version}... Please wait',
+    update_status_success: 'Panel updated successfully to v{version}! Reloading...',
+    update_status_error: 'Failed to update: {error}',
+    update_btn_check_now: 'Check for Updates',
+    update_modal_title: 'Software Update & Release Notes',
+    update_whats_new: 'What’s new in v{version}',
+    update_ready_to_install: 'A newer release is ready for installation',
+    update_simulate_label: 'Simulate Update Alert (Demo)',
+    update_checking_in_progress: 'Connecting to GitHub...',
+    update_retry_btn: 'Retry Update',
+    update_changelog_header: 'Changelog for Version v{version}',
+
     // Header Actions
     action_quick_scan: 'Scan CDP/LLDP',
     action_quick_scan_active: 'Scanning...',
@@ -655,6 +675,26 @@ export const translations = {
     profile_language_title: 'زبان رابط کاربری',
     profile_theme_title: 'تم و پالت رنگی',
     profile_active_session: 'نشست فعال',
+
+    // Update System & Release Checker
+    update_available_title: 'نگارش جدید در دسترس است!',
+    update_available_badge: 'آپدیت جدید',
+    update_available_desc: 'نسخه v{version} در مخزن گیت‌هاب منتشر شده و آماده نصب است.',
+    update_btn_view_release: 'مشاهده تغییرات و ارتقا',
+    update_btn_perform_update: 'ارتقای پنل به آخرین نگارش',
+    update_status_checking: 'در حال بررسی مخزن برای نگارش جدید...',
+    update_status_latest: 'پنل شما به‌روز است (v{version})',
+    update_status_updating: 'در حال ارتقای پنل به v{version}... لطفاً شکیبا باشید',
+    update_status_success: 'پنل با موفقیت به نگارش v{version} ارتقا یافت! در حال بارگذاری مجدد...',
+    update_status_error: 'خطا در ارتقای پنل: {error}',
+    update_btn_check_now: 'بررسی به‌روزرسانی',
+    update_modal_title: 'ارتقای نرم‌افزار و یادداشت‌های انتشار',
+    update_whats_new: 'ویژگی‌ها و تغییرات نسخه v{version}',
+    update_ready_to_install: 'نگارش جدیدتری در مخزن آماده نصب است',
+    update_simulate_label: 'شبیه‌سازی اعلان آپدیت (تست)',
+    update_checking_in_progress: 'در حال برقراری ارتباط با گیت‌هاب...',
+    update_retry_btn: 'تلاش مجدد برای ارتقا',
+    update_changelog_header: 'لیست تغییرات نسخه v{version}',
 
     // Header Actions
     action_quick_scan: 'اسکن CDP/LLDP',

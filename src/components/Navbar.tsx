@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { RefreshCw, Zap, Palette, ChevronDown, Check, Globe, User, ShieldCheck, FileText } from 'lucide-react';
+import { RefreshCw, Zap, Palette, ChevronDown, Check, Globe, User, ShieldCheck, FileText, ArrowUpCircle, Sparkles } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useLanguage } from '../i18n';
+import { useUpdate } from '../context/UpdateContext';
 
 export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
 
@@ -31,6 +32,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
 }) => {
   const { t, language, setLanguage, isRtl, isEn } = useLanguage();
+  const { updateInfo, checking, checkUpdate } = useUpdate();
+  const hasUpdate = Boolean(updateInfo?.hasUpdate);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -128,17 +131,31 @@ export const Navbar: React.FC<NavbarProps> = ({
             title={t('profile_menu_title')}
             id="profile-dropdown-btn"
           >
-            {/* Avatar Circle with Status Dot */}
+            {/* Avatar Circle with Status Dot or Pulsating Update Dot */}
             <div className="relative flex items-center justify-center w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-500 to-cyan-500 text-white font-bold text-xs shadow-inner">
               <User className="w-4 h-4" />
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-slate-900 shadow-[0_0_4px_rgba(52,211,153,0.9)]"></span>
+              {hasUpdate ? (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5 z-10" title={t('update_available_title')}>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 border-2 border-slate-950 shadow-[0_0_10px_rgba(244,63,94,1)]"></span>
+                </span>
+              ) : (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-slate-900 shadow-[0_0_4px_rgba(52,211,153,0.9)]"></span>
+              )}
             </div>
 
             {/* Language & Theme Micro Indicators on Button */}
             <div className="hidden sm:flex flex-col text-left text-[10px] leading-tight">
               <span className="font-bold text-white text-[11px] flex items-center gap-1">
                 Admin
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: currentThemeObj.color }}></span>
+                {hasUpdate ? (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-rose-500/25 border border-rose-500/40 text-[9px] font-bold text-rose-300 animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                    <span>v{updateInfo?.latestVersion}</span>
+                  </span>
+                ) : (
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: currentThemeObj.color }}></span>
+                )}
               </span>
               <span className="text-slate-400 font-mono text-[9px] uppercase tracking-wider">{language.toUpperCase()}</span>
             </div>
@@ -159,8 +176,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 {/* Profile Header Card */}
                 <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/5 border border-white/10 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md relative">
                     <ShieldCheck className="w-5 h-5 text-cyan-200" />
+                    {hasUpdate && (
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 border border-slate-900 shadow-[0_0_8px_rgba(244,63,94,1)]"></span>
+                      </span>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1.5">
@@ -182,6 +205,42 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </p>
                   </div>
                 </div>
+
+                {/* Prominent Update Notification Banner if New Version Exists */}
+                {hasUpdate && (
+                  <div className="mb-3 p-2.5 rounded-xl bg-gradient-to-br from-rose-950/60 via-purple-950/40 to-slate-900/60 border border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.25)]">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                        </span>
+                        <span className="text-xs font-bold text-white font-mono">
+                          v{updateInfo?.latestVersion}
+                        </span>
+                        <span className="px-1.5 py-0.2 text-[9px] font-bold uppercase rounded bg-rose-500/30 text-rose-200 border border-rose-500/40">
+                          {t('update_available_badge')}
+                        </span>
+                      </div>
+                      <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+                    </div>
+
+                    <p className="text-[11px] text-slate-200 leading-snug line-clamp-2 mb-2 font-medium">
+                      {updateInfo?.releaseNote?.title || t('update_ready_to_install')}
+                    </p>
+
+                    <button
+                      onClick={() => {
+                        setProfileOpen(false);
+                        if (onOpenReleaseNotes) onOpenReleaseNotes();
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-medium text-xs shadow-[0_0_12px_rgba(244,63,94,0.4)] transition cursor-pointer active:scale-98"
+                    >
+                      <ArrowUpCircle className="w-3.5 h-3.5 text-rose-200" />
+                      <span>{t('update_btn_view_release')}</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Section 1: Language Switcher */}
                 <div className="mb-3">
@@ -283,11 +342,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <FileText className="w-3 h-3" />
                     <span>v{APP_VERSION} {t('sidebar_release_notes')}</span>
+                    {hasUpdate && (
+                      <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.8)] animate-ping" />
+                    )}
                   </button>
 
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    Cisco IOS-XE
-                  </span>
+                  <button
+                    onClick={() => checkUpdate(false)}
+                    disabled={checking}
+                    className="text-[10px] text-slate-400 hover:text-cyan-300 transition flex items-center gap-1 cursor-pointer"
+                    title={t('update_btn_check_now')}
+                  >
+                    <RefreshCw className={`w-2.5 h-2.5 ${checking ? 'animate-spin text-cyan-400' : ''}`} />
+                    <span>{checking ? '...' : 'GitHub'}</span>
+                  </button>
                 </div>
               </div>
             </>
