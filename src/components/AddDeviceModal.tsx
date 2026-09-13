@@ -35,6 +35,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   const [cdpEnabled, setCdpEnabled] = useState(true);
   const [lldpEnabled, setLldpEnabled] = useState(true);
   const [snmpCommunity, setSnmpCommunity] = useState('public');
+  const [connectionProtocol, setConnectionProtocol] = useState<'ssh' | 'telnet'>('ssh');
   const [sshHost, setSshHost] = useState('');
   const [sshPort, setSshPort] = useState(22);
   const [sshUsername, setSshUsername] = useState('admin');
@@ -229,10 +230,19 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleProtocolChange = (proto: 'ssh' | 'telnet') => {
+    setConnectionProtocol(proto);
+    if (proto === 'telnet' && sshPort === 22) {
+      setSshPort(23);
+    } else if (proto === 'ssh' && sshPort === 23) {
+      setSshPort(22);
+    }
+  };
+
   const handleTestConnection = async () => {
     const targetHost = (sshHost.trim() || ip.trim());
     if (!targetHost || !/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(targetHost)) {
-      setError(isEn ? 'Please enter a valid IP address for SSH connection' : 'لطفاً ابتدا آدرس IP معتبر وارد کنید تا اتصال تست شود');
+      setError(isEn ? `Please enter a valid IP address for ${connectionProtocol.toUpperCase()} connection` : `لطفاً ابتدا آدرس IP معتبر وارد کنید تا اتصال ${connectionProtocol.toUpperCase()} تست شود`);
       return;
     }
     try {
@@ -242,20 +252,25 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
       const res = await testDeviceConnection({
         ip: targetHost,
         ssh_host: targetHost,
-        ssh_port: Number(sshPort) || 22,
+        ssh_port: Number(sshPort) || (connectionProtocol === 'telnet' ? 23 : 22),
         ssh_username: sshUsername.trim(),
         ssh_password: sshPassword,
         enable_password: enablePassword,
+        protocol: connectionProtocol,
+        connection_protocol: connectionProtocol,
+        platform,
       });
       setSshTestResult({
-        success: true,
-        message: res.message || (isEn ? 'SSH Connection successful!' : 'اتصال SSH برقرار و احراز هویت شد!'),
+        success: res.success,
+        message: res.message || (res.success
+          ? (isEn ? `${connectionProtocol.toUpperCase()} Connection successful!` : `اتصال ${connectionProtocol.toUpperCase()} برقرار و احراز هویت شد!`)
+          : (res.error || (isEn ? 'Connection failed' : `اتصال ${connectionProtocol.toUpperCase()} ناموفق بود`))),
         latency_ms: res.latency_ms,
       });
     } catch (err: any) {
       setSshTestResult({
         success: false,
-        message: err.message || (isEn ? 'Connection failed' : 'اتصال SSH ناموفق بود'),
+        message: err.message || (isEn ? 'Connection failed' : `اتصال ${connectionProtocol.toUpperCase()} ناموفق بود`),
       });
     } finally {
       setIsTestingSsh(false);
@@ -280,14 +295,15 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         name: name.trim(),
         ip: ip.trim(),
         ssh_host: sshHost.trim() || ip.trim(),
+        connection_protocol: connectionProtocol,
         type,
         role,
         platform,
         connection_mode: connectionMode,
         connection: {
-          protocol: 'ssh',
+          protocol: connectionProtocol,
           host: sshHost.trim() || ip.trim(),
-          port: Number(sshPort) || 22,
+          port: Number(sshPort) || (connectionProtocol === 'telnet' ? 23 : 22),
           username: sshUsername.trim() || 'admin',
           password: sshPassword,
           connection_timeout: 4000,
@@ -719,34 +735,60 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
               </div>
             </div>
 
-            {/* SSH Credentials & Connection Verification */}
+            {/* SSH / Telnet Credentials & Connection Verification */}
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-indigo-700 text-xs font-bold">
                   <Terminal className="w-4 h-4 text-indigo-600" />
-                  <span>{isEn ? 'SSH Credentials & Terminal Access:' : 'مشخصات دسترسی SSH و خط فرمان (CLI):'}</span>
+                  <span>{isEn ? 'Terminal Protocol & Credentials:' : 'مشخصات اتصال ترمینال و دسترسی CLI:'}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleTestConnection}
-                  disabled={isTestingSsh}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition shadow-xs disabled:opacity-50 cursor-pointer"
-                >
-                  {isTestingSsh ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>{isEn ? 'Testing...' : 'در حال تست...'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Terminal className="w-3 h-3" />
-                      <span>{isEn ? 'Test Connection' : 'تست اتصال SSH'}</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-lg p-0.5 bg-slate-200/80 border border-slate-300 text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleProtocolChange('ssh')}
+                      className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                        connectionProtocol === 'ssh'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      SSH
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleProtocolChange('telnet')}
+                      className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                        connectionProtocol === 'telnet'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Telnet
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={isTestingSsh}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition shadow-xs disabled:opacity-50 cursor-pointer"
+                  >
+                    {isTestingSsh ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>{isEn ? 'Testing...' : 'در حال تست...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Terminal className="w-3 h-3" />
+                        <span>{isEn ? `Test ${connectionProtocol.toUpperCase()}` : `تست اتصال ${connectionProtocol.toUpperCase()}`}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
-              {/* SSH Test Status Result Banner */}
+              {/* SSH / Telnet Test Status Result Banner */}
               {sshTestResult && (
                 <div
                   className={`p-2.5 rounded-lg flex items-start gap-2 text-xs font-sans ${
@@ -774,7 +816,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
                 <div className="sm:col-span-8">
                   <label className="block text-[11px] font-medium text-slate-700 mb-1 flex items-center justify-between">
-                    <span className="font-semibold text-indigo-700">{isEn ? 'SSH Target Host / IP:' : 'آدرس IP اتصال SSH (کانکشن اصلی):'}</span>
+                    <span className="font-semibold text-indigo-700">{isEn ? `${connectionProtocol.toUpperCase()} Target Host / IP:` : `آدرس IP اتصال ${connectionProtocol.toUpperCase()}:`}</span>
                     <span className="text-[10px] text-slate-500">{isEn ? 'Terminal connection target' : 'مقصد اتصال ترمینال مودال‌ها'}</span>
                   </label>
                   <input
@@ -789,7 +831,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                    {isEn ? 'SSH Port:' : 'پورت SSH:'}
+                    {isEn ? `${connectionProtocol.toUpperCase()} Port:` : `پورت ${connectionProtocol.toUpperCase()}:`}
                   </label>
                   <input
                     type="number"
@@ -802,7 +844,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-medium text-slate-700 mb-1">
-                    {isEn ? 'SSH Username:' : 'نام کاربری SSH:'}
+                    {isEn ? `${connectionProtocol.toUpperCase()} Username:` : `نام کاربری ${connectionProtocol.toUpperCase()}:`}
                   </label>
                   <input
                     type="text"
@@ -816,7 +858,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-medium text-slate-700 mb-1 flex items-center justify-between">
-                    <span>{isEn ? 'SSH Password:' : 'رمز عبور SSH:'}</span>
+                    <span>{isEn ? `${connectionProtocol.toUpperCase()} Password:` : `رمز عبور ${connectionProtocol.toUpperCase()}:`}</span>
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}

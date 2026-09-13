@@ -9,7 +9,7 @@ export type DevicePlatform =
 export type ConnectionMode = 'ssh' | 'simulator';
 
 export interface DeviceConnection {
-  protocol: 'ssh';
+  protocol: 'ssh' | 'telnet';
   host: string;
   port: number;
   username: string;
@@ -80,6 +80,7 @@ export interface Device {
   model: string;
   platform?: DevicePlatform;
   connection_mode?: ConnectionMode;
+  connection_protocol?: 'ssh' | 'telnet';
   connection?: DeviceConnection;
   mac: string;
   building: string;

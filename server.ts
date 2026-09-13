@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { spawn, exec, ChildProcess } from 'child_process';
 import http from 'http';
+import net from 'net';
 import { createServer as createViteServer } from 'vite';
 
 // Safely determine current directory and project root in both CJS bundle and TSX ESM dev mode
@@ -20,6 +21,7 @@ const projectRoot = path.basename(currentDir) === 'dist' ? path.resolve(currentD
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.FRONTEND_PORT ? parseInt(process.env.FRONTEND_PORT, 10) : 3000);
 const PYTHON_PORT = process.env.BACKEND_PORT ? parseInt(process.env.BACKEND_PORT, 10) : (process.env.PYTHON_PORT ? parseInt(process.env.PYTHON_PORT, 10) : 5001);
+const PYTHON_WS_PORT = process.env.PYTHON_WS_PORT ? parseInt(process.env.PYTHON_WS_PORT, 10) : PYTHON_PORT + 1;
 
 // Parse json and urlencoded
 app.use(express.json());
@@ -30,7 +32,7 @@ let pythonProcess: ChildProcess | null = null;
 
 function startPythonBackend() {
   const pythonScript = path.join(projectRoot, 'backend', 'server.py');
-  console.log(`[Python Manager] Starting Python backend from ${pythonScript} on port ${PYTHON_PORT}...`);
+  console.log(`[Python Manager] Starting Python backend from ${pythonScript} on port ${PYTHON_PORT} (WS on ${PYTHON_WS_PORT})...`);
   
   pythonProcess = spawn('python3', [pythonScript, String(PYTHON_PORT)], {
     cwd: projectRoot,
@@ -38,7 +40,8 @@ function startPythonBackend() {
     env: {
       ...process.env,
       BACKEND_PORT: String(PYTHON_PORT),
-      PYTHON_PORT: String(PYTHON_PORT)
+      PYTHON_PORT: String(PYTHON_PORT),
+      PYTHON_WS_PORT: String(PYTHON_WS_PORT),
     }
   });
 
@@ -349,7 +352,60 @@ async function startServer() {
   }
 
   const HOST = process.env.HOST || '0.0.0.0';
-  app.listen(PORT, HOST, () => {
+  const server = http.createServer(app);
+
+  // Forward WebSocket upgrade requests for real network terminal to Python WebSocket engine
+  server.on('upgrade', (req, clientSocket, head) => {
+    const url = req.url || '';
+    if (url.startsWith('/ws/terminal') || url.startsWith('/api/terminal/ws')) {
+      const proxySocket = net.connect(PYTHON_WS_PORT, '127.0.0.1', () => {
+        let rawReq = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
+        const headers = req.rawHeaders || [];
+        for (let i = 0; i < headers.length; i += 2) {
+          rawReq += `${headers[i]}: ${headers[i + 1]}\r\n`;
+        }
+        rawReq += '\r\n';
+        proxySocket.write(rawReq);
+        if (head && head.length > 0) {
+          proxySocket.write(head);
+        }
+        clientSocket.pipe(proxySocket);
+        proxySocket.pipe(clientSocket);
+      });
+
+      proxySocket.on('error', (err) => {
+        console.error('[Terminal WS Proxy Error]', err.message);
+        try {
+          clientSocket.destroy();
+        } catch {
+          // ignore
+        }
+      });
+      clientSocket.on('error', () => {
+        try {
+          proxySocket.destroy();
+        } catch {
+          // ignore
+        }
+      });
+      proxySocket.on('close', () => {
+        try {
+          clientSocket.destroy();
+        } catch {
+          // ignore
+        }
+      });
+      clientSocket.on('close', () => {
+        try {
+          proxySocket.destroy();
+        } catch {
+          // ignore
+        }
+      });
+    }
+  });
+
+  server.listen(PORT, HOST, () => {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);
   });
 }

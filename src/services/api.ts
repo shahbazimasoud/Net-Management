@@ -205,23 +205,40 @@ export async function testDeviceConnection(data: {
   ssh_username?: string;
   ssh_password?: string;
   enable_password?: string;
+  protocol?: 'ssh' | 'telnet';
+  connection_protocol?: 'ssh' | 'telnet';
+  platform?: string;
 }): Promise<{
   success: boolean;
   message: string;
   latency_ms?: number;
   banner?: string;
   protocol?: string;
+  error?: string;
 }> {
   const res = await fetch(`${API_BASE}/devices/test-connection`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'خطا در برقراری اتصال SSH به سوییچ/روتر');
-  }
   return res.json();
+}
+
+export function getTerminalWebSocketUrl(deviceId: string, protocol?: 'ssh' | 'telnet', role?: string): string {
+  const loc = window.location;
+  const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  const query = new URLSearchParams();
+  query.set('deviceId', deviceId);
+  if (protocol) query.set('protocol', protocol);
+  if (role) query.set('role', role);
+  return `${wsProto}//${loc.host}/ws/terminal?${query.toString()}`;
+}
+
+export async function closeDeviceTerminalSession(deviceId: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/terminal`, {
+    method: 'DELETE',
+  });
+  return res.json().catch(() => ({ success: true, message: 'Terminal closed' }));
 }
 
 export async function writeMemory(deviceId: string): Promise<{ success: boolean; device: Device; message: string }> {
@@ -380,6 +397,7 @@ export async function sshConnect(params: {
   password?: string;
   enable_password?: string;
   deviceId?: string;
+  protocol?: 'ssh' | 'telnet';
   timeout?: number;
 }): Promise<{
   success: boolean;

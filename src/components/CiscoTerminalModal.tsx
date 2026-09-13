@@ -41,6 +41,7 @@ import {
   sshConnect,
   sshExecute,
   sshDisconnect,
+  getTerminalWebSocketUrl,
 } from '../services/api';
 import { useLanguage } from '../i18n/LanguageContext';
 import { logDeviceCommand, evaluateCommandRisk } from '../services/auditLogger';
@@ -223,6 +224,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   const historyDropdownRef = useRef<HTMLDivElement>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   const draftInputRef = useRef<string>('');
+  const wsRef = useRef<WebSocket | null>(null);
 
   const handleToggleSidebar = () => {
     setIsSidebarOpen((prev) => {
@@ -235,9 +237,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   };
 
   const handleCloseModal = () => {
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
     if (device) {
+      const connProtocol = (device.connection_protocol || device.connection?.protocol || 'ssh').toLowerCase();
       const targetHost = device.ssh_host || device.ip;
-      const sshPort = device.ssh_port || 22;
+      const sshPort = device.ssh_port || (connProtocol === 'telnet' ? 23 : 22);
       sshDisconnect({
         sessionId: activeSessionIdRef.current || undefined,
         deviceId: device.id,
@@ -398,9 +407,10 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   // Initialize terminal session
   useEffect(() => {
     if (isOpen && device) {
+      const connProtocol = (device.connection_protocol || device.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
       const devHost = device.name.toUpperCase();
       const targetHost = device.ssh_host || device.ip;
-      const sshPort = device.ssh_port || 22;
+      const sshPort = device.ssh_port || (connProtocol === 'telnet' ? 23 : 22);
       const sshUser = device.ssh_username || 'admin';
       const sshPass = device.ssh_password || 'cisco123';
 
@@ -416,16 +426,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         {
           id: 'sys-init-1',
           type: 'system',
-          text: `[SSH CLIENT v2.5] Initiating direct SSH socket connection to ${device.name} (Host: ${targetHost}:${sshPort})...`,
+          text: `[${connProtocol.toUpperCase()} CLIENT v2.5] Initiating direct ${connProtocol.toUpperCase()} socket connection to ${device.name} (Host: ${targetHost}:${sshPort})...`,
         },
         {
           id: 'sys-init-2',
           type: 'system',
-          text: `[CREDENTIALS] Target User: '${sshUser}' | Target Host: '${targetHost}' | Auth: RSA/ECDSA Key & Password Verification`,
+          text: `[CREDENTIALS] Target User: '${sshUser}' | Target Host: '${targetHost}' | Protocol: ${connProtocol.toUpperCase()}`,
         },
       ]);
 
-      // Attempt real SSH connection via backend Python client
+      // Attempt real SSH/Telnet connection via backend Python client
       sshConnect({
         host: targetHost,
         port: sshPort,
@@ -433,6 +443,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         password: device.ssh_password || '',
         enable_password: device.enable_password || '',
         deviceId: device.id,
+        protocol: connProtocol,
         timeout: 3500,
       })
         .then((res) => {
@@ -446,14 +457,14 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
               {
                 id: 'sys-ssh-ok',
                 type: 'success',
-                text: `[LIVE SSH ESTABLISHED] Authenticated to ${targetHost}:${sshPort} in ${res.latency_ms || 2}ms.\nCipher: ${res.cipher || 'aes256-gcm@openssh.com'} | MAC: hmac-sha2-512\nBanner: ${res.banner || 'Cisco IOS Software, Catalyst Series'}\nActive Session ID: ${activeSessionIdRef.current || 'online'}`,
+                text: `[LIVE ${connProtocol.toUpperCase()} ESTABLISHED] Authenticated to ${targetHost}:${sshPort} in ${res.latency_ms || 2}ms.\nCipher: ${res.cipher || 'aes256-gcm@openssh.com'} | Protocol: ${connProtocol.toUpperCase()}\nBanner: ${res.banner || 'Cisco IOS Software, Catalyst Series'}\nActive Session ID: ${activeSessionIdRef.current || 'online'}`,
               },
               {
                 id: 'sys-ssh-ready',
                 type: 'system',
                 text: isEn
-                  ? "Live SSH session active. Terminal commands execute directly on target device via Python SSH engine."
-                  : "نشست لایو SSH فعال شد. دستورات مستقیماً از طریق موتور پایتون روی تجهیز اجرا می‌شوند.",
+                  ? `Live ${connProtocol.toUpperCase()} session active. Terminal commands execute directly on target device via Python network engine.`
+                  : `نشست لایو ${connProtocol.toUpperCase()} فعال شد. دستورات مستقیماً از طریق موتور پایتون روی تجهیز اجرا می‌شوند.`,
               },
             ]);
           } else {
@@ -537,10 +548,39 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             {
               id: 'sys-ssh-err',
               type: 'system',
-              text: `[SSH CLIENT] Connection status: ${err.message || 'Host unreachable'}. Managed CLI ready.`,
+              text: `[${connProtocol.toUpperCase()} CLIENT] Connection status: ${err.message || 'Host unreachable'}. Managed CLI ready.`,
             },
           ]);
         });
+
+      // Also attempt real-time WebSocket connection
+      try {
+        const wsUrl = getTerminalWebSocketUrl(device.id, connProtocol);
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'data' && msg.data) {
+              appendLines([
+                {
+                  id: 'ws-out-' + Date.now() + '-' + Math.random(),
+                  type: 'output',
+                  text: msg.data,
+                },
+              ]);
+            } else if (msg.type === 'status' && msg.status === 'connected') {
+              setSshSessionMode('real_ssh');
+              setSshLatency(msg.latency_ms || 2.2);
+            }
+          } catch {
+            // ignore non-json
+          }
+        };
+      } catch {
+        // ws not available
+      }
 
       const timer = setTimeout(() => {
         if (inputRef.current) inputRef.current.focus();
@@ -548,12 +588,18 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
       return () => {
         clearTimeout(timer);
+        if (wsRef.current) {
+          try {
+            wsRef.current.close();
+          } catch {}
+          wsRef.current = null;
+        }
         const curTarget = device.ssh_host || device.ip;
         sshDisconnect({
           sessionId: activeSessionIdRef.current || undefined,
           deviceId: device.id,
           host: curTarget,
-          port: device.ssh_port || 22,
+          port: sshPort,
         }).catch(() => {});
         activeSessionIdRef.current = null;
       };
@@ -705,13 +751,20 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       }
     }
 
-    // If active in real SSH session, attempt direct hardware command execution
+    // If active in real SSH/Telnet session, attempt direct hardware command execution
     if (sshSessionMode === 'real_ssh' && device) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        appendLines([inputLine]);
+        wsRef.current.send(JSON.stringify({ type: 'input', data: trimmed + '\r\n' }));
+        return;
+      }
+
       try {
+        const connProtocol = (device.connection_protocol || device.connection?.protocol || 'ssh').toLowerCase();
         const targetHost = device.ssh_host || device.ip;
         const res = await sshExecute({
           host: targetHost,
-          port: device.ssh_port || 22,
+          port: device.ssh_port || (connProtocol === 'telnet' ? 23 : 22),
           username: device.ssh_username || 'admin',
           password: device.ssh_password || '',
           command: trimmed,
@@ -725,7 +778,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           return;
         }
       } catch (err) {
-        console.warn('Direct hardware SSH execution error, using local CLI engine:', err);
+        console.warn('Direct hardware CLI execution error, using local CLI engine:', err);
       }
     }
 
@@ -1824,8 +1877,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-white font-mono text-sm tracking-wide">{device.name}</span>
-                <span className="terminal-header-ip text-xs font-mono font-bold px-2 py-0.5 rounded-md shadow-xs" title={isEn ? "SSH Connection Target Host" : "آدرس اتصال و پورت SSH"}>
-                  {device.ssh_host || device.ip}:{device.ssh_port || 22}
+                <span className="terminal-header-ip text-xs font-mono font-bold px-2 py-0.5 rounded-md shadow-xs" title={isEn ? "Terminal Connection Target Host" : "آدرس اتصال و پورت ترمینال"}>
+                  {device.ssh_host || device.ip}:{device.ssh_port || ((device.connection_protocol || device.connection?.protocol) === 'telnet' ? 23 : 22)}
                 </span>
                 {device.ssh_host && device.ssh_host !== device.ip && (
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700" title={isEn ? "Device Management IP" : "آدرس IP تجهیز"}>
@@ -1833,14 +1886,14 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                   </span>
                 )}
                 {sshSessionMode === 'real_ssh' ? (
-                  <span className="terminal-header-ssh text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-xs" title="Connected via Real SSH Socket">
+                  <span className="terminal-header-ssh text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-xs" title={`Connected via Real ${(device.connection_protocol || device.connection?.protocol || 'ssh').toUpperCase()} Socket`}>
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                    LIVE SSH ({sshLatency ? `${sshLatency}ms` : 'Active'})
+                    LIVE {(device.connection_protocol || device.connection?.protocol || 'ssh').toUpperCase()} ({sshLatency ? `${sshLatency}ms` : 'Active'})
                   </span>
                 ) : (
-                  <span className="terminal-header-ssh text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-xs" title={isEn ? "SSH Protocol Version" : "نسخه پروتکل SSH"}>
+                  <span className="terminal-header-ssh text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-xs" title={isEn ? "Protocol Version" : "پروتکل اتصال"}>
                     <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                    SSH-2.0 ({device.ssh_username || 'admin'})
+                    {(device.connection_protocol || device.connection?.protocol || 'ssh').toUpperCase()} ({device.ssh_username || 'admin'})
                   </span>
                 )}
               </div>

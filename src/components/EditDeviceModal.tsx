@@ -56,7 +56,8 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
   const [lldpEnabled, setLldpEnabled] = useState(true);
   const [snmpCommunity, setSnmpCommunity] = useState('public');
 
-  // SSH Credentials
+  // SSH / Telnet Credentials
+  const [connectionProtocol, setConnectionProtocol] = useState<'ssh' | 'telnet'>('ssh');
   const [sshHost, setSshHost] = useState('');
   const [sshPort, setSshPort] = useState(22);
   const [sshUsername, setSshUsername] = useState('admin');
@@ -92,8 +93,10 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
     setLldpEnabled(device.lldp_enabled ?? true);
     setSnmpCommunity(device.snmp_community || 'public');
 
+    const devProto = (device.connection_protocol || device.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
+    setConnectionProtocol(devProto);
     setSshHost(device.ssh_host || device.ip || '');
-    setSshPort(device.ssh_port || 22);
+    setSshPort(device.ssh_port || (devProto === 'telnet' ? 23 : 22));
     setSshUsername(device.ssh_username || 'admin');
     setSshPassword(device.ssh_password || '');
     setEnablePassword(device.enable_password || '');
@@ -116,10 +119,19 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
 
   if (!isOpen || !device) return null;
 
+  const handleProtocolChange = (proto: 'ssh' | 'telnet') => {
+    setConnectionProtocol(proto);
+    if (proto === 'telnet' && sshPort === 22) {
+      setSshPort(23);
+    } else if (proto === 'ssh' && sshPort === 23) {
+      setSshPort(22);
+    }
+  };
+
   const handleTestSsh = async () => {
     const targetHost = (sshHost.trim() || ip.trim());
     if (!targetHost) {
-      setError(isEn ? 'Please enter a target host or IP for SSH connection' : 'لطفاً ابتدا آدرس IP تجهیز را وارد کنید');
+      setError(isEn ? `Please enter a target host or IP for ${connectionProtocol.toUpperCase()} connection` : `لطفاً ابتدا آدرس IP تجهیز را وارد کنید`);
       return;
     }
     try {
@@ -129,20 +141,25 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
       const res = await testDeviceConnection({
         ip: targetHost,
         ssh_host: targetHost,
-        ssh_port: Number(sshPort) || 22,
+        ssh_port: Number(sshPort) || (connectionProtocol === 'telnet' ? 23 : 22),
         ssh_username: sshUsername.trim(),
         ssh_password: sshPassword,
         enable_password: enablePassword,
+        protocol: connectionProtocol,
+        connection_protocol: connectionProtocol,
+        platform,
       });
       setSshTestResult({
-        success: true,
-        message: res.message || (isEn ? 'SSH authentication successful!' : 'اتصال SSH برقرار و احراز هویت شد!'),
+        success: res.success,
+        message: res.message || (res.success
+          ? (isEn ? `${connectionProtocol.toUpperCase()} authentication successful!` : `اتصال ${connectionProtocol.toUpperCase()} برقرار و احراز هویت شد!`)
+          : (res.error || (isEn ? `${connectionProtocol.toUpperCase()} connection failed` : `اتصال ${connectionProtocol.toUpperCase()} ناموفق بود`))),
         latency_ms: res.latency_ms,
       });
     } catch (err: any) {
       setSshTestResult({
         success: false,
-        message: err.message || (isEn ? 'SSH connection failed' : 'اتصال SSH ناموفق بود'),
+        message: err.message || (isEn ? `${connectionProtocol.toUpperCase()} connection failed` : `اتصال ${connectionProtocol.toUpperCase()} ناموفق بود`),
       });
     } finally {
       setIsTestingSsh(false);
@@ -197,14 +214,15 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
         name: name.trim(),
         ip: ip.trim(),
         ssh_host: sshHost.trim() || ip.trim(),
+        connection_protocol: connectionProtocol,
         type,
         role: role.trim(),
         platform,
         connection_mode: connectionMode,
         connection: {
-          protocol: 'ssh',
+          protocol: connectionProtocol,
           host: sshHost.trim() || ip.trim(),
-          port: Number(sshPort) || 22,
+          port: Number(sshPort) || (connectionProtocol === 'telnet' ? 23 : 22),
           username: sshUsername.trim() || 'admin',
           password: sshPassword,
           connection_timeout: 4000,
@@ -588,34 +606,60 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
               </label>
             </div>
 
-            {/* SSH Credentials & Terminal Access Section */}
+            {/* SSH / Telnet Credentials & Terminal Access Section */}
             <div className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold">
                   <Terminal className="w-4 h-4 text-indigo-400" />
-                  <span>{isEn ? 'SSH Credentials & Terminal Access:' : 'مشخصات دسترسی SSH و کنسول خط فرمان:'}</span>
+                  <span>{isEn ? 'Terminal Protocol & Credentials:' : 'مشخصات اتصال ترمینال و دسترسی CLI:'}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleTestSsh}
-                  disabled={isTestingSsh}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition shadow-xs disabled:opacity-50 cursor-pointer"
-                >
-                  {isTestingSsh ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>{isEn ? 'Testing...' : 'در حال تست...'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Terminal className="w-3 h-3" />
-                      <span>{isEn ? 'Test SSH Connection' : 'تست اتصال SSH'}</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-lg p-0.5 bg-slate-900 border border-slate-700 text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => handleProtocolChange('ssh')}
+                      className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                        connectionProtocol === 'ssh'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      SSH
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleProtocolChange('telnet')}
+                      className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                        connectionProtocol === 'telnet'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Telnet
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTestSsh}
+                    disabled={isTestingSsh}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold transition shadow-xs disabled:opacity-50 cursor-pointer"
+                  >
+                    {isTestingSsh ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>{isEn ? 'Testing...' : 'در حال تست...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Terminal className="w-3 h-3" />
+                        <span>{isEn ? `Test ${connectionProtocol.toUpperCase()}` : `تست اتصال ${connectionProtocol.toUpperCase()}`}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
-              {/* SSH Test Result */}
+              {/* SSH / Telnet Test Result */}
               {sshTestResult && (
                 <div
                   className={`p-2.5 rounded-lg flex items-start gap-2 text-xs ${
@@ -643,7 +687,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
                 <div className="sm:col-span-8">
                   <label className="block text-[11px] font-medium text-slate-300 mb-1 flex items-center justify-between">
-                    <span className="font-semibold text-indigo-300">{isEn ? 'SSH Target Host / IP:' : 'آدرس IP اتصال SSH:'}</span>
+                    <span className="font-semibold text-indigo-300">{isEn ? `${connectionProtocol.toUpperCase()} Target Host / IP:` : `آدرس IP اتصال ${connectionProtocol.toUpperCase()}:`}</span>
                     <span className="text-[10px] text-slate-400">{isEn ? 'Terminal target IP' : 'آدرس مقصد برای کنسول'}</span>
                   </label>
                   <input
@@ -658,7 +702,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
 
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                    {isEn ? 'SSH Port:' : 'پورت SSH:'}
+                    {isEn ? `${connectionProtocol.toUpperCase()} Port:` : `پورت ${connectionProtocol.toUpperCase()}:`}
                   </label>
                   <input
                     type="number"
@@ -671,7 +715,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
 
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                    {isEn ? 'SSH Username:' : 'نام کاربری SSH:'}
+                    {isEn ? `${connectionProtocol.toUpperCase()} Username:` : `نام کاربری ${connectionProtocol.toUpperCase()}:`}
                   </label>
                   <input
                     type="text"
@@ -685,7 +729,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
 
                 <div className="sm:col-span-4">
                   <label className="block text-[11px] font-medium text-slate-300 mb-1 flex items-center justify-between">
-                    <span>{isEn ? 'SSH Password:' : 'رمز عبور SSH:'}</span>
+                    <span>{isEn ? `${connectionProtocol.toUpperCase()} Password:` : `رمز عبور ${connectionProtocol.toUpperCase()}:`}</span>
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}

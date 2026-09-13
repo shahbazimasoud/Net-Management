@@ -73,15 +73,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from backend.drivers import get_driver, detect_platform_from_model
     from backend.connections.ssh_manager import connection_manager
+    from backend.connections.network_terminal import NetworkTerminalSession, terminal_session_manager
     from backend.vpn import get_vpn_provider
 except ImportError:
     try:
         from drivers import get_driver, detect_platform_from_model
         from connections.ssh_manager import connection_manager
+        from connections.network_terminal import NetworkTerminalSession, terminal_session_manager
         from vpn import get_vpn_provider
     except ImportError:
         from backend.drivers import get_driver, detect_platform_from_model
         from backend.connections.ssh_manager import connection_manager
+        from backend.connections.network_terminal import NetworkTerminalSession, terminal_session_manager
         from backend.vpn import get_vpn_provider
 
 def record_audit_log(data: Dict[str, Any], user: str, device_id: str, device_name: str, action: str, details: str, result: str = "success"):
@@ -123,8 +126,8 @@ def check_rbac_permission(role: str, action: str) -> bool:
     if r in ("Super Admin", "Admin", "Network Engineer"):
         return True
     if r == "Operator":
-        # Operators can only do non-destructive show/read operations
-        return action in ("show", "read", "monitor", "view", "get")
+        # Operators can do non-destructive show/read operations and view terminal
+        return action in ("show", "read", "monitor", "view", "get", "terminal")
     # Read-Only Auditor cannot configure or alter ports/devices
     return False
 
@@ -1832,8 +1835,10 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             connection_mode = body.get("connection_mode", "ssh")
             
             conn_data = body.get("connection", {})
+            conn_proto = (conn_data.get("protocol") or body.get("connection_protocol") or "ssh").lower()
             conn_host = conn_data.get("host") or body.get("ssh_host") or body.get("ip", "192.168.1.50")
-            conn_port = int(conn_data.get("port") or body.get("ssh_port", 22))
+            default_port = 23 if conn_proto == "telnet" else 22
+            conn_port = int(conn_data.get("port") or body.get("ssh_port") or default_port)
             conn_user = conn_data.get("username") or body.get("ssh_username", "admin")
             conn_pass = conn_data.get("password") or body.get("ssh_password", "")
 
@@ -1844,13 +1849,14 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 "name": body.get("name", f"New-{platform}"),
                 "ip": conn_host,
                 "ssh_host": conn_host,
+                "connection_protocol": conn_proto,
                 "type": body.get("type", "switch"),
                 "role": body.get("role", "Access Switch"),
                 "model": model,
                 "platform": platform,
                 "connection_mode": connection_mode,
                 "connection": {
-                    "protocol": "ssh",
+                    "protocol": conn_proto,
                     "host": conn_host,
                     "port": conn_port,
                     "username": conn_user,
@@ -2384,11 +2390,15 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": "Device not found"})
                 return
 
-            for k in ["name", "ip", "ssh_host", "type", "role", "model", "building", "floor", "unit", "rack", "cdp_enabled", "lldp_enabled", "snmp_community", "is_online", "ssh_port", "ssh_username", "ssh_password", "enable_password", "ssh_status"]:
+            for k in ["name", "ip", "ssh_host", "connection_protocol", "connection", "platform", "connection_mode", "type", "role", "model", "building", "floor", "unit", "rack", "cdp_enabled", "lldp_enabled", "snmp_community", "is_online", "ssh_port", "ssh_username", "ssh_password", "enable_password", "ssh_status"]:
                 if k in body:
                     device[k] = body[k]
+            if "connection_protocol" in body:
+                if "connection" not in device or not isinstance(device["connection"], dict):
+                    device["connection"] = {}
+                device["connection"]["protocol"] = str(body["connection_protocol"]).lower()
             save_data(data)
-            self._send_json(200, {"device": device, "message": "مشخصات تجهیز با موفقیت تغییر یافت."})
+            self._send_json(200, {"device": sanitize_device(device), "message": "مشخصات تجهیز با موفقیت تغییر یافت."})
             return
 
         if path.startswith("/api/templates/"):
@@ -2416,10 +2426,11 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
         path = url.path
         data = load_data()
 
-        if path.startswith("/api/devices/") and path.endswith("/connection"):
+        if path.startswith("/api/devices/") and (path.endswith("/connection") or path.endswith("/terminal")):
             dev_id = path.split("/")[3]
             connection_manager.close_session(dev_id)
-            self._send_json(200, {"success": True, "message": "اتصال تجهیز با موفقیت قطع شد."})
+            terminal_session_manager.close_device_session(dev_id)
+            self._send_json(200, {"success": True, "message": "اتصال ترمینال و ارتباط تجهیز با موفقیت قطع و آزاد گردید."})
             return
 
         if path.startswith("/api/devices/") and "/vpn/" in path:
@@ -2518,9 +2529,195 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
 
         self._send_json(404, {"error": "Endpoint not found"})
 
+def start_websocket_server(ws_port: int):
+    """
+    Spawns background asyncio WebSocket server bridging interactive client
+    connections directly to real network device SSH and Telnet sessions.
+    """
+    import asyncio
+    import websockets
+
+    async def terminal_ws_handler(websocket, path=''):
+        req_path = path or getattr(websocket, 'path', '') or ''
+        parsed_url = urlparse(req_path)
+        qs = parse_qs(parsed_url.query)
+        device_id = qs.get("deviceId", qs.get("device_id", [""]))[0].strip()
+        user_role = qs.get("role", qs.get("user_role", ["Super Admin"]))[0].strip()
+        req_protocol = qs.get("protocol", [""])[0].strip().lower()
+        cols = int(qs.get("cols", [120])[0])
+        rows = int(qs.get("rows", [36])[0])
+
+        session = None
+        loop = asyncio.get_running_loop()
+
+        try:
+            # Check permissions
+            if not check_rbac_permission(user_role, "terminal"):
+                await websocket.send(json.dumps({
+                    "type": "error",
+                    "error": f"Permission denied for role '{user_role}' to access network terminal.",
+                    "code": "PERMISSION_DENIED"
+                }))
+                await websocket.close()
+                return
+
+            # Lookup device
+            data = load_data()
+            device = next((d for d in data.get("devices", []) if d.get("id") == device_id), None)
+            if not device:
+                await websocket.send(json.dumps({
+                    "type": "error",
+                    "error": f"Device with ID '{device_id}' was not found in inventory.",
+                    "code": "DEVICE_NOT_FOUND"
+                }))
+                await websocket.close()
+                return
+
+            conn = device.get("connection", {})
+            protocol = req_protocol or conn.get("protocol") or device.get("connection_protocol") or "ssh"
+            protocol = protocol.lower()
+            host = conn.get("host") or device.get("ssh_host") or device.get("ip", "").strip()
+            default_port = 23 if protocol == "telnet" else 22
+            port = int(conn.get("port") or device.get("ssh_port") or default_port)
+            username = conn.get("username") or device.get("ssh_username") or "admin"
+            password = conn.get("password") or device.get("ssh_password") or ""
+            enable_password = conn.get("enable_password") or device.get("enable_password") or ""
+            platform = device.get("platform", "cisco_ios_xe")
+
+            if not host:
+                await websocket.send(json.dumps({
+                    "type": "error",
+                    "error": f"No Management IP or Host configured for device '{device.get('name', device_id)}'.",
+                    "code": "NO_HOST"
+                }))
+                await websocket.close()
+                return
+
+            await websocket.send(json.dumps({
+                "type": "status",
+                "status": "connecting",
+                "protocol": protocol,
+                "host": host,
+                "port": port,
+                "deviceId": device_id,
+                "deviceName": device.get("name", host),
+                "message": f"Connecting to {host}:{port} via {protocol.upper()}..."
+            }))
+
+            def on_data_received(chunk: str):
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        websocket.send(json.dumps({"type": "data", "data": chunk})),
+                        loop
+                    )
+                except Exception:
+                    pass
+
+            def on_session_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        websocket.send(json.dumps({
+                            "type": "status",
+                            "status": "disconnected",
+                            "message": "Network terminal connection closed."
+                        })),
+                        loop
+                    )
+                except Exception:
+                    pass
+
+            session = NetworkTerminalSession(
+                device_id=device_id,
+                host=host,
+                port=port,
+                protocol=protocol,
+                username=username,
+                password=password,
+                enable_password=enable_password,
+                platform=platform,
+                cols=cols,
+                rows=rows,
+                on_data_callback=on_data_received,
+                on_close_callback=on_session_closed
+            )
+            terminal_session_manager.register_session(session)
+
+            # Connect in thread executor so it doesn't block the asyncio event loop
+            connected = await loop.run_in_executor(None, session.connect)
+            if not connected:
+                await websocket.send(json.dumps({
+                    "type": "error",
+                    "error": session.error_message or f"Connection failed to {host}:{port} via {protocol.upper()}.",
+                    "code": "CONNECTION_FAILED"
+                }))
+                await websocket.send(json.dumps({
+                    "type": "status",
+                    "status": "failed",
+                    "message": session.error_message or "Connection failed"
+                }))
+                await websocket.close()
+                return
+
+            # Connected notification
+            await websocket.send(json.dumps({
+                "type": "status",
+                "status": "connected",
+                "sessionId": session.session_id,
+                "protocol": protocol,
+                "host": host,
+                "port": port,
+                "username": username,
+                "banner": session.banner,
+                "latency_ms": session.latency_ms,
+                "message": f"Connected to {host}:{port} ({session.banner or protocol.upper()})"
+            }))
+
+            # Listen for interactive client messages
+            async for raw_msg in websocket:
+                try:
+                    msg = json.loads(raw_msg)
+                except Exception:
+                    msg = {"type": "input", "data": raw_msg}
+
+                msg_type = msg.get("type", "input")
+                if msg_type in ("input", "stdin"):
+                    data_str = msg.get("data", "")
+                    session.write_input(data_str)
+                elif msg_type == "resize":
+                    c = int(msg.get("cols", cols))
+                    r = int(msg.get("rows", rows))
+                    session.resize_pty(c, r)
+                elif msg_type == "close":
+                    break
+
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        except Exception as e:
+            print(f"[Terminal WS Exception] {e}")
+        finally:
+            if session:
+                terminal_session_manager.close_session(session.session_id)
+                session.close()
+
+    def run_ws_loop():
+        ws_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(ws_loop)
+        start_server_coro = websockets.serve(terminal_ws_handler, "127.0.0.1", ws_port)
+        ws_loop.run_until_complete(start_server_coro)
+        print(f"[Python WS Server] Terminal WebSocket server running on ws://127.0.0.1:{ws_port}")
+        ws_loop.run_forever()
+
+    t = threading.Thread(target=run_ws_loop, daemon=True)
+    t.start()
+
 def run_server(port=5001, host=None):
     if host is None:
         host = os.environ.get("PYTHON_HOST") or os.environ.get("HOST") or '0.0.0.0'
+
+    # Start WebSocket terminal engine on PYTHON_WS_PORT or port + 1
+    ws_port = int(os.environ.get("PYTHON_WS_PORT", port + 1))
+    start_websocket_server(ws_port)
+
     server_address = (host, port)
     httpd = HTTPServer(server_address, NetworkAPIHandler)
     print(f"[Python Network Engine] Server running on http://{host}:{port}")

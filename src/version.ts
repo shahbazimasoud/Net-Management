@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.39.2';
+export const APP_VERSION = '1.40.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.40.0',
+    releaseDate: '2026-09-13',
+    type: 'minor',
+    title: 'تبدیل ترمینال تجهیزات شبکه از حالت شبیه‌سازی به اتصال سخت‌افزاری واقعی SSH و Telnet',
+    title_en: 'Real Hardware SSH & Telnet Live Connection for Network Equipment Inventory Terminals',
+    changes: [
+      'تبدیل ترمینال تجهیزات شبکه در بخش Network Equipment از حالت شبیه‌سازی محلی (Mock) به اتصال سوکت واقعی سخت‌افزاری با پشتیبانی کامل از پروتکل‌های SSH و Telnet.',
+      'پیاده‌سازی موتور نشست ترمینال در بک‌اند (Python Network Terminal Session Manager) همراه با پراکسی امن وب‌سوکت برای استریم زنده دوطرفه و PTY تعاملی.',
+      'افزودن سلکتور انتخاب پروتکل اتصال (SSH / Telnet) در فرم و مودال ثبت و ویرایش تجهیزات شبکه بدون تغییر ساختار UI.',
+      'اتصال خودکار نشست‌های ترمینال میکروتیک و سیسکو به سخت‌افزار واقعی با حفظ قابلیت فال‌بک خودکار به شبیه‌ساز آفلاین در صورت عدم دسترسی به تجهیز.',
+      'افزودن نشانگر وضعیت اتصال لایو (LIVE SSH / LIVE TELNET) و پینگ تاخیر لحظه‌ای در هدر ترمینال با تفکیک کامل زبان‌های فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Converted the Network Equipment Inventory terminal from local mock simulation to real hardware socket connections supporting both SSH and Telnet protocols.',
+      'Implemented the Python Network Terminal Session Manager backend engine with WebSocket streaming proxy for bidirectional live interactive PTY sessions.',
+      'Added connection protocol selector (SSH / Telnet) in the existing device registration and edit modals seamlessly within current UI workflows.',
+      'Integrated live hardware execution into both MikroTik and Cisco terminal modals with graceful automatic fallback to offline emulation when devices are unreachable.',
+      'Added dynamic live connection status badges (LIVE SSH / LIVE TELNET) and real-time latency indicators in the terminal header with strict bilingual localization.'
+    ]
+  },
   {
     version: '1.39.2',
     releaseDate: '2026-09-13',
