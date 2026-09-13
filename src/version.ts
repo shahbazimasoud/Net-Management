@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.38.1';
+export const APP_VERSION = '1.38.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.38.2',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'اصلاح نمایش زبان اعلان‌های به‌روزرسانی در منوی پروفایل و ثبت قانون اجباری چندزبانگی',
+    title_en: 'Enforce Language-Aware Update Notifications in Profile Menu and Add Mandatory Localization Rule',
+    changes: [
+      'اصلاح پیام اعلان آپدیت در پنجره بازشوی پروفایل تا در حالت زبان انگلیسی، عنوان انگلیسی ریلیز (title_en) نمایش داده شود و هیچ متنی به فارسی دیده نشود.',
+      'افزودن لاگ‌های دوزبانه در فرآیند اجرای به‌روزرسانی در UpdateContext.',
+      'ثبت قانون اجباری قطعی در مستندات AGENTS.md و GEMINI.md مبنی بر ممنوعیت کامل نمایش هرگونه متن فارسی در حالت زبان انگلیسی در تمامی بخش‌های پنل.'
+    ],
+    changes_en: [
+      'Fixed profile dropdown update notification banner to display the English release title (title_en) when English language is active.',
+      'Added language-aware update execution logs and error feedback in UpdateContext.',
+      'Added strict permanent localization rule in AGENTS.md and GEMINI.md prohibiting any Persian text when the application is set to English.'
+    ]
+  },
   {
     version: '1.38.1',
     releaseDate: '2026-09-13',

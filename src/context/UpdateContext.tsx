@@ -68,17 +68,39 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setUpdating(true);
     setError(null);
     setUpdateSuccess(false);
-    setUpdateLogs(['در حال اتصال به سرور و مخزن گیت‌هاب (Net-Management)...']);
+    const currentLang = typeof window !== 'undefined' ? localStorage.getItem('nettopology_lang') || 'en' : 'en';
+    const isPersian = currentLang === 'fa';
+
+    setUpdateLogs([
+      isPersian
+        ? 'در حال اتصال به سرور و مخزن گیت‌هاب (Net-Management)...'
+        : 'Connecting to server and GitHub repository (Net-Management)...'
+    ]);
 
     try {
       // If in simulated test mode, simulate real steps for demonstration
       if (isSimulated) {
         await new Promise((r) => setTimeout(r, 800));
-        setUpdateLogs((prev) => [...prev, 'همگام‌سازی فایل‌های سیستمی با برنچ master...']);
+        setUpdateLogs((prev) => [
+          ...prev,
+          isPersian
+            ? 'همگام‌سازی فایل‌های سیستمی با برنچ master...'
+            : 'Synchronizing system files with master branch...'
+        ]);
         await new Promise((r) => setTimeout(r, 1000));
-        setUpdateLogs((prev) => [...prev, 'بررسی پکیج‌ها و بازسازی فایل‌های باندلینگ...']);
+        setUpdateLogs((prev) => [
+          ...prev,
+          isPersian
+            ? 'بررسی پکیج‌ها و بازسازی فایل‌های باندلینگ...'
+            : 'Verifying dependencies and compiling production bundles...'
+        ]);
         await new Promise((r) => setTimeout(r, 900));
-        setUpdateLogs((prev) => [...prev, 'به‌روزرسانی با موفقیت به اتمام رسید!']);
+        setUpdateLogs((prev) => [
+          ...prev,
+          isPersian
+            ? 'به‌روزرسانی با موفقیت به اتمام رسید!'
+            : 'Update completed successfully!'
+        ]);
         setUpdateSuccess(true);
         setUpdating(false);
         setCountdown(3);
@@ -92,7 +114,7 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Operation failed on server');
+        throw new Error(data.error || (isPersian ? 'عملیات در سرور با خطا مواجه شد' : 'Operation failed on server'));
       }
 
       setUpdateLogs(data.logs || ['Update completed successfully.']);
@@ -101,7 +123,7 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return true;
     } catch (err: any) {
       console.error('[UpdateContext] Update error:', err);
-      setError(err.message || 'خطا در ارتقای نرم‌افزار');
+      setError(err.message || (isPersian ? 'خطا در ارتقای نرم‌افزار' : 'Software update failed'));
       return false;
     } finally {
       setUpdating(false);

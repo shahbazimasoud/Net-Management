@@ -226,7 +226,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
 
                     <p className="text-[11px] text-slate-200 leading-snug line-clamp-2 mb-2 font-medium">
-                      {updateInfo?.releaseNote?.title || t('update_ready_to_install')}
+                      {isEn
+                        ? (updateInfo?.releaseNote?.title_en || updateInfo?.releaseNote?.title || t('update_ready_to_install'))
+                        : (updateInfo?.releaseNote?.title || updateInfo?.releaseNote?.title_en || t('update_ready_to_install'))}
                     </p>
 
                     <button
