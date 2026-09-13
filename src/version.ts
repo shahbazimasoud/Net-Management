@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.38.0';
+export const APP_VERSION = '1.38.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.38.1',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'حذف آیکون چشم تکراری از هدر کارت‌ها در نمای کارت شماتیک و ساده‌سازی رابط کاربری',
+    title_en: 'Remove Redundant Eye Icon from Device Card Header in Schematic View',
+    changes: [
+      'حذف دکمه آیکون چشم اضافی از هدر کارت تجهیزات در نمای شماتیک به دلیل عملکرد کاملاً یکسان با گزینه «فیزیکی» (Physical) در پایین کارت.',
+      'بهینه‌سازی فضای نوار وضعیت بالای کارت و یکپارچه‌سازی دسترسی به نمای فیزیکی و رک.'
+    ],
+    changes_en: [
+      'Removed redundant eye icon button from the device card header in schematic card view, consolidating navigation through the dedicated Physical action button.',
+      'Streamlined card status bar layout and improved UI clarity.'
+    ]
+  },
   {
     version: '1.38.0',
     releaseDate: '2026-09-13',

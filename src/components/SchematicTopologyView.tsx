@@ -5017,7 +5017,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           )}
                         </div>
 
-                        {/* Status Pulse, Eye (Physical View) & Remove Button */}
+                        {/* Status Pulse & Remove Button */}
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <span
                             className={`w-2 h-2 rounded-full ${
@@ -5035,20 +5035,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           >
                             {isOnline ? `${node.latency_ms || 1.2}ms` : 'OFF'}
                           </span>
-
-                          {/* Eye button: Switch to Physical View and highlight this device */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSwitchToPhysicalWithHighlight(node);
-                            }}
-                            className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/15 border border-transparent hover:border-cyan-500/30 transition-all cursor-pointer group/eye flex items-center justify-center"
-                            title={isEn ? 'View and locate in Physical View & Rack' : 'مشاهده و مکان‌یابی در نمای فیزیکی و رک'}
-                            aria-label={isEn ? 'View in Physical' : 'مشاهده در نمای فیزیکی'}
-                          >
-                            <Eye className="w-3.5 h-3.5 text-slate-400 group-hover/eye:text-cyan-300 transition-transform group-hover/eye:scale-110" />
-                          </button>
 
                           {activeMapId !== 'default' && (
                             <button
