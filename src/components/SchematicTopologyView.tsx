@@ -339,6 +339,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   interface NeonHighlightState {
     nodeId: string;
     rawId: string;
+    targetName?: string;
+    targetIp?: string;
+    matchedAliases: string[];
     colorHex: string;
     colorRgb: string;
     colorName?: string;
@@ -364,8 +367,25 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   );
 
   const triggerCardNeonHighlight = useCallback(
-    (targetDeviceId: string) => {
-      const cleanId = targetDeviceId.replace(/^hw-/, '');
+    (targetDeviceId: string, deviceMeta?: { name?: string; ip?: string; aliases?: string[] }) => {
+      const cleanId = (targetDeviceId || '').replace(/^hw-/, '');
+      const rawId = targetDeviceId || '';
+      const aliases = new Set<string>();
+      if (rawId) aliases.add(rawId);
+      if (cleanId) {
+        aliases.add(cleanId);
+        aliases.add(`hw-${cleanId}`);
+      }
+      if (deviceMeta?.aliases) {
+        deviceMeta.aliases.forEach((a) => {
+          if (a) {
+            aliases.add(a);
+            aliases.add(a.replace(/^hw-/, ''));
+            aliases.add(`hw-${a.replace(/^hw-/, '')}`);
+          }
+        });
+      }
+
       const randomColor = NEON_PALETTE[Math.floor(Math.random() * NEON_PALETTE.length)];
 
       if (neonHighlightTimerRef.current) {
@@ -374,7 +394,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
       setNeonHighlightedNode({
         nodeId: cleanId,
-        rawId: targetDeviceId,
+        rawId,
+        targetName: deviceMeta?.name ? deviceMeta.name.trim().toLowerCase() : undefined,
+        targetIp: deviceMeta?.ip ? deviceMeta.ip.trim() : undefined,
+        matchedAliases: Array.from(aliases),
         colorHex: randomColor.hex,
         colorRgb: randomColor.rgb,
         colorName: randomColor.name,
@@ -2228,10 +2251,14 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
     // Fallback for any unpositioned nodes
     let unposIdx = 0;
-    topology.nodes.forEach((n) => {
+    allAvailableDevices.forEach((n) => {
       if (!pos.has(n.id)) {
         pos.set(n.id, { x: 100 + (unposIdx % 4) * 250, y: 780 + Math.floor(unposIdx / 4) * 140 });
         unposIdx++;
+      }
+      const cleanId = n.id.replace(/^hw-/, '');
+      if (!pos.has(cleanId)) {
+        pos.set(cleanId, pos.get(n.id)!);
       }
     });
 
@@ -2244,24 +2271,45 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     });
 
     return pos;
-  }, [topology, customPositions, activeMapId, currentCustomMap]);
+  }, [topology, allAvailableDevices, customPositions, activeMapId, currentCustomMap]);
 
   // Switch to Card View with 3-second random neon border animation for the selected device
   const handleSwitchToCardWithHighlight = useCallback(
     (nodeId: string) => {
       setViewMode('schematic');
       setGlobalDeviceViewMode('card');
-      setSelectedNodeId(nodeId);
       setInspectingRack(null);
       setInspectingRackId(null);
 
-      // Trigger 3s neon highlight with random neon color
-      triggerCardNeonHighlight(nodeId);
+      const cleanId = (nodeId || '').replace(/^hw-/, '');
+      const targetDev =
+        allAvailableDevices.find((n) => n.id === nodeId || n.id === cleanId || n.id === `hw-${cleanId}`) ||
+        topology.nodes.find((n) => n.id === nodeId || n.id === cleanId || n.id === `hw-${cleanId}`) ||
+        currentCustomMap?.nodes?.find((n) => n.id === nodeId || n.id === cleanId);
 
-      const cleanId = nodeId.replace(/^hw-/, '');
+      const canonicalId = targetDev ? targetDev.id : nodeId;
+      const canonicalCleanId = canonicalId.replace(/^hw-/, '');
+      setSelectedNodeId(canonicalId);
+
+      // Trigger 3s neon highlight with random neon color and full metadata
+      triggerCardNeonHighlight(canonicalId, {
+        name: targetDev?.name,
+        ip: targetDev?.ip,
+        aliases: [nodeId, cleanId, `hw-${cleanId}`, canonicalId, canonicalCleanId, `hw-${canonicalCleanId}`],
+      });
+
       const pos =
+        customPositions[canonicalId] ||
+        customPositions[canonicalCleanId] ||
+        customPositions[nodeId] ||
+        customPositions[cleanId] ||
         (currentCustomMap?.devicePositions &&
-          (currentCustomMap.devicePositions[nodeId] || currentCustomMap.devicePositions[cleanId])) ||
+          (currentCustomMap.devicePositions[canonicalId] ||
+            currentCustomMap.devicePositions[canonicalCleanId] ||
+            currentCustomMap.devicePositions[nodeId] ||
+            currentCustomMap.devicePositions[cleanId])) ||
+        nodePositions.get(canonicalId) ||
+        nodePositions.get(canonicalCleanId) ||
         nodePositions.get(nodeId) ||
         nodePositions.get(cleanId);
 
@@ -2274,19 +2322,25 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         });
       }
 
-      const targetDev =
-        topology.nodes.find((n) => n.id === nodeId || n.id === cleanId) ||
-        currentCustomMap?.nodes?.find((n) => n.id === nodeId || n.id === cleanId);
       const devName = targetDev?.name || cleanId;
 
       setFeedbackToast({
         type: 'success',
         message: isEn
-          ? `Switched to Card View for "${devName}" — 3s neon highlight active.`
-          : `انتقال به نمای کارتی برای «${devName}» — هایلایت نئونی ۳ ثانیه‌ای فعال شد.`,
+          ? `Switched to Card View for "${devName}" — rotating neon border active.`
+          : `انتقال به نمای کارتی برای «${devName}» — افکت نئونی چرخشی روی بوردر فعال شد.`,
       });
     },
-    [currentCustomMap, nodePositions, zoom, isEn, triggerCardNeonHighlight, topology.nodes]
+    [
+      allAvailableDevices,
+      topology.nodes,
+      customPositions,
+      currentCustomMap,
+      nodePositions,
+      zoom,
+      isEn,
+      triggerCardNeonHighlight,
+    ]
   );
 
   // Navigate to Card View for a rack-mounted device to examine cabling and port connections
@@ -2296,19 +2350,102 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       setInspectingRackId(null);
       setViewMode('schematic');
       setGlobalDeviceViewMode('card');
-      setSelectedNodeId(dev.id);
 
-      // Trigger 3-second random neon border highlight
-      triggerCardNeonHighlight(dev.id);
+      const devCleanId = dev.id.replace(/^hw-/, '');
+      const devNameTrimmed = (dev.name || '').trim().toLowerCase();
+      const devIpTrimmed = (dev.ip || '').trim();
 
-      const cleanId = dev.id.replace(/^hw-/, '');
-      const pos =
-        (currentCustomMap?.devicePositions && (currentCustomMap.devicePositions[dev.id] || currentCustomMap.devicePositions[cleanId])) ||
+      // Find best matching node across allAvailableDevices, topology.nodes, and currentCustomMap
+      const matchNode =
+        allAvailableDevices.find(
+          (n) =>
+            n.id === dev.id ||
+            n.id === devCleanId ||
+            n.id === `hw-${devCleanId}` ||
+            (devNameTrimmed && n.name && n.name.trim().toLowerCase() === devNameTrimmed) ||
+            (devIpTrimmed && n.ip && n.ip.trim() === devIpTrimmed)
+        ) ||
+        (topology?.nodes || []).find(
+          (n) =>
+            n.id === dev.id ||
+            n.id === devCleanId ||
+            n.id === `hw-${devCleanId}` ||
+            (devNameTrimmed && n.name && n.name.trim().toLowerCase() === devNameTrimmed) ||
+            (devIpTrimmed && n.ip && n.ip.trim() === devIpTrimmed)
+        );
+
+      const canonicalId = matchNode ? matchNode.id : dev.id;
+      const canonicalCleanId = canonicalId.replace(/^hw-/, '');
+
+      const aliasList = [
+        dev.id,
+        devCleanId,
+        `hw-${devCleanId}`,
+        canonicalId,
+        canonicalCleanId,
+        `hw-${canonicalCleanId}`,
+      ];
+      if (matchNode) {
+        aliasList.push(matchNode.id);
+        aliasList.push(matchNode.id.replace(/^hw-/, ''));
+      }
+
+      setSelectedNodeId(canonicalId);
+
+      // Trigger 3-second random neon border highlight with full metadata for exact targeting
+      triggerCardNeonHighlight(canonicalId, {
+        name: dev.name || matchNode?.name,
+        ip: dev.ip || matchNode?.ip,
+        aliases: aliasList,
+      });
+
+      // Find position of this card on the canvas
+      let pos =
+        customPositions[canonicalId] ||
+        customPositions[canonicalCleanId] ||
+        customPositions[dev.id] ||
+        customPositions[devCleanId] ||
+        (currentCustomMap?.devicePositions && (
+          currentCustomMap.devicePositions[canonicalId] ||
+          currentCustomMap.devicePositions[canonicalCleanId] ||
+          currentCustomMap.devicePositions[dev.id] ||
+          currentCustomMap.devicePositions[devCleanId]
+        )) ||
+        nodePositions.get(canonicalId) ||
+        nodePositions.get(canonicalCleanId) ||
         nodePositions.get(dev.id) ||
-        nodePositions.get(cleanId) || {
+        nodePositions.get(devCleanId);
+
+      if (!pos) {
+        pos = {
           x: rack.x + 440,
           y: rack.y + 60,
         };
+      }
+
+      // Ensure customPositions has it so it's placed immediately without layout lag
+      setCustomPositions((prev) => ({
+        ...prev,
+        [canonicalId]: pos,
+        [dev.id]: pos,
+        [devCleanId]: pos,
+      }));
+
+      // If in custom map, ensure the device is in deviceIds so the card is rendered
+      if (currentCustomMap && activeMapId !== 'default') {
+        const deviceIds = currentCustomMap.deviceIds || [];
+        if (!deviceIds.includes(canonicalId) && !deviceIds.includes(dev.id)) {
+          const updatedCustomMap = {
+            ...currentCustomMap,
+            deviceIds: [...deviceIds, canonicalId],
+            devicePositions: {
+              ...(currentCustomMap.devicePositions || {}),
+              [canonicalId]: pos,
+            },
+          };
+          saveCustomMaps(customMaps.map((m) => (m.id === currentCustomMap.id ? updatedCustomMap : m)));
+        }
+      }
 
       const scale = Math.max(0.7, Math.min(1.2, zoom || 1));
       setZoom(scale);
@@ -2320,11 +2457,23 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       setFeedbackToast({
         type: 'success',
         message: isEn
-          ? `Switched to Card View for "${dev.name}" — 3s neon highlight active.`
-          : `انتقال به نمای کارتی برای «${dev.name}» — هایلایت نئونی ۳ ثانیه‌ای فعال شد.`,
+          ? `Switched to Card View for "${dev.name || canonicalId}" — rotating neon border active.`
+          : `انتقال به نمای کارتی برای «${dev.name || canonicalId}» — افکت نئونی چرخشی روی بوردر فعال شد.`,
       });
     },
-    [currentCustomMap?.devicePositions, nodePositions, zoom, isEn, triggerCardNeonHighlight]
+    [
+      allAvailableDevices,
+      topology?.nodes,
+      customPositions,
+      currentCustomMap,
+      activeMapId,
+      customMaps,
+      saveCustomMaps,
+      nodePositions,
+      zoom,
+      isEn,
+      triggerCardNeonHighlight,
+    ]
   );
 
   // Background Pan Handler
@@ -2573,21 +2722,28 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const filteredNodes = useMemo(() => {
     const allAvailable = allAvailableDevices;
     const rackDeviceIds = new Set<string>();
+    const rackDeviceNames = new Set<string>();
     if (currentCustomMap?.racks) {
       currentCustomMap.racks.forEach((r) => {
         (r.devices || []).forEach((d) => {
           rackDeviceIds.add(d.id);
           rackDeviceIds.add(d.id.replace(/^hw-/, ''));
+          if (d.name) rackDeviceNames.add(d.name.trim().toLowerCase());
         });
       });
     }
 
     const baseList =
       activeMapId !== 'default' && currentCustomMap
-        ? allAvailable.filter((n) => (currentCustomMap.deviceIds || []).includes(n.id) || rackDeviceIds.has(n.id))
+        ? allAvailable.filter(
+            (n) =>
+              (currentCustomMap.deviceIds || []).includes(n.id) ||
+              rackDeviceIds.has(n.id) ||
+              (n.name && rackDeviceNames.has(n.name.trim().toLowerCase()))
+          )
         : allAvailable;
 
-    return baseList.filter((n) => {
+    const filtered = baseList.filter((n) => {
       if (filterBuilding !== 'all' && n.building !== filterBuilding) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -2601,6 +2757,18 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }
       return true;
     });
+
+    // Deduplicate cards so the same physical device doesn't render two duplicate cards on canvas
+    const deduplicated: Device[] = [];
+    const seenNames = new Set<string>();
+    for (const dev of filtered) {
+      const nameKey = (dev.name || dev.id).trim().toLowerCase();
+      if (!seenNames.has(nameKey)) {
+        seenNames.add(nameKey);
+        deduplicated.push(dev);
+      }
+    }
+    return deduplicated;
   }, [allAvailableDevices, activeMapId, currentCustomMap, filterBuilding, searchQuery]);
 
   // Grouped hierarchy for Physical View
@@ -4098,10 +4266,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   const cleanNodeId = node.id.replace(/^hw-/, '');
                   const isNeonHighlighted =
                     neonHighlightedNode !== null &&
-                    (neonHighlightedNode.nodeId === node.id ||
-                      neonHighlightedNode.nodeId === cleanNodeId ||
-                      neonHighlightedNode.rawId === node.id ||
-                      neonHighlightedNode.rawId === `hw-${node.id}`);
+                    (
+                      neonHighlightedNode.matchedAliases.includes(node.id) ||
+                      neonHighlightedNode.matchedAliases.includes(cleanNodeId) ||
+                      neonHighlightedNode.matchedAliases.includes(`hw-${cleanNodeId}`) ||
+                      (neonHighlightedNode.targetName && node.name && node.name.trim().toLowerCase() === neonHighlightedNode.targetName) ||
+                      (neonHighlightedNode.targetIp && node.ip && node.ip.trim() === neonHighlightedNode.targetIp)
+                    );
 
                   return (
                     <foreignObject
@@ -4122,7 +4293,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
                       className={`w-[226px] p-3 rounded-xl border transition-all duration-300 select-none text-right backdrop-blur-xl group relative ${
                         isNeonHighlighted
-                          ? 'neon-card-pulse-active ring-4 ring-offset-2 ring-offset-slate-950 scale-105 z-50'
+                          ? 'neon-card-beam-active ring-2 ring-offset-1 ring-offset-slate-950 scale-104 z-50'
                           : isBeingDragged
                           ? 'spatial-glass border-cyan-400 ring-2 ring-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.6)] cursor-grabbing z-40 scale-102'
                           : isCablingSource
@@ -4139,26 +4310,89 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                         isNeonHighlighted
                           ? {
                               borderColor: neonHighlightedNode.colorHex,
-                              boxShadow: `0 0 0 2px #ffffff, 0 0 25px ${neonHighlightedNode.colorHex}, 0 0 55px rgba(${neonHighlightedNode.colorRgb}, 0.85), inset 0 0 20px rgba(${neonHighlightedNode.colorRgb}, 0.5)`,
+                              boxShadow: `0 0 12px rgba(${neonHighlightedNode.colorRgb}, 0.35), 0 4px 18px rgba(0, 0, 0, 0.6)`,
                               ['--neon-color' as any]: neonHighlightedNode.colorHex,
                               ['--neon-rgb' as any]: neonHighlightedNode.colorRgb,
                             }
                           : undefined
                       }
                     >
+                      {/* Rotating Neon Border Beam travelling cleanly around the card border without diffuse overspray */}
+                      {isNeonHighlighted && (
+                        <div className="absolute -inset-[3px] pointer-events-none rounded-[14px] overflow-hidden z-40">
+                          <svg className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                            <defs>
+                              <filter id={`neon-beam-glow-${node.id}`} x="-30%" y="-30%" width="160%" height="160%">
+                                <feGaussianBlur stdDeviation="2.5" result="blur" />
+                                <feMerge>
+                                  <feMergeNode in="blur" />
+                                  <feMergeNode in="SourceGraphic" />
+                                </feMerge>
+                              </filter>
+                            </defs>
+
+                            {/* 1. Subtle perimeter baseline track */}
+                            <rect
+                              x="1.5"
+                              y="1.5"
+                              width="calc(100% - 3px)"
+                              height="calc(100% - 3px)"
+                              rx="13"
+                              fill="none"
+                              stroke={neonHighlightedNode.colorHex}
+                              strokeOpacity="0.25"
+                              strokeWidth="1.5"
+                            />
+
+                            {/* 2. Intense Colored Neon Beam travelling continuously along the border */}
+                            <rect
+                              x="1.5"
+                              y="1.5"
+                              width="calc(100% - 3px)"
+                              height="calc(100% - 3px)"
+                              rx="13"
+                              fill="none"
+                              stroke={neonHighlightedNode.colorHex}
+                              strokeWidth="3.5"
+                              pathLength="100"
+                              strokeDasharray="25 75"
+                              strokeLinecap="round"
+                              className="neon-border-beam-anim"
+                              filter={`url(#neon-beam-glow-${node.id})`}
+                            />
+
+                            {/* 3. High-intensity White-hot Core travelling right inside the neon beam */}
+                            <rect
+                              x="1.5"
+                              y="1.5"
+                              width="calc(100% - 3px)"
+                              height="calc(100% - 3px)"
+                              rx="13"
+                              fill="none"
+                              stroke="#ffffff"
+                              strokeWidth="2"
+                              pathLength="100"
+                              strokeDasharray="12 88"
+                              strokeLinecap="round"
+                              className="neon-border-beam-anim"
+                            />
+                          </svg>
+                        </div>
+                      )}
+
                       {/* Neon Target Badge indicator with 3-second remaining feedback */}
                       {isNeonHighlighted && (
                         <div
-                          className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono flex items-center gap-1 shadow-2xl pointer-events-none z-50 animate-bounce whitespace-nowrap border border-white/60"
+                          className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono flex items-center gap-1 shadow-xl pointer-events-none z-50 whitespace-nowrap border border-white/60"
                           style={{
                             backgroundColor: neonHighlightedNode.colorHex,
                             color: ['#ffff00', '#ffee00', '#39ff14', '#00ffd5'].includes(neonHighlightedNode.colorHex) ? '#020617' : '#ffffff',
-                            boxShadow: `0 0 15px ${neonHighlightedNode.colorHex}, 0 0 30px rgba(${neonHighlightedNode.colorRgb}, 0.8)`,
+                            boxShadow: `0 0 10px ${neonHighlightedNode.colorHex}`,
                           }}
                         >
                           <Sparkles className="w-3 h-3 animate-spin" />
                           <span>{isEn ? 'Target Device' : 'دیوایس انتخاب‌شده'}</span>
-                          <span className="text-[9px] opacity-85 px-1 py-0.2 rounded bg-black/30 font-mono">3s</span>
+                          <span className="text-[9px] opacity-85 px-1 py-0.2 rounded bg-black/40 font-mono">3s</span>
                         </div>
                       )}
                       {/* Drag Handle Indicator */}

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.34.0';
+export const APP_VERSION = '1.34.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.34.1',
+    releaseDate: '2026-09-12',
+    type: 'patch',
+    title: 'چرخش پرتو نئونی دور تا دور بوردر کارت و تارگت فوق‌دقیق دیوایس رک در نمای کارتی',
+    title_en: 'Rotating Border Neon Beam & Ultra-Precise Device Card Targeting from Physical Rack',
+    changes: [
+      'تبدیل انیمیشن نئونی پخش‌شده به یک پرتو لیزری متمرکز و شیک (Rotating Neon Border Beam) با چرخش پیوسته دور تا دور کادر کارت بدون پخش شدن رنگ یا پوشاندن اطلاعات کارت.',
+      'اصلاح و ارتقای متد رهگیری و تارگت دیوایس (Device ID & Alias Resolution) به طوری که کلیک روی دکمه کارت در پنل هاور رک، مستقیماً کارت همان دیوایس را روی بوم پیدا کرده، بوم را دقیقاً روی آن تنظیم و افکت نئونی را روی همان کارت فعال کند.',
+      'جلوگیری از ایجاد کارت‌های تکراری روی بوم و ایجاد یکپارچگی کامل میان شناسه‌های فیزیکی شاسی سخت‌افزاری و کارت‌های توپولوژی.',
+      'بهینه‌سازی کادر و پالت رنگی نئونی با کنتراست بالا و هسته سفید درخشان متحرک.'
+    ],
+    changes_en: [
+      'Replaced the diffuse, wide-spread glow animation with an elegant, focused rotating border beam that smoothly travels around the card perimeter without obscuring device text or ports.',
+      'Enhanced target device resolution and alias tracking so clicking the Card button in the physical rack hover bar targets the exact corresponding device card on the canvas with smooth camera panning.',
+      'Deduplicated identical card instances on canvas to ensure a single, consistent card view representation per physical hardware unit.',
+      'Refined the neon beam aesthetics with high-contrast glowing hues and a vivid white-hot core running along the border track.'
+    ]
+  },
   {
     version: '1.34.0',
     releaseDate: '2026-09-12',
