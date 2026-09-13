@@ -17,17 +17,19 @@ import { useLanguage } from '../../i18n/LanguageContext';
 
 interface TowerStructureSvgProps {
   tower: CustomTopologyTower;
-  onAddRadio: (towerId: string) => void;
-  onEditTower: (tower: CustomTopologyTower) => void;
-  onDeleteTower: (towerId: string) => void;
-  onEditRadio: (towerId: string, device: MountedTowerDevice) => void;
-  onDeleteRadio: (towerId: string, deviceId: string) => void;
+  onAddRadio?: (towerId: string) => void;
+  onMountRadio?: (tower: CustomTopologyTower) => void;
+  onEditTower?: (tower: CustomTopologyTower) => void;
+  onDeleteTower?: (towerId: string) => void;
+  onEditRadio?: (tower: any, device: MountedTowerDevice) => void;
+  onDeleteRadio?: (tower: any, deviceId: string) => void;
   isHighlighted?: boolean;
 }
 
 export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
   tower,
   onAddRadio,
+  onMountRadio,
   onEditTower,
   onDeleteTower,
   onEditRadio,
@@ -36,6 +38,38 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
 }) => {
   const { language } = useLanguage();
   const isEn = language === 'en';
+
+  const handleAddRadioClick = () => {
+    if (onAddRadio) {
+      onAddRadio(tower.id);
+    } else if (onMountRadio) {
+      onMountRadio(tower);
+    }
+  };
+
+  const handleEditTowerClick = () => {
+    if (onEditTower) {
+      onEditTower(tower);
+    }
+  };
+
+  const handleDeleteTowerClick = () => {
+    if (onDeleteTower) {
+      onDeleteTower(tower.id);
+    }
+  };
+
+  const handleEditRadioClick = (dev: MountedTowerDevice) => {
+    if (onEditRadio) {
+      onEditRadio(tower, dev);
+    }
+  };
+
+  const handleDeleteRadioClick = (devId: string) => {
+    if (onDeleteRadio) {
+      onDeleteRadio(tower, devId);
+    }
+  };
 
   const [hoveredDeviceId, setHoveredDeviceId] = useState<string | null>(null);
 
@@ -123,7 +157,7 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onAddRadio(tower.id);
+              handleAddRadioClick();
             }}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-[11px] font-bold shadow-xs transition active:scale-95 cursor-pointer"
             title={isEn ? 'Mount Radio / Dish onto Tower' : 'نصب رادیو یا دیش روی دکل'}
@@ -136,7 +170,7 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onEditTower(tower);
+              handleEditTowerClick();
             }}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
             title={isEn ? 'Edit Tower Settings' : 'ویرایش مشخصات دکل'}
@@ -148,7 +182,7 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onDeleteTower(tower.id);
+              handleDeleteTowerClick();
             }}
             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition"
             title={isEn ? 'Delete Tower' : 'حذف دکل'}
@@ -513,7 +547,7 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onEditRadio(tower.id, dev);
+                          handleEditRadioClick(dev);
                         }}
                         className="p-0.5 text-slate-400 hover:text-white rounded"
                         title={isEn ? 'Edit Radio' : 'ویرایش رادیو'}
@@ -524,7 +558,7 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeleteRadio(tower.id, dev.id);
+                          handleDeleteRadioClick(dev.id);
                         }}
                         className="p-0.5 text-slate-400 hover:text-rose-400 rounded"
                         title={isEn ? 'Remove from Tower' : 'حذف از دکل'}

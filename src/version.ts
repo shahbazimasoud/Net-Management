@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.36.0';
+export const APP_VERSION = '1.37.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.37.0',
+    releaseDate: '2026-09-13',
+    type: 'minor',
+    title: 'افزودن مجموعه کامل رادیوهای وایرلس میکروتیک به کاتالوگ سخت‌افزار و استقرار دکل مخابراتی به‌صورت سازه مستقل بیرون از رک روی نقشه',
+    title_en: 'Add Complete MikroTik Wireless Radio Suite to Hardware Catalog & Independent Telecom Tower Map Entity',
+    changes: [
+      'افزودن مجموعه متنوع رادیوهای وایرلس میکروتیک (MikroTik Wireless Radios) به کاتالوگ سخت‌افزار شامل مدل‌های NetMetal ax (Wi-Fi 6)، NetMetal 5، NetBox 5، BaseBox 2/5، LHG 5 ac، LHG XL 5 ac، SXTsq 5 ac، QRT 5 ac، DISC Lite5 ac، Cube 60Pro ac، mANTBox 19s/15s، wAP ac و Groove 52 ac همراه با کانکتورهای RP-SMA و پورت‌های شبکه گیگابیت و ۲.۵G.',
+      'تثبیت دکل مخابراتی به عنوان یک سازه فیزیکی مستقل روی نقشه (مانند رک): دکل‌ها روی بوم نقشه با فریم مستقل قرار می‌گیرند و به هیچ وجه داخل رک نصب نمی‌شوند.',
+      'فیلتر هوشمند دسته‌بندی دکل‌های مخابراتی در مدال افزودن سخت‌افزار رک (Add Hardware to Rack) جهت جلوگیری قطعی از انتخاب اشتباه دکل درون یونیت‌های رک سرور.',
+      'توسعه مدال‌های اختصاصی افزودن و نصب رادیو و آنتن روی دکل (AddTowerModal و MountRadioOnTowerModal) با قابلیت انتخاب رادیو از کاتالوگ میکروتیک یا سخت‌افزارهای موجود در اینونتوری، تنظیم جهت پرتو (Azimuth)، زاویه شیب (Tilt) و ارتفاع نصب روی دکل.',
+      'عدم نمایش تکراری تجهیزات نصب‌شده روی دکل در بوم نمای فیزیکی و هماهنگی ابعاد فریم دکل با تمامی سکتورها و دیش‌های متصل.'
+    ],
+    changes_en: [
+      'Added comprehensive MikroTik wireless radio models to the hardware catalog, including NetMetal ax (Wi-Fi 6), NetMetal 5, NetBox 5, BaseBox 2/5, LHG 5 ac, LHG XL 5 ac, SXTsq 5 ac, QRT 5 ac, DISC Lite5 ac, Cube 60Pro ac, mANTBox 19s/15s, wAP ac, and Groove 52 ac with RP-SMA connectors, PoE, and 2.5G/Gigabit ports.',
+      'Secured telecom towers as first-class, independent physical entities placed directly on the topology map canvas, completely separate from server racks.',
+      'Strictly filtered out telecom tower categories from the Rack Hardware Installation modal to prevent any accidental placement of towers inside rack units.',
+      'Enhanced dedicated AddTowerModal and MountRadioOnTowerModal components supporting direct radio mounting from MikroTik catalog or existing inventory, with azimuth direction, tilt degrees, and elevation settings.',
+      'Prevented duplicated floating icons on the canvas for radios mounted on telecom towers, and broadened the foreignObject container boundaries for crisp rendering of all mounted sectors and parabolic dishes.'
+    ]
+  },
   {
     version: '1.36.0',
     releaseDate: '2026-09-13',

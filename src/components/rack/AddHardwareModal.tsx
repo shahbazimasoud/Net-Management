@@ -233,13 +233,19 @@ export const AddHardwareModal: React.FC<AddHardwareModalProps> = ({
     return inventoryDevices.find((d) => d.id === selectedInventoryDeviceId) || null;
   }, [inventoryDevices, selectedInventoryDeviceId]);
 
+  // Categories available for mounting inside a server rack (telecom towers are freestanding outside structures)
+  const rackAvailableCategories = useMemo(() => {
+    return HARDWARE_CATEGORIES.filter((c) => c.id !== 'telecom_tower');
+  }, []);
+
   // Filtered hardware catalog templates based on search query or active category
   const filteredCatalogTemplates = useMemo(() => {
     const q = catalogSearch.toLowerCase().trim();
     if (!q) {
-      return HARDWARE_CATALOG.filter((t) => t.category === activeCategory);
+      return HARDWARE_CATALOG.filter((t) => t.category === activeCategory && t.category !== 'telecom_tower');
     }
     return HARDWARE_CATALOG.filter((t) => {
+      if (t.category === 'telecom_tower') return false;
       const modelMatch = (t.model || '').toLowerCase().includes(q);
       const brandMatch = (t.brand || '').toLowerCase().includes(q);
       const descFaMatch = (t.description_fa || '').toLowerCase().includes(q);
@@ -797,7 +803,7 @@ export const AddHardwareModal: React.FC<AddHardwareModalProps> = ({
                       <span>{isEn ? 'Clear Search' : 'پاک کردن فیلتر'}</span>
                     </button>
                   )}
-                  {HARDWARE_CATEGORIES.map((cat) => {
+                  {rackAvailableCategories.map((cat) => {
                     const isSelected = !catalogSearch && activeCategory === cat.id;
                     return (
                       <button

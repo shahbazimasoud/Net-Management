@@ -3921,7 +3921,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => setIsAddTowerOpen(true)}
+                      onClick={() => {
+                        setGlobalDeviceViewMode('physical');
+                        setIsAddTowerOpen(true);
+                      }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium shadow-xs transition active:scale-95 text-xs"
                       title={isEn ? "Add telecom tower or mast (6m to 60m)" : "افزودن دکل مهاری یا خودایستا مخابراتی (۶ تا ۶۰ متر)"}
                     >
@@ -4714,7 +4717,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     key={tower.id}
                     x={tower.x}
                     y={tower.y}
-                    width={340}
+                    width={460}
                     height={towerHeightPx}
                     className="overflow-visible"
                     style={{ overflow: 'visible' }}
@@ -4727,11 +4730,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     >
                       <TowerStructureSvg
                         tower={tower}
-                        onMountRadio={(t) => handleOpenMountRadio(t.id)}
+                        onMountRadio={(t) => {
+                          const id = typeof t === 'string' ? t : t.id;
+                          handleOpenMountRadio(id);
+                        }}
+                        onAddRadio={(tId) => handleOpenMountRadio(tId)}
                         onEditTower={(t) => setEditingTower(t)}
                         onDeleteTower={handleDeleteTower}
-                        onEditRadio={(t, dev) => handleOpenMountRadio(t.id, dev)}
-                        onDeleteRadio={(t, devId) => handleDeleteRadioFromTower(t.id, devId)}
+                        onEditRadio={(t, dev) => {
+                          const id = typeof t === 'string' ? t : t.id;
+                          handleOpenMountRadio(id, dev);
+                        }}
+                        onDeleteRadio={(t, devId) => {
+                          const id = typeof t === 'string' ? t : t.id;
+                          handleDeleteRadioFromTower(id, devId);
+                        }}
                       />
                     </div>
                   </foreignObject>
@@ -4741,15 +4754,22 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               {/* Draw Nodes on Canvas */}
               {(() => {
                 const racks = currentCustomMap?.racks || [];
+                const towers = currentCustomMap?.towers || [];
                 const nodesToRender = globalDeviceViewMode === 'physical'
                   ? filteredNodes.filter((node) => {
                       // In physical mode, devices mounted inside any rack are displayed inside that rack cabinet!
-                      const isMounted = racks.some((r) =>
+                      const isMountedInRack = racks.some((r) =>
                         (r.devices || []).some(
                           (d) => d.id === node.id || d.id === `hw-${node.id}` || d.name === node.name
                         )
                       );
-                      return !isMounted;
+                      // Devices mounted on a telecom tower are displayed on the tower structure!
+                      const isMountedOnTower = towers.some((t) =>
+                        (t.devices || []).some(
+                          (d) => d.id === node.id || d.deviceId === node.id || d.name === node.name
+                        )
+                      );
+                      return !isMountedInRack && !isMountedOnTower;
                     })
                   : filteredNodes;
 
@@ -7025,6 +7045,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           tower={currentCustomMap.towers?.find((t) => t.id === mountRadioTargetTowerId)!}
           editingDevice={editingRadioDevice}
           onSave={(radioDev) => handleSaveRadioOnTower(mountRadioTargetTowerId, radioDev)}
+          onSaveRadio={(tId, radioDev) => handleSaveRadioOnTower(tId, radioDev)}
+          inventoryDevices={allAvailableDevices}
         />
       )}
 

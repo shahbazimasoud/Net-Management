@@ -24,7 +24,8 @@ interface MountRadioOnTowerModalProps {
   onClose: () => void;
   tower: CustomTopologyTower;
   editingDevice?: MountedTowerDevice | null;
-  onSaveRadio: (towerId: string, device: MountedTowerDevice) => void;
+  onSave?: (device: MountedTowerDevice) => void;
+  onSaveRadio?: (towerId: string, device: MountedTowerDevice) => void;
   inventoryDevices?: Device[];
   mountedDeviceIds?: Set<string>;
 }
@@ -54,6 +55,7 @@ export const MountRadioOnTowerModal: React.FC<MountRadioOnTowerModalProps> = ({
   onClose,
   tower,
   editingDevice,
+  onSave,
   onSaveRadio,
   inventoryDevices = [],
   mountedDeviceIds = new Set(),
@@ -184,7 +186,11 @@ export const MountRadioOnTowerModal: React.FC<MountRadioOnTowerModalProps> = ({
       notes: notes.trim() || undefined,
     };
 
-    onSaveRadio(tower.id, newDevice);
+    if (onSave) {
+      onSave(newDevice);
+    } else if (onSaveRadio) {
+      onSaveRadio(tower.id, newDevice);
+    }
     onClose();
   };
 

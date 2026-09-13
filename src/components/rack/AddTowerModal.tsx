@@ -7,8 +7,10 @@ import { useLanguage } from '../../i18n/LanguageContext';
 interface AddTowerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSaveTower: (towerData: Omit<CustomTopologyTower, 'id' | 'devices' | 'x' | 'y'>) => void;
+  onSave?: (towerData: Omit<CustomTopologyTower, 'id' | 'devices' | 'x' | 'y'>) => void;
+  onSaveTower?: (towerData: Omit<CustomTopologyTower, 'id' | 'devices' | 'x' | 'y'>) => void;
   editingTower?: CustomTopologyTower | null;
+  initialData?: CustomTopologyTower | null;
 }
 
 interface TowerTypeOption {
@@ -81,29 +83,34 @@ const TOWER_COLORS = [
 export const AddTowerModal: React.FC<AddTowerModalProps> = ({
   isOpen,
   onClose,
+  onSave,
   onSaveTower,
   editingTower,
+  initialData,
 }) => {
   const { language } = useLanguage();
   const isEn = language === 'en';
 
+  const effectiveEditingTower = editingTower || initialData;
+  const saveHandler = onSave || onSaveTower;
+
   const [selectedType, setSelectedType] = useState<TowerType>(
-    editingTower?.type || 'guyed_g35'
+    effectiveEditingTower?.type || 'guyed_g35'
   );
   const [name, setName] = useState(
-    editingTower?.name || (isEn ? 'Tower-01 (G35 30m)' : 'دکل مخابراتی مهاری G35')
+    effectiveEditingTower?.name || (isEn ? 'Tower-01 (G35 30m)' : 'دکل مخابراتی مهاری G35')
   );
   const [heightMeters, setHeightMeters] = useState<number>(
-    editingTower?.heightMeters || 30
+    effectiveEditingTower?.heightMeters || 30
   );
-  const [color, setColor] = useState(editingTower?.color || '#f59e0b');
+  const [color, setColor] = useState(effectiveEditingTower?.color || '#f59e0b');
 
   const activeTypeOption =
     TOWER_TYPE_OPTIONS.find((t) => t.type === selectedType) || TOWER_TYPE_OPTIONS[0];
 
   const handleTypeSelect = (opt: TowerTypeOption) => {
     setSelectedType(opt.type);
-    if (!editingTower) {
+    if (!effectiveEditingTower) {
       setHeightMeters(opt.defaultHeight);
       setName(
         isEn
@@ -115,12 +122,14 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveTower({
-      name: name.trim() || (isEn ? 'Telecom Tower' : 'دکل مخابراتی'),
-      type: selectedType,
-      heightMeters: Number(heightMeters),
-      color,
-    });
+    if (saveHandler) {
+      saveHandler({
+        name: name.trim() || (isEn ? 'Telecom Tower' : 'دکل مخابراتی'),
+        type: selectedType,
+        heightMeters: Number(heightMeters),
+        color,
+      });
+    }
     onClose();
   };
 
