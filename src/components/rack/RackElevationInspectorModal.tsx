@@ -131,8 +131,16 @@ export const RackElevationInspectorModal: React.FC<RackElevationInspectorModalPr
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white tracking-wide">{safeRack.name}</h2>
-                <span className="px-2 py-0.5 rounded-md bg-cyan-950/80 border border-cyan-500/30 text-cyan-300 font-mono text-xs font-bold">
+                <h2
+                  className="rack-title-text text-lg font-bold text-white tracking-wide"
+                  style={{ color: '#ffffff' }}
+                >
+                  {safeRack.name}
+                </h2>
+                <span
+                  className="rack-subtitle-text px-2 py-0.5 rounded-md bg-cyan-950/80 border border-cyan-500/30 text-cyan-300 font-mono text-xs font-bold"
+                  style={{ color: '#cbd5e1' }}
+                >
                   {safeRack.units}U • {isEn ? `depth ${safeRack.depth}cm` : `عمق ${safeRack.depth}cm`}
                 </span>
               </div>

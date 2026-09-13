@@ -118,11 +118,14 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                 </span>
 
                 {hasUpdate && (
-                  <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-mono font-bold border animate-pulse ${
-                    isLight
-                      ? 'bg-rose-100 text-rose-800 border-rose-300'
-                      : 'bg-rose-500/25 text-rose-300 border-rose-500/40'
-                  }`}>
+                  <span
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-mono font-bold border animate-pulse ${
+                      isLight
+                        ? 'bg-slate-200 text-black border-slate-300 font-extrabold'
+                        : 'bg-rose-500/25 text-rose-300 border-rose-500/40'
+                    }`}
+                    style={{ color: isLight ? '#000000' : undefined }}
+                  >
                     <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
                     <span>v{updateInfo?.latestVersion} {t('update_available_badge')}</span>
                   </span>
@@ -155,12 +158,14 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Active Update Ready Banner & In-Panel Updater Section */}
           {hasUpdate && (
-            <div className={`p-5 rounded-2xl border-2 relative overflow-hidden shadow-lg ${
+            <div className={`update-ready-banner p-5 rounded-2xl border relative overflow-hidden shadow-xs ${
               isLight
-                ? 'bg-gradient-to-br from-rose-50 via-indigo-50/50 to-slate-50 border-rose-300 shadow-rose-900/10 text-slate-900'
+                ? 'bg-slate-50 border-slate-200 text-black'
                 : 'bg-gradient-to-br from-rose-950/60 via-indigo-950/40 to-slate-900/90 border-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.25)] text-white'
             }`}>
-              <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-rose-500 via-purple-500 to-indigo-500"></div>
+              {!isLight && (
+                <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-rose-500 via-purple-500 to-indigo-500"></div>
+              )}
 
               {/* Title Bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -169,18 +174,24 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
                     <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
                   </span>
-                  <span className={`font-mono text-base font-bold px-2.5 py-0.5 rounded-lg border ${
-                    isLight
-                      ? 'bg-rose-100 text-rose-950 border-rose-300 font-extrabold'
-                      : 'text-white bg-rose-500/20 border-rose-500/40'
-                  }`}>
+                  <span
+                    className={`update-version-badge font-mono text-base font-bold px-2.5 py-0.5 rounded-lg border ${
+                      isLight
+                        ? 'bg-slate-200 text-black border-slate-300 font-extrabold'
+                        : 'text-white bg-rose-500/20 border-rose-500/40'
+                    }`}
+                    style={{ color: isLight ? '#000000' : undefined }}
+                  >
                     v{updateInfo?.latestVersion}
                   </span>
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase border ${
-                    isLight
-                      ? 'bg-rose-100 text-rose-800 border-rose-300'
-                      : 'bg-rose-500/30 text-rose-200 border-rose-500/40'
-                  }`}>
+                  <span
+                    className={`update-tag-badge text-[11px] font-bold px-2 py-0.5 rounded-full uppercase border ${
+                      isLight
+                        ? 'bg-slate-200 text-black border-slate-300 font-bold'
+                        : 'bg-rose-500/30 text-rose-200 border-rose-500/40'
+                    }`}
+                    style={{ color: isLight ? '#000000' : undefined }}
+                  >
                     {t('update_available_badge')}
                   </span>
                   {isSimulated && (
@@ -195,9 +206,12 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                 </div>
 
                 {remoteNote?.releaseDate && (
-                  <div className={`flex items-center gap-1.5 text-xs font-mono ${
-                    isLight ? 'text-rose-900 font-bold' : 'text-rose-300/80'
-                  }`}>
+                  <div
+                    className={`update-banner-date flex items-center gap-1.5 text-xs font-mono ${
+                      isLight ? 'text-black font-bold' : 'text-rose-300/80'
+                    }`}
+                    style={{ color: isLight ? '#000000' : undefined }}
+                  >
                     <Calendar className="w-3.5 h-3.5" />
                     <span>{remoteNote.releaseDate}</span>
                   </div>
@@ -205,30 +219,39 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               </div>
 
               {/* Release Header Description */}
-              <h3 className={`text-sm sm:text-base font-bold mb-2 flex items-center gap-2 ${
-                isLight ? 'text-slate-950 font-extrabold' : 'text-white'
-              }`}>
+              <h3
+                className={`update-banner-title text-sm sm:text-base font-bold mb-2 flex items-center gap-2 ${
+                  isLight ? 'text-black font-extrabold' : 'text-white'
+                }`}
+                style={{ color: isLight ? '#000000' : undefined }}
+              >
                 <Sparkles className={`w-4 h-4 shrink-0 ${isLight ? 'text-amber-600' : 'text-amber-300'}`} />
                 <span>{newVersionTitle}</span>
               </h3>
 
               {/* Remote Release Changes */}
               {newVersionChanges.length > 0 && (
-                <div className={`mb-4 rounded-xl p-3 border ${
-                  isLight ? 'bg-white/95 border-slate-200 shadow-xs' : 'bg-black/30 border-white/10'
+                <div className={`update-inner-card mb-4 rounded-xl p-3 border ${
+                  isLight ? 'bg-slate-100/90 border-slate-200 shadow-xs' : 'bg-black/30 border-white/10'
                 }`}>
-                  <div className={`text-[11px] font-bold mb-2 ${
-                    isLight ? 'text-slate-900' : 'text-slate-300'
-                  }`}>
+                  <div
+                    className={`update-inner-card-title text-[11px] font-bold mb-2 ${
+                      isLight ? 'text-black font-extrabold' : 'text-slate-300'
+                    }`}
+                    style={{ color: isLight ? '#000000' : undefined }}
+                  >
                     {isEn ? `What's new in v${updateInfo?.latestVersion}:` : `لیست تغییرات نگارش جدید (v${updateInfo?.latestVersion}):`}
                   </div>
-                  <ul className={`space-y-1.5 text-xs ${
-                    isLight ? 'text-slate-800' : 'text-slate-200'
-                  }`}>
+                  <ul className="space-y-1.5 text-xs">
                     {newVersionChanges.map((change, idx) => (
                       <li key={idx} className="flex items-start gap-2 leading-relaxed">
                         <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />
-                        <span className={isLight ? 'font-medium text-slate-900' : ''}>{change}</span>
+                        <span
+                          className={isLight ? 'font-semibold text-black' : 'text-slate-200'}
+                          style={{ color: isLight ? '#000000' : undefined }}
+                        >
+                          {change}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -236,7 +259,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               )}
 
               {/* Status and Action Buttons */}
-              <div className="mt-4 pt-3 border-t border-rose-500/20">
+              <div className={`mt-4 pt-3 border-t ${isLight ? 'border-slate-200' : 'border-rose-500/20'}`}>
                 {updateSuccess ? (
                   <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
                     <div className="flex items-center gap-3">
@@ -295,7 +318,11 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                     <div className="flex flex-col sm:flex-row items-center gap-3">
                       <button
                         onClick={performUpdate}
-                        className="w-full sm:flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-xl bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 active:scale-98 text-white font-bold text-sm shadow-[0_0_25px_rgba(244,63,94,0.4)] transition cursor-pointer"
+                        className={`w-full sm:flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-xl font-bold text-sm shadow-md transition cursor-pointer ${
+                          isLight
+                            ? 'bg-slate-900 hover:bg-black active:scale-98 text-white'
+                            : 'bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 active:scale-98 text-white shadow-[0_0_25px_rgba(244,63,94,0.4)]'
+                        }`}
                       >
                         <ArrowUpCircle className="w-5 h-5 text-rose-200" />
                         <span>
@@ -309,7 +336,11 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                         href={updateInfo?.repoUrl || 'https://github.com/shahbazimasoud/Net-Management'}
                         target="_blank"
                         rel="noreferrer"
-                        className="w-full sm:w-auto flex items-center justify-center gap-1.5 py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-slate-300 hover:text-white text-xs font-medium transition cursor-pointer"
+                        className={`w-full sm:w-auto flex items-center justify-center gap-1.5 py-3 px-4 rounded-xl text-xs font-medium transition cursor-pointer border ${
+                          isLight
+                            ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
+                            : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-300 hover:text-white'
+                        }`}
                       >
                         <ExternalLink className="w-4 h-4" />
                         <span>GitHub</span>
@@ -357,13 +388,11 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               <div
                 key={rel.version}
                 className={`release-history-card p-4 rounded-xl border transition-all ${
-                  isLatest && !hasUpdate
-                    ? isLight
-                      ? 'bg-indigo-50/80 border-indigo-300 shadow-xs'
-                      : 'bg-indigo-950/30 border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                    : isLight
-                      ? 'bg-slate-50 border-slate-200 hover:bg-slate-100/80 shadow-xs'
-                      : 'bg-white/5 border-white/10'
+                  isLight
+                    ? 'bg-slate-50 border-slate-200 hover:bg-slate-100/80 shadow-xs'
+                    : isLatest && !hasUpdate
+                    ? 'bg-indigo-950/30 border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                    : 'bg-white/5 border-white/10'
                 }`}
               >
                 <div className={`flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b ${

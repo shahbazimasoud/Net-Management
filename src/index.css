@@ -383,6 +383,69 @@
 .theme-light .toolbar-dark-pill button:not([class*="from-"]):not([class*="bg-indigo-"]):not([class*="bg-gradient"]) svg {
   color: #ffffff !important;
 }
+
+/* Rack Cabinet Light Mode Overrides */
+.theme-light .rack-title-text,
+.theme-light span.rack-title-text,
+.theme-light h2.rack-title-text {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-power-watts,
+.theme-light span.rack-power-watts {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-subtitle-text,
+.theme-light span.rack-subtitle-text {
+  color: #cbd5e1 !important;
+}
+
+.theme-light .rack-power-label,
+.theme-light span.rack-power-label,
+.theme-light .rack-power-spec,
+.theme-light span.rack-power-spec,
+.theme-light .rack-power-amps,
+.theme-light span.rack-power-amps,
+.theme-light .rack-power-label-row,
+.theme-light .rack-power-label-row span {
+  color: #cbd5e1 !important;
+}
+
+.theme-light .rack-occupancy-badge,
+.theme-light span.rack-occupancy-badge {
+  color: #cbd5e1 !important;
+}
+
+/* Release Notes Modal Light Mode Overrides */
+.theme-light .update-ready-banner {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #000000 !important;
+}
+
+.theme-light .update-ready-banner * {
+  border-color: #e2e8f0;
+}
+
+.theme-light .update-ready-banner .update-banner-title,
+.theme-light .update-ready-banner h3,
+.theme-light .update-ready-banner span,
+.theme-light .update-ready-banner p,
+.theme-light .update-ready-banner li,
+.theme-light .update-ready-banner .update-inner-card,
+.theme-light .update-ready-banner .update-inner-card-title,
+.theme-light .update-ready-banner .update-version-badge,
+.theme-light .update-ready-banner .update-tag-badge,
+.theme-light .update-ready-banner .update-banner-date,
+.theme-light .update-ready-banner .update-banner-date span {
+  color: #000000 !important;
+}
+
+.theme-light .update-ready-banner .update-inner-card {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
 .theme-light .text-amber-300,
 .theme-light .text-amber-400 { color: #b45309 !important; }
 .theme-light .text-red-400,

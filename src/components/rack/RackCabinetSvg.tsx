@@ -254,8 +254,16 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shrink-0 shadow-[0_0_8px_#22d3ee]" />
           <div className="truncate">
-            <span className="text-xs font-bold text-white tracking-wide truncate block">{rack.name}</span>
-            <span className="text-[10px] text-slate-400 font-mono">
+            <span
+              className="rack-title-text text-xs font-bold text-white tracking-wide truncate block"
+              style={{ color: '#ffffff' }}
+            >
+              {rack.name}
+            </span>
+            <span
+              className="rack-subtitle-text text-[10px] font-mono"
+              style={{ color: '#cbd5e1' }}
+            >
               {rack.units}U • {isEn ? `depth ${rack.depth}cm` : `عمق ${rack.depth}cm`}
             </span>
           </div>
@@ -383,13 +391,19 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
               <Zap className="w-3.5 h-3.5" />
             </div>
             <div className="flex items-baseline gap-1.5 font-mono">
-              <span className="text-white font-bold text-xs tracking-wide">
+              <span
+                className="rack-power-watts text-white font-bold text-xs tracking-wide"
+                style={{ color: '#ffffff' }}
+              >
                 {totalWatts >= 1000 ? `${totalKw} kW` : `${totalWatts} W`}
               </span>
               <span className="text-amber-400 font-semibold text-[11px]">
                 ({totalKva} kVA)
               </span>
-              <span className="text-slate-400 text-[10px] font-normal">
+              <span
+                className="rack-power-amps text-slate-400 text-[10px] font-normal"
+                style={{ color: '#cbd5e1' }}
+              >
                 ~{totalAmps}A
               </span>
             </div>
@@ -397,7 +411,10 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
 
           {/* Occupancy & Dev Count Badge */}
           <div className="flex items-center gap-1.5 font-mono text-[10px]">
-            <span className="text-slate-300 bg-slate-800/90 px-1.5 py-0.5 rounded border border-white/10">
+            <span
+              className="rack-occupancy-badge text-slate-300 bg-slate-800/90 px-1.5 py-0.5 rounded border border-white/10"
+              style={{ color: '#cbd5e1' }}
+            >
               {usedUnits}/{rack.units}U ({Math.round((usedUnits / rack.units) * 100)}%)
             </span>
             <span className="text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-500/30 font-bold">
@@ -407,9 +424,19 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
         </div>
 
         {/* Informative Label */}
-        <div className="flex items-center justify-between text-[10px] text-slate-400 font-sans">
-          <span>{isEn ? 'Total Rack Power Load' : 'توان مصرفی کل تجهیزات رک'}</span>
-          <span className="text-[9px] text-slate-500 font-mono">230V AC • PF 0.85</span>
+        <div className="rack-power-label-row flex items-center justify-between text-[10px] text-slate-400 font-sans">
+          <span
+            className="rack-power-label"
+            style={{ color: '#cbd5e1' }}
+          >
+            {isEn ? 'Total Rack Power Load' : 'توان مصرفی کل تجهیزات رک'}
+          </span>
+          <span
+            className="rack-power-spec text-[9px] text-slate-400 font-mono"
+            style={{ color: '#cbd5e1' }}
+          >
+            230V AC • PF 0.85
+          </span>
         </div>
       </div>
 

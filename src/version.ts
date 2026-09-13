@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.39.0';
+export const APP_VERSION = '1.39.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.39.1',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'اصلاح استایل کادر آپدیت در تاریخچه نسخه‌ها و رنگ متون رک در تم روشن',
+    title_en: 'Release Notes Update Banner Styling and Rack Metric Typography Alignment in Light Mode',
+    changes: [
+      'اصلاح کادر اعلان آپدیت در مودال Version History & Release Notes در تم روشن و هماهنگ‌سازی رنگ زمینه و حاشیه آن با کارت‌های Installed Version History بدون گرادیانت.',
+      'مشکی و پررنگ شدن کامل نوشته‌های داخل کادر آپدیت، نسخه جدید، برچسب Update و لیست تغییرات نسخه در تم روشن.',
+      'سفید شدن رنگ متن نام رک و مجموعه وات توان مصرفی در تم روشن.',
+      'تغییر رنگ عنوان Total Rack Power Load و جزییات فنی به خاکستری روشن در تم روشن.',
+      'تغییر رنگ بج تعداد و درصد یونیت‌های اشغالی رک و مشخصات یونیت و عمق زیر نام رک به خاکستری روشن در تم روشن.'
+    ],
+    changes_en: [
+      'Restyled the update banner in the Version History & Release Notes modal in light mode to match the clean background and border styling of Installed Version History cards without gradients.',
+      'Ensured high-contrast black typography for update notes, version badges, update tags, and change list items in light mode.',
+      'Set rack name and total power load wattage to crisp white in light mode.',
+      'Set the "Total Rack Power Load" label and electrical specifications to light gray in light mode.',
+      'Set the rack unit occupancy percentage badge and the unit/depth subtitle beneath the rack name to light gray in light mode.'
+    ]
+  },
   {
     version: '1.39.0',
     releaseDate: '2026-09-13',
