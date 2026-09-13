@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.39.1';
+export const APP_VERSION = '1.39.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.39.2',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'اصلاح و سازگاری کامل مودال ویرایش و مشخصات سخت‌افزاری و کارت‌های شبکه با تم روشن',
+    title_en: 'Full Light Mode Compatibility for Edit Hardware Specifications & Network Cards Modal',
+    changes: [
+      'اصلاح رنگ پس‌زمینه، حاشیه‌ها، هدر و دکمه‌های بستن و انصراف در مودال ویرایش مشخصات سخت‌افزاری و کارت‌های شبکه در تم روشن.',
+      'روشن و خوانا شدن پس‌زمینه فرم‌ها، کارت‌های انبار تجهیزات، تب‌های کاتالوگ سخت‌افزار و پیش‌نمایش‌ها مطابق استانداردهای تم روشن.',
+      'اصلاح رنگ و کنتراست اینپوت‌ها، سلکتورها و دراپ‌داون‌های پیکربندی یونیت‌ها، پاورها و کارت‌های شبکه به همراه پشتیبانی کامل چندزبانه (fa/en).'
+    ],
+    changes_en: [
+      'Adapted modal background, borders, header, close, and action buttons in Edit Hardware Specifications & Network Cards for light theme.',
+      'Refactored form backgrounds, inventory cards, hardware catalog tabs, and preview containers for high contrast and readability in light mode.',
+      'Polished inputs, select dropdowns, unit placement controls, PSU load calculations, and NIC configuration cards with full bilingual i18n support.'
+    ]
+  },
   {
     version: '1.39.1',
     releaseDate: '2026-09-13',
