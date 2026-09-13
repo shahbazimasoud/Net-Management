@@ -98,6 +98,7 @@ interface SchematicTopologyViewProps {
   onConnectTerminal?: (device: Device) => void;
   isFullMode?: boolean;
   onToggleFullMode?: () => void;
+  panelTheme?: 'obsidian' | 'light' | 'matrix';
 }
 
 // Helper to separate and curve overlapping parallel cables between devices
@@ -185,8 +186,15 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   onConnectTerminal,
   isFullMode: propIsFullMode,
   onToggleFullMode,
+  panelTheme: propPanelTheme,
 }) => {
   const { t, isEn, isRtl } = useLanguage();
+  const isLightMode = propPanelTheme === 'light' || (typeof document !== 'undefined' && (
+    document.querySelector('.theme-light') !== null ||
+    document.documentElement.classList.contains('light') ||
+    localStorage.getItem('panel_theme') === 'light' ||
+    localStorage.getItem('theme_mode') === 'light'
+  ));
   const [viewMode, setViewMode] = useState<'schematic' | 'physical'>('schematic');
 
   // Viewport zoom and pan with LocalStorage persistence
@@ -3666,18 +3674,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
             {/* Live Data Traffic Flow Animation Toggle */}
             <label
-              className="hidden sm:flex items-center gap-1.5 text-slate-300 text-xs cursor-pointer mx-1 select-none px-2 py-1 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-white/10 transition"
+              data-component="data-flow-toggle"
+              className="hidden sm:flex items-center gap-1.5 text-xs cursor-pointer mx-1 select-none px-2.5 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-800 border border-white/20 transition shadow-xs"
+              style={{ color: '#ffffff' }}
               title={isEn ? 'Toggle live animated data flow packets between connected devices' : 'فعال/غیرفعال‌سازی انیمیشن انتقال زنده داده بین تجهیزات متصل'}
             >
               <input
                 type="checkbox"
                 checked={showTrafficAnimation}
                 onChange={(e) => setShowTrafficAnimation(e.target.checked)}
-                className="w-3.5 h-3.5 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 cursor-pointer"
+                className="w-3.5 h-3.5 rounded text-cyan-400 bg-slate-900 border-white/30 focus:ring-cyan-400 cursor-pointer"
               />
-              <span className="flex items-center gap-1">
-                <Activity className={`w-3.5 h-3.5 ${showTrafficAnimation ? 'text-cyan-400 animate-pulse' : 'text-slate-500'}`} />
-                <span className={showTrafficAnimation ? 'text-cyan-300 font-medium' : 'text-slate-400'}>
+              <span className="flex items-center gap-1.5" style={{ color: '#ffffff' }}>
+                <Activity className={`w-3.5 h-3.5 text-white ${showTrafficAnimation ? 'animate-pulse' : ''}`} style={{ color: '#ffffff' }} />
+                <span className="text-white font-medium !text-white" style={{ color: '#ffffff' }}>
                   {isEn ? 'Data Flow' : 'جریان داده'}
                 </span>
               </span>
@@ -3947,19 +3957,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 )}
 
                 {/* Global Device Display Mode: Card (Cabling) vs Physical (Chassis/Rackmount) */}
-                <div className="flex items-center bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner">
+                <div data-component="device-view-mode-toggle" className="flex items-center bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner">
                   <button
                     type="button"
                     onClick={() => setGlobalDeviceViewMode('card')}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
                       globalDeviceViewMode === 'card'
                         ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white shadow-xs font-semibold'
-                        : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        : 'text-white hover:text-white hover:bg-white/15 opacity-90 hover:opacity-100'
                     }`}
+                    style={{ color: '#ffffff' }}
                     title={isEn ? 'Card Mode (For port cabling & connections)' : 'نمای کارتی (برای کابل‌کشی و اتصالات پورت‌ها)'}
                   >
-                    <CreditCard className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Card' : 'کارت'}</span>
+                    <CreditCard className="w-3.5 h-3.5 text-white" style={{ color: '#ffffff' }} />
+                    <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Card' : 'کارت'}</span>
                   </button>
                   <button
                     type="button"
@@ -3972,36 +3983,38 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
                       globalDeviceViewMode === 'physical'
                         ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs font-semibold'
-                        : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        : 'text-white hover:text-white hover:bg-white/15 opacity-90 hover:opacity-100'
                     }`}
+                    style={{ color: '#ffffff' }}
                     title={isEn ? 'Physical Mode (Photorealistic chassis for rack mounting)' : 'نمای سخت‌افزار (شاسی واقعی جهت نصب در رک)'}
                   >
-                    <Server className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Physical' : 'فیزیکی'}</span>
+                    <Server className="w-3.5 h-3.5 text-white" style={{ color: '#ffffff' }} />
+                    <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Physical' : 'فیزیکی'}</span>
                   </button>
                 </div>
 
                 {/* Sticky Notes Toggle & Add Note */}
-                <div className="flex items-center gap-1.5 bg-slate-800/90 rounded-xl px-2.5 py-1 border border-white/15">
-                  <label className="flex items-center gap-1.5 cursor-pointer text-xs text-amber-200 hover:text-amber-100 select-none">
+                <div data-component="sticky-note-controls" className="flex items-center gap-1.5 bg-slate-800/90 rounded-xl px-2.5 py-1 border border-white/15">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs select-none">
                     <input
                       type="checkbox"
                       checked={showStickyNotes}
                       onChange={toggleShowStickyNotes}
-                      className="w-3.5 h-3.5 rounded text-amber-500 bg-slate-900 border-white/20 focus:ring-amber-500"
+                      className="w-3.5 h-3.5 rounded text-amber-500 bg-slate-900 border-white/20 focus:ring-amber-500 cursor-pointer"
                     />
                     <StickyNote className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{isEn ? 'Notes' : 'یادداشت‌ها'}</span>
+                    <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Notes' : 'یادداشت‌ها'}</span>
                   </label>
                   {showStickyNotes && (
                     <button
                       type="button"
                       onClick={handleAddStickyNote}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 hover:text-amber-100 border border-amber-500/30 transition text-[11px] active:scale-95 font-medium ml-1"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/30 hover:bg-amber-500/40 text-white hover:text-white border border-amber-400/40 transition text-[11px] active:scale-95 font-medium ml-1 cursor-pointer"
+                      style={{ color: '#ffffff' }}
                       title={isEn ? 'Add new sticky note on canvas' : 'افزودن یادداشت استیکی جدید روی نقشه'}
                     >
-                      <Plus className="w-3 h-3" />
-                      <span>{isEn ? 'Add' : 'افزودن'}</span>
+                      <Plus className="w-3 h-3 text-white" style={{ color: '#ffffff' }} />
+                      <span className="!text-white font-medium" style={{ color: '#ffffff' }}>{isEn ? 'Add Note' : 'افزودن'}</span>
                     </button>
                   )}
                 </div>
@@ -4076,6 +4089,46 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               backgroundSize: `${Math.round(24 * Math.max(0.6, Math.min(zoom, 1.4)))}px ${Math.round(24 * Math.max(0.6, Math.min(zoom, 1.4)))}px`,
             }}
           >
+            {/* Top-Center Floating Feedback Toast */}
+            {feedbackToast && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full px-4 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-auto">
+                <div
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-2xl backdrop-blur-xl transition-all duration-300 ${
+                    isLightMode
+                      ? feedbackToast.type === 'success'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-emerald-900/10'
+                        : feedbackToast.type === 'error'
+                        ? 'bg-rose-50 border-rose-300 text-rose-950 shadow-rose-900/10'
+                        : 'bg-sky-50 border-sky-300 text-sky-950 shadow-sky-900/10'
+                      : feedbackToast.type === 'success'
+                      ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-100 shadow-xl'
+                      : feedbackToast.type === 'error'
+                      ? 'bg-rose-950/95 border-rose-500/60 text-rose-100 shadow-xl'
+                      : 'bg-cyan-950/95 border-cyan-500/60 text-cyan-100 shadow-xl'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {feedbackToast.type === 'success' ? (
+                      <CheckCircle className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                    ) : feedbackToast.type === 'error' ? (
+                      <AlertCircle className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-rose-600' : 'text-rose-400'}`} />
+                    ) : (
+                      <Info className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-sky-600' : 'text-cyan-400'}`} />
+                    )}
+                    <span className={`font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{feedbackToast.message}</span>
+                  </div>
+                  <button
+                    onClick={() => setFeedbackToast(null)}
+                    className={`p-1 rounded-lg transition cursor-pointer ${
+                      isLightMode ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Top-Left Floating Controls: Fullscreen Toggle & Tools */}
             <div className="absolute top-4 left-4 z-40 flex items-center gap-2">
               <button
@@ -5083,10 +5136,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                               e.stopPropagation();
                               handleSwitchToPhysicalWithHighlight(node);
                             }}
-                            className="text-amber-400 hover:text-amber-300 font-medium flex items-center gap-0.5 hover:underline cursor-pointer"
+                            className="text-amber-400 hover:text-amber-300 font-medium hover:underline cursor-pointer"
                             title={isEn ? "View in Physical View & Rack" : "مشاهده در نمای فیزیکی"}
                           >
-                            <Eye className="w-3 h-3 text-amber-400" />
                             <span>{isEn ? 'Physical' : 'فیزیکی'}</span>
                           </button>
                           {activeMapId !== 'default' && (
@@ -5311,26 +5363,34 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             {feedbackToast && (
               <div
                 className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-xl backdrop-blur-xl transition-all duration-300 ${
-                  feedbackToast.type === 'success'
-                    ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
+                  isLightMode
+                    ? feedbackToast.type === 'success'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-emerald-900/10'
+                      : feedbackToast.type === 'error'
+                      ? 'bg-rose-50 border-rose-300 text-rose-950 shadow-rose-900/10'
+                      : 'bg-sky-50 border-sky-300 text-sky-950 shadow-sky-900/10'
+                    : feedbackToast.type === 'success'
+                    ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-100'
                     : feedbackToast.type === 'error'
-                    ? 'bg-rose-950/80 border-rose-500/50 text-rose-200'
-                    : 'bg-cyan-950/80 border-cyan-500/50 text-cyan-200'
+                    ? 'bg-rose-950/90 border-rose-500/50 text-rose-100'
+                    : 'bg-cyan-950/90 border-cyan-500/50 text-cyan-100'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   {feedbackToast.type === 'success' ? (
-                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <CheckCircle className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-emerald-600' : 'text-emerald-400'}`} />
                   ) : feedbackToast.type === 'error' ? (
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <AlertCircle className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-rose-600' : 'text-rose-400'}`} />
                   ) : (
-                    <Info className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <Info className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-sky-600' : 'text-cyan-400'}`} />
                   )}
-                  <span>{feedbackToast.message}</span>
+                  <span className={`font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{feedbackToast.message}</span>
                 </div>
                 <button
                   onClick={() => setFeedbackToast(null)}
-                  className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/10"
+                  className={`p-1 rounded-lg transition cursor-pointer ${
+                    isLightMode ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>

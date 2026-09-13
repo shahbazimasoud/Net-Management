@@ -44,14 +44,14 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
   const hasUpdate = Boolean(updateInfo?.hasUpdate);
   const remoteNote = updateInfo?.releaseNote;
   const newVersionTitle = remoteNote
-    ? isEn && remoteNote.title_en
-      ? remoteNote.title_en
-      : remoteNote.title
+    ? isEn
+      ? (remoteNote.title_en || (remoteNote.version ? `Release v${remoteNote.version}: System Enhancements & Fixes` : t('update_ready_to_install')))
+      : (remoteNote.title || t('update_ready_to_install'))
     : t('update_ready_to_install');
   const newVersionChanges = remoteNote
-    ? isEn && remoteNote.changes_en
-      ? remoteNote.changes_en
-      : remoteNote.changes
+    ? isEn
+      ? (remoteNote.changes_en && remoteNote.changes_en.length > 0 ? remoteNote.changes_en : ['System optimizations, performance improvements, and UI enhancements.'])
+      : (remoteNote.changes && remoteNote.changes.length > 0 ? remoteNote.changes : ['به‌روزرسانی و ارتقای کلی عملکرد سامانه'])
     : [];
 
   return (
@@ -62,14 +62,14 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
     >
       <div className="relative w-full max-w-3xl max-h-[90vh] sm:max-h-[86vh] flex flex-col rounded-2xl spatial-glass border border-white/20 text-slate-100 shadow-[0_0_50px_rgba(99,102,241,0.3)] overflow-hidden my-auto">
         {/* Header (Pinned) */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-slate-900/85 shrink-0 backdrop-blur-md">
+        <div id="release-notes-modal-header" className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-slate-900/95 shrink-0 backdrop-blur-md text-white">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
               <History className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold text-white">
+                <h2 className="text-sm sm:text-base font-bold !text-white" style={{ color: '#ffffff' }}>
                   {t('release_notes_title')}
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
@@ -83,12 +83,12 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">{t('release_notes_subtitle')}</p>
+              <p className="text-xs !text-slate-200 mt-0.5" style={{ color: '#e2e8f0' }}>{t('release_notes_subtitle')}</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
             aria-label={t('action_close')}
           >
             <X className="w-5 h-5" />
@@ -252,8 +252,12 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           {/* Historical Releases */}
           {RELEASE_HISTORY.map((rel, index) => {
             const isLatest = index === 0;
-            const title = isEn && rel.title_en ? rel.title_en : rel.title;
-            const changes = isEn && rel.changes_en ? rel.changes_en : rel.changes;
+            const title = isEn
+              ? (rel.title_en || `Release v${rel.version}: System Enhancements & Fixes`)
+              : (rel.title || `نگارش v${rel.version}`);
+            const changes = isEn
+              ? (rel.changes_en && rel.changes_en.length > 0 ? rel.changes_en : ['System optimizations, performance improvements, and UI enhancements.'])
+              : (rel.changes && rel.changes.length > 0 ? rel.changes : ['به‌روزرسانی و ارتقای کلی عملکرد سامانه']);
 
             return (
               <div

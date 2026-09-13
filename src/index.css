@@ -1787,5 +1787,49 @@
   transform: scale(1.04);
 }
 
+/* Force White Text on Dark Badges / Pills in Light Mode */
+.force-white-text,
+.force-white-text * {
+  color: #ffffff !important;
+}
+
+/* Data Flow Toggle - White Icon and White Text */
+.theme-light [data-component="data-flow-toggle"],
+.theme-light [data-component="data-flow-toggle"] *,
+[data-component="data-flow-toggle"],
+[data-component="data-flow-toggle"] * {
+  color: #ffffff !important;
+}
+
+/* Device View Mode Switcher (Card / Physical) in Light Mode */
+.theme-light [data-component="device-view-mode-toggle"] button,
+.theme-light [data-component="device-view-mode-toggle"] button *,
+[data-component="device-view-mode-toggle"] button,
+[data-component="device-view-mode-toggle"] button * {
+  color: #ffffff !important;
+}
+
+/* Sticky Note Controls & Add Note Button in Light Mode */
+.theme-light [data-component="sticky-note-controls"] button,
+.theme-light [data-component="sticky-note-controls"] button *,
+.theme-light [data-component="sticky-note-controls"] label,
+.theme-light [data-component="sticky-note-controls"] label *,
+[data-component="sticky-note-controls"] button,
+[data-component="sticky-note-controls"] button *,
+[data-component="sticky-note-controls"] label,
+[data-component="sticky-note-controls"] label * {
+  color: #ffffff !important;
+}
+
+/* Release Notes Modal Header text in Light Mode */
+.theme-light #release-notes-modal-header,
+.theme-light #release-notes-modal-header h2,
+.theme-light #release-notes-modal-header p,
+.theme-light #release-notes-modal-header *,
+#release-notes-modal-header h2,
+#release-notes-modal-header p {
+  color: #ffffff !important;
+}
+
 
 

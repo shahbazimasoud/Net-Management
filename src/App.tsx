@@ -52,13 +52,32 @@ export default function App() {
 
   // Theme State (Default to obsidian cyber spatial glass)
   const [panelTheme, setPanelTheme] = useState<ThemeType>(() => {
-    return (localStorage.getItem('panel_theme') as ThemeType) || 'obsidian';
+    const saved = (localStorage.getItem('panel_theme') as ThemeType) || 'obsidian';
+    if (typeof document !== 'undefined') {
+      if (saved === 'light') {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+      } else {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      }
+    }
+    return saved;
   });
 
   const changeTheme = (newTheme: ThemeType) => {
     setPanelTheme(newTheme);
     localStorage.setItem('panel_theme', newTheme);
     localStorage.setItem('theme_mode', newTheme === 'light' ? 'light' : 'dark');
+    if (typeof document !== 'undefined') {
+      if (newTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.classList.add('light');
+      } else {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      }
+    }
   };
 
   // Collapsible sidebar state with local storage persistence
@@ -418,6 +437,7 @@ export default function App() {
               onConnectTerminal={(dev) => openTerminal(dev)}
               isFullMode={isTopologyFullscreen}
               onToggleFullMode={toggleTopologyFullscreen}
+              panelTheme={panelTheme}
             />
           )}
 

@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.38.2';
+export const APP_VERSION = '1.38.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.38.3',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'همگام‌سازی کامل تم تیره و روشن در نقشه، حذف آیکون چشم کارت‌ها و رفع باگ‌های بصری نوتیفیکیشن و جریان داده',
+    title_en: 'Theme Parity for Topology Modals, Eye Icon Removal, and Light Theme Text Contrast Fixes',
+    changes: [
+      'حذف آیکون چشم از دکمه مشاهده فیزیکی در پایین کارت‌ها در نمای شماتیک جهت رفع افزونگی بصری.',
+      'همگام‌سازی کامل تم تیره در مدال Create New Topology Map (CustomMapManageModal) و مدال‌های رک/دکل برای همخوانی با تم مشکی.',
+      'اصلاح رنگ متن و آیکون گزینه جریان داده (Data Flow) در تم روشن به رنگ سفید خالص جهت خوانایی کامل.',
+      'اصلاح استایل و کانتراست اعلان سوئیچ به نمای فیزیکی (Switched to Physical View) در تم روشن با پس‌زمینه و تایپوگرافی سازگار.',
+      'اصلاح دکمه‌های غیرفعال سوئیچ نمای کارت و فیزیکی و برچسب Add Note در تم روشن نقشه سفارشی با متن سفید واضح.',
+      'رفع قطعی فالبک متون فارسی در اعلان آپدیت پروفایل و تاریخچه نسخه‌ها در حالت زبان انگلیسی مطابق قانون چندزبانگی.'
+    ],
+    changes_en: [
+      'Removed redundant eye icon from the Physical view button on device cards in schematic view.',
+      'Full dark theme parity for Create New Topology Map modal and Rack/Tower management modals.',
+      'Enhanced Data Flow toggle in light theme with high-contrast white text and white icon.',
+      'Redesigned Switched to Physical View feedback toast with proper light mode background and legible typography.',
+      'Ensured inactive Card/Physical view switch buttons and Add Note labels render with clear white text in light theme.',
+      'Eliminated Persian text fallbacks in the profile dropdown update notification and historical release notes when English is active.'
+    ]
+  },
   {
     version: '1.38.2',
     releaseDate: '2026-09-13',

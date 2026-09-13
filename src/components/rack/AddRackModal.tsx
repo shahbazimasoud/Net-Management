@@ -26,6 +26,12 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
   const [depth, setDepth] = useState<RackDepth>(100);
   const [color, setColor] = useState('#0f172a');
 
+  const isLightMode = typeof document !== 'undefined' && (
+    document.querySelector('.theme-light') !== null ||
+    localStorage.getItem('panel_theme') === 'light' ||
+    localStorage.getItem('theme_mode') === 'light'
+  );
+
   // Suggest a unique next rack name when opening modal
   useEffect(() => {
     if (isOpen) {
@@ -69,24 +75,42 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+      className={`fixed inset-0 z-[1100] flex items-center justify-center p-4 modal-backdrop-blur animate-fade-in ${
+        isLightMode ? 'bg-slate-900/40 theme-light' : 'bg-black/80'
+      }`}
       dir={isRtl ? 'rtl' : 'ltr'}
     >
       <div
-        className="w-full max-w-xl rounded-3xl bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden flex flex-col text-slate-100"
+        className={`w-full max-w-xl rounded-3xl border shadow-2xl overflow-hidden flex flex-col ${
+          isLightMode
+            ? 'bg-white border-slate-200 text-slate-800 shadow-slate-300/60'
+            : 'bg-slate-900 border-slate-700/80 text-slate-100 shadow-2xl'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div
+          className={`px-6 py-4 border-b flex items-center justify-between ${
+            isLightMode
+              ? 'bg-slate-50 border-slate-200'
+              : 'bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border-slate-800'
+          }`}
+        >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center">
+            <div
+              className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
+                isLightMode
+                  ? 'bg-cyan-50 border border-cyan-200 text-cyan-700'
+                  : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+              }`}
+            >
               <Box className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">
+              <h3 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                 {isEn ? 'Add New Server Rack (19-inch)' : 'افزودن رک سرور جدید (Server Rack)'}
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                 {isEn
                   ? 'Design and place standard 19-inch data center server cabinets'
                   : 'طراحی و جاگذاری رک‌های استاندارد ۱۹ اینچ دیتا سنتر'}
@@ -96,7 +120,11 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center transition cursor-pointer"
+            className={`w-8 h-8 rounded-xl flex items-center justify-center transition cursor-pointer ${
+              isLightMode
+                ? 'bg-slate-100 text-slate-500 hover:text-slate-900 hover:bg-slate-200'
+                : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+            }`}
           >
             <X className="w-4 h-4" />
           </button>
@@ -106,7 +134,7 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {/* Rack Name */}
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-300 block">
+            <label className={`text-xs font-bold block ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
               {isEn ? 'Rack Name or Identifier:' : 'نام یا برچسب رک:'}
             </label>
             <input
@@ -115,14 +143,16 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={isEn ? 'e.g. Rack A-01 or Main Core Cabinet' : 'مثال: Rack A-01 یا Main Server Cabinet'}
-              className={`w-full px-4 py-2.5 rounded-xl bg-slate-950 border text-white placeholder-slate-500 text-sm focus:outline-none transition ${
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none transition font-medium ${
                 isDuplicateName
                   ? 'border-rose-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
-                  : 'border-slate-700 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500'
+                  : isLightMode
+                  ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-cyan-600 focus:ring-1 focus:ring-cyan-500'
+                  : 'bg-slate-950 border-slate-700 text-white placeholder-slate-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500'
               }`}
             />
             {isDuplicateName && (
-              <div className="flex items-center gap-1.5 text-xs text-rose-400 font-medium pt-1">
+              <div className="flex items-center gap-1.5 text-xs text-rose-500 font-medium pt-1">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 <span>
                   {isEn
@@ -135,9 +165,9 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
 
           {/* Unit Size Selection */}
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+            <label className={`text-xs font-bold flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
               <span>{isEn ? 'Rack Height (Unit Size):' : 'ارتفاع رک (اندازه به یونیت):'}</span>
-              <span className="text-cyan-400 font-mono font-bold text-sm">{units}U</span>
+              <span className={`font-mono font-bold text-sm ${isLightMode ? 'text-cyan-700' : 'text-cyan-400'}`}>{units}U</span>
             </label>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
               {RACK_SIZES.map((size) => {
@@ -165,7 +195,9 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
                     onClick={() => setUnits(size)}
                     className={`py-2.5 px-2 rounded-xl text-center border font-bold text-sm transition-all flex flex-col items-center gap-0.5 cursor-pointer ${
                       isSelected
-                        ? 'bg-gradient-to-b from-cyan-600 to-blue-600 text-white border-cyan-400 shadow-lg shadow-cyan-500/20 scale-102'
+                        ? 'bg-gradient-to-b from-cyan-600 to-blue-600 text-white border-cyan-400 shadow-md shadow-cyan-500/20 scale-102'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-100'
                         : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-800/60'
                     }`}
                   >
@@ -179,9 +211,9 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
 
           {/* Depth Selection: 60, 80, 100, 120 */}
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+            <label className={`text-xs font-bold flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
               <span>{isEn ? 'Rack Depth (cm):' : 'عمق رک (سانتی‌متر):'}</span>
-              <span className="text-cyan-400 font-mono font-bold text-sm">{depth} cm</span>
+              <span className={`font-mono font-bold text-sm ${isLightMode ? 'text-cyan-700' : 'text-cyan-400'}`}>{depth} cm</span>
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {RACK_DEPTHS.map((d) => {
@@ -209,12 +241,16 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
                     onClick={() => setDepth(d)}
                     className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-gradient-to-b from-cyan-900/60 to-slate-900 border-cyan-500 text-white ring-1 ring-cyan-500/40'
+                        ? isLightMode
+                          ? 'bg-cyan-50 border-cyan-500 text-cyan-950 ring-1 ring-cyan-500/30 font-bold'
+                          : 'bg-gradient-to-b from-cyan-900/60 to-slate-900 border-cyan-500 text-white ring-1 ring-cyan-500/40'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-100'
                         : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
                     <div className="font-mono font-bold text-sm">{d} cm</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">{depthLabel}</div>
+                    <div className={`text-[10px] mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>{depthLabel}</div>
                   </button>
                 );
               })}
@@ -223,7 +259,7 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
 
           {/* Frame Theme Palette */}
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-300 block">
+            <label className={`text-xs font-bold block ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
               {isEn ? 'Rack Frame Color & Finish:' : 'رنگ و روکش شاسی رک:'}
             </label>
             <div className="flex items-center gap-3">
@@ -238,11 +274,15 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
                   onClick={() => setColor(c.id)}
                   className={`flex-1 py-2 px-3 rounded-xl border text-xs flex items-center justify-center gap-2 transition cursor-pointer ${
                     color === c.id
-                      ? 'border-cyan-400 bg-slate-800 text-white ring-1 ring-cyan-400/30'
+                      ? isLightMode
+                        ? 'border-cyan-600 bg-cyan-50 text-cyan-950 ring-1 ring-cyan-500 font-bold'
+                        : 'border-cyan-400 bg-slate-800 text-white ring-1 ring-cyan-400/30'
+                      : isLightMode
+                      ? 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
                       : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
                   }`}
                 >
-                  <div className="w-3.5 h-3.5 rounded-full border border-slate-600" style={{ backgroundColor: c.id }} />
+                  <div className="w-3.5 h-3.5 rounded-full border border-slate-400" style={{ backgroundColor: c.id }} />
                   <span>{c.label}</span>
                 </button>
               ))}
@@ -250,11 +290,15 @@ export const AddRackModal: React.FC<AddRackModalProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+          <div className={`pt-4 border-t flex items-center justify-end gap-3 ${isLightMode ? 'border-slate-200' : 'border-slate-800'}`}>
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-bold transition cursor-pointer"
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                isLightMode
+                  ? 'bg-slate-100 border border-slate-300 text-slate-700 hover:bg-slate-200'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
             >
               {isEn ? 'Cancel' : 'انصراف'}
             </button>

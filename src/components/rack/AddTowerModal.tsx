@@ -91,6 +91,12 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
   const { language } = useLanguage();
   const isEn = language === 'en';
 
+  const isLightMode = typeof document !== 'undefined' && (
+    document.querySelector('.theme-light') !== null ||
+    localStorage.getItem('panel_theme') === 'light' ||
+    localStorage.getItem('theme_mode') === 'light'
+  );
+
   const effectiveEditingTower = editingTower || initialData;
   const saveHandler = onSave || onSaveTower;
 
@@ -136,16 +142,36 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-200">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop-blur animate-in fade-in duration-200 ${
+        isLightMode ? 'bg-slate-900/40 theme-light' : 'bg-slate-950/80'
+      }`}
+    >
+      <div
+        className={`relative w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border ${
+          isLightMode
+            ? 'bg-white border-slate-200 text-slate-800 shadow-slate-300/60'
+            : 'bg-slate-900 border-slate-800 text-slate-200 shadow-2xl'
+        }`}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+        <div
+          className={`flex items-center justify-between px-6 py-4 border-b ${
+            isLightMode ? 'bg-slate-50 border-slate-200' : 'border-slate-800 bg-slate-950/60'
+          }`}
+        >
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <div
+              className={`p-2.5 rounded-2xl ${
+                isLightMode
+                  ? 'bg-amber-100 text-amber-700 border border-amber-300'
+                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+              }`}
+            >
               <Radio className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">
+              <h2 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                 {editingTower
                   ? isEn
                     ? 'Edit Telecommunication Tower'
@@ -154,7 +180,7 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
                   ? 'Add Telecommunication Tower / Mast'
                   : 'افزودن دکل مخابراتی و آنتن به نقشه'}
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                 {isEn
                   ? 'Place guyed masts, self-supporting or monopole towers to mount radios and parabolic dishes'
                   : 'قرار دادن دکل‌های مهاری، خودایستا یا منوپل جهت نصب انواع رادیوهای وایرلس و دیش‌های پارابولیک'}
@@ -164,7 +190,11 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+            className={`p-2 rounded-xl transition cursor-pointer ${
+              isLightMode
+                ? 'text-slate-400 hover:text-slate-900 hover:bg-slate-200'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -174,8 +204,8 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
         <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
           {/* Tower Type Selection */}
           <div className="space-y-3">
-            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-amber-400" />
+            <label className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+              <Layers className="w-3.5 h-3.5 text-amber-500" />
               <span>{isEn ? 'Select Tower Structure Type:' : 'انتخاب نوع سازه دکل مخابراتی:'}</span>
             </label>
 
@@ -188,13 +218,17 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
                     onClick={() => handleTypeSelect(opt)}
                     className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between gap-2 ${
                       isSelected
-                        ? 'bg-amber-950/40 border-amber-500 ring-2 ring-amber-500/30 shadow-lg shadow-amber-950/40'
+                        ? isLightMode
+                          ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500/30 shadow-md shadow-amber-200/50'
+                          : 'bg-amber-950/40 border-amber-500 ring-2 ring-amber-500/30 shadow-lg shadow-amber-950/40'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 hover:border-slate-300 hover:bg-slate-100/80'
                         : 'bg-slate-950 border-slate-800 hover:border-slate-700'
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-white">
+                        <span className={`text-xs font-bold ${isLightMode ? (isSelected ? 'text-amber-950' : 'text-slate-900') : 'text-white'}`}>
                           {isEn ? opt.title_en : opt.title_fa}
                         </span>
                         {isSelected && (
@@ -203,12 +237,16 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
                           </div>
                         )}
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                      <p className={`text-[10px] mt-1 leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                         {isEn ? opt.desc_en : opt.desc_fa}
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-amber-400 bg-slate-900/80 px-2 py-1 rounded-lg border border-slate-800 self-start">
+                    <div className={`flex items-center gap-1.5 text-[10px] font-mono self-start px-2 py-1 rounded-lg border ${
+                      isLightMode
+                        ? 'text-amber-800 bg-amber-100/70 border-amber-300'
+                        : 'text-amber-400 bg-slate-900/80 border-slate-800'
+                    }`}>
                       <span>{isEn ? 'Height Options:' : 'ارتفاع‌های استاندارد:'}</span>
                       <span>{opt.availableHeights.join('m, ')}m</span>
                     </div>
@@ -221,7 +259,7 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
           {/* Tower Name & Height */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className={`block text-xs font-semibold mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                 {isEn ? 'Tower Name / Identifier:' : 'نام / شناسه دکل:'}
               </label>
               <input
@@ -229,18 +267,26 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-amber-500"
+                className={`w-full px-3 py-2 text-xs rounded-xl border focus:outline-none transition ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-amber-600'
+                    : 'bg-slate-950 border-slate-700 text-white focus:border-amber-500'
+                }`}
                 placeholder="e.g. Tower-Site-Alpha (G35 30m)"
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                  <ArrowUpRight className="w-3.5 h-3.5 text-amber-400" />
+                <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                  <ArrowUpRight className="w-3.5 h-3.5 text-amber-500" />
                   <span>{isEn ? 'Total Height (Meters):' : 'ارتفاع کلی دکل (متر):'}</span>
                 </label>
-                <span className="text-xs font-bold font-mono text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
+                <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded border ${
+                  isLightMode
+                    ? 'text-amber-900 bg-amber-100 border-amber-300'
+                    : 'text-amber-400 bg-amber-950/60 border-amber-500/30'
+                }`}>
                   {heightMeters} m
                 </span>
               </div>
@@ -259,9 +305,11 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
                         );
                       }
                     }}
-                    className={`flex-1 min-w-[50px] py-1.5 text-xs font-bold font-mono rounded-xl transition ${
+                    className={`flex-1 min-w-[50px] py-1.5 text-xs font-bold font-mono rounded-xl transition cursor-pointer ${
                       heightMeters === h
-                        ? 'bg-amber-500 text-slate-950'
+                        ? 'bg-amber-500 text-slate-950 shadow-xs'
+                        : isLightMode
+                        ? 'bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100'
                         : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
@@ -274,8 +322,8 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
 
           {/* Accent Color Picker */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
-              <Palette className="w-3.5 h-3.5 text-amber-400" />
+            <label className={`block text-xs font-semibold mb-2 flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+              <Palette className="w-3.5 h-3.5 text-amber-500" />
               <span>{isEn ? 'Accent Theme Color:' : 'رنگ نمادین سازه:'}</span>
             </label>
             <div className="flex items-center gap-2">
@@ -285,7 +333,7 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
                   type="button"
                   onClick={() => setColor(c)}
                   className={`w-7 h-7 rounded-xl transition-all cursor-pointer ${
-                    color === c ? 'ring-2 ring-white scale-110' : 'hover:scale-105'
+                    color === c ? 'ring-2 ring-white scale-110 shadow-sm' : 'hover:scale-105'
                   }`}
                   style={{ backgroundColor: c }}
                 />
@@ -295,11 +343,19 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
         </form>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-950/80">
+        <div
+          className={`flex items-center justify-between px-6 py-4 border-t ${
+            isLightMode ? 'bg-slate-50 border-slate-200' : 'border-slate-800 bg-slate-950/80'
+          }`}
+        >
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
+              isLightMode
+                ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
           >
             {isEn ? 'Cancel' : 'انصراف'}
           </button>
@@ -307,7 +363,7 @@ export const AddTowerModal: React.FC<AddTowerModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            className="flex items-center gap-2 px-5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-lg shadow-amber-950/40 transition active:scale-95 cursor-pointer"
+            className="flex items-center gap-2 px-5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-lg shadow-amber-950/30 transition active:scale-95 cursor-pointer"
           >
             <Check className="w-4 h-4" />
             <span>
