@@ -21,9 +21,14 @@ import { useUpdate } from '../context/UpdateContext';
 interface ReleaseNotesModalProps {
   isOpen: boolean;
   onClose: () => void;
+  isLightMode?: boolean;
 }
 
-export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, onClose }) => {
+export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
+  isOpen,
+  onClose,
+  isLightMode: isLightModeProp,
+}) => {
   const { t, isEn, isRtl } = useLanguage();
   const {
     updateInfo,
@@ -38,6 +43,16 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
     toggleSimulatedUpdate,
     isSimulated,
   } = useUpdate();
+
+  // Unified light theme detection
+  const isLight = isLightModeProp ?? (
+    typeof document !== 'undefined' && (
+      document.querySelector('.theme-light') !== null ||
+      document.documentElement.classList.contains('theme-light') ||
+      localStorage.getItem('panel_theme') === 'light' ||
+      localStorage.getItem('theme_mode') === 'light'
+    )
+  );
 
   if (!isOpen) return null;
 
@@ -60,35 +75,76 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >
-      <div className="relative w-full max-w-3xl max-h-[90vh] sm:max-h-[86vh] flex flex-col rounded-2xl spatial-glass border border-white/20 text-slate-100 shadow-[0_0_50px_rgba(99,102,241,0.3)] overflow-hidden my-auto">
+      <div className={`relative w-full max-w-3xl max-h-[90vh] sm:max-h-[86vh] flex flex-col rounded-2xl spatial-glass border shadow-[0_0_50px_rgba(99,102,241,0.3)] overflow-hidden my-auto ${
+        isLight ? 'bg-white border-slate-200 text-slate-900 shadow-xl' : 'border-white/20 text-slate-100'
+      }`}>
         {/* Header (Pinned) */}
-        <div id="release-notes-modal-header" className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-slate-900/95 shrink-0 backdrop-blur-md text-white">
+        <div
+          id="release-notes-modal-header"
+          className={`flex items-center justify-between px-5 py-3.5 border-b shrink-0 backdrop-blur-md transition-colors ${
+            isLight
+              ? 'bg-slate-50/95 border-slate-200 text-slate-900'
+              : 'bg-slate-900/95 border-white/10 text-white'
+          }`}
+        >
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+            <div className={`p-2 rounded-xl border ${
+              isLight
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 shadow-xs'
+                : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+            }`}>
               <History className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold !text-white" style={{ color: '#ffffff' }}>
+                <h2
+                  className={`text-sm sm:text-base font-bold ${
+                    isLight ? 'text-black font-extrabold' : 'text-white'
+                  }`}
+                  style={{ color: isLight ? '#000000' : '#ffffff' }}
+                >
                   {t('release_notes_title')}
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                <span
+                  data-role="version-tag"
+                  className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                    isLight
+                      ? 'bg-slate-200/90 text-black border-slate-300 font-extrabold shadow-2xs'
+                      : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                  }`}
+                  style={{ color: isLight ? '#000000' : undefined }}
+                >
                   v{APP_VERSION}
                 </span>
 
                 {hasUpdate && (
-                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-rose-500/25 text-rose-300 border border-rose-500/40 animate-pulse">
-                    <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
+                  <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-mono font-bold border animate-pulse ${
+                    isLight
+                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                      : 'bg-rose-500/25 text-rose-300 border-rose-500/40'
+                  }`}>
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
                     <span>v{updateInfo?.latestVersion} {t('update_available_badge')}</span>
                   </span>
                 )}
               </div>
-              <p className="text-xs !text-slate-200 mt-0.5" style={{ color: '#e2e8f0' }}>{t('release_notes_subtitle')}</p>
+              <p
+                className={`text-xs mt-0.5 ${
+                  isLight ? 'text-black font-medium' : 'text-slate-200'
+                }`}
+                style={{ color: isLight ? '#000000' : '#e2e8f0' }}
+              >
+                {t('release_notes_subtitle')}
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            className={`p-1.5 rounded-lg transition cursor-pointer ${
+              isLight
+                ? 'text-slate-600 hover:text-black hover:bg-slate-200'
+                : 'text-slate-300 hover:text-white hover:bg-white/10'
+            }`}
             aria-label={t('action_close')}
           >
             <X className="w-5 h-5" />
@@ -99,7 +155,11 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Active Update Ready Banner & In-Panel Updater Section */}
           {hasUpdate && (
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-rose-950/60 via-indigo-950/40 to-slate-900/90 border-2 border-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.25)] relative overflow-hidden">
+            <div className={`p-5 rounded-2xl border-2 relative overflow-hidden shadow-lg ${
+              isLight
+                ? 'bg-gradient-to-br from-rose-50 via-indigo-50/50 to-slate-50 border-rose-300 shadow-rose-900/10 text-slate-900'
+                : 'bg-gradient-to-br from-rose-950/60 via-indigo-950/40 to-slate-900/90 border-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.25)] text-white'
+            }`}>
               <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-rose-500 via-purple-500 to-indigo-500"></div>
 
               {/* Title Bar */}
@@ -109,21 +169,35 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
                     <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
                   </span>
-                  <span className="font-mono text-base font-bold text-white px-2.5 py-0.5 rounded-lg bg-rose-500/20 border border-rose-500/40">
+                  <span className={`font-mono text-base font-bold px-2.5 py-0.5 rounded-lg border ${
+                    isLight
+                      ? 'bg-rose-100 text-rose-950 border-rose-300 font-extrabold'
+                      : 'text-white bg-rose-500/20 border-rose-500/40'
+                  }`}>
                     v{updateInfo?.latestVersion}
                   </span>
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full uppercase bg-rose-500/30 text-rose-200 border border-rose-500/40">
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase border ${
+                    isLight
+                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                      : 'bg-rose-500/30 text-rose-200 border-rose-500/40'
+                  }`}>
                     {t('update_available_badge')}
                   </span>
                   {isSimulated && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                      isLight
+                        ? 'bg-amber-100 text-amber-900 border-amber-300 font-semibold'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    }`}>
                       DEMO MODE
                     </span>
                   )}
                 </div>
 
                 {remoteNote?.releaseDate && (
-                  <div className="flex items-center gap-1.5 text-xs text-rose-300/80 font-mono">
+                  <div className={`flex items-center gap-1.5 text-xs font-mono ${
+                    isLight ? 'text-rose-900 font-bold' : 'text-rose-300/80'
+                  }`}>
                     <Calendar className="w-3.5 h-3.5" />
                     <span>{remoteNote.releaseDate}</span>
                   </div>
@@ -131,22 +205,30 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
               </div>
 
               {/* Release Header Description */}
-              <h3 className="text-sm sm:text-base font-bold text-white mb-2 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+              <h3 className={`text-sm sm:text-base font-bold mb-2 flex items-center gap-2 ${
+                isLight ? 'text-slate-950 font-extrabold' : 'text-white'
+              }`}>
+                <Sparkles className={`w-4 h-4 shrink-0 ${isLight ? 'text-amber-600' : 'text-amber-300'}`} />
                 <span>{newVersionTitle}</span>
               </h3>
 
               {/* Remote Release Changes */}
               {newVersionChanges.length > 0 && (
-                <div className="mb-4 bg-black/30 rounded-xl p-3 border border-white/10">
-                  <div className="text-[11px] font-bold text-slate-300 mb-2">
+                <div className={`mb-4 rounded-xl p-3 border ${
+                  isLight ? 'bg-white/95 border-slate-200 shadow-xs' : 'bg-black/30 border-white/10'
+                }`}>
+                  <div className={`text-[11px] font-bold mb-2 ${
+                    isLight ? 'text-slate-900' : 'text-slate-300'
+                  }`}>
                     {isEn ? `What's new in v${updateInfo?.latestVersion}:` : `لیست تغییرات نگارش جدید (v${updateInfo?.latestVersion}):`}
                   </div>
-                  <ul className="space-y-1.5 text-xs text-slate-200">
+                  <ul className={`space-y-1.5 text-xs ${
+                    isLight ? 'text-slate-800' : 'text-slate-200'
+                  }`}>
                     {newVersionChanges.map((change, idx) => (
                       <li key={idx} className="flex items-start gap-2 leading-relaxed">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <span>{change}</span>
+                        <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />
+                        <span className={isLight ? 'font-medium text-slate-900' : ''}>{change}</span>
                       </li>
                     ))}
                   </ul>
@@ -240,11 +322,23 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
           )}
 
           {/* Release History Header */}
-          <div className="flex items-center justify-between pb-1 border-b border-white/10">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+          <div className={`release-history-header flex items-center justify-between pb-1 border-b ${
+            isLight ? 'border-slate-200' : 'border-white/10'
+          }`}>
+            <h4
+              className={`text-xs font-bold uppercase tracking-wider ${
+                isLight ? 'text-black font-extrabold' : 'text-slate-400'
+              }`}
+              style={{ color: isLight ? '#000000' : undefined }}
+            >
               {isEn ? 'Installed Version History' : 'تاریخچه نسخه‌ها و نگارش‌های نصب‌شده'}
             </h4>
-            <span className="text-[11px] font-mono text-slate-400">
+            <span
+              className={`text-[11px] font-mono ${
+                isLight ? 'text-slate-700 font-bold' : 'text-slate-400'
+              }`}
+              style={{ color: isLight ? '#334155' : undefined }}
+            >
               {RELEASE_HISTORY.length} {isEn ? 'Releases' : 'نگارش ثبت‌شده'}
             </span>
           </div>
@@ -262,15 +356,28 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
             return (
               <div
                 key={rel.version}
-                className={`p-4 rounded-xl border transition-all ${
+                className={`release-history-card p-4 rounded-xl border transition-all ${
                   isLatest && !hasUpdate
-                    ? 'bg-indigo-950/30 border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                    : 'bg-white/5 border-white/10'
+                    ? isLight
+                      ? 'bg-indigo-50/80 border-indigo-300 shadow-xs'
+                      : 'bg-indigo-950/30 border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                    : isLight
+                      ? 'bg-slate-50 border-slate-200 hover:bg-slate-100/80 shadow-xs'
+                      : 'bg-white/5 border-white/10'
                 }`}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-white/10">
+                <div className={`flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b ${
+                  isLight ? 'border-slate-200' : 'border-white/10'
+                }`}>
                   <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-sm font-bold text-white px-2 py-0.5 rounded-lg bg-white/10 border border-white/15">
+                    <span
+                      className={`release-history-version-badge font-mono text-sm font-bold px-2 py-0.5 rounded-lg border ${
+                        isLight
+                          ? 'bg-slate-200 text-black border-slate-300 font-extrabold'
+                          : 'text-white bg-white/10 border-white/15'
+                      }`}
+                      style={{ color: isLight ? '#000000' : undefined }}
+                    >
                       v{rel.version}
                     </span>
                     <span
@@ -288,19 +395,43 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
                         ? t('release_notes_tag_minor')
                         : t('release_notes_tag_patch')}
                     </span>
-                    <span className="text-sm font-semibold text-slate-200">{title}</span>
+                    <span
+                      className={`release-history-card-title text-sm font-bold ${
+                        isLight ? 'text-black' : 'text-slate-200'
+                      }`}
+                      style={{ color: isLight ? '#000000' : undefined }}
+                    >
+                      {title}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
+                  <div
+                    className={`flex items-center gap-1.5 text-xs font-mono ${
+                      isLight ? 'text-slate-600 font-semibold' : 'text-slate-400'
+                    }`}
+                    style={{ color: isLight ? '#475569' : undefined }}
+                  >
                     <Calendar className="w-3.5 h-3.5" />
                     <span>{rel.releaseDate}</span>
                   </div>
                 </div>
 
-                <ul className="space-y-2 text-xs text-slate-300">
+                <ul className="space-y-2 text-xs">
                   {changes.map((change, cIdx) => (
-                    <li key={cIdx} className="flex items-start gap-2 leading-relaxed">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                      <span>{change}</span>
+                    <li
+                      key={cIdx}
+                      className="release-history-change-item flex items-start gap-2 leading-relaxed"
+                    >
+                      <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${
+                        isLight ? 'text-emerald-600' : 'text-emerald-400'
+                      }`} />
+                      <span
+                        className={`leading-relaxed ${
+                          isLight ? 'text-slate-900 font-medium' : 'text-slate-300'
+                        }`}
+                        style={{ color: isLight ? '#0f172a' : undefined }}
+                      >
+                        {change}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -310,15 +441,25 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
         </div>
 
         {/* Footer (Pinned) */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-white/10 bg-slate-900/85 text-xs text-slate-400 shrink-0 backdrop-blur-md">
+        <div
+          className={`flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t text-xs shrink-0 backdrop-blur-md transition-colors ${
+            isLight
+              ? 'border-slate-200 bg-slate-50/95 text-slate-700'
+              : 'border-white/10 bg-slate-900/85 text-slate-400'
+          }`}
+        >
           <div className="flex items-center gap-3">
             <button
               onClick={() => checkUpdate(false)}
               disabled={checking}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 hover:text-white transition cursor-pointer text-xs"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer text-xs font-medium ${
+                isLight
+                  ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800 shadow-xs'
+                  : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200 hover:text-white'
+              }`}
               title={t('update_btn_check_now')}
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${checking ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 ${checking ? 'animate-spin' : ''}`} />
               <span>{checking ? t('update_checking_in_progress') : t('update_btn_check_now')}</span>
             </button>
 
@@ -326,7 +467,11 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
               onClick={toggleSimulatedUpdate}
               className={`text-[11px] px-2.5 py-1 rounded-lg border transition cursor-pointer font-mono ${
                 isSimulated
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  ? isLight
+                    ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold'
+                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : isLight
+                  ? 'bg-white text-slate-700 hover:text-black border-slate-300'
                   : 'bg-white/5 text-slate-400 hover:text-slate-200 border-white/10'
               }`}
               title="تست نمایش نشانگر چشمک‌زن قرمز و فرآیند ارتقا"
@@ -337,7 +482,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({ isOpen, on
 
           <button
             onClick={onClose}
-            className="px-5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition cursor-pointer shadow-sm"
+            className="px-5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition cursor-pointer shadow-sm active:scale-95"
           >
             {t('release_notes_btn_close')}
           </button>

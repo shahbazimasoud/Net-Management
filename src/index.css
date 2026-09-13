@@ -1821,14 +1821,39 @@
   color: #ffffff !important;
 }
 
-/* Release Notes Modal Header text in Light Mode */
-.theme-light #release-notes-modal-header,
+/* Release Notes Modal Header and Typography in Light Mode */
+.theme-light #release-notes-modal-header {
+  background-color: #f8fafc !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
 .theme-light #release-notes-modal-header h2,
+.theme-light #release-notes-modal-header h2 *,
 .theme-light #release-notes-modal-header p,
-.theme-light #release-notes-modal-header *,
-#release-notes-modal-header h2,
-#release-notes-modal-header p {
-  color: #ffffff !important;
+.theme-light #release-notes-modal-header p *,
+.theme-light #release-notes-modal-header [data-role="version-tag"],
+.theme-light #release-notes-modal-header [data-role="version-tag"] * {
+  color: #000000 !important;
+}
+
+/* Installed Version History High-Contrast in Light Mode */
+.theme-light .release-history-header h4,
+.theme-light .release-history-header h4 *,
+.theme-light .release-history-card-title,
+.theme-light .release-history-card-title * {
+  color: #000000 !important;
+  font-weight: 700 !important;
+}
+
+.theme-light .release-history-change-item,
+.theme-light .release-history-change-item span,
+.theme-light .release-history-change-item * {
+  color: #0f172a !important;
+}
+
+.theme-light .release-history-version-badge,
+.theme-light .release-history-version-badge * {
+  color: #000000 !important;
 }
 
 

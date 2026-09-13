@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.38.3';
+export const APP_VERSION = '1.38.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.38.4',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'محو شوندگی و بسته شدن خودکار اعلان سوئیچ بین نماها و رفع کنتراست تاریخچه نسخه‌ها در تم روشن',
+    title_en: 'Auto Fade-Out for View Switch Notifications and High-Contrast Typography for Release History in Light Theme',
+    changes: [
+      'پیاده‌سازی حالت محو شوندگی (Fade-out) و بسته شدن خودکار اعلان‌های سوئیچ بین نماها (مانند انتقال به نمای فیزیکی، کارتی و رک) ظرف ۳ ثانیه به طوری که دید نقشه شماتیک مسدود نشود.',
+      'اصلاح تایپوگرافی و کنتراست متن Installed Version History و یادداشت‌های تغییرات در تم روشن به رنگ مشکی پررنگ و خوانا.',
+      'بهینه‌سازی تگ‌ها، نشانگرها، تاریخ و دکمه‌های پاورقی مدال تاریخچه نسخه‌ها در تم روشن برای وضوح بصری کامل.'
+    ],
+    changes_en: [
+      'Implemented smooth fade-out and auto-dismissal for view switch feedback notifications (Card, Physical, Rack) within 3 seconds so schematic view is never obstructed.',
+      'Fixed light mode text contrast in Installed Version History and release notes cards with high-contrast black typography.',
+      'Enhanced tags, badges, calendar metadata, and footer buttons in the Release Notes modal for pristine legibility in light theme.'
+    ]
+  },
   {
     version: '1.38.3',
     releaseDate: '2026-09-13',

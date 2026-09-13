@@ -1847,6 +1847,31 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
+  const [isToastFading, setIsToastFading] = useState(false);
+
+  // Auto-dismiss feedbackToast with smooth fade-out (fades out gracefully so it does not block the schematic)
+  useEffect(() => {
+    if (!feedbackToast) {
+      setIsToastFading(false);
+      return;
+    }
+    setIsToastFading(false);
+    // Start fading out after 2.4 seconds
+    const fadeTimer = setTimeout(() => {
+      setIsToastFading(true);
+    }, 2400);
+
+    // Completely dismiss after fade transition completes (3.0 seconds total)
+    const removeTimer = setTimeout(() => {
+      setFeedbackToast(null);
+      setIsToastFading(false);
+    }, 3000);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(removeTimer);
+    };
+  }, [feedbackToast]);
 
   // Modals for adding floor/building, unit/rack, rename, delete, and manual relocation
   const [addFloorBuilding, setAddFloorBuilding] = useState<string | null>(null);
@@ -4089,17 +4114,23 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               backgroundSize: `${Math.round(24 * Math.max(0.6, Math.min(zoom, 1.4)))}px ${Math.round(24 * Math.max(0.6, Math.min(zoom, 1.4)))}px`,
             }}
           >
-            {/* Top-Center Floating Feedback Toast */}
+            {/* Top-Center Floating Feedback Toast with Smooth Fade-Out */}
             {feedbackToast && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-full px-4 animate-in fade-in slide-in-from-top-2 duration-200 pointer-events-auto">
+              <div
+                className={`absolute top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-full px-4 transition-all duration-700 ease-out ${
+                  isToastFading
+                    ? 'opacity-0 -translate-y-4 scale-95 pointer-events-none'
+                    : 'opacity-100 translate-y-0 scale-100 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-200'
+                }`}
+              >
                 <div
-                  className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-2xl backdrop-blur-xl transition-all duration-300 ${
+                  className={`p-2.5 px-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-xl backdrop-blur-xl transition-all duration-300 ${
                     isLightMode
                       ? feedbackToast.type === 'success'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-emerald-900/10'
+                        ? 'bg-emerald-50/95 border-emerald-300 text-emerald-950 shadow-emerald-900/10'
                         : feedbackToast.type === 'error'
-                        ? 'bg-rose-50 border-rose-300 text-rose-950 shadow-rose-900/10'
-                        : 'bg-sky-50 border-sky-300 text-sky-950 shadow-sky-900/10'
+                        ? 'bg-rose-50/95 border-rose-300 text-rose-950 shadow-rose-900/10'
+                        : 'bg-sky-50/95 border-sky-300 text-sky-950 shadow-sky-900/10'
                       : feedbackToast.type === 'success'
                       ? 'bg-emerald-950/95 border-emerald-500/60 text-emerald-100 shadow-xl'
                       : feedbackToast.type === 'error'
@@ -4107,7 +4138,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       : 'bg-cyan-950/95 border-cyan-500/60 text-cyan-100 shadow-xl'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     {feedbackToast.type === 'success' ? (
                       <CheckCircle className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-emerald-600' : 'text-emerald-400'}`} />
                     ) : feedbackToast.type === 'error' ? (
@@ -4115,11 +4146,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     ) : (
                       <Info className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-sky-600' : 'text-cyan-400'}`} />
                     )}
-                    <span className={`font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{feedbackToast.message}</span>
+                    <span
+                      title={feedbackToast.message}
+                      className={`font-semibold leading-relaxed ${isLightMode ? 'text-slate-900' : 'text-white'}`}
+                    >
+                      {feedbackToast.message}
+                    </span>
                   </div>
                   <button
-                    onClick={() => setFeedbackToast(null)}
-                    className={`p-1 rounded-lg transition cursor-pointer ${
+                    type="button"
+                    onClick={() => {
+                      setIsToastFading(false);
+                      setFeedbackToast(null);
+                    }}
+                    className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
                       isLightMode ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-white/70 hover:text-white hover:bg-white/10'
                     }`}
                   >
@@ -5359,16 +5399,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               </div>
             </div>
 
-            {/* Notification / Feedback Toast */}
+            {/* Notification / Feedback Toast with Smooth Fade-Out */}
             {feedbackToast && (
               <div
-                className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-xl backdrop-blur-xl transition-all duration-300 ${
+                className={`p-2.5 px-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs shadow-xl backdrop-blur-xl transition-all duration-700 ease-out ${
+                  isToastFading
+                    ? 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
+                    : 'opacity-100 translate-y-0 scale-100 duration-300'
+                } ${
                   isLightMode
                     ? feedbackToast.type === 'success'
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-950 shadow-emerald-900/10'
+                      ? 'bg-emerald-50/95 border-emerald-300 text-emerald-950 shadow-emerald-900/10'
                       : feedbackToast.type === 'error'
-                      ? 'bg-rose-50 border-rose-300 text-rose-950 shadow-rose-900/10'
-                      : 'bg-sky-50 border-sky-300 text-sky-950 shadow-sky-900/10'
+                      ? 'bg-rose-50/95 border-rose-300 text-rose-950 shadow-rose-900/10'
+                      : 'bg-sky-50/95 border-sky-300 text-sky-950 shadow-sky-900/10'
                     : feedbackToast.type === 'success'
                     ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-100'
                     : feedbackToast.type === 'error'
@@ -5376,7 +5420,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     : 'bg-cyan-950/90 border-cyan-500/50 text-cyan-100'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   {feedbackToast.type === 'success' ? (
                     <CheckCircle className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-emerald-600' : 'text-emerald-400'}`} />
                   ) : feedbackToast.type === 'error' ? (
@@ -5384,11 +5428,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   ) : (
                     <Info className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-sky-600' : 'text-cyan-400'}`} />
                   )}
-                  <span className={`font-semibold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{feedbackToast.message}</span>
+                  <span
+                    title={feedbackToast.message}
+                    className={`font-semibold leading-relaxed ${isLightMode ? 'text-slate-900' : 'text-white'}`}
+                  >
+                    {feedbackToast.message}
+                  </span>
                 </div>
                 <button
-                  onClick={() => setFeedbackToast(null)}
-                  className={`p-1 rounded-lg transition cursor-pointer ${
+                  type="button"
+                  onClick={() => {
+                    setIsToastFading(false);
+                    setFeedbackToast(null);
+                  }}
+                  className={`p-1 rounded-lg transition cursor-pointer shrink-0 ${
                     isLightMode ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-200' : 'text-white/70 hover:text-white hover:bg-white/10'
                   }`}
                 >
