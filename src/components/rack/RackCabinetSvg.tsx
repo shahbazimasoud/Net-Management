@@ -19,8 +19,17 @@ import {
   Layers,
   ArrowRightLeft,
   CreditCard,
+  Sparkles,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n/LanguageContext';
+
+export interface RackNeonHighlightData {
+  targetAliases: string[];
+  colorHex: string;
+  colorRgb: string;
+  targetName?: string;
+  targetIp?: string;
+}
 
 interface RackCabinetSvgProps {
   rack: CustomTopologyRack;
@@ -41,6 +50,7 @@ interface RackCabinetSvgProps {
   onMoveDevice?: (rackId: string, deviceId: string, newStartU: number) => void;
   onRemoveDevice?: (rackId: string, deviceId: string) => void;
   selectedDeviceId?: string | null;
+  neonHighlight?: RackNeonHighlightData | null;
   interactive?: boolean;
 }
 
@@ -63,6 +73,7 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
   onMoveDevice,
   onRemoveDevice,
   selectedDeviceId,
+  neonHighlight,
   interactive = true,
 }) => {
   const { isEn, isRtl } = useLanguage();
@@ -599,26 +610,114 @@ export const RackCabinetSvg: React.FC<RackCabinetSvgProps> = ({
                       if (onSelectDevice) onSelectDevice(isTopOccupied, rack);
                     }}
                   >
-                    <foreignObject
-                      x="0"
-                      y="0"
-                      width={RACK_WIDTH - 8 - RAIL_WIDTH * 2 + 24}
-                      height={isTopOccupied.heightU * U_HEIGHT}
-                    >
-                      <div
-                        className={`relative ${
-                          draggingDevice?.id === isTopOccupied.id ? 'opacity-40 filter grayscale' : ''
-                        }`}
-                      >
-                        <HardwareSvgRenderer
-                          device={isTopOccupied}
-                          viewMode={rack.viewMode}
+                    {(() => {
+                      const cleanOccupiedId = isTopOccupied.id.replace(/^hw-/, '');
+                      const isDevNeonHighlighted =
+                        Boolean(neonHighlight) &&
+                        Boolean(
+                          neonHighlight!.targetAliases.includes(isTopOccupied.id) ||
+                          neonHighlight!.targetAliases.includes(cleanOccupiedId) ||
+                          neonHighlight!.targetAliases.includes(`hw-${cleanOccupiedId}`) ||
+                          (neonHighlight!.targetName && isTopOccupied.name && isTopOccupied.name.trim().toLowerCase() === neonHighlight!.targetName) ||
+                          (neonHighlight!.targetIp && isTopOccupied.ip && isTopOccupied.ip.trim() === neonHighlight!.targetIp)
+                        );
+
+                      return (
+                        <foreignObject
+                          x="0"
+                          y="0"
                           width={RACK_WIDTH - 8 - RAIL_WIDTH * 2 + 24}
                           height={isTopOccupied.heightU * U_HEIGHT}
-                          isHighlighted={selectedDeviceId === isTopOccupied.id || hoveredMountedDev?.dev.id === isTopOccupied.id}
-                        />
-                      </div>
-                    </foreignObject>
+                          className="overflow-visible"
+                        >
+                          <div
+                            className={`relative ${
+                              draggingDevice?.id === isTopOccupied.id ? 'opacity-40 filter grayscale' : ''
+                            } ${isDevNeonHighlighted ? 'z-50 scale-[1.02] transition-transform' : ''}`}
+                          >
+                            <HardwareSvgRenderer
+                              device={isTopOccupied}
+                              viewMode={rack.viewMode}
+                              width={RACK_WIDTH - 8 - RAIL_WIDTH * 2 + 24}
+                              height={isTopOccupied.heightU * U_HEIGHT}
+                              isHighlighted={isDevNeonHighlighted || selectedDeviceId === isTopOccupied.id || hoveredMountedDev?.dev.id === isTopOccupied.id}
+                            />
+
+                            {/* Rotating Neon Border Beam travelling cleanly around the hardware slot */}
+                            {isDevNeonHighlighted && (
+                              <>
+                                <div className="absolute -inset-[3px] pointer-events-none rounded-[6px] overflow-hidden z-40">
+                                  <svg className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                                    <defs>
+                                      <filter id={`neon-rack-beam-glow-${isTopOccupied.id}`} x="-30%" y="-30%" width="160%" height="160%">
+                                        <feGaussianBlur stdDeviation="2.5" result="blur" />
+                                        <feMerge>
+                                          <feMergeNode in="blur" />
+                                          <feMergeNode in="SourceGraphic" />
+                                        </feMerge>
+                                      </filter>
+                                    </defs>
+                                    <rect
+                                      x="1.5"
+                                      y="1.5"
+                                      width="calc(100% - 3px)"
+                                      height="calc(100% - 3px)"
+                                      rx="5"
+                                      fill="none"
+                                      stroke={neonHighlight!.colorHex}
+                                      strokeOpacity="0.3"
+                                      strokeWidth="1.5"
+                                    />
+                                    <rect
+                                      x="1.5"
+                                      y="1.5"
+                                      width="calc(100% - 3px)"
+                                      height="calc(100% - 3px)"
+                                      rx="5"
+                                      fill="none"
+                                      stroke={neonHighlight!.colorHex}
+                                      strokeWidth="3.5"
+                                      pathLength="100"
+                                      strokeDasharray="25 75"
+                                      strokeLinecap="round"
+                                      className="neon-border-beam-anim"
+                                      filter={`url(#neon-rack-beam-glow-${isTopOccupied.id})`}
+                                    />
+                                    <rect
+                                      x="1.5"
+                                      y="1.5"
+                                      width="calc(100% - 3px)"
+                                      height="calc(100% - 3px)"
+                                      rx="5"
+                                      fill="none"
+                                      stroke="#ffffff"
+                                      strokeWidth="2"
+                                      pathLength="100"
+                                      strokeDasharray="12 88"
+                                      strokeLinecap="round"
+                                      className="neon-border-beam-anim"
+                                    />
+                                  </svg>
+                                </div>
+                                <div
+                                  className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-bold font-mono flex items-center gap-1 shadow-2xl pointer-events-none z-50 whitespace-nowrap border border-white/60"
+                                  style={{
+                                    backgroundColor: neonHighlight!.colorHex,
+                                    color: ['#ffff00', '#ffee00', '#39ff14', '#00ffd5'].includes(neonHighlight!.colorHex) ? '#020617' : '#ffffff',
+                                    boxShadow: `0 0 12px ${neonHighlight!.colorHex}`,
+                                  }}
+                                >
+                                  <Sparkles className="w-2.5 h-2.5 animate-spin" />
+                                  <span>{isEn ? 'Target Hardware' : 'تجهیز هدف'}</span>
+                                  <span className="text-[8px] opacity-90 px-1 rounded bg-black/40 font-mono">U{isTopOccupied.startU}</span>
+                                  <span className="text-[8px] opacity-85 px-0.5 rounded bg-black/40 font-mono">3s</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </foreignObject>
+                      );
+                    })()}
                   </g>
                 )}
               </g>

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.34.1';
+export const APP_VERSION = '1.35.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.35.0',
+    releaseDate: '2026-09-12',
+    type: 'minor',
+    title: 'انتقال معکوس از نمای کارتی به نمای فیزیکی با آیکون چشم و افکت نئونی چرخشی روی سخت‌افزار/رک',
+    title_en: 'Reverse Navigation from Card View to Physical View with Eye Icon & Rotating Neon Hardware Beam',
+    changes: [
+      'افزودن آیکون چشم (Eye Icon) در بالای کارت دیوایس‌ها در نمای کارتی و همچنین دکمه اکشن «فیزیکی» در بخش پایینی کارت جهت جابجایی بلادرنگ به نمای فیزیکی.',
+      'مکان‌یابی هوشمند دیوایس در نمای فیزیکی: هدایت بوم به سمت رک مدنظر (در صورت نصب بودن دستگاه در رک) یا شاسی مستقل دستگاه و فعال‌سازی افکت نئونی چرخشی ۳ ثانیه‌ای دور تا دور اسلات یا شاسی سخت‌افزاری.',
+      'افزودن نشان متحرک هدف (Target Hardware Badge) روی اسلات رک یا شاسی دستگاه در نمای فیزیکی جهت تشخیص فوری سخت‌افزار مدنظر.',
+      'پشتیبانی از نمای فیزیکی بر مبنای ساختمان و طبقات با اسکرول خودکار و اعمال کادر نئونی چرخشی روی کارت دستگاه در پنل فیزیکی.'
+    ],
+    changes_en: [
+      'Added a dedicated Eye icon in the device card header and a "Physical" action button in Card View for instant reverse navigation to the Physical View.',
+      'Intelligent physical device localization: automatically pans the viewport to the host rack cabinet (if mounted) or standalone chassis and ignites the 3-second rotating neon border beam around the hardware slot.',
+      'Integrated floating "Target Hardware" badge on the targeted rack slot or physical chassis for immediate visual recognition.',
+      'Full compatibility with building and floor physical view, featuring smooth auto-scroll and rotating neon border beam on equipment hierarchy cards.'
+    ]
+  },
   {
     version: '1.34.1',
     releaseDate: '2026-09-12',

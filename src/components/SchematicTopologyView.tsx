@@ -2343,6 +2343,132 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     ]
   );
 
+  // Switch to Physical View with 3-second random neon border animation for the selected device
+  const handleSwitchToPhysicalWithHighlight = useCallback(
+    (node: TopologyNode | Device) => {
+      const cleanId = (node.id || '').replace(/^hw-/, '');
+      const rawId = node.id || '';
+      const aliases = [node.id, cleanId, `hw-${cleanId}`];
+
+      // Check if device is mounted in any rack in current custom map
+      const targetRack = (currentCustomMap?.racks || []).find((rack) =>
+        (rack.devices || []).some(
+          (d) =>
+            d.id === node.id ||
+            d.id === cleanId ||
+            d.id === `hw-${cleanId}` ||
+            (d.name && node.name && d.name.trim().toLowerCase() === node.name.trim().toLowerCase()) ||
+            (d.ip && node.ip && d.ip.trim() === node.ip.trim())
+        )
+      );
+
+      // Trigger 3-second neon highlight
+      triggerCardNeonHighlight(node.id, {
+        name: node.name,
+        ip: node.ip,
+        aliases,
+      });
+      setSelectedNodeId(node.id);
+
+      if (targetRack) {
+        // Switch to Physical View on Canvas
+        setViewMode('schematic');
+        setGlobalDeviceViewMode('physical');
+        setInspectingRack(null);
+        setInspectingRackId(null);
+
+        // Center on the target rack
+        const rackHeight = 52 + targetRack.units * 28 + 40;
+        const rackCenterX = targetRack.x + 215;
+        const rackCenterY = targetRack.y + rackHeight / 2;
+        const containerWidth = containerRef.current?.clientWidth || window.innerWidth || 1000;
+        const containerHeight = containerRef.current?.clientHeight || window.innerHeight || 700;
+        const targetZoom = Math.max(0.75, Math.min(1.15, zoom || 1));
+
+        setZoom(targetZoom);
+        setPan({
+          x: Math.round(containerWidth / 2 - rackCenterX * targetZoom),
+          y: Math.round(containerHeight / 2 - rackCenterY * targetZoom),
+        });
+
+        const mountedDev = targetRack.devices.find(
+          (d) =>
+            d.id === node.id ||
+            d.id === cleanId ||
+            d.id === `hw-${cleanId}` ||
+            (d.name && node.name && d.name.trim().toLowerCase() === node.name.trim().toLowerCase())
+        );
+        const uLabel = mountedDev ? ` (یونیت ${mountedDev.startU})` : '';
+        const uLabelEn = mountedDev ? ` (Unit U${mountedDev.startU})` : '';
+
+        setFeedbackToast({
+          type: 'success',
+          message: isEn
+            ? `Switched to Physical View: Located "${node.name}" in Rack "${targetRack.name}"${uLabelEn}.`
+            : `انتقال به نمای فیزیکی: مکان‌یابی «${node.name}» در رک «${targetRack.name}»${uLabel}.`,
+        });
+      } else if (activeMapId !== 'default' && (currentCustomMap?.racks && currentCustomMap.racks.length > 0)) {
+        // Custom map with racks exists, device is placed as a physical chassis on canvas
+        setViewMode('schematic');
+        setGlobalDeviceViewMode('physical');
+
+        const pos =
+          customPositions[node.id] ||
+          customPositions[cleanId] ||
+          (currentCustomMap?.devicePositions &&
+            (currentCustomMap.devicePositions[node.id] || currentCustomMap.devicePositions[cleanId])) ||
+          nodePositions.get(node.id) ||
+          nodePositions.get(cleanId);
+
+        if (pos) {
+          const containerWidth = containerRef.current?.clientWidth || window.innerWidth || 1000;
+          const containerHeight = containerRef.current?.clientHeight || window.innerHeight || 700;
+          const targetZoom = Math.max(0.75, Math.min(1.15, zoom || 1));
+          setZoom(targetZoom);
+          setPan({
+            x: Math.round(containerWidth / 2 - (pos.x + 170) * targetZoom),
+            y: Math.round(containerHeight / 2 - (pos.y + 120) * targetZoom),
+          });
+        }
+
+        setFeedbackToast({
+          type: 'success',
+          message: isEn
+            ? `Switched to Physical View: Located "${node.name}" chassis on canvas.`
+            : `انتقال به نمای فیزیکی: مکان‌یابی شاسی «${node.name}» روی بوم.`,
+        });
+      } else {
+        // Building & Floor Physical View (or Default Map without custom racks)
+        setViewMode('physical');
+
+        setTimeout(() => {
+          const el =
+            document.getElementById(`physical-device-${node.id}`) ||
+            document.getElementById(`physical-device-${cleanId}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 120);
+
+        setFeedbackToast({
+          type: 'success',
+          message: isEn
+            ? `Switched to Physical View: Located "${node.name}" in building/floor equipment hierarchy.`
+            : `انتقال به نمای فیزیکی: مکان‌یابی «${node.name}» در طبقه‌بندی فیزیکی ساختمان و طبقات.`,
+        });
+      }
+    },
+    [
+      currentCustomMap,
+      activeMapId,
+      triggerCardNeonHighlight,
+      zoom,
+      customPositions,
+      nodePositions,
+      isEn,
+    ]
+  );
+
   // Navigate to Card View for a rack-mounted device to examine cabling and port connections
   const handleViewDeviceInCardMode = useCallback(
     (dev: MountedHardwareDevice, rack: CustomTopologyRack) => {
@@ -2956,10 +3082,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   ) => {
     const isBeingDragged = draggedDevice?.id === device.id;
     const isCurrentlyMoving = movingDeviceId === device.id;
+    const cleanDeviceId = device.id.replace(/^hw-/, '');
+    const isNeonHighlighted =
+      neonHighlightedNode !== null &&
+      (
+        neonHighlightedNode.matchedAliases.includes(device.id) ||
+        neonHighlightedNode.matchedAliases.includes(cleanDeviceId) ||
+        neonHighlightedNode.matchedAliases.includes(`hw-${cleanDeviceId}`) ||
+        (neonHighlightedNode.targetName && device.name && device.name.trim().toLowerCase() === neonHighlightedNode.targetName) ||
+        (neonHighlightedNode.targetIp && device.ip && device.ip.trim() === neonHighlightedNode.targetIp)
+      );
 
     return (
       <div
         key={device.id}
+        id={`physical-device-${device.id}`}
         draggable={!movingDeviceId}
         onDragStart={(e) => {
           e.stopPropagation();
@@ -2991,8 +3128,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           setDragOverTarget(null);
         }}
         onClick={() => setSelectedNodeId(device.id)}
-        className={`p-3 rounded-xl border transition shadow-lg backdrop-blur-xl select-none ${
-          isBeingDragged
+        className={`p-3 rounded-xl border transition-all shadow-lg backdrop-blur-xl select-none relative ${
+          isNeonHighlighted
+            ? 'neon-card-beam-active ring-2 ring-offset-1 ring-offset-slate-950 scale-102 z-30'
+            : isBeingDragged
             ? 'opacity-30 border-dashed border-cyan-400 ring-2 ring-cyan-400/40 scale-95 cursor-grabbing'
             : selectedNodeId === device.id
             ? 'spatial-glass border-cyan-400 ring-2 ring-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.3)] cursor-grab hover:shadow-2xl'
@@ -3000,7 +3139,89 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             ? 'spatial-glass spatial-glass-hover border-white/10 cursor-grab hover:shadow-2xl'
             : 'spatial-glass border-rose-500/30 bg-rose-950/20 cursor-grab'
         }`}
+        style={
+          isNeonHighlighted && neonHighlightedNode
+            ? {
+                borderColor: neonHighlightedNode.colorHex,
+                boxShadow: `0 0 14px rgba(${neonHighlightedNode.colorRgb}, 0.35), 0 4px 18px rgba(0, 0, 0, 0.6)`,
+                ['--neon-color' as any]: neonHighlightedNode.colorHex,
+                ['--neon-rgb' as any]: neonHighlightedNode.colorRgb,
+              }
+            : undefined
+        }
       >
+        {/* Rotating Neon Border Beam travelling cleanly around the card border */}
+        {isNeonHighlighted && neonHighlightedNode && (
+          <div className="absolute -inset-[3px] pointer-events-none rounded-[14px] overflow-hidden z-40">
+            <svg className="w-full h-full overflow-visible" preserveAspectRatio="none">
+              <defs>
+                <filter id={`neon-beam-glow-physcard-${device.id}`} x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="2.5" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              <rect
+                x="1.5"
+                y="1.5"
+                width="calc(100% - 3px)"
+                height="calc(100% - 3px)"
+                rx="13"
+                fill="none"
+                stroke={neonHighlightedNode.colorHex}
+                strokeOpacity="0.25"
+                strokeWidth="1.5"
+              />
+              <rect
+                x="1.5"
+                y="1.5"
+                width="calc(100% - 3px)"
+                height="calc(100% - 3px)"
+                rx="13"
+                fill="none"
+                stroke={neonHighlightedNode.colorHex}
+                strokeWidth="3.5"
+                pathLength="100"
+                strokeDasharray="25 75"
+                strokeLinecap="round"
+                className="neon-border-beam-anim"
+                filter={`url(#neon-beam-glow-physcard-${device.id})`}
+              />
+              <rect
+                x="1.5"
+                y="1.5"
+                width="calc(100% - 3px)"
+                height="calc(100% - 3px)"
+                rx="13"
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth="2"
+                pathLength="100"
+                strokeDasharray="12 88"
+                strokeLinecap="round"
+                className="neon-border-beam-anim"
+              />
+            </svg>
+          </div>
+        )}
+
+        {/* Floating Target Badge indicator */}
+        {isNeonHighlighted && neonHighlightedNode && (
+          <div
+            className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono flex items-center gap-1 shadow-xl pointer-events-none z-50 whitespace-nowrap border border-white/60"
+            style={{
+              backgroundColor: neonHighlightedNode.colorHex,
+              color: ['#ffff00', '#ffee00', '#39ff14', '#00ffd5'].includes(neonHighlightedNode.colorHex) ? '#020617' : '#ffffff',
+              boxShadow: `0 0 10px ${neonHighlightedNode.colorHex}`,
+            }}
+          >
+            <Sparkles className="w-3 h-3 animate-spin" />
+            <span>{isEn ? 'Target Device' : 'تجهیز هدف'}</span>
+            <span className="text-[9px] opacity-85 px-1 py-0.2 rounded bg-black/40 font-mono">3s</span>
+          </div>
+        )}
         {/* Card Header with Grip Handle */}
         <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -4162,6 +4383,18 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     >
                       <RackCabinetSvg
                         rack={rack}
+                        selectedDeviceId={selectedNodeId}
+                        neonHighlight={
+                          neonHighlightedNode
+                            ? {
+                                targetAliases: neonHighlightedNode.matchedAliases,
+                                colorHex: neonHighlightedNode.colorHex,
+                                colorRgb: neonHighlightedNode.colorRgb,
+                                targetName: neonHighlightedNode.targetName,
+                                targetIp: neonHighlightedNode.targetIp,
+                              }
+                            : null
+                        }
                         onToggleViewMode={handleToggleRackViewMode}
                         onOpenAddHardware={handleOpenAddHardware}
                         onInspectRack={(r) => {
@@ -4227,6 +4460,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   const displayMode = globalDeviceViewMode;
 
                   if (displayMode === 'physical') {
+                    const isCanvasNeonHighlighted =
+                      neonHighlightedNode !== null &&
+                      (
+                        neonHighlightedNode.matchedAliases.includes(node.id) ||
+                        neonHighlightedNode.matchedAliases.includes(node.id.replace(/^hw-/, '')) ||
+                        neonHighlightedNode.matchedAliases.includes(`hw-${node.id.replace(/^hw-/, '')}`) ||
+                        (neonHighlightedNode.targetName && node.name && node.name.trim().toLowerCase() === neonHighlightedNode.targetName) ||
+                        (neonHighlightedNode.targetIp && node.ip && node.ip.trim() === neonHighlightedNode.targetIp)
+                      );
+
                     return (
                       <foreignObject
                         key={node.id}
@@ -4234,10 +4477,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                         y={pos.y}
                         width="380"
                         height="240"
-                        className={`overflow-visible interactive-node ${isHovered || isBeingDragged ? 'z-50' : 'z-20'}`}
+                        className={`overflow-visible interactive-node ${isCanvasNeonHighlighted ? 'z-[100]' : isHovered || isBeingDragged ? 'z-50' : 'z-20'}`}
                         style={{
                           overflow: 'visible',
-                          zIndex: isHovered || isBeingDragged ? 9999 : isSelected ? 80 : 20,
+                          zIndex: isCanvasNeonHighlighted ? 99999 : isHovered || isBeingDragged ? 9999 : isSelected ? 80 : 20,
                         }}
                         onMouseEnter={() => setHoveredNodeId(node.id)}
                         onMouseLeave={() => setHoveredNodeId((curr) => (curr === node.id ? null : curr))}
@@ -4248,6 +4491,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           isRtl={isRtl}
                           isBeingDragged={isBeingDragged}
                           isSelected={isSelected}
+                          isNeonHighlighted={isCanvasNeonHighlighted}
+                          neonColorHex={neonHighlightedNode?.colorHex}
+                          neonColorRgb={neonHighlightedNode?.colorRgb}
                           racks={currentCustomMap?.racks || []}
                           onToggleToCardView={(id) => handleSwitchToCardWithHighlight(id || node.id)}
                           onMountToRack={(rackId, startU) => handleMountCanvasNodeToRack(node, rackId, startU)}
@@ -4432,7 +4678,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           )}
                         </div>
 
-                        {/* Status Pulse & Remove Button */}
+                        {/* Status Pulse, Eye (Physical View) & Remove Button */}
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <span
                             className={`w-2 h-2 rounded-full ${
@@ -4450,6 +4696,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           >
                             {isOnline ? `${node.latency_ms || 1.2}ms` : 'OFF'}
                           </span>
+
+                          {/* Eye button: Switch to Physical View and highlight this device */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSwitchToPhysicalWithHighlight(node);
+                            }}
+                            className="p-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/15 border border-transparent hover:border-cyan-500/30 transition-all cursor-pointer group/eye flex items-center justify-center"
+                            title={isEn ? 'View and locate in Physical View & Rack' : 'مشاهده و مکان‌یابی در نمای فیزیکی و رک'}
+                            aria-label={isEn ? 'View in Physical' : 'مشاهده در نمای فیزیکی'}
+                          >
+                            <Eye className="w-3.5 h-3.5 text-slate-400 group-hover/eye:text-cyan-300 transition-transform group-hover/eye:scale-110" />
+                          </button>
 
                           {activeMapId !== 'default' && (
                             <button
@@ -4492,6 +4752,18 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           )}
                         </div>
                         <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSwitchToPhysicalWithHighlight(node);
+                            }}
+                            className="text-amber-400 hover:text-amber-300 font-medium flex items-center gap-0.5 hover:underline cursor-pointer"
+                            title={isEn ? "View in Physical View & Rack" : "مشاهده در نمای فیزیکی"}
+                          >
+                            <Eye className="w-3 h-3 text-amber-400" />
+                            <span>{isEn ? 'Physical' : 'فیزیکی'}</span>
+                          </button>
                           {activeMapId !== 'default' && (
                             <button
                               type="button"

@@ -17,6 +17,7 @@ import {
   Plus,
   ArrowRightLeft,
   Settings,
+  Sparkles,
 } from 'lucide-react';
 
 interface PhysicalNodeOnCanvasProps {
@@ -25,6 +26,9 @@ interface PhysicalNodeOnCanvasProps {
   isRtl: boolean;
   isBeingDragged: boolean;
   isSelected: boolean;
+  isNeonHighlighted?: boolean;
+  neonColorHex?: string;
+  neonColorRgb?: string;
   racks: CustomTopologyRack[];
   onToggleToCardView: (nodeId?: string) => void;
   onMountToRack: (rackId: string, startU: number) => void;
@@ -171,6 +175,9 @@ export const PhysicalNodeOnCanvas: React.FC<PhysicalNodeOnCanvasProps> = ({
   isRtl,
   isBeingDragged,
   isSelected,
+  isNeonHighlighted = false,
+  neonColorHex,
+  neonColorRgb,
   racks,
   onToggleToCardView,
   onMountToRack,
@@ -207,14 +214,99 @@ export const PhysicalNodeOnCanvas: React.FC<PhysicalNodeOnCanvasProps> = ({
         onToggleToCardView(node.id);
       }}
       title={isEn ? 'Double-click to switch to Card View' : 'برای انتقال به نمای کارت دوبار کلیک کنید'}
-      className={`w-[340px] rounded-xl border transition-shadow select-none text-right backdrop-blur-xl group relative ${
-        isBeingDragged
+      className={`w-[340px] rounded-xl border transition-all select-none text-right backdrop-blur-xl group relative ${
+        isNeonHighlighted
+          ? 'neon-card-beam-active ring-2 ring-offset-1 ring-offset-slate-950 scale-102 z-50'
+          : isBeingDragged
           ? 'spatial-glass border-cyan-400 ring-2 ring-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.6)] cursor-grabbing z-40 scale-102'
           : isSelected
           ? 'spatial-glass border-cyan-400 ring-2 ring-cyan-500/40 shadow-[0_0_20px_rgba(6,182,212,0.35)] cursor-grab z-30'
           : 'spatial-glass border-white/15 bg-slate-950/85 hover:border-indigo-500/40 cursor-grab hover:shadow-2xl'
       }`}
+      style={
+        isNeonHighlighted && neonColorHex
+          ? {
+              borderColor: neonColorHex,
+              boxShadow: `0 0 14px rgba(${neonColorRgb || '0,255,213'}, 0.35), 0 4px 18px rgba(0, 0, 0, 0.6)`,
+              ['--neon-color' as any]: neonColorHex,
+              ['--neon-rgb' as any]: neonColorRgb,
+            }
+          : undefined
+      }
     >
+      {/* Rotating Neon Border Beam travelling cleanly around the chassis border */}
+      {isNeonHighlighted && neonColorHex && (
+        <div className="absolute -inset-[3px] pointer-events-none rounded-[14px] overflow-hidden z-40">
+          <svg className="w-full h-full overflow-visible" preserveAspectRatio="none">
+            <defs>
+              <filter id={`neon-beam-glow-chassis-${node.id}`} x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="2.5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <rect
+              x="1.5"
+              y="1.5"
+              width="calc(100% - 3px)"
+              height="calc(100% - 3px)"
+              rx="13"
+              fill="none"
+              stroke={neonColorHex}
+              strokeOpacity="0.25"
+              strokeWidth="1.5"
+            />
+            <rect
+              x="1.5"
+              y="1.5"
+              width="calc(100% - 3px)"
+              height="calc(100% - 3px)"
+              rx="13"
+              fill="none"
+              stroke={neonColorHex}
+              strokeWidth="3.5"
+              pathLength="100"
+              strokeDasharray="25 75"
+              strokeLinecap="round"
+              className="neon-border-beam-anim"
+              filter={`url(#neon-beam-glow-chassis-${node.id})`}
+            />
+            <rect
+              x="1.5"
+              y="1.5"
+              width="calc(100% - 3px)"
+              height="calc(100% - 3px)"
+              rx="13"
+              fill="none"
+              stroke="#ffffff"
+              strokeWidth="2"
+              pathLength="100"
+              strokeDasharray="12 88"
+              strokeLinecap="round"
+              className="neon-border-beam-anim"
+            />
+          </svg>
+        </div>
+      )}
+
+      {/* Floating Target Badge indicator */}
+      {isNeonHighlighted && neonColorHex && (
+        <div
+          className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono flex items-center gap-1 shadow-xl pointer-events-none z-50 whitespace-nowrap border border-white/60"
+          style={{
+            backgroundColor: neonColorHex,
+            color: ['#ffff00', '#ffee00', '#39ff14', '#00ffd5'].includes(neonColorHex) ? '#020617' : '#ffffff',
+            boxShadow: `0 0 10px ${neonColorHex}`,
+          }}
+        >
+          <Sparkles className="w-3 h-3 animate-spin" />
+          <span>{isEn ? 'Target Hardware' : 'شاسی هدف'}</span>
+          <span className="text-[9px] opacity-85 px-1 py-0.2 rounded bg-black/40 font-mono">3s</span>
+        </div>
+      )}
+
       {/* Drag Handle Tooltip Badge */}
       <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-slate-900/95 border border-white/20 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[9px] font-mono pointer-events-none shadow-md z-30">
         <Move className="w-2.5 h-2.5 text-cyan-400" />
