@@ -31,7 +31,7 @@ cat << "EOF"
   ██║ ╚████║███████╗   ██║      ██║   ╚██████╔╝██║     ╚██████╔╝
   ╚═╝  ╚═══╝╚══════╝   ╚═╝      ╚═╝    ╚═════╝ ╚═╝      ╚═════╝ 
         CISCO NETWORK TOPOLOGY PANEL - VPS UNINSTALLER
-        Repository: https://github.com/shahbazimasoud/NetTopology
+        Repository: https://github.com/shahbazimasoud/Net-Management
         Developer: Masoud Shahbazi (https://www.linkedin.com/in/masoudshahbazi/)
 ======================================================================
 EOF

@@ -1,11 +1,11 @@
 # NetTopology 🌐
 
-[![Version](https://img.shields.io/badge/version-1.11.0-blue.svg)](https://github.com/shahbazimasoud/NetTopology)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/shahbazimasoud/NetTopology)
+[![Version](https://img.shields.io/badge/version-1.37.1-blue.svg)](https://github.com/shahbazimasoud/Net-Management)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/shahbazimasoud/Net-Management)
 [![Node](https://img.shields.io/badge/node-20%2B%20%7C%2022%20LTS-brightgreen.svg)](https://nodejs.org)
 
-سامانه جامع مدیریت، مانیتورینگ توپولوژی شبکه و مدیریت تجهیزات سیسکو (سویچ و روتر) - نسخه ۱.۱۱.۰
-A Comprehensive Network Topology, Cisco Switch/Router Management & Visual Configuration Platform - Version 1.11.0
+سامانه جامع مدیریت، مانیتورینگ توپولوژی شبکه و مدیریت تجهیزات سیسکو (سویچ و روتر) - نسخه ۱.۳۷.۱
+A Comprehensive Network Topology, Cisco Switch/Router Management & Visual Configuration Platform - Version 1.37.1
 
 ---
 
@@ -181,7 +181,7 @@ A Comprehensive Network Topology, Cisco Switch/Router Management & Visual Config
 دقیقاً مشابه سیستم Matrix Stack Manager، می‌توانید این سامانه را با یک خط دستور به صورت خودکار، کامل و بی‌نقص روی سرورهای ابری، VPS یا ماشین‌های لینوکسی (Ubuntu 20.04/22.04/24.04 یا Debian 11/12) نصب و پیکربندی کنید:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/setup-panel.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/setup-panel.sh | sudo bash
 ```
 
 #### قابلیت‌های اسکریپت نصب `setup-panel.sh`:
@@ -203,7 +203,7 @@ curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/se
 ### ۲. حذف کامل یا پاک‌سازی پنل (Uninstaller)
 برای حذف کامل پنل به همراه بک‌آپ‌گیری امن از داده‌های شبکه:
 ```bash
-curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/uninstall-panel.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/uninstall-panel.sh | sudo bash
 ```
 
 ---
@@ -211,8 +211,8 @@ curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/un
 ### ۳. نصب دستی از طریق سورس‌کد
 ```bash
 # کلون کردن ریپازیتوری
-git clone https://github.com/shahbazimasoud/NetTopology.git
-cd NetTopology
+git clone https://github.com/shahbazimasoud/Net-Management.git
+cd Net-Management
 
 # اجرای اسکریپت راه‌اندازی محلی
 sudo bash setup-panel.sh
@@ -494,7 +494,7 @@ npm start
 Just like Matrix Stack Manager, you can deploy NetTopology to any Ubuntu 20.04/22.04/24.04 or Debian 11/12 VPS/Dedicated server with a single terminal command:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/setup-panel.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/setup-panel.sh | sudo bash
 ```
 
 #### Installer Features:
@@ -515,7 +515,7 @@ curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/se
 ### 2. Complete Uninstallation & Cleanup
 To cleanly remove NetTopology while safeguarding database backups:
 ```bash
-curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/uninstall-panel.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/uninstall-panel.sh | sudo bash
 ```
 
 ---
@@ -523,8 +523,8 @@ curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/un
 ### 3. Manual Local Installation
 ```bash
 # Clone the repository
-git clone https://github.com/shahbazimasoud/NetTopology.git
-cd NetTopology
+git clone https://github.com/shahbazimasoud/Net-Management.git
+cd Net-Management
 
 # Run automated local setup:
 sudo bash setup-panel.sh

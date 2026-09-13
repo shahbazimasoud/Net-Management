@@ -45,7 +45,7 @@ cat << "EOF"
         CISCO NETWORK TOPOLOGY & PORT SECURITY MANAGEMENT PANEL
         Version: 1.9.0 (Production Stable)
         Developer: Masoud Shahbazi (https://www.linkedin.com/in/masoudshahbazi/)
-        Repository: https://github.com/shahbazimasoud/NetTopology
+        Repository: https://github.com/shahbazimasoud/Net-Management
 ======================================================================
 EOF
 echo -e "${NC}"
@@ -53,7 +53,7 @@ echo -e "${NC}"
 # Check privileges
 if [ "$EUID" -ne 0 ]; then
   log_error "Please run this installer as root (using sudo)."
-  echo -e "${YELLOW}Usage:${NC} curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/setup-panel.sh | sudo bash"
+  echo -e "${YELLOW}Usage:${NC} curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/setup-panel.sh | sudo bash"
   echo -e "${YELLOW}Or locally:${NC} sudo bash setup-panel.sh"
   exit 1
 fi
@@ -251,7 +251,7 @@ if [ "$(pwd)" != "$INSTALL_DIR" ]; then
     cd "$INSTALL_DIR"
     if ! git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 fetch --all; then
       log_warning "Git fetch failed. Trying fallback mirror..."
-      git remote set-url origin https://mirror.ghproxy.com/https://github.com/shahbazimasoud/NetTopology.git
+      git remote set-url origin https://mirror.ghproxy.com/https://github.com/shahbazimasoud/Net-Management.git
       git fetch --all || true
     fi
     git reset --hard origin/master || git reset --hard origin/main || true
@@ -261,14 +261,14 @@ if [ "$(pwd)" != "$INSTALL_DIR" ]; then
 
     # Try 1: Direct Git Clone
     log_info "Attempt 1: Direct git clone from GitHub..."
-    if git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 clone https://github.com/shahbazimasoud/NetTopology.git "$INSTALL_DIR"; then
+    if git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 clone https://github.com/shahbazimasoud/Net-Management.git "$INSTALL_DIR"; then
       CLONE_SUCCESS=true
     fi
 
     # Try 2: Mirror Proxy Clone
     if [ "$CLONE_SUCCESS" = false ]; then
       log_warning "Direct git clone failed. Attempt 2: Cloning via GitHub Mirror Proxy..."
-      if git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 clone https://mirror.ghproxy.com/https://github.com/shahbazimasoud/NetTopology.git "$INSTALL_DIR"; then
+      if git -c network.maxSubmissions=1 -c network.lowSpeedLimit=1000 -c network.lowSpeedTime=30 clone https://mirror.ghproxy.com/https://github.com/shahbazimasoud/Net-Management.git "$INSTALL_DIR"; then
         CLONE_SUCCESS=true
       fi
     fi
@@ -278,11 +278,11 @@ if [ "$(pwd)" != "$INSTALL_DIR" ]; then
       log_warning "Attempt 3: Downloading repository ZIP archive..."
       apt-get install -y unzip || true
       rm -f /tmp/NetTopology.zip
-      if curl -f -sSL --connect-timeout 20 --max-time 120 -o /tmp/NetTopology.zip https://github.com/shahbazimasoud/NetTopology/archive/refs/heads/master.zip || \
-         curl -f -sSL --connect-timeout 20 --max-time 120 -o /tmp/NetTopology.zip https://mirror.ghproxy.com/https://github.com/shahbazimasoud/NetTopology/archive/refs/heads/master.zip; then
+      if curl -f -sSL --connect-timeout 20 --max-time 120 -o /tmp/NetTopology.zip https://github.com/shahbazimasoud/Net-Management/archive/refs/heads/master.zip || \
+         curl -f -sSL --connect-timeout 20 --max-time 120 -o /tmp/NetTopology.zip https://mirror.ghproxy.com/https://github.com/shahbazimasoud/Net-Management/archive/refs/heads/master.zip; then
         mkdir -p /tmp/nettop-extracted
         unzip -q -o /tmp/NetTopology.zip -d /tmp/nettop-extracted
-        mv /tmp/nettop-extracted/NetTopology-master/* "$INSTALL_DIR/" || cp -r /tmp/nettop-extracted/NetTopology-master/* "$INSTALL_DIR/" || true
+        mv /tmp/nettop-extracted/Net-Management-master/* "$INSTALL_DIR/" || mv /tmp/nettop-extracted/NetTopology-master/* "$INSTALL_DIR/" || cp -r /tmp/nettop-extracted/*/* "$INSTALL_DIR/" || true
         rm -rf /tmp/nettop-extracted /tmp/NetTopology.zip
         CLONE_SUCCESS=true
       fi
@@ -529,5 +529,5 @@ echo -e "     • View Live Logs: ${YELLOW}journalctl -u nettopology -f -n 50${N
 echo -e "     • Stop Service:   ${YELLOW}systemctl stop nettopology && systemctl stop nginx${NC}"
 echo -e ""
 echo -e "  🗑️  ${BOLD}To Uninstall:${NC}"
-echo -e "     ${RED}curl -sSL https://raw.githubusercontent.com/shahbazimasoud/NetTopology/master/uninstall-panel.sh | sudo bash${NC}"
+echo -e "     ${RED}curl -sSL https://raw.githubusercontent.com/shahbazimasoud/Net-Management/master/uninstall-panel.sh | sudo bash${NC}"
 echo -e "${CYAN}======================================================================${NC}"

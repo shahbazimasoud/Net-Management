@@ -23,7 +23,7 @@ This file defines mandatory operational directives for all AI models, coding age
 ## ۲. گردش کار خودکار گیت (Git Auto-Commit & Push)
 
 - **کامیت و پوش خودکار:** پس از اتمام اعمال تغییرات درخواستی کاربر و به‌روزرسانی مستندات، هوش مصنوعی باید تغییرات را با یک کامیت‌مسیج توصیفی به زبان فارسی/انگلیسی کامیت کرده و بلافاصله به برنچ `master` گیت‌هاب پوش کند (`git push origin master`).
-- **مخزن هدف:** ریموت `origin` روی مخزن `shahbazimasoud/NetTopology` تنظیم شده است.
+- **مخزن هدف:** ریموت `origin` روی مخزن `shahbazimasoud/Net-Management` تنظیم شده است.
 
 ---
 

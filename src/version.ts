@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.37.0';
+export const APP_VERSION = '1.37.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.37.1',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'به‌روزرسانی آدرس‌های مخزن، لینک‌های نصب و حذف خودکار One-Liner و اسکریپت‌های سرور به Net-Management',
+    title_en: 'Update Repository URLs, Automated One-Liner Install/Uninstall Commands, and Server Scripts to Net-Management',
+    changes: [
+      'به‌روزرسانی کامل لینک‌های نصب تک‌خطی (One-Liner Install) با دستور curl و bash در فایل README.md بر اساس مخزن جدید Net-Management.',
+      'به‌روزرسانی دستور اسکریپت حذف و پاک‌سازی پنل (Uninstall-panel.sh) متصل به مخزن Net-Management.',
+      'اصلاح آدرس‌های گیت کلون، سورس‌های پشتیبان ZIP و پروکسی‌های آینه در اسکریپت setup-panel.sh و uninstall-panel.sh.',
+      'به‌روزرسانی نشان‌ها (Badges) و دستورالعمل‌های کامیت گیت در مستندات AI_INSTRUCTIONS.md.'
+    ],
+    changes_en: [
+      'Updated automated one-liner curl installation commands in README.md to reference the Net-Management repository.',
+      'Updated the automated uninstallation suite command (uninstall-panel.sh) linked to the Net-Management repository.',
+      'Adjusted git clone targets, mirror proxies, and fallback ZIP download URLs in setup-panel.sh and uninstall-panel.sh.',
+      'Updated repository badges and git workflow references in AI_INSTRUCTIONS.md.'
+    ]
+  },
   {
     version: '1.37.0',
     releaseDate: '2026-09-13',
