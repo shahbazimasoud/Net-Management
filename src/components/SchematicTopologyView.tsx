@@ -43,7 +43,8 @@ import {
   StickyNote,
   EyeOff,
   Activity,
-  Sparkles
+  Sparkles,
+  Radio
 } from 'lucide-react';
 import {
   TopologyData,
@@ -60,7 +61,10 @@ import {
   MountedHardwareDevice,
   RackViewMode,
   CustomTopologyStickyNote,
-  DeviceCanvasDisplayMode
+  DeviceCanvasDisplayMode,
+  CustomTopologyTower,
+  MountedTowerDevice,
+  TowerType
 } from '../types';
 import { useLanguage } from '../i18n';
 import { updateDevice } from '../services/api';
@@ -78,6 +82,9 @@ import { TopologyStickyNote } from './rack/TopologyStickyNote';
 import { PhysicalNodeOnCanvas, convertNodeToHardwareDevice } from './rack/PhysicalNodeOnCanvas';
 import { DeleteConfirmModal, DeleteTarget } from './DeleteConfirmModal';
 import { EditDeviceModal } from './EditDeviceModal';
+import { AddTowerModal } from './rack/AddTowerModal';
+import { MountRadioOnTowerModal } from './rack/MountRadioOnTowerModal';
+import { TowerStructureSvg } from './rack/TowerStructureSvg';
 
 interface SchematicTopologyViewProps {
   topology: TopologyData | null;
@@ -325,6 +332,15 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     : inspectingRack;
   const [draggingRackId, setDraggingRackId] = useState<string | null>(null);
   const dragRackOffset = useRef({ offsetX: 0, offsetY: 0, startClientX: 0, startClientY: 0, moved: false });
+
+  // Telecom Tower & Mast States
+  const [isAddTowerOpen, setIsAddTowerOpen] = useState(false);
+  const [editingTower, setEditingTower] = useState<CustomTopologyTower | null>(null);
+  const [isMountRadioOpen, setIsMountRadioOpen] = useState(false);
+  const [mountRadioTargetTowerId, setMountRadioTargetTowerId] = useState<string | null>(null);
+  const [editingRadioDevice, setEditingRadioDevice] = useState<MountedTowerDevice | null>(null);
+  const [draggingTowerId, setDraggingTowerId] = useState<string | null>(null);
+  const dragTowerOffset = useRef({ offsetX: 0, offsetY: 0, startClientX: 0, startClientY: 0, moved: false });
 
   // Deletion Confirmation Modal State
   const [deleteModalTarget, setDeleteModalTarget] = useState<DeleteTarget | null>(null);
@@ -610,12 +626,158 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       updatedAt: new Date().toISOString(),
     };
     saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    // Auto-switch view to physical mode so user immediately sees the newly created rack
+    setGlobalDeviceViewMode('physical');
     setFeedbackToast({
       type: 'success',
       message: isEn ? `Rack "${newRack.name}" added` : `رک «${newRack.name}» افزوده شد`,
     });
     setTimeout(() => setFeedbackToast(null), 3000);
   }, [currentCustomMap, customMaps, pan.x, pan.y, zoom, isEn, saveCustomMaps]);
+
+  // Tower Handlers
+  const handleCreateCustomMapTower = useCallback((towerData: Omit<CustomTopologyTower, 'id' | 'devices' | 'x' | 'y'>) => {
+    if (!currentCustomMap) return;
+    const existingTowers = currentCustomMap.towers || [];
+
+    if (existingTowers.some((t) => t.name.trim().toLowerCase() === towerData.name.trim().toLowerCase())) {
+      setFeedbackToast({
+        type: 'error',
+        message: isEn
+          ? `A tower named "${towerData.name}" already exists`
+          : `دکلی با نام «${towerData.name}» از قبل وجود دارد`,
+      });
+      setTimeout(() => setFeedbackToast(null), 3000);
+      return;
+    }
+
+    const startX = Math.round((-pan.x + 400 + existingTowers.length * 350) / zoom);
+    const startY = Math.round((-pan.y + 120) / zoom);
+
+    const newTower: CustomTopologyTower = {
+      ...towerData,
+      id: `tower-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      x: Math.max(50, startX),
+      y: Math.max(50, startY),
+      devices: [],
+    };
+
+    const updatedMap: CustomTopologyMap = {
+      ...currentCustomMap,
+      towers: [...existingTowers, newTower],
+      updatedAt: new Date().toISOString(),
+    };
+    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    setGlobalDeviceViewMode('physical'); // Auto-switch to physical view!
+    setFeedbackToast({
+      type: 'success',
+      message: isEn ? `Telecom tower "${newTower.name}" added` : `دکل مخابراتی «${newTower.name}» افزوده شد`,
+    });
+    setTimeout(() => setFeedbackToast(null), 3000);
+  }, [currentCustomMap, customMaps, pan.x, pan.y, zoom, isEn, saveCustomMaps]);
+
+  const handleSaveTower = useCallback((towerData: CustomTopologyTower) => {
+    if (!currentCustomMap) return;
+    const updatedTowers = (currentCustomMap.towers || []).map((t) =>
+      t.id === towerData.id ? towerData : t
+    );
+    const updatedMap: CustomTopologyMap = {
+      ...currentCustomMap,
+      towers: updatedTowers,
+      updatedAt: new Date().toISOString(),
+    };
+    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    setFeedbackToast({
+      type: 'success',
+      message: isEn ? `Tower "${towerData.name}" updated` : `مشخصات دکل «${towerData.name}» به‌روزرسانی شد`,
+    });
+    setTimeout(() => setFeedbackToast(null), 3000);
+  }, [currentCustomMap, customMaps, isEn, saveCustomMaps]);
+
+  const handleDeleteTower = useCallback((towerId: string) => {
+    if (!currentCustomMap) return;
+    const targetTower = (currentCustomMap.towers || []).find((t) => t.id === towerId);
+    if (!targetTower) return;
+
+    const isConfirmed = window.confirm(
+      isEn
+        ? `Are you sure you want to delete tower "${targetTower.name}" and its mounted radios?`
+        : `آیا از حذف دکل مخابراتی «${targetTower.name}» و رادیوهای متصل به آن اطمینان دارید؟`
+    );
+    if (!isConfirmed) return;
+
+    const updatedTowers = (currentCustomMap.towers || []).filter((t) => t.id !== towerId);
+    const updatedMap: CustomTopologyMap = {
+      ...currentCustomMap,
+      towers: updatedTowers,
+      updatedAt: new Date().toISOString(),
+    };
+    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    setFeedbackToast({
+      type: 'info',
+      message: isEn ? `Tower "${targetTower.name}" deleted` : `دکل مخابراتی «${targetTower.name}» حذف شد`,
+    });
+    setTimeout(() => setFeedbackToast(null), 3000);
+  }, [currentCustomMap, customMaps, isEn, saveCustomMaps]);
+
+  const handleOpenMountRadio = useCallback((towerId: string, deviceToEdit?: MountedTowerDevice) => {
+    setMountRadioTargetTowerId(towerId);
+    setEditingRadioDevice(deviceToEdit || null);
+    setIsMountRadioOpen(true);
+  }, []);
+
+  const handleSaveRadioOnTower = useCallback((towerId: string, radioDevice: MountedTowerDevice) => {
+    if (!currentCustomMap) return;
+    const updatedTowers = (currentCustomMap.towers || []).map((t) => {
+      if (t.id !== towerId) return t;
+      const existingDevs = t.devices || [];
+      const existsIndex = existingDevs.findIndex((d) => d.id === radioDevice.id);
+      let newDevs;
+      if (existsIndex >= 0) {
+        newDevs = existingDevs.map((d, i) => (i === existsIndex ? radioDevice : d));
+      } else {
+        newDevs = [...existingDevs, radioDevice];
+      }
+      return { ...t, devices: newDevs };
+    });
+
+    const updatedMap: CustomTopologyMap = {
+      ...currentCustomMap,
+      towers: updatedTowers,
+      updatedAt: new Date().toISOString(),
+    };
+    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    setIsMountRadioOpen(false);
+    setEditingRadioDevice(null);
+    setFeedbackToast({
+      type: 'success',
+      message: isEn ? `Radio device "${radioDevice.name}" mounted on tower` : `رادیو/آنتن «${radioDevice.name}» روی دکل نصب شد`,
+    });
+    setTimeout(() => setFeedbackToast(null), 3000);
+  }, [currentCustomMap, customMaps, isEn, saveCustomMaps]);
+
+  const handleDeleteRadioFromTower = useCallback((towerId: string, radioDeviceId: string) => {
+    if (!currentCustomMap) return;
+    const updatedTowers = (currentCustomMap.towers || []).map((t) => {
+      if (t.id !== towerId) return t;
+      return {
+        ...t,
+        devices: (t.devices || []).filter((d) => d.id !== radioDeviceId),
+      };
+    });
+
+    const updatedMap: CustomTopologyMap = {
+      ...currentCustomMap,
+      towers: updatedTowers,
+      updatedAt: new Date().toISOString(),
+    };
+    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    setFeedbackToast({
+      type: 'info',
+      message: isEn ? `Device removed from tower` : `تجهیز از روی دکل حذف شد`,
+    });
+    setTimeout(() => setFeedbackToast(null), 3000);
+  }, [currentCustomMap, customMaps, isEn, saveCustomMaps]);
 
   const handleSaveRack = useCallback(
     (updatedRack: CustomTopologyRack) => {
@@ -802,27 +964,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     setDeleteModalTarget(null);
   }, [currentCustomMap, customMaps, inspectingRack, saveCustomMaps]);
 
-  const handleRemoveDeviceFromCustomMap = useCallback((deviceId: string) => {
-    if (!currentCustomMap) return;
-    const updatedDeviceIds = currentCustomMap.deviceIds.filter((id) => id !== deviceId);
-    const updatedLinks = (currentCustomMap.links || []).filter(
-      (l) => l.sourceDeviceId !== deviceId && l.targetDeviceId !== deviceId
-    );
-    const updatedPositions = { ...currentCustomMap.devicePositions };
-    delete updatedPositions[deviceId];
-
-    const updatedMap: CustomTopologyMap = {
-      ...currentCustomMap,
-      deviceIds: updatedDeviceIds,
-      links: updatedLinks,
-      devicePositions: updatedPositions,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const newMaps = customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
-    saveCustomMaps(newMaps);
-  }, [currentCustomMap, customMaps, saveCustomMaps]);
-
   const handleSaveHardware = useCallback((rackId: string, device: MountedHardwareDevice) => {
     if (!currentCustomMap) return;
     const isEditing = Boolean(editingHardwareDevice);
@@ -994,6 +1135,36 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     setDraggingRackId(rackId);
   }, [pan.x, pan.y, zoom, currentCustomMap]);
 
+  const handleTowerMouseDown = useCallback((e: React.MouseEvent, towerId: string) => {
+    if (
+      (e.target as HTMLElement).closest('button') ||
+      (e.target as HTMLElement).closest('input') ||
+      (e.target as HTMLElement).closest('select')
+    ) {
+      return;
+    }
+    e.stopPropagation();
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const worldMouseX = (e.clientX - rect.left - pan.x) / zoom;
+    const worldMouseY = (e.clientY - rect.top - pan.y) / zoom;
+
+    const currentTower = currentCustomMap?.towers?.find((t) => t.id === towerId);
+    const currentPos = currentTower ? { x: currentTower.x, y: currentTower.y } : { x: 100, y: 100 };
+
+    dragTowerOffset.current = {
+      offsetX: worldMouseX - currentPos.x,
+      offsetY: worldMouseY - currentPos.y,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      moved: false,
+    };
+
+    setDraggingTowerId(towerId);
+  }, [pan.x, pan.y, zoom, currentCustomMap]);
+
   const handleSelectMap = (mapId: string) => {
     setActiveMapId(mapId);
     try {
@@ -1098,6 +1269,68 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     return list;
   }, [topology?.nodes, localNodes, inventoryDevices, currentCustomMap?.racks]);
 
+  const handleRemoveDeviceFromCustomMap = useCallback((deviceId: string) => {
+    if (!currentCustomMap) return;
+    const cleanId = deviceId.replace(/^hw-/, '');
+    const idsToRemove = new Set([deviceId, cleanId, `hw-${cleanId}`]);
+
+    // Match name or IP to completely remove across both Card View and Physical Racks/Towers
+    const targetNode = allAvailableDevices.find((d) => idsToRemove.has(d.id));
+    const targetName = targetNode?.name ? targetNode.name.trim().toLowerCase() : '';
+    const targetIp = targetNode?.ip ? targetNode.ip.trim() : '';
+
+    const updatedDeviceIds = (currentCustomMap.deviceIds || []).filter((id) => !idsToRemove.has(id));
+    const updatedLinks = (currentCustomMap.links || []).filter(
+      (l) => !idsToRemove.has(l.sourceDeviceId) && !idsToRemove.has(l.targetDeviceId)
+    );
+    const updatedPositions = { ...(currentCustomMap.devicePositions || {}) };
+    idsToRemove.forEach((id) => {
+      delete updatedPositions[id];
+    });
+
+    // Simultaneously remove from ALL Racks (Physical View)
+    const updatedRacks = (currentCustomMap.racks || []).map((rack) => ({
+      ...rack,
+      devices: (rack.devices || []).filter((d) => {
+        if (idsToRemove.has(d.id) || idsToRemove.has(d.id.replace(/^hw-/, ''))) return false;
+        if (targetName && d.name && d.name.trim().toLowerCase() === targetName) return false;
+        if (targetIp && d.ip && d.ip.trim() === targetIp) return false;
+        return true;
+      }),
+    }));
+
+    // Simultaneously remove from ALL Towers (Physical View)
+    const updatedTowers = (currentCustomMap.towers || []).map((tower) => ({
+      ...tower,
+      devices: (tower.devices || []).filter((d) => {
+        if (idsToRemove.has(d.id) || idsToRemove.has(d.id.replace(/^hw-/, ''))) return false;
+        if (targetName && d.name && d.name.trim().toLowerCase() === targetName) return false;
+        if (targetIp && d.ip && d.ip.trim() === targetIp) return false;
+        return true;
+      }),
+    }));
+
+    const updatedMap: CustomTopologyMap = {
+      ...currentCustomMap,
+      deviceIds: updatedDeviceIds,
+      links: updatedLinks,
+      devicePositions: updatedPositions,
+      racks: updatedRacks,
+      towers: updatedTowers,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const newMaps = customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
+    saveCustomMaps(newMaps);
+
+    if (inspectingRack) {
+      const refreshed = updatedRacks.find((r) => r.id === inspectingRack.id);
+      if (refreshed) {
+        setInspectingRack(refreshed);
+      }
+    }
+  }, [allAvailableDevices, currentCustomMap, customMaps, inspectingRack, saveCustomMaps]);
+
   const getDeviceNameById = useCallback((id: string) => {
     const found = allAvailableDevices.find((d) => d.id === id);
     return found ? found.name : id;
@@ -1106,16 +1339,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const handleConfirmDeleteDevice = useCallback(
     (deviceId: string) => {
       handleRemoveDeviceFromCustomMap(deviceId);
-      if (currentCustomMap && currentCustomMap.racks) {
-        currentCustomMap.racks.forEach((r) => {
-          if (r.devices?.some((d) => d.id === deviceId)) {
-            handleRemoveDeviceFromRack(r.id, deviceId);
-          }
-        });
-      }
       setDeleteModalTarget(null);
     },
-    [currentCustomMap, handleRemoveDeviceFromCustomMap, handleRemoveDeviceFromRack]
+    [handleRemoveDeviceFromCustomMap]
   );
 
   // Helper to find or synthesize a Device instance from a MountedHardwareDevice for inventory modal & operations
@@ -2701,6 +2927,35 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         return;
       }
 
+      // 1.6 Handling Tower Drag
+      if (draggingTowerId && containerRef.current && currentCustomMap) {
+        const dist = Math.hypot(
+          e.clientX - dragTowerOffset.current.startClientX,
+          e.clientY - dragTowerOffset.current.startClientY
+        );
+        if (dist > 3) {
+          dragTowerOffset.current.moved = true;
+        }
+
+        const rect = containerRef.current.getBoundingClientRect();
+        const worldMouseX = (e.clientX - rect.left - pan.x) / zoom;
+        const worldMouseY = (e.clientY - rect.top - pan.y) / zoom;
+
+        const newX = Math.round(worldMouseX - dragTowerOffset.current.offsetX);
+        const newY = Math.round(worldMouseY - dragTowerOffset.current.offsetY);
+
+        const updatedTowers = (currentCustomMap.towers || []).map((t) =>
+          t.id === draggingTowerId ? { ...t, x: newX, y: newY } : t
+        );
+        const updatedMap: CustomTopologyMap = {
+          ...currentCustomMap,
+          towers: updatedTowers,
+          updatedAt: new Date().toISOString(),
+        };
+        setCustomMaps((prev) => prev.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+        return;
+      }
+
       // 1.8 Handling Sticky Note Drag
       if (draggingNoteId && containerRef.current && currentCustomMap) {
         const dist = Math.hypot(
@@ -2776,6 +3031,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         setDraggingRackId(null);
       }
 
+      if (draggingTowerId) {
+        if (dragTowerOffset.current.moved && currentCustomMap) {
+          saveCustomMaps(customMaps);
+        }
+        setDraggingTowerId(null);
+      }
+
       if (draggingNoteId) {
         if (dragNoteOffset.current.moved && currentCustomMap) {
           saveCustomMaps(customMaps);
@@ -2796,7 +3058,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [draggingNodeId, draggingRackId, draggingNoteId, isPanning, panStart, pan, zoom, currentCustomMap, customMaps, saveCustomMaps, saveNodePositions, saveViewport]);
+  }, [draggingNodeId, draggingRackId, draggingTowerId, draggingNoteId, isPanning, panStart, pan, zoom, currentCustomMap, customMaps, saveCustomMaps, saveNodePositions, saveViewport]);
 
   // Mouse Wheel Zoom with cursor focal anchoring
   useEffect(() => {
@@ -3657,6 +3919,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       <span>{isEn ? 'Add Rack' : 'افزودن رک (Rack)'}</span>
                     </button>
 
+                    <button
+                      type="button"
+                      onClick={() => setIsAddTowerOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium shadow-xs transition active:scale-95 text-xs"
+                      title={isEn ? "Add telecom tower or mast (6m to 60m)" : "افزودن دکل مهاری یا خودایستا مخابراتی (۶ تا ۶۰ متر)"}
+                    >
+                      <Radio className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Add Tower' : 'افزودن دکل (Tower)'}</span>
+                    </button>
+
                     {(currentCustomMap.racks?.length || 0) > 0 && (
                       <button
                         type="button"
@@ -4325,8 +4597,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               ))}
 
               {/* Custom Map Empty State within Canvas */}
-              {activeMapId !== 'default' && filteredNodes.length === 0 && (currentCustomMap?.racks?.length || 0) === 0 && (
-                <foreignObject x={150} y={150} width={580} height={300}>
+              {activeMapId !== 'default' && filteredNodes.length === 0 && (currentCustomMap?.racks?.length || 0) === 0 && (currentCustomMap?.towers?.length || 0) === 0 && (
+                <foreignObject x={150} y={150} width={640} height={320}>
                   <div className="p-8 rounded-2xl bg-slate-900/90 border border-white/10 shadow-2xl backdrop-blur-xl text-center space-y-4">
                     <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mx-auto">
                       <Layers className="w-6 h-6" />
@@ -4339,7 +4611,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                         {t('topology_custom_empty_desc')}
                       </p>
                     </div>
-                    <div className="flex items-center justify-center gap-3">
+                    <div className="flex items-center justify-center gap-3 flex-wrap">
                       <button
                         type="button"
                         onClick={() => setIsAddDeviceOpen(true)}
@@ -4350,11 +4622,25 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setIsAddRackOpen(true)}
+                        onClick={() => {
+                          setGlobalDeviceViewMode('physical');
+                          setIsAddRackOpen(true);
+                        }}
                         className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg transition active:scale-95"
                       >
                         <Box className="w-4 h-4" />
                         <span>{isEn ? 'Add Server Rack' : 'افزودن رک سرور (Rack)'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGlobalDeviceViewMode('physical');
+                          setIsAddTowerOpen(true);
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-lg transition active:scale-95"
+                      >
+                        <Radio className="w-4 h-4" />
+                        <span>{isEn ? 'Add Telecom Tower' : 'افزودن دکل مخابراتی (Tower)'}</span>
                       </button>
                     </div>
                   </div>
@@ -4413,6 +4699,39 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                         onPromptRemoveDevice={handlePromptRemoveHardwareDevice}
                         onMoveDevice={handleMoveDeviceInRack}
                         onRemoveDevice={handleRemoveDeviceFromRack}
+                      />
+                    </div>
+                  </foreignObject>
+                );
+              })}
+
+              {/* Draw Custom Map Towers on Canvas - strictly visible in Physical view mode */}
+              {activeMapId !== 'default' && globalDeviceViewMode === 'physical' && currentCustomMap?.towers && currentCustomMap.towers.map((tower) => {
+                const isBeingDragged = draggingTowerId === tower.id;
+                const towerHeightPx = 40 + tower.heightMeters * 16 + 50;
+                return (
+                  <foreignObject
+                    key={tower.id}
+                    x={tower.x}
+                    y={tower.y}
+                    width={340}
+                    height={towerHeightPx}
+                    className="overflow-visible"
+                    style={{ overflow: 'visible' }}
+                  >
+                    <div
+                      onMouseDown={(e) => handleTowerMouseDown(e, tower.id)}
+                      className={`select-none cursor-grab active:cursor-grabbing transition-all ${
+                        isBeingDragged ? 'z-40 scale-[1.01] shadow-2xl' : 'z-20'
+                      }`}
+                    >
+                      <TowerStructureSvg
+                        tower={tower}
+                        onMountRadio={(t) => handleOpenMountRadio(t.id)}
+                        onEditTower={(t) => setEditingTower(t)}
+                        onDeleteTower={handleDeleteTower}
+                        onEditRadio={(t, dev) => handleOpenMountRadio(t.id, dev)}
+                        onDeleteRadio={(t, devId) => handleDeleteRadioFromTower(t.id, devId)}
                       />
                     </div>
                   </foreignObject>
@@ -6662,11 +6981,50 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             setEditingHardwareDevice(null);
           }}
           racks={currentCustomMap.racks || []}
+          currentMapDeviceIds={currentCustomMap.deviceIds || []}
           defaultRackId={selectedRackForHardware}
           defaultTargetU={targetUForHardware}
           editingDevice={editingHardwareDevice}
           onSaveHardware={handleSaveHardware}
           inventoryDevices={allAvailableDevices}
+        />
+      )}
+
+      {/* Telecom Tower Modals */}
+      {isAddTowerOpen && currentCustomMap && (
+        <AddTowerModal
+          isOpen={isAddTowerOpen}
+          onClose={() => {
+            setIsAddTowerOpen(false);
+            setEditingTower(null);
+          }}
+          onSave={handleCreateCustomMapTower}
+        />
+      )}
+
+      {editingTower && currentCustomMap && (
+        <AddTowerModal
+          isOpen={!!editingTower}
+          onClose={() => setEditingTower(null)}
+          onSave={(towerData) => {
+            handleSaveTower({ ...editingTower, ...towerData });
+            setEditingTower(null);
+          }}
+          initialData={editingTower}
+        />
+      )}
+
+      {isMountRadioOpen && currentCustomMap && mountRadioTargetTowerId && (
+        <MountRadioOnTowerModal
+          isOpen={isMountRadioOpen}
+          onClose={() => {
+            setIsMountRadioOpen(false);
+            setEditingRadioDevice(null);
+            setMountRadioTargetTowerId(null);
+          }}
+          tower={currentCustomMap.towers?.find((t) => t.id === mountRadioTargetTowerId)!}
+          editingDevice={editingRadioDevice}
+          onSave={(radioDev) => handleSaveRadioOnTower(mountRadioTargetTowerId, radioDev)}
         />
       )}
 

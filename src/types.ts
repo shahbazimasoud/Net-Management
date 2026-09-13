@@ -225,7 +225,39 @@ export type HardwareCategory =
   | 'fan_unit'
   | 'blank_panel'
   | 'rack_shelf'
-  | 'fiber_odf';
+  | 'fiber_odf'
+  | 'wireless_radio'
+  | 'dish_antenna'
+  | 'telecom_tower';
+
+export type TowerType = 'guyed_g35' | 'guyed_g45' | 'self_supporting_3leg' | 'self_supporting_4leg' | 'monopole';
+
+export interface MountedTowerDevice {
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+  category: 'wireless_radio' | 'dish_antenna';
+  heightMeters: number; // Elevation height on tower, e.g. 36, 30, 24, 18, 12, 6
+  azimuthDegrees?: number; // Compass heading in degrees 0° - 360°
+  azimuthLabel?: string; // e.g. "North 0°", "East 90°", "South 180°", "West 270°"
+  frequency?: string; // e.g. "5 GHz", "60 GHz", "24 GHz", "11 GHz"
+  ip?: string;
+  targetLink?: string; // e.g. "PTP to Central Branch", "Factory CCTV Link"
+  powerWatts?: number;
+  notes?: string;
+}
+
+export interface CustomTopologyTower {
+  id: string;
+  name: string;
+  type: TowerType;
+  heightMeters: number; // e.g. 18, 24, 30, 36, 42, 48, 60
+  x: number;
+  y: number;
+  devices: MountedTowerDevice[];
+  color?: string;
+}
 
 export interface MountedHardwareDevice {
   id: string;
@@ -288,6 +320,7 @@ export interface CustomTopologyMap {
   deviceIds: string[];
   links: CustomTopologyLink[];
   racks?: CustomTopologyRack[];
+  towers?: CustomTopologyTower[];
   stickyNotes?: CustomTopologyStickyNote[];
   deviceDisplayModes?: Record<string, DeviceCanvasDisplayMode>;
 }

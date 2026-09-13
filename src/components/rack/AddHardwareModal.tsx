@@ -44,6 +44,7 @@ interface AddHardwareModalProps {
   editingDevice?: MountedHardwareDevice | null;
   onSaveHardware: (rackId: string, device: MountedHardwareDevice) => void;
   inventoryDevices?: Device[];
+  currentMapDeviceIds?: string[];
 }
 
 const PORT_TYPES: NetworkPortType[] = [
@@ -69,8 +70,71 @@ export const AddHardwareModal: React.FC<AddHardwareModalProps> = ({
   editingDevice,
   onSaveHardware,
   inventoryDevices = [],
+  currentMapDeviceIds = [],
 }) => {
   const { t, isEn, isRtl } = useLanguage();
+
+  // Compute set of devices already mounted across any rack in this map
+  const mountedLookup = useMemo(() => {
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    const ips = new Set<string>();
+    const rackNameByDev = new Map<string, string>();
+
+    racks.forEach((r) => {
+      (r.devices || []).forEach((d) => {
+        ids.add(d.id);
+        const cleanId = d.id.replace(/^hw-/, '');
+        ids.add(cleanId);
+        ids.add(`hw-${cleanId}`);
+        if (d.name) {
+          const lower = d.name.trim().toLowerCase();
+          names.add(lower);
+          rackNameByDev.set(lower, r.name);
+        }
+        if (d.ip) {
+          const cleanIp = d.ip.trim();
+          ips.add(cleanIp);
+          rackNameByDev.set(cleanIp, r.name);
+        }
+        rackNameByDev.set(d.id, r.name);
+        rackNameByDev.set(cleanId, r.name);
+      });
+    });
+
+    return { ids, names, ips, rackNameByDev };
+  }, [racks]);
+
+  const mapDeviceSet = useMemo(() => {
+    return new Set(currentMapDeviceIds || []);
+  }, [currentMapDeviceIds]);
+
+  const checkDeviceIsAlreadyMounted = (dev: Device) => {
+    const cleanId = dev.id.replace(/^hw-/, '');
+    const isIdMounted =
+      mountedLookup.ids.has(dev.id) ||
+      mountedLookup.ids.has(cleanId) ||
+      mountedLookup.ids.has(`hw-${cleanId}`);
+    const isNameMounted = dev.name
+      ? mountedLookup.names.has(dev.name.trim().toLowerCase())
+      : false;
+    const isIpMounted = dev.ip ? mountedLookup.ips.has(dev.ip.trim()) : false;
+
+    const rackName =
+      mountedLookup.rackNameByDev.get(dev.id) ||
+      mountedLookup.rackNameByDev.get(cleanId) ||
+      (dev.name ? mountedLookup.rackNameByDev.get(dev.name.trim().toLowerCase()) : undefined) ||
+      (dev.ip ? mountedLookup.rackNameByDev.get(dev.ip.trim()) : undefined);
+
+    const isMounted = isIdMounted || isNameMounted || isIpMounted;
+    const isAlreadyAdded = isMounted;
+
+    return {
+      isAlreadyAdded,
+      isMounted,
+      rackName,
+    };
+  };
 
   const [sourceMode, setSourceMode] = useState<'inventory' | 'catalog'>(() => {
     return inventoryDevices.length > 0 && !editingDevice ? 'inventory' : 'catalog';
@@ -257,7 +321,10 @@ export const AddHardwareModal: React.FC<AddHardwareModalProps> = ({
       }
 
       if (inventoryDevices.length > 0 && !selectedInventoryDeviceId) {
-        handleSelectInventoryDevice(inventoryDevices[0]);
+        const firstAvailable =
+          inventoryDevices.find((d) => !checkDeviceIsAlreadyMounted(d).isAlreadyAdded) ||
+          inventoryDevices[0];
+        handleSelectInventoryDevice(firstAvailable);
         if (defaultTargetU !== undefined && defaultTargetU !== null && defaultTargetU > 0) {
           setTargetU(defaultTargetU);
         }
@@ -515,7 +582,10 @@ export const AddHardwareModal: React.FC<AddHardwareModalProps> = ({
                   onClick={() => {
                     setSourceMode('inventory');
                     if (!selectedInventoryDeviceId && inventoryDevices.length > 0) {
-                      handleSelectInventoryDevice(inventoryDevices[0]);
+                      const firstAvail =
+                        inventoryDevices.find((d) => !checkDeviceIsAlreadyMounted(d).isAlreadyAdded) ||
+                        inventoryDevices[0];
+                      handleSelectInventoryDevice(firstAvail);
                     }
                   }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
@@ -586,25 +656,56 @@ export const AddHardwareModal: React.FC<AddHardwareModalProps> = ({
                   {filteredInventoryDevices.map((dev) => {
                     const isSelected = selectedInventoryDeviceId === dev.id;
                     const hw = convertNodeToHardwareDevice(dev as unknown as TopologyNode);
+                    const devStatus = checkDeviceIsAlreadyMounted(dev);
+                    const isAlreadyAdded = devStatus.isAlreadyAdded;
 
                     return (
                       <div
                         key={dev.id}
-                        onClick={() => handleSelectInventoryDevice(dev)}
-                        className={`p-3 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between gap-2.5 ${
-                          isSelected
-                            ? 'bg-cyan-950/40 border-cyan-400 ring-2 ring-cyan-500/40 shadow-lg shadow-cyan-950/50'
-                            : 'bg-slate-950 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
+                        onClick={() => {
+                          if (!isAlreadyAdded) {
+                            handleSelectInventoryDevice(dev);
+                          }
+                        }}
+                        className={`p-3 rounded-2xl border transition-all flex flex-col justify-between gap-2.5 ${
+                          isAlreadyAdded
+                            ? 'opacity-40 bg-slate-950/40 border-slate-800/80 cursor-not-allowed select-none'
+                            : isSelected
+                            ? 'bg-cyan-950/40 border-cyan-400 ring-2 ring-cyan-500/40 shadow-lg shadow-cyan-950/50 cursor-pointer'
+                            : 'bg-slate-950 border-slate-800 hover:border-slate-700 hover:bg-slate-850 cursor-pointer'
                         }`}
                       >
                         <div>
                           <div className="flex items-center justify-between mb-1.5">
-                            <span className="font-mono font-bold text-xs text-white truncate max-w-[150px]">
+                            <span className="font-mono font-bold text-xs text-white truncate max-w-[130px]" title={dev.name}>
                               {dev.name}
                             </span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50">
-                              {hw.heightU}U
-                            </span>
+                            <div className="flex items-center gap-1">
+                              {isAlreadyAdded && (
+                                <span
+                                  className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1"
+                                  title={
+                                    devStatus.isMounted
+                                      ? isEn
+                                        ? `Device is already installed in rack: ${devStatus.rackName}`
+                                        : `این تجهیز قبلاً در رک «${devStatus.rackName}» نصب شده است`
+                                      : isEn
+                                      ? 'Device is already deployed'
+                                      : 'این تجهیز قبلاً مستقر شده است'
+                                  }
+                                >
+                                  <AlertTriangle className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                  <span className="truncate max-w-[75px]">
+                                    {devStatus.isMounted
+                                      ? devStatus.rackName || (isEn ? 'Mounted' : 'نصب شده')
+                                      : (isEn ? 'Mounted' : 'نصب شده')}
+                                  </span>
+                                </span>
+                              )}
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50">
+                                {hw.heightU}U
+                              </span>
+                            </div>
                           </div>
 
                           <div className="text-[11px] font-mono text-indigo-300 font-semibold">
@@ -633,7 +734,7 @@ export const AddHardwareModal: React.FC<AddHardwareModalProps> = ({
                           />
                         </div>
 
-                        {isSelected && (
+                        {isSelected && !isAlreadyAdded && (
                           <div className="flex items-center gap-1 text-[10px] text-cyan-300 font-bold justify-end">
                             <Check className="w-3.5 h-3.5" />
                             <span>{isEn ? 'Selected for Rack' : 'انتخاب شده جهت نصب'}</span>

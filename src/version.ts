@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.35.0';
+export const APP_VERSION = '1.36.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.36.0',
+    releaseDate: '2026-09-13',
+    type: 'minor',
+    title: 'سوییچ خودکار به نمای فیزیکی هنگام افزودن رک/دکل، حذف اتمیک دیوایس از کارت و فیزیکال، و غیرفعال‌سازی هوشمند تجهیزات نصب‌شده در اینونتوری',
+    title_en: 'Auto-Switch to Physical View on Rack/Tower Creation, Unified Atomic Device Removal Across Views, and Greying Out Mounted Inventory Equipment',
+    changes: [
+      'تغییر خودکار و بلادرنگ حالت نقشه به نمای فیزیکال (Physical View) در هنگام انتخاب و ایجاد رک یا دکل در وضعیت خالی بودن نقشه سفارشی (Custom Map Canvas is Empty).',
+      'حذف کاملاً یکپارچه و اتمیک تجهیزات در دکمه Remove from map: حذف همزمان از نمای کارتی (شناسه‌ها، پوزیشن‌ها و کابل‌های متصل) و نمای فیزیکال (تمامی اسلات‌های رک‌ها و دکل‌ها).',
+      'خاکستری شدن و غیرفعال‌سازی تجهیزات در تب تجهیزات موجود (Inventory Equipment) هنگام نصب سخت‌افزار در رک یا دکل جهت جلوگیری از انتخاب تکراری همراه با نمایش وضعیت «نصب‌شده در رک/دکل».',
+      'پشتیبانی کامل از ایجاد، جابجایی درگ‌اند‌دراپ و مدیریت دکل‌های مخابراتی (Telecom Towers & Masts) و نصب رادیوهای وایرلس روی بوم نقشه‌های سفارشی.'
+    ],
+    changes_en: [
+      'Automatic real-time view mode switch to Physical View when adding a server rack or telecom tower from an empty custom map canvas or infrastructure toolbar.',
+      'Atomic and unified device removal via "Remove from map": cleans up devices synchronously from Card View (IDs, positions, and cables) and Physical View (all rack slots and tower mounts).',
+      'Smart greying out and disabling of already mounted equipment in the Inventory Equipment tab, preventing duplicate placement with a clear "Already Mounted" indicator tag.',
+      'Full custom map support for Telecom Towers & Masts with drag-and-drop canvas positioning, wireless radio mounting, and physical infrastructure inspection.'
+    ]
+  },
   {
     version: '1.35.0',
     releaseDate: '2026-09-12',

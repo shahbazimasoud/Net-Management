@@ -1139,6 +1139,213 @@ export const HardwareSvgRenderer: React.FC<HardwareSvgRendererProps> = ({
         );
       }
 
+      // 19. Outdoor Wireless Radios & PTP Links (MikroTik, Ubiquiti, Mimosa, Siklu)
+      case 'wireless_radio': {
+        const isUbiquiti = device.brand.toLowerCase().includes('ubiquiti');
+        const isMikrotik = device.brand.toLowerCase().includes('mikrotik');
+        const bodyColor = isUbiquiti ? '#f1f5f9' : isMikrotik ? '#e2e8f0' : '#cbd5e1';
+        const accentColor = isUbiquiti ? '#0284c7' : isMikrotik ? '#e11d48' : '#059669';
+
+        return (
+          <g transform="translate(12, 0)">
+            <defs>
+              <linearGradient id={`${devUid}-radio-case`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#f8fafc" />
+                <stop offset="50%" stopColor={bodyColor} />
+                <stop offset="100%" stopColor="#94a3b8" />
+              </linearGradient>
+            </defs>
+
+            {/* Weatherproof IP67 Die-Cast Aluminum Enclosure */}
+            <rect x="0" y="0" width={mainW} height={h} rx="2" fill={`url(#${devUid}-radio-case)`} stroke="#64748b" strokeWidth="1" />
+
+            {/* Heatsink Cooling Fins Pattern */}
+            <g opacity="0.35">
+              {Array.from({ length: 18 }).map((_, i) => (
+                <line key={`fin-${i}`} x1={20 + i * 16} y1="2" x2={20 + i * 16} y2={h - 2} stroke="#475569" strokeWidth="0.8" />
+              ))}
+            </g>
+
+            {/* Radio Top RF Antenna SMA Connectors */}
+            <g transform="translate(10, 2)">
+              <rect x="0" y="0" width="8" height="5" rx="0.5" fill="#d97706" stroke="#b45309" strokeWidth="0.6" />
+              <circle cx="4" cy="2.5" r="1.5" fill="#f59e0b" />
+              <text x="12" y="4.5" fill="#334155" fontSize="3.5" fontWeight="bold" fontFamily="monospace">
+                CH0 (V)
+              </text>
+            </g>
+            <g transform="translate(48, 2)">
+              <rect x="0" y="0" width="8" height="5" rx="0.5" fill="#d97706" stroke="#b45309" strokeWidth="0.6" />
+              <circle cx="4" cy="2.5" r="1.5" fill="#f59e0b" />
+              <text x="12" y="4.5" fill="#334155" fontSize="3.5" fontWeight="bold" fontFamily="monospace">
+                CH1 (H)
+              </text>
+            </g>
+
+            {/* Brand Accent Stripe & Logo */}
+            <rect x="90" y="2" width="6" height={h - 4} rx="1" fill={accentColor} />
+            <g transform={`translate(105, ${h / 2 - 4})`}>
+              <text x="0" y="4" fill="#0f172a" fontSize="6.5" fontWeight="bold" fontFamily="sans-serif">
+                {device.brand.toUpperCase()}
+              </text>
+              <text x="0" y="9.5" fill="#475569" fontSize="4.2" fontWeight="bold" fontFamily="monospace">
+                {truncate(device.model, 26)}
+              </text>
+            </g>
+
+            {/* Signal Strength & RSSI LED Bar */}
+            <g transform={`translate(${mainW - 130}, ${h / 2 - 5})`}>
+              <rect x="0" y="0" width="46" height="10" rx="1.5" fill="#090d16" stroke="#334155" strokeWidth="0.5" />
+              <text x="4" y="7" fill="#64748b" fontSize="3.2" fontFamily="monospace">RSSI</text>
+              <circle cx="16" cy="5" r="1.2" fill="#22c55e" />
+              <circle cx="21" cy="5" r="1.2" fill="#22c55e" />
+              <circle cx="26" cy="5" r="1.2" fill="#22c55e" />
+              <circle cx="31" cy="5" r="1.2" fill="#22c55e" />
+              <circle cx="36" cy="5" r="1.2" fill="#eab308" />
+              <circle cx="41" cy="5" r="1.2" fill="#ef4444" opacity="0.3" />
+            </g>
+
+            {/* Shielded Gigabit PoE Ethernet Port & Ground Lug */}
+            <g transform={`translate(${mainW - 75}, ${h / 2 - 5})`}>
+              {renderRealisticRj45Port(0, 0, 'PoE IN', true)}
+              <g transform="translate(18, 1)">
+                <circle cx="4" cy="4" r="3" fill="#64748b" stroke="#cbd5e1" strokeWidth="0.7" />
+                <line x1="2" y1="4" x2="6" y2="4" stroke="#0f172a" strokeWidth="0.6" />
+                <line x1="4" y1="2" x2="4" y2="6" stroke="#0f172a" strokeWidth="0.6" />
+                <text x="10" y="5.5" fill="#64748b" fontSize="3" fontFamily="monospace">GND</text>
+              </g>
+            </g>
+
+            {/* Wireless Frequency Badge */}
+            <g transform={`translate(${mainW - 45}, 2)`}>
+              <rect x="0" y="0" width="42" height={h - 4} rx="1" fill="#0f172a" stroke={accentColor} strokeWidth="0.6" />
+              <text x="21" y={h / 2 - 1} fill={accentColor} fontSize="4" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                WIRELESS
+              </text>
+              <text x="21" y={h / 2 + 4} fill="#94a3b8" fontSize="3.2" textAnchor="middle" fontFamily="monospace">
+                5GHz / 60GHz
+              </text>
+            </g>
+          </g>
+        );
+      }
+
+      // 20. Parabolic Dish & Sector Antennas (Dish 30dBi, 34dBi, Sector 120°)
+      case 'dish_antenna': {
+        const isSector = device.model.toLowerCase().includes('sector') || device.name.toLowerCase().includes('sector');
+        const dishRadius = Math.min(mainW / 2 - 10, h * 1.5);
+
+        return (
+          <g transform="translate(12, 0)">
+            <defs>
+              <linearGradient id={`${devUid}-dish-grad`} x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#f1f5f9" />
+                <stop offset="60%" stopColor="#cbd5e1" />
+                <stop offset="100%" stopColor="#64748b" />
+              </linearGradient>
+            </defs>
+
+            {/* Antenna Chassis Background Frame */}
+            <rect x="0" y="0" width={mainW} height={h} rx="2" fill="#0f172a" stroke="#334155" strokeWidth="1" />
+
+            {isSector ? (
+              // Sector Antenna: Vertical Array Panel with RF Ports
+              <g transform="translate(8, 2)">
+                <rect x="0" y="0" width={mainW - 16} height={h - 4} rx="2" fill="#f8fafc" stroke="#94a3b8" strokeWidth="1" />
+                {/* Sector Beam Angle Visual Graphic */}
+                <path d={`M 15 3 L 35 ${h - 7} L 5 3 Z`} fill="#0284c7" opacity="0.15" />
+                <text x="45" y={h / 2} fill="#0f172a" fontSize="5.5" fontWeight="bold" fontFamily="sans-serif">
+                  {device.brand} {device.model}
+                </text>
+                <text x="45" y={h / 2 + 5.5} fill="#64748b" fontSize="3.8" fontFamily="monospace">
+                  120° Dual-Polarity 2x2 MIMO Sector Antenna
+                </text>
+                {/* RF Pigtail Ports */}
+                <g transform={`translate(${mainW - 80}, ${h / 2 - 4})`}>
+                  <rect x="0" y="0" width="7" height="8" rx="0.5" fill="#d97706" />
+                  <rect x="12" y="0" width="7" height="8" rx="0.5" fill="#d97706" />
+                  <text x="25" y="6" fill="#334155" fontSize="3.5" fontWeight="bold" fontFamily="monospace">2x RP-SMA</text>
+                </g>
+              </g>
+            ) : (
+              // Parabolic Dish: Circular Reflector Graphic with Sub-Reflector Feed
+              <g transform="translate(10, 2)">
+                <circle cx={h} cy={h / 2 - 2} r={Math.max(8, h / 2 - 3)} fill={`url(#${devUid}-dish-grad)`} stroke="#475569" strokeWidth="0.8" />
+                <circle cx={h} cy={h / 2 - 2} r={Math.max(4, h / 4)} fill="#0f172a" opacity="0.4" />
+                <circle cx={h} cy={h / 2 - 2} r="2" fill="#d97706" />
+                {/* Feed Horn Struts */}
+                <line x1={h} y1={h / 2 - 2} x2={h + 12} y2={h / 2 - 2} stroke="#475569" strokeWidth="1.2" />
+                <circle cx={h + 12} cy={h / 2 - 2} r="2.5" fill="#1e293b" stroke="#f59e0b" strokeWidth="0.8" />
+
+                {/* Dish Information */}
+                <g transform={`translate(${h * 2 + 10}, ${h / 2 - 5})`}>
+                  <text x="0" y="4" fill="#f8fafc" fontSize="5.5" fontWeight="bold" fontFamily="sans-serif">
+                    {device.brand} {device.model}
+                  </text>
+                  <text x="0" y="9.5" fill="#38bdf8" fontSize="3.8" fontFamily="monospace">
+                    High-Gain Parabolic Dish Reflector • Dual-Pol
+                  </text>
+                </g>
+              </g>
+            )}
+
+            {/* Precision Mount Bracket & Elevation Scale */}
+            <g transform={`translate(${mainW - 75}, 3)`}>
+              <rect x="0" y="0" width="70" height={h - 6} rx="1" fill="#1e293b" stroke="#475569" strokeWidth="0.6" />
+              <text x="35" y={h / 2 - 1} fill="#e2e8f0" fontSize="3.8" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                TOWER MOUNT
+              </text>
+              <text x="35" y={h / 2 + 4} fill="#22c55e" fontSize="3.2" textAnchor="middle" fontFamily="monospace">
+                ±15° TILT ADJUST
+              </text>
+            </g>
+          </g>
+        );
+      }
+
+      // 21. Telecommunication Towers & Masts (G35, G45, Self-Supporting, Monopole)
+      case 'telecom_tower': {
+        return (
+          <g transform="translate(12, 0)">
+            {/* Tower Structural Steel Framework Profile */}
+            <rect x="0" y="0" width={mainW} height={h} fill="#090d16" stroke="#475569" strokeWidth="1" />
+
+            {/* Red & White Aviation Obstacle Warning Bands */}
+            <rect x="4" y="3" width="18" height={h - 6} fill="#dc2626" />
+            <rect x="22" y="3" width="18" height={h - 6} fill="#f8fafc" />
+            <rect x="40" y="3" width="18" height={h - 6} fill="#dc2626" />
+
+            {/* Triangular Lattice Structural Truss Pattern */}
+            <g transform="translate(65, 3)">
+              <line x1="0" y1="0" x2={mainW - 140} y2="0" stroke="#cbd5e1" strokeWidth="1" />
+              <line x1="0" y1={h - 6} x2={mainW - 140} y2={h - 6} stroke="#cbd5e1" strokeWidth="1" />
+              {Array.from({ length: 8 }).map((_, i) => (
+                <g key={`truss-${i}`} transform={`translate(${i * 20}, 0)`}>
+                  <line x1="0" y1="0" x2="10" y2={h - 6} stroke="#64748b" strokeWidth="0.8" />
+                  <line x1="10" y1={h - 6} x2="20" y2="0" stroke="#64748b" strokeWidth="0.8" />
+                </g>
+              ))}
+            </g>
+
+            {/* Tower Model & Height Specification */}
+            <g transform={`translate(${mainW - 160}, ${h / 2 - 4})`}>
+              <text x="0" y="3" fill="#ffffff" fontSize="5.5" fontWeight="bold" fontFamily="sans-serif">
+                {device.model}
+              </text>
+              <text x="0" y="8.5" fill="#fbbf24" fontSize="3.8" fontFamily="monospace">
+                Telecom Mast • Heavy Structural Steel
+              </text>
+            </g>
+
+            {/* Top Warning Beacon */}
+            <g transform={`translate(${mainW - 25}, ${h / 2 - 4})`}>
+              <circle cx="5" cy="4" r="3" fill="#ef4444" />
+              <circle cx="5" cy="4" r="5" fill="#ef4444" opacity="0.3" />
+            </g>
+          </g>
+        );
+      }
+
       // 18. Default / Industrial IPC Rackmount Chassis
       default: {
         return (
