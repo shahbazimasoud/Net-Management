@@ -1856,5 +1856,145 @@
   color: #000000 !important;
 }
 
+/* ==========================================================================
+   Rack & Tower Device Hover Card - Light Mode High Contrast & Text Legibility
+   ========================================================================== */
+.theme-light .rack-device-hover-card {
+  background-color: rgba(15, 23, 42, 0.98) !important;
+  border-color: rgba(6, 182, 212, 0.75) !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5), 0 0 16px rgba(6, 182, 212, 0.3) !important;
+}
+
+.theme-light .rack-device-hover-card .rack-dev-title,
+.theme-light .rack-device-hover-card span.rack-dev-title {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.theme-light .rack-device-hover-card .rack-dev-model,
+.theme-light .rack-device-hover-card span.rack-dev-model {
+  color: #cbd5e1 !important;
+}
+
+.theme-light .rack-device-hover-card .rack-dev-ubadge,
+.theme-light .rack-device-hover-card span.rack-dev-ubadge {
+  color: #67e8f9 !important;
+  background-color: #083344 !important;
+  border-color: rgba(14, 116, 144, 0.8) !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-drag svg {
+  color: #22d3ee !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-drag:hover svg {
+  color: #a5f3fc !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-chevron,
+.theme-light .rack-device-hover-card .rack-btn-chevron svg {
+  color: #cbd5e1 !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-chevron:hover,
+.theme-light .rack-device-hover-card .rack-btn-chevron:hover svg {
+  color: #67e8f9 !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-props,
+.theme-light .rack-device-hover-card .rack-btn-props span,
+.theme-light .rack-device-hover-card .rack-btn-props svg {
+  color: #67e8f9 !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-props:hover,
+.theme-light .rack-device-hover-card .rack-btn-props:hover span,
+.theme-light .rack-device-hover-card .rack-btn-props:hover svg {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-config,
+.theme-light .rack-device-hover-card .rack-btn-config span,
+.theme-light .rack-device-hover-card .rack-btn-config svg {
+  color: #6ee7b7 !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-config:hover,
+.theme-light .rack-device-hover-card .rack-btn-config:hover span,
+.theme-light .rack-device-hover-card .rack-btn-config:hover svg {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-cli,
+.theme-light .rack-device-hover-card .rack-btn-cli span,
+.theme-light .rack-device-hover-card .rack-btn-cli svg {
+  color: #d8b4fe !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-cli:hover,
+.theme-light .rack-device-hover-card .rack-btn-cli:hover span,
+.theme-light .rack-device-hover-card .rack-btn-cli:hover svg {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-port,
+.theme-light .rack-device-hover-card .rack-btn-port span,
+.theme-light .rack-device-hover-card .rack-btn-port svg {
+  color: #fcd34d !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-port:hover,
+.theme-light .rack-device-hover-card .rack-btn-port:hover span,
+.theme-light .rack-device-hover-card .rack-btn-port:hover svg {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-card,
+.theme-light .rack-device-hover-card .rack-btn-card span,
+.theme-light .rack-device-hover-card .rack-btn-card svg {
+  color: #d8b4fe !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-card:hover,
+.theme-light .rack-device-hover-card .rack-btn-card:hover span,
+.theme-light .rack-device-hover-card .rack-btn-card:hover svg {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-transfer,
+.theme-light .rack-device-hover-card .rack-btn-transfer svg {
+  color: #7dd3fc !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-transfer:hover,
+.theme-light .rack-device-hover-card .rack-btn-transfer:hover svg {
+  color: #ffffff !important;
+}
+
+.theme-light .rack-device-hover-card .rack-btn-delete,
+.theme-light .rack-device-hover-card .rack-btn-delete svg {
+  color: #fb7185 !important;
+}
+.theme-light .rack-device-hover-card .rack-btn-delete:hover,
+.theme-light .rack-device-hover-card .rack-btn-delete:hover svg {
+  color: #ffffff !important;
+}
+
+/* Rack Device Delete Confirmation Modal */
+.theme-light .rack-delete-confirm-card h4,
+.theme-light .rack-delete-confirm-card .rack-delete-confirm-title {
+  color: #ffffff !important;
+}
+.theme-light .rack-delete-confirm-card p,
+.theme-light .rack-delete-confirm-card .rack-delete-confirm-desc {
+  color: #cbd5e1 !important;
+}
+.theme-light .rack-delete-confirm-card .rack-delete-cancel-btn {
+  color: #cbd5e1 !important;
+}
+.theme-light .rack-delete-confirm-card .rack-delete-confirm-btn {
+  color: #ffffff !important;
+}
+
+/* Tower Device Hover Card */
+.theme-light .tower-device-hover-card span,
+.theme-light .tower-device-hover-card button,
+.theme-light .tower-device-hover-card button svg {
+  color: #e2e8f0 !important;
+}
+
+
 
 

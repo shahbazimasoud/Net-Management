@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.38.4';
+export const APP_VERSION = '1.38.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.38.5',
+    releaseDate: '2026-09-13',
+    type: 'patch',
+    title: 'اصلاح رنگ و خوانایی نوشته‌های منوی هاور دیوایس‌های رک و دکل در تم روشن',
+    title_en: 'High-Contrast Text and Button Legibility for Rack and Tower Device Hover Menus in Light Mode',
+    changes: [
+      'اصلاح و روشن‌سازی کامل رنگ متون، تایتل تجهیز، مدل، شماره یونیت (U-Slot) و برچسب دکمه‌های منوی هاور دیوایس‌های رک (مانند مشخصات، کانفیگ، خط فرمان، پورت، کارت و انتقال) در تم روشن.',
+      'جلوگیری از تاریک‌شدن متون داخل منوی هاور شناور تجهیزات رک توسط استایل‌های عمومی تم روشن و ایجاد رنگ‌های درخشان و با کنتراست بالا مطابق تم تیره.',
+      'اصلاح رنگ عنوان، توضیحات و دکمه‌های مدال تایید حذف تجهیز از رک در تم روشن برای خوانایی کامل.',
+      'بهینه‌سازی نمایش مشخصات و دکمه‌های هاور رادیوهای متصل به دکل در تم روشن.'
+    ],
+    changes_en: [
+      'Fixed and brightened text colors, device title, model, U-slot badge, and action button labels (Props, Config, CLI, Port, Card, Transfer) on the rack device hover menu in light mode.',
+      'Prevented global light theme styles from darkening text inside the floating quick actions menu, ensuring vivid high-contrast colors matching dark theme.',
+      'Enhanced typography and button contrast for the rack device removal confirmation modal in light mode.',
+      'Optimized tower radio device hover cards for clear, legible text in light theme.'
+    ]
+  },
   {
     version: '1.38.4',
     releaseDate: '2026-09-13',

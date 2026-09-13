@@ -513,7 +513,7 @@ export const TowerStructureSvg: React.FC<TowerStructureSvgProps> = ({
                 className="overflow-visible"
               >
                 <div
-                  className={`p-1.5 rounded-xl border transition-all text-left shadow-lg ${
+                  className={`tower-device-hover-card p-1.5 rounded-xl border transition-all text-left shadow-lg ${
                     isHovered
                       ? 'bg-amber-950/90 border-amber-400 ring-2 ring-amber-500/50 scale-105'
                       : 'bg-slate-900/90 border-slate-700 hover:border-slate-600'
