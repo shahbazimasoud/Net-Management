@@ -300,25 +300,39 @@
 
         <div class="net-title" id="init-loader-title">
           <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#38bdf8;"></span>
-          <span id="init-loader-title-text">NetTopology &amp; Device Manager</span>
+          <span id="init-loader-title-text">Loading Page...</span>
         </div>
-        <div class="net-status" id="init-loader-status">Initializing network socket &amp; telemetry links...</div>
+        <div class="net-status" id="init-loader-status">Please wait, loading system data and workspace...</div>
         <div class="net-badge">
-          <span style="color:#10b981;">● PHY: 1000Base-T</span>
+          <span id="init-loader-phy" style="color:#10b981;">● PHY: 1000Base-T</span>
           <span>|</span>
-          <span style="color:#f59e0b;">● TX/RX Stream Active</span>
+          <span id="init-loader-tx" style="color:#f59e0b;">● Data Stream Active</span>
         </div>
       </div>
     </div>
     <script>
       (function() {
         try {
-          var lang = localStorage.getItem('nettopology_lang') || 'fa';
-          if (lang === 'fa') {
-            var titleEl = document.getElementById('init-loader-title-text');
-            var statusEl = document.getElementById('init-loader-status');
-            if (titleEl) titleEl.textContent = 'سامانه مدیریت و توپولوژی شبکه';
-            if (statusEl) statusEl.textContent = 'در حال اتصال به سوکت شبکه و بارگذاری اطلاعات...';
+          var lang = localStorage.getItem('app_language') || localStorage.getItem('nettopology_lang') || 'en';
+          var isFa = (lang === 'fa');
+          var loaderEl = document.getElementById('initial-loader');
+          var titleEl = document.getElementById('init-loader-title-text');
+          var statusEl = document.getElementById('init-loader-status');
+          var phyEl = document.getElementById('init-loader-phy');
+          var txEl = document.getElementById('init-loader-tx');
+
+          if (isFa) {
+            if (loaderEl) loaderEl.setAttribute('dir', 'rtl');
+            if (titleEl) titleEl.textContent = 'در حال بارگذاری صفحه...';
+            if (statusEl) statusEl.textContent = 'لطفاً شکیبا باشید، در حال آماده‌سازی و دریافت اطلاعات سامانه...';
+            if (phyEl) phyEl.textContent = '● پورت: ۱۰۰۰Base-T';
+            if (txEl) txEl.textContent = '● جریان فعال داده';
+          } else {
+            if (loaderEl) loaderEl.setAttribute('dir', 'ltr');
+            if (titleEl) titleEl.textContent = 'Loading Page...';
+            if (statusEl) statusEl.textContent = 'Please wait, loading system data and workspace...';
+            if (phyEl) phyEl.textContent = '● PHY: 1000Base-T';
+            if (txEl) txEl.textContent = '● Data Stream Active';
           }
         } catch (e) {}
       })();

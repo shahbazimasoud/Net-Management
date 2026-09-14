@@ -32,10 +32,10 @@ export const NetworkSocketLoader: React.FC<NetworkSocketLoaderProps> = ({
     };
   }, []);
 
-  const defaultTitle = isEn ? 'NetTopology & Device Manager' : 'سامانه مدیریت و مانیتورینگ شبکه';
+  const defaultTitle = isEn ? 'Loading Page...' : 'در حال بارگذاری صفحه...';
   const defaultDesc = isEn
-    ? 'Initializing network socket & telemetry links'
-    : 'در حال برقراری اتصال با سوکت شبکه و بارگذاری توپولوژی';
+    ? 'Please wait, loading system data and telemetry'
+    : 'لطفاً شکیبا باشید، در حال آماده‌سازی و بارگذاری اطلاعات سامانه';
 
   return (
     <div
@@ -144,7 +144,7 @@ export const NetworkSocketLoader: React.FC<NetworkSocketLoaderProps> = ({
               {message || defaultTitle}
             </h2>
           </div>
-          <p className="text-xs text-slate-400 font-mono flex items-center justify-center gap-1 dir-ltr">
+          <p className="text-xs text-slate-400 font-sans flex items-center justify-center gap-1">
             <span>{subMessage || defaultDesc}</span>
             <span className="text-cyan-400 font-bold w-4 inline-block text-left">{dots}</span>
           </p>
@@ -153,7 +153,7 @@ export const NetworkSocketLoader: React.FC<NetworkSocketLoaderProps> = ({
           <div className="mt-3 inline-flex items-center gap-3 px-3 py-1 rounded-full bg-slate-900/80 border border-slate-800 text-[10px] font-mono text-slate-400 shadow-inner">
             <span className="flex items-center gap-1 text-emerald-400">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              PHY: 1000Base-T
+              {isEn ? 'PHY: 1000Base-T' : 'پورت: ۱۰۰۰Base-T'}
             </span>
             <span className="text-slate-700">•</span>
             <span className="flex items-center gap-1 text-amber-400">
@@ -162,7 +162,7 @@ export const NetworkSocketLoader: React.FC<NetworkSocketLoaderProps> = ({
                   dataActivity ? 'bg-amber-400' : 'bg-amber-600/40'
                 }`}
               />
-              TX/RX Active
+              {isEn ? 'Data Stream Active' : 'جریان فعال داده'}
             </span>
           </div>
         </div>

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.50.3';
+export const APP_VERSION = '1.50.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.50.4',
+    releaseDate: '2026-09-14',
+    type: 'patch',
+    title: 'اصلاح پیام‌های نشانگر وضعیت لودینگ سوکت شبکه و رعایت دقیق زبان فعال پنل (فارسی/انگلیسی)',
+    title_en: 'Enhanced Page Loading State Messaging for Network Socket Loader with Strict Language Alignment',
+    changes: [
+      'تنظیم عنوان و متن توضیحات زیر سوکت شبکه جهت نمایش صریح وضعیت «در حال بارگذاری صفحه...» / «Loading Page...».',
+      'تفکیک دقیق زبان متون نشانگر فیزیکی و تبادل فعال داده متناسب با زبان فعال پنل کاربری.',
+      'افزودن شناسایی خودکار زبان ذخیره‌شده (app_language) در لودینگ پیش‌فرض HTML جهت نمایش زبان صحیح بدون کوچک‌ترین تاخیر قبل از مانت شدن ری‌اکت.'
+    ],
+    changes_en: [
+      'Configured socket loader title and description to clearly indicate "Loading Page..." / "در حال بارگذاری صفحه...".',
+      'Strictly localized physical port status and active data stream badges based on the active panel language.',
+      'Added immediate detection of stored language (app_language) in the initial HTML loader for seamless localized display before React mounts.'
+    ]
+  },
   {
     version: '1.50.3',
     releaseDate: '2026-09-14',

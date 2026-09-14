@@ -559,8 +559,8 @@ export default function App() {
       <div className="h-screen w-screen bg-[#060911] flex flex-col items-center justify-center text-slate-300 font-sans select-none overflow-hidden">
         <NetworkSocketLoader
           isEn={isEn}
-          message={isEn ? 'NetTopology Security Engine' : 'هسته امنیتی و توپولوژی پیشرفته'}
-          subMessage={isEn ? 'Verifying session & database connection' : 'در حال بررسی اتصال نشست کاربری و پایگاه‌داده'}
+          message={isEn ? 'Loading Page...' : 'در حال بارگذاری صفحه...'}
+          subMessage={isEn ? 'Please wait, checking session and loading workspace' : 'لطفاً شکیبا باشید، در حال بررسی نشست و بارگذاری سامانه'}
         />
       </div>
     );
