@@ -90,6 +90,7 @@ import { EditDeviceModal } from './EditDeviceModal';
 import { AddTowerModal } from './rack/AddTowerModal';
 import { MountRadioOnTowerModal } from './rack/MountRadioOnTowerModal';
 import { TowerStructureSvg } from './rack/TowerStructureSvg';
+import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 
 interface SchematicTopologyViewProps {
   topology: TopologyData | null;
@@ -3873,9 +3874,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-slate-400 space-y-3">
-        <RefreshCw className="w-8 h-8 text-cyan-500 animate-spin" />
-        <p className="text-sm">{t('topology_loading_map')}</p>
+      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+        <NetworkSocketLoader
+          isEn={isEn}
+          message={isEn ? 'Loading Network Topology Map' : 'در حال بارگذاری نقشه شماتیک توپولوژی'}
+          subMessage={isEn ? 'Syncing node telemetry and port interconnections' : 'همگام‌سازی ارتباطات و دیتای زنده پورت‌ها'}
+        />
       </div>
     );
   }

@@ -54,6 +54,7 @@ import {
 import { useLanguage } from './i18n';
 import { useAuth } from './context/AuthContext';
 import { LoginPage } from './components/login/LoginPage';
+import { NetworkSocketLoader } from './components/common/NetworkSocketLoader';
 
 export default function App() {
   const { t, isRtl, isEn } = useLanguage();
@@ -555,19 +556,12 @@ export default function App() {
 
   if (isAuthLoading) {
     return (
-      <div className="h-screen w-screen bg-[#070b14] flex flex-col items-center justify-center text-slate-300 font-sans select-none">
-        <div className="relative flex items-center justify-center mb-6">
-          <div className="w-16 h-16 rounded-2xl border-2 border-indigo-500/30 border-t-cyan-400 animate-spin" />
-          <div className="absolute w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center text-white font-black text-sm shadow-[0_0_20px_rgba(99,102,241,0.6)]">
-            NT
-          </div>
-        </div>
-        <div className="text-sm font-semibold tracking-wider text-slate-200 mb-1">
-          {isEn ? 'NetTopology Security Engine' : 'هسته امنیتی و توپولوژی پیشرفته'}
-        </div>
-        <div className="text-xs text-slate-500 font-mono">
-          {isEn ? 'Verifying session & database connection...' : 'در حال بررسی اتصال نشست کاربری و پایگاه‌داده...'}
-        </div>
+      <div className="h-screen w-screen bg-[#060911] flex flex-col items-center justify-center text-slate-300 font-sans select-none overflow-hidden">
+        <NetworkSocketLoader
+          isEn={isEn}
+          message={isEn ? 'NetTopology Security Engine' : 'هسته امنیتی و توپولوژی پیشرفته'}
+          subMessage={isEn ? 'Verifying session & database connection' : 'در حال بررسی اتصال نشست کاربری و پایگاه‌داده'}
+        />
       </div>
     );
   }

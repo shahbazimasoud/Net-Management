@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.50.2';
+export const APP_VERSION = '1.50.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.50.3',
+    releaseDate: '2026-09-14',
+    type: 'patch',
+    title: 'طراحی لودینگ اختصاصی سوکت پورت شبکه با انیمیشن چراغ دیتای چشمک‌زن واقعی و رفع صفحه مشکی اولیه در رفرش صفحه',
+    title_en: 'Realistic Animated RJ45 Network Port Socket Loader with Blinking Data LED and Elimination of Blank Screen During Page Reload',
+    changes: [
+      'حذف صفحه سیاه/مشکی اولیه هنگام رفرش صفحه و جایگزینی با لودینگ سبک و فوق سریع سوکت پورت شبکه اترنت (RJ45 Socket) در HTML و CSS خالص.',
+      'طراحی انیمیشن دقیق سخت‌افزاری سوکت شبکه با محافظ فلزی، ۸ پین طلایی براق، محفظه ضامن، چراغ ثابت لینک (LNK) و چراغ کهربایی چشمک‌زن دیتا (ACT).',
+      'ایجاد کامپوننت ماژولار و بازاستفاده‌پذیر NetworkSocketLoader جهت یکپارچه‌سازی وضعیت بارگذاری در سراسر برنامه (بررسی نشست، بارگذاری نقشه توپولوژی و رفرش).',
+      'پشتیبانی کامل از زبان‌های فارسی و انگلیسی و همگام‌سازی فوری با تنظیمات ذخیره‌شده کاربر بدون تأخیر در رندر اولیه.'
+    ],
+    changes_en: [
+      'Eliminated initial blank/black screen during page reload with an instant, zero-dependency RJ45 Ethernet port socket loader rendered in pure HTML and CSS.',
+      'Crafted realistic hardware animations featuring a metallic shielded casing, 8 reflective gold pins, latch notch, solid Link (LNK) LED, and pulsating amber Data Activity (ACT) LED.',
+      'Created modular and reusable NetworkSocketLoader component to standardize loading states across auth verification, topology mapping, and page transitions.',
+      'Full localization support for Persian and English with instant detection of user-selected language on initial boot.'
+    ]
+  },
   {
     version: '1.50.2',
     releaseDate: '2026-09-14',
