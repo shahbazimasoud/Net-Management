@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-09-14T19:48:08.072Z"
+      "last_login": "2026-09-14T21:05:53.849Z"
     },
     {
       "id": "user-helpdesk",
@@ -559,6 +559,54 @@
       "details": "User \"admin\" authenticated successfully via Local Database from IP 194.116.236.174",
       "ip_address": "194.116.236.174",
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 OPR/135.0.0.0"
+    },
+    {
+      "id": "log-1789419796317-zhh4d",
+      "timestamp": "2026-09-14T21:03:16.317Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1789419864044-woyhd",
+      "timestamp": "2026-09-14T21:04:24.044Z",
+      "user_name": "nonexistent",
+      "action": "Failed Login (User Not Found)",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "warning",
+      "details": "Failed local login attempt for non-existing user \"nonexistent\" from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1789419872635-ija83",
+      "timestamp": "2026-09-14T21:04:32.635Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1789419954090-8ftxz",
+      "timestamp": "2026-09-14T21:05:54.090Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
     }
   ],
   "ad_config": {

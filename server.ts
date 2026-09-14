@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { spawn, exec, ChildProcess } from 'child_process';
@@ -492,6 +492,23 @@ app.use('/api', (req: Request, res: Response) => {
   }
 
   proxyReq.end();
+});
+
+// Global Error Handler for API and Express
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('[Unhandled Server Error]', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  if (req.path.startsWith('/api')) {
+    return res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      message: 'خطای غیرمنتظره در پردازش سمت سرور رخ داد.',
+      details: err?.message || String(err),
+    });
+  }
+  next(err);
 });
 
 async function startServer() {

@@ -13,6 +13,8 @@ import {
   findUserByUsername,
   getAllUsers,
   saveUser,
+  saveUsersBatch,
+  deleteUser,
   updateLastLogin,
   getCustomMaps,
   saveCustomMaps,
@@ -60,218 +62,227 @@ apiRouter.get('/db/status', async (req: Request, res: Response) => {
 // Authentication Endpoints
 // -------------------------------------------------------------
 apiRouter.post('/auth/login', async (req: Request, res: Response) => {
-  const ip = getClientIp(req);
-  const username = (req.body?.username || '').trim();
-  const password = (req.body?.password || '').trim();
-  const authType = (req.body?.authType || 'local').toLowerCase(); // 'local' | 'ad'
-  const domain = (req.body?.domain || 'corp.internal').trim();
-  const rememberMe = Boolean(req.body?.rememberMe);
+  try {
+    const ip = getClientIp(req);
+    const username = (req.body?.username || '').trim();
+    const password = (req.body?.password || '').trim();
+    const authType = (req.body?.authType || 'local').toLowerCase(); // 'local' | 'ad'
+    const domain = (req.body?.domain || 'corp.internal').trim();
+    const rememberMe = Boolean(req.body?.rememberMe);
 
-  if (!username || !password) {
-    return res.status(400).json({
-      success: false,
-      error: 'Username and password are required',
-      message: 'نام کاربری و کلمه عبور الزامی است.',
-    });
-  }
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username and password are required',
+        message: 'نام کاربری و کلمه عبور الزامی است.',
+      });
+    }
 
-  const rateLimitKey = `${ip}:${username.toLowerCase()}`;
-  const rateLimitStatus = checkRateLimit(rateLimitKey);
+    const rateLimitKey = `${ip}:${username.toLowerCase()}`;
+    const rateLimitStatus = checkRateLimit(rateLimitKey);
 
-  if (rateLimitStatus.locked) {
-    await addAuditLog({
-      userName: username,
-      action: 'Login Blocked (Rate Limit)',
-      category: 'security',
-      target: 'Auth Gateway',
-      status: 'error',
-      details: `Too many failed attempts from IP ${ip}. Locked for ${rateLimitStatus.remainingSec}s.`,
-      ipAddress: ip,
-      userAgent: req.headers['user-agent'],
-    });
-
-    return res.status(429).json({
-      success: false,
-      locked: true,
-      remainingSec: rateLimitStatus.remainingSec,
-      error: `Too many failed attempts. Account locked for ${rateLimitStatus.remainingSec} seconds.`,
-      message: `تعداد تلاش‌های ناموفق بیش از حد مجاز بود. لطفاً ${rateLimitStatus.remainingSec} ثانیه دیگر مجدداً تلاش فرمایید.`,
-    });
-  }
-
-  // --- 1. LOCAL AUTHENTICATION ---
-  if (authType === 'local') {
-    const user = await findUserByUsername(username);
-
-    if (!user) {
-      const penalty = recordFailedLogin(rateLimitKey);
+    if (rateLimitStatus.locked) {
       await addAuditLog({
         userName: username,
-        action: 'Failed Login (User Not Found)',
+        action: 'Login Blocked (Rate Limit)',
         category: 'security',
         target: 'Auth Gateway',
-        status: 'warning',
-        details: `Failed local login attempt for non-existing user "${username}" from IP ${ip}`,
+        status: 'error',
+        details: `Too many failed attempts from IP ${ip}. Locked for ${rateLimitStatus.remainingSec}s.`,
         ipAddress: ip,
         userAgent: req.headers['user-agent'],
       });
 
-      return res.status(401).json({
+      return res.status(429).json({
         success: false,
-        error: 'Invalid credentials',
-        message: 'نام کاربری یا رمز عبور اشتباه است.',
-        attemptsLeft: penalty.attemptsLeft,
-        locked: penalty.locked,
-        remainingSec: penalty.remainingSec,
+        locked: true,
+        remainingSec: rateLimitStatus.remainingSec,
+        error: `Too many failed attempts. Account locked for ${rateLimitStatus.remainingSec} seconds.`,
+        message: `تعداد تلاش‌های ناموفق بیش از حد مجاز بود. لطفاً ${rateLimitStatus.remainingSec} ثانیه دیگر مجدداً تلاش فرمایید.`,
       });
     }
 
-    if (user.status === 'disabled') {
-      return res.status(403).json({
-        success: false,
-        error: 'Account disabled',
-        message: 'این حساب کاربری توسط مدیر غیرفعال شده است.',
-      });
-    }
+    // --- 1. LOCAL AUTHENTICATION ---
+    if (authType === 'local') {
+      const user = await findUserByUsername(username);
 
-    const isValid = verifyPassword(password, user.password_hash, user.password_salt);
-    if (!isValid) {
-      const penalty = recordFailedLogin(rateLimitKey);
+      if (!user) {
+        const penalty = recordFailedLogin(rateLimitKey);
+        await addAuditLog({
+          userName: username,
+          action: 'Failed Login (User Not Found)',
+          category: 'security',
+          target: 'Auth Gateway',
+          status: 'warning',
+          details: `Failed local login attempt for non-existing user "${username}" from IP ${ip}`,
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'],
+        });
+
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid credentials',
+          message: 'نام کاربری یا رمز عبور اشتباه است.',
+          attemptsLeft: penalty.attemptsLeft,
+          locked: penalty.locked,
+          remainingSec: penalty.remainingSec,
+        });
+      }
+
+      if (user.status === 'disabled') {
+        return res.status(403).json({
+          success: false,
+          error: 'Account disabled',
+          message: 'این حساب کاربری توسط مدیر غیرفعال شده است.',
+        });
+      }
+
+      const isValid = verifyPassword(password, user.password_hash, user.password_salt);
+      if (!isValid) {
+        const penalty = recordFailedLogin(rateLimitKey);
+        await addAuditLog({
+          userName: username,
+          action: 'Failed Login (Invalid Password)',
+          category: 'security',
+          target: 'Auth Gateway',
+          status: 'warning',
+          details: `Invalid password supplied for user "${username}" from IP ${ip}`,
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'],
+        });
+
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid credentials',
+          message: 'نام کاربری یا رمز عبور اشتباه است.',
+          attemptsLeft: penalty.attemptsLeft,
+          locked: penalty.locked,
+          remainingSec: penalty.remainingSec,
+        });
+      }
+
+      // Success: clear failed attempts
+      clearRateLimit(rateLimitKey);
+      await updateLastLogin(user.id);
+
+      const token = generateToken(
+        {
+          userId: user.id,
+          username: user.username,
+          fullName: user.full_name,
+          email: user.email,
+          role: user.role,
+          userType: 'local',
+        },
+        rememberMe
+      );
+
       await addAuditLog({
-        userName: username,
-        action: 'Failed Login (Invalid Password)',
+        userName: user.username,
+        action: 'Successful User Login',
         category: 'security',
         target: 'Auth Gateway',
-        status: 'warning',
-        details: `Invalid password supplied for user "${username}" from IP ${ip}`,
+        status: 'success',
+        details: `User "${user.username}" authenticated successfully via Local Database from IP ${ip}`,
         ipAddress: ip,
         userAgent: req.headers['user-agent'],
       });
 
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials',
-        message: 'نام کاربری یا رمز عبور اشتباه است.',
-        attemptsLeft: penalty.attemptsLeft,
-        locked: penalty.locked,
-        remainingSec: penalty.remainingSec,
+      return res.json({
+        success: true,
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          fullName: user.full_name,
+          email: user.email,
+          role: user.role,
+          userType: 'local',
+          groupIds: user.group_ids,
+          isBuiltin: user.is_builtin,
+        },
       });
     }
 
-    // Success: clear failed attempts
-    clearRateLimit(rateLimitKey);
-    await updateLastLogin(user.id);
+    // --- 2. ACTIVE DIRECTORY / LDAP AUTHENTICATION ---
+    if (authType === 'ad') {
+      // Check known simulated AD users or standard test user
+      const isCorpDomain = domain.toLowerCase().includes('corp') || domain.toLowerCase().includes('internal');
+      const isValidAdUser = (username.toLowerCase().includes('admin') || username.toLowerCase().includes('rezaei') || username.toLowerCase().includes('netops') || password === 'admin123' || password === 'Password@123');
 
-    const token = generateToken(
-      {
-        userId: user.id,
-        username: user.username,
-        fullName: user.full_name,
-        email: user.email,
-        role: user.role,
-        userType: 'local',
-      },
-      rememberMe
-    );
+      if (!isValidAdUser && password !== 'admin123' && password !== 'nettop2026') {
+        const penalty = recordFailedLogin(rateLimitKey);
+        await addAuditLog({
+          userName: `${username}@${domain}`,
+          action: 'Failed Active Directory Login',
+          category: 'security',
+          target: `AD DC (${domain})`,
+          status: 'warning',
+          details: `Active Directory Kerberos/LDAP bind failed for user ${username}@${domain} from IP ${ip}`,
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'],
+        });
 
-    await addAuditLog({
-      userName: user.username,
-      action: 'Successful User Login',
-      category: 'security',
-      target: 'Auth Gateway',
-      status: 'success',
-      details: `User "${user.username}" authenticated successfully via Local Database from IP ${ip}`,
-      ipAddress: ip,
-      userAgent: req.headers['user-agent'],
-    });
+        return res.status(401).json({
+          success: false,
+          error: 'Active Directory authentication failed',
+          message: 'احراز هویت اکتیو دایرکتوری ناموفق بود (حساب یا پسورد دامین نامعتبر است).',
+          attemptsLeft: penalty.attemptsLeft,
+          locked: penalty.locked,
+          remainingSec: penalty.remainingSec,
+        });
+      }
 
-    return res.json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        fullName: user.full_name,
-        email: user.email,
-        role: user.role,
-        userType: 'local',
-        groupIds: user.group_ids,
-        isBuiltin: user.is_builtin,
-      },
-    });
-  }
+      clearRateLimit(rateLimitKey);
 
-  // --- 2. ACTIVE DIRECTORY / LDAP AUTHENTICATION ---
-  if (authType === 'ad') {
-    // Check known simulated AD users or standard test user
-    const isCorpDomain = domain.toLowerCase().includes('corp') || domain.toLowerCase().includes('internal');
-    const isValidAdUser = (username.toLowerCase().includes('admin') || username.toLowerCase().includes('rezaei') || username.toLowerCase().includes('netops') || password === 'admin123' || password === 'Password@123');
+      const adUser = {
+        id: `ad-${username.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        username: username.includes('@') ? username : `${username}@${domain}`,
+        fullName: `Domain User (${username})`,
+        email: username.includes('@') ? username : `${username}@${domain}`,
+        role: username.toLowerCase().includes('admin') ? 'Super Administrator' : 'Network Operator (AD)',
+        userType: 'ad' as const,
+      };
 
-    if (!isValidAdUser && password !== 'admin123' && password !== 'nettop2026') {
-      const penalty = recordFailedLogin(rateLimitKey);
+      const token = generateToken(
+        {
+          userId: adUser.id,
+          username: adUser.username,
+          fullName: adUser.fullName,
+          email: adUser.email,
+          role: adUser.role,
+          userType: 'ad',
+        },
+        rememberMe
+      );
+
       await addAuditLog({
-        userName: `${username}@${domain}`,
-        action: 'Failed Active Directory Login',
+        userName: adUser.username,
+        action: 'Active Directory Login Success',
         category: 'security',
         target: `AD DC (${domain})`,
-        status: 'warning',
-        details: `Active Directory Kerberos/LDAP bind failed for user ${username}@${domain} from IP ${ip}`,
+        status: 'success',
+        details: `Active Directory user "${adUser.username}" authenticated successfully via domain ${domain} from IP ${ip}`,
         ipAddress: ip,
         userAgent: req.headers['user-agent'],
       });
 
-      return res.status(401).json({
-        success: false,
-        error: 'Active Directory authentication failed',
-        message: 'احراز هویت اکتیو دایرکتوری ناموفق بود (حساب یا پسورد دامین نامعتبر است).',
-        attemptsLeft: penalty.attemptsLeft,
-        locked: penalty.locked,
-        remainingSec: penalty.remainingSec,
+      return res.json({
+        success: true,
+        token,
+        user: adUser,
       });
     }
 
-    clearRateLimit(rateLimitKey);
-
-    const adUser = {
-      id: `ad-${username.replace(/[^a-zA-Z0-9]/g, '_')}`,
-      username: username.includes('@') ? username : `${username}@${domain}`,
-      fullName: `Domain User (${username})`,
-      email: username.includes('@') ? username : `${username}@${domain}`,
-      role: username.toLowerCase().includes('admin') ? 'Super Administrator' : 'Network Operator (AD)',
-      userType: 'ad' as const,
-    };
-
-    const token = generateToken(
-      {
-        userId: adUser.id,
-        username: adUser.username,
-        fullName: adUser.fullName,
-        email: adUser.email,
-        role: adUser.role,
-        userType: 'ad',
-      },
-      rememberMe
-    );
-
-    await addAuditLog({
-      userName: adUser.username,
-      action: 'Active Directory Login Success',
-      category: 'security',
-      target: `AD DC (${domain})`,
-      status: 'success',
-      details: `Active Directory user "${adUser.username}" authenticated successfully via domain ${domain} from IP ${ip}`,
-      ipAddress: ip,
-      userAgent: req.headers['user-agent'],
-    });
-
-    return res.json({
-      success: true,
-      token,
-      user: adUser,
+    return res.status(400).json({ success: false, error: 'Unknown authentication type' });
+  } catch (err: any) {
+    console.error('[API /auth/login error]', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Authentication service error',
+      message: 'خطای غیرمنتظره در احراز هویت دیتابیس رخ داد.',
     });
   }
-
-  return res.status(400).json({ success: false, error: 'Unknown authentication type' });
 });
 
 // Verify token / Current User Session
@@ -331,18 +342,99 @@ apiRouter.post('/auth/logout', async (req: Request, res: Response) => {
 apiRouter.get('/settings/users', async (req: Request, res: Response) => {
   try {
     const users = await getAllUsers();
-    res.json({ users });
+    // Return both standard object format and array compatibility
+    res.json({ success: true, users, count: users.length });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message, users: [] });
   }
 });
 
 apiRouter.post('/settings/users', async (req: Request, res: Response) => {
   try {
-    const saved = await saveUser(req.body);
-    res.json({ success: true, user: saved });
+    const ip = getClientIp(req);
+    const body = req.body;
+
+    // Support batch saving if an array was sent
+    if (Array.isArray(body)) {
+      const savedBatch = await saveUsersBatch(body);
+      await addAuditLog({
+        userName: 'Administrator',
+        action: 'Batch Local Users Updated',
+        category: 'user_management',
+        target: 'Users Database',
+        status: 'success',
+        details: `Saved ${savedBatch.length} local user records from IP ${ip}`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+      return res.json({ success: true, users: savedBatch, count: savedBatch.length });
+    }
+
+    // Single user save or update
+    if (!body || typeof body !== 'object' || !body.username) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required field: username is required',
+        message: 'نام کاربری الزامی است.',
+      });
+    }
+
+    const saved = await saveUser(body);
+    await addAuditLog({
+      userName: saved.username,
+      action: 'Local User Saved/Updated',
+      category: 'user_management',
+      target: `User: ${saved.username}`,
+      status: 'success',
+      details: `User account "${saved.username}" (${saved.fullName}, role: ${saved.role}) saved successfully in database from IP ${ip}`,
+      ipAddress: ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return res.json({ success: true, user: saved });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error('[API /settings/users POST error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.delete('/settings/users/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const ip = getClientIp(req);
+
+    if (!userId || userId === 'user-admin' || userId.toLowerCase() === 'admin') {
+      return res.status(400).json({
+        success: false,
+        error: 'Root administrator cannot be deleted',
+        message: 'امکان حذف حساب کاربری مدیر اصلی وجود ندارد.',
+      });
+    }
+
+    const deleted = await deleteUser(userId);
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found or cannot be deleted',
+        message: 'کاربر مورد نظر یافت نشد یا دسترسی حذف آن محدود است.',
+      });
+    }
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Local User Deleted',
+      category: 'user_management',
+      target: `User: ${userId}`,
+      status: 'warning',
+      details: `Local user account "${userId}" deleted from IP ${ip}`,
+      ipAddress: ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json({ success: true, message: 'User deleted successfully' });
+  } catch (err: any) {
+    console.error('[API /settings/users DELETE error]', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

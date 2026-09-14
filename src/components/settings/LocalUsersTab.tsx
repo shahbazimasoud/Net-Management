@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { LocalUser, LocalGroup } from '../../types';
 import { logPortalEvent } from '../../services/auditLogger';
+import { saveUserToDatabase, deleteUserFromDatabase } from '../../services/settingsStorage';
 
 interface LocalUsersTabProps {
   users: LocalUser[];
@@ -60,6 +61,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [userError, setUserError] = useState('');
+  const [isSavingUser, setIsSavingUser] = useState(false);
 
   // Group Modal State
   const [groupModalOpen, setGroupModalOpen] = useState(false);
@@ -120,7 +122,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
   };
 
   // Handler: Save User
-  const handleSaveUser = (e: React.FormEvent) => {
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser?.username?.trim() || !editingUser?.fullName?.trim()) {
       setUserError(isEn ? 'Username and full name are required.' : 'نام کاربری و نام و نام خانوادگی الزامی است.');
@@ -147,6 +149,9 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       return;
     }
 
+    setIsSavingUser(true);
+    setUserError('');
+
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const updatedUser: LocalUser = {
       id: editingUser.id || `user-${Date.now()}`,
@@ -161,64 +166,93 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
       lastLogin: editingUser.lastLogin || (isNew ? '-' : nowStr),
     };
 
-    let newUsers: LocalUser[];
-    if (isNew) {
-      newUsers = [...users, updatedUser];
-    } else {
-      newUsers = users.map((u) => (u.id === updatedUser.id ? updatedUser : u));
-    }
-
-    // Keep group member lists synchronized
-    const newGroups = groups.map((g) => {
-      const isMember = updatedUser.groupIds?.includes(g.id);
-      const memberSet = new Set(g.memberUserIds || []);
-      if (isMember) {
-        memberSet.add(updatedUser.id);
-      } else {
-        memberSet.delete(updatedUser.id);
-      }
-      return { ...g, memberUserIds: Array.from(memberSet) };
-    });
-
-    onSaveUsers(newUsers);
-    onSaveGroups(newGroups);
-
-    // Audit Log user creation / role modification
     try {
-      logPortalEvent({
-        category: 'user_management',
-        action: isNew ? 'USER_CREATED' : 'USER_ROLE_CHANGED',
-        title: isNew
-          ? `ایجاد کاربر محلی جدید «${updatedUser.username}» (${updatedUser.fullName})`
-          : `ویرایش مشخصات و سطح دسترسی کاربر «${updatedUser.username}»`,
-        title_en: isNew
-          ? `New local user account created: ${updatedUser.username}`
-          : `User profile & role updated for ${updatedUser.username}`,
-        target: {
-          type: 'user',
-          id: updatedUser.id,
-          name: `${updatedUser.fullName} (${updatedUser.username})`,
-          metadata: {
-            username: updatedUser.username,
-            role: updatedUser.role,
-            status: updatedUser.status,
-            groupIds: updatedUser.groupIds,
-          }
-        },
-        severity: isNew ? 'info' : 'notice',
-        status: 'success',
-        details: isNew
-          ? `کاربر جدید «${updatedUser.fullName}» با شناسه ${updatedUser.username} و نقش ${updatedUser.role} ایجاد شد.`
-          : `مشخصات، نقش یا عضویت گروه کاربر ${updatedUser.username} تغییر یافت.`,
-        details_en: isNew
-          ? `User ${updatedUser.username} created with role ${updatedUser.role}.`
-          : `Profile and roles updated for user ${updatedUser.username}.`,
+      const saveRes = await saveUserToDatabase({
+        ...updatedUser,
+        password: password ? password.trim() : undefined,
       });
-    } catch (err) {
-      console.warn('Failed to log user audit event:', err);
-    }
 
-    setUserModalOpen(false);
+      if (!saveRes.success) {
+        setUserError(
+          saveRes.error ||
+            (isEn
+              ? 'Failed to persist user in database.'
+              : 'ذخیره‌سازی کاربر در پایگاه داده با خطا مواجه شد.')
+        );
+        setIsSavingUser(false);
+        return;
+      }
+
+      const savedRecord = saveRes.user || updatedUser;
+
+      let newUsers: LocalUser[];
+      if (isNew) {
+        newUsers = [...users, savedRecord];
+      } else {
+        newUsers = users.map((u) => (u.id === savedRecord.id ? savedRecord : u));
+      }
+
+      // Keep group member lists synchronized
+      const newGroups = groups.map((g) => {
+        const isMember = savedRecord.groupIds?.includes(g.id);
+        const memberSet = new Set(g.memberUserIds || []);
+        if (isMember) {
+          memberSet.add(savedRecord.id);
+        } else {
+          memberSet.delete(savedRecord.id);
+        }
+        return { ...g, memberUserIds: Array.from(memberSet) };
+      });
+
+      onSaveUsers(newUsers);
+      onSaveGroups(newGroups);
+
+      // Audit Log user creation / role modification
+      try {
+        logPortalEvent({
+          category: 'user_management',
+          action: isNew ? 'USER_CREATED' : 'USER_ROLE_CHANGED',
+          title: isNew
+            ? `ایجاد کاربر محلی جدید «${savedRecord.username}» (${savedRecord.fullName})`
+            : `ویرایش مشخصات و سطح دسترسی کاربر «${savedRecord.username}»`,
+          title_en: isNew
+            ? `New local user account created: ${savedRecord.username}`
+            : `User profile & role updated for ${savedRecord.username}`,
+          target: {
+            type: 'user',
+            id: savedRecord.id,
+            name: `${savedRecord.fullName} (${savedRecord.username})`,
+            metadata: {
+              username: savedRecord.username,
+              role: savedRecord.role,
+              status: savedRecord.status,
+              groupIds: savedRecord.groupIds,
+            },
+          },
+          severity: isNew ? 'info' : 'notice',
+          status: 'success',
+          details: isNew
+            ? `کاربر جدید «${savedRecord.fullName}» با شناسه ${savedRecord.username} و نقش ${savedRecord.role} در دیتابیس ثبت شد.`
+            : `مشخصات، نقش یا عضویت گروه کاربر ${savedRecord.username} تغییر یافت.`,
+          details_en: isNew
+            ? `User ${savedRecord.username} created in database with role ${savedRecord.role}.`
+            : `Profile and roles updated for user ${savedRecord.username}.`,
+        });
+      } catch (err) {
+        console.warn('Failed to log user audit event:', err);
+      }
+
+      setUserModalOpen(false);
+    } catch (err: any) {
+      setUserError(
+        err?.message ||
+          (isEn
+            ? 'Connection error to backend authentication service.'
+            : 'خطا در ارتباط با سرویس احراز هویت پایگاه داده.')
+      );
+    } finally {
+      setIsSavingUser(false);
+    }
   };
 
   // Handler: Toggle User Status
@@ -270,6 +304,10 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
     }));
     onSaveUsers(newUsers);
     onSaveGroups(newGroups);
+
+    deleteUserFromDatabase(userId).catch((err) => {
+      console.warn('Failed to delete user from backend database:', err);
+    });
 
     if (targetUser) {
       try {
@@ -1009,10 +1047,19 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs shadow-md transition cursor-pointer"
+                  disabled={isSavingUser}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs shadow-md transition cursor-pointer"
                 >
-                  <Save className="w-4 h-4" />
-                  <span>{isEn ? 'Save User Account' : 'ذخیره مشخصات کاربر'}</span>
+                  <Save className={`w-4 h-4 ${isSavingUser ? 'animate-spin' : ''}`} />
+                  <span>
+                    {isSavingUser
+                      ? isEn
+                        ? 'Saving in DB...'
+                        : 'در حال ذخیره‌سازی...'
+                      : isEn
+                      ? 'Save User Account'
+                      : 'ذخیره مشخصات کاربر'}
+                  </span>
                 </button>
               </div>
             </form>

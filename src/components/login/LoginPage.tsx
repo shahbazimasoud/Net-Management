@@ -139,7 +139,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }),
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const textResponse = await res.text().catch(() => '');
+        console.error('[Login non-JSON response]', res.status, textResponse.slice(0, 150));
+        throw new Error(
+          isEn
+            ? `Authentication server returned status ${res.status} (${res.statusText || 'Service Gateway Error'}). Please verify backend connection.`
+            : `سرویس احراز هویت وضعیت نامعتبر ${res.status} برگرداند. لطفاً اتصال به سرور پایگاه داده را بررسی فرمایید.`
+        );
+      }
 
       if (res.ok && data.success) {
         login(data.token, data.user, rememberMe);
@@ -155,7 +167,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               : `قفل امنیتی: به دلیل تلاش‌های مکرر، ورود تا ${data.remainingSec} ثانیه دیگر مسدود شد.`
           );
         } else {
-          setErrorMsg(isEn ? (data.error || 'Authentication failed') : (data.message || 'نام کاربری یا کلمه عبور نادرست است.'));
+          setErrorMsg(
+            isEn
+              ? data.error || 'Authentication failed. Please check credentials.'
+              : data.message || 'نام کاربری یا کلمه عبور نادرست است.'
+          );
           if (data.attemptsLeft !== undefined) {
             setAttemptsLeft(data.attemptsLeft);
           }
@@ -164,8 +180,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     } catch (err: any) {
       setErrorMsg(
         isEn
-          ? `Connection error: ${err.message || 'Backend unreachable'}`
-          : `خطای برقراری ارتباط با سرور: ${err.message || 'عدم پاسخگویی سرویس'}`
+          ? `Authentication error: ${err.message || 'Service temporarily unavailable'}`
+          : `خطای احراز هویت: ${err.message || 'سرویس در دسترس نیست'}`
       );
     } finally {
       setLoading(false);

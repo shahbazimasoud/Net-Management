@@ -429,6 +429,12 @@ function loadFallbackStore(): FallbackStore {
     store = {};
   }
 
+  if (Array.isArray(store.users)) {
+    // Sanitize and filter out invalid/corrupted records that lack username
+    store.users = store.users.filter(
+      (u) => u && typeof u.username === 'string' && u.username.trim().length > 0
+    );
+  }
   if (!Array.isArray(store.users) || store.users.length === 0) {
     store.users = defaultUsers;
   }
@@ -750,6 +756,8 @@ export async function getDbStatus(): Promise<DbStatus> {
 // -------------------------------------------------------------
 export async function findUserByUsername(username: string): Promise<any | null> {
   const cleanUser = (username || '').trim().toLowerCase();
+  if (!cleanUser) return null;
+
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM users WHERE LOWER(username) = $1 LIMIT 1', [cleanUser]);
@@ -760,7 +768,11 @@ export async function findUserByUsername(username: string): Promise<any | null> 
   }
 
   const store = loadFallbackStore();
-  return store.users.find((u) => u.username.toLowerCase() === cleanUser) || null;
+  return (
+    store.users.find(
+      (u) => u && typeof u.username === 'string' && u.username.toLowerCase() === cleanUser
+    ) || null
+  );
 }
 
 export async function getAllUsers(): Promise<any[]> {
@@ -786,62 +798,85 @@ export async function getAllUsers(): Promise<any[]> {
   }
 
   const store = loadFallbackStore();
-  return store.users.map((u) => ({
-    id: u.id,
-    username: u.username,
-    fullName: u.full_name,
-    email: u.email,
-    role: u.role,
-    userType: u.user_type,
-    status: u.status,
-    groupIds: u.group_ids,
-    isBuiltin: u.is_builtin,
-    lastLogin: u.last_login,
-    createdAt: u.created_at,
-  }));
+  return store.users
+    .filter((u) => u && typeof u.username === 'string' && u.username.trim().length > 0)
+    .map((u) => ({
+      id: u.id,
+      username: u.username,
+      fullName: u.full_name,
+      email: u.email,
+      role: u.role,
+      userType: u.user_type,
+      status: u.status,
+      groupIds: u.group_ids || [],
+      isBuiltin: u.is_builtin,
+      lastLogin: u.last_login,
+      createdAt: u.created_at,
+    }));
 }
 
 export async function saveUser(userData: any): Promise<any> {
+  if (!userData || typeof userData !== 'object') {
+    throw new Error('Invalid user payload: Expected an object');
+  }
+
+  const rawUsername = (userData.username || '').trim();
+  if (!rawUsername) {
+    throw new Error('Username is required and cannot be empty');
+  }
+
   const store = loadFallbackStore();
-  const existingIndex = store.users.findIndex((u) => u.id === userData.id || u.username.toLowerCase() === userData.username?.toLowerCase());
-  
+  const cleanUser = rawUsername.toLowerCase();
+  const existingIndex = store.users.findIndex(
+    (u) =>
+      u &&
+      typeof u.username === 'string' &&
+      ((userData.id && u.id === userData.id) || u.username.toLowerCase() === cleanUser)
+  );
+
   let userRecord: any;
   if (existingIndex >= 0) {
     const prev = store.users[existingIndex];
     let pwdHash = prev.password_hash;
     let pwdSalt = prev.password_salt;
-    if (userData.password) {
-      const p = hashPassword(userData.password);
+    if (userData.password && String(userData.password).trim().length > 0) {
+      const p = hashPassword(String(userData.password).trim());
       pwdHash = p.hash;
       pwdSalt = p.salt;
     }
     userRecord = {
       ...prev,
-      username: userData.username || prev.username,
+      username: rawUsername,
       password_hash: pwdHash,
       password_salt: pwdSalt,
-      full_name: userData.fullName || prev.full_name,
-      email: userData.email || prev.email,
-      role: userData.role || prev.role,
-      user_type: userData.userType || prev.user_type,
-      status: userData.status || prev.status,
-      group_ids: userData.groupIds || prev.group_ids,
+      full_name: (userData.fullName || prev.full_name || rawUsername).trim(),
+      email: (userData.email || prev.email || `${cleanUser}@nettopology.internal`).trim(),
+      role: userData.role || prev.role || 'NOC Analyst',
+      user_type: userData.userType || prev.user_type || 'local',
+      status: userData.status || prev.status || 'active',
+      group_ids: Array.isArray(userData.groupIds) ? userData.groupIds : (prev.group_ids || []),
+      is_builtin: prev.is_builtin ?? Boolean(userData.isBuiltin),
       updated_at: new Date().toISOString(),
     };
   } else {
-    const p = hashPassword(userData.password || 'welcome123');
+    // New user creation
+    const plainPassword =
+      userData.password && String(userData.password).trim().length > 0
+        ? String(userData.password).trim()
+        : 'welcome123';
+    const p = hashPassword(plainPassword);
     userRecord = {
       id: userData.id || `user-${Date.now()}`,
-      username: userData.username,
+      username: rawUsername,
       password_hash: p.hash,
       password_salt: p.salt,
-      full_name: userData.fullName || userData.username,
-      email: userData.email || `${userData.username}@nettopology.internal`,
+      full_name: (userData.fullName || rawUsername).trim(),
+      email: (userData.email || `${cleanUser}@nettopology.internal`).trim(),
       role: userData.role || 'NOC Analyst',
       user_type: userData.userType || 'local',
       status: userData.status || 'active',
-      group_ids: userData.groupIds || [],
-      is_builtin: false,
+      group_ids: Array.isArray(userData.groupIds) ? userData.groupIds : [],
+      is_builtin: Boolean(userData.isBuiltin),
       last_login: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -894,7 +929,70 @@ export async function saveUser(userData: any): Promise<any> {
   }
   saveFallbackStore(store);
 
-  return userRecord;
+  return {
+    id: userRecord.id,
+    username: userRecord.username,
+    fullName: userRecord.full_name,
+    email: userRecord.email,
+    role: userRecord.role,
+    userType: userRecord.user_type,
+    status: userRecord.status,
+    groupIds: userRecord.group_ids,
+    isBuiltin: userRecord.is_builtin,
+    lastLogin: userRecord.last_login,
+    createdAt: userRecord.created_at,
+    updatedAt: userRecord.updated_at,
+  };
+}
+
+export async function saveUsersBatch(usersList: any[]): Promise<any[]> {
+  if (!Array.isArray(usersList)) return [];
+  const results: any[] = [];
+  for (const item of usersList) {
+    if (!item || typeof item !== 'object' || !item.username) continue;
+    try {
+      const saved = await saveUser(item);
+      results.push(saved);
+    } catch (err) {
+      console.error('[DB saveUsersBatch item error]', err);
+    }
+  }
+  return results;
+}
+
+export async function deleteUser(userIdOrUsername: string): Promise<boolean> {
+  const target = (userIdOrUsername || '').trim().toLowerCase();
+  if (!target || target === 'user-admin' || target === 'admin') {
+    return false; // Root administrator cannot be deleted
+  }
+
+  const store = loadFallbackStore();
+  const index = store.users.findIndex(
+    (u) =>
+      u &&
+      typeof u.username === 'string' &&
+      (u.id.toLowerCase() === target || u.username.toLowerCase() === target)
+  );
+
+  if (index >= 0) {
+    const deletedUser = store.users[index];
+    if (deletedUser.is_builtin || deletedUser.username.toLowerCase() === 'admin') {
+      return false;
+    }
+    store.users.splice(index, 1);
+    saveFallbackStore(store);
+
+    if (isPostgresReady && pool) {
+      try {
+        await pool.query('DELETE FROM users WHERE LOWER(id) = $1 OR LOWER(username) = $1', [target]);
+      } catch (e) {
+        console.error('[DB Query Error]', e);
+      }
+    }
+    return true;
+  }
+
+  return false;
 }
 
 export async function updateLastLogin(userId: string): Promise<void> {

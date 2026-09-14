@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.50.1';
+export const APP_VERSION = '1.50.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.50.2',
+    releaseDate: '2026-09-14',
+    type: 'patch',
+    title: 'رفع اساسی خطای ورود کاربران محلی، اتصال مستقیم و ایمن فرم ایجاد کاربر به پایگاه داده و محافظت در برابر پاسخ‌های غیر JSON',
+    title_en: 'Critical Fix for Local User Login Authentication, Direct Database Persistence for User Creation, and Resilient Guard Against Non-JSON Gateway Responses',
+    changes: [
+      'رفع خطای لاگین Unexpected token < و ناتوانی در اعتبارسنجی کاربران محلی تازه ایجادشده با برقراری ارتباط مستقیم فرم ایجاد کاربر با پایگاه داده (/api/settings/users).',
+      'ایمن‌سازی ذخیره‌سازی پسورد کاربران محلی جدید با سیستم هشینگ فوق امن PBKDF2 و سالت ۵۱۲ بیتی در پایگاه داده PostgreSQL و استور پشتیبان.',
+      'اصلاح و ایمن‌سازی توابع saveUser، loadFallbackStore و findUserByUsername در لایه دیتابیس برای جلوگیری از ثبت رکوردهای تهی یا فاسد.',
+      'افزودن پاسخ‌دهی استاندارد JSON در میدل‌ور خطای سراسری سرور و هندلینگ امن محتوای غیر JSON در صفحه ورود (LoginPage) جهت جلوگیری از نمایش خطاهای خام HTML به کاربر.',
+      'پشتیبانی کامل از حذف همگام کاربر (deleteUserFromDatabase) در پایگاه داده و اعمال شاخص وضعیت در حال ذخیره (isSavingUser) در مودال کاربران.'
+    ],
+    changes_en: [
+      'Resolved local user authentication failure and unexpected HTML token response by directly persisting newly created user accounts and credentials to the backend database (/api/settings/users).',
+      'Hardened local user password security with standard PBKDF2 derivation and 512-bit salt hashing across PostgreSQL database and persistent JSON backup store.',
+      'Refactored and sanitized saveUser, loadFallbackStore, and findUserByUsername database layer routines to prevent malformed or nameless user records.',
+      'Added strict global JSON error handling in Express server and guarded client-side response parsing in LoginPage to eliminate raw HTML parse errors.',
+      'Added synchronized database user deletion and interactive saving indicator state in the Local Users management modal.'
+    ]
+  },
   {
     version: '1.50.1',
     releaseDate: '2026-09-14',

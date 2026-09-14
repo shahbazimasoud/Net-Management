@@ -417,14 +417,77 @@ export function saveLocalUsers(users: LocalUser[]): void {
   }
 }
 
+export async function saveUserToDatabase(
+  userPayload: Partial<LocalUser> & { password?: string }
+): Promise<{ success: boolean; user?: LocalUser; error?: string }> {
+  try {
+    const res = await fetch('/api/settings/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userPayload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success && data.user) {
+      const current = loadLocalUsers();
+      const idx = current.findIndex(
+        (u) =>
+          (data.user.id && u.id === data.user.id) ||
+          u.username.toLowerCase() === data.user.username.toLowerCase()
+      );
+      if (idx >= 0) {
+        current[idx] = { ...current[idx], ...data.user };
+      } else {
+        current.push(data.user);
+      }
+      localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(current));
+      return { success: true, user: data.user };
+    }
+    return {
+      success: false,
+      error: data.message || data.error || 'Failed to save user in database',
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Connection error to backend database' };
+  }
+}
+
+export async function deleteUserFromDatabase(
+  userId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`/api/settings/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      const current = loadLocalUsers().filter(
+        (u) => u.id !== userId && u.username.toLowerCase() !== userId.toLowerCase()
+      );
+      localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(current));
+      return { success: true };
+    }
+    return {
+      success: false,
+      error: data.message || data.error || 'Failed to delete user',
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Connection error' };
+  }
+}
+
 export async function syncLocalUsersFromDatabase(): Promise<LocalUser[]> {
   try {
     const res = await fetch('/api/settings/users');
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(data));
-        return data;
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.users)
+        ? data.users
+        : [];
+      if (list.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(list));
+        return list;
       }
     }
   } catch (e) {
