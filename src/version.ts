@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.50.4';
+export const APP_VERSION = '1.50.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.50.5',
+    releaseDate: '2026-09-14',
+    type: 'patch',
+    title: 'تضمین پایداری کامل داده‌های کاربران و نقشه‌ها در PostgreSQL و رفع عدم ذخیره‌سازی جداول',
+    title_en: 'Full PostgreSQL Persistence Assurance for Users & Maps with Automatic Data Sync',
+    changes: [
+      'رفع مشکل خالی بودن جداول users و custom_maps در سرور PostgreSQL از طریق بارگذاری صحیح متغیرهای محیطی در systemd و فایل .env.',
+      'پیاده‌سازی مکانیزم اتصال پویا (ensurePostgresConnection) با قابلیت بازیابی خودکار در تمام عملیات خواندن، نوشتن و حذف کاربران و نقشه‌ها.',
+      'اضافه شدن همگام‌سازی خودکار و دوطرفه داده‌های fallback store به دیتابیس PostgreSQL هنگام اتصال یا در صورت خالی بودن جداول.',
+      'اصلاح ساختار اسکریپت migration جدول‌های users و custom_maps با دستورات ایمن IF NOT EXISTS جهت سازگاری با پایگاه‌های داده قبلی.',
+      'افزودن دسترسی و مالکیت کامل کلیه جداول و دنباله‌ها (Sequences) به کاربر دیتابیس در فرآیند نصب setup-panel.sh.'
+    ],
+    changes_en: [
+      'Resolved empty PostgreSQL tables for users and custom_maps by ensuring reliable environment variable loading in systemd and .env locations.',
+      'Implemented dynamic connection recovery (ensurePostgresConnection) across all user and map CRUD operations in PostgreSQL.',
+      'Added two-way automatic data migration from the fallback store into PostgreSQL whenever the database connects or contains empty tables.',
+      'Enhanced database schema migration scripts for users and custom_maps with safe IF NOT EXISTS clauses for legacy compatibility.',
+      'Configured full table and sequence ownership grants for the dedicated database user in setup-panel.sh.'
+    ]
+  },
   {
     version: '1.50.4',
     releaseDate: '2026-09-14',

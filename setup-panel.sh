@@ -440,6 +440,14 @@ if [ -f "$INSTALL_DIR/backend/schema.sql" ]; then
   # Verify created tables count
   TABLE_COUNT=$(sudo -u postgres psql -d "$DB_NAME" -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' ' || echo "0")
   log_success "Database schema verified: $TABLE_COUNT tables active in '$DB_NAME'."
+
+  # Ensure all tables and sequences in public schema have full privileges and ownership granted to DB_USER
+  sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+  sudo -u postgres psql -d "$DB_NAME" -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+  sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;" 2>/dev/null || true
+  sudo -u postgres psql -d "$DB_NAME" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;" 2>/dev/null || true
+  sudo -u postgres psql -d "$DB_NAME" -c "DO \$\$ DECLARE r RECORD; BEGIN FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP EXECUTE 'ALTER TABLE ' || quote_ident(r.tablename) || ' OWNER TO ' || quote_ident('$DB_USER'); END LOOP; END \$\$;" 2>/dev/null || true
+  log_success "Full table ownership and privileges assigned to '$DB_USER'."
 else
   log_warning "Warning: backend/schema.sql was not found in $INSTALL_DIR."
 fi

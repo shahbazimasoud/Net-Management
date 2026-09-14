@@ -18,6 +18,7 @@ import {
   updateLastLogin,
   getCustomMaps,
   saveCustomMaps,
+  deleteCustomMap,
   getNodePositions,
   saveNodePositions,
   deleteNodePositions,
@@ -486,6 +487,16 @@ apiRouter.post('/settings/maps', async (req: Request, res: Response) => {
     const maps = Array.isArray(req.body?.maps) ? req.body.maps : (Array.isArray(req.body) ? req.body : []);
     await saveCustomMaps(maps, currentUser);
     res.json({ success: true, count: maps.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.delete('/settings/maps/:id', async (req: Request, res: Response) => {
+  try {
+    const mapId = req.params.id;
+    const deleted = await deleteCustomMap(mapId);
+    res.json({ success: true, mapId, deleted });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

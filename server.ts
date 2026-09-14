@@ -1,12 +1,11 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
+import dotenv from 'dotenv';
 import { spawn, exec, ChildProcess } from 'child_process';
 import http from 'http';
 import net from 'net';
 import { createServer as createViteServer } from 'vite';
-import { initDatabase } from './server/db';
-import { apiRouter } from './server/routes';
 
 // Safely determine current directory and project root in both CJS bundle and TSX ESM dev mode
 const getCurrentDir = () => {
@@ -19,6 +18,25 @@ const getCurrentDir = () => {
 const currentDir = getCurrentDir();
 // If running from dist/server.cjs, project root is one level up
 const projectRoot = path.basename(currentDir) === 'dist' ? path.resolve(currentDir, '..') : currentDir;
+
+// Load environment variables from all possible locations
+const candidateEnvPaths = [
+  path.resolve(projectRoot, '.env'),
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(currentDir, '.env'),
+  '/opt/nettopology/.env',
+];
+
+for (const envPath of candidateEnvPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    break;
+  }
+}
+dotenv.config();
+
+import { initDatabase } from './server/db';
+import { apiRouter } from './server/routes';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.FRONTEND_PORT ? parseInt(process.env.FRONTEND_PORT, 10) : 3000);

@@ -1,7 +1,24 @@
-import { Pool, PoolConfig } from 'pg';
+import { Pool, PoolConfig, PoolClient } from 'pg';
 import fs from 'fs';
 import path from 'path';
+import dotenv from 'dotenv';
 import { hashPassword } from './auth';
+
+// Load environment variables from candidate paths
+const candidateEnvPaths = [
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '.env'),
+  path.resolve(__dirname, '..', '.env'),
+  '/opt/nettopology/.env',
+];
+
+for (const envPath of candidateEnvPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    break;
+  }
+}
+dotenv.config();
 
 export interface DbStatus {
   connected: boolean;
@@ -18,15 +35,70 @@ export interface DbStatus {
   lastChecked: string;
 }
 
-const DB_HOST = process.env.DB_HOST || '127.0.0.1';
-const DB_PORT = parseInt(process.env.DB_PORT || '5432', 10);
-const DB_NAME = process.env.DB_NAME || 'nettopology_db';
-const DB_USER = process.env.DB_USER || 'nettopology_user';
-const DB_PASSWORD = process.env.DB_PASSWORD || '';
+export function getDbConfig(): PoolConfig {
+  if (process.env.DATABASE_URL) {
+    return {
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      max: 20,
+    };
+  }
+
+  const host = process.env.DB_HOST || '127.0.0.1';
+  const port = parseInt(process.env.DB_PORT || '5432', 10);
+  const database = process.env.DB_NAME || 'nettopology_db';
+  const user = process.env.DB_USER || 'nettopology_user';
+  const password = process.env.DB_PASSWORD || '';
+
+  return {
+    host,
+    port,
+    database,
+    user,
+    password,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    max: 20,
+  };
+}
 
 let pool: Pool | null = null;
 let isPostgresReady = false;
 let lastError: string | null = null;
+
+export async function ensurePostgresConnection(): Promise<boolean> {
+  if (isPostgresReady && pool) {
+    try {
+      const pingClient = await pool.connect();
+      pingClient.release();
+      return true;
+    } catch {
+      isPostgresReady = false;
+    }
+  }
+
+  try {
+    const config = getDbConfig();
+    if (!pool) {
+      pool = new Pool(config);
+      pool.on('error', (err) => {
+        console.error('[PostgreSQL Pool Unexpected Error]', err);
+        isPostgresReady = false;
+      });
+    }
+
+    const client = await pool.connect();
+    client.release();
+    isPostgresReady = true;
+    lastError = null;
+    return true;
+  } catch (err: any) {
+    isPostgresReady = false;
+    lastError = err.message || 'PostgreSQL not reachable';
+    return false;
+  }
+}
 
 // Local persistent file fallback (used if PostgreSQL is offline or unprovisioned)
 const FALLBACK_FILE = path.join(process.cwd(), 'backend', 'database_store.json');
@@ -492,100 +564,154 @@ function saveFallbackStore(data: FallbackStore): void {
 }
 
 /**
- * Initialize PostgreSQL connection pool and run migration if needed
+ * Synchronize all entities from fallback store to PostgreSQL if PostgreSQL is missing records
  */
-export async function initDatabase(): Promise<void> {
-  // Ensure fallback store exists and is thoroughly populated first
-  const initialData = loadFallbackStore();
-  saveFallbackStore(initialData);
-
-  // Attempt PostgreSQL initialization
+async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackStore): Promise<void> {
+  // 1. Sync Users
   try {
-    const config: PoolConfig = {
-      host: DB_HOST,
-      port: DB_PORT,
-      database: DB_NAME,
-      user: DB_USER,
-      password: DB_PASSWORD,
-      connectionTimeoutMillis: 2500,
-      idleTimeoutMillis: 10000,
-      max: 10,
-    };
+    const existingUsersRes = await client.query('SELECT id, username FROM users');
+    const existingUsernames = new Set(existingUsersRes.rows.map((r: any) => (r.username || '').toLowerCase()));
+    const existingIds = new Set(existingUsersRes.rows.map((r: any) => r.id));
 
-    pool = new Pool(config);
-
-    // Test connection with a simple query
-    const client = await pool.connect();
-    console.log(`[Database] Successfully connected to PostgreSQL server on ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
-    
-    // Read and run schema.sql
-    const schemaPath = path.join(process.cwd(), 'backend', 'schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      const sql = fs.readFileSync(schemaPath, 'utf-8');
-      await client.query(sql);
-      console.log('[Database] PostgreSQL schema verification and migration completed.');
-    }
-
-    // 1. Seed Users if empty
-    const usersCountRes = await client.query('SELECT count(*) as count FROM users');
-    if (parseInt(usersCountRes.rows[0]?.count || '0', 10) === 0) {
-      for (const u of initialData.users) {
+    for (const u of initialData.users) {
+      if (!u || !u.username) continue;
+      const cleanUser = u.username.toLowerCase();
+      if (!existingUsernames.has(cleanUser) && !existingIds.has(u.id)) {
         await client.query(
           `INSERT INTO users (id, username, password_hash, password_salt, full_name, email, role, user_type, status, group_ids, is_builtin, created_at, last_login)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-           ON CONFLICT (id) DO NOTHING`,
+           ON CONFLICT (id) DO UPDATE SET
+             username = EXCLUDED.username,
+             full_name = EXCLUDED.full_name,
+             email = EXCLUDED.email,
+             role = EXCLUDED.role,
+             user_type = EXCLUDED.user_type,
+             status = EXCLUDED.status,
+             group_ids = EXCLUDED.group_ids,
+             is_builtin = EXCLUDED.is_builtin`,
           [
-            u.id,
+            u.id || `user-sync-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
             u.username,
-            u.password_hash,
-            u.password_salt,
-            u.full_name,
-            u.email,
-            u.role,
-            u.user_type,
-            u.status,
-            JSON.stringify(u.group_ids || []),
-            u.is_builtin || false,
-            u.created_at || new Date().toISOString(),
-            u.last_login || null,
+            u.password_hash || '',
+            u.password_salt || '',
+            (u.full_name || u.fullName || u.username).trim(),
+            (u.email || `${cleanUser}@nettopology.internal`).trim(),
+            u.role || 'Super Administrator',
+            u.user_type || u.userType || 'local',
+            u.status || 'active',
+            JSON.stringify(u.group_ids || u.groupIds || []),
+            Boolean(u.is_builtin ?? u.isBuiltin),
+            u.created_at || u.createdAt || new Date().toISOString(),
+            u.last_login || u.lastLogin || null,
           ]
         );
       }
-      console.log('[Database] Seeded initial users into PostgreSQL users table.');
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Users sync notice:', err.message);
+  }
 
-    // 2. Seed User Groups if empty
+  // 2. Sync Custom Maps
+  try {
+    const existingMapsRes = await client.query('SELECT id FROM custom_maps');
+    const existingMapIds = new Set(existingMapsRes.rows.map((r: any) => r.id));
+    const mapsToSync = (initialData.custom_maps && initialData.custom_maps.length > 0)
+      ? initialData.custom_maps
+      : DEFAULT_CUSTOM_MAPS;
+
+    for (const m of mapsToSync) {
+      if (!m || !m.id) continue;
+      if (!existingMapIds.has(m.id)) {
+        await client.query(
+          `INSERT INTO custom_maps (
+             id, name, description, map_type, nodes, connections, viewport, metadata, visibility, owner_id, owner_name, allowed_users, map_data, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             description = EXCLUDED.description,
+             map_type = EXCLUDED.map_type,
+             nodes = EXCLUDED.nodes,
+             connections = EXCLUDED.connections,
+             viewport = EXCLUDED.viewport,
+             metadata = EXCLUDED.metadata,
+             visibility = EXCLUDED.visibility,
+             owner_id = EXCLUDED.owner_id,
+             owner_name = EXCLUDED.owner_name,
+             allowed_users = EXCLUDED.allowed_users,
+             map_data = EXCLUDED.map_data,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            m.id,
+            m.name || 'Untitled Map',
+            m.description || '',
+            m.type || m.map_type || 'schematic',
+            JSON.stringify(m.devicePositions || m.nodes || {}),
+            JSON.stringify(m.links || m.connections || []),
+            JSON.stringify(m.viewport || { zoom: 1, pan: { x: 0, y: 0 } }),
+            JSON.stringify(m.metadata || {}),
+            m.visibility || 'public',
+            m.ownerId || m.owner_id || 'user-admin',
+            m.ownerName || m.owner_name || 'admin',
+            JSON.stringify(m.allowedUsers || m.allowed_users || []),
+            JSON.stringify(m),
+            m.createdAt || m.created_at ? new Date(m.createdAt || m.created_at) : new Date(),
+            new Date(),
+          ]
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Custom Maps sync notice:', err.message);
+  }
+
+  // 3. Sync User Groups
+  try {
     const groupCountRes = await client.query('SELECT count(*) as count FROM user_groups');
     if (parseInt(groupCountRes.rows[0]?.count || '0', 10) === 0) {
-      for (const g of DEFAULT_USER_GROUPS) {
+      const groupsToSeed = (initialData.user_groups && initialData.user_groups.length > 0)
+        ? initialData.user_groups
+        : DEFAULT_USER_GROUPS;
+      for (const g of groupsToSeed) {
         await client.query(
           `INSERT INTO user_groups (id, name, description, color, member_user_ids, is_builtin, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (id) DO NOTHING`,
-          [g.id, g.name, g.description, g.color, JSON.stringify(g.member_user_ids), g.is_builtin, g.created_at]
+          [g.id, g.name, g.description, g.color, JSON.stringify(g.memberUserIds || g.member_user_ids || []), g.isBuiltin ?? g.is_builtin ?? false, g.created_at || new Date().toISOString()]
         );
       }
-      console.log('[Database] Seeded initial user groups into PostgreSQL.');
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] User Groups sync notice:', err.message);
+  }
 
-    // 3. Seed Access Policies if empty
+  // 4. Sync Access Policies
+  try {
     const policyCountRes = await client.query('SELECT count(*) as count FROM access_policies');
     if (parseInt(policyCountRes.rows[0]?.count || '0', 10) === 0) {
-      for (const p of DEFAULT_ACCESS_POLICIES) {
+      const policiesToSeed = (initialData.access_policies && initialData.access_policies.length > 0)
+        ? initialData.access_policies
+        : DEFAULT_ACCESS_POLICIES;
+      for (const p of policiesToSeed) {
         await client.query(
           `INSERT INTO access_policies (id, name, description, priority, is_builtin, policy_data, created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (id) DO NOTHING`,
-          [p.id, p.name, p.description, p.priority, p.is_builtin, JSON.stringify(p.policy_data), p.created_at]
+          [p.id, p.name, p.description, p.priority || 100, p.isBuiltin ?? p.is_builtin ?? false, JSON.stringify(p.policyData || p.policy_data || {}), p.created_at || new Date().toISOString()]
         );
       }
-      console.log('[Database] Seeded initial access policies into PostgreSQL.');
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Access Policies sync notice:', err.message);
+  }
 
-    // 4. Seed Devices if empty
+  // 5. Sync Devices
+  try {
     const devCountRes = await client.query('SELECT count(*) as count FROM devices');
     if (parseInt(devCountRes.rows[0]?.count || '0', 10) === 0) {
-      const devicesToSeed = loadInitialDevices();
+      const devicesToSeed = (initialData.devices && initialData.devices.length > 0)
+        ? initialData.devices
+        : loadInitialDevices();
       for (const d of devicesToSeed) {
         await client.query(
           `INSERT INTO devices (id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username, is_online, latency_ms, mac_address, uptime_str, ports)
@@ -611,89 +737,137 @@ export async function initDatabase(): Promise<void> {
           ]
         );
       }
-      console.log(`[Database] Seeded ${devicesToSeed.length} devices into PostgreSQL devices table.`);
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Devices sync notice:', err.message);
+  }
 
-    // 5. Seed Device Groups if empty
+  // 6. Sync Device Groups
+  try {
     const devGroupCountRes = await client.query('SELECT count(*) as count FROM device_groups');
     if (parseInt(devGroupCountRes.rows[0]?.count || '0', 10) === 0) {
-      for (const dg of DEFAULT_DEVICE_GROUPS) {
+      const devGroupsToSeed = (initialData.device_groups && initialData.device_groups.length > 0)
+        ? initialData.device_groups
+        : DEFAULT_DEVICE_GROUPS;
+      for (const dg of devGroupsToSeed) {
         await client.query(
           `INSERT INTO device_groups (id, name, description, color, icon, device_ids)
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (id) DO NOTHING`,
-          [dg.id, dg.name, dg.description, dg.color, dg.icon, JSON.stringify(dg.device_ids)]
+          [dg.id, dg.name, dg.description, dg.color, dg.icon, JSON.stringify(dg.deviceIds || dg.device_ids || [])]
         );
       }
-      console.log('[Database] Seeded initial device groups into PostgreSQL.');
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Device Groups sync notice:', err.message);
+  }
 
-    // 6. Seed Topology Hierarchy if empty
+  // 7. Sync Topology Hierarchy
+  try {
     const hierCountRes = await client.query('SELECT count(*) as count FROM topology_hierarchy');
     if (parseInt(hierCountRes.rows[0]?.count || '0', 10) === 0) {
-      for (const h of DEFAULT_HIERARCHY) {
+      const hierToSeed = (initialData.topology_hierarchy && initialData.topology_hierarchy.length > 0)
+        ? initialData.topology_hierarchy
+        : DEFAULT_HIERARCHY;
+      for (const h of hierToSeed) {
         await client.query(
           `INSERT INTO topology_hierarchy (id, type, parent_id, name, description, metadata)
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (id) DO NOTHING`,
-          [h.id, h.type, h.parentId, h.name, h.description, JSON.stringify(h.metadata)]
+          [h.id, h.type, h.parentId || h.parent_id || null, h.name, h.description, JSON.stringify(h.metadata || {})]
         );
       }
-      console.log('[Database] Seeded topology physical hierarchy into PostgreSQL.');
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Topology Hierarchy sync notice:', err.message);
+  }
 
-    // 7. Seed Custom Maps if empty
-    const mapsCountRes = await client.query('SELECT count(*) as count FROM custom_maps');
-    if (parseInt(mapsCountRes.rows[0]?.count || '0', 10) === 0) {
-      for (const m of DEFAULT_CUSTOM_MAPS) {
-        await client.query(
-          `INSERT INTO custom_maps (id, name, description, map_type, nodes, connections, viewport, metadata, visibility, owner_id, owner_name, allowed_users, map_data)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-           ON CONFLICT (id) DO NOTHING`,
-          [
-            m.id,
-            m.name,
-            m.description,
-            'schematic',
-            JSON.stringify(m.devicePositions),
-            JSON.stringify(m.links),
-            JSON.stringify({ zoom: 1, pan: { x: 0, y: 0 } }),
-            JSON.stringify({}),
-            m.visibility,
-            m.ownerId,
-            m.ownerName,
-            JSON.stringify(m.allowedUsers),
-            JSON.stringify(m)
-          ]
-        );
-      }
-      console.log('[Database] Seeded enterprise custom maps into PostgreSQL.');
-    }
-
-    // 8. Seed Node Positions if empty
+  // 8. Sync Node Positions
+  try {
     const nodePosCountRes = await client.query('SELECT count(*) as count FROM node_positions');
     if (parseInt(nodePosCountRes.rows[0]?.count || '0', 10) === 0) {
-      const defaultPositions = DEFAULT_NODE_POSITIONS['default'];
+      const defaultPositions = (initialData.node_positions && initialData.node_positions['default']) || DEFAULT_NODE_POSITIONS['default'];
       for (const [nodeId, coords] of Object.entries(defaultPositions)) {
         await client.query(
           `INSERT INTO node_positions (map_id, node_id, x, y)
            VALUES ($1, $2, $3, $4)
            ON CONFLICT (map_id, node_id) DO NOTHING`,
-          ['default', nodeId, coords.x, coords.y]
+          ['default', nodeId, (coords as any).x, (coords as any).y]
         );
       }
-      console.log('[Database] Seeded default node canvas positions into PostgreSQL.');
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Node Positions sync notice:', err.message);
+  }
 
-    // 9. Seed Active Directory Config if empty
+  // 9. Sync Active Directory Config
+  try {
     const adRes = await client.query('SELECT count(*) as count FROM ad_config');
     if (parseInt(adRes.rows[0]?.count || '0', 10) === 0) {
+      const adToSeed = initialData.ad_config || DEFAULT_AD_CONFIG;
       await client.query(
         `INSERT INTO ad_config (id, config_data) VALUES ('primary', $1) ON CONFLICT (id) DO NOTHING`,
-        [JSON.stringify(DEFAULT_AD_CONFIG)]
+        [JSON.stringify(adToSeed)]
       );
-      console.log('[Database] Seeded default AD configuration into PostgreSQL.');
     }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] AD Config sync notice:', err.message);
+  }
+}
+
+/**
+ * Initialize PostgreSQL connection pool and run migration if needed
+ */
+export async function initDatabase(): Promise<void> {
+  // Ensure fallback store exists and is thoroughly populated first
+  const initialData = loadFallbackStore();
+  saveFallbackStore(initialData);
+
+  // Attempt PostgreSQL initialization
+  try {
+    const config = getDbConfig();
+    pool = new Pool(config);
+    pool.on('error', (err) => {
+      console.error('[PostgreSQL Pool Unexpected Error]', err);
+      isPostgresReady = false;
+    });
+
+    const client = await pool.connect();
+    console.log(`[Database] Successfully connected to PostgreSQL server on ${(config as any).host}:${(config as any).port}/${(config as any).database}`);
+
+    // Read and run schema.sql statement by statement safely
+    try {
+      const schemaPath = path.join(process.cwd(), 'backend', 'schema.sql');
+      if (fs.existsSync(schemaPath)) {
+        const sql = fs.readFileSync(schemaPath, 'utf-8');
+        const statements = sql
+          .split(';')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0 && !s.startsWith('--'));
+
+        for (const statement of statements) {
+          try {
+            await client.query(statement);
+          } catch (stmtErr: any) {
+            // Ignore benign notices (e.g. relation already exists, extension privileges)
+            if (
+              !stmtErr.message.includes('already exists') &&
+              !stmtErr.message.includes('extension') &&
+              !stmtErr.message.includes('duplicate')
+            ) {
+              console.warn('[Database Schema Notice]', stmtErr.message);
+            }
+          }
+        }
+        console.log('[Database] PostgreSQL schema verification and migration completed.');
+      }
+    } catch (schemaErr: any) {
+      console.warn('[Database Schema Warning]', schemaErr.message);
+    }
+
+    // Synchronize all fallback records into PostgreSQL
+    await syncFallbackToPostgres(client, initialData);
+    console.log('[Database] Fallback store synchronization to PostgreSQL completed successfully.');
 
     client.release();
     isPostgresReady = true;
@@ -706,16 +880,34 @@ export async function initDatabase(): Promise<void> {
 }
 
 /**
+ * Manually trigger bidirectional database sync
+ */
+export async function syncDatabase(): Promise<DbStatus> {
+  const connected = await ensurePostgresConnection();
+  if (connected && pool) {
+    const client = await pool.connect();
+    try {
+      const store = loadFallbackStore();
+      await syncFallbackToPostgres(client, store);
+    } finally {
+      client.release();
+    }
+  }
+  return getDbStatus();
+}
+
+/**
  * Get current database status and metrics
  */
 export async function getDbStatus(): Promise<DbStatus> {
+  const cfg = getDbConfig();
   const status: DbStatus = {
     connected: isPostgresReady,
     engine: isPostgresReady ? 'postgresql' : 'fallback_json',
-    host: DB_HOST,
-    port: DB_PORT,
-    database: DB_NAME,
-    user: DB_USER,
+    host: (cfg as any).host || '127.0.0.1',
+    port: (cfg as any).port || 5432,
+    database: (cfg as any).database || 'nettopology_db',
+    user: (cfg as any).user || 'nettopology_user',
     lastChecked: new Date().toISOString(),
     error: lastError,
   };
@@ -758,12 +950,13 @@ export async function findUserByUsername(username: string): Promise<any | null> 
   const cleanUser = (username || '').trim().toLowerCase();
   if (!cleanUser) return null;
 
+  await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM users WHERE LOWER(username) = $1 LIMIT 1', [cleanUser]);
       if (res.rows.length > 0) return res.rows[0];
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in findUserByUsername]', e);
     }
   }
 
@@ -776,24 +969,52 @@ export async function findUserByUsername(username: string): Promise<any | null> 
 }
 
 export async function getAllUsers(): Promise<any[]> {
+  await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT id, username, full_name, email, role, user_type, status, group_ids, is_builtin, last_login, created_at FROM users ORDER BY created_at ASC');
-      return res.rows.map((r) => ({
-        id: r.id,
-        username: r.username,
-        fullName: r.full_name,
-        email: r.email,
-        role: r.role,
-        userType: r.user_type,
-        status: r.status,
-        groupIds: typeof r.group_ids === 'string' ? JSON.parse(r.group_ids) : r.group_ids,
-        isBuiltin: r.is_builtin,
-        lastLogin: r.last_login,
-        createdAt: r.created_at,
-      }));
+      if (res.rows.length > 0) {
+        return res.rows.map((r) => ({
+          id: r.id,
+          username: r.username,
+          fullName: r.full_name,
+          email: r.email,
+          role: r.role,
+          userType: r.user_type,
+          status: r.status,
+          groupIds: typeof r.group_ids === 'string' ? JSON.parse(r.group_ids) : r.group_ids,
+          isBuiltin: r.is_builtin,
+          lastLogin: r.last_login,
+          createdAt: r.created_at,
+        }));
+      } else {
+        // If PostgreSQL is connected but users table is empty, auto-sync from fallback store!
+        const client = await pool.connect();
+        try {
+          const store = loadFallbackStore();
+          await syncFallbackToPostgres(client, store);
+          const secondRes = await client.query('SELECT id, username, full_name, email, role, user_type, status, group_ids, is_builtin, last_login, created_at FROM users ORDER BY created_at ASC');
+          if (secondRes.rows.length > 0) {
+            return secondRes.rows.map((r) => ({
+              id: r.id,
+              username: r.username,
+              fullName: r.full_name,
+              email: r.email,
+              role: r.role,
+              userType: r.user_type,
+              status: r.status,
+              groupIds: typeof r.group_ids === 'string' ? JSON.parse(r.group_ids) : r.group_ids,
+              isBuiltin: r.is_builtin,
+              lastLogin: r.last_login,
+              createdAt: r.created_at,
+            }));
+          }
+        } finally {
+          client.release();
+        }
+      }
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in getAllUsers]', e);
     }
   }
 
@@ -883,51 +1104,93 @@ export async function saveUser(userData: any): Promise<any> {
     };
   }
 
-  if (isPostgresReady && pool) {
-    try {
-      await pool.query(
-        `INSERT INTO users (id, username, password_hash, password_salt, full_name, email, role, user_type, status, group_ids, is_builtin, last_login, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-         ON CONFLICT (id) DO UPDATE SET
-           username = EXCLUDED.username,
-           password_hash = EXCLUDED.password_hash,
-           password_salt = EXCLUDED.password_salt,
-           full_name = EXCLUDED.full_name,
-           email = EXCLUDED.email,
-           role = EXCLUDED.role,
-           user_type = EXCLUDED.user_type,
-           status = EXCLUDED.status,
-           group_ids = EXCLUDED.group_ids,
-           updated_at = EXCLUDED.updated_at`,
-        [
-          userRecord.id,
-          userRecord.username,
-          userRecord.password_hash,
-          userRecord.password_salt,
-          userRecord.full_name,
-          userRecord.email,
-          userRecord.role,
-          userRecord.user_type,
-          userRecord.status,
-          JSON.stringify(userRecord.group_ids),
-          userRecord.is_builtin,
-          userRecord.last_login,
-          userRecord.created_at,
-          userRecord.updated_at,
-        ]
-      );
-    } catch (e) {
-      console.error('[DB Query Error]', e);
-    }
-  }
-
-  // Always update fallback store
+  // Update fallback store immediately
   if (existingIndex >= 0) {
     store.users[existingIndex] = { ...store.users[existingIndex], ...userRecord };
   } else {
     store.users.push(userRecord);
   }
   saveFallbackStore(store);
+
+  // Persist to PostgreSQL with robust UPSERT
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const checkRes = await pool.query(
+        'SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR id = $2 LIMIT 1',
+        [userRecord.username, userRecord.id]
+      );
+
+      if (checkRes.rows.length > 0) {
+        const matchedId = checkRes.rows[0].id;
+        userRecord.id = matchedId;
+        await pool.query(
+          `UPDATE users SET
+             username = $1,
+             password_hash = COALESCE($2, password_hash),
+             password_salt = COALESCE($3, password_salt),
+             full_name = $4,
+             email = $5,
+             role = $6,
+             user_type = $7,
+             status = $8,
+             group_ids = $9,
+             is_builtin = $10,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE id = $11`,
+          [
+            userRecord.username,
+            userRecord.password_hash,
+            userRecord.password_salt,
+            userRecord.full_name,
+            userRecord.email,
+            userRecord.role,
+            userRecord.user_type,
+            userRecord.status,
+            JSON.stringify(userRecord.group_ids),
+            userRecord.is_builtin,
+            matchedId,
+          ]
+        );
+        console.log(`[Database] Successfully updated user "${userRecord.username}" (ID: ${matchedId}) in PostgreSQL.`);
+      } else {
+        await pool.query(
+          `INSERT INTO users (id, username, password_hash, password_salt, full_name, email, role, user_type, status, group_ids, is_builtin, last_login, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           ON CONFLICT (id) DO UPDATE SET
+             username = EXCLUDED.username,
+             password_hash = EXCLUDED.password_hash,
+             password_salt = EXCLUDED.password_salt,
+             full_name = EXCLUDED.full_name,
+             email = EXCLUDED.email,
+             role = EXCLUDED.role,
+             user_type = EXCLUDED.user_type,
+             status = EXCLUDED.status,
+             group_ids = EXCLUDED.group_ids,
+             updated_at = EXCLUDED.updated_at`,
+          [
+            userRecord.id,
+            userRecord.username,
+            userRecord.password_hash,
+            userRecord.password_salt,
+            userRecord.full_name,
+            userRecord.email,
+            userRecord.role,
+            userRecord.user_type,
+            userRecord.status,
+            JSON.stringify(userRecord.group_ids),
+            userRecord.is_builtin,
+            userRecord.last_login,
+            userRecord.created_at,
+            userRecord.updated_at,
+          ]
+        );
+        console.log(`[Database] Successfully created new user "${userRecord.username}" in PostgreSQL users table.`);
+      }
+    } catch (e) {
+      console.error('[DB Query Error in saveUser]', e);
+    }
+  }
 
   return {
     id: userRecord.id,
@@ -974,6 +1237,7 @@ export async function deleteUser(userIdOrUsername: string): Promise<boolean> {
       (u.id.toLowerCase() === target || u.username.toLowerCase() === target)
   );
 
+  let deleted = false;
   if (index >= 0) {
     const deletedUser = store.users[index];
     if (deletedUser.is_builtin || deletedUser.username.toLowerCase() === 'admin') {
@@ -981,27 +1245,31 @@ export async function deleteUser(userIdOrUsername: string): Promise<boolean> {
     }
     store.users.splice(index, 1);
     saveFallbackStore(store);
-
-    if (isPostgresReady && pool) {
-      try {
-        await pool.query('DELETE FROM users WHERE LOWER(id) = $1 OR LOWER(username) = $1', [target]);
-      } catch (e) {
-        console.error('[DB Query Error]', e);
-      }
-    }
-    return true;
+    deleted = true;
   }
 
-  return false;
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query('DELETE FROM users WHERE LOWER(id) = $1 OR LOWER(username) = $1', [target]);
+      console.log(`[Database] Successfully deleted user "${target}" from PostgreSQL.`);
+      deleted = true;
+    } catch (e) {
+      console.error('[DB Query Error in deleteUser]', e);
+    }
+  }
+
+  return deleted;
 }
 
 export async function updateLastLogin(userId: string): Promise<void> {
   const now = new Date().toISOString();
+  await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
       await pool.query('UPDATE users SET last_login = $1 WHERE id = $2', [now, userId]);
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in updateLastLogin]', e);
     }
   }
   const store = loadFallbackStore();
@@ -1023,9 +1291,23 @@ export interface MapUserFilter {
 
 export async function getCustomMaps(userFilter?: MapUserFilter): Promise<any[]> {
   let allMaps: any[] = [];
+  await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM custom_maps ORDER BY created_at ASC');
+      if (res.rows.length === 0) {
+        // If connected but table is empty, auto-sync from fallback store
+        const client = await pool.connect();
+        try {
+          const store = loadFallbackStore();
+          await syncFallbackToPostgres(client, store);
+          const secondRes = await client.query('SELECT * FROM custom_maps ORDER BY created_at ASC');
+          res.rows = secondRes.rows;
+        } finally {
+          client.release();
+        }
+      }
+
       allMaps = res.rows.map((r) => {
         const rawMapData = typeof r.map_data === 'string' ? JSON.parse(r.map_data) : (r.map_data || {});
         const allowedUsers = Array.isArray(r.allowed_users)
@@ -1044,6 +1326,7 @@ export async function getCustomMaps(userFilter?: MapUserFilter): Promise<any[]> 
           id: r.id,
           name: r.name,
           description: r.description,
+          type: r.map_type || rawMapData.type || 'schematic',
           createdAt: r.created_at ? new Date(r.created_at).toISOString() : (rawMapData.createdAt || new Date().toISOString()),
           updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : (rawMapData.updatedAt || new Date().toISOString()),
           visibility: r.visibility || rawMapData.visibility || 'public',
@@ -1053,7 +1336,7 @@ export async function getCustomMaps(userFilter?: MapUserFilter): Promise<any[]> 
         };
       });
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in getCustomMaps]', e);
       allMaps = loadFallbackStore().custom_maps || [];
     }
   } else {
@@ -1126,47 +1409,92 @@ export async function saveCustomMaps(maps: any[], currentUser?: any): Promise<vo
   store.custom_maps = normalizedMaps;
   saveFallbackStore(store);
 
+  await ensurePostgresConnection();
   if (isPostgresReady && pool) {
+    const client = await pool.connect();
     try {
-      const client = await pool.connect();
       await client.query('BEGIN');
-      await client.query('DELETE FROM custom_maps');
       for (const m of normalizedMaps) {
         await client.query(
           `INSERT INTO custom_maps (
              id, name, description, map_type, building_id, floor_id, unit_id, rack_id,
              nodes, connections, viewport, metadata, visibility, owner_id, owner_name, allowed_users, map_data, created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             description = EXCLUDED.description,
+             map_type = EXCLUDED.map_type,
+             building_id = EXCLUDED.building_id,
+             floor_id = EXCLUDED.floor_id,
+             unit_id = EXCLUDED.unit_id,
+             rack_id = EXCLUDED.rack_id,
+             nodes = EXCLUDED.nodes,
+             connections = EXCLUDED.connections,
+             viewport = EXCLUDED.viewport,
+             metadata = EXCLUDED.metadata,
+             visibility = EXCLUDED.visibility,
+             owner_id = EXCLUDED.owner_id,
+             owner_name = EXCLUDED.owner_name,
+             allowed_users = EXCLUDED.allowed_users,
+             map_data = EXCLUDED.map_data,
+             updated_at = EXCLUDED.updated_at`,
           [
             m.id,
             m.name || 'Untitled Map',
             m.description || '',
-            m.type || 'schematic',
-            m.buildingId || null,
-            m.floorId || null,
-            m.unitId || null,
-            m.rackId || null,
+            m.type || m.map_type || 'schematic',
+            m.buildingId || m.building_id || null,
+            m.floorId || m.floor_id || null,
+            m.unitId || m.unit_id || null,
+            m.rackId || m.rack_id || null,
             JSON.stringify(m.devicePositions || m.nodes || {}),
             JSON.stringify(m.links || m.connections || []),
             JSON.stringify(m.viewport || { zoom: 1, pan: { x: 0, y: 0 } }),
             JSON.stringify(m.metadata || {}),
             m.visibility || 'public',
-            m.ownerId || 'user-admin',
-            m.ownerName || 'admin',
-            JSON.stringify(m.allowedUsers || []),
+            m.ownerId || m.owner_id || 'user-admin',
+            m.ownerName || m.owner_name || 'admin',
+            JSON.stringify(m.allowedUsers || m.allowed_users || []),
             JSON.stringify(m),
-            m.createdAt ? new Date(m.createdAt) : new Date(),
+            m.createdAt || m.created_at ? new Date(m.createdAt || m.created_at) : new Date(),
             new Date(),
           ]
         );
       }
       await client.query('COMMIT');
-      client.release();
+      console.log(`[Database] Successfully persisted ${normalizedMaps.length} custom maps to PostgreSQL.`);
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      await client.query('ROLLBACK');
+      console.error('[DB Query Error in saveCustomMaps]', e);
+    } finally {
+      client.release();
     }
   }
+}
+
+export async function deleteCustomMap(mapId: string): Promise<boolean> {
+  if (!mapId) return false;
+  const store = loadFallbackStore();
+  let deleted = false;
+  const idx = (store.custom_maps || []).findIndex((m) => m.id === mapId);
+  if (idx >= 0) {
+    store.custom_maps.splice(idx, 1);
+    saveFallbackStore(store);
+    deleted = true;
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query('DELETE FROM custom_maps WHERE id = $1', [mapId]);
+      console.log(`[Database] Successfully deleted custom map "${mapId}" from PostgreSQL.`);
+      deleted = true;
+    } catch (e) {
+      console.error('[DB Query Error in deleteCustomMap]', e);
+    }
+  }
+  return deleted;
 }
 
 // -------------------------------------------------------------

@@ -4,9 +4,6 @@
 -- Handles Users, RBAC, Active Directory, Devices, Topology, Hierarchy, Custom Maps, Logs, Sessions
 -- ==============================================================================
 
--- Enable UUID extension if available
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- 1. Users Table (Local and Active Directory Accounts)
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(64) PRIMARY KEY,
@@ -27,6 +24,21 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+
+-- Ensure migration for users existing columns
+DO $$ BEGIN
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(128) DEFAULT '';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(128) DEFAULT '';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(64) DEFAULT 'Super Administrator';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS user_type VARCHAR(32) DEFAULT 'local';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'active';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS group_ids JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS is_builtin BOOLEAN DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
 
 -- 2. Local User Groups / Roles
 CREATE TABLE IF NOT EXISTS user_groups (
@@ -119,11 +131,25 @@ CREATE TABLE IF NOT EXISTS custom_maps (
 );
 
 -- Ensure migration for custom_maps existing columns
-ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) DEFAULT 'public';
-ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS owner_id VARCHAR(64) DEFAULT 'user-admin';
-ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS owner_name VARCHAR(128) DEFAULT 'admin';
-ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS allowed_users JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS map_data JSONB DEFAULT '{}'::jsonb;
+DO $$ BEGIN
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS map_type VARCHAR(32) DEFAULT 'schematic';
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS building_id VARCHAR(64);
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS floor_id VARCHAR(64);
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS unit_id VARCHAR(64);
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS rack_id VARCHAR(64);
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS nodes JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS connections JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS viewport JSONB DEFAULT '{"zoom": 1, "pan": {"x": 0, "y": 0}}'::jsonb;
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) DEFAULT 'public';
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS owner_id VARCHAR(64) DEFAULT 'user-admin';
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS owner_name VARCHAR(128) DEFAULT 'admin';
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS allowed_users JSONB DEFAULT '[]'::jsonb;
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS map_data JSONB DEFAULT '{}'::jsonb;
+    ALTER TABLE custom_maps ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
 
 -- 7. Topology Structural Hierarchy (Buildings, Floors, Units, Racks)
 CREATE TABLE IF NOT EXISTS topology_hierarchy (
