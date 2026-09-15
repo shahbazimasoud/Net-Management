@@ -10,9 +10,43 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.53.1';
+export const APP_VERSION = '1.53.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.53.3',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'رفع خطای پروکسی سوکت وب‌ترمینال (ECONNREFUSED 127.0.0.1:5002) و استقرار موتور بومی WebSocket ترمینال در نود',
+    title_en: 'Fix Terminal WS Proxy ECONNREFUSED 127.0.0.1:5002 Error with Native Node.js WebSocket Terminal Engine',
+    changes: [
+      'رفع خطای اتصال سوکت پروکسی ترمینال (Terminal WS Proxy Error: connect ECONNREFUSED 127.0.0.1:5002) ناشی از عدم اجرای وب‌سوکت در پایتون.',
+      'پیاده‌سازی و استقرار مستقیم و بومی سرور وب‌سوکت در نود (Native WebSocket Terminal Engine) با استفاده از پکیج ws و کلاینت ssh2.',
+      'پشتیبانی همزمان از استریم دوطرفه SSH تجهیزات واقعی و شبیه‌ساز تعاملی CLI همراه با بافر ورودی و بازنشانی خودکار بدون ایجاد قطعی یا خطای سوکت.'
+    ],
+    changes_en: [
+      'Resolved Terminal WS Proxy Error: connect ECONNREFUSED 127.0.0.1:5002 caused by unstarted Python websocket service.',
+      'Implemented native Node.js WebSocket Terminal Engine using ws package and ssh2 client for immediate terminal upgrade handling.',
+      'Added full support for bidirectional live SSH streaming and interactive CLI fallback with prompt generation and input buffering without socket drops.'
+    ]
+  },
+  {
+    version: '1.53.2',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'فشرده‌سازی گرافیکی و بازآرایی ۲ ستونه بخش‌های بالایی مودال ویرایش برای نمایش بدون اسکرول مشخصات ترمینال',
+    title_en: 'Compact 2-Column Redesign of Upper Sections in Edit Device Modal for Immediate No-Scroll Terminal Access',
+    changes: [
+      'بازطراحی و بهینه‌سازی فضایی بخش پلتفرم سخت‌افزاری (Hardware Platform & OS) و رده تجهیز (Device Role & Category) در ساختار گرید دو ستونه ساید‌بای‌ساید بسیار فشرده.',
+      'کاهش ارتفاع و حاشیه‌های هدر مودال، پدینگ‌های بیرونی فرم و بنر تله‌متری پورت‌های سوئیچ به همراه حالت جمع‌شده (Collapsed) پیش‌فرض تله‌متری تا زمان دیسکاوری پورت‌ها.',
+      'امکان مشاهده کامل و آنی کادر مشخصات اتصال ترمینال و دسترسی CLI (پروتکل، نام کاربری و رمزعبور، پورت، تست SSH و Enable Secret) در بدو باز شدن مودال بدون نیاز به هرگونه اسکرول عمودی.'
+    ],
+    changes_en: [
+      'Redesigned the Hardware Platform & OS and Device Role & Category sections into an ultra-compact side-by-side two-column grid layout.',
+      'Reduced vertical heights, padding, and font metrics of modal header, form container, and switch telemetry banner with collapsed-by-default ports state until discovery.',
+      'Ensured the Terminal Protocol & Credentials section (SSH/Telnet, credentials, port, SSH test and enable secret) is immediately visible without scrolling upon opening the modal.'
+    ]
+  },
   {
     version: '1.53.1',
     releaseDate: '2026-09-15',

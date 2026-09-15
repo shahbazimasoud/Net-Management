@@ -37,6 +37,7 @@ dotenv.config();
 
 import { initDatabase } from './server/db';
 import { apiRouter } from './server/routes';
+import { setupTerminalWebSocket } from './server/terminalWs';
 
 const app = express();
 const PORT = 3000;
@@ -553,56 +554,8 @@ async function startServer() {
   const HOST = process.env.HOST || '0.0.0.0';
   const server = http.createServer(app);
 
-  // Forward WebSocket upgrade requests for real network terminal to Python WebSocket engine
-  server.on('upgrade', (req, clientSocket, head) => {
-    const url = req.url || '';
-    if (url.startsWith('/ws/terminal') || url.startsWith('/api/terminal/ws')) {
-      const proxySocket = net.connect(PYTHON_WS_PORT, '127.0.0.1', () => {
-        let rawReq = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
-        const headers = req.rawHeaders || [];
-        for (let i = 0; i < headers.length; i += 2) {
-          rawReq += `${headers[i]}: ${headers[i + 1]}\r\n`;
-        }
-        rawReq += '\r\n';
-        proxySocket.write(rawReq);
-        if (head && head.length > 0) {
-          proxySocket.write(head);
-        }
-        clientSocket.pipe(proxySocket);
-        proxySocket.pipe(clientSocket);
-      });
-
-      proxySocket.on('error', (err) => {
-        console.error('[Terminal WS Proxy Error]', err.message);
-        try {
-          clientSocket.destroy();
-        } catch {
-          // ignore
-        }
-      });
-      clientSocket.on('error', () => {
-        try {
-          proxySocket.destroy();
-        } catch {
-          // ignore
-        }
-      });
-      proxySocket.on('close', () => {
-        try {
-          clientSocket.destroy();
-        } catch {
-          // ignore
-        }
-      });
-      clientSocket.on('close', () => {
-        try {
-          proxySocket.destroy();
-        } catch {
-          // ignore
-        }
-      });
-    }
-  });
+  // Setup native WebSocket terminal engine for interactive SSH/CLI sessions
+  setupTerminalWebSocket(server, PYTHON_PORT, projectRoot);
 
   server.listen(PORT, HOST, () => {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);
