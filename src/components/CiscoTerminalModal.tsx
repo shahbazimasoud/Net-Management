@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Terminal as TerminalIcon,
   X,
@@ -63,6 +63,7 @@ export interface CiscoTerminalModalProps {
   onClosePane?: () => void;
   onChangeDevice?: () => void;
   allDevices?: Device[];
+  isLightMode?: boolean;
 }
 
 type CliMode = 'USER_EXEC' | 'PRIVILEGED_EXEC' | 'GLOBAL_CONFIG' | 'INTERFACE_CONFIG' | 'VLAN_CONFIG';
@@ -119,6 +120,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   onClosePane,
   onChangeDevice,
   allDevices,
+  isLightMode: propIsLightMode = false,
 }) => {
   const { t, isEn } = useLanguage();
   const [terminalBgColor, setTerminalBgColor] = useState<string>(() => {
@@ -137,6 +139,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     terminalBgColor === '#fffbeb' ||
     terminalBgColor.toLowerCase() === '#fff' ||
     terminalBgColor.toLowerCase() === '#ffffff';
+
+  const isLightMode = propIsLightMode || isTerminalWhiteBg;
 
   const [preventBackdropClose, setPreventBackdropClose] = useState<boolean>(() => {
     try {
@@ -198,7 +202,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [vlans, setVlans] = useState<VlanInfo[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
-  const [isInterfaceDropdownOpen, setIsInterfaceDropdownOpen] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'guide' | 'interfaces'>('guide');
+  const [interfaceSearch, setInterfaceSearch] = useState('');
   const [commandSearch, setCommandSearch] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
@@ -223,11 +228,23 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const interfaceDropdownRef = useRef<HTMLDivElement>(null);
   const historyDropdownRef = useRef<HTMLDivElement>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   const draftInputRef = useRef<string>('');
   const wsRef = useRef<WebSocket | null>(null);
+
+  const filteredInterfaces = useMemo(() => {
+    if (!interfaceSearch.trim()) return ports;
+    const q = interfaceSearch.toLowerCase().trim();
+    return ports.filter(
+      (p) =>
+        p.port_id.toLowerCase().includes(q) ||
+        (p.name && p.name.toLowerCase().includes(q)) ||
+        p.mode.toLowerCase().includes(q) ||
+        String(p.vlan).includes(q) ||
+        (p.connected_device && p.connected_device.toLowerCase().includes(q))
+    );
+  }, [ports, interfaceSearch]);
 
   const handleToggleSidebar = () => {
     setIsSidebarOpen((prev) => {
@@ -260,18 +277,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     }
     onClose();
   };
-
-  // Close dropdown on click outside
-  useEffect(() => {
-    if (!isInterfaceDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (interfaceDropdownRef.current && !interfaceDropdownRef.current.contains(e.target as Node)) {
-        setIsInterfaceDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isInterfaceDropdownOpen]);
 
   // Close history dropdown on click outside
   useEffect(() => {
@@ -1953,100 +1958,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
               </div>
             )}
 
-            {/* Quick Interfaces Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setIsInterfaceDropdownOpen(!isInterfaceDropdownOpen)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition shadow-sm"
-              >
-                <Cable className="w-3.5 h-3.5 text-indigo-400" />
-                <span>{isEn ? `Interfaces (${ports.length})` : `لیست کشویی اینترفیس‌ها (${ports.length})`}</span>
-                {isInterfaceDropdownOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </button>
-
-              {/* Collapsible Interface Table / Drawer */}
-              {isInterfaceDropdownOpen && (
-                <div
-                  ref={interfaceDropdownRef}
-                  className={`absolute top-full mt-2 w-[min(440px,calc(100vw-2.5rem))] max-h-[min(360px,50vh)] overflow-y-auto overflow-x-hidden bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 z-50 text-xs custom-scrollbar ${
-                    isEn ? 'right-0' : 'left-0'
-                  }`}
-                  style={{ maxWidth: 'calc(100vw - 2rem)' }}
-                  dir={isEn ? 'ltr' : 'rtl'}
-                >
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-800 mb-2">
-                    <span className="font-bold text-slate-200 text-xs">
-                      {isEn ? `${device.name} Interfaces` : `اینترفیس‌های ${device.name} (بدون نیاز به بازگشت به صفحه قبل)`}
-                    </span>
-                    <button
-                      onClick={() => setIsInterfaceDropdownOpen(false)}
-                      className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    {ports.map((p) => {
-                      const isUp = p.status === 'up';
-                      return (
-                        <div
-                          key={p.port_id}
-                          className="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800 hover:border-indigo-500/50 transition gap-2"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span
-                              className={`w-2 h-2 rounded-full shrink-0 ${
-                                isUp ? 'bg-emerald-400 shadow-sm shadow-emerald-500' : 'bg-rose-500'
-                              }`}
-                            ></span>
-                            <div className="truncate">
-                              <div className="font-mono font-bold text-white text-xs">{p.port_id}</div>
-                              <div className="text-[10px] text-slate-400 truncate">
-                                {p.connected_device !== 'Disconnected'
-                                  ? p.connected_device
-                                  : (isEn ? 'Empty / Disconnected' : 'خالی / بدون اتصال')}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 text-[10px] font-mono shrink-0">
-                            <span
-                              data-badge={p.mode === 'trunk' ? 'port-mode-trunk' : 'port-mode-access'}
-                              className={`px-2 py-0.5 rounded font-bold font-mono text-white shadow-xs ${
-                                p.mode === 'trunk'
-                                  ? 'port-mode-badge-trunk bg-purple-600 border border-purple-500'
-                                  : 'port-mode-badge-access bg-indigo-600 border border-indigo-500'
-                              }`}
-                              style={{ color: '#ffffff', fontWeight: 700 }}
-                            >
-                              {p.mode.toUpperCase()}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700 font-bold">
-                              VLAN {p.vlan}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={() => {
-                                setIsInterfaceDropdownOpen(false);
-                                executeCommand(`interface ${p.port_id}`);
-                              }}
-                              className="px-2 py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[10px] font-medium transition"
-                              title={isEn ? "Select interface in CLI" : "ورود به مد کانفیگ این پورت در ترمینال"}
-                            >
-                              {isEn ? "Select in CLI" : "انتخاب در CLI"}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Terminal Appearance Menu Popover (Button-based to prevent clutter) */}
             <div className="relative" ref={appearanceMenuRef}>
               <button
@@ -2269,6 +2180,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             device={device}
             ports={ports}
             isMikroTik={false}
+            isLightMode={isLightMode}
             onPortClick={handlePortClick}
             selectedPortId={selectedPort?.port_id}
             selectedPortIds={selectedPortIds}
@@ -2483,18 +2395,43 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             <div className={`cisco-sidebar-guide w-full md:w-80 lg:w-96 border-t md:border-t-0 ${isEn ? 'md:border-l' : 'md:border-r'} flex flex-col overflow-hidden ${isEn ? 'text-left' : 'text-right'}`}>
               {/* Sidebar Header */}
               <div className="p-3 bg-white/50 dark:bg-slate-950/70 border-b border-slate-200 dark:border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>{isEn ? 'Command Guide' : 'راهنمای هوشمند دستورات'}</span>
-                  </span>
+                <div className="flex items-center justify-between gap-1 pb-1">
+                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setSidebarTab('guide')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        sidebarTab === 'guide'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Command Guide' : 'راهنمای دستورات'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSidebarTab('interfaces')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        sidebarTab === 'interfaces'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <Cable className="w-3.5 h-3.5" />
+                      <span>{isEn ? `Interfaces (${ports.length})` : `اینترفیس‌ها (${ports.length})`}</span>
+                    </button>
+                  </div>
+
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800 font-bold">
-                      {isMikroTik ? 'RouterOS' : isGenericLinux ? 'Linux Bash' : cliMode}
-                    </span>
+                    {sidebarTab === 'guide' && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-800 font-bold">
+                        {isMikroTik ? 'RouterOS' : isGenericLinux ? 'Linux Bash' : cliMode}
+                      </span>
+                    )}
                     <button
                       onClick={handleToggleSidebar}
-                      className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition"
+                      className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
                       title={isEn ? 'Collapse Sidebar' : 'جمع کردن سایدبار'}
                     >
                       <PanelRightClose className="w-3.5 h-3.5" />
@@ -2502,130 +2439,231 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                   </div>
                 </div>
 
-                {/* Search Commands */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder={isEn ? "Search command or description..." : "جستجوی دستور یا کاربرد..."}
-                    value={commandSearch}
-                    onChange={(e) => setCommandSearch(e.target.value)}
-                    className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white text-[11px] placeholder:text-slate-400 focus:outline-none focus:border-indigo-500`}
-                  />
-                  <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
-                </div>
-              </div>
-
-            {/* Current Mode Badge Explanation */}
-            <div className="p-2.5 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 text-[11px] text-slate-700 dark:text-slate-300 space-y-1">
-              <div className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
-                <span>{isEn ? 'Current Prompt:' : 'مرحله فعلی:'}</span>
-                <span className="font-mono text-emerald-600 dark:text-emerald-400">{getPrompt()}</span>
-              </div>
-              <div className="text-[10px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                {isMikroTik ? (
-                  isEn
-                    ? 'MikroTik RouterOS Interactive Terminal. Hierarchical command syntax with tab-completion. Full root access enabled.'
-                    : 'ترمینال تعاملی سیستم‌عامل میکروتیک (RouterOS). ساختار دستورات سلسله‌مراتبی و اسلش-محور با قابلیت تکمیل خودکار تب.'
-                ) : isGenericLinux ? (
-                  isEn
-                    ? 'Linux POSIX Shell session. Run standard Linux management commands, net-tools, iproute2, or systemd services.'
-                    : 'پوسته استاندارد لینوکس (POSIX / Bash). دستورات مدیریتی شبکه، iproute2، و سرویس‌های سیستمی فعال هستند.'
+                {sidebarTab === 'guide' ? (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder={isEn ? "Search command or description..." : "جستجوی دستور یا کاربرد..."}
+                      value={commandSearch}
+                      onChange={(e) => setCommandSearch(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white text-[11px] placeholder:text-slate-400 focus:outline-none focus:border-indigo-500`}
+                    />
+                    <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
+                  </div>
                 ) : (
-                  <>
-                    {cliMode === 'USER_EXEC' &&
-                      (isEn
-                        ? 'User EXEC mode (>). Basic monitoring and ping commands allowed. Type enable to enter Privileged mode.'
-                        : 'حالت کاربری ابتدایی (User EXEC). فقط دستورات اولیه مانیتورینگ و تست پینگ مجاز هستند. برای دسترسی به تنظیمات دستور enable را اجرا کنید.')}
-                    {cliMode === 'PRIVILEGED_EXEC' &&
-                      (isEn
-                        ? 'Privileged EXEC mode (#). Full Show, Write Memory, Debug, and configure terminal available.'
-                        : 'حالت دسترسی ویژه مدیریتی (Privileged EXEC #). می‌توانید دستورات کامل Show، Write Memory، Debug و ورود به configure terminal را اجرا کنید.')}
-                    {cliMode === 'GLOBAL_CONFIG' &&
-                      (isEn
-                        ? 'Global Configuration mode. Set hostname, create VLANs, enter interfaces, routing, and services.'
-                        : 'حالت تنظیمات کلی سیستم (Global Config). تنظیم نام هاست، ساخت ویلن، ورود به اینترفیس‌ها، روتینگ و سرویس‌ها در این مد انجام می‌شود.')}
-                    {cliMode === 'INTERFACE_CONFIG' &&
-                      (isEn
-                        ? `Interface ${currentInterface || ''} configuration. Set Access/Trunk mode, VLAN, admin status, and STP.`
-                        : `حالت پیکربندی پورت ${currentInterface || ''}. تنظیم مود Access/Trunk، ویلن، وضعیت خاموش/روشن، توضیحات پورت و Spanning-Tree.`)}
-                    {cliMode === 'VLAN_CONFIG' &&
-                      (isEn
-                        ? `VLAN ${currentVlanId} database configuration. Name and activate VLAN in switch database.`
-                        : `حالت تنظیمات دیتابیس VLAN ${currentVlanId}. نام‌گذاری و فعال‌سازی ویلن در سوئیچ.`)}
-                  </>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder={isEn ? "Search interface, VLAN, mode, device..." : "جستجوی پورت، ویلن، مود، دستگاه..."}
+                      value={interfaceSearch}
+                      onChange={(e) => setInterfaceSearch(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white text-[11px] placeholder:text-slate-400 focus:outline-none focus:border-indigo-500`}
+                    />
+                    <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
+                  </div>
                 )}
               </div>
-            </div>
 
-            {/* Command Cards List */}
-            <div className="flex-1 overflow-y-auto p-2.5 space-y-2 scrollbar-thin scrollbar-thumb-slate-700">
-              {relevantCommands.length === 0 ? (
-                <div className="text-center py-6 text-slate-500 text-xs">
-                  {isEn ? 'No commands found for this filter in the current mode.' : 'دستوری با این فیلتر در مد فعلی یافت نشد.'}
+            {sidebarTab === 'guide' ? (
+              <>
+                {/* Current Mode Badge Explanation */}
+                <div className="p-2.5 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 text-[11px] text-slate-700 dark:text-slate-300 space-y-1">
+                  <div className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
+                    <span>{isEn ? 'Current Prompt:' : 'مرحله فعلی:'}</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400">{getPrompt()}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                    {isMikroTik ? (
+                      isEn
+                        ? 'MikroTik RouterOS Interactive Terminal. Hierarchical command syntax with tab-completion. Full root access enabled.'
+                        : 'ترمینال تعاملی سیستم‌عامل میکروتیک (RouterOS). ساختار دستورات سلسله‌مراتبی و اسلش-محور با قابلیت تکمیل خودکار تب.'
+                    ) : isGenericLinux ? (
+                      isEn
+                        ? 'Linux POSIX Shell session. Run standard Linux management commands, net-tools, iproute2, or systemd services.'
+                        : 'پوسته استاندارد لینوکس (POSIX / Bash). دستورات مدیریتی شبکه، iproute2، و سرویس‌های سیستمی فعال هستند.'
+                    ) : (
+                      <>
+                        {cliMode === 'USER_EXEC' &&
+                          (isEn
+                            ? 'User EXEC mode (>). Basic monitoring and ping commands allowed. Type enable to enter Privileged mode.'
+                            : 'حالت کاربری ابتدایی (User EXEC). فقط دستورات اولیه مانیتورینگ و تست پینگ مجاز هستند. برای دسترسی به تنظیمات دستور enable را اجرا کنید.')}
+                        {cliMode === 'PRIVILEGED_EXEC' &&
+                          (isEn
+                            ? 'Privileged EXEC mode (#). Full Show, Write Memory, Debug, and configure terminal available.'
+                            : 'حالت دسترسی ویژه مدیریتی (Privileged EXEC #). می‌توانید دستورات کامل Show، Write Memory، Debug و ورود به configure terminal را اجرا کنید.')}
+                        {cliMode === 'GLOBAL_CONFIG' &&
+                          (isEn
+                            ? 'Global Configuration mode. Set hostname, create VLANs, enter interfaces, routing, and services.'
+                            : 'حالت تنظیمات کلی سیستم (Global Config). تنظیم نام هاست، ساخت ویلن، ورود به اینترفیس‌ها، روتینگ و سرویس‌ها در این مد انجام می‌شود.')}
+                        {cliMode === 'INTERFACE_CONFIG' &&
+                          (isEn
+                            ? `Interface ${currentInterface || ''} configuration. Set Access/Trunk mode, VLAN, admin status, and STP.`
+                            : `حالت پیکربندی پورت ${currentInterface || ''}. تنظیم مود Access/Trunk، ویلن، وضعیت خاموش/روشن، توضیحات پورت و Spanning-Tree.`)}
+                        {cliMode === 'VLAN_CONFIG' &&
+                          (isEn
+                            ? `VLAN ${currentVlanId} database configuration. Name and activate VLAN in switch database.`
+                            : `حالت تنظیمات دیتابیس VLAN ${currentVlanId}. نام‌گذاری و فعال‌سازی ویلن در سوئیچ.`)}
+                      </>
+                    )}
+                  </div>
                 </div>
-              ) : (
-                relevantCommands.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="cisco-guide-card p-3 rounded-xl transition-all group"
+
+                {/* Command Cards List */}
+                <div className="flex-1 overflow-y-auto p-2.5 space-y-2 scrollbar-thin scrollbar-thumb-slate-700">
+                  {relevantCommands.length === 0 ? (
+                    <div className="text-center py-6 text-slate-500 text-xs">
+                      {isEn ? 'No commands found for this filter in the current mode.' : 'دستوری با این فیلتر در مد فعلی یافت نشد.'}
+                    </div>
+                  ) : (
+                    relevantCommands.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="cisco-guide-card p-3 rounded-xl transition-all group"
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1.5">
+                          <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-300 group-hover:text-indigo-700 dark:group-hover:text-indigo-200 select-all" dir="ltr">
+                            {item.cmd}
+                          </code>
+                          <span
+                            className={`text-[9px] px-1.5 py-0.5 rounded-md uppercase font-bold font-mono ${
+                              item.category === 'show'
+                                ? 'bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950 dark:text-sky-400 dark:border-sky-800'
+                                : item.category === 'config'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800'
+                                : item.category === 'action'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                            }`}
+                          >
+                            {item.category}
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+                          {isEn ? item.descEn : item.desc}
+                        </p>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                          <button
+                            onClick={() => {
+                              setCurrentInput(item.cmd);
+                              if (inputRef.current) inputRef.current.focus();
+                            }}
+                            className="cisco-btn-insert px-2.5 py-1 rounded-lg text-[10px] font-semibold transition active:scale-95"
+                          >
+                            {isEn ? 'Insert' : 'درج در خط فرمان'}
+                          </button>
+                          <button
+                            onClick={() => executeCommand(item.cmd)}
+                            className="cisco-btn-exec px-3 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 active:scale-95"
+                          >
+                            <Play className="w-2.5 h-2.5 fill-current" />
+                            <span>{isEn ? 'Run' : 'اجرا'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Quick Helper Bar */}
+                <div className="p-2.5 bg-white/50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
+                  <span>{isEn ? 'Tip: Press Tab to auto-complete' : 'راهنما: برای تکمیل Tab بزنید'}</span>
+                  <button
+                    onClick={() => executeCommand('?')}
+                    className="text-indigo-600 dark:text-indigo-400 hover:underline font-mono font-bold"
                   >
-                    <div className="flex items-center justify-between gap-1 mb-1.5">
-                      <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-300 group-hover:text-indigo-700 dark:group-hover:text-indigo-200 select-all" dir="ltr">
-                        {item.cmd}
-                      </code>
-                      <span
-                        className={`text-[9px] px-1.5 py-0.5 rounded-md uppercase font-bold font-mono ${
-                          item.category === 'show'
-                            ? 'bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950 dark:text-sky-400 dark:border-sky-800'
-                            : item.category === 'config'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800'
-                            : item.category === 'action'
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800'
-                            : 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                    {isEn ? '? Command' : 'دستور ?'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Interfaces Tab Content */
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-2 scrollbar-thin scrollbar-thumb-slate-700">
+                {filteredInterfaces.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-xs">
+                    {isEn ? 'No interfaces found matching filter.' : 'هیچ اینترفیسی مطابق فیلتر یافت نشد.'}
+                  </div>
+                ) : (
+                  filteredInterfaces.map((p) => {
+                    const isUp = p.status === 'up';
+                    const isSelected = selectedPort?.port_id === p.port_id;
+                    return (
+                      <div
+                        key={p.port_id}
+                        className={`p-2.5 rounded-xl border transition-all flex flex-col gap-2 ${
+                          isSelected
+                            ? 'bg-indigo-500/10 border-indigo-500/60 shadow-xs'
+                            : 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 hover:border-indigo-500/40'
                         }`}
                       >
-                        {item.category}
-                      </span>
-                    </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                isUp ? 'bg-emerald-400 shadow-xs shadow-emerald-500' : 'bg-rose-500'
+                              }`}
+                            />
+                            <div className="truncate">
+                              <span className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                                {p.port_id}
+                              </span>
+                              {p.name && p.name !== p.port_id && (
+                                <span className="text-[10px] text-slate-400 ml-1">({p.name})</span>
+                              )}
+                            </div>
+                          </div>
 
-                    <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
-                      {isEn ? item.descEn : item.desc}
-                    </p>
+                          <div className="flex items-center gap-1 text-[10px] font-mono shrink-0">
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-bold text-white ${
+                                p.mode === 'trunk'
+                                  ? 'bg-purple-600 border border-purple-500'
+                                  : 'bg-indigo-600 border border-indigo-500'
+                              }`}
+                            >
+                              {p.mode.toUpperCase()}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-semibold">
+                              VLAN {p.vlan}
+                            </span>
+                          </div>
+                        </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                      <button
-                        onClick={() => {
-                          setCurrentInput(item.cmd);
-                          if (inputRef.current) inputRef.current.focus();
-                        }}
-                        className="cisco-btn-insert px-2.5 py-1 rounded-lg text-[10px] font-semibold transition active:scale-95"
-                      >
-                        {isEn ? 'Insert' : 'درج در خط فرمان'}
-                      </button>
-                      <button
-                        onClick={() => executeCommand(item.cmd)}
-                        className="cisco-btn-exec px-3 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 active:scale-95"
-                      >
-                        <Play className="w-2.5 h-2.5 fill-current" />
-                        <span>{isEn ? 'Run' : 'اجرا'}</span>
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                        <div className="flex items-center justify-between text-[11px] gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate flex items-center gap-1 min-w-0">
+                            <Cable className="w-3 h-3 text-cyan-500 shrink-0" />
+                            <span className="truncate">
+                              {p.connected_device && p.connected_device !== 'Disconnected'
+                                ? p.connected_device
+                                : (isEn ? 'Empty / Disconnected' : 'خالی / بدون اتصال')}
+                            </span>
+                          </div>
 
-            {/* Quick Helper Bar */}
-            <div className="p-2.5 bg-white/50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
-              <span>{isEn ? 'Tip: Press Tab to auto-complete' : 'راهنما: برای تکمیل Tab بزنید'}</span>
-              <button
-                onClick={() => executeCommand('?')}
-                className="text-indigo-600 dark:text-indigo-400 hover:underline font-mono font-bold"
-              >
-                {isEn ? '? Command' : 'دستور ?'}
-              </button>
-            </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isMikroTik) {
+                                executeCommand(`/interface print where name="${p.port_id}"`);
+                              } else {
+                                executeCommand(`interface ${p.port_id}`);
+                              }
+                              setSelectedPort(p);
+                              if (inputRef.current) inputRef.current.focus();
+                            }}
+                            className="px-2 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold transition shrink-0 cursor-pointer shadow-xs"
+                            title={isEn ? "Select interface in CLI" : "ورود به مد کانفیگ این پورت در ترمینال"}
+                          >
+                            {isEn ? "Select in CLI" : "انتخاب در CLI"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
           )}
         </div>

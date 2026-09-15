@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Lock,
   Unlock,
+  Cable,
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -104,6 +105,8 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [selectedPortIds, setSelectedPortIds] = useState<string[]>([]);
+  const [sidebarTab, setSidebarTab] = useState<'guide' | 'interfaces'>('guide');
+  const [interfaceSearch, setInterfaceSearch] = useState('');
   const [showAppearanceMenu, setShowAppearanceMenu] = useState(false);
   const appearanceMenuRef = useRef<HTMLDivElement>(null);
   const lastClickedPortRef = useRef<SwitchPort | null>(null);
@@ -141,6 +144,20 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       })
       .catch((err) => console.warn('Failed to fetch ports for MikroTik terminal', err));
   }, [device?.id, isOpen]);
+
+  const filteredPorts = React.useMemo(() => {
+    if (!interfaceSearch.trim()) return ports;
+    const q = interfaceSearch.toLowerCase();
+    return ports.filter(
+      (p) =>
+        p.port_id.toLowerCase().includes(q) ||
+        (p.name && p.name.toLowerCase().includes(q)) ||
+        (p.connected_device && p.connected_device.toLowerCase().includes(q)) ||
+        String(p.vlan).includes(q) ||
+        p.mode.toLowerCase().includes(q) ||
+        p.status.toLowerCase().includes(q)
+    );
+  }, [ports, interfaceSearch]);
 
   // Close appearance menu on click outside
   useEffect(() => {
@@ -784,6 +801,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             device={device}
             ports={ports}
             isMikroTik={true}
+            isLightMode={isLightMode}
             onPortClick={handlePortClick}
             selectedPortId={selectedPort?.port_id}
             selectedPortIds={selectedPortIds}
@@ -880,32 +898,83 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             </form>
           </div>
 
-          {/* RouterOS Command Guide Sidebar */}
+          {/* RouterOS Command Guide / Interfaces Sidebar */}
           {showGuide && (
             <div
-              className={`w-80 border-l flex flex-col overflow-hidden text-xs select-none ${
+              className={`w-80 sm:w-88 border-l flex flex-col overflow-hidden text-xs select-none ${
                 isLightMode ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900/90 border-slate-800 text-slate-200'
               }`}
             >
               <div
-                className={`p-3 border-b flex items-center justify-between ${
+                className={`p-2.5 border-b space-y-2 ${
                   isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                 }`}
               >
-                <span className={`font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                  <Cpu className={`w-4 h-4 ${isLightMode ? 'text-cyan-600' : 'text-cyan-400'}`} />
-                  {isEn ? 'RouterOS Command Guide' : 'راهنمای دستورات روتر او اس'}
-                </span>
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                    isLightMode ? 'bg-cyan-50 text-cyan-700 border border-cyan-200' : 'text-cyan-400'
-                  }`}
-                >
-                  / (Slash)
-                </span>
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-300/60 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setSidebarTab('guide')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        sidebarTab === 'guide'
+                          ? isLightMode
+                            ? 'bg-cyan-600 text-white shadow-xs'
+                            : 'bg-cyan-500 text-black shadow-xs'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Command Guide' : 'راهنمای دستورات'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSidebarTab('interfaces')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        sidebarTab === 'interfaces'
+                          ? isLightMode
+                            ? 'bg-cyan-600 text-white shadow-xs'
+                            : 'bg-cyan-500 text-black shadow-xs'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Cable className="w-3.5 h-3.5" />
+                      <span>{isEn ? `Interfaces (${ports.length})` : `اینترفیس‌ها (${ports.length})`}</span>
+                    </button>
+                  </div>
+
+                  <span
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                      isLightMode ? 'bg-cyan-50 text-cyan-700 border border-cyan-200 font-bold' : 'text-cyan-400 font-bold'
+                    }`}
+                  >
+                    RouterOS
+                  </span>
+                </div>
+
+                {sidebarTab === 'interfaces' && (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder={isEn ? "Search interface, VLAN, device..." : "جستجوی پورت، ویلن، دستگاه..."}
+                      value={interfaceSearch}
+                      onChange={(e) => setInterfaceSearch(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg text-[11px] outline-none transition ${
+                        isLightMode
+                          ? 'bg-white border border-slate-300 text-slate-800 placeholder:text-slate-400 focus:border-cyan-500'
+                          : 'bg-slate-800 border border-slate-700 text-white placeholder:text-slate-400 focus:border-cyan-400'
+                      }`}
+                    />
+                    <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
+                  </div>
+                )}
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              {sidebarTab === 'guide' ? (
+                <div className="flex-1 overflow-y-auto p-3 space-y-4">
                 {/* Interface Section */}
                 <div>
                   <div
@@ -1029,6 +1098,99 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
                   </div>
                 </div>
               </div>
+            ) : (
+              /* Interfaces Tab */
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+                {filteredPorts.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-xs">
+                    {isEn ? 'No interfaces found matching filter.' : 'هیچ اینترفیسی مطابق فیلتر یافت نشد.'}
+                  </div>
+                ) : (
+                  filteredPorts.map((p) => {
+                    const isUp = p.status === 'up';
+                    const isSelected = selectedPort?.port_id === p.port_id;
+                    return (
+                      <div
+                        key={p.port_id}
+                        className={`p-2.5 rounded-xl border transition-all flex flex-col gap-2 ${
+                          isSelected
+                            ? 'bg-cyan-500/10 border-cyan-500/60 shadow-xs'
+                            : isLightMode
+                            ? 'bg-slate-50/80 border-slate-200 hover:border-cyan-400'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-cyan-500/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                isUp ? 'bg-emerald-400 shadow-xs shadow-emerald-500' : 'bg-rose-500'
+                              }`}
+                            />
+                            <div className="truncate">
+                              <span className="font-mono font-bold text-xs">{p.port_id}</span>
+                              {p.name && p.name !== p.port_id && (
+                                <span className="text-[10px] text-slate-400 ml-1">({p.name})</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 text-[10px] font-mono shrink-0">
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-bold text-white ${
+                                p.mode === 'trunk'
+                                  ? 'bg-purple-600 border border-purple-500'
+                                  : 'bg-cyan-600 border border-cyan-500'
+                              }`}
+                            >
+                              {p.mode.toUpperCase()}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded font-semibold border ${
+                                isLightMode
+                                  ? 'bg-white text-slate-700 border-slate-300'
+                                  : 'bg-slate-800 text-slate-300 border-slate-700'
+                              }`}
+                            >
+                              VLAN {p.vlan}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] gap-2 pt-1 border-t border-slate-200/50 dark:border-slate-800/80">
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate flex items-center gap-1 min-w-0">
+                            <Cable className="w-3 h-3 text-cyan-500 shrink-0" />
+                            <span className="truncate">
+                              {p.connected_device && p.connected_device !== 'Disconnected'
+                                ? p.connected_device
+                                : (isEn ? 'Empty / Disconnected' : 'خالی / بدون اتصال')}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cmd = `/interface print where name="${p.port_id}"`;
+                              setInput(cmd);
+                              handleSendCommand(cmd);
+                              setSelectedPort(p);
+                            }}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold transition shrink-0 cursor-pointer shadow-xs ${
+                              isLightMode
+                                ? 'bg-cyan-600 hover:bg-cyan-700 text-white'
+                                : 'bg-cyan-500 hover:bg-cyan-400 text-black'
+                            }`}
+                            title={isEn ? "Select interface in CLI" : "مشاهده وضعیت این پورت در CLI"}
+                          >
+                            {isEn ? "Select in CLI" : "انتخاب در CLI"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
             </div>
           )}
         </div>

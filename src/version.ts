@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.50.5';
+export const APP_VERSION = '1.51.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.51.0',
+    releaseDate: '2026-09-14',
+    type: 'minor',
+    title: 'انتقال اینترفیس‌ها به تب‌های سایدبار ترمینال، رفع بیرون‌زدگی تولتیپ پورت‌ها در تمام‌صفحه و اصلاح کنتراست تم روشن',
+    title_en: 'Terminal Interfaces Sidebar Tab Integration, Fullscreen Port Tooltip Overflow Fix, and Light Theme High-Contrast Polish',
+    changes: [
+      'انتقال دکمه و لیست اینترفیس‌ها از بالای ترمینال به داخل سایدبار با ساختار دو تب مجزا (راهنمای دستورات / اینترفیس‌ها) همراه با قابلیت جستجوی زنده.',
+      'اصلاح موقعیت‌دهی پویا و محاسبه هوشمند محدوده صفحه (Viewport Clamping) برای تولتیپ پورت‌های فیزیکی در حالت فول‌اسکرین ترمینال‌های سیسکو و میکروتیک.',
+      'بهبود کامل کنتراست برچسب جزئیات پورت هنگام هاور در تم روشن جهت جلوگیری از تداخل رنگ با پس‌زمینه.',
+      'اصلاح استایل نشانگر تعداد پورت‌ها با رنگ سفید و متن بولد (Bold) و پس‌زمینه مناسب با خوانایی بالا در کلیه تم‌ها.'
+    ],
+    changes_en: [
+      'Migrated the interfaces button and menu into the terminal sidebar as a dedicated dual-tab interface (Command Guide / Interfaces) with live search.',
+      'Implemented smart viewport clamping for physical port tooltips in fullscreen mode across both Cisco and MikroTik terminals to prevent off-screen overflow.',
+      'Enhanced high-contrast styling for hovered port detail pill in light mode, preventing background color blending.',
+      'Updated the port count badge to a solid, bold white display for crystal-clear readability across light and dark themes.'
+    ]
+  },
   {
     version: '1.50.5',
     releaseDate: '2026-09-14',

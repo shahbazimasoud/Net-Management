@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
 import { ChevronDown, ChevronUp, Layers, CheckCircle2, AlertCircle, Shield, Cable } from 'lucide-react';
 import { Device, SwitchPort } from '../../types';
 import { NetworkPortSvg } from '../NetworkPortSvg';
@@ -30,6 +30,33 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [activeHoverPort, setActiveHoverPort] = useState<SwitchPort | null>(null);
   const [hoverCoords, setHoverCoords] = useState<{ x: number; y: number } | null>(null);
+
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number; arrowLeft: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!activeHoverPort || !hoverCoords) {
+      setTooltipPos(null);
+      return;
+    }
+
+    const portCenterX = hoverCoords.x;
+    const portBottomY = hoverCoords.y;
+    const padding = 12;
+    const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    const tooltipWidth = tooltipRef.current?.offsetWidth || 320;
+
+    let left = portCenterX - tooltipWidth / 2;
+    if (left < padding) {
+      left = padding;
+    } else if (left + tooltipWidth > winWidth - padding) {
+      left = Math.max(padding, winWidth - padding - tooltipWidth);
+    }
+
+    const arrowLeft = Math.max(14, Math.min(portCenterX - left, tooltipWidth - 14));
+
+    setTooltipPos({ left, top: portBottomY, arrowLeft });
+  }, [activeHoverPort, hoverCoords]);
 
   if (!ports || ports.length === 0) {
     return null;
@@ -72,53 +99,93 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
             )}
           </button>
 
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60 shrink-0">
+          <span
+            className="text-[10px] font-mono font-bold text-white px-2 py-0.5 rounded bg-slate-800 border border-slate-700 shadow-xs shrink-0"
+            style={{ color: '#ffffff', fontWeight: 'bold' }}
+          >
             {ports.length} {isEn ? 'Ports' : 'پورت'}
           </span>
 
           {/* Status Counts */}
           <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono shrink-0">
-            <span className="flex items-center gap-1 text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-xs shadow-emerald-400"></span>
+            <span className={`flex items-center gap-1 font-semibold ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isLightMode ? 'bg-emerald-600' : 'bg-emerald-400 shadow-xs shadow-emerald-400'}`}></span>
               {upCount} UP
             </span>
-            <span className="text-slate-500">•</span>
-            <span className="flex items-center gap-1 text-rose-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+            <span className={isLightMode ? 'text-slate-400' : 'text-slate-500'}>•</span>
+            <span className={`flex items-center gap-1 font-semibold ${isLightMode ? 'text-rose-700' : 'text-rose-400'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isLightMode ? 'bg-rose-600' : 'bg-rose-400'}`}></span>
               {downCount} DOWN
             </span>
             {trunkCount > 0 && (
               <>
-                <span className="text-slate-500">•</span>
-                <span className="text-purple-400 font-bold">{trunkCount} TRUNK</span>
+                <span className={isLightMode ? 'text-slate-400' : 'text-slate-500'}>•</span>
+                <span className={`font-bold ${isLightMode ? 'text-purple-700' : 'text-purple-400'}`}>{trunkCount} TRUNK</span>
               </>
             )}
           </div>
         </div>
 
-        {/* Center: Active / Hovered / Selected Port Detail Pill - Reserved slot, pointer-events-none */}
+        {/* Center: Active / Hovered / Selected Port Detail Pill - High Contrast & Light Theme Compatible */}
         <div className="flex-1 min-w-0 flex items-center justify-center px-1 overflow-hidden pointer-events-none">
           {multiSelectedCount > 1 && !activeHoverPort ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-950/90 border border-indigo-500/50 text-[10px] font-mono text-indigo-200 shrink-0 shadow-xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-              <span className="font-bold text-white">
+            <div
+              className={`flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-mono shrink-0 shadow-xs border transition-all ${
+                isLightMode
+                  ? 'bg-white border-indigo-300 text-indigo-950 shadow-slate-200'
+                  : 'bg-indigo-950/90 border-indigo-500/50 text-indigo-200'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${isLightMode ? 'bg-indigo-600' : 'bg-cyan-400'} animate-pulse`} />
+              <span className={`font-bold ${isLightMode ? 'text-indigo-950' : 'text-white'}`}>
                 {isEn ? `${multiSelectedCount} Ports Selected (Range)` : `${multiSelectedCount} پورت در رنج انتخابی`}
               </span>
             </div>
           ) : displayPort ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-950/90 border border-indigo-500/50 text-[10px] font-mono text-indigo-200 shrink-0 shadow-xs">
-              <span className={`w-1.5 h-1.5 rounded-full ${displayPort.status === 'up' ? 'bg-emerald-400 shadow-xs shadow-emerald-400' : 'bg-rose-400'}`}></span>
-              <span className="font-bold text-white">{displayPort.port_id}</span>
-              <span className="opacity-40">•</span>
-              <span className={displayPort.status === 'up' ? 'text-emerald-300 font-bold' : 'text-rose-300'}>
+            <div
+              className={`flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-mono shrink-0 shadow-xs border transition-all ${
+                isLightMode
+                  ? 'bg-white border-slate-300 text-slate-900 shadow-slate-200/80'
+                  : 'bg-slate-900/95 border-slate-700/80 text-slate-200'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  displayPort.status === 'up'
+                    ? 'bg-emerald-500 shadow-xs shadow-emerald-500'
+                    : 'bg-rose-500'
+                }`}
+              />
+              <span className={`font-bold ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
+                {displayPort.port_id}
+              </span>
+              <span className={isLightMode ? 'text-slate-300' : 'text-slate-600'}>•</span>
+              <span
+                className={`font-bold ${
+                  displayPort.status === 'up'
+                    ? isLightMode
+                      ? 'text-emerald-700'
+                      : 'text-emerald-400'
+                    : isLightMode
+                    ? 'text-rose-700'
+                    : 'text-rose-400'
+                }`}
+              >
                 {displayPort.status.toUpperCase()}
               </span>
-              <span className="opacity-40">•</span>
-              <span>VLAN {displayPort.vlan} ({displayPort.mode.toUpperCase()})</span>
+              <span className={isLightMode ? 'text-slate-300' : 'text-slate-600'}>•</span>
+              <span className={`font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                VLAN {displayPort.vlan} ({displayPort.mode.toUpperCase()})
+              </span>
               {displayPort.connected_device && displayPort.connected_device !== 'Disconnected' && (
                 <>
-                  <span className="opacity-40">•</span>
-                  <span className="text-cyan-300 truncate max-w-[120px]" title={displayPort.connected_device}>
+                  <span className={isLightMode ? 'text-slate-300' : 'text-slate-600'}>•</span>
+                  <span
+                    className={`truncate max-w-[130px] font-bold ${
+                      isLightMode ? 'text-indigo-700' : 'text-cyan-300'
+                    }`}
+                    title={displayPort.connected_device}
+                  >
                     {displayPort.connected_device}
                   </span>
                 </>
@@ -223,48 +290,59 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
       )}
 
       {/* Completely unclipped, high-z-index floating tooltip positioned below the hovered port */}
-      {activeHoverPort && hoverCoords && (
-        <div
-          className="pointer-events-none fixed z-[99999] px-3 py-1.5 rounded-lg bg-slate-900/95 border border-cyan-500/60 shadow-2xl text-[11px] font-mono text-white whitespace-nowrap animate-in fade-in zoom-in-95 duration-100"
-          style={{
-            left: `${hoverCoords.x}px`,
-            top: `${hoverCoords.y}px`,
-            transform: 'translateX(-50%)',
-            filter: 'drop-shadow(0 10px 25px rgba(0,0,0,0.8))',
-          }}
-        >
-          {/* Arrow pointing up towards port */}
-          <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-slate-900 border-t border-l border-cyan-500/60" />
+      {activeHoverPort && hoverCoords && (() => {
+        const winWidth = typeof window !== 'undefined' ? window.innerWidth : 1024;
+        const defaultLeft = Math.max(12, Math.min(hoverCoords.x - 160, winWidth - 340));
+        const currentLeft = tooltipPos ? tooltipPos.left : defaultLeft;
+        const currentTop = tooltipPos ? tooltipPos.top : hoverCoords.y;
+        const currentArrowLeft = tooltipPos ? tooltipPos.arrowLeft : Math.max(14, Math.min(hoverCoords.x - defaultLeft, 306));
 
-          <div className="relative z-10 flex items-center gap-2 font-bold">
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                activeHoverPort.status === 'up'
-                  ? 'bg-emerald-400 shadow-xs shadow-emerald-400'
-                  : 'bg-rose-400'
-              }`}
+        return (
+          <div
+            ref={tooltipRef}
+            className="pointer-events-none fixed z-[99999] px-3 py-1.5 rounded-lg bg-slate-900/95 border border-cyan-500/60 shadow-2xl text-[11px] font-mono text-white whitespace-nowrap animate-in fade-in zoom-in-95 duration-100"
+            style={{
+              left: `${currentLeft}px`,
+              top: `${currentTop}px`,
+              filter: 'drop-shadow(0 10px 25px rgba(0,0,0,0.8))',
+            }}
+          >
+            {/* Arrow pointing up towards port */}
+            <div
+              className="absolute -top-1.5 -translate-x-1/2 w-3 h-3 rotate-45 bg-slate-900 border-t border-l border-cyan-500/60"
+              style={{ left: `${currentArrowLeft}px` }}
             />
-            <span className="text-cyan-300 font-bold">{activeHoverPort.port_id}</span>
-            <span className="text-slate-400 text-[10px]">({activeHoverPort.name})</span>
-            <span className="opacity-40">•</span>
-            <span className={activeHoverPort.status === 'up' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-              {activeHoverPort.status.toUpperCase()}
-            </span>
-            <span className="opacity-40">•</span>
-            <span className="text-amber-300">VLAN {activeHoverPort.vlan}</span>
-            <span className="opacity-40">•</span>
-            <span className="text-purple-300">{activeHoverPort.mode.toUpperCase()}</span>
-          </div>
 
-          {activeHoverPort.connected_device && activeHoverPort.connected_device !== 'Disconnected' && (
-            <div className="relative z-10 text-[10px] text-slate-300 mt-1 flex items-center gap-1.5 border-t border-slate-800 pt-1">
-              <Cable className="w-3 h-3 text-cyan-400 shrink-0" />
-              <span className="text-slate-400">{isEn ? 'Connected:' : 'متصل به:'}</span>
-              <span className="text-white font-semibold truncate max-w-[220px]">{activeHoverPort.connected_device}</span>
+            <div className="relative z-10 flex items-center gap-2 font-bold">
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  activeHoverPort.status === 'up'
+                    ? 'bg-emerald-400 shadow-xs shadow-emerald-400'
+                    : 'bg-rose-400'
+                }`}
+              />
+              <span className="text-cyan-300 font-bold">{activeHoverPort.port_id}</span>
+              <span className="text-slate-400 text-[10px]">({activeHoverPort.name})</span>
+              <span className="opacity-40">•</span>
+              <span className={activeHoverPort.status === 'up' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                {activeHoverPort.status.toUpperCase()}
+              </span>
+              <span className="opacity-40">•</span>
+              <span className="text-amber-300">VLAN {activeHoverPort.vlan}</span>
+              <span className="opacity-40">•</span>
+              <span className="text-purple-300">{activeHoverPort.mode.toUpperCase()}</span>
             </div>
-          )}
-        </div>
-      )}
+
+            {activeHoverPort.connected_device && activeHoverPort.connected_device !== 'Disconnected' && (
+              <div className="relative z-10 text-[10px] text-slate-300 mt-1 flex items-center gap-1.5 border-t border-slate-800 pt-1">
+                <Cable className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span className="text-slate-400">{isEn ? 'Connected:' : 'متصل به:'}</span>
+                <span className="text-white font-semibold truncate max-w-[220px]">{activeHoverPort.connected_device}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 };

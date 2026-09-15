@@ -1,14 +1,17 @@
 import { Pool, PoolConfig, PoolClient } from 'pg';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
+
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : (import.meta.url ? path.dirname(fileURLToPath(import.meta.url)) : process.cwd());
 
 // Load environment variables from candidate paths
 const candidateEnvPaths = [
   path.resolve(process.cwd(), '.env'),
-  path.resolve(__dirname, '.env'),
-  path.resolve(__dirname, '..', '.env'),
+  path.resolve(currentDir, '.env'),
+  path.resolve(currentDir, '..', '.env'),
   '/opt/nettopology/.env',
 ];
 

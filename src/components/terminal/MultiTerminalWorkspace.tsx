@@ -428,6 +428,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
                     isOpen={true}
                     onClose={() => handleClosePane(index)}
                     onDeviceUpdated={onDeviceUpdated}
+                    isLightMode={isLightMode}
                     isEmbedded={true}
                     onSwap={() => handleSwapWithNext(index)}
                     paneIndex={index}
