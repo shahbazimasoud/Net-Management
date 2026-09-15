@@ -35,6 +35,7 @@ import {
   getAuditLogs,
   addAuditLog,
 } from './db';
+import { testAndDiscoverDeviceViaSsh } from './sshDiscovery';
 
 export const apiRouter = Router();
 
@@ -658,3 +659,21 @@ apiRouter.post('/settings/audit-logs', async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// -------------------------------------------------------------
+// Live Device SSH Connection & Switch Telemetry Discovery
+// -------------------------------------------------------------
+apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response) => {
+  try {
+    const discoveryResult = await testAndDiscoverDeviceViaSsh(req.body);
+    res.json(discoveryResult);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      connected: false,
+      error: err.message,
+      message: `خطای سرور در برقراری اتصال SSH: ${err.message}`,
+    });
+  }
+});
+

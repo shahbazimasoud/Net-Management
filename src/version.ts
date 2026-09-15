@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.52.1';
+export const APP_VERSION = '1.53.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.53.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'کشف خودکار پورت‌های سوئیچ با دستور show interface status از طریق SSH، قفل‌گذاری هوشمند فیلدها و ارتقای موقعیت مشخصات ترمینال',
+    title_en: 'Automated Switch Port Discovery via SSH "show interface status", Smart Field Locking, and Terminal Credentials Relocation',
+    changes: [
+      'انتقال بخش مشخصات اتصال ترمینال و دسترسی CLI به موقعیت بالاتر مستقیماً زیر بخش رده و نوع تجهیز (Device Role) در پنجره ویرایش دستگاه.',
+      'افزودن موتور دیسکاوری خودکار در بک‌گراند از طریق تست اتصال SSH و اجرای دستور show interface status روی سوئیچ جهت استخراج نام پورت‌ها، دسکریپشن، وضعیت فعال/غیرفعال بودن (Up/Down)، نوع پورت (Trunk/Access)، VLAN، سرعت و دوبلکس.',
+      'طراحی پنل تله‌متری فیس‌پلیت سخت‌افزاری سوئیچ در بالای مودال با دو حالت نمایش گرافیکی ماتریس پورت‌ها و جدول تله‌متری با قابلیت فیلتر و آمار خلاصه وضعیت.',
+      'تکمیل و قفل خودکار فیلدهای نام هاست (Hostname)، مدل سخت‌افزاری و تعداد پورت‌ها با وضعیت غیرقابل ویرایش (Read-only/Grayed out) به همراه دکمه بازگشایی قفل برای ویرایش دستی در صورت نیاز کاربر.',
+      'ذخیره‌سازی و پایداری کامل آرایه پورت‌های شناسایی‌شده در رکورد پایگاه‌داده تجهیز جهت استفاده در کل سیستم و مانیتورینگ.'
+    ],
+    changes_en: [
+      'Relocated the Terminal Protocol & Credentials section directly below Device Role & Category in the Edit Device modal for intuitive workflow.',
+      'Implemented background SSH discovery executing "show interface status" on network switches to automatically extract port names, descriptions, link status (Up/Down), port modes (Trunk/Access), VLAN assignments, speeds, and duplex settings.',
+      'Designed a hardware switch faceplate telemetry panel at the top of the modal with both grid visualization and tabular views with real-time port statistics.',
+      'Auto-populated and locked device hostname, hardware model, and total port count as read-only fields with visual indicators and manual unlock options.',
+      'Persisted discovered switch ports array into the device database record for system-wide topology and monitoring consumption.'
+    ]
+  },
   {
     version: '1.52.1',
     releaseDate: '2026-09-15',

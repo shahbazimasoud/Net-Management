@@ -2679,9 +2679,13 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": "Device not found"})
                 return
 
-            for k in ["name", "ip", "ssh_host", "connection_protocol", "connection", "platform", "connection_mode", "type", "role", "model", "building", "floor", "unit", "rack", "cdp_enabled", "lldp_enabled", "snmp_community", "is_online", "ssh_port", "ssh_username", "ssh_password", "enable_password", "ssh_status"]:
+            for k in ["name", "ip", "ssh_host", "connection_protocol", "connection", "platform", "connection_mode", "type", "role", "model", "building", "floor", "unit", "rack", "cdp_enabled", "lldp_enabled", "snmp_community", "is_online", "ssh_port", "ssh_username", "ssh_password", "enable_password", "ssh_status", "total_ports"]:
                 if k in body:
                     device[k] = body[k]
+            if "ports" in body and isinstance(body["ports"], list):
+                if "ports" not in data:
+                    data["ports"] = {}
+                data["ports"][dev_id] = body["ports"]
             if "connection_protocol" in body:
                 if "connection" not in device or not isinstance(device["connection"], dict):
                     device["connection"] = {}

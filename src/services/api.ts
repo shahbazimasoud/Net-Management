@@ -216,6 +216,8 @@ export async function testDeviceConnection(data: {
   protocol?: 'ssh' | 'telnet';
   connection_protocol?: 'ssh' | 'telnet';
   platform?: string;
+  connection_mode?: string;
+  simulate?: boolean;
 }): Promise<{
   success: boolean;
   message: string;
@@ -223,6 +225,13 @@ export async function testDeviceConnection(data: {
   banner?: string;
   protocol?: string;
   error?: string;
+  hostname?: string;
+  model?: string;
+  total_ports?: number;
+  ports?: SwitchPort[];
+  raw_status_output?: string;
+  live_discovery?: boolean;
+  simulated?: boolean;
 }> {
   const res = await fetch(`${API_BASE}/devices/test-connection`, {
     method: 'POST',
