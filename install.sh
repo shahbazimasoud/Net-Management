@@ -12,6 +12,50 @@ has_usable_tty() {
   (exec < /dev/tty) 2>/dev/null && (exec > /dev/tty) 2>/dev/null
 }
 
+is_dpkg_locked() {
+  if command -v fuser &>/dev/null; then
+    if fuser /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; then
+      return 0
+    fi
+  elif command -v lsof &>/dev/null; then
+    if lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || lsof /var/lib/dpkg/lock >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  if pgrep -f "unattended-upgr" >/dev/null 2>&1 || \
+     pgrep -f "apt.systemd.daily" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+wait_for_dpkg_lock() {
+  local max_wait=180
+  local waited=0
+  local locked=false
+
+  while is_dpkg_locked; do
+    locked=true
+    if [ $waited -eq 0 ]; then
+      echo -e "${YELLOW}قفل پکیج‌منیجر (apt/dpkg) توسط پردازش‌های پس‌زمینه سیستم‌عامل (مثل بروزرسانی خودکار) در حال استفاده است.${NC}"
+      echo -e "${YELLOW}در حال انتظار برای اتمام پردازش پس‌زمینه (حداکثر ${max_wait} ثانیه)...${NC}"
+    fi
+    sleep 3
+    waited=$((waited + 3))
+    if [ $waited -ge $max_wait ]; then
+      echo -e "${YELLOW}توقف پردازش‌های آپدیت پس‌زمینه برای ادامه نصب...${NC}"
+      systemctl stop unattended-upgrades 2>/dev/null || true
+      systemctl stop apt-daily.service 2>/dev/null || true
+      systemctl stop apt-daily-upgrade.service 2>/dev/null || true
+      pkill -f "unattended-upgr" 2>/dev/null || true
+      sleep 2
+      break
+    fi
+  done
+  [ "$locked" = true ] && echo -e "${GREEN}✓ قفل پکیج‌منیجر آزاد شد.${NC}"
+  DEBIAN_FRONTEND=noninteractive dpkg --configure -a 2>/dev/null || true
+}
+
 prompt_input() {
   local prompt_text="$1"
   local var_name="$2"
@@ -47,7 +91,7 @@ echo -e "${CYAN}${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║                                                                  ║"
 echo "║     🌐  NetTopology - Enterprise Network Management Panel        ║"
-echo "║     🚀  Version: 1.49.1 (Production Stable)                      ║"
+echo "║     🚀  Version: 1.52.1 (Production Stable)                      ║"
 echo "║     🛡️  Cisco Port Security & CDP/LLDP Topology Visualizer       ║"
 echo "║     🎨  Spatial Cyber Neon & Multi-Theme Network Studio          ║"
 echo "║                                                                  ║"
@@ -177,8 +221,9 @@ echo -e "${BLUE}[2/7]${NC} ${BOLD}نصب پیش‌نیازهای سیستمی و
 
 if command -v apt-get &>/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
-  apt-get install -y curl git python3 python3-pip traceroute dnsutils whois iputils-ping postgresql postgresql-contrib
+  wait_for_dpkg_lock
+  apt-get update -y || true
+  apt-get install -y curl git python3 python3-pip traceroute dnsutils whois iputils-ping postgresql postgresql-contrib nginx openssl
 elif command -v dnf &>/dev/null; then
   dnf install -y curl git python3 python3-pip traceroute bind-utils whois iputils postgresql-server postgresql-contrib
   postgresql-setup --initdb 2>/dev/null || true
@@ -409,10 +454,13 @@ fi
 # Configure Nginx Reverse Proxy with Strict Self-Signed SSL Only
 echo ""
 echo -e "${BLUE}[6/6]${NC} ${BOLD}پیکربندی Nginx و گواهی امنیتی Self-Signed SSL روی پورت $PANEL_SSL_PORT...${NC}"
-if command -v apt-get &>/dev/null; then
-  DEBIAN_FRONTEND=noninteractive apt-get install -y nginx openssl < /dev/null || true
-elif command -v dnf &>/dev/null; then
-  dnf install -y nginx openssl || true
+if ! command -v nginx &>/dev/null; then
+  if command -v apt-get &>/dev/null; then
+    wait_for_dpkg_lock
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nginx openssl < /dev/null || true
+  elif command -v dnf &>/dev/null; then
+    dnf install -y nginx openssl || true
+  fi
 fi
 
 # Remove default site

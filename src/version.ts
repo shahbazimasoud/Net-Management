@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.52.0';
+export const APP_VERSION = '1.52.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.52.1',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'مدیریت هوشمند قفل پکیج‌منیجر سیستم‌عامل (dpkg/apt lock)، پیشگیری از تداخل با unattended-upgrades و نصب امن Nginx در اسکریپت راه‌اندازی',
+    title_en: 'Intelligent OS Package Manager Lock Guard (dpkg/apt lock), Unattended-Upgrades Conflict Prevention, and Resilient Nginx Installation in Setup Scripts',
+    changes: [
+      'تجهیز اسکریپت setup-panel.sh و install.sh به ماژول تشخیص خودکار قفل DPKG/APT (فایل‌های lock و lock-frontend) با قابلیت انتظار هوشمند (Polling) تا آزادسازی کامل توسط سیستم‌عامل.',
+      'توقف موقت تایمرها و سرویس‌های آپدیت پس‌زمینه لینوکس (unattended-upgrades و apt-daily) در حین اجرای اسکریپت نصب و بازیابی خودکار پس از پایان جهت جلوگیری از توقف تصادفی در مرحله پیکربندی Nginx.',
+      'افزودن تابع بازآزمایی خودکار safe_apt_install و safe_apt_update با قابلیت تلاش مجدد تا ۵ مرتبه همراه با مکث هوشمند در صورت بروز خطای تداخل فرآیندهای لینوکس.',
+      'نصب پیش‌دستانه وب‌سرور Nginx همگام با پکیج‌های پایه و بررسی شرطی فعال بودن Nginx قبل از فراخوانی apt-get در فاز تنظیم SSL/HTTPS معکوس.'
+    ],
+    changes_en: [
+      'Engineered automated DPKG/APT lock detection (lock and lock-frontend files) with intelligent retry and polling in setup-panel.sh and install.sh scripts.',
+      'Temporarily paused background Linux automated upgrade timers (unattended-upgrades and apt-daily) during installer execution with auto-restore on exit to prevent lock collisions.',
+      'Introduced robust safe_apt_install and safe_apt_update functions with 5-step exponential backoff retry logic upon encountering OS process contention.',
+      'Proactively bundled Nginx web server installation with core dependencies and added conditional existence verification before invoking apt-get in the reverse proxy and SSL phase.'
+    ]
+  },
   {
     version: '1.52.0',
     releaseDate: '2026-09-15',

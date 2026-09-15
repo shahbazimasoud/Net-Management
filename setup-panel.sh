@@ -30,7 +30,107 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PANEL_VERSION="1.49.1"
+PANEL_VERSION="1.52.1"
+
+# ==============================================================================
+# Enterprise Package Manager & DPKG Lock Guard
+# Prevents collisions with background processes such as unattended-upgrades,
+# apt.systemd.daily, or concurrent package management tasks.
+# ==============================================================================
+is_dpkg_locked() {
+  if command -v fuser &>/dev/null; then
+    if fuser /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; then
+      return 0
+    fi
+  elif command -v lsof &>/dev/null; then
+    if lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || lsof /var/lib/dpkg/lock >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  if pgrep -f "unattended-upgr" >/dev/null 2>&1 || \
+     pgrep -f "apt.systemd.daily" >/dev/null 2>&1 || \
+     pgrep -f "apt-get.*update" >/dev/null 2>&1 || \
+     pgrep -f "apt-get.*install" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+wait_for_dpkg_lock() {
+  local max_wait=180
+  local waited=0
+  local locked=false
+
+  while is_dpkg_locked; do
+    locked=true
+    if [ $waited -eq 0 ]; then
+      log_info "Package manager (dpkg / apt) is currently in use by background process (e.g. unattended-upgrades)."
+      log_info "Waiting gracefully for background task to release the lock (up to ${max_wait}s)..."
+    fi
+    echo -ne "  ⏳ Waiting for APT/DPKG lock release... [${waited}s / ${max_wait}s]\r"
+    sleep 3
+    waited=$((waited + 3))
+    if [ $waited -ge $max_wait ]; then
+      echo ""
+      log_warning "Background package manager did not release locks within ${max_wait}s."
+      log_warning "Attempting graceful stop of background upgrade services..."
+      systemctl stop unattended-upgrades 2>/dev/null || true
+      systemctl stop apt-daily.service 2>/dev/null || true
+      systemctl stop apt-daily-upgrade.service 2>/dev/null || true
+      pkill -f "unattended-upgr" 2>/dev/null || true
+      sleep 2
+      break
+    fi
+  done
+
+  if [ "$locked" = true ]; then
+    echo ""
+    log_success "Package manager lock cleared successfully. Proceeding with installation."
+  fi
+
+  DEBIAN_FRONTEND=noninteractive dpkg --configure -a 2>/dev/null || true
+}
+
+safe_apt_install() {
+  wait_for_dpkg_lock
+  local retries=5
+  local count=0
+  until DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "$@"; do
+    count=$((count + 1))
+    if [ $count -ge $retries ]; then
+      log_error "apt-get install failed after $retries attempts for: $*"
+      return 1
+    fi
+    log_warning "APT lock or network collision detected. Retrying ($count/$retries) in 5 seconds..."
+    wait_for_dpkg_lock
+    sleep 5
+  done
+  return 0
+}
+
+safe_apt_update() {
+  wait_for_dpkg_lock
+  local retries=3
+  local count=0
+  until DEBIAN_FRONTEND=noninteractive apt-get update -y; do
+    count=$((count + 1))
+    if [ $count -ge $retries ]; then
+      log_warning "apt-get update completed with notices. Proceeding with existing repositories..."
+      return 0
+    fi
+    log_warning "apt-get update was busy or interrupted. Retrying ($count/$retries)..."
+    wait_for_dpkg_lock
+    sleep 3
+  done
+  return 0
+}
+
+# Ensure background update timers are restored upon script termination
+cleanup_apt_timers() {
+  systemctl start apt-daily.timer 2>/dev/null || true
+  systemctl start apt-daily-upgrade.timer 2>/dev/null || true
+}
+trap cleanup_apt_timers EXIT
 
 # ==============================================================================
 # Enterprise DevOps Architecture: Reliable TTY & Pipe Mode Execution
@@ -56,7 +156,7 @@ cat << "EOF"
   ██║ ╚████║███████╗   ██║      ██║   ╚██████╔╝██║     ╚██████╔╝
   ╚═╝  ╚═══╝╚══════╝   ╚═╝      ╚═╝    ╚═════╝ ╚═╝      ╚═════╝ 
         CISCO NETWORK TOPOLOGY & PORT SECURITY MANAGEMENT PANEL
-        Version: 1.49.1 (Enterprise Production Suite)
+        Version: 1.52.1 (Enterprise Production Suite)
         Developer: Masoud Shahbazi (https://www.linkedin.com/in/masoudshahbazi/)
         Repository: https://github.com/shahbazimasoud/Net-Management
 ======================================================================
@@ -227,17 +327,23 @@ echo ""
 # ------------------------------------------------------------------------------
 # 2. System Dependency & PostgreSQL Installation
 # ------------------------------------------------------------------------------
+log_step "Guarding package manager and pausing background update timers..."
+systemctl stop unattended-upgrades 2>/dev/null || true
+systemctl stop apt-daily.timer 2>/dev/null || true
+systemctl stop apt-daily-upgrade.timer 2>/dev/null || true
+
 log_step "Checking and repairing package manager database..."
+wait_for_dpkg_lock
 DEBIAN_FRONTEND=noninteractive dpkg --configure -a 2>/dev/null || true
 DEBIAN_FRONTEND=noninteractive apt-get install -f -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" 2>/dev/null || true
 
 log_step "Updating local package catalog (apt-get update)..."
-DEBIAN_FRONTEND=noninteractive apt-get update -y || log_warning "Some repositories failed to update. Continuing with available mirrors..."
+safe_apt_update
 
-log_step "Installing system tools and PostgreSQL database engine..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+log_step "Installing system tools, Nginx web server, and PostgreSQL database engine..."
+safe_apt_install \
   git curl build-essential python3 python3-pip ca-certificates gnupg lsb-release xz-utils openssl ufw traceroute dnsutils whois iputils-ping \
-  postgresql postgresql-contrib postgresql-client
+  postgresql postgresql-contrib postgresql-client nginx
 
 log_step "Ensuring PostgreSQL service is enabled and started..."
 systemctl enable postgresql 2>/dev/null || true
@@ -300,8 +406,9 @@ install_nodejs() {
   
   # Method 1: NodeSource official setup
   log_info "Attempt 1: Installing via NodeSource repository..."
+  wait_for_dpkg_lock
   curl -fsSL https://deb.nodesource.com/setup_22.x | DEBIAN_FRONTEND=noninteractive bash - 2>/dev/null || true
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" nodejs 2>/dev/null || true
+  safe_apt_install nodejs || true
   
   NODE_VER=$(node -v 2>/dev/null | cut -d. -f1 | tr -d 'v' || echo "0")
   NODE_VER=${NODE_VER:-0}
@@ -521,7 +628,12 @@ log_success "Systemd service 'nettopology.service' successfully installed and st
 # 7. Nginx Installation & Strict Self-Signed SSL Configuration
 # ------------------------------------------------------------------------------
 log_step "Configuring Nginx Reverse Proxy with Strict HTTPS / SSL..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y nginx
+if ! command -v nginx &>/dev/null; then
+  log_info "Installing Nginx web server..."
+  safe_apt_install nginx
+else
+  log_info "Nginx is already installed on the system."
+fi
 
 SSL_DIR="/etc/nginx/ssl"
 SSL_CERT="$SSL_DIR/nettopology.crt"
