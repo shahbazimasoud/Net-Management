@@ -720,7 +720,7 @@ export default function App() {
 
       {/* High Density Cyber Spatial Footer Status Bar (Hidden in Full Mode) */}
       {!isTopologyFullscreen && (
-        <footer className="h-8 spatial-glass text-slate-300 flex items-center px-4 lg:px-6 shrink-0 justify-between text-[11px] border-t border-white/10 select-none z-20 backdrop-blur-xl">
+        <footer className="h-8 spatial-glass text-slate-300 flex items-center px-4 lg:px-6 shrink-0 justify-between text-[11px] border-t border-white/10 select-none relative z-[1200] backdrop-blur-xl">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse"></span>

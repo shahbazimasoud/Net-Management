@@ -171,7 +171,7 @@ export const PasswordGeneratorModal: React.FC<PasswordGeneratorModalProps> = ({
   return (
     <div
       id="password-generator-modal-overlay"
-      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
     >
       <div
         id="password-generator-modal-window"

@@ -743,9 +743,9 @@
   border: 1px solid #6ee7b7 !important;
 }
 
-/* Cisco Terminal Sidebar Guide - Dashboard-grade Styling */
+/* Cisco Terminal Sidebar Guide - Aligned with Interfaces Tab Styling */
 .cisco-sidebar-guide {
-  background-color: #0f172a !important;
+  background-color: #0b1120 !important;
   border-color: #1e293b !important;
 }
 .theme-light .cisco-sidebar-guide {
@@ -754,16 +754,19 @@
 }
 
 .cisco-guide-card {
-  background-color: #090d16 !important;
+  background-color: rgba(15, 23, 42, 0.8) !important;
   border: 1px solid #1e293b !important;
 }
+.cisco-guide-card:hover {
+  border-color: rgba(99, 102, 241, 0.45) !important;
+}
 .theme-light .cisco-guide-card {
-  background-color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.85) !important;
   border: 1px solid #e2e8f0 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
 }
 .theme-light .cisco-guide-card:hover {
-  border-color: #818cf8 !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
   box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.1) !important;
 }
 
@@ -792,14 +795,16 @@
 
 .cisco-btn-exec,
 .theme-light .cisco-btn-exec {
-  background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%) !important;
+  background: #4f46e5 !important;
   color: #ffffff !important;
-  border: none !important;
-  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.35) !important;
+  border: 1px solid #6366f1 !important;
+  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3) !important;
 }
 .cisco-btn-exec:hover,
 .theme-light .cisco-btn-exec:hover {
-  filter: brightness(1.15) !important;
+  background: #4338ca !important;
+  border-color: #4f46e5 !important;
+  filter: none !important;
 }
 .cisco-btn-exec *,
 .theme-light .cisco-btn-exec * {

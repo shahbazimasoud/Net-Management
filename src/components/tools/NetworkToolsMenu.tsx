@@ -175,7 +175,7 @@ export const NetworkToolsMenu: React.FC<NetworkToolsMenuProps> = ({
     <div
       ref={menuRef}
       id="network-tools-bottom-menu"
-      className={`absolute bottom-full mb-2 z-50 w-96 max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl border transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 ${
+      className={`absolute bottom-full mb-2 z-[1300] w-96 max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl border transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 ${
         isEn ? 'right-0' : 'left-0'
       } ${
         isLightMode

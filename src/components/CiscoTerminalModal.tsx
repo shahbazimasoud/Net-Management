@@ -2467,12 +2467,12 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             {sidebarTab === 'guide' ? (
               <>
                 {/* Current Mode Badge Explanation */}
-                <div className="p-2.5 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 text-[11px] text-slate-700 dark:text-slate-300 space-y-1">
-                  <div className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
+                <div className="p-2.5 bg-slate-100/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[11px] text-slate-700 dark:text-slate-300 space-y-1">
+                  <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                     <span>{isEn ? 'Current Prompt:' : 'مرحله فعلی:'}</span>
-                    <span className="font-mono text-emerald-600 dark:text-emerald-400">{getPrompt()}</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30 text-[11px]">{getPrompt()}</span>
                   </div>
-                  <div className="text-[10px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
                     {isMikroTik ? (
                       isEn
                         ? 'MikroTik RouterOS Interactive Terminal. Hierarchical command syntax with tab-completion. Full root access enabled.'
@@ -2518,21 +2518,21 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                     relevantCommands.map((item, idx) => (
                       <div
                         key={idx}
-                        className="cisco-guide-card p-3 rounded-xl transition-all group"
+                        className="p-2.5 rounded-xl border transition-all flex flex-col gap-2 bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 hover:border-indigo-500/40 group shadow-xs"
                       >
-                        <div className="flex items-center justify-between gap-1 mb-1.5">
-                          <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-300 group-hover:text-indigo-700 dark:group-hover:text-indigo-200 select-all" dir="ltr">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <code className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-300 select-all" dir="ltr">
                             {item.cmd}
                           </code>
                           <span
-                            className={`text-[9px] px-1.5 py-0.5 rounded-md uppercase font-bold font-mono ${
+                            className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold font-mono shrink-0 ${
                               item.category === 'show'
-                                ? 'bg-sky-100 text-sky-700 border border-sky-200 dark:bg-sky-950 dark:text-sky-400 dark:border-sky-800'
+                                ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30'
                                 : item.category === 'config'
-                                ? 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800'
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
                                 : item.category === 'action'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800'
-                                : 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                                : 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30'
                             }`}
                           >
                             {item.category}
@@ -2544,19 +2544,21 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                         </p>
 
                         {/* Action Buttons */}
-                        <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                        <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/80">
                           <button
+                            type="button"
                             onClick={() => {
                               setCurrentInput(item.cmd);
                               if (inputRef.current) inputRef.current.focus();
                             }}
-                            className="cisco-btn-insert px-2.5 py-1 rounded-lg text-[10px] font-semibold transition active:scale-95"
+                            className="px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-[10px] font-semibold transition cursor-pointer active:scale-95"
                           >
                             {isEn ? 'Insert' : 'درج در خط فرمان'}
                           </button>
                           <button
+                            type="button"
                             onClick={() => executeCommand(item.cmd)}
-                            className="cisco-btn-exec px-3 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 active:scale-95"
+                            className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold transition flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
                           >
                             <Play className="w-2.5 h-2.5 fill-current" />
                             <span>{isEn ? 'Run' : 'اجرا'}</span>
@@ -2676,7 +2678,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto"
+        className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto"
         data-modal-backdrop="true"
         dir={isEn ? 'ltr' : 'rtl'}
         onClick={(e) => {

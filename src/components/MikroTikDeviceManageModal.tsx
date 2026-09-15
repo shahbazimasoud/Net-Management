@@ -266,7 +266,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-xs animate-in fade-in duration-200">
       <div
         className={`relative w-full max-w-5xl rounded-2xl border shadow-2xl flex flex-col overflow-hidden max-h-[94vh] ${
           isLightMode

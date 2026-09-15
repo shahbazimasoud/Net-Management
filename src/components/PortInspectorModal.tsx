@@ -526,7 +526,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const portSecCount = ports.filter((p) => p.port_security_enabled).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto" data-modal-backdrop="true">
+    <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto" data-modal-backdrop="true">
       <div 
         dir={isEn ? 'ltr' : 'rtl'}
         className={`port-inspector-modal spatial-glass border border-white/15 rounded-2xl w-full max-w-5xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[92vh] sm:max-h-[88vh] text-slate-100 ${isEn ? 'text-left' : 'text-right'}`}

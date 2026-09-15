@@ -382,7 +382,7 @@ export const HostCheckerModal: React.FC<HostCheckerModalProps> = ({
   return (
     <div
       id="host-checker-modal-overlay"
-      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[60] flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
       <div
         id="host-checker-modal-container"

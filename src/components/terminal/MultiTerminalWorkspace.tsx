@@ -172,7 +172,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col p-1 sm:p-2.5 bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-200 overflow-hidden"
+      className="fixed top-0 left-0 right-0 bottom-8 z-50 flex flex-col p-1 sm:p-2.5 bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-200 overflow-hidden"
       dir={isEn ? 'ltr' : 'rtl'}
       onClick={(e) => {
         if (e.target === e.currentTarget && !preventBackdropClose) {

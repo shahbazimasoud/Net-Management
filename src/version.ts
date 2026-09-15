@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.51.0';
+export const APP_VERSION = '1.51.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.51.1',
+    releaseDate: '2026-09-14',
+    type: 'patch',
+    title: 'همسان‌سازی استایل کامند گاید در تم تیره و دسترسی دائمی به نوار فوتر و دکمه ابزارها هنگام باز بودن مودال‌ها',
+    title_en: 'Cisco Terminal Command Guide Dark Mode Harmonization & Persistent Bottom Footer and Tools Access During Modals',
+    changes: [
+      'همسان‌سازی کامل پالت رنگ، کادرها و دکمه‌های راهنمای دستورات (Command Guide) ترمینال سیسکو با تب اینترفیس‌ها در تم تیره و روشن.',
+      'ارتقای ساختار لایه‌بندی و حفظ دسترسی به نوار فوتر پایین صفحه و منوی ابزارها (Tools) هنگام باز بودن مودال‌های ترمینال، پورت‌ها و سایر پنجره‌ها.',
+      'تنظیم حاشیه و فضای امن پایینی (Safe Bottom Clearance) برای کلیه مودال‌ها جهت عدم هم‌پوشانی با استاتوس بار و داک ابزارها.'
+    ],
+    changes_en: [
+      'Harmonized Cisco Terminal Command Guide color scheme, cards, and action buttons with the Interfaces tab across dark and light modes.',
+      'Elevated footer status bar and Tools button stacking layers (z-index) to remain visible and fully interactive when terminal and port modals are open.',
+      'Added safe bottom margin clearance across full-screen modals to prevent occlusion with the bottom status bar and minimized tools dock.'
+    ]
+  },
   {
     version: '1.51.0',
     releaseDate: '2026-09-14',
