@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Network, Server, Wifi, Router as RouterIcon, ShieldCheck, MapPin, FileCode2, Terminal, Key, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Cpu, Radio, Plus, ListFilter, Zap, Minus } from 'lucide-react';
 import { Device, DeviceType, DevicePlatform, ConnectionMode, ConfigTemplate } from '../types';
 import { fetchTemplates, testDeviceConnection, fetchDevices } from '../services/api';
@@ -10,6 +11,7 @@ interface AddDeviceModalProps {
   onMinimize?: () => void;
   onAdd: (device: Partial<Device>) => Promise<Device | void>;
   onDeviceCreatedWithTemplate?: (device: Device, templateId: string) => void;
+  isLightMode?: boolean;
 }
 
 export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
@@ -18,8 +20,16 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   onMinimize,
   onAdd,
   onDeviceCreatedWithTemplate,
+  isLightMode: propIsLightMode,
 }) => {
   const { t, isEn } = useLanguage();
+
+  const isLightMode = propIsLightMode ?? (typeof document !== 'undefined' && (
+    document.querySelector('.theme-light') !== null ||
+    document.documentElement.classList.contains('light') ||
+    localStorage.getItem('panel_theme') === 'light' ||
+    localStorage.getItem('theme_mode') === 'light'
+  ));
   const [name, setName] = useState('');
   const [ip, setIp] = useState('');
   const [platform, setPlatform] = useState<DevicePlatform>('cisco_ios');
@@ -384,22 +394,32 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
     }
   };
 
-  return (
+  if (!isOpen) return null;
+
+  return createPortal(
     <div
       className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto"
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >
-      <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden my-auto max-h-[92vh] sm:max-h-[88vh] flex flex-col text-slate-800">
+      <div className={`border rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden my-auto max-h-[92vh] sm:max-h-[88vh] flex flex-col transition-colors ${
+        isLightMode
+          ? 'bg-white border-slate-200 text-slate-800'
+          : 'bg-slate-900/95 border-slate-800 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-2xl'
+      }`}>
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 bg-slate-50 shrink-0">
+        <div className={`flex items-center justify-between px-5 py-3.5 border-b shrink-0 transition-colors ${
+          isLightMode ? 'border-slate-200 bg-slate-50/90' : 'border-slate-800 bg-slate-950/80'
+        }`}>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
+            <div className={`p-2 rounded-xl border ${
+              isLightMode ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-indigo-500/20 border-indigo-500/30 text-indigo-400'
+            }`}>
               <Network className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">{t('add_device_title')}</h3>
-              <p className="text-[11px] text-slate-500">{t('add_device_subtitle')}</p>
+              <h3 className={`text-sm font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{t('add_device_title')}</h3>
+              <p className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>{t('add_device_subtitle')}</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -407,7 +427,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
               <button
                 type="button"
                 onClick={onMinimize}
-                className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200'
+                    : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800'
+                }`}
                 title={isEn ? 'Minimize' : 'مینیمایز به نوار پایین'}
                 aria-label={isEn ? 'Minimize' : 'مینیمایز'}
               >
@@ -417,7 +441,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                isLightMode
+                  ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
               aria-label={t('action_close')}
             >
               <X className="w-4 h-4" />
@@ -429,27 +457,38 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-4">
             {error && (
-              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
-                {error}
+              <div className={`p-2.5 rounded-xl border text-xs flex items-center gap-2 ${
+                isLightMode
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+              }`}>
+                <AlertCircle className={`w-4 h-4 shrink-0 ${isLightMode ? 'text-rose-600' : 'text-rose-400'}`} />
+                <span>{error}</span>
               </div>
             )}
 
             {/* Platform & OS Driver Selector */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className={`p-3.5 rounded-xl border space-y-3 transition-colors ${
+              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
+            }`}>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-indigo-700 text-xs font-bold">
+                <div className={`flex items-center gap-2 text-xs font-bold ${
+                  isLightMode ? 'text-indigo-700' : 'text-indigo-400'
+                }`}>
                   <Cpu className="w-4 h-4" />
                   <span>{isEn ? 'Hardware Platform & Network OS:' : 'پلتفرم سخت‌افزاری و سیستم‌عامل شبکه:'}</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[11px]">
-                  <span className="text-slate-500">{isEn ? 'Driver Mode:' : 'حالت اجرا:'}</span>
+                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>{isEn ? 'Driver Mode:' : 'حالت اجرا:'}</span>
                   <button
                     type="button"
                     onClick={() => setConnectionMode('ssh')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
                       connectionMode === 'ssh'
                         ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        : isLightMode
+                        ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                     }`}
                   >
                     SSH Live
@@ -457,10 +496,12 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setConnectionMode('simulator')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
                       connectionMode === 'simulator'
                         ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        : isLightMode
+                        ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                     }`}
                   >
                     Simulator
@@ -474,12 +515,16 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   onClick={() => handlePlatformChange('cisco_ios')}
                   className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
                     platform === 'cisco_ios'
-                      ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
-                      : 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      ? isLightMode
+                        ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
                   <span className="text-xs font-bold font-mono">Cisco IOS</span>
-                  <span className="text-[10px] text-slate-400">Catalyst 2960 / 3750</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-400' : 'text-slate-400'}`}>Catalyst 2960 / 3750</span>
                 </button>
 
                 <button
@@ -487,12 +532,16 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   onClick={() => handlePlatformChange('cisco_ios_xe')}
                   className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
                     platform === 'cisco_ios_xe'
-                      ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
-                      : 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      ? isLightMode
+                        ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
                   <span className="text-xs font-bold font-mono">Cisco IOS-XE</span>
-                  <span className="text-[10px] text-slate-400">Cat 9300 / ISR 4k</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-400' : 'text-slate-400'}`}>Cat 9300 / ISR 4k</span>
                 </button>
 
                 <button
@@ -500,12 +549,16 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   onClick={() => handlePlatformChange('mikrotik_routeros')}
                   className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
                     platform === 'mikrotik_routeros'
-                      ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
-                      : 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      ? isLightMode
+                        ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
                   <span className="text-xs font-bold font-mono">MikroTik RouterOS</span>
-                  <span className="text-[10px] text-slate-400">CRS / CCR / RB</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-400' : 'text-slate-400'}`}>CRS / CCR / RB</span>
                 </button>
 
                 <button
@@ -513,19 +566,23 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   onClick={() => handlePlatformChange('generic_linux')}
                   className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
                     platform === 'generic_linux'
-                      ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
-                      : 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      ? isLightMode
+                        ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm ring-2 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white/80 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
                   <span className="text-xs font-bold font-mono">Generic Linux</span>
-                  <span className="text-[10px] text-slate-400">Ubuntu / VyOS / SONiC</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-400' : 'text-slate-400'}`}>Ubuntu / VyOS / SONiC</span>
                 </button>
               </div>
             </div>
 
             {/* Device Type Selector */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label className={`block text-xs font-semibold mb-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                 {isEn ? 'Device Role & Type:' : 'نوع تجهیز (Device Type):'}
               </label>
               <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
@@ -539,10 +596,14 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     setPowerSupplies(1);
                     setPowerWatts(120);
                   }}
-                  className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition ${
+                  className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition cursor-pointer ${
                     type === 'switch'
-                      ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm'
-                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      ? isLightMode
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
+                      : isLightMode
+                      ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
                   <Server className="w-4 h-4" />
@@ -559,10 +620,14 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     setPowerSupplies(1);
                     setPowerWatts(150);
                   }}
-                  className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition ${
+                  className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition cursor-pointer ${
                     type === 'router'
-                      ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm'
-                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      ? isLightMode
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
+                      : isLightMode
+                      ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
                   <RouterIcon className="w-4 h-4" />
@@ -579,10 +644,14 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     setPowerSupplies(1);
                     setPowerWatts(25);
                   }}
-                  className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition ${
+                  className={`p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition cursor-pointer ${
                     type === 'access_point'
-                      ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm'
-                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      ? isLightMode
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-sm'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
+                      : isLightMode
+                      ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                   }`}
                 >
                   <Wifi className="w-4 h-4" />
@@ -594,7 +663,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             {/* Identity & IP */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label className={`block text-xs font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                   {isEn ? 'Device Hostname:' : 'نام یا شناسه تجهیز (Hostname):'}
                 </label>
                 <input
@@ -603,13 +672,17 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={isEn ? 'e.g. SW-ACC-BLDG-A-F2' : 'مثلاً: SW-ACC-BLDG-A-F2'}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-xs focus:bg-white focus:outline-none focus:border-indigo-500 font-mono text-left"
+                  className={`w-full px-3 py-2 rounded-xl text-xs focus:outline-none font-mono text-left transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border border-slate-300 text-slate-800 focus:bg-white focus:border-indigo-500 placeholder-slate-400 shadow-xs'
+                      : 'bg-slate-900 border border-slate-700 text-white focus:border-indigo-500 placeholder-slate-500'
+                  }`}
                   dir="ltr"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label className={`block text-xs font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                   {isEn ? 'Management IP Address:' : 'آدرس آی‌پی مدیریتی (IP Address):'}
                 </label>
                 <input
@@ -618,7 +691,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   value={ip}
                   onChange={(e) => setIp(e.target.value)}
                   placeholder={isEn ? 'e.g. 192.168.1.25' : 'مثلاً: 192.168.1.25'}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-xs focus:bg-white focus:outline-none focus:border-indigo-500 font-mono text-left"
+                  className={`w-full px-3 py-2 rounded-xl text-xs focus:outline-none font-mono text-left transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border border-slate-300 text-slate-800 focus:bg-white focus:border-indigo-500 placeholder-slate-400 shadow-xs'
+                      : 'bg-slate-900 border border-slate-700 text-white focus:border-indigo-500 placeholder-slate-500'
+                  }`}
                   dir="ltr"
                 />
               </div>
@@ -627,13 +704,17 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             {/* Model & Role */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label className={`block text-xs font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                   {isEn ? 'Equipment Role:' : 'نقش تجهیز (Role):'}
                 </label>
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-xs focus:bg-white focus:outline-none focus:border-indigo-500"
+                  className={`w-full px-3 py-2 rounded-xl text-xs focus:outline-none transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border border-slate-300 text-slate-800 focus:bg-white focus:border-indigo-500 shadow-xs'
+                      : 'bg-slate-900 border border-slate-700 text-white focus:border-indigo-500'
+                  }`}
                 >
                   <option value="Core Switch">{isEn ? 'Core Switch' : 'Core Switch (سوئیچ اصلی)'}</option>
                   <option value="Distribution Switch">{isEn ? 'Distribution Switch' : 'Distribution Switch (سوئیچ توزیع)'}</option>
@@ -644,7 +725,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label className={`block text-xs font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                   {isEn ? 'Hardware Model:' : 'مدل سخت‌افزاری (Hardware Model):'}
                 </label>
                 <input
@@ -652,19 +733,27 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   placeholder="Cisco Catalyst / MikroTik / Aruba"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-xs focus:bg-white focus:outline-none focus:border-indigo-500 font-mono text-left"
+                  className={`w-full px-3 py-2 rounded-xl text-xs focus:outline-none font-mono text-left transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border border-slate-300 text-slate-800 focus:bg-white focus:border-indigo-500 placeholder-slate-400 shadow-xs'
+                      : 'bg-slate-900 border border-slate-700 text-white focus:border-indigo-500 placeholder-slate-500'
+                  }`}
                   dir="ltr"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label className={`block text-xs font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                   {isEn ? 'Total Ports:' : 'تعداد پورت‌ها (Total Ports):'}
                 </label>
                 <select
                   value={totalPorts}
                   onChange={(e) => setTotalPorts(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-slate-800 text-xs focus:bg-white focus:outline-none focus:border-indigo-500 font-mono text-left"
+                  className={`w-full px-3 py-2 rounded-xl text-xs focus:outline-none font-mono text-left transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border border-slate-300 text-slate-800 focus:bg-white focus:border-indigo-500 shadow-xs'
+                      : 'bg-slate-900 border border-slate-700 text-white focus:border-indigo-500'
+                  }`}
                   dir="ltr"
                 >
                   <option value={2}>2 Ports ({isEn ? 'for AP' : 'برای AP'})</option>
@@ -677,26 +766,38 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             </div>
 
             {/* Power Supplies & Consumption */}
-            <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-200/80 space-y-3">
+            <div className={`p-3.5 rounded-xl border space-y-3 transition-colors ${
+              isLightMode
+                ? 'bg-amber-50/50 border-amber-200/80 text-amber-900'
+                : 'bg-amber-950/20 border-amber-800/40 text-amber-300'
+            }`}>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-amber-900 text-xs font-bold">
-                  <Zap className="w-4 h-4 text-amber-600" />
+                <div className={`flex items-center gap-2 text-xs font-bold ${
+                  isLightMode ? 'text-amber-900' : 'text-amber-300'
+                }`}>
+                  <Zap className={`w-4 h-4 ${isLightMode ? 'text-amber-600' : 'text-amber-400'}`} />
                   <span>{isEn ? 'Power Supply Units & Load (PSU & Watts):' : 'مشخصات منبع تغذیه برق و توان مصرفی (Power):'}</span>
                 </div>
-                <span className="text-[11px] font-mono text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded-md font-semibold">
+                <span className={`text-[11px] font-mono px-2 py-0.5 rounded-md font-semibold ${
+                  isLightMode ? 'text-amber-700 bg-amber-100/70' : 'text-amber-300 bg-amber-900/40 border border-amber-700/50'
+                }`}>
                   ~{(powerWatts / (1000 * 0.85)).toFixed(2)} kVA
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     {isEn ? 'Power Supplies (PSU Count):' : 'تعداد پاورها (Power Supplies):'}
                   </label>
                   <select
                     value={powerSupplies}
                     onChange={(e) => setPowerSupplies(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-amber-200 text-slate-800 text-xs focus:outline-none focus:border-amber-500 font-mono"
+                    className={`w-full px-3 py-2 rounded-xl text-xs focus:outline-none font-mono transition ${
+                      isLightMode
+                        ? 'bg-white border border-amber-200 text-slate-800 focus:border-amber-500 shadow-xs'
+                        : 'bg-slate-900 border border-amber-800/60 text-amber-100 focus:border-amber-500'
+                    }`}
                   >
                     <option value={1}>{isEn ? '1 PSU (Single Feed)' : '۱ منبع تغذیه (Single PSU)'}</option>
                     <option value={2}>{isEn ? '2 PSUs (1+1 Redundant)' : '۲ منبع تغذیه (Redundant 1+1)'}</option>
@@ -706,7 +807,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     {isEn ? 'Rated Power (Watts):' : 'توان مصرفی برحسب وات (Watts):'}
                   </label>
                   <div className="flex items-center gap-2">
@@ -717,17 +818,21 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       step={5}
                       value={powerWatts}
                       onChange={(e) => setPowerWatts(Math.max(0, Number(e.target.value)))}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-amber-200 text-slate-800 text-xs focus:outline-none focus:border-amber-500 font-mono text-left"
+                      className={`w-full px-3 py-2 rounded-xl text-xs focus:outline-none font-mono text-left transition ${
+                        isLightMode
+                          ? 'bg-white border border-amber-200 text-slate-800 focus:border-amber-500 shadow-xs'
+                          : 'bg-slate-900 border border-amber-800/60 text-amber-100 focus:border-amber-500'
+                      }`}
                       dir="ltr"
                     />
-                    <span className="text-xs font-mono font-bold text-amber-800 shrink-0">W</span>
+                    <span className={`text-xs font-mono font-bold shrink-0 ${isLightMode ? 'text-amber-800' : 'text-amber-400'}`}>W</span>
                   </div>
                 </div>
               </div>
 
               {/* Quick Presets */}
               <div className="flex items-center gap-1.5 flex-wrap pt-0.5 text-[10px]">
-                <span className="text-slate-500">{isEn ? 'Quick presets:' : 'مقادیر سریع:'}</span>
+                <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>{isEn ? 'Quick presets:' : 'مقادیر سریع:'}</span>
                 {[
                   { label: 'AP (25W)', w: 25, psu: 1 },
                   { label: 'Router (80W)', w: 80, psu: 1 },
@@ -743,7 +848,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       setPowerWatts(preset.w);
                       setPowerSupplies(preset.psu);
                     }}
-                    className="px-2 py-0.5 rounded-md bg-white border border-amber-300/80 text-amber-800 hover:bg-amber-100 hover:border-amber-400 font-mono transition"
+                    className={`px-2 py-0.5 rounded-md font-mono transition cursor-pointer ${
+                      isLightMode
+                        ? 'bg-white border border-amber-300/80 text-amber-800 hover:bg-amber-100 hover:border-amber-400'
+                        : 'bg-amber-900/30 border border-amber-700/50 text-amber-300 hover:bg-amber-900/50'
+                    }`}
                   >
                     {preset.label}
                   </button>
@@ -752,21 +861,29 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             </div>
 
             {/* SSH / Telnet Credentials & Connection Verification */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className={`p-3.5 rounded-xl border space-y-3 transition-colors ${
+              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
+            }`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-indigo-700 text-xs font-bold">
-                  <Terminal className="w-4 h-4 text-indigo-600" />
+                <div className={`flex items-center gap-2 text-xs font-bold ${
+                  isLightMode ? 'text-indigo-700' : 'text-indigo-400'
+                }`}>
+                  <Terminal className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
                   <span>{isEn ? 'Terminal Protocol & Credentials:' : 'مشخصات اتصال ترمینال و دسترسی CLI:'}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="inline-flex rounded-lg p-0.5 bg-slate-200/80 border border-slate-300 text-[11px] font-semibold">
+                  <div className={`inline-flex rounded-lg p-0.5 border text-[11px] font-semibold ${
+                    isLightMode ? 'bg-slate-200/80 border-slate-300' : 'bg-slate-900 border-slate-700'
+                  }`}>
                     <button
                       type="button"
                       onClick={() => handleProtocolChange('ssh')}
                       className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
                         connectionProtocol === 'ssh'
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       SSH
@@ -777,7 +894,9 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
                         connectionProtocol === 'telnet'
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       Telnet
@@ -809,14 +928,18 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                 <div
                   className={`p-2.5 rounded-lg flex items-start gap-2 text-xs font-sans ${
                     sshTestResult.success
-                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-                      : 'bg-rose-50 border border-rose-200 text-rose-800'
+                      ? isLightMode
+                        ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                        : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                      : isLightMode
+                      ? 'bg-rose-50 border border-rose-200 text-rose-800'
+                      : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
                   }`}
                 >
                   {sshTestResult.success ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <CheckCircle2 className={`w-4 h-4 shrink-0 mt-0.5 ${isLightMode ? 'text-emerald-600' : 'text-emerald-400'}`} />
                   ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${isLightMode ? 'text-rose-600' : 'text-rose-400'}`} />
                   )}
                   <div className="flex-1">
                     <div className="font-semibold">{sshTestResult.message}</div>
@@ -831,35 +954,47 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
                 <div className="sm:col-span-8">
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1 flex items-center justify-between">
-                    <span className="font-semibold text-indigo-700">{isEn ? `${connectionProtocol.toUpperCase()} Target Host / IP:` : `آدرس IP اتصال ${connectionProtocol.toUpperCase()}:`}</span>
-                    <span className="text-[10px] text-slate-500">{isEn ? 'Terminal connection target' : 'مقصد اتصال ترمینال مودال‌ها'}</span>
+                  <label className="block text-[11px] font-medium mb-1 flex items-center justify-between">
+                    <span className={`font-semibold ${isLightMode ? 'text-indigo-700' : 'text-indigo-400'}`}>
+                      {isEn ? `${connectionProtocol.toUpperCase()} Target Host / IP:` : `آدرس IP اتصال ${connectionProtocol.toUpperCase()}:`}
+                    </span>
+                    <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn ? 'Terminal connection target' : 'مقصد اتصال ترمینال مودال‌ها'}
+                    </span>
                   </label>
                   <input
                     type="text"
                     value={sshHost}
                     onChange={(e) => setSshHost(e.target.value)}
                     placeholder={ip || '192.168.1.50'}
-                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-indigo-200 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-mono text-left"
+                    className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-mono text-left transition ${
+                      isLightMode
+                        ? 'bg-white border border-indigo-200 text-slate-800 focus:border-indigo-500'
+                        : 'bg-slate-900 border border-indigo-500/50 text-indigo-100 focus:border-indigo-400'
+                    }`}
                     dir="ltr"
                   />
                 </div>
 
                 <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     {isEn ? `${connectionProtocol.toUpperCase()} Port:` : `پورت ${connectionProtocol.toUpperCase()}:`}
                   </label>
                   <input
                     type="number"
                     value={sshPort}
                     onChange={(e) => setSshPort(Number(e.target.value))}
-                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-mono text-left"
+                    className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-mono text-left transition ${
+                      isLightMode
+                        ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500'
+                        : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                    }`}
                     dir="ltr"
                   />
                 </div>
 
                 <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     {isEn ? `${connectionProtocol.toUpperCase()} Username:` : `نام کاربری ${connectionProtocol.toUpperCase()}:`}
                   </label>
                   <input
@@ -867,18 +1002,22 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     value={sshUsername}
                     onChange={(e) => setSshUsername(e.target.value)}
                     placeholder="admin"
-                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-mono text-left"
+                    className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-mono text-left transition ${
+                      isLightMode
+                        ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500'
+                        : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                    }`}
                     dir="ltr"
                   />
                 </div>
 
                 <div className="sm:col-span-4">
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1 flex items-center justify-between">
+                  <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                     <span>{isEn ? `${connectionProtocol.toUpperCase()} Password:` : `رمز عبور ${connectionProtocol.toUpperCase()}:`}</span>
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                      className={`cursor-pointer ${isLightMode ? 'text-slate-400 hover:text-slate-600' : 'text-slate-500 hover:text-slate-300'}`}
                     >
                       {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                     </button>
@@ -888,14 +1027,18 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     value={sshPassword}
                     onChange={(e) => setSshPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-mono text-left"
+                    className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-mono text-left transition ${
+                      isLightMode
+                        ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500'
+                        : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                    }`}
                     dir="ltr"
                   />
                 </div>
 
                 {platform !== 'mikrotik_routeros' && platform !== 'generic_linux' ? (
                   <div className="sm:col-span-4">
-                    <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                    <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                       {isEn ? 'Enable Secret:' : 'رمز Enable (اختیاری):'}
                     </label>
                     <input
@@ -903,13 +1046,21 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       value={enablePassword}
                       onChange={(e) => setEnablePassword(e.target.value)}
                       placeholder="cisco"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-mono text-left"
+                      className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-mono text-left transition ${
+                        isLightMode
+                          ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500'
+                          : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                      }`}
                       dir="ltr"
                     />
                   </div>
                 ) : (
                   <div className="sm:col-span-4 flex items-center">
-                    <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] leading-relaxed">
+                    <div className={`p-2 rounded-lg border text-[11px] leading-relaxed ${
+                      isLightMode
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+                    }`}>
                       {isEn
                         ? 'RouterOS / Linux uses direct user permissions; no enable password required.'
                         : 'سیستم‌عامل انتخابی نیازی به رمز Enable ندارد؛ سطح دسترسی مستقیماً از کاربر اعمال می‌شود.'}
@@ -920,13 +1071,17 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             </div>
 
             {/* Location Fields (Building, Floor, Unit, Rack) with selector / creator */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className={`p-3.5 rounded-xl border space-y-3 transition-colors ${
+              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
+            }`}>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-indigo-700 text-xs font-bold">
+                <div className={`flex items-center gap-1.5 text-xs font-bold ${
+                  isLightMode ? 'text-indigo-700' : 'text-indigo-400'
+                }`}>
                   <MapPin className="w-3.5 h-3.5" />
                   <span>{isEn ? 'Physical Placement Location:' : 'موقعیت استقرار فیزیکی تجهیز (Physical Location):'}</span>
                 </div>
-                <span className="text-[10px] text-slate-500 font-medium">
+                <span className={`text-[10px] font-medium ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                   {isEn ? 'Select defined or create new' : 'انتخاب از موارد تعریف‌شده یا ایجاد جدید'}
                 </span>
               </div>
@@ -957,7 +1112,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                 {/* 1. Building Selector / Input */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-medium text-slate-700">
+                    <label className={`text-[11px] font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                       {isEn ? 'Building:' : 'ساختمان (Building):'}
                     </label>
                     {hierarchyBuildings.length > 0 && (
@@ -971,7 +1126,9 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                             return next;
                           });
                         }}
-                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-0.5 transition"
+                        className={`text-[10px] font-semibold flex items-center gap-0.5 transition cursor-pointer ${
+                          isLightMode ? 'text-indigo-600 hover:text-indigo-800' : 'text-indigo-400 hover:text-indigo-300'
+                        }`}
                       >
                         {isCustomBuilding ? (
                           <>
@@ -1009,14 +1166,18 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                           }
                         }
                       }}
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-medium"
+                      className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-medium transition ${
+                        isLightMode
+                          ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 shadow-xs'
+                          : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                      }`}
                     >
                       {hierarchyBuildings.map((b) => (
                         <option key={b} value={b}>
                           🏢 {b}
                         </option>
                       ))}
-                      <option value="__add_new__" className="text-indigo-600 font-bold">
+                      <option value="__add_new__" className={isLightMode ? 'text-indigo-600 font-bold' : 'text-indigo-400 font-bold'}>
                         {isEn ? '+ Add New Building...' : '+ تعریف ساختمان جدید...'}
                       </option>
                     </select>
@@ -1028,7 +1189,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       value={building}
                       onChange={(e) => setBuilding(e.target.value)}
                       placeholder={isEn ? 'e.g. Central Building' : 'مثلاً: ساختمان مرکزی'}
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500"
+                      className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none transition ${
+                        isLightMode
+                          ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 placeholder-slate-400'
+                          : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500 placeholder-slate-500'
+                      }`}
                       autoFocus={isCustomBuilding}
                     />
                   )}
@@ -1043,7 +1208,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   return (
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] font-medium text-slate-700">
+                        <label className={`text-[11px] font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                           {isEn ? 'Floor:' : 'طبقه (Floor):'}
                         </label>
                         {hasFloors && (
@@ -1060,7 +1225,9 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                                 return next;
                               });
                             }}
-                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-0.5 transition"
+                            className={`text-[10px] font-semibold flex items-center gap-0.5 transition cursor-pointer ${
+                              isLightMode ? 'text-indigo-600 hover:text-indigo-800' : 'text-indigo-400 hover:text-indigo-300'
+                            }`}
                           >
                             {isCustomFloor ? (
                               <>
@@ -1094,7 +1261,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                               if (availRacks.length > 0 && !isCustomRack) setRack(availRacks[0]);
                             }
                           }}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-medium"
+                          className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-medium transition ${
+                            isLightMode
+                              ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 shadow-xs'
+                              : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                          }`}
                         >
                           {bldgFloors.length > 0 && (
                             <optgroup label={isEn ? `Floors in ${building}` : `طبقات ساختمان «${building}»`}>
@@ -1114,7 +1285,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                               ))}
                             </optgroup>
                           )}
-                          <option value="__add_new__" className="text-indigo-600 font-bold">
+                          <option value="__add_new__" className={isLightMode ? 'text-indigo-600 font-bold' : 'text-indigo-400 font-bold'}>
                             {isEn ? '+ Add New Floor...' : '+ تعریف طبقه جدید...'}
                           </option>
                         </select>
@@ -1126,7 +1297,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                           value={floor}
                           onChange={(e) => setFloor(e.target.value)}
                           placeholder={isEn ? 'e.g. Ground Floor, Floor 2' : 'مثلاً: طبقه همکف، طبقه ۱'}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500"
+                          className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none transition ${
+                            isLightMode
+                              ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 placeholder-slate-400'
+                              : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500 placeholder-slate-500'
+                          }`}
                           autoFocus={isCustomFloor}
                         />
                       )}
@@ -1144,7 +1319,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   return (
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] font-medium text-slate-700">
+                        <label className={`text-[11px] font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                           {isEn ? 'Room / Unit / Section:' : 'واحد، اتاق یا سکشن (Unit / Room):'}
                         </label>
                         {hasUnits && (
@@ -1161,7 +1336,9 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                                 return next;
                               });
                             }}
-                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-0.5 transition"
+                            className={`text-[10px] font-semibold flex items-center gap-0.5 transition cursor-pointer ${
+                              isLightMode ? 'text-indigo-600 hover:text-indigo-800' : 'text-indigo-400 hover:text-indigo-300'
+                            }`}
                           >
                             {isCustomUnit ? (
                               <>
@@ -1189,7 +1366,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                               setUnit(e.target.value);
                             }
                           }}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-medium"
+                          className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-medium transition ${
+                            isLightMode
+                              ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 shadow-xs'
+                              : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                          }`}
                         >
                           {floorUnits.length > 0 && (
                             <optgroup label={isEn ? 'Units on this floor' : 'واحدهای این طبقه'}>
@@ -1209,7 +1390,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                               ))}
                             </optgroup>
                           )}
-                          <option value="__add_new__" className="text-indigo-600 font-bold">
+                          <option value="__add_new__" className={isLightMode ? 'text-indigo-600 font-bold' : 'text-indigo-400 font-bold'}>
                             {isEn ? '+ Add New Unit / Room / Section...' : '+ تعریف واحد یا سکشن جدید...'}
                           </option>
                         </select>
@@ -1221,7 +1402,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                           value={unit}
                           onChange={(e) => setUnit(e.target.value)}
                           placeholder={isEn ? 'e.g. Server Room, NOC Section' : 'مثلاً: اتاق سرور، واحد مالی، سکشن NOC'}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500"
+                          className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none transition ${
+                            isLightMode
+                              ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 placeholder-slate-400'
+                              : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500 placeholder-slate-500'
+                          }`}
                           autoFocus={isCustomUnit}
                         />
                       )}
@@ -1239,7 +1424,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   return (
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-[11px] font-medium text-slate-700">
+                        <label className={`text-[11px] font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                           {isEn ? 'Rack / Cabinet:' : 'شماره رک یا کابینت (Rack / Cabinet):'}
                         </label>
                         {hasRacks && (
@@ -1256,7 +1441,9 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                                 return next;
                               });
                             }}
-                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-0.5 transition"
+                            className={`text-[10px] font-semibold flex items-center gap-0.5 transition cursor-pointer ${
+                              isLightMode ? 'text-indigo-600 hover:text-indigo-800' : 'text-indigo-400 hover:text-indigo-300'
+                            }`}
                           >
                             {isCustomRack ? (
                               <>
@@ -1284,7 +1471,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                               setRack(e.target.value);
                             }
                           }}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-medium"
+                          className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none font-medium transition ${
+                            isLightMode
+                              ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 shadow-xs'
+                              : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500'
+                          }`}
                         >
                           <option value="">{isEn ? '-- Unassigned / No Rack --' : '-- بدون رک / رک نامشخص --'}</option>
                           {floorRacks.length > 0 && (
@@ -1305,7 +1496,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                               ))}
                             </optgroup>
                           )}
-                          <option value="__add_new__" className="text-indigo-600 font-bold">
+                          <option value="__add_new__" className={isLightMode ? 'text-indigo-600 font-bold' : 'text-indigo-400 font-bold'}>
                             {isEn ? '+ Add New Rack...' : '+ تعریف رک جدید...'}
                           </option>
                         </select>
@@ -1316,7 +1507,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                           value={rack}
                           onChange={(e) => setRack(e.target.value)}
                           placeholder={isEn ? 'e.g. Rack-A01, Wall Cabinet' : 'مثلاً: Rack-A01، کابینت دیواری'}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-800 text-xs focus:outline-none focus:border-indigo-500"
+                          className={`w-full px-3 py-1.5 rounded-lg text-xs focus:outline-none transition ${
+                            isLightMode
+                              ? 'bg-white border border-slate-300 text-slate-800 focus:border-indigo-500 placeholder-slate-400'
+                              : 'bg-slate-900 border border-slate-700 text-slate-100 focus:border-indigo-500 placeholder-slate-500'
+                          }`}
                           autoFocus={isCustomRack}
                         />
                       )}
@@ -1327,18 +1522,30 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             </div>
 
             {/* Configuration Template Selection */}
-            <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs space-y-2">
+            <div className={`p-3.5 rounded-xl border text-xs space-y-2 transition-colors ${
+              isLightMode
+                ? 'bg-indigo-50/70 border-indigo-100 text-slate-800'
+                : 'bg-indigo-950/20 border-indigo-800/40 text-slate-200'
+            }`}>
               <div className="flex items-center justify-between">
-                <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
-                  <FileCode2 className="w-4 h-4 text-indigo-600" />
+                <label className={`font-bold flex items-center gap-1.5 text-xs ${
+                  isLightMode ? 'text-slate-800' : 'text-slate-200'
+                }`}>
+                  <FileCode2 className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
                   <span>{isEn ? 'Initial Configuration Template:' : 'الگوی کانفیگ اولیه خودکار (Configuration Template):'}</span>
                 </label>
-                <span className="text-[10px] text-indigo-600 font-medium font-mono">Cisco / MikroTik</span>
+                <span className={`text-[10px] font-medium font-mono ${
+                  isLightMode ? 'text-indigo-600' : 'text-indigo-400'
+                }`}>Cisco / MikroTik</span>
               </div>
               <select
                 value={selectedTemplateId}
                 onChange={(e) => setSelectedTemplateId(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-white border border-indigo-200 text-slate-800 text-xs focus:outline-none focus:border-indigo-500 font-sans"
+                className={`w-full px-3 py-2 rounded-lg text-xs focus:outline-none font-sans transition ${
+                  isLightMode
+                    ? 'bg-white border border-indigo-200 text-slate-800 focus:border-indigo-500'
+                    : 'bg-slate-900 border border-indigo-700/60 text-slate-100 focus:border-indigo-500'
+                }`}
               >
                 <option value="">{isEn ? '-- No Template (Register in Inventory Only) --' : '-- بدون تمپلیت (فقط ثبت در دیتابیس) --'}</option>
                 {templates.map((t) => (
@@ -1348,7 +1555,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                 ))}
               </select>
               {selectedTemplateId && (
-                <p className="text-[11px] text-indigo-700 leading-relaxed">
+                <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-indigo-700' : 'text-indigo-300'}`}>
                   {isEn
                     ? 'After registration, the interactive deployment wizard will open to resolve variables and deploy commands to this device.'
                     : 'پس از زدن دکمه «ثبت تجهیز»، صفحه تایید تعاملی آدرس IP و متغیرهای کانفیگ با مشخصات همین تجهیز باز خواهد شد تا دستورات در مد مناسب به تجهیز ارسال گردند.'}
@@ -1357,26 +1564,28 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             </div>
 
             {/* Discovery Protocols CDP & LLDP */}
-            <div className="flex flex-wrap items-center gap-4 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-              <span className="text-slate-600 font-medium text-[11px]">
+            <div className={`flex flex-wrap items-center gap-4 p-3 rounded-xl border text-xs transition-colors ${
+              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
+            }`}>
+              <span className={`font-medium text-[11px] ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                 {isEn ? 'Discovery Protocols:' : 'پروتکل‌های اسکن همسایگی:'}
               </span>
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-700">
+              <label className={`flex items-center gap-1.5 cursor-pointer ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                 <input
                   type="checkbox"
                   checked={cdpEnabled}
                   onChange={(e) => setCdpEnabled(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 bg-white border-slate-300"
+                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 bg-white border-slate-300 cursor-pointer"
                 />
                 <span>CDP (Cisco Discovery Protocol)</span>
               </label>
 
-              <label className="flex items-center gap-1.5 cursor-pointer text-slate-700">
+              <label className={`flex items-center gap-1.5 cursor-pointer ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                 <input
                   type="checkbox"
                   checked={lldpEnabled}
                   onChange={(e) => setLldpEnabled(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 bg-white border-slate-300"
+                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 bg-white border-slate-300 cursor-pointer"
                 />
                 <span>LLDP (IEEE 802.1AB)</span>
               </label>
@@ -1384,25 +1593,32 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           </div>
 
           {/* Form Actions (Pinned Footer) */}
-          <div className="flex items-center justify-end gap-2.5 px-5 py-3 border-t border-slate-200 bg-slate-50 shrink-0">
+          <div className={`flex items-center justify-end gap-2.5 px-5 py-3 border-t shrink-0 transition-colors ${
+            isLightMode ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-slate-950/80'
+          }`}>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-medium transition"
+              className={`px-4 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                isLightMode
+                  ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+              }`}
             >
               {t('action_cancel')}
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition disabled:opacity-50 cursor-pointer"
             >
               {isSubmitting ? t('add_device_btn_saving') : t('add_device_btn_submit')}
             </button>
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

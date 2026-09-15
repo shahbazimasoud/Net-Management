@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.53.3';
+export const APP_VERSION = '1.53.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.53.4',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'بازطراحی و همگام‌سازی کامل قالب تیره (Dark Mode) در مودال ثبت تجهیز جدید شبکه',
+    title_en: 'Full Dark Mode Visual Theme Alignment and Consistency for Register New Network Device Modal',
+    changes: [
+      'اصلاح و همگام‌سازی کامل رنگ‌بندی تمام بخش‌های مودال ثبت تجهیز جدید (AddDeviceModal) در تم تیره شامل سربرگ، کادرهای پس‌زمینه، فیلدهای متنی، کادرهای کشویی (Select)، چک‌باکس‌ها و دکمه‌ها.',
+      'به‌روزرسانی استایل‌های بلوک‌های اطلاعاتی پلتفرم سخت‌افزاری، پارامترهای اتصال ترمینال و احراز هویت، انتخابگر مکان فیزیکی (ساختمان، طبقه، واحد، رک) و الگوهای کانفیگ متناسب با تم تاریک.',
+      'رندر مودال از طریق createPortal روی بدنه سند جهت یکپارچگی عمق Z-Index و مدیریت کامل چرخه حیات تم در تم روشن و تیره.'
+    ],
+    changes_en: [
+      'Comprehensive dark mode palette overhaul for the Register New Network Device modal (AddDeviceModal) including header, card containers, inputs, selects, checkboxes, and buttons.',
+      'Updated styling for hardware platform cards, terminal authentication controls, physical location selectors (Building, Floor, Unit, Rack), and initial config templates for dark mode consistency.',
+      'Attached modal rendering to document.body via createPortal for optimal z-index layering and seamless dynamic theme switching.'
+    ]
+  },
   {
     version: '1.53.3',
     releaseDate: '2026-09-15',
