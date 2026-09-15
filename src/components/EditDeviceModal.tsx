@@ -409,7 +409,235 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
               </div>
             )}
 
-            {/* Top Section: Live Discovered Switch Ports Faceplate & Telemetry */}
+            {/* Platform & OS Driver Selector */}
+            <div className={`p-3.5 rounded-xl border space-y-3 ${
+              isLightMode ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className={`flex items-center gap-2 text-xs font-bold ${
+                  isLightMode ? 'text-indigo-600' : 'text-indigo-400'
+                }`}>
+                  <Cpu className="w-4 h-4" />
+                  <span>{isEn ? 'Hardware Platform & Network OS:' : 'پلتفرم سخت‌افزاری و سیستم‌عامل شبکه:'}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[11px]">
+                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>{isEn ? 'Driver Mode:' : 'حالت اجرا:'}</span>
+                  <button
+                    type="button"
+                    onClick={() => setConnectionMode('ssh')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                      connectionMode === 'ssh'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : isLightMode
+                        ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    SSH Live
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConnectionMode('simulator')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                      connectionMode === 'simulator'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : isLightMode
+                        ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    Simulator
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPlatform('cisco_ios')}
+                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
+                    platform === 'cisco_ios'
+                      ? isLightMode
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="text-xs font-bold font-mono">Cisco IOS</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>Catalyst 2960/3750</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPlatform('cisco_ios_xe')}
+                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
+                    platform === 'cisco_ios_xe'
+                      ? isLightMode
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="text-xs font-bold font-mono">Cisco IOS-XE</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>Cat 9300 / ISR 4k</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPlatform('mikrotik_routeros')}
+                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
+                    platform === 'mikrotik_routeros'
+                      ? isLightMode
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="text-xs font-bold font-mono">MikroTik RouterOS</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>CRS / CCR / RB</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPlatform('generic_linux')}
+                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
+                    platform === 'generic_linux'
+                      ? isLightMode
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
+                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                      : isLightMode
+                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="text-xs font-bold font-mono">Generic Linux</span>
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>Ubuntu / Server</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Device Role & Category (رده و نقش در شبکه) */}
+            <div className={`p-3.5 rounded-xl border space-y-3 ${
+              isLightMode ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
+            }`}>
+              <div>
+                <label className={`block text-xs font-semibold mb-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                  {isEn ? 'Device Role & Category:' : 'رده و نوع تجهیز (Device Type):'}
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setType('switch');
+                      if (role === 'Edge Gateway' || role === 'Wireless AP') setRole('Access Switch');
+                    }}
+                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                      type === 'switch'
+                        ? isLightMode
+                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
+                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <Server className="w-4 h-4" />
+                    <span className="text-xs font-bold">{isEn ? 'Switch' : 'سوئیچ (Switch)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setType('router');
+                      if (role !== 'Edge Gateway') setRole('Edge Gateway');
+                    }}
+                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                      type === 'router'
+                        ? isLightMode
+                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
+                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <RouterIcon className="w-4 h-4" />
+                    <span className="text-xs font-bold">{isEn ? 'Router' : 'روتر (Router)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setType('access_point');
+                      setRole('Wireless AP');
+                      setTotalPorts(2);
+                    }}
+                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                      type === 'access_point'
+                        ? isLightMode
+                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
+                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <Wifi className="w-4 h-4" />
+                    <span className="text-xs font-bold">{isEn ? 'Access Point' : 'اکسس‌پوینت (AP)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setType('firewall');
+                      setRole('Security Appliance');
+                    }}
+                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
+                      type === 'firewall'
+                        ? isLightMode
+                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
+                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span className="text-xs font-bold">{isEn ? 'Firewall' : 'فایروال (Firewall)'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-xs font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                  {isEn ? 'Equipment Network Role:' : 'نقش تجهیز در توپولوژی شبکه (Role):'}
+                </label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className={`w-full px-3 py-2 rounded-xl border text-xs focus:outline-none transition ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
+                      : 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500'
+                  }`}
+                >
+                  <option value="Core Switch">{isEn ? 'Core Switch (Backbone)' : 'Core Switch (سوئیچ اصلی و کر)'}</option>
+                  <option value="Distribution Switch">{isEn ? 'Distribution Switch (Aggregation)' : 'Distribution Switch (سوئیچ توزیع)'}</option>
+                  <option value="Access Switch">{isEn ? 'Access Switch (User Access)' : 'Access Switch (سوئیچ دسترسی کلاینت)'}</option>
+                  <option value="Edge Gateway">{isEn ? 'Edge Gateway / Router' : 'Edge Gateway / Router (مسیریاب مرزی)'}</option>
+                  <option value="Wireless AP">{isEn ? 'Wireless Access Point' : 'Wireless AP (اکسس‌پوینت وای‌فای)'}</option>
+                  <option value="Security Appliance">{isEn ? 'Security Appliance / Firewall' : 'فایروال و امنیت شبکه'}</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Switch Ports Faceplate & Telemetry (show interface status) */}
             <div className={`p-4 rounded-2xl border transition-all ${
               isLightMode
                 ? 'bg-gradient-to-b from-slate-50 to-indigo-50/30 border-indigo-200/80 shadow-xs'
@@ -678,235 +906,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
               )}
             </div>
 
-            {/* Platform & OS Driver Selector */}
-            <div className={`p-3.5 rounded-xl border space-y-3 ${
-              isLightMode ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div className={`flex items-center gap-2 text-xs font-bold ${
-                  isLightMode ? 'text-indigo-600' : 'text-indigo-400'
-                }`}>
-                  <Cpu className="w-4 h-4" />
-                  <span>{isEn ? 'Hardware Platform & Network OS:' : 'پلتفرم سخت‌افزاری و سیستم‌عامل شبکه:'}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[11px]">
-                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>{isEn ? 'Driver Mode:' : 'حالت اجرا:'}</span>
-                  <button
-                    type="button"
-                    onClick={() => setConnectionMode('ssh')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
-                      connectionMode === 'ssh'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : isLightMode
-                        ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                    }`}
-                  >
-                    SSH Live
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConnectionMode('simulator')}
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
-                      connectionMode === 'simulator'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : isLightMode
-                        ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                    }`}
-                  >
-                    Simulator
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPlatform('cisco_ios')}
-                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
-                    platform === 'cisco_ios'
-                      ? isLightMode
-                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
-                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
-                      : isLightMode
-                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
-                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <span className="text-xs font-bold font-mono">Cisco IOS</span>
-                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>Catalyst 2960/3750</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPlatform('cisco_ios_xe')}
-                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
-                    platform === 'cisco_ios_xe'
-                      ? isLightMode
-                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
-                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
-                      : isLightMode
-                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
-                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <span className="text-xs font-bold font-mono">Cisco IOS-XE</span>
-                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>Cat 9300 / ISR 4k</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPlatform('mikrotik_routeros')}
-                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
-                    platform === 'mikrotik_routeros'
-                      ? isLightMode
-                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
-                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
-                      : isLightMode
-                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
-                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <span className="text-xs font-bold font-mono">MikroTik RouterOS</span>
-                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>CRS / CCR / RB</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPlatform('generic_linux')}
-                  className={`p-2 rounded-xl border flex flex-col items-center gap-1 text-center transition cursor-pointer ${
-                    platform === 'generic_linux'
-                      ? isLightMode
-                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
-                        : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
-                      : isLightMode
-                      ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
-                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
-                  }`}
-                >
-                  <span className="text-xs font-bold font-mono">Generic Linux</span>
-                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>Ubuntu / Server</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Device Role & Category (رده و نقش در شبکه) */}
-            <div className={`p-3.5 rounded-xl border space-y-3 ${
-              isLightMode ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-800/40 border-slate-700/60'
-            }`}>
-              <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                  {isEn ? 'Device Role & Category:' : 'رده و نوع تجهیز (Device Type):'}
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setType('switch');
-                      if (role === 'Edge Gateway' || role === 'Wireless AP') setRole('Access Switch');
-                    }}
-                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
-                      type === 'switch'
-                        ? isLightMode
-                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
-                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
-                        : isLightMode
-                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <Server className="w-4 h-4" />
-                    <span className="text-xs font-bold">{isEn ? 'Switch' : 'سوئیچ (Switch)'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setType('router');
-                      if (role !== 'Edge Gateway') setRole('Edge Gateway');
-                    }}
-                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
-                      type === 'router'
-                        ? isLightMode
-                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
-                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
-                        : isLightMode
-                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <RouterIcon className="w-4 h-4" />
-                    <span className="text-xs font-bold">{isEn ? 'Router' : 'روتر (Router)'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setType('access_point');
-                      setRole('Wireless AP');
-                      setTotalPorts(2);
-                    }}
-                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
-                      type === 'access_point'
-                        ? isLightMode
-                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
-                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
-                        : isLightMode
-                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <Wifi className="w-4 h-4" />
-                    <span className="text-xs font-bold">{isEn ? 'Access Point' : 'اکسس‌پوینت (AP)'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setType('firewall');
-                      setRole('Security Appliance');
-                    }}
-                    className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
-                      type === 'firewall'
-                        ? isLightMode
-                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 shadow-xs'
-                          : 'bg-indigo-500/20 border-indigo-500 text-indigo-300 shadow-sm'
-                        : isLightMode
-                        ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <Shield className="w-4 h-4" />
-                    <span className="text-xs font-bold">{isEn ? 'Firewall' : 'فایروال (Firewall)'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className={`block text-xs font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                  {isEn ? 'Equipment Network Role:' : 'نقش تجهیز در توپولوژی شبکه (Role):'}
-                </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className={`w-full px-3 py-2 rounded-xl border text-xs focus:outline-none transition ${
-                    isLightMode
-                      ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                      : 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500'
-                  }`}
-                >
-                  <option value="Core Switch">{isEn ? 'Core Switch (Backbone)' : 'Core Switch (سوئیچ اصلی و کر)'}</option>
-                  <option value="Distribution Switch">{isEn ? 'Distribution Switch (Aggregation)' : 'Distribution Switch (سوئیچ توزیع)'}</option>
-                  <option value="Access Switch">{isEn ? 'Access Switch (User Access)' : 'Access Switch (سوئیچ دسترسی کلاینت)'}</option>
-                  <option value="Edge Gateway">{isEn ? 'Edge Gateway / Router' : 'Edge Gateway / Router (مسیریاب مرزی)'}</option>
-                  <option value="Wireless AP">{isEn ? 'Wireless Access Point' : 'Wireless AP (اکسس‌پوینت وای‌فای)'}</option>
-                  <option value="Security Appliance">{isEn ? 'Security Appliance / Firewall' : 'فایروال و امنیت شبکه'}</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Terminal Protocol & Credentials: Directly below Device Role */}
+            {/* Terminal Protocol & Credentials */}
             <div className={`p-3.5 rounded-xl border space-y-3 transition ${
               isLightMode ? 'bg-slate-50/90 border-slate-200' : 'bg-slate-800/80 border-slate-700'
             }`}>

@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.53.0';
+export const APP_VERSION = '1.53.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.53.1',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'جابجایی بخش تله‌متری و پورت‌های سوئیچ به بالای کادر مشخصات اتصال ترمینال و CLI در مودال ویرایش دستگاه',
+    title_en: 'Relocate Switch Ports & Telemetry Section Directly Above Terminal Protocol & Credentials in Edit Device Modal',
+    changes: [
+      'انتقال بلوک تله‌متری فیس‌پلیت سخت‌افزاری و وضعیت زنده پورت‌ها (Switch Ports & Telemetry - show interface status) به موقعیت دقیق بالای بخش مشخصات اتصال ترمینال و دسترسی CLI.',
+      'بهبود جریان کاربری (UX Workflow) جهت مشاهده بی‌واسطه نتایج تست اتصال SSH و دریافت خودکار پورت‌ها مستقیماً بالای فیلدهای احراز هویت ترمینال.'
+    ],
+    changes_en: [
+      'Relocated the hardware switch faceplate telemetry block (Switch Ports & Telemetry - show interface status) directly above the Terminal Protocol & Credentials section.',
+      'Enhanced user experience and interaction hierarchy, allowing immediate visibility of live SSH discovery results right adjacent to terminal authentication parameters.'
+    ]
+  },
   {
     version: '1.53.0',
     releaseDate: '2026-09-15',
