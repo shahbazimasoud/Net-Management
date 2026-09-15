@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.51.1';
+export const APP_VERSION = '1.52.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.52.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'جداسازی قطعی ویو کارت و فیزیکی در شماتیک، ذخیره‌سازی مجزای مختصات در پایگاه داده و رفع تداخل المان‌های فیزیکی',
+    title_en: 'Strict Card & Physical View Isolation, Dedicated Coordinates Persistence in Database, and Physical Elements Filtering',
+    changes: [
+      'جداسازی کامل منطق نمایش در صفحه شماتیک: در حالت ویو کارت، رک‌ها، دکل‌های مخابراتی و شاسی‌های فیزیکی پنهان شده و کلیه دیوایس‌ها به همراه اتصالات و پورت‌ها به صورت کارت‌های شماتیک نمایش می‌یابند.',
+      'اختصاص رک‌ها، دکل‌ها و شاسی‌های سرور به ویو فیزیکی (Physical View) و سوئیچ خودکار به ویو فیزیکی هنگام کلیک بر روی افزودن رک یا دکل.',
+      'افزودن فیلد physicalPositions به مدل‌های داده و ذخیره‌سازی مستقل و پایدار مختصات دو حالت ویو (کارت و فیزیکی) در PostgreSQL و استور پشتیبان دیتابیس.',
+      'تضمین ثبات موقعیت فیزیکی و شماتیکی دیوایس‌ها در اشتراک‌گذاری نقشه‌ها (Map Visibility & Permissions) برای کاربران عمومی، محدود و مرورگرهای مختلف بدون بازگشت یا جابجایی المان‌ها.',
+      'بهینه‌سازی سیستم درگ و دراپ المان‌ها (گره‌ها، رک‌ها، دکل‌ها و یادداشت‌ها) با ثبت قطعی و دقیق آخرین مختصات ماوس در دیتابیس بدون از دست رفتن موقعیت در رویداد MouseUp.'
+    ],
+    changes_en: [
+      'Strict separation of Card vs. Physical views on the schematic canvas: racks, telecom towers, and physical chassis are exclusively hidden in Card mode where all devices render as schematic cards with ports and links.',
+      'Reserved server racks, telecom towers, and physical chassis to Physical View, with automatic view transition when adding racks or towers.',
+      'Added physicalPositions to the schema and enabled independent, durable persistence for both Card and Physical coordinate sets in PostgreSQL and fallback storage.',
+      'Guaranteed map layout and position retention across shared maps (Map Visibility & Permissions) for public/restricted users and different browsers without coordinate reset.',
+      'Optimized drag-and-drop mechanics for nodes, racks, towers, and sticky notes with precise immediate mouse release coordinate commit to the database on MouseUp.'
+    ]
+  },
   {
     version: '1.51.1',
     releaseDate: '2026-09-14',

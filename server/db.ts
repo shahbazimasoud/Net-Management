@@ -1319,6 +1319,7 @@ export async function getCustomMaps(userFilter?: MapUserFilter): Promise<any[]> 
 
         return {
           devicePositions: rawMapData.devicePositions || (typeof r.nodes === 'string' ? JSON.parse(r.nodes) : r.nodes) || {},
+          physicalPositions: rawMapData.physicalPositions || {},
           deviceIds: rawMapData.deviceIds || [],
           links: rawMapData.links || (typeof r.connections === 'string' ? JSON.parse(r.connections) : r.connections) || [],
           racks: rawMapData.racks || [],

@@ -320,6 +320,7 @@ export interface CustomTopologyMap {
   createdAt: string;
   updatedAt: string;
   devicePositions: Record<string, { x: number; y: number }>;
+  physicalPositions?: Record<string, { x: number; y: number }>;
   deviceIds: string[];
   links: CustomTopologyLink[];
   racks?: CustomTopologyRack[];

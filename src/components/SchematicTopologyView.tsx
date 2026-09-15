@@ -368,7 +368,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
   // Global & Per-Device display modes ('card' | 'physical')
-  const [globalDeviceViewMode, setGlobalDeviceViewMode] = useState<DeviceCanvasDisplayMode>('card');
+  const [globalDeviceViewMode, setGlobalDeviceViewModeState] = useState<DeviceCanvasDisplayMode>(() => {
+    try {
+      const saved = localStorage.getItem('net_topology_device_view_mode');
+      if (saved === 'physical' || saved === 'card') return saved;
+    } catch (e) {}
+    return 'card';
+  });
+
+  const setGlobalDeviceViewMode = useCallback((mode: DeviceCanvasDisplayMode) => {
+    setGlobalDeviceViewModeState(mode);
+    try {
+      localStorage.setItem('net_topology_device_view_mode', mode);
+    } catch (e) {}
+  }, []);
 
   // Neon highlight state for 3-second animated identification when switching from physical to card mode
   interface NeonHighlightState {
@@ -477,6 +490,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
   const [draggingNoteId, setDraggingNoteId] = useState<string | null>(null);
   const dragNoteOffset = useRef({ offsetX: 0, offsetY: 0, startClientX: 0, startClientY: 0, moved: false });
+  const dragNodeLatestCoords = useRef<{ id: string; x: number; y: number } | null>(null);
+  const dragRackLatestCoords = useRef<{ id: string; x: number; y: number } | null>(null);
+  const dragTowerLatestCoords = useRef<{ id: string; x: number; y: number } | null>(null);
+  const dragNoteLatestCoords = useRef<{ id: string; x: number; y: number } | null>(null);
 
   const saveCustomMaps = useCallback((maps: CustomTopologyMap[]) => {
     setCustomMaps(maps);
@@ -496,27 +513,14 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     } catch (e) {}
   }, []);
 
-  const getDeviceDisplayMode = useCallback((deviceId: string): DeviceCanvasDisplayMode => {
-    if (currentCustomMap?.deviceDisplayModes?.[deviceId]) {
-      return currentCustomMap.deviceDisplayModes[deviceId];
-    }
+  const getDeviceDisplayMode = useCallback((_deviceId: string): DeviceCanvasDisplayMode => {
     return globalDeviceViewMode;
-  }, [currentCustomMap, globalDeviceViewMode]);
+  }, [globalDeviceViewMode]);
 
-  const handleToggleDeviceDisplayMode = useCallback((deviceId: string) => {
-    if (!currentCustomMap) return;
-    const current = getDeviceDisplayMode(deviceId);
-    const next: DeviceCanvasDisplayMode = current === 'card' ? 'physical' : 'card';
-    const updatedMap: CustomTopologyMap = {
-      ...currentCustomMap,
-      deviceDisplayModes: {
-        ...(currentCustomMap.deviceDisplayModes || {}),
-        [deviceId]: next,
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
-  }, [currentCustomMap, customMaps, getDeviceDisplayMode, saveCustomMaps]);
+  const handleToggleDeviceDisplayMode = useCallback((_deviceId: string) => {
+    const next: DeviceCanvasDisplayMode = globalDeviceViewMode === 'card' ? 'physical' : 'card';
+    setGlobalDeviceViewMode(next);
+  }, [globalDeviceViewMode, setGlobalDeviceViewMode]);
 
   // Mount an existing canvas node into a rack
   const handleMountCanvasNodeToRack = useCallback((node: TopologyNode, rackId: string, startU: number) => {
@@ -1199,7 +1203,29 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     setActiveMapId(mapId);
     try {
       localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, mapId);
+      const url = new URL(window.location.href);
+      if (mapId === 'default') {
+        url.searchParams.delete('mapId');
+      } else {
+        url.searchParams.set('mapId', mapId);
+      }
+      window.history.replaceState({}, '', url.toString());
     } catch (e) {}
+
+    // Reset temporary positions so coordinates do not bleed between maps
+    setCustomPositions({});
+    if (mapId === 'default') {
+      fetch('/api/settings/node-positions?mapId=default')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.positions && Object.keys(data.positions).length > 0) {
+            setCustomPositions(data.positions);
+            setHasSavedPositions(true);
+          }
+        })
+        .catch(() => {});
+    }
+
     setActiveTool('select');
     setCableWorkflow({ step: 'idle', sourceDevice: null, sourcePort: null, targetDevice: null, targetPort: null });
   };
@@ -1650,6 +1676,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }
     }
 
+    const newPhysicalPos = currentCustomMap.physicalPositions?.[device.id] || {
+      x: 200 + col * 360,
+      y: 180 + row * 260,
+    };
+
     const updatedMap: CustomTopologyMap = {
       ...currentCustomMap,
       deviceIds: isAlreadyOnMap
@@ -1658,6 +1689,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       devicePositions: {
         ...currentCustomMap.devicePositions,
         [device.id]: newPos,
+      },
+      physicalPositions: {
+        ...(currentCustomMap.physicalPositions || {}),
+        [device.id]: newPhysicalPos,
       },
       deviceDisplayModes: {
         ...(currentCustomMap.deviceDisplayModes || {}),
@@ -2580,9 +2615,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       setHasSavedPositions(false);
       try {
         localStorage.removeItem('net_topology_node_positions');
-        fetch(`/api/settings/node-positions?mapId=${encodeURIComponent(activeMapId)}`, {
-          method: 'DELETE',
-        }).catch(() => {});
+        if (activeMapId !== 'default' && currentCustomMap) {
+          const updatedMap: CustomTopologyMap = {
+            ...currentCustomMap,
+            devicePositions: {},
+            physicalPositions: {},
+            updatedAt: new Date().toISOString(),
+          };
+          const newMaps = customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
+          saveCustomMaps(newMaps);
+        } else {
+          fetch(`/api/settings/node-positions?mapId=${encodeURIComponent(activeMapId)}`, {
+            method: 'DELETE',
+          }).catch(() => {});
+        }
       } catch (e) {}
     }
   };
@@ -2602,16 +2648,47 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       // In Custom Map mode
       const mapDeviceIds = currentCustomMap.deviceIds || [];
 
-      mapDeviceIds.forEach((id, index) => {
-        if (currentCustomMap.devicePositions && currentCustomMap.devicePositions[id]) {
-          pos.set(id, currentCustomMap.devicePositions[id]);
-        } else {
-          pos.set(id, {
-            x: 180 + (index % 4) * 280,
-            y: 180 + Math.floor(index / 4) * 220,
-          });
-        }
-      });
+      if (globalDeviceViewMode === 'physical') {
+        mapDeviceIds.forEach((id, index) => {
+          const cleanId = id.replace(/^hw-/, '').replace(/^radio-/, '');
+          const physPos =
+            currentCustomMap.physicalPositions?.[id] ||
+            currentCustomMap.physicalPositions?.[cleanId] ||
+            currentCustomMap.devicePositions?.[id] ||
+            currentCustomMap.devicePositions?.[cleanId];
+
+          if (physPos) {
+            pos.set(id, physPos);
+            pos.set(cleanId, physPos);
+          } else {
+            const fallbackPos = {
+              x: 180 + (index % 4) * 280,
+              y: 180 + Math.floor(index / 4) * 220,
+            };
+            pos.set(id, fallbackPos);
+            pos.set(cleanId, fallbackPos);
+          }
+        });
+      } else {
+        mapDeviceIds.forEach((id, index) => {
+          const cleanId = id.replace(/^hw-/, '').replace(/^radio-/, '');
+          const cardPos =
+            currentCustomMap.devicePositions?.[id] ||
+            currentCustomMap.devicePositions?.[cleanId];
+
+          if (cardPos) {
+            pos.set(id, cardPos);
+            pos.set(cleanId, cardPos);
+          } else {
+            const fallbackPos = {
+              x: 180 + (index % 4) * 280,
+              y: 180 + Math.floor(index / 4) * 220,
+            };
+            pos.set(id, fallbackPos);
+            pos.set(cleanId, fallbackPos);
+          }
+        });
+      }
 
       // Also ensure all devices in customMap.racks have positions!
       if (currentCustomMap.racks) {
@@ -2620,6 +2697,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             const devId = dev.id;
             const cleanId = dev.id.replace(/^hw-/, '');
             const existing =
+              (globalDeviceViewMode === 'physical'
+                ? currentCustomMap.physicalPositions?.[devId] || currentCustomMap.physicalPositions?.[cleanId]
+                : currentCustomMap.devicePositions?.[devId] || currentCustomMap.devicePositions?.[cleanId]) ||
               (currentCustomMap.devicePositions && (currentCustomMap.devicePositions[devId] || currentCustomMap.devicePositions[cleanId])) ||
               pos.get(devId) ||
               pos.get(cleanId);
@@ -2645,6 +2725,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             const devId = dev.id;
             const cleanId = dev.id.replace(/^radio-/, '');
             const existing =
+              (globalDeviceViewMode === 'physical'
+                ? currentCustomMap.physicalPositions?.[devId] || currentCustomMap.physicalPositions?.[cleanId]
+                : currentCustomMap.devicePositions?.[devId] || currentCustomMap.devicePositions?.[cleanId]) ||
               (currentCustomMap.devicePositions && (currentCustomMap.devicePositions[devId] || currentCustomMap.devicePositions[cleanId])) ||
               pos.get(devId) ||
               pos.get(cleanId);
@@ -2669,6 +2752,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         if (!pos.has(n.id)) {
           const cleanId = n.id.replace(/^hw-/, '').replace(/^radio-/, '');
           const existing =
+            (globalDeviceViewMode === 'physical'
+              ? currentCustomMap.physicalPositions?.[n.id] || currentCustomMap.physicalPositions?.[cleanId]
+              : currentCustomMap.devicePositions?.[n.id] || currentCustomMap.devicePositions?.[cleanId]) ||
             (currentCustomMap.devicePositions && (currentCustomMap.devicePositions[n.id] || currentCustomMap.devicePositions[cleanId])) ||
             pos.get(cleanId);
           if (existing) {
@@ -2685,13 +2771,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         }
       });
 
-      // Apply any temporary customPositions while dragging
-      Object.entries(customPositions).forEach(([id, customPos]) => {
-        const posObj = customPos as { x: number; y: number } | undefined;
-        if (posObj && typeof posObj.x === 'number' && typeof posObj.y === 'number') {
-          pos.set(id, posObj);
-        }
-      });
+      // While actively dragging a node, apply its real-time drag position
+      if (draggingNodeId && customPositions[draggingNodeId]) {
+        pos.set(draggingNodeId, customPositions[draggingNodeId]);
+        const cleanId = draggingNodeId.replace(/^hw-/, '').replace(/^radio-/, '');
+        pos.set(cleanId, customPositions[draggingNodeId]);
+      }
 
       return pos;
     }
@@ -2744,7 +2829,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     });
 
     return pos;
-  }, [topology, allAvailableDevices, customPositions, activeMapId, currentCustomMap]);
+  }, [topology, allAvailableDevices, customPositions, activeMapId, currentCustomMap, globalDeviceViewMode, draggingNodeId]);
 
   // Switch to Card View with 3-second random neon border animation for the selected device
   const handleSwitchToCardWithHighlight = useCallback(
@@ -3138,6 +3223,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         const newX = Math.round(worldMouseX - dragNodeOffset.current.offsetX);
         const newY = Math.round(worldMouseY - dragNodeOffset.current.offsetY);
 
+        dragNodeLatestCoords.current = { id: draggingNodeId, x: newX, y: newY };
+
         setCustomPositions((prev) => ({
           ...prev,
           [draggingNodeId]: { x: newX, y: newY },
@@ -3161,6 +3248,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
         const newX = Math.round(worldMouseX - dragRackOffset.current.offsetX);
         const newY = Math.round(worldMouseY - dragRackOffset.current.offsetY);
+
+        dragRackLatestCoords.current = { id: draggingRackId, x: newX, y: newY };
 
         const updatedRacks = (currentCustomMap.racks || []).map((r) =>
           r.id === draggingRackId ? { ...r, x: newX, y: newY } : r
@@ -3191,6 +3280,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         const newX = Math.round(worldMouseX - dragTowerOffset.current.offsetX);
         const newY = Math.round(worldMouseY - dragTowerOffset.current.offsetY);
 
+        dragTowerLatestCoords.current = { id: draggingTowerId, x: newX, y: newY };
+
         const updatedTowers = (currentCustomMap.towers || []).map((t) =>
           t.id === draggingTowerId ? { ...t, x: newX, y: newY } : t
         );
@@ -3220,6 +3311,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         const newX = Math.round(worldMouseX - dragNoteOffset.current.offsetX);
         const newY = Math.round(worldMouseY - dragNoteOffset.current.offsetY);
 
+        dragNoteLatestCoords.current = { id: draggingNoteId, x: newX, y: newY };
+
         const updatedNotes = (currentCustomMap.stickyNotes || []).map((n) =>
           n.id === draggingNoteId ? { ...n, x: newX, y: newY } : n
         );
@@ -3245,23 +3338,62 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     const handleGlobalMouseUp = () => {
       if (draggingNodeId) {
         if (dragNodeOffset.current.moved) {
-          if (activeMapId !== 'default' && currentCustomMap) {
-            const latestPos = customPositions[draggingNodeId] || nodePositions.get(draggingNodeId) || { x: 100, y: 100 };
-            const updatedMap: CustomTopologyMap = {
-              ...currentCustomMap,
-              devicePositions: {
-                ...currentCustomMap.devicePositions,
-                [draggingNodeId]: latestPos,
-              },
-              updatedAt: new Date().toISOString(),
-            };
-            const newMaps = customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
-            saveCustomMaps(newMaps);
-          } else {
-            // Persist the updated positions on drop
+          const finalCoords =
+            dragNodeLatestCoords.current ||
+            (customPositions[draggingNodeId]
+              ? { id: draggingNodeId, x: customPositions[draggingNodeId].x, y: customPositions[draggingNodeId].y }
+              : null);
+          const cleanId = draggingNodeId.replace(/^hw-/, '').replace(/^radio-/, '');
+
+          if (activeMapId !== 'default' && finalCoords) {
+            setCustomMaps((prevMaps) => {
+              const targetMap = prevMaps.find((m) => m.id === activeMapId);
+              if (!targetMap) return prevMaps;
+
+              let updatedMap: CustomTopologyMap;
+              if (globalDeviceViewMode === 'physical') {
+                updatedMap = {
+                  ...targetMap,
+                  physicalPositions: {
+                    ...(targetMap.physicalPositions || {}),
+                    [finalCoords.id]: { x: finalCoords.x, y: finalCoords.y },
+                    [cleanId]: { x: finalCoords.x, y: finalCoords.y },
+                  },
+                  updatedAt: new Date().toISOString(),
+                };
+              } else {
+                updatedMap = {
+                  ...targetMap,
+                  devicePositions: {
+                    ...(targetMap.devicePositions || {}),
+                    [finalCoords.id]: { x: finalCoords.x, y: finalCoords.y },
+                    [cleanId]: { x: finalCoords.x, y: finalCoords.y },
+                  },
+                  updatedAt: new Date().toISOString(),
+                };
+              }
+              const newMaps = prevMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
+              saveCustomMaps(newMaps);
+              return newMaps;
+            });
+
+            // Clean up temporary drag position
+            setCustomPositions((prev) => {
+              const next = { ...prev };
+              delete next[draggingNodeId];
+              delete next[cleanId];
+              return next;
+            });
+          } else if (finalCoords) {
+            // Default map
             setCustomPositions((latest) => {
-              saveNodePositions(latest);
-              return latest;
+              const updated = {
+                ...latest,
+                [finalCoords.id]: { x: finalCoords.x, y: finalCoords.y },
+                [cleanId]: { x: finalCoords.x, y: finalCoords.y },
+              };
+              saveNodePositions(updated);
+              return updated;
             });
           }
         } else {
@@ -3269,27 +3401,82 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           handleNodeClick(draggingNodeId);
         }
         setDraggingNodeId(null);
+        dragNodeLatestCoords.current = null;
       }
 
       if (draggingRackId) {
-        if (dragRackOffset.current.moved && currentCustomMap) {
-          saveCustomMaps(customMaps);
+        if (dragRackOffset.current.moved && activeMapId !== 'default') {
+          const finalRackCoords = dragRackLatestCoords.current;
+          if (finalRackCoords) {
+            setCustomMaps((prevMaps) => {
+              const targetMap = prevMaps.find((m) => m.id === activeMapId);
+              if (!targetMap) return prevMaps;
+              const updatedRacks = (targetMap.racks || []).map((r) =>
+                r.id === finalRackCoords.id ? { ...r, x: finalRackCoords.x, y: finalRackCoords.y } : r
+              );
+              const updatedMap: CustomTopologyMap = {
+                ...targetMap,
+                racks: updatedRacks,
+                updatedAt: new Date().toISOString(),
+              };
+              const newMaps = prevMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
+              saveCustomMaps(newMaps);
+              return newMaps;
+            });
+          }
         }
         setDraggingRackId(null);
+        dragRackLatestCoords.current = null;
       }
 
       if (draggingTowerId) {
-        if (dragTowerOffset.current.moved && currentCustomMap) {
-          saveCustomMaps(customMaps);
+        if (dragTowerOffset.current.moved && activeMapId !== 'default') {
+          const finalTowerCoords = dragTowerLatestCoords.current;
+          if (finalTowerCoords) {
+            setCustomMaps((prevMaps) => {
+              const targetMap = prevMaps.find((m) => m.id === activeMapId);
+              if (!targetMap) return prevMaps;
+              const updatedTowers = (targetMap.towers || []).map((t) =>
+                t.id === finalTowerCoords.id ? { ...t, x: finalTowerCoords.x, y: finalTowerCoords.y } : t
+              );
+              const updatedMap: CustomTopologyMap = {
+                ...targetMap,
+                towers: updatedTowers,
+                updatedAt: new Date().toISOString(),
+              };
+              const newMaps = prevMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
+              saveCustomMaps(newMaps);
+              return newMaps;
+            });
+          }
         }
         setDraggingTowerId(null);
+        dragTowerLatestCoords.current = null;
       }
 
       if (draggingNoteId) {
-        if (dragNoteOffset.current.moved && currentCustomMap) {
-          saveCustomMaps(customMaps);
+        if (dragNoteOffset.current.moved && activeMapId !== 'default') {
+          const finalNoteCoords = dragNoteLatestCoords.current;
+          if (finalNoteCoords) {
+            setCustomMaps((prevMaps) => {
+              const targetMap = prevMaps.find((m) => m.id === activeMapId);
+              if (!targetMap) return prevMaps;
+              const updatedNotes = (targetMap.stickyNotes || []).map((n) =>
+                n.id === finalNoteCoords.id ? { ...n, x: finalNoteCoords.x, y: finalNoteCoords.y } : n
+              );
+              const updatedMap: CustomTopologyMap = {
+                ...targetMap,
+                stickyNotes: updatedNotes,
+                updatedAt: new Date().toISOString(),
+              };
+              const newMaps = prevMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
+              saveCustomMaps(newMaps);
+              return newMaps;
+            });
+          }
         }
         setDraggingNoteId(null);
+        dragNoteLatestCoords.current = null;
       }
 
       if (isPanning) {
@@ -3305,7 +3492,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [draggingNodeId, draggingRackId, draggingTowerId, draggingNoteId, isPanning, panStart, pan, zoom, currentCustomMap, customMaps, saveCustomMaps, saveNodePositions, saveViewport]);
+  }, [draggingNodeId, draggingRackId, draggingTowerId, draggingNoteId, isPanning, panStart, pan, zoom, currentCustomMap, customMaps, saveCustomMaps, saveNodePositions, saveViewport, activeMapId, globalDeviceViewMode]);
 
   // Mouse Wheel Zoom with cursor focal anchoring
   useEffect(() => {
@@ -4214,7 +4401,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 {/* Add Rack Button */}
                 <button
                   type="button"
-                  onClick={() => setIsAddRackOpen(true)}
+                  onClick={() => {
+                    if (globalDeviceViewMode === 'card') {
+                      setGlobalDeviceViewMode('physical');
+                    }
+                    setIsAddRackOpen(true);
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
                   title={isEn ? "Add standard datacenter rack (16U to 44U)" : "افزودن رک استاندارد دیتا سنتر (16U تا 44U)"}
                 >
@@ -4225,7 +4417,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 {/* Add Tower Button */}
                 <button
                   type="button"
-                  onClick={() => setIsAddTowerOpen(true)}
+                  onClick={() => {
+                    if (globalDeviceViewMode === 'card') {
+                      setGlobalDeviceViewMode('physical');
+                    }
+                    setIsAddTowerOpen(true);
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
                   title={isEn ? "Add telecom tower or mast (6m to 60m)" : "افزودن دکل مهاری یا خودایستا مخابراتی (۶ تا ۶۰ متر)"}
                 >
@@ -4237,7 +4434,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 {(currentCustomMap.racks?.length || 0) > 0 && (
                   <button
                     type="button"
-                    onClick={() => handleOpenAddHardware()}
+                    onClick={() => {
+                      if (globalDeviceViewMode === 'card') {
+                        setGlobalDeviceViewMode('physical');
+                      }
+                      handleOpenAddHardware();
+                    }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
                     title={isEn ? "Install HPE/Asus/Cisco server, switch, router, storage, patch panel in rack" : "نصب سرور HPE/Asus/Cisco، سوییچ، روتر، استوریج، پچ پنل و کیبل منیجمنت در رک"}
                   >
@@ -5008,8 +5210,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 </foreignObject>
               )}
 
-              {/* Draw Custom Map Racks on Canvas - visible in both Card and Physical view modes */}
-              {activeMapId !== 'default' && currentCustomMap?.racks && currentCustomMap.racks.map((rack) => {
+              {/* Draw Custom Map Racks on Canvas - ONLY visible in Physical view mode */}
+              {globalDeviceViewMode === 'physical' && activeMapId !== 'default' && currentCustomMap?.racks && currentCustomMap.racks.map((rack) => {
                 const isBeingDragged = draggingRackId === rack.id;
                 const rackHeight = 52 + rack.units * 28 + 40;
                 return (
@@ -5066,8 +5268,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 );
               })}
 
-              {/* Draw Custom Map Towers on Canvas - visible in both Card and Physical view modes */}
-              {activeMapId !== 'default' && currentCustomMap?.towers && currentCustomMap.towers.map((tower) => {
+              {/* Draw Custom Map Towers on Canvas - ONLY visible in Physical view mode */}
+              {globalDeviceViewMode === 'physical' && activeMapId !== 'default' && currentCustomMap?.towers && currentCustomMap.towers.map((tower) => {
                 const isBeingDragged = draggingTowerId === tower.id;
                 const towerHeightPx = 40 + tower.heightMeters * 16 + 50;
                 return (
@@ -5114,13 +5316,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 const racks = currentCustomMap?.racks || [];
                 const towers = currentCustomMap?.towers || [];
                 const nodesToRender = filteredNodes.filter((node) => {
-                  // Devices mounted inside any rack are displayed inside that rack cabinet!
+                  if (globalDeviceViewMode === 'card') {
+                    // In Card Mode, all devices are rendered as cards so their ports, statuses, and links are fully accessible
+                    return true;
+                  }
+                  // In Physical Mode, devices mounted inside any rack or on a tower are displayed in their respective physical enclosure
                   const isMountedInRack = racks.some((r) =>
                     (r.devices || []).some(
                       (d) => d.id === node.id || d.id === `hw-${node.id}` || (d.name && d.name === node.name)
                     )
                   );
-                  // Devices mounted on a telecom tower are displayed on the tower structure!
                   const isMountedOnTower = towers.some((t) =>
                     (t.devices || []).some(
                       (d) => d.id === node.id || d.deviceId === node.id || (d.name && d.name === node.name)
