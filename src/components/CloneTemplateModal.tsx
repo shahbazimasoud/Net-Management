@@ -16,7 +16,7 @@ import {
   Trash2,
   Plus
 } from 'lucide-react';
-import { ConfigTemplate, TemplateVariable, Device } from '../types';
+import { ConfigTemplate, TemplateVariable, TemplateTargetType, Device } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 
 interface CloneTemplateModalProps {
@@ -37,10 +37,10 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
   const { t, isEn } = useLanguage();
   const [name, setName] = useState('');
   const [vendor, setVendor] = useState<'cisco' | 'mikrotik' | 'generic'>('cisco');
-  const [targetType, setTargetType] = useState<'switch' | 'router' | 'all'>('switch');
+  const [targetType, setTargetType] = useState<TemplateTargetType>('switch');
   const [role, setRole] = useState('');
   const [description, setDescription] = useState('');
-  const [defaultCliMode, setDefaultCliMode] = useState<'GLOBAL_CONFIG' | 'PRIVILEGED_EXEC' | 'ROUTEROS'>('GLOBAL_CONFIG');
+  const [defaultCliMode, setDefaultCliMode] = useState<string>('GLOBAL_CONFIG');
   const [commands, setCommands] = useState('');
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
 
@@ -61,7 +61,7 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
           ? `${sourceTemplate.description} ${isEn ? '(Custom Clone)' : '(نسخه سفارشی‌شده)'}`
           : ''
       );
-      setDefaultCliMode(sourceTemplate.default_cli_mode);
+      setDefaultCliMode(sourceTemplate.default_cli_mode || 'GLOBAL_CONFIG');
       setCommands(sourceTemplate.commands);
       // Deep clone variables
       setVariables(
@@ -180,7 +180,7 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto"
+      className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto"
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >

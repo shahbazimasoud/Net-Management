@@ -42,33 +42,52 @@ class MikroTikVPNProvider(VPNProvider):
         vpn_type_norm = (vpn_type or "").strip().lower()
         provider = self.providers.get(vpn_type_norm)
         if not provider:
-            supported_types = sorted(list(set(self.providers.keys())))
-            raise ValueError(f"VPN protocol '{vpn_type}' is not recognized. Supported: {', '.join(supported_types)}.")
+            raise ValueError(
+                f"VPN protocol '{vpn_type}' is not supported. "
+                f"Supported protocols: {', '.join(sorted(self.providers.keys()))}"
+            )
         return provider
 
     def get_capabilities(self, device: Dict[str, Any]) -> Dict[str, Any]:
         firmware = device.get("firmware", "RouterOS v7.14.3 (stable)")
         is_v7 = "7." in firmware or "v7" in firmware.lower()
-        sub_caps = [p.get_capabilities(device) for k, p in self.providers.items() if k != "ipsec"]
 
         return {
             "platform": "mikrotik_routeros",
             "platform_name": "MikroTik RouterOS",
             "firmware": firmware,
             "routeros_major_version": 7 if is_v7 else 6,
-            "phase": 2,
-            "available_vpns": sub_caps,
+            "vpn": {
+                "l2tp_ipsec": True,
+                "gre": True,
+                "wireguard": is_v7,
+                "ipsec_site_to_site": True,
+                "eoip": True,
+                "sstp": True,
+                "openvpn": True,
+                "vxlan": is_v7,
+                "pptp": True
+            },
+            "available_vpns": [
+                self.providers["wireguard"].get_capabilities(device),
+                self.providers["l2tp_ipsec"].get_capabilities(device),
+                self.providers["ipsec_site_to_site"].get_capabilities(device),
+                self.providers["gre"].get_capabilities(device),
+                self.providers["eoip"].get_capabilities(device),
+                self.providers["sstp"].get_capabilities(device),
+                self.providers["openvpn"].get_capabilities(device),
+                self.providers["vxlan"].get_capabilities(device),
+                self.providers["pptp"].get_capabilities(device)
+            ],
             "supported_catalog": [
                 {
                     "type": "wireguard",
                     "name": "WireGuard",
-                    "description": "State-of-the-art cryptographic tunnel. Extreme throughput and minimal latency.",
+                    "description": "State-of-the-art fast cryptographic tunnel for remote access and site-to-site (RouterOS v7+).",
                     "status": "available" if is_v7 else "unsupported",
-                    "unsupported_reason": None if is_v7 else "WireGuard requires MikroTik RouterOS v7 or newer.",
+                    "unsupported_reason": None if is_v7 else "Requires MikroTik RouterOS v7+",
                     "modes": ["remote_access", "site_to_site"],
-                    "phase": 2,
-                    "recommended": True,
-                    "recommended_for": ["High throughput site-to-site", "Mobile road-warriors", "Cross-cloud links"]
+                    "recommended_for": ["High-throughput links", "Modern mobile & desktop clients", "Cloud VPC interconnects"]
                 },
                 {
                     "type": "l2tp_ipsec",
@@ -76,37 +95,15 @@ class MikroTikVPNProvider(VPNProvider):
                     "description": "Remote access for mobile users & branch office site-to-site with IPsec hardware encryption.",
                     "status": "available",
                     "modes": ["remote_access", "site_to_site"],
-                    "phase": 1,
                     "recommended_for": ["Native Windows/macOS/iOS built-in clients", "Branch routers"]
                 },
                 {
-                    "type": "sstp",
-                    "name": "SSTP (SSL/TLS)",
-                    "description": "Secure Socket Tunneling Protocol over HTTPS port 443. Penetrates strict firewalls and NAT.",
-                    "status": "available",
-                    "modes": ["remote_access", "client"],
-                    "phase": 2,
-                    "requires_certificate": True,
-                    "recommended_for": ["Restricted network bypass", "Windows native VPN clients", "TCP 443 traversal"]
-                },
-                {
-                    "type": "openvpn",
-                    "name": "OpenVPN",
-                    "description": "Enterprise SSL/TLS virtual private network supporting user authentication and PKI certificates.",
-                    "status": "available",
-                    "modes": ["remote_access", "client"],
-                    "phase": 2,
-                    "requires_certificate": True,
-                    "recommended_for": ["Multi-platform secure access", "Corporate remote workforce"]
-                },
-                {
                     "type": "ipsec_site_to_site",
-                    "name": "IPsec Site-to-Site",
-                    "description": "Direct policy-based hardware-accelerated IPsec tunnel interconnecting LAN subnets.",
+                    "name": "IPsec Site-to-Site (IKEv2)",
+                    "description": "Standard route-less policy-based IPsec tunnel for direct office-to-office and multi-vendor interconnections.",
                     "status": "available",
                     "modes": ["site_to_site"],
-                    "phase": 2,
-                    "recommended_for": ["Router-to-Router branch connections", "Cisco/Fortinet/PaloAlto interop"]
+                    "recommended_for": ["Headquarters to branch", "MikroTik to Cisco / Fortinet / pfSense", "Banking & compliance"]
                 },
                 {
                     "type": "gre",
@@ -114,38 +111,48 @@ class MikroTikVPNProvider(VPNProvider):
                     "description": "Point-to-point Generic Routing Encapsulation tunnel with routing & optional IPsec secret.",
                     "status": "available",
                     "modes": ["tunnel"],
-                    "phase": 1,
                     "recommended_for": ["Dynamic routing overlays (OSPF/BGP)", "Direct router interconnects"]
                 },
                 {
                     "type": "eoip",
                     "name": "EoIP (Ethernet over IP)",
-                    "description": "MikroTik Layer 2 Ethernet tunneling protocol to transparently bridge subnets across WAN.",
+                    "description": "MikroTik Layer 2 Ethernet bridging over IP to span broadcast domains across WAN.",
                     "status": "available",
                     "modes": ["tunnel"],
-                    "phase": 2,
-                    "recommended_for": ["Layer 2 LAN extension", "VLAN trunk transport over WAN", "Seamless roaming"]
+                    "recommended_for": ["Layer 2 LAN extension across WAN", "Seamless roaming & broadcast pass-through"]
+                },
+                {
+                    "type": "sstp",
+                    "name": "SSTP (SSL/TLS)",
+                    "description": "Secure Socket Tunneling Protocol over HTTPS (TCP 443) to traverse strict firewalls.",
+                    "status": "available",
+                    "modes": ["remote_access", "site_to_site"],
+                    "recommended_for": ["Strict NAT & corporate firewall traversal", "Native Windows client support"]
+                },
+                {
+                    "type": "openvpn",
+                    "name": "OpenVPN (SSL/TLS)",
+                    "description": "Industry standard OpenVPN SSL/TLS Tunnel for secure multi-platform remote access and site links.",
+                    "status": "available",
+                    "modes": ["remote_access", "site_to_site"],
+                    "recommended_for": ["Multi-platform remote users", "Custom CA certificate environments"]
                 },
                 {
                     "type": "vxlan",
                     "name": "VXLAN Overlay",
-                    "description": "Scalable Layer 2/Layer 3 overlay with 24-bit VNI (up to 16 million network segments).",
+                    "description": "Scalable Layer 2 overlay across Layer 3 IP networks with 24-bit VNI (RouterOS v7+).",
                     "status": "available" if is_v7 else "unsupported",
-                    "unsupported_reason": None if is_v7 else "VXLAN requires MikroTik RouterOS v7 or newer.",
+                    "unsupported_reason": None if is_v7 else "Requires MikroTik RouterOS v7+",
                     "modes": ["overlay"],
-                    "phase": 2,
-                    "recommended_for": ["Multi-tenant datacenter interconnects", "Campus network virtualization"]
+                    "recommended_for": ["Data center multi-tenancy", "Cross-datacenter VM migration"]
                 },
                 {
                     "type": "pptp",
                     "name": "PPTP (Legacy)",
-                    "description": "Point-to-Point Tunneling Protocol over TCP 1723. Insecure legacy protocol.",
+                    "description": "Point-to-Point Tunneling Protocol for legacy embedded devices (Low security MS-CHAPv2).",
                     "status": "available",
-                    "is_deprecated": True,
-                    "security_warning": "Warning: PPTP is cryptographically insecure. Use only for legacy compatibility.",
-                    "modes": ["remote_access", "client"],
-                    "phase": 2,
-                    "recommended_for": ["Legacy embedded systems only"]
+                    "modes": ["remote_access", "site_to_site"],
+                    "recommended_for": ["Legacy hardware compatibility"]
                 }
             ]
         }
@@ -203,8 +210,20 @@ class MikroTikVPNProvider(VPNProvider):
     def get_status(self, device: Dict[str, Any], session: Any) -> List[Dict[str, Any]]:
         all_items: List[Dict[str, Any]] = []
         seen_ids = set()
-        for k, p in self.providers.items():
-            if k == "ipsec":
+        active_protocols = (
+            "wireguard",
+            "l2tp_ipsec",
+            "ipsec_site_to_site",
+            "gre",
+            "eoip",
+            "sstp",
+            "openvpn",
+            "vxlan",
+            "pptp"
+        )
+        for k in active_protocols:
+            p = self.providers.get(k)
+            if not p:
                 continue
             try:
                 items = p.get_status(device, session)

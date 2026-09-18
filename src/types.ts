@@ -1,4 +1,4 @@
-export type DeviceType = 'switch' | 'router' | 'access_point';
+export type DeviceType = 'switch' | 'router' | 'access_point' | 'firewall';
 
 export type DevicePlatform =
   | 'cisco_ios_xe'
@@ -99,6 +99,14 @@ export interface Device {
   total_ports: number;
   has_unsaved_changes?: boolean;
   last_modified_time?: string;
+  last_write_memory_time?: string;
+  pending_changes?: Array<{
+    port_id?: string;
+    type?: string;
+    description?: string;
+    command?: string;
+    timestamp?: string;
+  }>;
   ssh_host?: string;
   ssh_port?: number;
   ssh_username?: string;
@@ -108,11 +116,18 @@ export interface Device {
   ssh_connected?: boolean;
   power_supplies?: number;
   power_watts?: number;
+  serial_number?: string;
+  vendor?: string;
+  master_session_id?: string;
+  detected_ports?: SwitchPort[];
 }
 
 export interface SwitchPort {
+  id?: string;
+  port?: string;
   port_id: string;
   name: string;
+  mac_address?: string;
   status: 'up' | 'down';
   admin_status: 'enabled' | 'disabled';
   mode: 'trunk' | 'access';
@@ -244,6 +259,8 @@ export interface MountedTowerDevice {
   azimuthLabel?: string; // e.g. "North 0°", "East 90°", "South 180°", "West 270°"
   frequency?: string; // e.g. "5 GHz", "60 GHz", "24 GHz", "11 GHz"
   ip?: string;
+  deviceId?: string;
+  isOnline?: boolean;
   targetLink?: string; // e.g. "PTP to Central Branch", "Factory CCTV Link"
   powerWatts?: number;
   notes?: string;
@@ -252,6 +269,7 @@ export interface MountedTowerDevice {
 export interface CustomTopologyTower {
   id: string;
   name: string;
+  location?: string;
   type: TowerType;
   heightMeters: number; // e.g. 18, 24, 30, 36, 42, 48, 60
   x: number;
@@ -263,6 +281,7 @@ export interface CustomTopologyTower {
 export interface MountedHardwareDevice {
   id: string;
   name: string;
+  label?: string;
   category: HardwareCategory;
   brand: string;
   model: string;
@@ -319,6 +338,7 @@ export interface CustomTopologyMap {
   description?: string;
   createdAt: string;
   updatedAt: string;
+  nodes?: any[];
   devicePositions: Record<string, { x: number; y: number }>;
   physicalPositions?: Record<string, { x: number; y: number }>;
   deviceIds: string[];
@@ -337,6 +357,7 @@ export interface TopologyNode extends Device {}
 
 export interface TopologyData {
   nodes: TopologyNode[];
+  devices?: Device[];
   links: TopologyLink[];
   buildings: string[];
   floors: string[];
@@ -353,9 +374,13 @@ export interface TopologyData {
 export interface VlanInfo {
   id: number;
   name: string;
-  subnet: string;
-  color: string;
+  subnet?: string;
+  color?: string;
+  status?: string;
+  ports_count?: number;
 }
+
+export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
 
 export type TemplateVendor = 'cisco' | 'mikrotik' | 'generic';
 export type TemplateTargetType = 'switch' | 'router' | 'access_point' | 'all';
@@ -374,6 +399,8 @@ export interface ConfigTemplate {
   name: string;
   vendor: TemplateVendor;
   target_type: TemplateTargetType;
+  target_platform?: string;
+  category?: string;
   role: string;
   description: string;
   default_cli_mode?: string;
@@ -584,6 +611,7 @@ export interface AccessPolicy {
   // 5. Backup & Disaster Recovery Operations
   canExportBackup?: boolean;          // Export full or partial network backup package
   canImportBackup?: boolean;          // Import and restore network backup package
+  permissions?: any;
 }
 
 export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'templates_only';
@@ -741,7 +769,7 @@ export interface DeviceCommandLogEntry {
 }
 
 // -------------------------------------------------------------
-// MikroTik VPN Types (Phase 1: L2TP/IPsec & GRE)
+// MikroTik VPN Types & Protocols Suite
 // -------------------------------------------------------------
 
 export type VPNType =
@@ -918,23 +946,31 @@ export interface VPNAppliedStep {
   status: 'success' | 'failed';
 }
 
+export interface VPNVerificationDetails {
+  vpn_id: string;
+  vpn_type: string;
+  operational_status: 'up' | 'standby' | 'down' | 'disabled';
+  server_enabled?: boolean;
+  active_users_count?: number;
+  active_users?: Array<{ name: string; service: string; caller_id: string }>;
+  ipsec_phase2_up?: boolean;
+  raw_server_output?: string;
+  verified_at?: string;
+  interface_exists?: boolean;
+  is_running?: boolean;
+  is_disabled?: boolean;
+  actual_mtu?: number;
+  assigned_ip?: string;
+  routes_count?: number;
+}
+
 export interface VPNApplyResult {
   success: boolean;
   vpn_id?: string;
   vpn_type?: string;
   mode?: string;
   applied_steps?: VPNAppliedStep[];
-  verification?: {
-    vpn_id: string;
-    vpn_type: string;
-    operational_status: string;
-    server_enabled?: boolean;
-    active_users_count?: number;
-    active_users?: Array<{ name: string; service: string; caller_id: string }>;
-    ipsec_phase2_up?: boolean;
-    raw_server_output?: string;
-    verified_at?: string;
-  };
+  verification?: VPNVerificationDetails;
   message?: string;
   error?: string;
   failed_step?: {
@@ -948,5 +984,202 @@ export interface VPNApplyResult {
     steps: Array<{ action: string; success: boolean; error?: string }>;
   };
 }
+
+export interface MikroTikVPNItem {
+  id: string;
+  name: string;
+  type: 'wireguard' | 'l2tp_ipsec' | 'ipsec_site_to_site' | 'gre' | 'eoip' | 'sstp' | 'openvpn' | 'vxlan' | 'pptp' | string;
+  mode: 'remote_access' | 'site_to_site' | 'tunnel' | 'overlay' | string;
+  status: 'up' | 'standby' | 'down' | 'disabled' | string;
+  interface?: string;
+  profile?: string;
+  ipsec_enabled?: boolean;
+  active_sessions?: number;
+  details?: Record<string, any>;
+}
+
+export interface MikroTikVPNCapabilities {
+  platform: string;
+  platform_name: string;
+  firmware: string;
+  routeros_major_version: number;
+  vpn: {
+    wireguard: boolean;
+    l2tp_ipsec: boolean;
+    ipsec_site_to_site: boolean;
+    gre: boolean;
+    eoip: boolean;
+    sstp: boolean;
+    openvpn: boolean;
+    vxlan: boolean;
+    pptp: boolean;
+    [key: string]: boolean;
+  };
+  available_vpns: Array<{
+    type: string;
+    name: string;
+    description: string;
+    supported_modes: string[];
+    [key: string]: any;
+  }>;
+  supported_catalog: Array<{
+    type: string;
+    name: string;
+    description: string;
+    status: 'available' | 'unsupported' | string;
+    unsupported_reason?: string | null;
+    modes: string[];
+    recommended?: boolean;
+    recommended_for?: string[];
+  }>;
+}
+
+export interface VPNDeleteResult {
+  success: boolean;
+  vpn_id: string;
+  message: string;
+  steps?: Array<{ command: string; success: boolean }>;
+}
+
+// -------------------------------------------------------------
+// Bulk Device Configuration Interfaces
+// -------------------------------------------------------------
+export interface BulkConfigParameter {
+  name: string;
+  labelFa: string;
+  labelEn: string;
+  type: 'string' | 'number' | 'password' | 'select' | 'textarea' | 'boolean';
+  required: boolean;
+  placeholder?: string;
+  default?: any;
+  options?: Array<{ value: string; labelFa: string; labelEn: string }>;
+  info_what_fa?: string;
+  info_what_en?: string;
+  info_why_fa?: string;
+  info_why_en?: string;
+  info_example_fa?: string;
+  info_example_en?: string;
+}
+
+export interface BulkConfigTemplate {
+  id: string;
+  category: string;
+  title: string;
+  title_en: string;
+  description: string;
+  description_en: string;
+  icon: string;
+  parameters: BulkConfigParameter[];
+  is_dangerous: boolean;
+  confirmation_keyword: string;
+  supports_backup: boolean;
+  supports_idempotency: boolean;
+  default_timeout_sec: number;
+  requires_save_step: boolean;
+  info_what_fa?: string;
+  info_what_en?: string;
+  info_why_fa?: string;
+  info_why_en?: string;
+  info_example_fa?: string;
+  info_example_en?: string;
+}
+
+export interface BulkDevicePreviewStep {
+  name: string;
+  command: string;
+  descriptionFa: string;
+  descriptionEn: string;
+  mode: string;
+}
+
+export interface BulkDevicePreviewItem {
+  deviceId: string;
+  deviceName: string;
+  deviceIp: string;
+  platform: string;
+  mapperName: string;
+  preCheckCommand: string | null;
+  backupCommand: string | null;
+  steps: BulkDevicePreviewStep[];
+  saveCommand: string | null;
+  isDangerous: boolean;
+  confirmationKeyword: string;
+  estimatedTimeoutSec: number;
+}
+
+export interface BulkDeviceStepDetail {
+  stepIndex: number;
+  stepName: string;
+  command: string;
+  descriptionFa: string;
+  descriptionEn: string;
+  status: 'running' | 'success' | 'failed';
+  output?: string;
+  errorType?: string;
+  errorMessageFa?: string;
+  errorMessageEn?: string;
+  durationMs?: number;
+}
+
+export interface BulkDeviceExecutionResult {
+  deviceId: string;
+  deviceName: string;
+  deviceIp: string;
+  platform: string;
+  status: 'success' | 'failed' | 'partial' | 'skipped';
+  errorType?: string;
+  errorMessageFa?: string;
+  errorMessageEn?: string;
+  stepsTotal: number;
+  stepsCompleted: number;
+  stepsDetail: BulkDeviceStepDetail[];
+  rawOutput?: string;
+  backupId?: string;
+  backupSuccess?: boolean;
+  backupPreview?: string;
+  durationMs: number;
+  retryCount: number;
+  executedAt: number;
+}
+
+export interface BulkJobLog {
+  timestamp: number;
+  timeStr: string;
+  level: 'info' | 'warning' | 'error' | 'success';
+  messageFa: string;
+  messageEn: string;
+  deviceId?: string;
+}
+
+export interface BulkJobStatus {
+  jobId: string;
+  templateId: string;
+  templateTitle: string;
+  templateTitleEn: string;
+  parameters: Record<string, any>;
+  status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
+  createdAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  totalDevices: number;
+  completedDevices: number;
+  percentage: number;
+  currentDeviceIndex: number;
+  currentDeviceName: string;
+  currentStepName: string;
+  successCount: number;
+  failedCount: number;
+  partialCount: number;
+  skippedCount: number;
+  options: {
+    timeoutSec: number;
+    delayMs: number;
+    autoBackup: boolean;
+    saveAfterApply: boolean;
+  };
+  results: Record<string, BulkDeviceExecutionResult>;
+  logs: BulkJobLog[];
+}
+
 
 

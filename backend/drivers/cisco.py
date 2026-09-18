@@ -68,11 +68,11 @@ class CiscoDriver(NetworkDeviceDriver):
             return f"configure terminal\ninterface {interface}\n no shutdown\nexit\nexit"
         elif action == "mode_trunk":
             return f"configure terminal\ninterface {interface}\n switchport trunk encapsulation dot1q\n switchport mode trunk\nexit\nexit"
-        elif action == "mode_access":
+        elif action in ("mode_access", "set_vlan", "change_vlan", "assign_vlan"):
             vlan = params.get("vlan", 1)
-            return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport access vlan {vlan}\nexit\nexit"
-        elif action == "set_vlan":
-            vlan = params.get("vlan", 1)
+            is_router = params.get("is_router") or params.get("device_type") == "router"
+            if is_router:
+                return f"configure terminal\ninterface {interface}.{vlan}\n encapsulation dot1q {vlan}\nexit\nexit"
             return f"configure terminal\ninterface {interface}\n switchport mode access\n switchport access vlan {vlan}\nexit\nexit"
         elif action == "port_sec_enable":
             max_mac = params.get("max_mac", 1)
@@ -81,8 +81,11 @@ class CiscoDriver(NetworkDeviceDriver):
         elif action == "port_sec_disable":
             return f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
         elif action == "set_description":
-            desc = params.get("description", "")
-            return f"configure terminal\ninterface {interface}\n description {desc}\nexit\nexit"
+            desc = (params.get("description") or "").strip()
+            if desc:
+                return f"configure terminal\ninterface {interface}\n description {desc}\nexit\nexit"
+            else:
+                return f"configure terminal\ninterface {interface}\n no description\nexit\nexit"
         elif action == "save_config":
             return "copy running-config startup-config"
         return f"# Cisco command for {action} on {interface}"
@@ -96,58 +99,155 @@ class CiscoDriver(NetworkDeviceDriver):
 
     def parse_interfaces(self, raw_output: str) -> List[Dict[str, Any]]:
         """
-        Parses standard Cisco 'show interfaces status' output table:
-        Port      Name               Status       Vlan       Duplex  Speed Type
-        Gi1/0/1   Uplink-Core        connected    trunk        a-full a-1000 10/100/1000BaseTX
-        Gi1/0/2                      notconnect   10           auto   auto 10/100/1000BaseTX
+        Parses standard Cisco 'show interfaces status' output table or 'show ip interface brief'.
         """
         ports = []
+        seen_ports = set()
         lines = raw_output.splitlines()
         header_found = False
 
         for line in lines:
             line_str = line.strip()
-            if not line_str:
+            if not line_str or line_str.startswith("--"):
                 continue
-            if "Port" in line_str and "Status" in line_str and "Vlan" in line_str:
+            if re.search(r'\bPort\b', line_str, re.I) and (re.search(r'\bStatus\b', line_str, re.I) or re.search(r'\bVlan\b', line_str, re.I)):
                 header_found = True
                 continue
             if not header_found:
                 continue
 
-            # Tokenize row
-            parts = line_str.split()
-            if len(parts) >= 6:
-                port_id = parts[0]
-                status_raw = parts[2] if len(parts) >= 6 else parts[1]
-                vlan_raw = parts[3] if len(parts) >= 6 else "1"
+            # Match standard Cisco switch interface status row
+            m = re.match(
+                r'^([A-Za-z0-9/._-]+)\s+(?:(.*?)\s+)?(connected|notconnect|disabled|err-disabled|inactive|monitoring|suspended|up|down|administratively\s+down)\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(.*))?$',
+                line_str,
+                re.IGNORECASE
+            )
+            if m:
+                port_id = m.group(1)
+                desc = (m.group(2) or "").strip()
+                status_raw = m.group(3).lower()
+                vlan_raw = m.group(4)
+                duplex_raw = m.group(5)
+                speed_raw = m.group(6)
+                port_type = (m.group(7) or "10/100/1000BaseTX").strip()
 
-                is_connected = "connect" in status_raw and "notconnect" not in status_raw and "disabled" not in status_raw
-                is_disabled = "disabled" in status_raw or "err-disabled" in status_raw
+                canon_id = port_id.lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te")
+                if canon_id in seen_ports:
+                    continue
+                seen_ports.add(canon_id)
+
+                is_connected = status_raw in ("connected", "up")
+                is_disabled = "disabled" in status_raw or "administratively" in status_raw
 
                 mode = "trunk" if "trunk" in vlan_raw.lower() else "access"
                 vlan_num = 1
                 try:
-                    vlan_num = int(vlan_raw) if mode == "access" else 1
+                    vlan_num = int(vlan_raw) if mode == "access" and vlan_raw.isdigit() else 1
                 except ValueError:
                     vlan_num = 1
+
+                speed_clean = speed_raw.replace("a-", "").strip()
+                if speed_clean == "1000":
+                    speed_display = "1 Gbps"
+                elif speed_clean in ("10000", "10G"):
+                    speed_display = "10 Gbps"
+                elif speed_clean == "100":
+                    speed_display = "100 Mbps"
+                elif speed_clean == "10":
+                    speed_display = "10 Mbps"
+                elif speed_clean.lower() == "auto":
+                    speed_display = "Auto (1 Gbps)"
+                else:
+                    speed_display = speed_clean
+
+                duplex_clean = duplex_raw.replace("a-", "").capitalize()
 
                 ports.append({
                     "port_id": port_id,
                     "name": port_id,
+                    "description": desc,
                     "status": "up" if is_connected else "down",
                     "admin_status": "disabled" if is_disabled else "enabled",
                     "mode": mode,
                     "vlan": vlan_num,
                     "allowed_vlans": "1-4094" if mode == "trunk" else str(vlan_num),
+                    "speed": speed_display,
+                    "duplex": duplex_clean,
+                    "connected_device": desc or ("Active Link" if is_connected else "Disconnected"),
+                    "connected_type": "Host" if is_connected else "None",
+                    "type": port_type,
+                    "port_security_enabled": False,
+                })
+
+        if ports:
+            return ports
+
+        # Fallback: Parse 'show ip interface brief' table
+        for line in lines:
+            line_str = line.strip()
+            if not line_str or line_str.startswith("--") or "Interface" in line_str:
+                continue
+            m_ip = re.match(
+                r'^([A-Za-z0-9/._-]+)\s+(\S+)\s+(?:YES|NO)\s+\S+\s+(up|down|administratively down)\s+(up|down)$',
+                line_str,
+                re.IGNORECASE
+            )
+            if m_ip:
+                port_id = m_ip.group(1)
+                ip_addr = m_ip.group(2)
+                status_raw = m_ip.group(3).lower()
+                proto_raw = m_ip.group(4).lower()
+
+                canon_id = port_id.lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te")
+                if canon_id in seen_ports:
+                    continue
+                seen_ports.add(canon_id)
+
+                is_up = status_raw == "up" and proto_raw == "up"
+                is_admin_down = "down" in status_raw and "admin" in status_raw
+
+                ports.append({
+                    "port_id": port_id,
+                    "name": port_id,
+                    "description": f"IP: {ip_addr}" if ip_addr != "unassigned" else "",
+                    "status": "up" if is_up else "down",
+                    "admin_status": "disabled" if is_admin_down else "enabled",
+                    "mode": "routed" if ip_addr != "unassigned" else "access",
+                    "vlan": 1,
+                    "allowed_vlans": "1",
                     "speed": "1 Gbps",
                     "duplex": "Full",
-                    "connected_device": "Active Link" if is_connected else "Disconnected",
-                    "connected_type": "Host" if is_connected else "None",
+                    "connected_device": f"Link ({ip_addr})" if is_up else "Disconnected",
+                    "connected_type": "Router/L3" if is_up else "None",
+                    "type": "10/100/1000BaseTX",
                     "port_security_enabled": False,
                 })
 
         return ports
+
+    def parse_vlans(self, output: str) -> List[Dict[str, Any]]:
+        vlans = []
+        seen = set()
+        for line in output.splitlines():
+            line_str = line.strip()
+            # Matching: 10   Servers_NOC   active   Gi1/0/1, Gi1/0/2
+            m = re.match(r'^(\d+)\s+([A-Za-z0-9_.-]+)\s+(active|act/unsup|suspended)\s*(.*)$', line_str, re.IGNORECASE)
+            if m:
+                vid = int(m.group(1))
+                if vid in seen or vid > 4094:
+                    continue
+                seen.add(vid)
+                name = m.group(2)
+                status = m.group(3).lower()
+                ports_part = m.group(4)
+                ports_list = [p.strip() for p in ports_part.split(",") if p.strip()] if ports_part else []
+                vlans.append({
+                    "id": vid,
+                    "name": name,
+                    "status": "active" if "act" in status else "inactive",
+                    "ports_count": len(ports_list)
+                })
+        return vlans
 
     def get_default_ports(self, count: int = 24) -> List[Dict[str, Any]]:
         generated = []

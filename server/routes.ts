@@ -34,8 +34,17 @@ import {
   saveHierarchy,
   getAuditLogs,
   addAuditLog,
+  getDeviceStickyNotes,
+  saveDeviceStickyNote,
+  deleteDeviceStickyNote,
 } from './db';
 import { testAndDiscoverDeviceViaSsh } from './sshDiscovery';
+import {
+  startDiscoveryJob,
+  getDiscoveryJobStatus,
+  cancelDiscoveryJob,
+  applyDiscoveryResultsToMap,
+} from './cdpLldpDiscovery';
 
 export const apiRouter = Router();
 
@@ -555,6 +564,39 @@ apiRouter.post('/settings/hierarchy', async (req: Request, res: Response) => {
   }
 });
 
+// Device Sticky Notes Endpoints (Schematic Map & Inventory Integration)
+apiRouter.get('/settings/device-notes', async (_req: Request, res: Response) => {
+  try {
+    const notes = await getDeviceStickyNotes();
+    res.json({ notes, total: notes.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/settings/device-notes', async (req: Request, res: Response) => {
+  try {
+    const noteData = req.body?.note || req.body;
+    const previousDeviceId = req.body?.previousDeviceId;
+    const saved = await saveDeviceStickyNote(noteData, previousDeviceId);
+    res.json({ success: true, note: saved });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.delete('/settings/device-notes/:id', async (req: Request, res: Response) => {
+  try {
+    const noteId = req.params.id;
+    const deviceId = (req.query.deviceId as string) || (req.body?.deviceId as string);
+    const keepInMap = req.query.keepInMap === 'true' || req.body?.keepInMap === true;
+    await deleteDeviceStickyNote(noteId, deviceId, keepInMap);
+    res.json({ success: true, id: noteId, deviceId, keepInMap });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // User Groups Endpoints
 apiRouter.get(['/settings/user-groups', '/user-groups'], async (req: Request, res: Response) => {
   try {
@@ -664,16 +706,133 @@ apiRouter.post('/settings/audit-logs', async (req: Request, res: Response) => {
 // Live Device SSH Connection & Switch Telemetry Discovery
 // -------------------------------------------------------------
 apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response) => {
+  const langHeader = (req.headers['accept-language'] as string) || '';
+  const lang = (req.body?.lang || (langHeader.toLowerCase().includes('en') ? 'en' : 'fa')).toLowerCase();
+  const isEn = lang.startsWith('en') || req.body?.is_en === true;
+
   try {
-    const discoveryResult = await testAndDiscoverDeviceViaSsh(req.body);
+    const pythonPort = process.env.BACKEND_PORT || process.env.PYTHON_PORT || '5001';
+    // Forward directly to Python backend SSH discovery engine to establish real Python SSH tunnel & mother connection
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const pythonResp = await fetch(`http://127.0.0.1:${pythonPort}/api/devices/test-connection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept-Language': isEn ? 'en' : 'fa',
+        },
+        body: JSON.stringify({ ...req.body, lang: isEn ? 'en' : 'fa', is_en: isEn }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (pythonResp && pythonResp.ok) {
+        const pythonData = await pythonResp.json();
+        if (pythonData) {
+          if (pythonData.hardware) {
+            pythonData.hostname = pythonData.hostname || pythonData.hardware.hostname;
+            pythonData.model = pythonData.model || pythonData.hardware.model;
+            pythonData.total_ports = pythonData.total_ports || pythonData.hardware.total_ports;
+            pythonData.serial_number = pythonData.serial_number || pythonData.hardware.serial_number;
+            pythonData.mac = pythonData.mac || pythonData.hardware.mac_address;
+            pythonData.firmware = pythonData.firmware || pythonData.hardware.os_version;
+            pythonData.uptime = pythonData.uptime || pythonData.hardware.uptime;
+            pythonData.ip = pythonData.ip || pythonData.hardware.ip;
+          }
+          pythonData.ip = pythonData.ip || req.body?.ssh_host || req.body?.host || req.body?.ip;
+
+          if (pythonData.ports_telemetry && (!pythonData.ports || pythonData.ports.length === 0)) {
+            pythonData.ports = pythonData.ports_telemetry.ports;
+            pythonData.total_ports = pythonData.total_ports || pythonData.ports_telemetry.total_ports;
+          }
+          if (Array.isArray(pythonData.ports)) {
+            const seen = new Set<string>();
+            const deduped: any[] = [];
+            for (let idx = 0; idx < pythonData.ports.length; idx++) {
+              const p = pythonData.ports[idx];
+              if (!p || typeof p !== 'object') continue;
+              const portId = p.port_id || p.port || p.name || `port-${idx + 1}`;
+              const canon = String(portId).toLowerCase().replace(/gigabitethernet/g, 'gi').replace(/fastethernet/g, 'fa').replace(/tengigabitethernet/g, 'te');
+              if (seen.has(canon)) continue;
+              seen.add(canon);
+              deduped.push({
+                ...p,
+                port_id: portId,
+                port: p.port || portId,
+                name: portId,
+                description: p.description || '',
+              });
+            }
+            pythonData.ports = deduped;
+            pythonData.total_ports = deduped.length;
+          }
+          if (isEn && pythonData.message_en) {
+            pythonData.message = pythonData.message_en;
+          } else if (!isEn && pythonData.message_fa) {
+            pythonData.message = pythonData.message_fa;
+          }
+          return res.json(pythonData);
+        }
+      }
+    } catch {
+      // If Python probe fails or times out, fallback to Node SSH discovery
+    }
+
+    const discoveryResult = await testAndDiscoverDeviceViaSsh({
+      ...req.body,
+      lang: isEn ? 'en' : 'fa',
+      is_en: isEn,
+    });
     res.json(discoveryResult);
   } catch (err: any) {
+    const msgEn = `Server error establishing SSH connection: ${err.message}`;
+    const msgFa = `خطای سرور در برقراری اتصال SSH: ${err.message}`;
     res.status(500).json({
       success: false,
       connected: false,
       error: err.message,
-      message: `خطای سرور در برقراری اتصال SSH: ${err.message}`,
+      message_en: msgEn,
+      message_fa: msgFa,
+      message: isEn ? msgEn : msgFa,
     });
   }
 });
+
+// -------------------------------------------------------------
+// CDP & LLDP Topology Discovery Endpoints
+// -------------------------------------------------------------
+apiRouter.post('/topology/discovery/start', async (req: Request, res: Response) => {
+  try {
+    const jobId = await startDiscoveryJob(req.body);
+    res.json({ success: true, jobId });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.get('/topology/discovery/status/:jobId', (req: Request, res: Response) => {
+  const { jobId } = req.params;
+  const status = getDiscoveryJobStatus(jobId);
+  if (!status) {
+    return res.status(404).json({ success: false, error: 'Discovery job not found' });
+  }
+  res.json({ success: true, job: status });
+});
+
+apiRouter.post('/topology/discovery/cancel/:jobId', (req: Request, res: Response) => {
+  const { jobId } = req.params;
+  const cancelled = cancelDiscoveryJob(jobId);
+  res.json({ success: cancelled });
+});
+
+apiRouter.post('/topology/discovery/apply', async (req: Request, res: Response) => {
+  try {
+    const result = await applyDiscoveryResultsToMap(req.body);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 

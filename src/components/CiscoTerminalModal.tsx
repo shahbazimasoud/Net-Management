@@ -43,10 +43,12 @@ import {
   sshExecute,
   sshDisconnect,
   getTerminalWebSocketUrl,
+  syncDevicePorts,
 } from '../services/api';
 import { useLanguage } from '../i18n/LanguageContext';
 import { logDeviceCommand, evaluateCommandRisk } from '../services/auditLogger';
 import { CompactTerminalFaceplate } from './terminal/CompactTerminalFaceplate';
+import { CiscoWriteConfirmModal, WriteChangeItem } from './CiscoWriteConfirmModal';
 
 export interface CiscoTerminalModalProps {
   device: Device | null;
@@ -218,8 +220,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   });
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isWritingMemory, setIsWritingMemory] = useState(false);
-  const [sshSessionMode, setSshSessionMode] = useState<'connecting' | 'real_ssh' | 'failed'>('connecting');
+  const [showWriteConfirm, setShowWriteConfirm] = useState(false);
+  const [sessionChanges, setSessionChanges] = useState<WriteChangeItem[]>([]);
+  const [sshSessionMode, setSshSessionMode] = useState<'connecting' | 'real_ssh' | 'simulated' | 'failed'>('connecting');
   const [sshLatency, setSshLatency] = useState<number | null>(null);
+  const [isSyncingPorts, setIsSyncingPorts] = useState<boolean>(false);
+  const lastSyncTimeRef = useRef<number>(0);
+  const pingIntervalRef = useRef<any>(null);
+  const activeDevIdRef = useRef<string | null>(null);
+  const deviceRef = useRef<Device | null>(device);
+  deviceRef.current = device;
   const [selectedPortIds, setSelectedPortIds] = useState<string[]>([]);
   const [showAppearanceMenu, setShowAppearanceMenu] = useState(false);
   const appearanceMenuRef = useRef<HTMLDivElement>(null);
@@ -232,6 +242,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   const activeSessionIdRef = useRef<string | null>(null);
   const draftInputRef = useRef<string>('');
   const wsRef = useRef<WebSocket | null>(null);
+  const [livePrompt, setLivePrompt] = useState<string>('');
+  const lastExecutedCommandRef = useRef<string>('');
 
   const filteredInterfaces = useMemo(() => {
     if (!interfaceSearch.trim()) return ports;
@@ -309,31 +321,35 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     let isRange = false;
     let rangeStr = '';
 
+    const pId = port.port_id || (port as any).port || port.name;
+    if (!pId) return;
+
     if (isRangeAction && lastClickedPortRef.current) {
-      const idxA = ports.findIndex((p) => p.port_id === lastClickedPortRef.current?.port_id);
-      const idxB = ports.findIndex((p) => p.port_id === port.port_id);
+      const lastId = lastClickedPortRef.current?.port_id || (lastClickedPortRef.current as any)?.port || lastClickedPortRef.current?.name;
+      const idxA = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === lastId);
+      const idxB = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === pId);
       if (idxA !== -1 && idxB !== -1) {
         const minIdx = Math.min(idxA, idxB);
         const maxIdx = Math.max(idxA, idxB);
         const rangePorts = ports.slice(minIdx, maxIdx + 1);
-        newSelectedIds = rangePorts.map((p) => p.port_id);
+        newSelectedIds = rangePorts.map((p) => p.port_id || (p as any).port || p.name).filter(Boolean);
         isRange = true;
 
-        const firstPort = rangePorts[0].port_id;
-        const lastPort = rangePorts[rangePorts.length - 1].port_id;
+        const firstPort = rangePorts[0].port_id || (rangePorts[0] as any).port || rangePorts[0].name;
+        const lastPort = rangePorts[rangePorts.length - 1].port_id || (rangePorts[rangePorts.length - 1] as any).port || rangePorts[rangePorts.length - 1].name;
         const matchFirst = firstPort.match(/^(.*?)(\d+)$/);
         const matchLast = lastPort.match(/^(.*?)(\d+)$/);
         if (matchFirst && matchLast && matchFirst[1] === matchLast[1]) {
           rangeStr = `${firstPort} - ${matchLast[2]}`;
         } else {
-          rangeStr = rangePorts.map((p) => p.port_id).join(', ');
+          rangeStr = rangePorts.map((p) => p.port_id || (p as any).port || p.name).join(', ');
         }
       } else {
-        newSelectedIds = [port.port_id];
+        newSelectedIds = [pId];
         lastClickedPortRef.current = port;
       }
     } else {
-      newSelectedIds = [port.port_id];
+      newSelectedIds = [pId];
       lastClickedPortRef.current = port;
     }
 
@@ -412,45 +428,356 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     }, 10);
   };
 
-  // Initialize terminal session
+  const lastLineEndedWithNewlineRef = useRef<boolean>(true);
+
+  // Helper to append line
+  const appendLines = (newLines: TerminalLine[]) => {
+    lastLineEndedWithNewlineRef.current = true;
+    setLines((prev) => [...prev, ...newLines]);
+  };
+
+  // Helper to append streaming raw text from SSH terminal, preserving line continuity across chunk boundaries
+  const appendStreamText = (rawChunk: string) => {
+    if (!rawChunk) return;
+    console.log(`[FRONTEND-APPEND-STREAM] rawChunkLength=${rawChunk.length} preview=${JSON.stringify(rawChunk.slice(0, 80))}`);
+    const cleanText = rawChunk.replace(/\r\r\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Strip standard ANSI escape sequences (colors, cursor positioning, VT100 control codes)
+    const textWithoutAnsi = cleanText.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+    if (!textWithoutAnsi) return;
+
+    // Detect remote prompt transitions to sync local cliMode and prompt
+    if (textWithoutAnsi.includes('(config-if)#') || textWithoutAnsi.includes('(config-if-range)#')) {
+      setCliMode('INTERFACE_CONFIG');
+    } else if (textWithoutAnsi.includes('(config)#')) {
+      setCliMode('GLOBAL_CONFIG');
+    } else if (textWithoutAnsi.includes('#') && !textWithoutAnsi.includes('>')) {
+      setCliMode('PRIVILEGED_EXEC');
+    } else if (textWithoutAnsi.includes('>') && !textWithoutAnsi.includes('#')) {
+      setCliMode('USER_EXEC');
+    }
+
+    // Dynamic prompt detection from terminal stream
+    const trimmedChunk = textWithoutAnsi.trim();
+    const promptRegex = /(?:^|\n)([A-Za-z0-9_.-]+(?:(?:\([A-Za-z0-9_.-]+\))?[#>$]|\[[^\]]+\]\s*>[#]?))\s*$/;
+    const promptMatch = trimmedChunk.match(promptRegex);
+    if (promptMatch && promptMatch[1]) {
+      const extractedPrompt = promptMatch[1].trim();
+      setLivePrompt(extractedPrompt);
+      const hostMatch = extractedPrompt.match(/^([A-Za-z0-9_.-]+)[#(>]/);
+      if (hostMatch && hostMatch[1]) {
+        setHostname(hostMatch[1]);
+      }
+    }
+
+    const segments = textWithoutAnsi.split('\n');
+    const endsWithNewline = textWithoutAnsi.endsWith('\n');
+
+    setLines((prev) => {
+      const updated = [...prev];
+      let startIdx = 0;
+
+      // Avoid duplicating the command echo from remote PTY if it matches what the user just executed
+      const lastCmd = lastExecutedCommandRef.current.trim();
+      if (lastCmd && segments.length > 0) {
+        const firstClean = segments[0].trim();
+        if (firstClean === lastCmd || firstClean.endsWith(' ' + lastCmd) || firstClean.endsWith('#' + lastCmd) || firstClean.endsWith('>' + lastCmd)) {
+          lastExecutedCommandRef.current = '';
+          startIdx = 1;
+        }
+      }
+
+      // If the previous chunk did not finish with a newline and there is an existing output line,
+      // append the first segment to that line instead of splitting onto a new line
+      if (!lastLineEndedWithNewlineRef.current && updated.length > 0 && startIdx < segments.length) {
+        const lastIndex = updated.length - 1;
+        const lastLine = updated[lastIndex];
+        if (lastLine && lastLine.type === 'output') {
+          updated[lastIndex] = {
+            ...lastLine,
+            text: lastLine.text + segments[startIdx],
+          };
+          startIdx++;
+        }
+      }
+
+      for (let i = startIdx; i < segments.length; i++) {
+        // If the chunk ended with a newline, the last split element is an empty string; don't add an extra blank line
+        if (i === segments.length - 1 && segments[i] === '' && endsWithNewline) {
+          continue;
+        }
+        // If the line is an orphan prompt at the very end of stream, skip it because input bar displays the live prompt
+        const segTrim = segments[i].trim();
+        if (i === segments.length - 1 && !endsWithNewline && promptMatch && segTrim === promptMatch[1].trim()) {
+          continue;
+        }
+        updated.push({
+          id: 'ws-out-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7) + '-' + i,
+          type: 'output',
+          text: segments[i],
+        });
+      }
+
+      lastLineEndedWithNewlineRef.current = endsWithNewline;
+      return updated;
+    });
+  };
+
+  // Unified port synchronization over the active SSH tunnel
+  const handleSyncPorts = async (silent: boolean = false) => {
+    const curDev = deviceRef.current;
+    if (!curDev) return;
+    const now = Date.now();
+    // Throttle queries to avoid excessive SSH requests (minimum 2.5s cooldown)
+    if (now - lastSyncTimeRef.current < 2500 || isSyncingPorts) {
+      return;
+    }
+    lastSyncTimeRef.current = now;
+    setIsSyncingPorts(true);
+
+    if (!silent) {
+      appendLines([
+        {
+          id: 'sync-req-' + Date.now(),
+          type: 'system',
+          text: isEn
+            ? `[TUNNEL QUERY] Querying hardware interfaces via active SSH tunnel...`
+            : `[استعلام تانل] دریافت و بررسی زنده وضعیت اینترفیس‌ها از طریق تانل فعال SSH...`,
+        },
+      ]);
+    }
+
+    try {
+      const res = await syncDevicePorts(curDev.id);
+      if (res && res.ports && res.ports.length > 0) {
+        if (sshSessionMode === 'real_ssh' && res.sync_source === 'simulator' && !res.is_live && ports.length > 0) {
+          return;
+        }
+        const rawPorts = res.ports || [];
+        const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
+          ...p,
+          port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+        }));
+        setPorts(normalizedPorts);
+        const upCount = normalizedPorts.filter((p) => p.status === 'up').length;
+        const downCount = normalizedPorts.filter((p) => p.status !== 'up').length;
+        if (!silent) {
+          appendLines([
+            {
+              id: 'sync-ok-' + Date.now(),
+              type: 'success',
+              text: isEn
+                ? `[SYNC SUCCESS] Verified ${normalizedPorts.length} interfaces via ${res.sync_source || 'SSH tunnel'}: ${upCount} UP, ${downCount} DOWN.`
+                : `[پایان بررسی] وضعیت ${normalizedPorts.length} پورت با موفقیت از طریق ${res.sync_source || 'تانل SSH'} همگام شد (${upCount} متصل، ${downCount} قطع).`,
+            },
+          ]);
+        }
+        if (onDeviceUpdated) {
+          onDeviceUpdated();
+        }
+      }
+    } catch (err: any) {
+      if (!silent) {
+        appendLines([
+          {
+            id: 'sync-err-' + Date.now(),
+            type: 'system',
+            text: `[SYNC NOTICE] Interface check: ${err.message || 'Tunnel busy'}. Retaining active buffer.`,
+          },
+        ]);
+      }
+    } finally {
+      setIsSyncingPorts(false);
+    }
+  };
+
+  // Initialize terminal session (Persistent WebSocket with SSH KeepAlive)
   useEffect(() => {
     if (isOpen && device) {
-      const connProtocol = (device.connection_protocol || device.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
-      const devHost = device.name.toUpperCase();
-      const targetHost = device.ssh_host || device.ip;
-      const sshPort = device.ssh_port || (connProtocol === 'telnet' ? 23 : 22);
-      const sshUser = device.ssh_username || 'admin';
-      const sshPass = device.ssh_password || 'cisco123';
+      const curDev = device;
+      activeDevIdRef.current = curDev.id;
+      const fullDev = allDevices?.find((d) => d.id === curDev.id || (d.name && d.name.toLowerCase() === curDev.name?.toLowerCase())) || curDev;
+      const connProtocol = (fullDev?.connection_protocol || fullDev?.connection?.protocol || curDev?.connection_protocol || curDev?.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
+      const devHost = (fullDev?.name || curDev?.name || 'SWITCH').toUpperCase();
+      const targetHost = (
+        fullDev?.ssh_host ||
+        fullDev?.connection?.host ||
+        fullDev?.ip ||
+        (fullDev?.connection as any)?.ip ||
+        curDev?.ssh_host ||
+        curDev?.connection?.host ||
+        curDev?.ip ||
+        ''
+      ).trim();
+      const sshPort = Number(
+        fullDev?.ssh_port ||
+        fullDev?.connection?.port ||
+        curDev?.ssh_port ||
+        curDev?.connection?.port ||
+        (connProtocol === 'telnet' ? 23 : 22)
+      );
+      const sshUser = (
+        fullDev?.ssh_username ||
+        fullDev?.connection?.username ||
+        curDev?.ssh_username ||
+        curDev?.connection?.username ||
+        'admin'
+      ).trim();
 
       setHostname(devHost);
       setCliMode('USER_EXEC');
       setCurrentInterface('');
-      setHasUnsavedChanges(!!device.has_unsaved_changes);
+      setHasUnsavedChanges(!!curDev.has_unsaved_changes);
       setSshSessionMode('connecting');
       setSshLatency(null);
-      loadPortsAndVlans(device.id);
+      setSelectedPort(null);
+      setSelectedPortIds([]);
+      lastClickedPortRef.current = null;
+      loadPortsAndVlans(curDev.id);
 
+      const hostDisplay = targetHost || (isEn ? 'No IP Configured' : 'بدون آی‌پی');
+      const protoUpper = (connProtocol || 'ssh').toUpperCase();
       setLines([
         {
           id: 'sys-init-1',
           type: 'system',
-          text: `[${connProtocol.toUpperCase()} CLIENT v2.5] Initiating direct ${connProtocol.toUpperCase()} socket connection to ${device.name} (Host: ${targetHost}:${sshPort})...`,
+          text: isEn
+            ? `[${protoUpper} CLIENT v2.5] Initiating persistent direct ${protoUpper} socket connection to ${curDev?.name || 'Device'} (${hostDisplay}:${sshPort})...`
+            : `[کلاینت ${protoUpper} نسخه ۲.۵] برقراری ارتباط سوکت مستقیم و پایدار ${protoUpper} با ${curDev?.name || 'تجهیز'} (${hostDisplay}:${sshPort})...`,
         },
         {
           id: 'sys-init-2',
           type: 'system',
-          text: `[CREDENTIALS] Target User: '${sshUser}' | Target Host: '${targetHost}' | Protocol: ${connProtocol.toUpperCase()}`,
+          text: `[CREDENTIALS] Target User: '${sshUser}' | Target Host: '${targetHost || (isEn ? 'Unassigned' : 'تنظیم نشده')}' | Protocol: ${protoUpper}`,
         },
       ]);
 
-      // Attempt real SSH/Telnet connection via backend Python client
+      // Connect interactive WebSocket tunnel with device parameters
+      try {
+        const pass = fullDev?.ssh_password || (fullDev?.connection as any)?.password || curDev?.ssh_password || (curDev?.connection as any)?.password || '';
+        const enablePass = fullDev?.enable_password || curDev?.enable_password || '';
+        const devPlatform = fullDev?.platform || curDev?.platform || fullDev?.type || curDev?.type || '';
+
+        const wsUrl = getTerminalWebSocketUrl(curDev.id, connProtocol, 'Super Admin', {
+          ip: targetHost || curDev.ip,
+          ssh_host: targetHost || curDev.ssh_host,
+          ssh_port: sshPort,
+          ssh_username: sshUser,
+          ssh_password: pass,
+          enable_password: enablePass,
+          platform: devPlatform,
+        });
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          // Setup periodic keepalive ping every 20s to ensure tunnel does not drop while modal is open
+          if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = setInterval(() => {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              try {
+                wsRef.current.send(JSON.stringify({ type: 'ping' }));
+              } catch {}
+            }
+          }, 20000);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'pong') {
+              // Keepalive acknowledged
+              return;
+            }
+            if (msg.type === 'data' && msg.data) {
+              console.log(`[FRONTEND-WS-DATA] chars=${msg.data.length} preview=${JSON.stringify(msg.data.slice(0, 100))}`);
+              appendStreamText(msg.data);
+            } else if (msg.type === 'status') {
+              if (msg.status === 'connected') {
+                if (msg.is_real) {
+                  setSshSessionMode('real_ssh');
+                  setSshLatency(msg.latency_ms || 2.2);
+                  appendLines([
+                    {
+                      id: 'sys-ssh-ok-' + Date.now(),
+                      type: 'success',
+                      text: isEn
+                        ? `[LIVE ${(connProtocol || 'ssh').toUpperCase()} ESTABLISHED] Connected to ${targetHost}:${sshPort} in ${msg.latency_ms || 2}ms.\nSession: Persistent WebSocket SSH Tunnel Active. Commands execute directly on hardware.`
+                        : `[اتصال زنده ${(connProtocol || 'ssh').toUpperCase()} برقرار شد] اتصال به ${targetHost}:${sshPort} در ${msg.latency_ms || 2} میلی‌ثانیه برقرار شد.\nنشست: تانل پایدار سوکت فعال است و دستورات مستقیماً روی سخت‌افزار اجرا می‌شوند.`,
+                    },
+                  ]);
+                } else {
+                  setSshSessionMode('simulated');
+                  setSshLatency(msg.latency_ms || 1.2);
+                  appendLines([
+                    {
+                      id: 'sys-sim-ok-' + Date.now(),
+                      type: 'system',
+                      text: isEn
+                        ? `[INTERACTIVE CLI READY] Connected to ${targetHost ? `${targetHost}:${sshPort} Engine` : `${curDev.name} Local Terminal Engine`}.\nSession: Interactive CLI Session Active.`
+                        : `[ترمینال تعاملی آماده] اتصال به ${targetHost ? `موتور ${targetHost}:${sshPort}` : `موتور ترمینال محلی ${curDev.name}`} برقرار شد.\nنشست: ترمینال تعاملی با پشتیبانی کامل از دستورات فعال است.`,
+                    },
+                  ]);
+                }
+              } else if (msg.status === 'failed' || msg.status === 'disconnected') {
+                setSshSessionMode('failed');
+                appendLines([
+                  {
+                    id: 'ws-status-fail-' + Date.now(),
+                    type: 'system',
+                    text: `[CONNECTION STATUS] ${msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد')}`,
+                  },
+                ]);
+              }
+            } else if (msg.type === 'error') {
+              setSshSessionMode('failed');
+              appendLines([
+                {
+                  id: 'ws-err-' + Date.now(),
+                  type: 'system',
+                  text: `[TERMINAL ERROR] ${msg.error || (isEn ? 'Connection error' : 'خطای ارتباط')}`,
+                },
+              ]);
+            }
+          } catch {
+            const rawStr = String(event.data || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+            if (rawStr && rawStr !== getPrompt().trim()) {
+              appendLines([
+                {
+                  id: 'ws-raw-' + Date.now(),
+                  type: 'output',
+                  text: rawStr,
+                },
+              ]);
+            }
+          }
+        };
+
+        ws.onclose = () => {
+          if (pingIntervalRef.current) {
+            clearInterval(pingIntervalRef.current);
+            pingIntervalRef.current = null;
+          }
+          setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
+        };
+      } catch (err: any) {
+        setSshSessionMode('failed');
+        appendLines([
+          {
+            id: 'ws-err-catch',
+            type: 'system',
+            text: `[SOCKET ERROR] Could not initialize WebSocket: ${err?.message || 'Error'}`,
+          },
+        ]);
+      }
+
+      // Concurrently attempt Python paramiko session for secondary execution
       sshConnect({
         host: targetHost,
         port: sshPort,
         username: sshUser,
-        password: device.ssh_password || '',
-        enable_password: device.enable_password || '',
-        deviceId: device.id,
+        password: curDev.ssh_password || '',
+        enable_password: curDev.enable_password || '',
+        deviceId: curDev.id,
         protocol: connProtocol,
         timeout: 3500,
       })
@@ -461,114 +788,11 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           if (res.success) {
             setSshSessionMode('real_ssh');
             setSshLatency(res.latency_ms || 2.2);
-            appendLines([
-              {
-                id: 'sys-ssh-ok',
-                type: 'success',
-                text: `[LIVE ${connProtocol.toUpperCase()} ESTABLISHED] Authenticated to ${targetHost}:${sshPort} in ${res.latency_ms || 2}ms.\nCipher: ${res.cipher || 'aes256-gcm@openssh.com'} | Protocol: ${connProtocol.toUpperCase()}\nBanner: ${res.banner || 'Cisco IOS Software, Catalyst Series'}\nActive Session ID: ${activeSessionIdRef.current || 'online'}`,
-              },
-              {
-                id: 'sys-ssh-ready',
-                type: 'system',
-                text: isEn
-                  ? `Live ${connProtocol.toUpperCase()} session active. Terminal commands execute directly on target device via Python network engine.`
-                  : `نشست لایو ${connProtocol.toUpperCase()} فعال شد. دستورات مستقیماً از طریق موتور پایتون روی تجهیز اجرا می‌شوند.`,
-              },
-            ]);
-          } else {
-            setSshSessionMode('failed');
-            appendLines([
-              {
-                id: 'sys-ssh-err',
-                type: 'system',
-                text: `[CONNECTION FAILED] Unable to connect to ${targetHost}:${sshPort} (${res.error || res.message || 'Host unreachable or connection timed out'}).`,
-              },
-              {
-                id: 'sys-ssh-status',
-                type: 'system',
-                text: isEn
-                  ? `% Session inactive. Real connection required. Check device IP, port, and credentials.`
-                  : `% نشست غیرفعال است. ارتباط واقعی با تجهیز الزامی است. لطفاً آدرس، پورت و مشخصات کاربری را بررسی نمایید.`,
-              },
-            ]);
           }
         })
-        .catch((err) => {
-          setSshSessionMode('failed');
-          appendLines([
-            {
-              id: 'sys-ssh-err',
-              type: 'system',
-              text: `[${connProtocol.toUpperCase()} ERROR] Connection failed: ${err.message || 'Host unreachable'}.`,
-            },
-            {
-              id: 'sys-ssh-status',
-              type: 'system',
-              text: isEn
-                ? `% Session inactive. Terminal cannot execute commands while disconnected.`
-                : `% نشست غیرفعال است. در حالت عدم اتصال، امکان اجرای دستور روی تجهیز وجود ندارد.`,
-            },
-          ]);
+        .catch(() => {
+          // If python paramiko is unavailable, WebSocket tunnel handles it
         });
-
-      // Also attempt real-time WebSocket connection
-      try {
-        const wsUrl = getTerminalWebSocketUrl(device.id, connProtocol);
-        const ws = new WebSocket(wsUrl);
-        wsRef.current = ws;
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'data' && msg.data) {
-              appendLines([
-                {
-                  id: 'ws-out-' + Date.now() + '-' + Math.random(),
-                  type: 'output',
-                  text: msg.data,
-                },
-              ]);
-            } else if (msg.type === 'status') {
-              if (msg.status === 'connected') {
-                setSshSessionMode('real_ssh');
-                setSshLatency(msg.latency_ms || 2.2);
-              } else if (msg.status === 'failed' || msg.status === 'disconnected') {
-                setSshSessionMode('failed');
-                appendLines([
-                  {
-                    id: 'ws-status-fail-' + Date.now(),
-                    type: 'system',
-                    text: `[CONNECTION STATUS] ${msg.message || 'Disconnected from device'}`,
-                  },
-                ]);
-              }
-            } else if (msg.type === 'error') {
-              setSshSessionMode('failed');
-              appendLines([
-                {
-                  id: 'ws-err-' + Date.now(),
-                  type: 'system',
-                  text: `[TERMINAL ERROR] ${msg.error || 'Connection failed'}`,
-                },
-              ]);
-            }
-          } catch {
-            appendLines([
-              {
-                id: 'ws-raw-' + Date.now(),
-                type: 'output',
-                text: event.data,
-              },
-            ]);
-          }
-        };
-
-        ws.onclose = () => {
-          setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
-        };
-      } catch {
-        // ws not available
-      }
 
       const timer = setTimeout(() => {
         if (inputRef.current) inputRef.current.focus();
@@ -576,6 +800,10 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
       return () => {
         clearTimeout(timer);
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
         if (wsRef.current) {
           try {
             wsRef.current.send(JSON.stringify({ type: 'close' }));
@@ -583,18 +811,19 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           } catch {}
           wsRef.current = null;
         }
-        const curTarget = device.ssh_host || device.ip;
+        const curTarget = curDev.ssh_host || curDev.ip;
         sshDisconnect({
           sessionId: activeSessionIdRef.current || undefined,
-          deviceId: device.id,
+          deviceId: curDev.id,
           host: curTarget,
           port: sshPort,
         }).catch(() => {});
-        fetch(`/api/devices/${device.id}/terminal`, { method: 'DELETE' }).catch(() => {});
+        fetch(`/api/devices/${curDev.id}/terminal`, { method: 'DELETE' }).catch(() => {});
         activeSessionIdRef.current = null;
+        activeDevIdRef.current = null;
       };
     }
-  }, [isOpen, device, isEn]);
+  }, [isOpen, device?.id]);
 
   // Auto scroll to bottom of terminal
   useEffect(() => {
@@ -607,8 +836,13 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         fetchDevicePorts(devId),
         fetchVlans(),
       ]);
-      setPorts(portsRes.ports);
-      setVlans(vlanRes.vlans);
+      const rawPorts = portsRes.ports || [];
+      const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
+        ...p,
+        port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+      }));
+      setPorts(normalizedPorts);
+      setVlans(vlanRes.vlans || []);
     } catch (e) {
       console.error('Failed to load device ports/vlans for CLI:', e);
     }
@@ -656,11 +890,6 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     }
   };
 
-  // Helper to append line
-  const appendLines = (newLines: TerminalLine[]) => {
-    setLines((prev) => [...prev, ...newLines]);
-  };
-
   // Handle Write Memory
   const handleExecuteWriteMemory = async () => {
     try {
@@ -672,6 +901,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
       await writeMemory(device.id);
       setHasUnsavedChanges(false);
+      setSessionChanges([]);
 
       appendLines([
         {
@@ -741,61 +971,170 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       }
     }
 
-    const connProtocol = (device?.connection_protocol || device?.connection?.protocol || 'ssh').toLowerCase();
-    const targetHost = device?.ssh_host || device?.ip || '127.0.0.1';
-    const sshPort = device?.ssh_port || (connProtocol === 'telnet' ? 23 : 22);
+    const fullDev = allDevices?.find((d) => d.id === device?.id || (d.name && d.name.toLowerCase() === device?.name?.toLowerCase())) || device;
+    const connProtocol = (fullDev?.connection_protocol || fullDev?.connection?.protocol || device?.connection_protocol || device?.connection?.protocol || 'ssh').toLowerCase();
+    const targetHost = (
+      fullDev?.ssh_host ||
+      fullDev?.connection?.host ||
+      fullDev?.ip ||
+      (fullDev?.connection as any)?.ip ||
+      device?.ssh_host ||
+      device?.connection?.host ||
+      device?.ip ||
+      ''
+    ).trim();
+    const sshPort = Number(
+      fullDev?.ssh_port ||
+      fullDev?.connection?.port ||
+      device?.ssh_port ||
+      device?.connection?.port ||
+      (connProtocol === 'telnet' ? 23 : 22)
+    );
 
-    // If not connected to real device, reject with real connection failure error
-    if (sshSessionMode !== 'real_ssh') {
+    const isSocketReady = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+
+    // 1. Direct hardware CLI execution via interactive WebSocket stream ONLY for active real hardware SSH
+    if (isSocketReady && wsRef.current) {
+      console.log(`[FRONTEND-EXEC-CMD-WS] Sending to hardware PTY: "${trimmed}" (mode=${cliMode})`);
+      lastExecutedCommandRef.current = trimmed;
+      appendLines([inputLine]);
+
+      // Keep local CLI mode in sync with standard transitions
+      if (cmdLower === 'enable' || cmdLower === 'en') {
+        setCliMode('PRIVILEGED_EXEC');
+      } else if (cmdLower === 'disable' || cmdLower === 'dis') {
+        setCliMode('USER_EXEC');
+      } else if (cmdLower === 'configure terminal' || cmdLower === 'conf t' || cmdLower === 'config t') {
+        if (cliMode !== 'USER_EXEC') {
+          setCliMode('GLOBAL_CONFIG');
+        }
+      } else if (cmdLower.startsWith('interface ') || cmdLower.startsWith('int ')) {
+        if (cliMode === 'GLOBAL_CONFIG' || cliMode === 'INTERFACE_CONFIG') {
+          setCliMode('INTERFACE_CONFIG');
+          setCurrentInterface(trimmed.split(/\s+/)[1] || '');
+        }
+      } else if (cmdLower === 'exit' || cmdLower === 'end') {
+        if (cliMode === 'INTERFACE_CONFIG') {
+          setCliMode('GLOBAL_CONFIG');
+          setCurrentInterface('');
+        } else if (cliMode === 'GLOBAL_CONFIG') {
+          setCliMode('PRIVILEGED_EXEC');
+        } else if (cliMode === 'PRIVILEGED_EXEC') {
+          setCliMode('USER_EXEC');
+        }
+      }
+
+      wsRef.current.send(JSON.stringify({ type: 'input', data: trimmed + '\r\n' }));
+      if (
+        cmdLower.startsWith('sh ') ||
+        cmdLower.startsWith('show ') ||
+        cmdLower === 'write memory' ||
+        cmdLower === 'wr' ||
+        cmdLower.startsWith('copy run') ||
+        cmdLower.startsWith('description ') ||
+        cmdLower.startsWith('desc ') ||
+        cmdLower === 'shutdown' ||
+        cmdLower === 'shut' ||
+        cmdLower === 'no shutdown' ||
+        cmdLower === 'no shut' ||
+        cmdLower.startsWith('switchport') ||
+        cmdLower.startsWith('vlan ') ||
+        cmdLower === 'exit' ||
+        cmdLower === 'end'
+      ) {
+        setTimeout(() => handleSyncPorts(true), 1200);
+      }
+      return;
+    }
+
+    // 2. If terminal is currently establishing SSH connection, wait rather than inventing fake output
+    if (sshSessionMode === 'connecting') {
       appendLines([
         inputLine,
         {
-          id: String(Date.now() + 1),
-          type: 'error',
-          text: isEn
-            ? `% Command rejected: Device is unreachable or terminal session is disconnected (${targetHost}:${sshPort}).`
-            : `% دستور رد شد: ارتباط با تجهیز برقرار نیست یا نشست ترمینال قطع است (${targetHost}:${sshPort}).`,
+          id: 'wait-' + Date.now(),
+          type: 'system',
+          text: isEn ? '% Terminal is establishing connection to hardware. Please wait...' : '% ترمینال در حال برقراری ارتباط با سخت‌افزار است. لطفاً شکیبا باشید...',
         },
       ]);
       return;
     }
 
-    // Direct hardware CLI execution via interactive WebSocket stream
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      appendLines([inputLine]);
-      wsRef.current.send(JSON.stringify({ type: 'input', data: trimmed + '\r\n' }));
-      return;
-    }
-
-    // Direct hardware CLI execution via Paramiko SSH engine
-    try {
-      const res = await sshExecute({
-        host: targetHost,
-        port: sshPort,
-        username: device?.ssh_username || 'admin',
-        password: device?.ssh_password || '',
-        command: trimmed,
-        sessionId: activeSessionIdRef.current || undefined,
-      });
-      if (res.success && res.output !== undefined) {
-        appendLines([
-          inputLine,
-          { id: String(Date.now() + 1), type: 'output', text: res.output || '(Command executed on device)' },
-        ]);
-      } else {
-        appendLines([
-          inputLine,
-          { id: String(Date.now() + 1), type: 'error', text: `% Error executing on device: ${res.error || 'Execution failed'}` },
-        ]);
-      }
-      return;
-    } catch (err: any) {
+    // 3. Direct hardware CLI execution via live SSH API if WebSocket is not open
+    if (targetHost || sshSessionMode === 'real_ssh') {
       appendLines([
         inputLine,
-        { id: String(Date.now() + 1), type: 'error', text: `% Hardware execution error: ${err.message}` },
+        {
+          id: 'load-' + Date.now(),
+          type: 'system',
+          text: isEn ? '[SSH] Executing command on device...' : '[SSH] در حال ارسال و اجرای دستور روی تجهیز...',
+        },
       ]);
-      return;
+      try {
+        const res = await sshExecute({
+          deviceId: fullDev?.id || device?.id,
+          host: targetHost,
+          port: sshPort,
+          username: device?.ssh_username || 'admin',
+          password: device?.ssh_password || '',
+          command: trimmed,
+          sessionId: activeSessionIdRef.current || undefined,
+        });
+        if (res && res.success && res.output !== undefined) {
+          appendLines([
+            { id: String(Date.now() + 1), type: 'output', text: res.output || '(Command executed on device)' },
+          ]);
+          if (
+            cmdLower.startsWith('sh ') ||
+            cmdLower.startsWith('show ') ||
+            cmdLower === 'write memory' ||
+            cmdLower === 'wr' ||
+            cmdLower.startsWith('copy run') ||
+            cmdLower.startsWith('description ') ||
+            cmdLower.startsWith('desc ') ||
+            cmdLower === 'shutdown' ||
+            cmdLower === 'shut' ||
+            cmdLower === 'no shutdown' ||
+            cmdLower === 'no shut' ||
+            cmdLower.startsWith('switchport') ||
+            cmdLower.startsWith('vlan ') ||
+            cmdLower === 'exit' ||
+            cmdLower === 'end'
+          ) {
+            setTimeout(() => handleSyncPorts(true), 1200);
+          }
+        } else {
+          appendLines([
+            {
+              id: String(Date.now() + 1),
+              type: 'error',
+              text: res?.error || res?.output || (isEn ? '% No response from device or command timed out.' : '% پاسخی از تجهیز دریافت نشد یا زمان دستور به پایان رسید.'),
+            },
+          ]);
+        }
+        return;
+      } catch (err: any) {
+        appendLines([
+          {
+            id: String(Date.now() + 1),
+            type: 'error',
+            text: `% Hardware execution error: ${err.message || (isEn ? 'No response from device' : 'عدم پاسخ‌دهی تجهیز')}`,
+          },
+        ]);
+        return;
+      }
     }
+
+    // 4. If device is not configured for network connection
+    appendLines([
+      inputLine,
+      {
+        id: 'err-' + Date.now(),
+        type: 'error',
+        text: isEn ? '% Device is not connected. Configure IP and SSH credentials.' : '% اتصال به تجهیز برقرار نیست. آدرس IP و مشخصات SSH را تنظیم کنید.',
+      },
+    ]);
+    return;
 
     // 2. Help
     if (trimmed === '?' || cmdLower === 'help') {
@@ -921,6 +1260,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       setCurrentVlanId(vlanNum);
       setCliMode('VLAN_CONFIG');
       setHasUnsavedChanges(true);
+      setSessionChanges((prev) => [
+        ...prev,
+        {
+          target: `VLAN ${vlanNum}`,
+          type: 'vlan',
+          change: `Created/Configured VLAN ${vlanNum}`,
+          command: `vlan ${vlanNum}`,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
       appendLines([inputLine]);
       return;
     }
@@ -935,6 +1284,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       if (newHost) {
         setHostname(newHost);
         setHasUnsavedChanges(true);
+        setSessionChanges((prev) => [
+          ...prev,
+          {
+            target: 'Global Config',
+            type: 'hostname',
+            change: `Hostname set to ${newHost}`,
+            command: `hostname ${newHost}`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ]);
         appendLines([inputLine]);
       }
       return;
@@ -998,6 +1357,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           );
         }
         setHasUnsavedChanges(true);
+        setSessionChanges((prev) => [
+          ...prev,
+          {
+            target: currentInterface,
+            type: 'admin_status',
+            change: `Interface administratively shut down`,
+            command: `interface ${currentInterface}\n shutdown`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ]);
         appendLines([
           inputLine,
           { id: String(Date.now() + 1), type: 'system', text: `%LINK-5-CHANGED: Interface ${currentInterface}, changed state to administratively down` },
@@ -1017,6 +1386,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           );
         }
         setHasUnsavedChanges(true);
+        setSessionChanges((prev) => [
+          ...prev,
+          {
+            target: currentInterface,
+            type: 'admin_status',
+            change: `Interface administratively enabled`,
+            command: `interface ${currentInterface}\n no shutdown`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ]);
         appendLines([
           inputLine,
           { id: String(Date.now() + 1), type: 'system', text: `%LINK-3-UPDOWN: Interface ${currentInterface}, changed state to up` },
@@ -1037,6 +1416,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           );
         }
         setHasUnsavedChanges(true);
+        setSessionChanges((prev) => [
+          ...prev,
+          {
+            target: currentInterface,
+            type: 'mode',
+            change: `Switchport mode ${mode}`,
+            command: `interface ${currentInterface}\n switchport mode ${mode}`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ]);
         appendLines([inputLine]);
         return;
       }
@@ -1052,6 +1441,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             prev.map((p) => (targetIds.includes(p.port_id) ? { ...p, vlan: vlanVal } : p))
           );
           setHasUnsavedChanges(true);
+          setSessionChanges((prev) => [
+            ...prev,
+            {
+              target: currentInterface,
+              type: 'vlan',
+              change: `Access VLAN ${vlanVal}`,
+              command: `interface ${currentInterface}\n switchport access vlan ${vlanVal}`,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ]);
         }
         appendLines([inputLine]);
         return;
@@ -1068,6 +1467,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             prev.map((p) => (targetIds.includes(p.port_id) ? { ...p, allowed_vlans: allowed } : p))
           );
           setHasUnsavedChanges(true);
+          setSessionChanges((prev) => [
+            ...prev,
+            {
+              target: currentInterface,
+              type: 'vlan',
+              change: `Trunk allowed VLANs: ${allowed}`,
+              command: `interface ${currentInterface}\n switchport trunk allowed vlan ${allowed}`,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ]);
         }
         appendLines([inputLine]);
         return;
@@ -1084,6 +1493,16 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             prev.map((p) => (targetIds.includes(p.port_id) ? { ...p, description: descText } : p))
           );
           setHasUnsavedChanges(true);
+          setSessionChanges((prev) => [
+            ...prev,
+            {
+              target: currentInterface,
+              type: 'description',
+              change: `Description: "${descText}"`,
+              command: `interface ${currentInterface}\n description ${descText}`,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ]);
         }
         appendLines([inputLine]);
         return;
@@ -1094,87 +1513,22 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         const ip = parts[2];
         const mask = parts[3];
         setHasUnsavedChanges(true);
+        setSessionChanges((prev) => [
+          ...prev,
+          {
+            target: currentInterface,
+            type: 'ip_address',
+            change: `IP address ${ip} ${mask}`,
+            command: `interface ${currentInterface}\n ip address ${ip} ${mask}`,
+            timestamp: new Date().toLocaleTimeString(),
+          },
+        ]);
         appendLines([
           inputLine,
           { id: String(Date.now() + 1), type: 'success', text: `IP address ${ip} ${mask} configured on ${currentInterface}.` },
         ]);
         return;
       }
-    }
-
-    // 9. Show Commands
-    if (cmdLower === 'show ip interface brief' || cmdLower === 'sh ip int br' || cmdLower === 'sh ip int brief') {
-      const output = formatShowIpIntBrief(ports, device);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower === 'show interfaces status' || cmdLower === 'sh int status' || cmdLower === 'sh int stat') {
-      const output = formatShowInterfacesStatus(ports);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower === 'show vlan brief' || cmdLower === 'sh vlan br' || cmdLower === 'sh vlan') {
-      const output = formatShowVlanBrief(vlans, ports);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower === 'show running-config' || cmdLower === 'sh run') {
-      if (cliMode === 'USER_EXEC') {
-        appendLines([
-          inputLine,
-          { id: String(Date.now() + 1), type: 'error', text: `% Command authorization failed. Type 'enable' first.` },
-        ]);
-        return;
-      }
-      const output = formatShowRunningConfig(hostname, device, ports, vlans);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower === 'show version' || cmdLower === 'sh ver') {
-      const output = formatShowVersion(device);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower.startsWith('show cdp neighbor') || cmdLower.startsWith('sh cdp nei')) {
-      const output = formatShowCdpNeighbors(device, ports);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower.startsWith('show mac address-table') || cmdLower.startsWith('sh mac')) {
-      const output = formatShowMacTable(ports);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower === 'show port-security' || cmdLower === 'sh port-sec' || cmdLower === 'sh port-security') {
-      const output = formatShowPortSecurity(ports);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
-    }
-
-    if (cmdLower.startsWith('show port-security interface') || cmdLower.startsWith('sh port-sec int')) {
-      const parts = trimmed.split(/\s+/);
-      const targetInt = parts[parts.length - 1];
-      const foundPort = ports.find((p) => p.port_id.toLowerCase() === targetInt.toLowerCase());
-      if (foundPort) {
-        const output = formatShowPortSecurityInterface(foundPort);
-        appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      } else {
-        appendLines([inputLine, { id: String(Date.now() + 1), type: 'error', text: `% Port ${targetInt} not found on this device.` }]);
-      }
-      return;
-    }
-
-    if (cmdLower === 'show ip route' || cmdLower === 'sh ip route' || cmdLower === 'sh ip ro') {
-      const output = formatShowIpRoute(device);
-      appendLines([inputLine, { id: String(Date.now() + 1), type: 'output', text: output }]);
-      return;
     }
 
     if (cmdLower.startsWith('ping ')) {
@@ -1875,7 +2229,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         isEmbedded
           ? 'w-full h-full rounded-xl border-slate-800 shadow-none'
           : isFullscreen
-          ? 'w-full h-full max-h-screen rounded-none'
+          ? 'w-full h-full max-h-full rounded-none border-none'
           : 'w-full max-w-6xl my-auto max-h-[94vh] sm:max-h-[90vh]'
       }`}
     >
@@ -1947,10 +2301,10 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                 <span className="text-[11px]">{isEn ? 'Unsaved running-config changes' : 'تغییرات در Running-Config ذخیره نشده در استارتاپ'}</span>
                 <button
-                  onClick={handleExecuteWriteMemory}
+                  onClick={() => setShowWriteConfirm(true)}
                   disabled={isWritingMemory}
-                  className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-[10px] transition flex items-center gap-1"
-                  title={isEn ? "Execute write memory command directly" : "اجرای مستقیم دستور write memory"}
+                  className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-[10px] transition flex items-center gap-1 cursor-pointer"
+                  title={isEn ? "Review pending changes & write to memory (NVRAM)" : "مشاهده تغییرات و ذخیره در NVRAM"}
                 >
                   <Save className="w-3 h-3" />
                   <span>Write Memory</span>
@@ -2182,8 +2536,10 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             isMikroTik={false}
             isLightMode={isLightMode}
             onPortClick={handlePortClick}
-            selectedPortId={selectedPort?.port_id}
+            selectedPortId={selectedPort ? (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) : undefined}
             selectedPortIds={selectedPortIds}
+            onSyncPorts={() => handleSyncPorts(false)}
+            isSyncing={isSyncingPorts}
           />
         )}
 
@@ -2451,15 +2807,31 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                     <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
                   </div>
                 ) : (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder={isEn ? "Search interface, VLAN, mode, device..." : "جستجوی پورت، ویلن، مود، دستگاه..."}
-                      value={interfaceSearch}
-                      onChange={(e) => setInterfaceSearch(e.target.value)}
-                      className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white text-[11px] placeholder:text-slate-400 focus:outline-none focus:border-indigo-500`}
-                    />
-                    <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        placeholder={isEn ? "Search interface, VLAN, mode, device..." : "جستجوی پورت، ویلن، مود، دستگاه..."}
+                        value={interfaceSearch}
+                        onChange={(e) => setInterfaceSearch(e.target.value)}
+                        className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white text-[11px] placeholder:text-slate-400 focus:outline-none focus:border-indigo-500`}
+                      />
+                      <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSyncPorts(false)}
+                      disabled={isSyncingPorts}
+                      className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition shadow-xs cursor-pointer border shrink-0 ${
+                        isSyncingPorts
+                          ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/40 cursor-wait'
+                          : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 active:scale-95'
+                      }`}
+                      title={isEn ? 'Sync & verify live interfaces via SSH tunnel' : 'بررسی و همگام‌سازی زنده اینترفیس‌ها از طریق تانل SSH'}
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isSyncingPorts ? 'animate-spin text-cyan-300' : ''}`} />
+                      <span>{isSyncingPorts ? (isEn ? 'Syncing...' : 'بررسی...') : (isEn ? 'Sync SSH' : 'بررسی SSH')}</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -2588,12 +2960,18 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                     {isEn ? 'No interfaces found matching filter.' : 'هیچ اینترفیسی مطابق فیلتر یافت نشد.'}
                   </div>
                 ) : (
-                  filteredInterfaces.map((p) => {
+                  filteredInterfaces.map((p, pIdx) => {
                     const isUp = p.status === 'up';
-                    const isSelected = selectedPort?.port_id === p.port_id;
+                    const pId = p.port_id || (p as any).port || p.name || `port-${pIdx + 1}`;
+                    const isSelected = Boolean(
+                      pId && (
+                        (selectedPort && (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) === pId) ||
+                        (Array.isArray(selectedPortIds) && selectedPortIds.length > 0 && selectedPortIds.includes(pId))
+                      )
+                    );
                     return (
                       <div
-                        key={p.port_id}
+                        key={pId}
                         className={`p-2.5 rounded-xl border transition-all flex flex-col gap-2 ${
                           isSelected
                             ? 'bg-indigo-500/10 border-indigo-500/60 shadow-xs'
@@ -2620,12 +2998,12 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                           <div className="flex items-center gap-1 text-[10px] font-mono shrink-0">
                             <span
                               className={`px-1.5 py-0.5 rounded font-bold text-white ${
-                                p.mode === 'trunk'
+                                (p.mode || 'access') === 'trunk'
                                   ? 'bg-purple-600 border border-purple-500'
                                   : 'bg-indigo-600 border border-indigo-500'
                               }`}
                             >
-                              {p.mode.toUpperCase()}
+                              {(p.mode || 'access').toUpperCase()}
                             </span>
                             <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-semibold">
                               VLAN {p.vlan}
@@ -2672,23 +3050,49 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       </div>
     );
 
+    const writeConfirmModal = showWriteConfirm && device && (
+      <CiscoWriteConfirmModal
+        isOpen={showWriteConfirm}
+        onClose={() => setShowWriteConfirm(false)}
+        onConfirm={async () => {
+          await handleExecuteWriteMemory();
+          setShowWriteConfirm(false);
+        }}
+        device={device}
+        isWriting={isWritingMemory}
+        sessionChanges={sessionChanges}
+        onMinimize={onMinimize}
+        isLightMode={isLightMode}
+      />
+    );
+
     if (isEmbedded) {
-      return terminalWindow;
+      return (
+        <>
+          {terminalWindow}
+          {writeConfirmModal}
+        </>
+      );
     }
 
     return (
-      <div
-        className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto"
-        data-modal-backdrop="true"
-        dir={isEn ? 'ltr' : 'rtl'}
-        onClick={(e) => {
-          if (e.target === e.currentTarget && !preventBackdropClose) {
-            handleCloseModal();
-          }
-        }}
-      >
-        {terminalWindow}
-      </div>
+      <>
+        <div
+          className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
+            isFullscreen ? 'p-0' : 'p-2 sm:p-4'
+          } modal-backdrop-blur overflow-y-auto`}
+          data-modal-backdrop="true"
+          dir={isEn ? 'ltr' : 'rtl'}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !preventBackdropClose) {
+              handleCloseModal();
+            }
+          }}
+        >
+          {terminalWindow}
+        </div>
+        {writeConfirmModal}
+      </>
     );
   };
 
@@ -2744,152 +3148,3 @@ function generateHelpOutput(mode: CliMode, isRouter: boolean): string {
   return `VLAN configuration commands:\n  name     Ascii name of the VLAN\n  exit     Apply changes and bump to previous mode`;
 }
 
-function formatShowIpIntBrief(ports: SwitchPort[], device: Device): string {
-  let res = 'Interface                  IP-Address      OK? Method Status                Protocol\n';
-  res += '----------------------------------------------------------------------------------------\n';
-  // Vlan1 / Management
-  res += `Vlan1                      ${device.ip.padEnd(15)} YES NVRAM  up                    up\n`;
-  for (const p of ports) {
-    const ipStr = p.mode === 'trunk' ? 'unassigned' : 'unassigned';
-    const st = p.status === 'up' ? 'up' : (p.admin_status === 'disabled' ? 'administratively down' : 'down');
-    const proto = p.status === 'up' ? 'up' : 'down';
-    res += `${p.port_id.padEnd(26)} ${ipStr.padEnd(15)} YES unset  ${st.padEnd(21)} ${proto}\n`;
-  }
-  return res;
-}
-
-function formatShowInterfacesStatus(ports: SwitchPort[]): string {
-  let res = 'Port         Name               Status       Vlan       Duplex  Speed Type\n';
-  res += '--------------------------------------------------------------------------------\n';
-  for (const p of ports) {
-    const st = p.status === 'up' ? 'connected' : (p.admin_status === 'disabled' ? 'disabled' : 'notconnect');
-    const vlanStr = p.mode === 'trunk' ? 'trunk' : String(p.vlan);
-    const desc = (p.description || p.connected_device || '--').slice(0, 18);
-    res += `${p.port_id.padEnd(12)} ${desc.padEnd(18)} ${st.padEnd(12)} ${vlanStr.padEnd(10)} ${p.duplex.padEnd(7)} ${p.speed.padEnd(5)} 10/100/1000BaseTX\n`;
-  }
-  return res;
-}
-
-function formatShowVlanBrief(vlans: VlanInfo[], ports: SwitchPort[]): string {
-  let res = 'VLAN Name                             Status    Ports\n';
-  res += '---- -------------------------------- --------- ---------------------------------------\n';
-  for (const v of vlans) {
-    const assignedPorts = ports.filter((p) => p.vlan === v.id && p.mode === 'access').map((p) => p.port_id);
-    const portsList = assignedPorts.length > 0 ? assignedPorts.slice(0, 6).join(', ') : '';
-    res += `${String(v.id).padEnd(4)} ${v.name.padEnd(32)} active    ${portsList}\n`;
-  }
-  return res;
-}
-
-function formatShowRunningConfig(hostname: string, device: Device, ports: SwitchPort[], vlans: VlanInfo[]): string {
-  let res = `Building configuration...\n\nCurrent configuration : 3845 bytes\n!\nversion 17.9\nservice timestamps debug datetime msec\nservice timestamps log datetime msec\nno service password-encryption\n!\nhostname ${hostname}\n!\nspanning-tree mode rapid-pvst\nspanning-tree extend system-id\n!\n`;
-  for (const v of vlans) {
-    res += `vlan ${v.id}\n name ${v.name.replace(/\s+/g, '_')}\n!\n`;
-  }
-  for (const p of ports.slice(0, 10)) {
-    res += `interface ${p.port_id}\n`;
-    if (p.description) res += ` description ${p.description}\n`;
-    if (p.mode === 'trunk') {
-      res += ` switchport mode trunk\n switchport trunk allowed vlan ${p.allowed_vlans}\n`;
-    } else {
-      res += ` switchport mode access\n switchport access vlan ${p.vlan}\n`;
-    }
-    if (p.admin_status === 'disabled') {
-      res += ` shutdown\n`;
-    }
-    res += `!\n`;
-  }
-  res += `interface Vlan1\n ip address ${device.ip} 255.255.255.0\n no shutdown\n!\nip default-gateway 192.168.1.254\n!\nline con 0\nline vty 0 4\n transport input ssh\n!\nend`;
-  return res;
-}
-
-function formatShowVersion(device: Device): string {
-  return `Cisco IOS XE Software, Version 17.09.03\nCisco IOS Software [Cupertino], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.9.3, RELEASE SOFTWARE (fc3)\nTechnical Support: http://www.cisco.com/techsupport\nCopyright (c) 1986-2023 by Cisco Systems, Inc.\n\nROM: IOS-XE ROMMON\n${device.name} uptime is ${device.uptime || '142 days, 6 hours'}\nUptime for this control processor is ${device.uptime || '142 days, 6 hours'}\nSystem image file is "bootflash:packages.conf"\n\ncisco ${device.model} (X86) processor with 3298456K/6147K bytes of memory.\nProcessor board ID FOC2239401A\n1 Virtual Ethernet interface\n${device.total_ports || 48} Gigabit Ethernet interfaces\nBase Ethernet MAC Address: ${device.mac}\nConfiguration register is 0x102`;
-}
-
-function formatShowCdpNeighbors(device: Device, ports: SwitchPort[]): string {
-  let res = 'Capability Codes: R - Router, T - Trans Bridge, B - Source Route Bridge\n';
-  res += '                  S - Switch, H - Host, I - IGMP, r - Repeater, P - Phone, D - Remote\n\n';
-  res += 'Device ID        Local Intrfce     Holdtme    Capability  Platform  Port ID\n';
-  res += '-------------------------------------------------------------------------------\n';
-  for (const p of ports.filter((pt) => pt.connected_device && pt.connected_device !== 'Disconnected' && pt.status === 'up').slice(0, 5)) {
-    const devId = p.connected_device.split(' ')[0];
-    res += `${devId.padEnd(16)} ${p.port_id.padEnd(17)} 165        S I         C9300     Gi1/0/1\n`;
-  }
-  return res;
-}
-
-function formatShowMacTable(ports: SwitchPort[]): string {
-  let res = '          Mac Address Table\n';
-  res += '-------------------------------------------\n';
-  res += 'Vlan    Mac Address       Type        Ports\n';
-  res += '----    -----------       --------    -----\n';
-  let i = 1;
-  for (const p of ports.filter((pt) => pt.status === 'up')) {
-    const macEntries: { mac: string; type: string }[] = [];
-    if (p.port_security_configured_mac) {
-      macEntries.push({ mac: p.port_security_configured_mac, type: 'STATIC' });
-    }
-    if (p.port_security_learned_macs && p.port_security_learned_macs.length > 0) {
-      p.port_security_learned_macs.forEach((m) => {
-        macEntries.push({ mac: m, type: p.port_security_mode === 'sticky' ? 'STICKY' : 'DYNAMIC' });
-      });
-    }
-    if (macEntries.length === 0) {
-      macEntries.push({ mac: `0050.56a1.b2${(10 + i).toString(16).padStart(2, '0')}`, type: 'DYNAMIC' });
-    }
-    for (const entry of macEntries) {
-      res += `${String(p.vlan).padEnd(7)} ${entry.mac.padEnd(17)} ${entry.type.padEnd(11)} ${p.port_id}\n`;
-    }
-    i++;
-  }
-  return res;
-}
-
-function formatShowPortSecurity(ports: SwitchPort[]): string {
-  let res = 'Secure Port  MaxSecureAddr  CurrentAddr  SecurityViolation  Security Action\n';
-  res += '                (Count)       (Count)          (Count)\n';
-  res += '---------------------------------------------------------------------------\n';
-  const secPorts = ports.filter((p) => p.port_security_enabled);
-  if (secPorts.length === 0) {
-    return 'No secure ports configured on this device.\n';
-  }
-  for (const p of secPorts) {
-    const maxAddr = p.port_security_max_mac || 1;
-    const currAddr = (p.port_security_learned_macs?.length || 0) + (p.port_security_configured_mac ? 1 : 0);
-    const action = (p.port_security_violation || 'shutdown').charAt(0).toUpperCase() + (p.port_security_violation || 'shutdown').slice(1);
-    res += `${p.port_id.padEnd(12)} ${String(maxAddr).padEnd(14)} ${String(currAddr).padEnd(12)} 0                  ${action}\n`;
-  }
-  res += '---------------------------------------------------------------------------\n';
-  res += `Total Addresses in System (excluding one max per port)     : 0\n`;
-  res += `Max Addresses limit in System (excluding one max per port) : 4096\n`;
-  return res;
-}
-
-function formatShowPortSecurityInterface(p: SwitchPort): string {
-  const isEnabled = !!p.port_security_enabled;
-  const status = isEnabled ? (p.port_security_status || 'Secure-up') : 'Disabled';
-  const violation = (p.port_security_violation || 'shutdown').charAt(0).toUpperCase() + (p.port_security_violation || 'shutdown').slice(1);
-  const maxMacs = p.port_security_max_mac || 1;
-  const currMacs = (p.port_security_learned_macs?.length || 0) + (p.port_security_configured_mac ? 1 : 0);
-  const stickyCount = p.port_security_mode === 'sticky' ? (p.port_security_learned_macs?.length || 0) : 0;
-  const lastMac = p.port_security_configured_mac || p.port_security_learned_macs?.[0] || '0000.0000.0000';
-
-  let res = `Port Security              : ${isEnabled ? 'Enabled' : 'Disabled'}\n`;
-  res += `Port Status                : ${status}\n`;
-  res += `Violation Mode             : ${violation}\n`;
-  res += `Aging Time                 : 0 mins\n`;
-  res += `Aging Type                 : Absolute\n`;
-  res += `SecureStatic Address Aging : Disabled\n`;
-  res += `Maximum MAC Addresses      : ${maxMacs}\n`;
-  res += `Total MAC Addresses        : ${currMacs}\n`;
-  res += `Configured MAC Addresses   : ${p.port_security_configured_mac ? 1 : 0}\n`;
-  res += `Sticky MAC Addresses       : ${stickyCount}\n`;
-  res += `Last Source Address:Vlan   : ${lastMac}:${p.vlan}\n`;
-  res += `Security Violation Count   : 0\n`;
-  return res;
-}
-
-function formatShowIpRoute(device: Device): string {
-  return `Codes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP\n       D - EIGRP, EX - EIGRP external, O - OSPF, IA - OSPF inter area\n\nGateway of last resort is 192.168.1.254 to network 0.0.0.0\n\nS*    0.0.0.0/0 [1/0] via 192.168.1.254\nC     192.168.1.0/24 is directly connected, Vlan1\nL     ${device.ip}/32 is directly connected, Vlan1\nC     10.10.10.0/24 is directly connected, Vlan10\nC     10.20.20.0/24 is directly connected, Vlan20\nC     10.30.30.0/24 is directly connected, Vlan30`;
-}

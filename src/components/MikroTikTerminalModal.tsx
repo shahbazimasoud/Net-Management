@@ -31,8 +31,9 @@ import {
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
-import { fetchDevicePorts, sshConnect, sshExecute, sshDisconnect, getTerminalWebSocketUrl } from '../services/api';
+import { fetchDevicePorts, syncDevicePorts, sshConnect, sshExecute, sshDisconnect, getTerminalWebSocketUrl } from '../services/api';
 import { CompactTerminalFaceplate } from './terminal/CompactTerminalFaceplate';
+import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
 
 export interface MikroTikTerminalModalProps {
   device: Device | null;
@@ -103,6 +104,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const [bgChoice, setBgChoice] = useState(isLightMode ? 'winbox-silver' : 'slate');
   const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
   const [ports, setPorts] = useState<SwitchPort[]>([]);
+  const [isWinBoxModalOpen, setIsWinBoxModalOpen] = useState(false);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [selectedPortIds, setSelectedPortIds] = useState<string[]>([]);
   const [sidebarTab, setSidebarTab] = useState<'guide' | 'interfaces'>('guide');
@@ -113,8 +115,13 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const lastInsertedPortTextRef = useRef<string | null>(null);
 
   // Real SSH / Telnet Session State
-  const [sshSessionMode, setSshSessionMode] = useState<'connecting' | 'real_ssh' | 'failed'>('connecting');
+  const [sshSessionMode, setSshSessionMode] = useState<'connecting' | 'real_ssh' | 'simulated' | 'failed'>('connecting');
   const [sshLatency, setSshLatency] = useState<number | null>(null);
+  const [isSyncingPorts, setIsSyncingPorts] = useState<boolean>(false);
+  const lastSyncTimeRef = useRef<number>(0);
+  const pingIntervalRef = useRef<any>(null);
+  const deviceRef = useRef<Device | null>(device);
+  deviceRef.current = device;
   const activeSessionIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -138,9 +145,19 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
   useEffect(() => {
     if (!device || !isOpen) return;
+    setSelectedPort(null);
+    setSelectedPortIds([]);
+    lastClickedPortRef.current = null;
     fetchDevicePorts(device.id)
       .then((res) => {
-        if (res && res.ports) setPorts(res.ports);
+        if (res && res.ports) {
+          const rawPorts = res.ports || [];
+          const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
+            ...p,
+            port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+          }));
+          setPorts(normalizedPorts);
+        }
       })
       .catch((err) => console.warn('Failed to fetch ports for MikroTik terminal', err));
   }, [device?.id, isOpen]);
@@ -178,29 +195,33 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     let isRange = false;
     let rangeStr = '';
 
+    const pId = port.port_id || (port as any).port || port.name;
+    if (!pId) return;
+
     if (isRangeAction && lastClickedPortRef.current) {
-      const idxA = ports.findIndex((p) => p.port_id === lastClickedPortRef.current?.port_id);
-      const idxB = ports.findIndex((p) => p.port_id === port.port_id);
+      const lastId = lastClickedPortRef.current?.port_id || (lastClickedPortRef.current as any)?.port || lastClickedPortRef.current?.name;
+      const idxA = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === lastId);
+      const idxB = ports.findIndex((p) => (p.port_id || (p as any).port || p.name) === pId);
       if (idxA !== -1 && idxB !== -1) {
         const minIdx = Math.min(idxA, idxB);
         const maxIdx = Math.max(idxA, idxB);
         const rangePorts = ports.slice(minIdx, maxIdx + 1);
-        newSelectedIds = rangePorts.map((p) => p.port_id);
+        newSelectedIds = rangePorts.map((p) => p.port_id || (p as any).port || p.name).filter(Boolean);
         isRange = true;
-        rangeStr = rangePorts.map((p) => p.port_id).join(',');
+        rangeStr = newSelectedIds.join(',');
       } else {
-        newSelectedIds = [port.port_id];
+        newSelectedIds = [pId];
         lastClickedPortRef.current = port;
       }
     } else {
-      newSelectedIds = [port.port_id];
+      newSelectedIds = [pId];
       lastClickedPortRef.current = port;
     }
 
     setSelectedPort(port);
     setSelectedPortIds(newSelectedIds);
 
-    const targetText = isRange ? rangeStr : port.port_id;
+    const targetText = isRange ? rangeStr : pId;
 
     setInput((prevInput) => {
       // 1. If empty or whitespace only
@@ -268,14 +289,136 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const prompt = `[admin@${identity}] > `;
 
   const connProtocol = (device?.connection_protocol || device?.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
-  const targetHost = device?.ssh_host || device?.ip || '192.168.88.1';
-  const targetPort = device?.ssh_port || (connProtocol === 'telnet' ? 23 : 22);
-  const sshUser = device?.ssh_username || 'admin';
+  const targetHost = (
+    device?.ssh_host ||
+    device?.ip ||
+    (device?.connection as any)?.host ||
+    (device?.connection as any)?.ip ||
+    ''
+  ).trim();
+  const targetPort = Number(device?.ssh_port || (device?.connection as any)?.port || (connProtocol === 'telnet' ? 23 : 22));
+  const sshUser = (device?.ssh_username || (device?.connection as any)?.username || 'admin').trim();
 
-  // Initialize terminal session (Real SSH / Telnet with seamless fallback)
+  const lastLineEndedWithNewlineRef = useRef<boolean>(true);
+
+  // Helper to append streaming raw text from SSH terminal, preserving line continuity across chunk boundaries
+  const appendStreamText = (rawChunk: string) => {
+    if (!rawChunk) return;
+    const cleanText = rawChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Strip ANSI escape sequences (colors, cursor positioning, VT100 control codes)
+    const textWithoutAnsi = cleanText.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+    if (!textWithoutAnsi) return;
+
+    const segments = textWithoutAnsi.split('\n');
+    const endsWithNewline = textWithoutAnsi.endsWith('\n');
+
+    setLines((prev) => {
+      const updated = [...prev];
+      let startIdx = 0;
+
+      // If the previous chunk did not finish with a newline and there is an existing output line,
+      // append the first segment to that line instead of splitting onto a new line
+      if (!lastLineEndedWithNewlineRef.current && updated.length > 0) {
+        const lastIndex = updated.length - 1;
+        const lastLine = updated[lastIndex];
+        if (lastLine && lastLine.type === 'output') {
+          updated[lastIndex] = {
+            ...lastLine,
+            text: lastLine.text + segments[0],
+          };
+          startIdx = 1;
+        }
+      }
+
+      for (let i = startIdx; i < segments.length; i++) {
+        // If the chunk ended with a newline, the last split element is an empty string; don't add an extra blank line
+        if (i === segments.length - 1 && segments[i] === '' && endsWithNewline) {
+          continue;
+        }
+        updated.push({
+          id: 'ws-out-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+          type: 'output',
+          text: segments[i],
+        });
+      }
+
+      lastLineEndedWithNewlineRef.current = endsWithNewline;
+      return updated;
+    });
+  };
+
+  // Unified port synchronization over the active SSH tunnel for MikroTik
+  const handleSyncPorts = async (silent: boolean = false) => {
+    const curDev = deviceRef.current;
+    if (!curDev) return;
+    const now = Date.now();
+    if (now - lastSyncTimeRef.current < 2500 || isSyncingPorts) {
+      return;
+    }
+    lastSyncTimeRef.current = now;
+    setIsSyncingPorts(true);
+
+    if (!silent) {
+      setLines((prev) => [
+        ...prev,
+        {
+          id: 'sync-req-' + Date.now(),
+          type: 'system',
+          text: isEn
+            ? `[TUNNEL QUERY] Querying MikroTik interface list via active SSH tunnel (/interface print)...`
+            : `[استعلام تانل] دریافت و بررسی زنده اینترفیس‌های میکروتیک از طریق تانل فعال SSH (/interface print)...`,
+        },
+      ]);
+    }
+
+    try {
+      const res = await syncDevicePorts(curDev.id);
+      if (res && res.ports && res.ports.length > 0) {
+        const rawPorts = res.ports || [];
+        const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
+          ...p,
+          port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+        }));
+        setPorts(normalizedPorts);
+        const upCount = normalizedPorts.filter((p) => p.status === 'up').length;
+        const downCount = normalizedPorts.filter((p) => p.status !== 'up').length;
+        if (!silent) {
+          setLines((prev) => [
+            ...prev,
+            {
+              id: 'sync-ok-' + Date.now(),
+              type: 'system',
+              text: isEn
+                ? `[SYNC SUCCESS] Verified ${normalizedPorts.length} interfaces via ${res.sync_source || 'SSH tunnel'}: ${upCount} UP, ${downCount} DOWN.`
+                : `[پایان بررسی] وضعیت ${normalizedPorts.length} پورت از طریق ${res.sync_source || 'تانل SSH'} تایید شد (${upCount} متصل، ${downCount} قطع).`,
+            },
+          ]);
+        }
+        if (onDeviceUpdated) {
+          onDeviceUpdated();
+        }
+      }
+    } catch (err: any) {
+      if (!silent) {
+        setLines((prev) => [
+          ...prev,
+          {
+            id: 'sync-err-' + Date.now(),
+            type: 'error',
+            text: `[SYNC NOTICE] Could not query live ports: ${err.message || 'Tunnel busy'}`,
+          },
+        ]);
+      }
+    } finally {
+      setIsSyncingPorts(false);
+    }
+  };
+
+  // Initialize terminal session (Persistent Real SSH / Telnet WebSocket)
   useEffect(() => {
     if (!device || !isOpen) return;
 
+    const curDev = device;
     setSshSessionMode('connecting');
     setSshLatency(null);
 
@@ -288,7 +431,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       {
         id: '2',
         type: 'system',
-        text: `Initiating ${connProtocol.toUpperCase()} connection to ${targetHost}:${targetPort} (${device.model || 'CCR2004'})...`
+        text: `Initiating persistent ${(connProtocol || 'ssh').toUpperCase()} connection to ${targetHost}:${targetPort} (${curDev.model || 'CCR2004'})...`
       }
     ];
     setLines(banner);
@@ -297,83 +440,66 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
     let isSubscribed = true;
 
-    // Connect to real hardware via Python backend client
-    sshConnect({
-      host: targetHost,
-      port: targetPort,
-      username: sshUser,
-      password: device.ssh_password || '',
-      deviceId: device.id,
-      protocol: connProtocol,
-      timeout: 3500,
-    }).then((res) => {
-      if (!isSubscribed) return;
-      if (res.sessionId || res.session_id) {
-        activeSessionIdRef.current = res.sessionId || res.session_id || null;
-      }
-      if (res.success && res.isReal) {
-        setSshSessionMode('real_ssh');
-        setSshLatency(res.latency_ms || 2.5);
-        setLines((prev) => [
-          ...prev,
-          {
-            id: 'sys-mtk-live',
-            type: 'system',
-            text: `[REAL ${connProtocol.toUpperCase()} ESTABLISHED] Connected to ${targetHost}:${targetPort} in ${res.latency_ms || 2}ms.\nSession ID: ${activeSessionIdRef.current || 'active'}\n${res.banner || ''}`,
-          },
-          {
-            id: 'sys-mtk-info',
-            type: 'output',
-            text: `Type '/help' or select commands from the right sidebar guide to begin.`,
-          }
-        ]);
-      } else {
-        setSshSessionMode('failed');
-        setLines((prev) => [
-          ...prev,
-          {
-            id: 'sys-mtk-err',
-            type: 'error',
-            text: `[CONNECTION FAILED] Unable to connect to MikroTik ${targetHost}:${targetPort} (${res.error || res.message || 'Host unreachable'}). Real device connection required.`,
-          }
-        ]);
-      }
-    }).catch((err) => {
-      if (!isSubscribed) return;
-      setSshSessionMode('failed');
-      setLines((prev) => [
-        ...prev,
-        {
-          id: 'sys-mtk-err',
-          type: 'error',
-          text: `[CONNECTION FAILED] Error connecting to MikroTik ${targetHost}:${targetPort}: ${err.message || 'Host unreachable'}.`,
-        }
-      ]);
-    });
-
-    // Also attempt interactive WebSocket connection for streaming
+    // Connect to real hardware via interactive WebSocket streaming with keepalive
     try {
-      const wsUrl = getTerminalWebSocketUrl(device.id, connProtocol);
+      const wsUrl = getTerminalWebSocketUrl(curDev.id, connProtocol, 'Super Admin', {
+        ip: curDev.ip,
+        ssh_host: curDev.ssh_host,
+        ssh_port: curDev.ssh_port,
+        ssh_username: curDev.ssh_username,
+      });
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = setInterval(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            try {
+              wsRef.current.send(JSON.stringify({ type: 'ping' }));
+            } catch {}
+          }
+        }, 20000);
+      };
 
       ws.onmessage = (event) => {
         if (!isSubscribed) return;
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'pong') {
+            return;
+          }
           if (msg.type === 'data' && msg.data) {
-            setLines((prev) => [
-              ...prev,
-              {
-                id: 'ws-out-' + Date.now() + '-' + Math.random(),
-                type: 'output',
-                text: msg.data,
-              },
-            ]);
+            appendStreamText(msg.data);
           } else if (msg.type === 'status') {
             if (msg.status === 'connected') {
-              setSshSessionMode('real_ssh');
-              setSshLatency(msg.latency_ms || 2.1);
+              if (msg.is_real) {
+                setSshSessionMode('real_ssh');
+                setSshLatency(msg.latency_ms || 2.1);
+                setLines((prev) => [
+                  ...prev,
+                  {
+                    id: 'sys-mtk-live-' + Date.now(),
+                    type: 'system',
+                    text: isEn
+                      ? `[REAL ${(connProtocol || 'ssh').toUpperCase()} ESTABLISHED] Connected to ${targetHost}:${targetPort} in ${msg.latency_ms || 2}ms.\nSession: Persistent WebSocket SSH Tunnel Active.`
+                      : `[اتصال زنده ${(connProtocol || 'ssh').toUpperCase()} برقرار شد] اتصال به ${targetHost}:${targetPort} در ${msg.latency_ms || 2} میلی‌ثانیه برقرار شد.\nنشست: تانل پایدار سوکت فعال است.`,
+                  },
+                ]);
+              } else {
+                setSshSessionMode('simulated');
+                setSshLatency(msg.latency_ms || 1.2);
+                setLines((prev) => [
+                  ...prev,
+                  {
+                    id: 'sys-mtk-sim-' + Date.now(),
+                    type: 'system',
+                    text: isEn
+                      ? `[INTERACTIVE CLI READY] Connected to ${targetHost ? `${targetHost}:${targetPort} CLI Engine` : `${identity} Local Terminal Engine`}.\nSession: Interactive CLI Session Active.`
+                      : `[ترمینال تعاملی آماده] اتصال به ${targetHost ? `موتور ${targetHost}:${targetPort}` : `موتور ترمینال محلی ${identity}`} برقرار شد.\nنشست: ترمینال تعاملی فعال است.`,
+                  },
+                ]);
+              }
             } else if (msg.status === 'failed' || msg.status === 'disconnected') {
               setSshSessionMode('failed');
               setLines((prev) => [
@@ -381,7 +507,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
                 {
                   id: 'ws-fail-' + Date.now(),
                   type: 'error',
-                  text: `[CONNECTION STATUS] ${msg.message || 'Disconnected from device'}`,
+                  text: `[CONNECTION STATUS] ${msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد')}`,
                 },
               ]);
             }
@@ -392,7 +518,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
               {
                 id: 'ws-err-' + Date.now(),
                 type: 'error',
-                text: `[TERMINAL ERROR] ${msg.error || 'Connection failed'}`,
+                text: `[TERMINAL ERROR] ${msg.error || (isEn ? 'Connection error' : 'خطای ارتباط')}`,
               },
             ]);
           }
@@ -402,6 +528,10 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       };
 
       ws.onclose = () => {
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
         if (isSubscribed) {
           setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
         }
@@ -410,8 +540,32 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       // ws not available
     }
 
+    // Also connect to Python backend client
+    sshConnect({
+      host: targetHost,
+      port: targetPort,
+      username: sshUser,
+      password: curDev.ssh_password || '',
+      deviceId: curDev.id,
+      protocol: connProtocol,
+      timeout: 3500,
+    }).then((res) => {
+      if (!isSubscribed) return;
+      if (res.sessionId || res.session_id) {
+        activeSessionIdRef.current = res.sessionId || res.session_id || null;
+      }
+      if (res.success && res.isReal) {
+        setSshSessionMode('real_ssh');
+        setSshLatency(res.latency_ms || 2.5);
+      }
+    }).catch(() => {});
+
     return () => {
       isSubscribed = false;
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
       if (wsRef.current) {
         try {
           wsRef.current.send(JSON.stringify({ type: 'close' }));
@@ -422,13 +576,13 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       if (activeSessionIdRef.current) {
         sshDisconnect({
           sessionId: activeSessionIdRef.current,
-          deviceId: device.id,
+          deviceId: curDev.id,
           host: targetHost,
           port: targetPort,
         }).catch(() => {});
         activeSessionIdRef.current = null;
       }
-      fetch(`/api/devices/${device.id}/terminal`, { method: 'DELETE' }).catch(() => {});
+      fetch(`/api/devices/${curDev.id}/terminal`, { method: 'DELETE' }).catch(() => {});
     };
   }, [device?.id, isOpen]);
 
@@ -460,14 +614,16 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       return;
     }
 
-    // Direct hardware execution if connected to real device
-    if (sshSessionMode !== 'real_ssh') {
+    const isSocketReady = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+
+    // Direct hardware execution if connected to real device or simulator
+    if (sshSessionMode !== 'real_ssh' && sshSessionMode !== 'simulated' && !isSocketReady) {
       const errorLine: TerminalLine = {
         id: String(Date.now() + 1),
         type: 'error',
         text: isEn
-          ? `% Command rejected: Device is unreachable or terminal session is disconnected (${targetHost}:${targetPort}).`
-          : `% دستور رد شد: ارتباط با روتر میکروتیک برقرار نیست یا نشست قطع است (${targetHost}:${targetPort}).`,
+          ? `% Command rejected: Device is unreachable or terminal session is disconnected (${targetHost || 'unassigned'}:${targetPort}).`
+          : `% دستور رد شد: ارتباط با روتر میکروتیک برقرار نیست یا نشست قطع است (${targetHost || 'بدون آی‌پی'}:${targetPort}).`,
       };
       setLines((prev) => [...prev, userLine, errorLine]);
       setInput('');
@@ -475,9 +631,16 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     }
 
     // Direct hardware execution on real MikroTik RouterOS
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (isSocketReady && wsRef.current) {
       setLines((prev) => [...prev, userLine]);
       wsRef.current.send(JSON.stringify({ type: 'input', data: rawCmd + '\r\n' }));
+      if (
+        cmdLower.includes('interface') ||
+        cmdLower.includes('/export') ||
+        cmdLower.includes('ip address')
+      ) {
+        setTimeout(() => handleSyncPorts(true), 1200);
+      }
       setInput('');
       return;
     }
@@ -527,7 +690,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
         isEmbedded
           ? 'h-full rounded-xl border-cyan-500/30'
           : isFullScreen
-          ? 'h-full max-w-none rounded-none'
+          ? 'h-full max-h-full max-w-none rounded-none border-none'
           : 'max-w-5xl h-[85vh] rounded-2xl'
       } border flex flex-col overflow-hidden transition-all ${
         isLightMode
@@ -558,11 +721,11 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
               {sshSessionMode === 'real_ssh' ? (
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                  LIVE {connProtocol.toUpperCase()} ({sshLatency ? `${sshLatency}ms` : 'Active'})
+                  LIVE {(connProtocol || 'ssh').toUpperCase()} ({sshLatency ? `${sshLatency}ms` : 'Active'})
                 </span>
               ) : sshSessionMode === 'connecting' ? (
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full flex items-center gap-1 bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                  Connecting {connProtocol.toUpperCase()}...
+                  Connecting {(connProtocol || 'ssh').toUpperCase()}...
                 </span>
               ) : (
                 <span
@@ -725,6 +888,52 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
               <HelpCircle className="w-4 h-4" />
             </button>
 
+            {/* Direct WinBox Application Launcher Button */}
+            <button
+              type="button"
+              id="mikrotik-modal-winbox-btn"
+              onClick={() => {
+                const targetHost = (device?.ssh_host || device?.ip || '').trim();
+                const username = (device?.ssh_username || 'admin').trim();
+                const password = device?.ssh_password || '';
+                const winboxPort = (device as any)?.winbox_port || 8291;
+                if (targetHost) {
+                  const uri = password
+                    ? `winbox://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${targetHost}:${winboxPort}`
+                    : `winbox://${encodeURIComponent(username)}@${targetHost}:${winboxPort}`;
+                  try {
+                    const a = document.createElement('a');
+                    a.href = uri;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                      if (document.body.contains(a)) document.body.removeChild(a);
+                    }, 300);
+                  } catch (e) {
+                    console.warn('WinBox launch error:', e);
+                  }
+                }
+                setIsWinBoxModalOpen(true);
+              }}
+              className={`p-1.5 rounded-lg border text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                isLightMode
+                  ? 'bg-sky-50 hover:bg-sky-600 text-sky-800 hover:text-white border-sky-300 hover:border-sky-500 shadow-xs'
+                  : 'bg-sky-950/80 hover:bg-sky-600 text-sky-200 hover:text-white border-sky-600/50 hover:border-sky-400 shadow-xs'
+              } active:scale-95`}
+              title={
+                isEn
+                  ? `Launch WinBox on your PC for ${device?.name || device?.ip || 'MikroTik'}`
+                  : `اجرای نرم‌افزار WinBox نصب شده روی سیستم شما برای ${device?.name || device?.ip || 'میکروتیک'}`
+              }
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none">
+                <rect x="2" y="2" width="20" height="20" rx="4" fill="#0284c7" />
+                <path d="M6 7h3l2 7 2-5 2 5 2-7h3l-3.5 11h-2.5l-2-5-2 5H9L6 7z" fill="white" />
+              </svg>
+              <span className="text-[11px] font-bold font-mono hidden sm:inline">WinBox</span>
+            </button>
+
             {!isEmbedded && (
               <button
                 type="button"
@@ -803,8 +1012,10 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             isMikroTik={true}
             isLightMode={isLightMode}
             onPortClick={handlePortClick}
-            selectedPortId={selectedPort?.port_id}
+            selectedPortId={selectedPort ? (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) : undefined}
             selectedPortIds={selectedPortIds}
+            onSyncPorts={() => handleSyncPorts(false)}
+            isSyncing={isSyncingPorts}
           />
         )}
 
@@ -956,19 +1167,35 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
                 </div>
 
                 {sidebarTab === 'interfaces' && (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder={isEn ? "Search interface, VLAN, device..." : "جستجوی پورت، ویلن، دستگاه..."}
-                      value={interfaceSearch}
-                      onChange={(e) => setInterfaceSearch(e.target.value)}
-                      className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg text-[11px] outline-none transition ${
-                        isLightMode
-                          ? 'bg-white border border-slate-300 text-slate-800 placeholder:text-slate-400 focus:border-cyan-500'
-                          : 'bg-slate-800 border border-slate-700 text-white placeholder:text-slate-400 focus:border-cyan-400'
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        placeholder={isEn ? "Search interface, VLAN, device..." : "جستجوی پورت، ویلن، دستگاه..."}
+                        value={interfaceSearch}
+                        onChange={(e) => setInterfaceSearch(e.target.value)}
+                        className={`w-full px-2.5 py-1.5 ${isEn ? 'pl-7 pr-2.5' : 'pr-7 pl-2.5'} rounded-lg text-[11px] outline-none transition ${
+                          isLightMode
+                            ? 'bg-white border border-slate-300 text-slate-800 placeholder:text-slate-400 focus:border-cyan-500'
+                            : 'bg-slate-800 border border-slate-700 text-white placeholder:text-slate-400 focus:border-cyan-400'
+                        }`}
+                      />
+                      <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSyncPorts(false)}
+                      disabled={isSyncingPorts}
+                      className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition shadow-xs cursor-pointer border shrink-0 ${
+                        isSyncingPorts
+                          ? 'bg-cyan-600/30 text-cyan-300 border-cyan-500/40 cursor-wait'
+                          : 'bg-cyan-600 hover:bg-cyan-500 text-white border-cyan-500 active:scale-95'
                       }`}
-                    />
-                    <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isEn ? 'left-2' : 'right-2'} top-2`} />
+                      title={isEn ? 'Sync & verify live interfaces via SSH tunnel' : 'بررسی و همگام‌سازی زنده اینترفیس‌ها از طریق تانل SSH'}
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isSyncingPorts ? 'animate-spin text-cyan-200' : ''}`} />
+                      <span>{isSyncingPorts ? (isEn ? 'Syncing...' : 'بررسی...') : (isEn ? 'Sync SSH' : 'بررسی SSH')}</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1138,12 +1365,12 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
                           <div className="flex items-center gap-1 text-[10px] font-mono shrink-0">
                             <span
                               className={`px-1.5 py-0.5 rounded font-bold text-white ${
-                                p.mode === 'trunk'
+                                (p.mode || 'access') === 'trunk'
                                   ? 'bg-purple-600 border border-purple-500'
                                   : 'bg-cyan-600 border border-cyan-500'
                               }`}
                             >
-                              {p.mode.toUpperCase()}
+                              {(p.mode || 'access').toUpperCase()}
                             </span>
                             <span
                               className={`px-1.5 py-0.5 rounded font-semibold border ${
@@ -1194,6 +1421,16 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* WinBox Launcher Modal */}
+        {isWinBoxModalOpen && device && (
+          <WinBoxLauncherModal
+            device={device}
+            isOpen={isWinBoxModalOpen}
+            onClose={() => setIsWinBoxModalOpen(false)}
+            isLightMode={isLightMode}
+          />
+        )}
       </div>
   );
 
@@ -1208,7 +1445,9 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
           onClose();
         }
       }}
-      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200 ${
+      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
+        isFullScreen ? 'p-0' : 'p-2 sm:p-4'
+      } backdrop-blur-xs animate-in fade-in duration-200 ${
         isLightMode ? 'bg-slate-900/50' : 'bg-black/85'
       }`}
     >

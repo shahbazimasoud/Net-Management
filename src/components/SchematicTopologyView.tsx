@@ -47,7 +47,8 @@ import {
   Radio,
   Globe,
   Lock,
-  Users
+  Users,
+  Radar,
 } from 'lucide-react';
 import {
   TopologyData,
@@ -68,11 +69,18 @@ import {
   DeviceCanvasDisplayMode,
   CustomTopologyTower,
   MountedTowerDevice,
-  TowerType
+  TowerType,
+  ThemeType
 } from '../types';
 import { useLanguage } from '../i18n';
 import { useAuth } from '../context/AuthContext';
 import { updateDevice } from '../services/api';
+import {
+  persistDeviceNoteToDatabase,
+  deleteDeviceNoteFromDatabase,
+  syncDeviceNotesFromDatabase,
+  handleDeviceNoteLinkChange,
+} from '../services/settingsStorage';
 import { CustomMapPortSelectorModal } from './CustomMapPortSelectorModal';
 import { CustomMapLinkConfigModal } from './CustomMapLinkConfigModal';
 import { CustomMapAddDeviceModal } from './CustomMapAddDeviceModal';
@@ -91,20 +99,22 @@ import { AddTowerModal } from './rack/AddTowerModal';
 import { MountRadioOnTowerModal } from './rack/MountRadioOnTowerModal';
 import { TowerStructureSvg } from './rack/TowerStructureSvg';
 import { NetworkSocketLoader } from './common/NetworkSocketLoader';
+import { TopologyDiscoveryModal } from './TopologyDiscoveryModal';
 
 interface SchematicTopologyViewProps {
   topology: TopologyData | null;
   inventoryDevices?: Device[];
   loading: boolean;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   onScanCdpLldp: () => void;
+  onOpenDiscoveryModal?: () => void;
   isScanning: boolean;
   onInspectDevice: (device: Device) => void;
   onInspectPorts: (device: Device) => void;
   onConnectTerminal?: (device: Device) => void;
   isFullMode?: boolean;
   onToggleFullMode?: () => void;
-  panelTheme?: 'obsidian' | 'light' | 'matrix';
+  panelTheme?: ThemeType;
 }
 
 // Helper to separate and curve overlapping parallel cables between devices
@@ -180,12 +190,169 @@ function getLinkCurve(
   };
 }
 
+/**
+ * Resolves all identifier aliases for a device across rack mounts, tower mounts, clean IDs, and inventory records.
+ */
+function getDevicePositionAliases(
+  idOrCleanId: string,
+  map?: CustomTopologyMap | null,
+  availableDevices?: Device[]
+): string[] {
+  if (!idOrCleanId) return [];
+  const cleanId = idOrCleanId.replace(/^hw-/, '').replace(/^radio-/, '');
+  const baseCleanId = cleanId.replace(/-\d{10,}$/, '');
+  const aliases = new Set<string>([
+    idOrCleanId,
+    cleanId,
+    `hw-${cleanId}`,
+    `radio-${cleanId}`,
+  ]);
+  if (baseCleanId && baseCleanId !== cleanId) {
+    aliases.add(baseCleanId);
+    aliases.add(`hw-${baseCleanId}`);
+    aliases.add(`radio-${baseCleanId}`);
+  }
+
+  // Check available devices (by ID, IP, or exact name)
+  let targetDevName: string | undefined;
+  let targetDevIp: string | undefined;
+  if (availableDevices) {
+    const matched = availableDevices.find(
+      (d) =>
+        d.id === idOrCleanId ||
+        d.id === cleanId ||
+        d.id.replace(/^hw-/, '') === cleanId ||
+        d.id.replace(/^radio-/, '') === cleanId
+    );
+    if (matched) {
+      aliases.add(matched.id);
+      const mClean = matched.id.replace(/^hw-/, '').replace(/^radio-/, '');
+      aliases.add(mClean);
+      aliases.add(`hw-${mClean}`);
+      if (matched.name) targetDevName = matched.name.trim().toLowerCase();
+      if (matched.ip) targetDevIp = matched.ip.trim();
+    }
+  }
+
+  // Match in racks
+  if (map?.racks) {
+    map.racks.forEach((rack) => {
+      (rack.devices || []).forEach((dev) => {
+        const dClean = dev.id.replace(/^hw-/, '');
+        const dBase = dClean.replace(/-\d{10,}$/, '');
+        const devNameLower = dev.name?.trim().toLowerCase();
+
+        const matchesId =
+          dev.id === idOrCleanId ||
+          dClean === cleanId ||
+          dBase === baseCleanId ||
+          dev.id.startsWith(`hw-${cleanId}`);
+
+        const matchesName =
+          Boolean(targetDevName) && devNameLower === targetDevName;
+
+        const matchesIp =
+          Boolean(targetDevIp) && Boolean(dev.ip) && dev.ip === targetDevIp;
+
+        if (matchesId || matchesName || matchesIp) {
+          aliases.add(dev.id);
+          aliases.add(dClean);
+          aliases.add(`hw-${dClean}`);
+          if (dBase) {
+            aliases.add(dBase);
+            aliases.add(`hw-${dBase}`);
+          }
+        }
+      });
+    });
+  }
+
+  // Match in towers
+  if (map?.towers) {
+    map.towers.forEach((tower) => {
+      (tower.devices || []).forEach((dev) => {
+        const dClean = dev.id.replace(/^radio-/, '');
+        const devNameLower = dev.name?.trim().toLowerCase();
+        const towerDeviceId = (dev as unknown as { deviceId?: string }).deviceId;
+
+        const matchesId =
+          dev.id === idOrCleanId ||
+          dClean === cleanId ||
+          towerDeviceId === idOrCleanId ||
+          towerDeviceId === cleanId;
+
+        const matchesName =
+          Boolean(targetDevName) && devNameLower === targetDevName;
+
+        const matchesIp =
+          Boolean(targetDevIp) && Boolean(dev.ip) && dev.ip === targetDevIp;
+
+        if (matchesId || matchesName || matchesIp) {
+          aliases.add(dev.id);
+          aliases.add(dClean);
+          if (towerDeviceId) aliases.add(towerDeviceId);
+        }
+      });
+    });
+  }
+
+  // Match in map.deviceIds
+  if (map?.deviceIds) {
+    map.deviceIds.forEach((dId) => {
+      const dClean = dId.replace(/^hw-/, '').replace(/^radio-/, '');
+      if (dId === idOrCleanId || dClean === cleanId || dClean === baseCleanId) {
+        aliases.add(dId);
+        aliases.add(dClean);
+      }
+    });
+  }
+
+  return Array.from(aliases).filter(Boolean);
+}
+
+/**
+ * Resolves the coordinate for a device by checking all known aliases across physical and device position stores.
+ */
+function resolveDevicePosition(
+  id: string,
+  map: CustomTopologyMap,
+  mode: DeviceCanvasDisplayMode,
+  availableDevices?: Device[]
+): { x: number; y: number } | undefined {
+  const aliases = getDevicePositionAliases(id, map, availableDevices);
+
+  // In Card mode: check devicePositions first. In Physical mode: check physicalPositions first.
+  const primaryStore = mode === 'physical' ? map.physicalPositions : map.devicePositions;
+  if (primaryStore) {
+    for (const a of aliases) {
+      const p = primaryStore[a];
+      if (p && typeof p.x === 'number' && typeof p.y === 'number') {
+        return p;
+      }
+    }
+  }
+
+  // Fallback to secondary store
+  const secondaryStore = mode === 'physical' ? map.devicePositions : map.physicalPositions;
+  if (secondaryStore) {
+    for (const a of aliases) {
+      const p = secondaryStore[a];
+      if (p && typeof p.x === 'number' && typeof p.y === 'number') {
+        return p;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   topology,
   inventoryDevices = [],
   loading,
   onRefresh,
   onScanCdpLldp,
+  onOpenDiscoveryModal,
   isScanning,
   onInspectDevice,
   onInspectPorts,
@@ -250,6 +417,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     }
   });
 
+  const [isRefreshingView, setIsRefreshingView] = useState(false);
+
   // Dragging states
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
@@ -271,6 +440,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [internalFullMode, setInternalFullMode] = useState(false);
   const isFullMode = propIsFullMode !== undefined ? propIsFullMode : internalFullMode;
   const [showToolbarInFullMode, setShowToolbarInFullMode] = useState(false);
+  const [isSecondaryToolbarCollapsed, setIsSecondaryToolbarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('nettopology_schematic_toolbar_collapsed') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
   const [isLegendOpen, setIsLegendOpen] = useState(false);
 
   // Storage keys for custom topology maps persistence
@@ -300,6 +476,114 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     if (activeMapId === 'default') return null;
     return customMaps.find((m) => m.id === activeMapId) || null;
   }, [customMaps, activeMapId]);
+
+  const [defaultStickyNotes, setDefaultStickyNotes] = useState<CustomTopologyStickyNote[]>(() => {
+    const map = new Map<string, CustomTopologyStickyNote>();
+    try {
+      const saved = localStorage.getItem('nettopology_default_sticky_notes_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((n) => {
+            if (n && n.id) map.set(n.id, n);
+          });
+        }
+      }
+    } catch (e) {}
+
+    // Merge notes saved from Device List / Inventory
+    try {
+      const devSaved = localStorage.getItem('nettopology_device_sticky_notes_v1');
+      if (devSaved) {
+        const devNotes = JSON.parse(devSaved);
+        if (Array.isArray(devNotes)) {
+          devNotes.forEach((n: CustomTopologyStickyNote) => {
+            if (n && n.id) {
+              const existing = map.get(n.id);
+              if (!existing) {
+                map.set(n.id, n);
+              } else {
+                map.set(n.id, { ...existing, ...n });
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    return Array.from(map.values());
+  });
+
+  // Tombstone tracking to permanently prevent deleted notes from resurrecting via sync or background events
+  const deletedNoteIdsRef = useRef<Set<string>>(new Set<string>());
+  const deletedDeviceIdsRef = useRef<Set<string>>(new Set<string>());
+
+  // Hydrate tombstones from sessionStorage
+  useEffect(() => {
+    try {
+      const storedNotes = sessionStorage.getItem('nettopology_deleted_notes_tombstone');
+      if (storedNotes) {
+        const parsed = JSON.parse(storedNotes);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((id: string) => deletedNoteIdsRef.current.add(id));
+        }
+      }
+      const storedDevs = sessionStorage.getItem('nettopology_deleted_devices_tombstone');
+      if (storedDevs) {
+        const parsed = JSON.parse(storedDevs);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((id: string) => deletedDeviceIdsRef.current.add(id));
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  const isTombstoned = useCallback((noteId?: string, deviceId?: string): boolean => {
+    if (noteId && deletedNoteIdsRef.current.has(noteId)) return true;
+    if (deviceId) {
+      const clean = deviceId.replace(/^hw-/, '');
+      // Check if this device currently has an active note in local storage
+      try {
+        const raw = localStorage.getItem('nettopology_device_sticky_notes_v1');
+        if (raw) {
+          const notes = JSON.parse(raw);
+          if (Array.isArray(notes)) {
+            const hasActive = notes.some(
+              (n: any) =>
+                n &&
+                n.linkedDeviceId &&
+                (n.linkedDeviceId === deviceId ||
+                  n.linkedDeviceId === clean ||
+                  n.linkedDeviceId === 'hw-' + clean) &&
+                (!noteId || n.id === noteId || !deletedNoteIdsRef.current.has(n.id))
+            );
+            if (hasActive) {
+              deletedDeviceIdsRef.current.delete(deviceId);
+              deletedDeviceIdsRef.current.delete(clean);
+              deletedDeviceIdsRef.current.delete('hw-' + clean);
+              return false;
+            }
+          }
+        }
+      } catch (e) {}
+
+      if (
+        deletedDeviceIdsRef.current.has(deviceId) ||
+        deletedDeviceIdsRef.current.has(clean) ||
+        deletedDeviceIdsRef.current.has('hw-' + clean)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  const activeStickyNotes = useMemo(() => {
+    if (currentCustomMap) {
+      return (currentCustomMap.stickyNotes || []).filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId));
+    }
+    return defaultStickyNotes.filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId));
+  }, [currentCustomMap, defaultStickyNotes, isTombstoned]);
 
   const [activeTool, setActiveTool] = useState<'select' | 'cable'>('select');
 
@@ -331,6 +615,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [manageMapMode, setManageMapMode] = useState<'create' | 'edit' | 'delete'>('create');
   const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
   const [linkToDelete, setLinkToDelete] = useState<CustomTopologyLink | null>(null);
+  const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
 
   // Rack & Hardware Studio States
   const [isAddRackOpen, setIsAddRackOpen] = useState(false);
@@ -554,15 +839,89 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
   }, [currentCustomMap, customMaps, saveCustomMaps]);
 
+  // Topology Discovery (CDP / LLDP) Apply Handler
+  const handleApplyDiscoveredLinksAndDevices = useCallback(
+    (
+      newLinks: CustomTopologyLink[],
+      newDevs: { id: string; name: string; ip: string; model: string; type: string }[],
+      targetMapId: string
+    ) => {
+      const targetMap =
+        customMaps.find((m) => m.id === targetMapId) ||
+        currentCustomMap ||
+        customMaps[0];
+
+      if (!targetMap) {
+        onRefresh();
+        return;
+      }
+
+      // Deduplicate and merge links
+      const existingLinks = targetMap.links || [];
+      const mergedLinks = [...existingLinks];
+      for (const nl of newLinks) {
+        const alreadyExists = mergedLinks.some(
+          (el) =>
+            (el.sourceDeviceId === nl.sourceDeviceId &&
+              el.targetDeviceId === nl.targetDeviceId &&
+              el.sourcePort === nl.sourcePort &&
+              el.targetPort === nl.targetPort) ||
+            (el.sourceDeviceId === nl.targetDeviceId &&
+              el.targetDeviceId === nl.sourceDeviceId &&
+              el.sourcePort === nl.targetPort &&
+              el.targetPort === nl.sourcePort)
+        );
+        if (!alreadyExists) {
+          mergedLinks.push(nl);
+        }
+      }
+
+      // Merge new device IDs and position them cleanly on canvas
+      const existingDeviceIds = targetMap.deviceIds || [];
+      const mergedDeviceIds = [...existingDeviceIds];
+      const updatedPositions = { ...(targetMap.devicePositions || {}) };
+
+      let startX = 200;
+      let startY = 300;
+      for (const dev of newDevs) {
+        if (!mergedDeviceIds.includes(dev.id)) {
+          mergedDeviceIds.push(dev.id);
+          if (!updatedPositions[dev.id]) {
+            updatedPositions[dev.id] = { x: startX, y: startY };
+            startX += 140;
+            if (startX > 800) {
+              startX = 200;
+              startY += 130;
+            }
+          }
+        }
+      }
+
+      const updatedMap: CustomTopologyMap = {
+        ...targetMap,
+        links: mergedLinks,
+        deviceIds: mergedDeviceIds,
+        devicePositions: updatedPositions,
+        updatedAt: new Date().toISOString(),
+      };
+
+      saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+      onRefresh();
+    },
+    [currentCustomMap, customMaps, saveCustomMaps, onRefresh]
+  );
+
   // Sticky Notes Handlers
   const handleAddStickyNote = useCallback(() => {
-    if (!currentCustomMap) return;
     const rect = containerRef.current?.getBoundingClientRect();
     const centerX = rect ? Math.round((-pan.x + rect.width / 2 - 115) / zoom) : 250;
     const centerY = rect ? Math.round((-pan.y + rect.height / 2 - 80) / zoom) : 200;
 
+    const newNoteId = `note-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    deletedNoteIdsRef.current.delete(newNoteId);
+
     const newNote: CustomTopologyStickyNote = {
-      id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      id: newNoteId,
       x: centerX,
       y: centerY,
       width: 230,
@@ -574,46 +933,149 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       viewMode: globalDeviceViewMode,
     };
 
-    const updatedMap: CustomTopologyMap = {
-      ...currentCustomMap,
-      stickyNotes: [...(currentCustomMap.stickyNotes || []), newNote],
-      updatedAt: new Date().toISOString(),
-    };
-    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
-  }, [currentCustomMap, customMaps, pan.x, pan.y, zoom, saveCustomMaps, globalDeviceViewMode]);
+    if (currentCustomMap) {
+      const updatedMap: CustomTopologyMap = {
+        ...currentCustomMap,
+        stickyNotes: [...(currentCustomMap.stickyNotes || []).filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId)), newNote],
+        updatedAt: new Date().toISOString(),
+      };
+      saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    } else {
+      setDefaultStickyNotes((prev) => {
+        const updated = [...prev.filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId)), newNote];
+        try {
+          localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+    }
+  }, [currentCustomMap, customMaps, pan.x, pan.y, zoom, saveCustomMaps, globalDeviceViewMode, isTombstoned]);
 
   const handleUpdateStickyNote = useCallback((updatedNote: CustomTopologyStickyNote) => {
-    if (!currentCustomMap) return;
-    const updatedNotes = (currentCustomMap.stickyNotes || []).map((n) =>
-      n.id === updatedNote.id ? updatedNote : n
-    );
-    const updatedMap: CustomTopologyMap = {
-      ...currentCustomMap,
-      stickyNotes: updatedNotes,
-      updatedAt: new Date().toISOString(),
-    };
-    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
-  }, [currentCustomMap, customMaps, saveCustomMaps]);
+    // If note or device was deleted, do not re-add or update
+    if (isTombstoned(updatedNote.id, updatedNote.linkedDeviceId)) {
+      return;
+    }
+
+    // Determine previous note to detect any changes in device linkage (unlink or reassign)
+    const allExistingNotes = [
+      ...defaultStickyNotes,
+      ...(currentCustomMap ? (currentCustomMap.stickyNotes || []) : []),
+      ...customMaps.flatMap((m) => m.stickyNotes || []),
+    ];
+    const prevNote = allExistingNotes.find((n) => n && n.id === updatedNote.id);
+    const oldDeviceId = prevNote?.linkedDeviceId;
+    const newDeviceId = updatedNote.linkedDeviceId;
+
+    if (currentCustomMap) {
+      const updatedNotes = (currentCustomMap.stickyNotes || [])
+        .filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId))
+        .map((n) => (n.id === updatedNote.id ? updatedNote : n));
+      const updatedMap: CustomTopologyMap = {
+        ...currentCustomMap,
+        stickyNotes: updatedNotes,
+        updatedAt: new Date().toISOString(),
+      };
+      saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+    } else {
+      setDefaultStickyNotes((prev) => {
+        const updated = prev
+          .filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId))
+          .map((n) => (n.id === updatedNote.id ? updatedNote : n));
+        try {
+          localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+    }
+
+    // If device link has changed (unlinked or moved to another device)
+    if (oldDeviceId !== newDeviceId) {
+      handleDeviceNoteLinkChange(updatedNote.id, oldDeviceId, newDeviceId, updatedNote).catch(() => {});
+    } else if (newDeviceId) {
+      // If still linked to the same device, update title/content/color
+      persistDeviceNoteToDatabase(updatedNote).catch(() => {});
+    }
+  }, [currentCustomMap, customMaps, defaultStickyNotes, saveCustomMaps, isTombstoned]);
 
   const handleDeleteStickyNote = useCallback((noteId: string) => {
-    if (!currentCustomMap) return;
-    const updatedNotes = (currentCustomMap.stickyNotes || []).filter((n) => n.id !== noteId);
-    const updatedMap: CustomTopologyMap = {
-      ...currentCustomMap,
-      stickyNotes: updatedNotes,
-      updatedAt: new Date().toISOString(),
+    // 1. Locate the note across currentCustomMap or defaultStickyNotes
+    const allNotes = [
+      ...defaultStickyNotes,
+      ...(currentCustomMap ? (currentCustomMap.stickyNotes || []) : []),
+      ...customMaps.flatMap((m) => m.stickyNotes || []),
+    ];
+    const noteToDelete = allNotes.find((n) => n.id === noteId);
+    const linkedDevId = noteToDelete?.linkedDeviceId;
+    const cleanDevId = linkedDevId?.replace(/^hw-/, '');
+    const hwDevId = cleanDevId ? 'hw-' + cleanDevId : undefined;
+
+    const matchesTarget = (sn: CustomTopologyStickyNote) => {
+      if (!sn) return false;
+      if (sn.id === noteId) return true;
+      if (linkedDevId && (sn.linkedDeviceId === linkedDevId || sn.linkedDeviceId === cleanDevId || sn.linkedDeviceId === hwDevId)) {
+        return true;
+      }
+      return false;
     };
-    saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
-  }, [currentCustomMap, customMaps, saveCustomMaps]);
+
+    // 2. Register in tombstones
+    deletedNoteIdsRef.current.add(noteId);
+    if (linkedDevId) {
+      deletedDeviceIdsRef.current.add(linkedDevId);
+      if (cleanDevId) deletedDeviceIdsRef.current.add(cleanDevId);
+      if (hwDevId) deletedDeviceIdsRef.current.add(hwDevId);
+    }
+
+    try {
+      const notesTombstones = Array.from(deletedNoteIdsRef.current);
+      sessionStorage.setItem('nettopology_deleted_notes_tombstone', JSON.stringify(notesTombstones));
+      const devsTombstones = Array.from(deletedDeviceIdsRef.current);
+      sessionStorage.setItem('nettopology_deleted_devices_tombstone', JSON.stringify(devsTombstones));
+    } catch (e) {}
+
+    // 3. Remove immediately from defaultStickyNotes
+    setDefaultStickyNotes((prev) => {
+      const updated = prev.filter((n) => !matchesTarget(n));
+      try {
+        localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    // 4. Remove immediately from all custom maps and persist
+    const updatedMaps = customMaps.map((m) => ({
+      ...m,
+      stickyNotes: (m.stickyNotes || []).filter((n) => !matchesTarget(n)),
+      updatedAt: new Date().toISOString(),
+    }));
+    setCustomMaps(updatedMaps);
+    saveCustomMaps(updatedMaps);
+
+    // 5. Always delete from database and local storage via deleteDeviceNoteFromDatabase
+    deleteDeviceNoteFromDatabase(noteId, linkedDevId).catch((err) => {
+      console.warn('[Delete Device Note Error]', err);
+    });
+
+    // 6. Close delete modal if open
+    setDeleteModalTarget(null);
+
+    // 7. Visual toast feedback
+    setFeedbackToast({
+      type: 'success',
+      message: isEn ? 'Sticky note deleted successfully' : 'یادداشت با موفقیت حذف شد',
+    });
+  }, [currentCustomMap, customMaps, defaultStickyNotes, saveCustomMaps, isEn]);
 
   const handleStickyNoteStartDrag = useCallback((e: React.MouseEvent, noteId: string) => {
     e.stopPropagation();
-    if (!containerRef.current || !currentCustomMap) return;
+    if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const worldMouseX = (e.clientX - rect.left - pan.x) / zoom;
     const worldMouseY = (e.clientY - rect.top - pan.y) / zoom;
 
-    const note = (currentCustomMap.stickyNotes || []).find((n) => n.id === noteId);
+    const notes = currentCustomMap ? (currentCustomMap.stickyNotes || []) : defaultStickyNotes;
+    const note = notes.find((n) => n.id === noteId);
     if (!note) return;
 
     dragNoteOffset.current = {
@@ -624,7 +1086,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       moved: false,
     };
     setDraggingNoteId(noteId);
-  }, [currentCustomMap, pan.x, pan.y, zoom]);
+  }, [currentCustomMap, defaultStickyNotes, pan.x, pan.y, zoom]);
 
   // Rack Handlers
   const handleCreateCustomMapRack = useCallback((rackData: Omit<CustomTopologyRack, 'id' | 'devices' | 'x' | 'y'>) => {
@@ -1037,27 +1499,47 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     const deviceId = device.id;
     const cleanId = device.id.replace(/^hw-/, '');
     const currentDeviceIds = currentCustomMap.deviceIds || [];
-    const newDeviceIds = currentDeviceIds.includes(deviceId) || currentDeviceIds.includes(cleanId)
-      ? currentDeviceIds
-      : [...currentDeviceIds, deviceId];
+    const newDeviceIds = [...currentDeviceIds];
+    if (!newDeviceIds.includes(deviceId)) newDeviceIds.push(deviceId);
+    if (!newDeviceIds.includes(cleanId)) newDeviceIds.push(cleanId);
 
     const currentPositions = { ...(currentCustomMap.devicePositions || {}) };
+    const currentPhysicalPositions = { ...(currentCustomMap.physicalPositions || {}) };
     const targetRack = (currentCustomMap.racks || []).find((r) => r.id === rackId);
-    if (!currentPositions[deviceId] && !currentPositions[cleanId]) {
-      const rackX = targetRack ? targetRack.x : 200;
-      const rackY = targetRack ? targetRack.y : 200;
-      const devCount = targetRack?.devices.length || 0;
-      currentPositions[deviceId] = {
-        x: rackX + 380 + (devCount % 2) * 260,
-        y: rackY + (devCount * 140),
-      };
+
+    const aliases = getDevicePositionAliases(deviceId, currentCustomMap, allAvailableDevices);
+
+    let existingPos: { x: number; y: number } | undefined;
+    for (const a of aliases) {
+      if (currentPositions[a] && typeof currentPositions[a].x === 'number') {
+        existingPos = currentPositions[a];
+        break;
+      }
+      if (currentPhysicalPositions[a] && typeof currentPhysicalPositions[a].x === 'number') {
+        existingPos = currentPhysicalPositions[a];
+        break;
+      }
     }
+
+    const rackX = targetRack ? targetRack.x : 200;
+    const rackY = targetRack ? targetRack.y : 200;
+    const devCount = targetRack?.devices.length || 0;
+    const initialPos = existingPos || {
+      x: rackX + 380 + (devCount % 2) * 260,
+      y: rackY + (devCount * 140),
+    };
+
+    aliases.forEach((a) => {
+      currentPositions[a] = initialPos;
+      currentPhysicalPositions[a] = initialPos;
+    });
 
     const updatedMap: CustomTopologyMap = {
       ...currentCustomMap,
       racks: updatedRacks,
       deviceIds: newDeviceIds,
       devicePositions: currentPositions,
+      physicalPositions: currentPhysicalPositions,
       updatedAt: new Date().toISOString(),
     };
     saveCustomMaps(customMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
@@ -1383,6 +1865,33 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     return list;
   }, [topology?.nodes, localNodes, inventoryDevices, currentCustomMap?.racks, currentCustomMap?.towers, currentCustomMap?.deviceIds]);
 
+  const handlePromptDeleteStickyNote = useCallback((noteId: string) => {
+    const notes = [
+      ...defaultStickyNotes,
+      ...(currentCustomMap ? (currentCustomMap.stickyNotes || []) : []),
+      ...customMaps.flatMap((m) => m.stickyNotes || []),
+    ];
+    const noteToDelete = notes.find((n) => n.id === noteId);
+    if (!noteToDelete) return;
+
+    const linkedDev = noteToDelete.linkedDeviceId
+      ? allAvailableDevices.find(
+          (d) =>
+            d.id === noteToDelete.linkedDeviceId ||
+            d.id === noteToDelete.linkedDeviceId?.replace(/^hw-/, '') ||
+            d.id === `hw-${noteToDelete.linkedDeviceId?.replace(/^hw-/, '')}`
+        )
+      : undefined;
+
+    setDeleteModalTarget({
+      type: 'note',
+      id: noteToDelete.id,
+      title: noteToDelete.title,
+      content: noteToDelete.content,
+      linkedDeviceName: linkedDev?.name,
+    });
+  }, [currentCustomMap, customMaps, defaultStickyNotes, allAvailableDevices]);
+
   const handleRemoveDeviceFromCustomMap = useCallback((deviceId: string) => {
     if (!currentCustomMap) return;
     const cleanId = deviceId.replace(/^hw-/, '');
@@ -1681,6 +2190,41 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       y: 180 + row * 260,
     };
 
+    // Auto-attach any device sticky note associated with this device
+    let updatedStickyNotes = currentCustomMap.stickyNotes || [];
+    try {
+      const rawNotes = localStorage.getItem('nettopology_device_sticky_notes_v1');
+      const devNotes: CustomTopologyStickyNote[] = rawNotes ? JSON.parse(rawNotes) : [];
+      const cleanDevId = device.id.replace(/^hw-/, '');
+      const matchingNote = devNotes.find(
+        (n) =>
+          n.linkedDeviceId === device.id ||
+          n.linkedDeviceId === cleanDevId ||
+          n.linkedDeviceId === `hw-${cleanDevId}`
+      );
+      if (
+        matchingNote &&
+        !isTombstoned(matchingNote.id, matchingNote.linkedDeviceId) &&
+        !updatedStickyNotes.some(
+          (n) =>
+            n.id === matchingNote.id ||
+            n.linkedDeviceId === device.id ||
+            n.linkedDeviceId === cleanDevId ||
+            n.linkedDeviceId === `hw-${cleanDevId}`
+        )
+      ) {
+        updatedStickyNotes = [
+          ...updatedStickyNotes,
+          {
+            ...matchingNote,
+            x: (mode === 'physical' ? newPhysicalPos.x : newPos.x) + 120,
+            y: (mode === 'physical' ? newPhysicalPos.y : newPos.y) + 60,
+            viewMode: mode === 'physical' ? 'physical' : 'card',
+          },
+        ];
+      }
+    } catch (e) {}
+
     const updatedMap: CustomTopologyMap = {
       ...currentCustomMap,
       deviceIds: isAlreadyOnMap
@@ -1699,6 +2243,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         [device.id]: mode,
       },
       racks: updatedRacks,
+      stickyNotes: updatedStickyNotes,
       updatedAt: new Date().toISOString(),
     };
 
@@ -2633,11 +3178,102 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     }
   };
 
-  const handleResetView = () => {
+  const handleResetView = async () => {
+    // 1. Reset zoom, pan, and selections
     setZoom(1);
     setPan({ x: 0, y: 0 });
     saveViewport(1, { x: 0, y: 0 });
     setSelectedNodeId(null);
+    setLocalNodes([]);
+    setDraggedDevice(null);
+
+    if (isRefreshingView) return;
+    setIsRefreshingView(true);
+
+    try {
+      // 2. Trigger parent reload of devices, reachability and topology links from DB
+      if (onRefresh) {
+        await Promise.resolve(onRefresh());
+      }
+
+      // 3. Prepare auth headers for settings endpoints
+      const token =
+        localStorage.getItem('nettopology_auth_token_v1') ||
+        sessionStorage.getItem('nettopology_auth_token_v1');
+      const authHeaders: Record<string, string> = {};
+      if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+
+      // 4. Fetch latest saved node positions for current map (and default) from DB
+      const targetMapId = activeMapId || 'default';
+      const posPromise = fetch(`/api/settings/node-positions?mapId=${encodeURIComponent(targetMapId)}`, {
+        headers: authHeaders,
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.positions && typeof data.positions === 'object') {
+            const hasPos = Object.keys(data.positions).length > 0;
+            setCustomPositions(data.positions);
+            setHasSavedPositions(hasPos);
+            try {
+              localStorage.setItem('net_topology_node_positions', JSON.stringify(data.positions));
+            } catch (e) {}
+          }
+        })
+        .catch(() => {});
+
+      // 5. Fetch latest custom maps from DB (to refresh moved devices/positions/racks/links on custom maps)
+      const mapsPromise = fetch('/api/settings/maps', { headers: authHeaders })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((resp) => {
+          const mapsList = Array.isArray(resp)
+            ? resp
+            : Array.isArray(resp?.maps)
+            ? resp.maps
+            : null;
+          if (Array.isArray(mapsList) && mapsList.length > 0) {
+            try {
+              localStorage.setItem(CUSTOM_MAPS_STORAGE_KEY, JSON.stringify(mapsList));
+            } catch (e) {}
+            setCustomMaps(mapsList);
+          }
+        })
+        .catch(() => {});
+
+      // 6. Fetch latest physical hierarchy (buildings, floors, units, racks) from DB
+      const hierarchyPromise = fetch('/api/settings/hierarchy', { headers: authHeaders })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((dbData) => {
+          const hierData = dbData?.hierarchy || dbData;
+          if (hierData && typeof hierData === 'object' && Array.isArray(hierData.buildings) && hierData.buildings.length > 0) {
+            try {
+              localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(hierData));
+            } catch (e) {}
+            if (Array.isArray(hierData.buildings)) setCustomBuildings(hierData.buildings);
+            if (hierData.floors && typeof hierData.floors === 'object') setCustomFloors(hierData.floors);
+            if (hierData.units && typeof hierData.units === 'object') setCustomUnits(hierData.units);
+            if (hierData.racks && typeof hierData.racks === 'object') setCustomRacks(hierData.racks);
+          }
+        })
+        .catch(() => {});
+
+      // 7. Fetch latest device sticky notes from DB
+      const notesPromise = syncStickyNotesWithDatabase().catch(() => {});
+
+      await Promise.allSettled([posPromise, mapsPromise, hierarchyPromise, notesPromise]);
+
+      setFeedbackToast({
+        type: 'success',
+        message: t('topology_zoom_reset_success'),
+      });
+    } catch (err) {
+      console.error('Failed to sync map changes from database:', err);
+      setFeedbackToast({
+        type: 'info',
+        message: t('topology_zoom_reset_failed'),
+      });
+    } finally {
+      setIsRefreshingView(false);
+    }
   };
 
   // Node position calculations for Schematic View (hierarchical default + custom overrides)
@@ -2648,71 +3284,44 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       // In Custom Map mode
       const mapDeviceIds = currentCustomMap.deviceIds || [];
 
-      if (globalDeviceViewMode === 'physical') {
-        mapDeviceIds.forEach((id, index) => {
-          const cleanId = id.replace(/^hw-/, '').replace(/^radio-/, '');
-          const physPos =
-            currentCustomMap.physicalPositions?.[id] ||
-            currentCustomMap.physicalPositions?.[cleanId] ||
-            currentCustomMap.devicePositions?.[id] ||
-            currentCustomMap.devicePositions?.[cleanId];
+      mapDeviceIds.forEach((id, index) => {
+        const aliases = getDevicePositionAliases(id, currentCustomMap, allAvailableDevices);
+        const resolved = resolveDevicePosition(id, currentCustomMap, globalDeviceViewMode, allAvailableDevices);
 
-          if (physPos) {
-            pos.set(id, physPos);
-            pos.set(cleanId, physPos);
-          } else {
-            const fallbackPos = {
-              x: 180 + (index % 4) * 280,
-              y: 180 + Math.floor(index / 4) * 220,
-            };
-            pos.set(id, fallbackPos);
-            pos.set(cleanId, fallbackPos);
-          }
-        });
-      } else {
-        mapDeviceIds.forEach((id, index) => {
-          const cleanId = id.replace(/^hw-/, '').replace(/^radio-/, '');
-          const cardPos =
-            currentCustomMap.devicePositions?.[id] ||
-            currentCustomMap.devicePositions?.[cleanId];
-
-          if (cardPos) {
-            pos.set(id, cardPos);
-            pos.set(cleanId, cardPos);
-          } else {
-            const fallbackPos = {
-              x: 180 + (index % 4) * 280,
-              y: 180 + Math.floor(index / 4) * 220,
-            };
-            pos.set(id, fallbackPos);
-            pos.set(cleanId, fallbackPos);
-          }
-        });
-      }
+        if (resolved) {
+          aliases.forEach((a) => pos.set(a, resolved));
+        } else {
+          const fallbackPos = {
+            x: 180 + (index % 4) * 280,
+            y: 180 + Math.floor(index / 4) * 220,
+          };
+          aliases.forEach((a) => pos.set(a, fallbackPos));
+        }
+      });
 
       // Also ensure all devices in customMap.racks have positions!
       if (currentCustomMap.racks) {
         currentCustomMap.racks.forEach((rack) => {
           (rack.devices || []).forEach((dev, devIdx) => {
-            const devId = dev.id;
-            const cleanId = dev.id.replace(/^hw-/, '');
-            const existing =
-              (globalDeviceViewMode === 'physical'
-                ? currentCustomMap.physicalPositions?.[devId] || currentCustomMap.physicalPositions?.[cleanId]
-                : currentCustomMap.devicePositions?.[devId] || currentCustomMap.devicePositions?.[cleanId]) ||
-              (currentCustomMap.devicePositions && (currentCustomMap.devicePositions[devId] || currentCustomMap.devicePositions[cleanId])) ||
-              pos.get(devId) ||
-              pos.get(cleanId);
+            const devAliases = getDevicePositionAliases(dev.id, currentCustomMap, allAvailableDevices);
+            let existing: { x: number; y: number } | undefined;
+            for (const a of devAliases) {
+              if (pos.has(a)) {
+                existing = pos.get(a);
+                break;
+              }
+            }
+            if (!existing) {
+              existing = resolveDevicePosition(dev.id, currentCustomMap, globalDeviceViewMode, allAvailableDevices);
+            }
             if (existing) {
-              pos.set(devId, existing);
-              pos.set(cleanId, existing);
+              devAliases.forEach((a) => pos.set(a, existing!));
             } else {
               const defaultRackPos = {
                 x: rack.x + 440 + (devIdx % 2) * 260,
                 y: rack.y + devIdx * 140,
               };
-              pos.set(devId, defaultRackPos);
-              pos.set(cleanId, defaultRackPos);
+              devAliases.forEach((a) => pos.set(a, defaultRackPos));
             }
           });
         });
@@ -2722,25 +3331,25 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       if (currentCustomMap.towers) {
         currentCustomMap.towers.forEach((tower) => {
           (tower.devices || []).forEach((dev, devIdx) => {
-            const devId = dev.id;
-            const cleanId = dev.id.replace(/^radio-/, '');
-            const existing =
-              (globalDeviceViewMode === 'physical'
-                ? currentCustomMap.physicalPositions?.[devId] || currentCustomMap.physicalPositions?.[cleanId]
-                : currentCustomMap.devicePositions?.[devId] || currentCustomMap.devicePositions?.[cleanId]) ||
-              (currentCustomMap.devicePositions && (currentCustomMap.devicePositions[devId] || currentCustomMap.devicePositions[cleanId])) ||
-              pos.get(devId) ||
-              pos.get(cleanId);
+            const devAliases = getDevicePositionAliases(dev.id, currentCustomMap, allAvailableDevices);
+            let existing: { x: number; y: number } | undefined;
+            for (const a of devAliases) {
+              if (pos.has(a)) {
+                existing = pos.get(a);
+                break;
+              }
+            }
+            if (!existing) {
+              existing = resolveDevicePosition(dev.id, currentCustomMap, globalDeviceViewMode, allAvailableDevices);
+            }
             if (existing) {
-              pos.set(devId, existing);
-              pos.set(cleanId, existing);
+              devAliases.forEach((a) => pos.set(a, existing!));
             } else {
               const defaultTowerPos = {
                 x: tower.x + 480,
                 y: tower.y + devIdx * 120,
               };
-              pos.set(devId, defaultTowerPos);
-              pos.set(cleanId, defaultTowerPos);
+              devAliases.forEach((a) => pos.set(a, defaultTowerPos));
             }
           });
         });
@@ -2749,23 +3358,24 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       // Universal Fallback for any other devices in custom map mode so no node is ever skipped
       let unposIdx = 0;
       allAvailableDevices.forEach((n) => {
-        if (!pos.has(n.id)) {
-          const cleanId = n.id.replace(/^hw-/, '').replace(/^radio-/, '');
-          const existing =
-            (globalDeviceViewMode === 'physical'
-              ? currentCustomMap.physicalPositions?.[n.id] || currentCustomMap.physicalPositions?.[cleanId]
-              : currentCustomMap.devicePositions?.[n.id] || currentCustomMap.devicePositions?.[cleanId]) ||
-            (currentCustomMap.devicePositions && (currentCustomMap.devicePositions[n.id] || currentCustomMap.devicePositions[cleanId])) ||
-            pos.get(cleanId);
+        const aliases = getDevicePositionAliases(n.id, currentCustomMap, allAvailableDevices);
+        let hasAny = false;
+        for (const a of aliases) {
+          if (pos.has(a)) {
+            hasAny = true;
+            break;
+          }
+        }
+        if (!hasAny) {
+          const existing = resolveDevicePosition(n.id, currentCustomMap, globalDeviceViewMode, allAvailableDevices);
           if (existing) {
-            pos.set(n.id, existing);
-            pos.set(cleanId, existing);
+            aliases.forEach((a) => pos.set(a, existing));
           } else {
-            pos.set(n.id, {
+            const fallback = {
               x: 180 + (unposIdx % 4) * 280,
               y: 200 + Math.floor(unposIdx / 4) * 220,
-            });
-            pos.set(cleanId, pos.get(n.id)!);
+            };
+            aliases.forEach((a) => pos.set(a, fallback));
             unposIdx++;
           }
         }
@@ -2773,9 +3383,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
       // While actively dragging a node, apply its real-time drag position
       if (draggingNodeId && customPositions[draggingNodeId]) {
-        pos.set(draggingNodeId, customPositions[draggingNodeId]);
-        const cleanId = draggingNodeId.replace(/^hw-/, '').replace(/^radio-/, '');
-        pos.set(cleanId, customPositions[draggingNodeId]);
+        const dragPos = customPositions[draggingNodeId];
+        const dragAliases = getDevicePositionAliases(draggingNodeId, currentCustomMap, allAvailableDevices);
+        dragAliases.forEach((a) => pos.set(a, dragPos));
       }
 
       return pos;
@@ -2830,6 +3440,512 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
     return pos;
   }, [topology, allAvailableDevices, customPositions, activeMapId, currentCustomMap, globalDeviceViewMode, draggingNodeId]);
+
+  // Helper to find device position for auto-attaching sticky notes
+  const getDevicePositionForNote = useCallback(
+    (deviceId: string): { x: number; y: number } | null => {
+      if (!deviceId) return null;
+      const cleanId = deviceId.replace(/^hw-/, '');
+      const hwId = 'hw-' + cleanId;
+      return (
+        nodePositions.get(deviceId) ||
+        nodePositions.get(cleanId) ||
+        nodePositions.get(hwId) ||
+        customPositions[deviceId] ||
+        customPositions[cleanId] ||
+        customPositions[hwId] ||
+        (currentCustomMap?.devicePositions && (
+          currentCustomMap.devicePositions[deviceId] ||
+          currentCustomMap.devicePositions[cleanId] ||
+          currentCustomMap.devicePositions[hwId]
+        )) ||
+        null
+      );
+    },
+    [nodePositions, customPositions, currentCustomMap]
+  );
+
+  // Synchronize device sticky notes from database & localStorage
+  const syncStickyNotesWithDatabase = useCallback(async () => {
+    try {
+      const dbNotes = await syncDeviceNotesFromDatabase();
+      if (!Array.isArray(dbNotes) || dbNotes.length === 0) return;
+
+      const notesByDev = new Map<string, CustomTopologyStickyNote>();
+      for (const n of dbNotes) {
+        if (isTombstoned(n.id, n.linkedDeviceId)) continue;
+        if (n.linkedDeviceId) {
+          const clean = n.linkedDeviceId.replace(/^hw-/, '');
+          notesByDev.set(n.linkedDeviceId, n);
+          notesByDev.set(clean, n);
+          notesByDev.set('hw-' + clean, n);
+        }
+        if (n.id) notesByDev.set(n.id, n);
+      }
+
+      // 1. Sync custom maps
+      setCustomMaps((prevMaps) => {
+        let hasChanges = false;
+        const updatedMaps = prevMaps.map((map) => {
+          const currentNotes = Array.isArray(map.stickyNotes) ? map.stickyNotes : [];
+          const existingKeys = new Set<string>();
+
+          let mapChanged = false;
+          const mergedNotes = currentNotes
+            .filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId))
+            .map((sn) => {
+              const match = (sn.linkedDeviceId && notesByDev.get(sn.linkedDeviceId)) || notesByDev.get(sn.id);
+              if (match) {
+                existingKeys.add(match.id);
+                if (match.linkedDeviceId) existingKeys.add(match.linkedDeviceId);
+                if (
+                  sn.title !== match.title ||
+                  sn.content !== match.content ||
+                  sn.color !== match.color
+                ) {
+                  mapChanged = true;
+                  return {
+                    ...sn,
+                    id: match.id || sn.id,
+                    title: match.title,
+                    content: match.content,
+                    color: match.color || sn.color,
+                    updatedAt: match.updatedAt || sn.updatedAt,
+                  };
+                }
+              }
+              return sn;
+            });
+
+          // Check if any device in this map has a note in DB not yet rendered on map
+          const devIds = Array.isArray(map.deviceIds) ? map.deviceIds : Object.keys(map.devicePositions || {});
+          for (const dId of devIds) {
+            const match = notesByDev.get(dId);
+            if (match && !isTombstoned(match.id, match.linkedDeviceId || dId) && !existingKeys.has(match.id) && !existingKeys.has(dId)) {
+              const devPos = map.devicePositions?.[dId] || { x: 200, y: 150 };
+              mergedNotes.push({
+                ...match,
+                x: (devPos.x || 200) + 120,
+                y: (devPos.y || 150) + 40,
+                viewMode: map.deviceDisplayModes?.[dId] || 'card',
+              });
+              existingKeys.add(match.id);
+              existingKeys.add(dId);
+              mapChanged = true;
+            }
+          }
+
+          if (mapChanged) {
+            hasChanges = true;
+            return {
+              ...map,
+              stickyNotes: mergedNotes,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return map;
+        });
+
+        if (hasChanges) {
+          saveCustomMaps(updatedMaps);
+          return updatedMaps;
+        }
+        return prevMaps;
+      });
+
+      // 2. Sync default map sticky notes
+      setDefaultStickyNotes((prevNotes) => {
+        const existingKeys = new Set<string>();
+        let defaultChanged = false;
+
+        const mergedNotes = prevNotes
+          .filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId))
+          .map((sn) => {
+            const match = (sn.linkedDeviceId && notesByDev.get(sn.linkedDeviceId)) || notesByDev.get(sn.id);
+            if (match) {
+              existingKeys.add(match.id);
+              if (match.linkedDeviceId) existingKeys.add(match.linkedDeviceId);
+              if (
+                sn.title !== match.title ||
+                sn.content !== match.content ||
+                sn.color !== match.color
+              ) {
+                defaultChanged = true;
+                return {
+                  ...sn,
+                  id: match.id || sn.id,
+                  title: match.title,
+                  content: match.content,
+                  color: match.color || sn.color,
+                  updatedAt: match.updatedAt || sn.updatedAt,
+                };
+              }
+            }
+            return sn;
+          });
+
+        // Auto-attach any device note that exists in DB and is in allAvailableDevices
+        for (const [devId, match] of notesByDev.entries()) {
+          if (!isTombstoned(match.id, match.linkedDeviceId || devId) && !existingKeys.has(match.id) && !existingKeys.has(match.linkedDeviceId || devId)) {
+            const devPos = getDevicePositionForNote(match.linkedDeviceId || devId);
+            const x = devPos ? devPos.x + 120 : (Number(match.x) || 200);
+            const y = devPos ? devPos.y + 40 : (Number(match.y) || 150);
+            mergedNotes.push({
+              ...match,
+              x,
+              y,
+              viewMode: 'card',
+            });
+            existingKeys.add(match.id);
+            existingKeys.add(match.linkedDeviceId || devId);
+            defaultChanged = true;
+          }
+        }
+
+        if (defaultChanged) {
+          try {
+            localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(mergedNotes));
+          } catch (e) {}
+          return mergedNotes;
+        }
+        return prevNotes;
+      });
+    } catch (err) {
+      console.warn('[Sync Sticky Notes Error]', err);
+    }
+  }, [saveCustomMaps, getDevicePositionForNote, isTombstoned]);
+
+  // Listen to nettopology_device_notes_updated and nettopology_custom_maps_updated
+  useEffect(() => {
+    syncStickyNotesWithDatabase();
+
+    const handleDeviceNotesUpdated = (e: Event) => {
+      const customEvt = e as CustomEvent;
+      const detail = customEvt.detail;
+      if (!detail) {
+        syncStickyNotesWithDatabase();
+        return;
+      }
+
+      if (detail.unlinked) {
+        const targetId = detail.id;
+        const prevDevId = detail.previousDeviceId;
+        const cleanPrev = prevDevId?.replace(/^hw-/, '');
+        const hwPrev = cleanPrev ? 'hw-' + cleanPrev : undefined;
+
+        setCustomMaps((prev) => {
+          const updated = prev.map((m) => ({
+            ...m,
+            stickyNotes: (m.stickyNotes || []).map((sn) => {
+              if (
+                sn.id === targetId ||
+                (prevDevId && (sn.linkedDeviceId === prevDevId || sn.linkedDeviceId === cleanPrev || sn.linkedDeviceId === hwPrev))
+              ) {
+                const next = { ...sn, updatedAt: new Date().toISOString() };
+                delete next.linkedDeviceId;
+                return next;
+              }
+              return sn;
+            }),
+          }));
+          saveCustomMaps(updated);
+          return updated;
+        });
+
+        setDefaultStickyNotes((prev) => {
+          const updated = prev.map((sn) => {
+            if (
+              sn.id === targetId ||
+              (prevDevId && (sn.linkedDeviceId === prevDevId || sn.linkedDeviceId === cleanPrev || sn.linkedDeviceId === hwPrev))
+            ) {
+              const next = { ...sn, updatedAt: new Date().toISOString() };
+              delete next.linkedDeviceId;
+              return next;
+            }
+            return sn;
+          });
+          try {
+            localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+        return;
+      }
+
+      if (detail.deleted) {
+        const deletedId = detail.id;
+        const deletedDevId = detail.deviceId;
+        const cleanDevId = deletedDevId?.replace(/^hw-/, '');
+        const hwDevId = cleanDevId ? 'hw-' + cleanDevId : undefined;
+
+        if (deletedId) deletedNoteIdsRef.current.add(deletedId);
+        if (deletedDevId) {
+          deletedDeviceIdsRef.current.add(deletedDevId);
+          if (cleanDevId) deletedDeviceIdsRef.current.add(cleanDevId);
+          if (hwDevId) deletedDeviceIdsRef.current.add(hwDevId);
+        }
+
+        try {
+          const notesTombstones = Array.from(deletedNoteIdsRef.current);
+          sessionStorage.setItem('nettopology_deleted_notes_tombstone', JSON.stringify(notesTombstones));
+          const devsTombstones = Array.from(deletedDeviceIdsRef.current);
+          sessionStorage.setItem('nettopology_deleted_devices_tombstone', JSON.stringify(devsTombstones));
+        } catch (e) {}
+
+        const isTarget = (n: CustomTopologyStickyNote) => {
+          if (!n) return false;
+          if (deletedId && n.id === deletedId) return true;
+          if (deletedDevId && (n.linkedDeviceId === deletedDevId || n.linkedDeviceId === cleanDevId || n.linkedDeviceId === hwDevId)) return true;
+          return false;
+        };
+
+        setCustomMaps((prev) => {
+          const updated = prev.map((m) => ({
+            ...m,
+            stickyNotes: (m.stickyNotes || []).filter((n) => !isTarget(n)),
+          }));
+          saveCustomMaps(updated);
+          return updated;
+        });
+
+        setDefaultStickyNotes((prev) => {
+          const updated = prev.filter((n) => !isTarget(n));
+          try {
+            localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+        return;
+      }
+
+      // Saved / updated note from Inventory or anywhere else (link / reassign / edit)
+      const note: CustomTopologyStickyNote = (detail.note || detail) as CustomTopologyStickyNote;
+      if (!note || !note.id) return;
+      if (detail.newDeviceId) {
+        note.linkedDeviceId = detail.newDeviceId;
+      }
+
+      // Clear tombstones for this note and device immediately so it is never suppressed
+      deletedNoteIdsRef.current.delete(note.id);
+      if (note.linkedDeviceId) {
+        const clean = note.linkedDeviceId.replace(/^hw-/, '');
+        deletedDeviceIdsRef.current.delete(note.linkedDeviceId);
+        deletedDeviceIdsRef.current.delete(clean);
+        deletedDeviceIdsRef.current.delete('hw-' + clean);
+      }
+      try {
+        const storedNotes = sessionStorage.getItem('nettopology_deleted_notes_tombstone');
+        if (storedNotes) {
+          const arr = JSON.parse(storedNotes);
+          if (Array.isArray(arr)) {
+            sessionStorage.setItem('nettopology_deleted_notes_tombstone', JSON.stringify(arr.filter((id) => id !== note.id)));
+          }
+        }
+        if (note.linkedDeviceId) {
+          const clean = note.linkedDeviceId.replace(/^hw-/, '');
+          const storedDevs = sessionStorage.getItem('nettopology_deleted_devices_tombstone');
+          if (storedDevs) {
+            const arr = JSON.parse(storedDevs);
+            if (Array.isArray(arr)) {
+              sessionStorage.setItem('nettopology_deleted_devices_tombstone', JSON.stringify(arr.filter((id) => id !== note.linkedDeviceId && id !== clean)));
+            }
+          }
+        }
+      } catch (e) {}
+
+      setShowStickyNotes(true);
+      try {
+        localStorage.setItem('nettopology_show_sticky_notes', 'true');
+      } catch (e) {}
+
+      const targetDevId = note.linkedDeviceId;
+      const cleanDevId = targetDevId?.replace(/^hw-/, '');
+      const hwDevId = cleanDevId ? 'hw-' + cleanDevId : undefined;
+
+      const prevDevId = detail.previousDeviceId;
+      const cleanPrevId = prevDevId?.replace(/^hw-/, '');
+      const hwPrevId = cleanPrevId ? 'hw-' + cleanPrevId : undefined;
+
+      setCustomMaps((prev) => {
+        const updated = prev.map((m) => {
+          const currentNotes = (m.stickyNotes || []).filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId));
+          const exists = currentNotes.some(
+            (n) =>
+              n.id === note.id ||
+              (targetDevId &&
+                (n.linkedDeviceId === targetDevId ||
+                  n.linkedDeviceId === cleanDevId ||
+                  n.linkedDeviceId === hwDevId)) ||
+              (prevDevId &&
+                (n.linkedDeviceId === prevDevId ||
+                  n.linkedDeviceId === cleanPrevId ||
+                  n.linkedDeviceId === hwPrevId))
+          );
+
+          let newNotes: CustomTopologyStickyNote[];
+          if (exists) {
+            newNotes = currentNotes.map((n) => {
+              if (
+                n.id === note.id ||
+                (targetDevId &&
+                  (n.linkedDeviceId === targetDevId ||
+                    n.linkedDeviceId === cleanDevId ||
+                    n.linkedDeviceId === hwDevId)) ||
+                (prevDevId &&
+                  (n.linkedDeviceId === prevDevId ||
+                    n.linkedDeviceId === cleanPrevId ||
+                    n.linkedDeviceId === hwPrevId))
+              ) {
+                return {
+                  ...n,
+                  id: note.id,
+                  title: note.title,
+                  content: note.content,
+                  color: note.color || n.color,
+                  linkedDeviceId: targetDevId,
+                  updatedAt: note.updatedAt || new Date().toISOString(),
+                };
+              }
+              return n;
+            });
+          } else {
+            const hasDev =
+              (Array.isArray(m.deviceIds) &&
+                (m.deviceIds.includes(targetDevId!) ||
+                  (cleanDevId && m.deviceIds.includes(cleanDevId)) ||
+                  (hwDevId && m.deviceIds.includes(hwDevId)))) ||
+              (m.devicePositions &&
+                (m.devicePositions[targetDevId!] ||
+                  (cleanDevId && m.devicePositions[cleanDevId]) ||
+                  (hwDevId && m.devicePositions[hwDevId])));
+
+            if (hasDev) {
+              const devPos =
+                (m.devicePositions &&
+                  (m.devicePositions[targetDevId!] ||
+                    (cleanDevId && m.devicePositions[cleanDevId]) ||
+                    (hwDevId && m.devicePositions[hwDevId]))) ||
+                { x: 200, y: 150 };
+              newNotes = [
+                ...currentNotes,
+                {
+                  ...note,
+                  linkedDeviceId: targetDevId,
+                  x: (devPos.x || 200) + 120,
+                  y: (devPos.y || 150) + 40,
+                  viewMode: (targetDevId && m.deviceDisplayModes?.[targetDevId]) || 'card',
+                },
+              ];
+            } else {
+              newNotes = currentNotes;
+            }
+          }
+
+          return {
+            ...m,
+            stickyNotes: newNotes,
+            updatedAt: new Date().toISOString(),
+          };
+        });
+
+        saveCustomMaps(updated);
+        return updated;
+      });
+
+      setDefaultStickyNotes((prev) => {
+        const currentNotes = prev.filter((sn) => !isTombstoned(sn.id, sn.linkedDeviceId));
+        const exists = currentNotes.some(
+          (n) =>
+            n.id === note.id ||
+            (targetDevId &&
+              (n.linkedDeviceId === targetDevId ||
+                n.linkedDeviceId === cleanDevId ||
+                n.linkedDeviceId === hwDevId)) ||
+            (prevDevId &&
+              (n.linkedDeviceId === prevDevId ||
+                n.linkedDeviceId === cleanPrevId ||
+                n.linkedDeviceId === hwPrevId))
+        );
+
+        let updated: CustomTopologyStickyNote[];
+        if (exists) {
+          updated = currentNotes.map((n) => {
+            if (
+              n.id === note.id ||
+              (targetDevId &&
+                (n.linkedDeviceId === targetDevId ||
+                  n.linkedDeviceId === cleanDevId ||
+                  n.linkedDeviceId === hwDevId)) ||
+              (prevDevId &&
+                (n.linkedDeviceId === prevDevId ||
+                  n.linkedDeviceId === cleanPrevId ||
+                  n.linkedDeviceId === hwPrevId))
+            ) {
+              return {
+                ...n,
+                id: note.id,
+                title: note.title,
+                content: note.content,
+                color: note.color || n.color,
+                linkedDeviceId: targetDevId,
+                updatedAt: note.updatedAt || new Date().toISOString(),
+              };
+            }
+            return n;
+          });
+        } else {
+          const devPos = (targetDevId && getDevicePositionForNote(targetDevId)) || { x: 200, y: 150 };
+          updated = [
+            ...currentNotes,
+            {
+              ...note,
+              linkedDeviceId: targetDevId,
+              x: devPos.x + 120,
+              y: devPos.y + 40,
+              viewMode: 'card',
+            },
+          ];
+        }
+
+        try {
+          localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+    };
+
+    const handleCustomMapsUpdated = () => {
+      try {
+        const saved = localStorage.getItem(CUSTOM_MAPS_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.map((m: any) => ({
+              ...m,
+              stickyNotes: (m.stickyNotes || []).filter((sn: any) => !isTombstoned(sn.id, sn.linkedDeviceId)),
+            }));
+            setCustomMaps(cleaned);
+          }
+        }
+        const rawDef = localStorage.getItem('nettopology_default_sticky_notes_v1');
+        if (rawDef) {
+          const parsedDef = JSON.parse(rawDef);
+          if (Array.isArray(parsedDef)) {
+            const cleanedDef = parsedDef.filter((sn: any) => !isTombstoned(sn.id, sn.linkedDeviceId));
+            setDefaultStickyNotes(cleanedDef);
+          }
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('nettopology_device_notes_updated', handleDeviceNotesUpdated);
+    window.addEventListener('nettopology_custom_maps_updated', handleCustomMapsUpdated);
+
+    return () => {
+      window.removeEventListener('nettopology_device_notes_updated', handleDeviceNotesUpdated);
+      window.removeEventListener('nettopology_custom_maps_updated', handleCustomMapsUpdated);
+    };
+  }, [syncStickyNotesWithDatabase, saveCustomMaps, getDevicePositionForNote, isTombstoned]);
 
   // Switch to Card View with 3-second random neon border animation for the selected device
   const handleSwitchToCardWithHighlight = useCallback(
@@ -3115,20 +4231,28 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         [devCleanId]: pos,
       }));
 
-      // If in custom map, ensure the device is in deviceIds so the card is rendered
+      // If in custom map, ensure the device is in deviceIds so the card is rendered and all aliases updated
       if (currentCustomMap && activeMapId !== 'default') {
         const deviceIds = currentCustomMap.deviceIds || [];
-        if (!deviceIds.includes(canonicalId) && !deviceIds.includes(dev.id)) {
-          const updatedCustomMap = {
-            ...currentCustomMap,
-            deviceIds: [...deviceIds, canonicalId],
-            devicePositions: {
-              ...(currentCustomMap.devicePositions || {}),
-              [canonicalId]: pos,
-            },
-          };
-          saveCustomMaps(customMaps.map((m) => (m.id === currentCustomMap.id ? updatedCustomMap : m)));
-        }
+        const aliases = getDevicePositionAliases(dev.id, currentCustomMap, allAvailableDevices);
+        const posUpdates: Record<string, { x: number; y: number }> = {};
+        aliases.forEach((a) => {
+          posUpdates[a] = pos;
+        });
+        const updatedCustomMap: CustomTopologyMap = {
+          ...currentCustomMap,
+          deviceIds: Array.from(new Set([...deviceIds, canonicalId, dev.id, devCleanId])),
+          devicePositions: {
+            ...(currentCustomMap.devicePositions || {}),
+            ...posUpdates,
+          },
+          physicalPositions: {
+            ...(currentCustomMap.physicalPositions || {}),
+            ...posUpdates,
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        saveCustomMaps(customMaps.map((m) => (m.id === currentCustomMap.id ? updatedCustomMap : m)));
       }
 
       const scale = Math.max(0.7, Math.min(1.2, zoom || 1));
@@ -3295,7 +4419,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }
 
       // 1.8 Handling Sticky Note Drag
-      if (draggingNoteId && containerRef.current && currentCustomMap) {
+      if (draggingNoteId && containerRef.current) {
         const dist = Math.hypot(
           e.clientX - dragNoteOffset.current.startClientX,
           e.clientY - dragNoteOffset.current.startClientY
@@ -3313,15 +4437,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
         dragNoteLatestCoords.current = { id: draggingNoteId, x: newX, y: newY };
 
-        const updatedNotes = (currentCustomMap.stickyNotes || []).map((n) =>
-          n.id === draggingNoteId ? { ...n, x: newX, y: newY } : n
-        );
-        const updatedMap: CustomTopologyMap = {
-          ...currentCustomMap,
-          stickyNotes: updatedNotes,
-          updatedAt: new Date().toISOString(),
-        };
-        setCustomMaps((prev) => prev.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+        if (currentCustomMap) {
+          const updatedNotes = (currentCustomMap.stickyNotes || []).map((n) =>
+            n.id === draggingNoteId ? { ...n, x: newX, y: newY } : n
+          );
+          const updatedMap: CustomTopologyMap = {
+            ...currentCustomMap,
+            stickyNotes: updatedNotes,
+            updatedAt: new Date().toISOString(),
+          };
+          setCustomMaps((prev) => prev.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+        } else {
+          setDefaultStickyNotes((prev) =>
+            prev.map((n) => (n.id === draggingNoteId ? { ...n, x: newX, y: newY } : n))
+          );
+        }
         return;
       }
 
@@ -3350,47 +4480,51 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               const targetMap = prevMaps.find((m) => m.id === activeMapId);
               if (!targetMap) return prevMaps;
 
-              let updatedMap: CustomTopologyMap;
-              if (globalDeviceViewMode === 'physical') {
-                updatedMap = {
-                  ...targetMap,
-                  physicalPositions: {
-                    ...(targetMap.physicalPositions || {}),
-                    [finalCoords.id]: { x: finalCoords.x, y: finalCoords.y },
-                    [cleanId]: { x: finalCoords.x, y: finalCoords.y },
-                  },
-                  updatedAt: new Date().toISOString(),
-                };
-              } else {
-                updatedMap = {
-                  ...targetMap,
-                  devicePositions: {
-                    ...(targetMap.devicePositions || {}),
-                    [finalCoords.id]: { x: finalCoords.x, y: finalCoords.y },
-                    [cleanId]: { x: finalCoords.x, y: finalCoords.y },
-                  },
-                  updatedAt: new Date().toISOString(),
-                };
-              }
+              const aliases = getDevicePositionAliases(draggingNodeId, targetMap, allAvailableDevices);
+              const posUpdates: Record<string, { x: number; y: number }> = {};
+              aliases.forEach((aId) => {
+                posUpdates[aId] = { x: finalCoords.x, y: finalCoords.y };
+              });
+
+              const updatedMap: CustomTopologyMap = {
+                ...targetMap,
+                devicePositions: {
+                  ...(targetMap.devicePositions || {}),
+                  ...posUpdates,
+                },
+                physicalPositions: {
+                  ...(targetMap.physicalPositions || {}),
+                  ...posUpdates,
+                },
+                updatedAt: new Date().toISOString(),
+              };
+
               const newMaps = prevMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
               saveCustomMaps(newMaps);
               return newMaps;
             });
 
-            // Clean up temporary drag position
+            // Clean up temporary drag position for all aliases
             setCustomPositions((prev) => {
               const next = { ...prev };
-              delete next[draggingNodeId];
-              delete next[cleanId];
+              const aliases = getDevicePositionAliases(draggingNodeId, currentCustomMap, allAvailableDevices);
+              aliases.forEach((aId) => {
+                delete next[aId];
+              });
               return next;
             });
           } else if (finalCoords) {
             // Default map
+            const aliases = getDevicePositionAliases(draggingNodeId, null, allAvailableDevices);
+            const posUpdates: Record<string, { x: number; y: number }> = {};
+            aliases.forEach((aId) => {
+              posUpdates[aId] = { x: finalCoords.x, y: finalCoords.y };
+            });
+
             setCustomPositions((latest) => {
               const updated = {
                 ...latest,
-                [finalCoords.id]: { x: finalCoords.x, y: finalCoords.y },
-                [cleanId]: { x: finalCoords.x, y: finalCoords.y },
+                ...posUpdates,
               };
               saveNodePositions(updated);
               return updated;
@@ -3455,24 +4589,40 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }
 
       if (draggingNoteId) {
-        if (dragNoteOffset.current.moved && activeMapId !== 'default') {
+        if (dragNoteOffset.current.moved) {
           const finalNoteCoords = dragNoteLatestCoords.current;
           if (finalNoteCoords) {
-            setCustomMaps((prevMaps) => {
-              const targetMap = prevMaps.find((m) => m.id === activeMapId);
-              if (!targetMap) return prevMaps;
-              const updatedNotes = (targetMap.stickyNotes || []).map((n) =>
-                n.id === finalNoteCoords.id ? { ...n, x: finalNoteCoords.x, y: finalNoteCoords.y } : n
-              );
-              const updatedMap: CustomTopologyMap = {
-                ...targetMap,
-                stickyNotes: updatedNotes,
-                updatedAt: new Date().toISOString(),
-              };
-              const newMaps = prevMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
-              saveCustomMaps(newMaps);
-              return newMaps;
-            });
+            if (activeMapId !== 'default') {
+              setCustomMaps((prevMaps) => {
+                const targetMap = prevMaps.find((m) => m.id === activeMapId);
+                if (!targetMap) return prevMaps;
+                const updatedNotes = (targetMap.stickyNotes || []).map((n) =>
+                  n.id === finalNoteCoords.id ? { ...n, x: finalNoteCoords.x, y: finalNoteCoords.y } : n
+                );
+                const updatedMap: CustomTopologyMap = {
+                  ...targetMap,
+                  stickyNotes: updatedNotes,
+                  updatedAt: new Date().toISOString(),
+                };
+                const newMaps = prevMaps.map((m) => (m.id === updatedMap.id ? updatedMap : m));
+                saveCustomMaps(newMaps);
+                return newMaps;
+              });
+            } else {
+              setDefaultStickyNotes((prevNotes) => {
+                const updated = prevNotes.map((n) =>
+                  n.id === finalNoteCoords.id ? { ...n, x: finalNoteCoords.x, y: finalNoteCoords.y } : n
+                );
+                try {
+                  localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updated));
+                } catch (e) {}
+                const movedNote = updated.find((n) => n.id === finalNoteCoords.id);
+                if (movedNote?.linkedDeviceId) {
+                  persistDeviceNoteToDatabase(movedNote).catch(() => {});
+                }
+                return updated;
+              });
+            }
           }
         }
         setDraggingNoteId(null);
@@ -4076,7 +5226,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       dir={isRtl ? 'rtl' : 'ltr'}
       className={`${isRtl ? 'text-right' : 'text-left'} overflow-hidden text-slate-100 transition-all duration-300 ${
         isFullMode
-          ? 'fixed inset-0 z-[99999] w-screen h-screen bg-slate-950 flex flex-col m-0 p-0 shadow-2xl'
+          ? 'fixed top-0 left-0 right-0 bottom-8 z-[99999] bg-slate-950 flex flex-col m-0 p-0 shadow-2xl'
           : 'flex flex-col h-full min-h-[500px] bg-transparent'
       }`}
     >
@@ -4192,6 +5342,22 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <span>{isScanning ? t('topology_scanning') : t('topology_scan_cdp_lldp')}</span>
             </button>
 
+            {/* Comprehensive CDP/LLDP Discovery Modal */}
+            <button
+              onClick={() => {
+                if (onOpenDiscoveryModal) {
+                  onOpenDiscoveryModal();
+                } else {
+                  setIsDiscoveryModalOpen(true);
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-cyan-500/20 transition active:scale-95 cursor-pointer"
+              title={isEn ? 'Open CDP & LLDP Topology Discovery Modal' : 'کشف هوشمند اتصالات و توپولوژی با CDP و LLDP'}
+            >
+              <Radar className="w-3.5 h-3.5 text-cyan-200" />
+              <span>{isEn ? 'Discover Topology' : 'کشف هوشمند توپولوژی'}</span>
+            </button>
+
             {/* Canvas Controls */}
             {viewMode === 'schematic' && (
               <div className="flex items-center gap-1 bg-slate-900/60 border border-white/10 rounded-xl p-1">
@@ -4219,10 +5385,15 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 </button>
                 <button
                   onClick={handleResetView}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
+                  disabled={isRefreshingView}
+                  className={`p-1.5 rounded-lg transition ${
+                    isRefreshingView
+                      ? 'text-cyan-400 bg-cyan-500/20 cursor-wait'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
                   title={t('topology_zoom_reset_title')}
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingView ? 'animate-spin' : ''}`} />
                 </button>
                 <button
                   onClick={toggleFullMode}
@@ -4251,10 +5422,55 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {/* Custom Map Secondary Toolbar & Cabling Step Banner */}
       {viewMode === 'schematic' && (!isFullMode || showToolbarInFullMode) && (
         <div className="border-b border-white/10 bg-slate-900/90 backdrop-blur-xl z-20">
-          {/* Map Selector & Tool Bar */}
-          <div className="p-2 sm:px-4 flex flex-wrap items-center justify-between gap-3 text-xs">
-            {/* Map Selector & Management */}
-            <div className="flex items-center flex-wrap gap-2">
+          {isSecondaryToolbarCollapsed ? (
+            /* Collapsed State: Minimal compact bar */
+            <div className="py-1 px-3 sm:px-4 flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSecondaryToolbarCollapsed(false);
+                    try {
+                      localStorage.setItem('nettopology_schematic_toolbar_collapsed', 'false');
+                    } catch (e) {}
+                  }}
+                  className="p-1 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 transition cursor-pointer flex items-center gap-1.5 text-[11px] font-medium"
+                  title={t('topology_expand_toolbar')}
+                  aria-label={t('topology_expand_toolbar')}
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <MapIcon className="w-3 h-3" />
+                  <span>{t('topology_map_selector_label')}</span>
+                </button>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {activeMapId === 'default' ? t('topology_map_auto_discovered') : (currentCustomMap?.name || activeMapId)}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-500">
+                {isEn ? 'Toolbar minimized' : 'نوار ابزار کوچک شده'}
+              </div>
+            </div>
+          ) : (
+            /* Map Selector & Tool Bar */
+            <div className="p-2 sm:px-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+              {/* Map Selector & Management */}
+              <div className="flex items-center flex-wrap gap-2">
+                {/* Toggle Collapse/Expand Button for Toolbar */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSecondaryToolbarCollapsed(true);
+                    try {
+                      localStorage.setItem('nettopology_schematic_toolbar_collapsed', 'true');
+                    } catch (e) {}
+                  }}
+                  className="p-1.5 rounded-xl border transition cursor-pointer flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border-white/10"
+                  title={t('topology_collapse_toolbar')}
+                  aria-label={t('topology_collapse_toolbar')}
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+
               <div className="flex items-center gap-1.5 text-slate-300 font-medium">
                 <MapIcon className="w-3.5 h-3.5 text-cyan-400" />
                 <span>{t('topology_map_selector_label')}</span>
@@ -4398,54 +5614,44 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   <span>{t('topology_tool_add_device')}</span>
                 </button>
 
-                {/* Add Rack Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (globalDeviceViewMode === 'card') {
-                      setGlobalDeviceViewMode('physical');
-                    }
-                    setIsAddRackOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
-                  title={isEn ? "Add standard datacenter rack (16U to 44U)" : "افزودن رک استاندارد دیتا سنتر (16U تا 44U)"}
-                >
-                  <Box className="w-3.5 h-3.5" />
-                  <span>{isEn ? 'Add Rack' : 'افزودن رک (Rack)'}</span>
-                </button>
+                {/* Physical View Exclusive Buttons: Add Rack, Add Tower, Install Hardware in Rack */}
+                {globalDeviceViewMode === 'physical' && (
+                  <>
+                    {/* Add Rack Button */}
+                    <button
+                      type="button"
+                      onClick={() => setIsAddRackOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
+                      title={isEn ? "Add standard datacenter rack (16U to 44U)" : "افزودن رک استاندارد دیتا سنتر (16U تا 44U)"}
+                    >
+                      <Box className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Add Rack' : 'افزودن رک (Rack)'}</span>
+                    </button>
 
-                {/* Add Tower Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (globalDeviceViewMode === 'card') {
-                      setGlobalDeviceViewMode('physical');
-                    }
-                    setIsAddTowerOpen(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
-                  title={isEn ? "Add telecom tower or mast (6m to 60m)" : "افزودن دکل مهاری یا خودایستا مخابراتی (۶ تا ۶۰ متر)"}
-                >
-                  <Radio className="w-3.5 h-3.5" />
-                  <span>{isEn ? 'Add Tower' : 'افزودن دکل (Tower)'}</span>
-                </button>
+                    {/* Add Tower Button */}
+                    <button
+                      type="button"
+                      onClick={() => setIsAddTowerOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
+                      title={isEn ? "Add telecom tower or mast (6m to 60m)" : "افزودن دکل مهاری یا خودایستا مخابراتی (۶ تا ۶۰ متر)"}
+                    >
+                      <Radio className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Add Tower' : 'افزودن دکل (Tower)'}</span>
+                    </button>
 
-                {/* Install Hardware in Rack Button (shown if any racks exist) */}
-                {(currentCustomMap.racks?.length || 0) > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (globalDeviceViewMode === 'card') {
-                        setGlobalDeviceViewMode('physical');
-                      }
-                      handleOpenAddHardware();
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
-                    title={isEn ? "Install HPE/Asus/Cisco server, switch, router, storage, patch panel in rack" : "نصب سرور HPE/Asus/Cisco، سوییچ، روتر، استوریج، پچ پنل و کیبل منیجمنت در رک"}
-                  >
-                    <Server className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Install Hardware' : 'نصب سخت‌افزار'}</span>
-                  </button>
+                    {/* Install Hardware in Rack Button (shown if any racks exist) */}
+                    {(currentCustomMap.racks?.length || 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddHardware()}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-medium shadow-xs transition active:scale-95 text-xs cursor-pointer"
+                        title={isEn ? "Install HPE/Asus/Cisco server, switch, router, storage, patch panel in rack" : "نصب سرور HPE/Asus/Cisco، سوییچ، روتر، استوریج، پچ پنل و کیبل منیجمنت در رک"}
+                      >
+                        <Server className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Install Hardware' : 'نصب سخت‌افزار'}</span>
+                      </button>
+                    )}
+                  </>
                 )}
 
                 {/* Global Device Display Mode: Card (Cabling) vs Physical (Chassis/Rackmount) */}
@@ -4525,8 +5731,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               </div>
             )}
           </div>
+        )}
 
-          {/* Persistent Guided Cabling Banner */}
+        {/* Persistent Guided Cabling Banner */}
           {activeTool === 'cable' && activeMapId !== 'default' && (
             <div className="px-4 py-2 bg-gradient-to-r from-purple-900/90 to-indigo-900/90 border-t border-purple-500/30 flex items-center justify-between text-xs text-white shadow-inner">
               <div className="flex items-center gap-2">
@@ -5183,28 +6390,26 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                         <Plus className="w-4 h-4" />
                         <span>{t('topology_tool_add_device')}</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setGlobalDeviceViewMode('physical');
-                          setIsAddRackOpen(true);
-                        }}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg transition active:scale-95"
-                      >
-                        <Box className="w-4 h-4" />
-                        <span>{isEn ? 'Add Server Rack' : 'افزودن رک سرور (Rack)'}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setGlobalDeviceViewMode('physical');
-                          setIsAddTowerOpen(true);
-                        }}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-lg transition active:scale-95"
-                      >
-                        <Radio className="w-4 h-4" />
-                        <span>{isEn ? 'Add Telecom Tower' : 'افزودن دکل مخابراتی (Tower)'}</span>
-                      </button>
+                      {globalDeviceViewMode === 'physical' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddRackOpen(true)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg transition active:scale-95"
+                          >
+                            <Box className="w-4 h-4" />
+                            <span>{isEn ? 'Add Server Rack' : 'افزودن رک سرور (Rack)'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsAddTowerOpen(true)}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-lg transition active:scale-95"
+                          >
+                            <Radio className="w-4 h-4" />
+                            <span>{isEn ? 'Add Telecom Tower' : 'افزودن دکل مخابراتی (Tower)'}</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </foreignObject>
@@ -5692,15 +6897,25 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               });
             })()}
 
-              {/* Sticky Notes Connector Lines to Linked Devices (rendered only if showStickyNotes and matching current viewMode) */}
-              {showStickyNotes && currentCustomMap?.stickyNotes && currentCustomMap.stickyNotes
-                .filter((note) => (note.viewMode || 'card') === globalDeviceViewMode)
+              {/* Sticky Notes Connector Lines to Linked Devices (rendered only if showStickyNotes) */}
+              {showStickyNotes && activeStickyNotes && activeStickyNotes
+                .filter((note) => !note.viewMode || !!note.linkedDeviceId || note.viewMode === globalDeviceViewMode)
                 .map((note) => {
                 if (!note.linkedDeviceId) return null;
-                const devPos = nodePositions.get(note.linkedDeviceId) || customPositions[note.linkedDeviceId];
+                const cleanId = note.linkedDeviceId.replace(/^hw-/, '');
+                const devPos =
+                  getDevicePositionForNote(note.linkedDeviceId) ||
+                  nodePositions.get(note.linkedDeviceId) ||
+                  customPositions[note.linkedDeviceId] ||
+                  nodePositions.get(cleanId) ||
+                  customPositions[cleanId] ||
+                  nodePositions.get('hw-' + cleanId) ||
+                  customPositions['hw-' + cleanId];
                 if (!devPos) return null;
-                const noteCenterX = note.x + 115;
-                const noteCenterY = note.y + 60;
+                const renderX = (note.x === 100 && note.y === 100) ? devPos.x + 240 : (note.x ?? 100);
+                const renderY = (note.x === 100 && note.y === 100) ? devPos.y - 10 : (note.y ?? 100);
+                const noteCenterX = renderX + 115;
+                const noteCenterY = renderY + 60;
                 const devCenterX = devPos.x + 113;
                 const devCenterY = devPos.y + 50;
 
@@ -5722,38 +6937,61 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 );
               })}
 
-              {/* Sticky Notes on Canvas (rendered only if showStickyNotes and matching current viewMode) */}
-              {showStickyNotes && currentCustomMap?.stickyNotes && currentCustomMap.stickyNotes
-                .filter((note) => (note.viewMode || 'card') === globalDeviceViewMode)
-                .map((note) => (
-                <foreignObject
-                  key={note.id}
-                  x={note.x}
-                  y={note.y}
-                  width="260"
-                  height="300"
-                  className="overflow-visible interactive-node"
-                  style={{ overflow: 'visible' }}
-                >
-                  <TopologyStickyNote
-                    note={note}
-                    isEn={isEn}
-                    availableDevices={allAvailableDevices}
-                    onUpdate={handleUpdateStickyNote}
-                    onDelete={handleDeleteStickyNote}
-                    onStartDrag={handleStickyNoteStartDrag}
-                    onFocusDevice={(devId) => {
-                      const p = nodePositions.get(devId) || customPositions[devId];
-                      if (p) {
-                        setPan({
-                          x: -p.x * zoom + 300,
-                          y: -p.y * zoom + 200,
-                        });
-                      }
-                    }}
-                  />
-                </foreignObject>
-              ))}
+              {/* Sticky Notes on Canvas (rendered only if showStickyNotes) */}
+              {showStickyNotes && activeStickyNotes && activeStickyNotes
+                .filter((note) => !note.viewMode || !!note.linkedDeviceId || note.viewMode === globalDeviceViewMode)
+                .map((note) => {
+                  const cleanId = note.linkedDeviceId ? note.linkedDeviceId.replace(/^hw-/, '') : '';
+                  const linkedDevPos = note.linkedDeviceId
+                    ? getDevicePositionForNote(note.linkedDeviceId) ||
+                      nodePositions.get(note.linkedDeviceId) ||
+                      customPositions[note.linkedDeviceId] ||
+                      nodePositions.get(cleanId) ||
+                      customPositions[cleanId] ||
+                      nodePositions.get('hw-' + cleanId) ||
+                      customPositions['hw-' + cleanId]
+                    : null;
+                  const renderX = (note.x === 100 && note.y === 100 && linkedDevPos) ? linkedDevPos.x + 240 : (note.x ?? 100);
+                  const renderY = (note.x === 100 && note.y === 100 && linkedDevPos) ? linkedDevPos.y - 10 : (note.y ?? 100);
+
+                  return (
+                    <foreignObject
+                      key={note.id}
+                      x={renderX}
+                      y={renderY}
+                      width="260"
+                      height="300"
+                      className="overflow-visible interactive-node"
+                      style={{ overflow: 'visible' }}
+                    >
+                      <TopologyStickyNote
+                        note={{ ...note, x: renderX, y: renderY }}
+                        isEn={isEn}
+                        availableDevices={allAvailableDevices}
+                        allNotes={activeStickyNotes}
+                        onUpdate={handleUpdateStickyNote}
+                        onDelete={handlePromptDeleteStickyNote}
+                        onStartDrag={handleStickyNoteStartDrag}
+                        onFocusDevice={(devId) => {
+                          const cleanDevId = devId.replace(/^hw-/, '');
+                          const p =
+                            nodePositions.get(devId) ||
+                            customPositions[devId] ||
+                            nodePositions.get(cleanDevId) ||
+                            customPositions[cleanDevId] ||
+                            nodePositions.get('hw-' + cleanDevId) ||
+                            customPositions['hw-' + cleanDevId];
+                          if (p) {
+                            setPan({
+                              x: -p.x * zoom + 300,
+                              y: -p.y * zoom + 200,
+                            });
+                          }
+                        }}
+                      />
+                    </foreignObject>
+                  );
+                })}
               </g>
             </svg>
 
@@ -6646,7 +7884,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {addFloorBuilding && (
         <div
           data-modal-backdrop="true"
-          className="fixed inset-0 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
           onClick={() => setAddFloorBuilding(null)}
         >
           <div
@@ -6723,7 +7961,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {showAddBuildingModal && (
         <div
           data-modal-backdrop="true"
-          className="fixed inset-0 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
           onClick={() => setShowAddBuildingModal(false)}
         >
           <div
@@ -6802,7 +8040,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {relocateDevice && (
         <div
           data-modal-backdrop="true"
-          className="fixed inset-0 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
           onClick={() => setRelocateDevice(null)}
         >
           <div
@@ -7047,7 +8285,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {addUnitModal && (
         <div
           data-modal-backdrop="true"
-          className="fixed inset-0 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
           onClick={() => setAddUnitModal(null)}
         >
           <div
@@ -7123,7 +8361,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {addRackModal && (
         <div
           data-modal-backdrop="true"
-          className="fixed inset-0 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
           onClick={() => setAddRackModal(null)}
         >
           <div
@@ -7229,7 +8467,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {renameModal && (
         <div
           data-modal-backdrop="true"
-          className="fixed inset-0 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
           onClick={() => setRenameModal(null)}
         >
           <div
@@ -7246,7 +8484,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     {t('topology_physical_rename_modal_title')}
                   </h3>
                   <p className="text-[11px] text-slate-400 font-mono">
-                    {renameModal.type.toUpperCase()}: {renameModal.currentName}
+                    {(renameModal.type || '').toUpperCase()}: {renameModal.currentName}
                   </p>
                 </div>
               </div>
@@ -7306,7 +8544,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {deleteModal && (
         <div
           data-modal-backdrop="true"
-          className="fixed inset-0 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
           onClick={() => setDeleteModal(null)}
         >
           <div
@@ -7323,7 +8561,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     {t('topology_physical_delete_modal_title')}
                   </h3>
                   <p className="text-[11px] text-rose-300/80 font-mono">
-                    {deleteModal.type.toUpperCase()}: {deleteModal.item || deleteModal.building}
+                    {(deleteModal.type || '').toUpperCase()}: {deleteModal.item || deleteModal.building}
                   </p>
                 </div>
               </div>
@@ -7401,7 +8639,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {/* Confirmation Modal for Disconnecting Cable Link */}
       {linkToDelete && (
         <div
-          className="fixed inset-0 z-[100005] flex items-center justify-center p-4 modal-backdrop-blur"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[100005] flex items-center justify-center p-4 modal-backdrop-blur"
           data-modal-backdrop="true"
           dir={isRtl ? 'rtl' : 'ltr'}
           onClick={() => setLinkToDelete(null)}
@@ -7667,7 +8905,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         target={deleteModalTarget}
         onConfirmDeleteDevice={handleConfirmDeleteDevice}
         onConfirmDeleteRack={handleConfirmDeleteRack}
+        onConfirmDeleteStickyNote={handleDeleteStickyNote}
       />
+
+      {/* CDP & LLDP Topology Discovery Modal */}
+      {isDiscoveryModalOpen && (
+        <TopologyDiscoveryModal
+          isOpen={isDiscoveryModalOpen}
+          onClose={() => setIsDiscoveryModalOpen(false)}
+          devices={allAvailableDevices}
+          customMaps={customMaps}
+          activeMapId={currentCustomMap?.id || 'default'}
+          onApplyToMap={handleApplyDiscoveredLinksAndDevices}
+          isLightMode={isLightMode}
+        />
+      )}
       </div>
     </div>
   );

@@ -30,7 +30,7 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PANEL_VERSION="1.52.1"
+PANEL_VERSION="1.62.1"
 
 # ==============================================================================
 # Enterprise Package Manager & DPKG Lock Guard
@@ -131,6 +131,91 @@ cleanup_apt_timers() {
   systemctl start apt-daily-upgrade.timer 2>/dev/null || true
 }
 trap cleanup_apt_timers EXIT
+
+# ==============================================================================
+# Enterprise Memory, Shared Memory & Resource Guard
+# Prevents "Bus error (core dumped)" and OOM crashes during Vite & esbuild builds
+# on all Linux architectures, VPS, and containerized hosts.
+# ==============================================================================
+ensure_system_resources() {
+  log_info "Verifying system memory, shared memory (/dev/shm) & resource limits..."
+  local total_swap_mb=0
+  local total_ram_mb=0
+
+  if [ -f /proc/meminfo ]; then
+    total_swap_mb=$(grep -i SwapTotal /proc/meminfo | awk '{print int($2/1024)}')
+    total_ram_mb=$(grep -i MemTotal /proc/meminfo | awk '{print int($2/1024)}')
+  elif command -v free &>/dev/null; then
+    total_swap_mb=$(free -m 2>/dev/null | awk '/Swap:/ {print $2}')
+    total_ram_mb=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}')
+  fi
+
+  total_swap_mb=${total_swap_mb:-0}
+  total_ram_mb=${total_ram_mb:-0}
+  log_info "Detected: ${total_ram_mb}MB RAM | ${total_swap_mb}MB Swap"
+
+  # 1. Expand Process Stack and File Descriptor Limits (Crucial for AST compilation)
+  ulimit -s 65536 2>/dev/null || ulimit -s unlimited 2>/dev/null || true
+  ulimit -n 65536 2>/dev/null || ulimit -n 4096 2>/dev/null || true
+  ulimit -v unlimited 2>/dev/null || true
+  ulimit -m unlimited 2>/dev/null || true
+
+  # 2. Kernel inotify and file-max adjustments (prevents OS file watcher bottlenecks)
+  sysctl -w fs.inotify.max_user_watches=524288 2>/dev/null || true
+  sysctl -w fs.inotify.max_user_instances=1024 2>/dev/null || true
+  sysctl -w fs.file-max=2097152 2>/dev/null || true
+
+  # 3. Guard Shared Memory (/dev/shm) to prevent mmap / POSIX shm SIGBUS errors
+  if [ -d /dev/shm ]; then
+    local shm_size_mb
+    shm_size_mb=$(df -m /dev/shm 2>/dev/null | awk 'NR==2 {print $2}')
+    shm_size_mb=${shm_size_mb:-0}
+    if [ "$shm_size_mb" -lt 1024 ]; then
+      log_info "Expanding /dev/shm (shared memory) to 2GB to prevent Rollup/V8 SIGBUS crashes..."
+      mount -o remount,size=2G /dev/shm 2>/dev/null || true
+    fi
+  fi
+
+  # 4. Swap file allocation for systems with low swap
+  if [ "$total_swap_mb" -lt 1500 ]; then
+    log_warning "Swap memory is low or absent (${total_swap_mb}MB). Provisioning a 2GB dedicated swap file for build stability..."
+
+    if [ -f /swapfile ] && [ "$total_swap_mb" -eq 0 ]; then
+      swapoff /swapfile 2>/dev/null || true
+      rm -f /swapfile 2>/dev/null || true
+    fi
+
+    local swap_created=false
+    if [ ! -f /swapfile ]; then
+      if command -v fallocate &>/dev/null && fallocate -l 2G /swapfile 2>/dev/null; then
+        swap_created=true
+      elif dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null; then
+        swap_created=true
+      fi
+
+      if [ "$swap_created" = true ]; then
+        chmod 600 /swapfile
+        mkswap /swapfile >/dev/null 2>&1 || true
+        swapon /swapfile >/dev/null 2>&1 || true
+
+        if ! grep -q "/swapfile" /etc/fstab 2>/dev/null; then
+          echo "/swapfile swap swap defaults 0 0" >> /etc/fstab 2>/dev/null || true
+        fi
+
+        local active_swap=$(free -m 2>/dev/null | awk '/Swap:/ {print $2}' || echo "2048")
+        log_success "Swapfile activated successfully! Total Swap now: ${active_swap}MB"
+      else
+        log_warning "Could not create /swapfile (restricted container). Proceeding with memory-conservative flags."
+      fi
+    else
+      swapon /swapfile 2>/dev/null || true
+    fi
+  fi
+}
+# Backward compatibility alias
+ensure_system_swap() {
+  ensure_system_resources
+}
 
 # ==============================================================================
 # Enterprise DevOps Architecture: Reliable TTY & Pipe Mode Execution
@@ -342,7 +427,7 @@ safe_apt_update
 
 log_step "Installing system tools, Nginx web server, and PostgreSQL database engine..."
 safe_apt_install \
-  git curl build-essential python3 python3-pip ca-certificates gnupg lsb-release xz-utils openssl ufw traceroute dnsutils whois iputils-ping \
+  git curl build-essential python3 python3-pip python3-paramiko python3-cryptography python3-websockets ca-certificates gnupg lsb-release xz-utils openssl ufw traceroute dnsutils whois iputils-ping \
   postgresql postgresql-contrib postgresql-client nginx
 
 log_step "Ensuring PostgreSQL service is enabled and started..."
@@ -516,10 +601,37 @@ fi
 # ------------------------------------------------------------------------------
 # 5. Dependency Installation & Production Build
 # ------------------------------------------------------------------------------
+# Guard memory, expand ulimits and allocate swap/shm to prevent 'Bus error (core dumped)' on VPS
+ensure_system_resources
+
 log_step "Installing NPM dependencies..."
 npm config set fetch-retry-maxtimeout 180000
 npm config set fetch-retry-mintimeout 30000
 npm config set fetch-retries 10
+
+# Configure isolated project-local TMPDIR on root filesystem to prevent /tmp noexec/size issues
+mkdir -p "$INSTALL_DIR/.tmp"
+export TMPDIR="$INSTALL_DIR/.tmp"
+chmod 777 "$INSTALL_DIR/.tmp" 2>/dev/null || true
+
+# Dynamic memory sizing based on detected system RAM
+SYS_MEM_MB=0
+if [ -f /proc/meminfo ]; then
+  SYS_MEM_MB=$(grep -i MemTotal /proc/meminfo | awk '{print int($2/1024)}')
+elif command -v free &>/dev/null; then
+  SYS_MEM_MB=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}')
+fi
+SYS_MEM_MB=${SYS_MEM_MB:-1024}
+
+NODE_HEAP_MB=2048
+if [ "$SYS_MEM_MB" -ge 4000 ]; then
+  NODE_HEAP_MB=4096
+elif [ "$SYS_MEM_MB" -le 1500 ]; then
+  NODE_HEAP_MB=1536
+fi
+
+export NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB}"
+log_info "Node.js execution environment: Heap ${NODE_HEAP_MB}MB | OS Stack Limit: 64MB | System RAM: ${SYS_MEM_MB}MB"
 
 if ! npm install; then
   log_warning "Standard npm install failed. Retrying with mirror registry (registry.npmmirror.com)..."
@@ -528,8 +640,76 @@ if ! npm install; then
   npm config delete registry
 fi
 
+# Detect architecture for native Rollup / esbuild packages
+SYS_ARCH=$(uname -m)
+
 log_step "Compiling NetTopology Production Build (Vite + TypeScript Backend)..."
-npm run build
+
+# Clear any broken or corrupt caches from prior interrupted builds
+rm -rf dist node_modules/.vite /tmp/esbuild* "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
+
+BUILD_SUCCESS=false
+
+# Tier 1: Standard Build with optimized memory flags and chunking
+log_info "Attempt 1: Running primary production build..."
+if npm run build; then
+  BUILD_SUCCESS=true
+else
+  log_warning "Primary build encountered a kernel or memory limit (Bus error/OOM). Executing Tier 2 recovery..."
+  rm -rf dist node_modules/.vite /tmp/esbuild* "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
+
+  # Re-verify and repair native platform bindings for Rollup and esbuild
+  log_info "Repairing native compilation binaries for architecture ($SYS_ARCH)..."
+  if [ "$SYS_ARCH" = "x86_64" ]; then
+    npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
+  elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
+    npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+  fi
+  npm rebuild 2>/dev/null || true
+
+  # Stage 2: Staged Frontend + Backend Compilation
+  log_info "Attempt 2: Staged isolated compilation..."
+  if npx vite build --emptyOutDir; then
+    log_success "Frontend assets compiled successfully in staged mode."
+    if npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs; then
+      log_success "Backend server bundled successfully."
+      BUILD_SUCCESS=true
+    else
+      log_error "Backend esbuild bundle failed in staged mode."
+    fi
+  else
+    log_error "Vite frontend compilation failed in staged mode."
+  fi
+fi
+
+# Tier 3: Universal WebAssembly (WASM) Engine Fallback
+# If the Linux kernel still throws SIGBUS on native Rollup binaries, switch to @rollup/wasm-node
+if [ "$BUILD_SUCCESS" = false ]; then
+  log_warning "Native bundler triggered kernel memory fault. Executing Tier 3: WebAssembly (WASM) Engine..."
+  rm -rf dist node_modules/.vite /tmp/esbuild* "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
+
+  log_info "Installing @rollup/wasm-node (zero-native WebAssembly bundler)..."
+  npm install --no-save @rollup/wasm-node 2>/dev/null || true
+
+  # Inject WASM engine directly into Rollup native resolution path
+  if [ -d "node_modules/@rollup/wasm-node/dist" ] && [ -d "node_modules/rollup/dist" ]; then
+    cp -rf node_modules/@rollup/wasm-node/dist/wasm-node node_modules/rollup/dist/ 2>/dev/null || true
+    cp -f node_modules/@rollup/wasm-node/dist/native.js node_modules/rollup/dist/native.js 2>/dev/null || true
+    log_info "WebAssembly bundler engine linked into Rollup pipeline."
+  fi
+
+  if npx vite build --emptyOutDir && npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs; then
+    log_success "NetTopology build successfully produced via WebAssembly engine!"
+    BUILD_SUCCESS=true
+  fi
+fi
+
+if [ "$BUILD_SUCCESS" = false ]; then
+  log_error "NetTopology compilation failed. Please verify that the server has at least 1GB of RAM and sufficient disk space."
+  exit 1
+fi
+
+log_success "NetTopology production build compiled successfully."
 
 # Ensure scripts and backend have execute permissions
 chmod +x "$INSTALL_DIR"/*.sh 2>/dev/null || true

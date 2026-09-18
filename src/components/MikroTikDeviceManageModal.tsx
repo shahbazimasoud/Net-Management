@@ -22,7 +22,8 @@ import {
   Check,
   Download,
   Search,
-  Filter
+  Filter,
+  Shield
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
 import { fetchDevicePorts, updateSwitchPort, batchUpdateSwitchPorts } from '../services/api';
@@ -32,6 +33,8 @@ import {
   MikroTikPortConfigConfirmModal,
   MikroTikPortConfigUpdates
 } from './MikroTikPortConfigConfirmModal';
+import { MikroTikVPNSuite } from './vpn/MikroTikVPNSuite';
+import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
 import { useLanguage } from '../i18n/LanguageContext';
 
 export interface MikroTikDeviceManageModalProps {
@@ -43,6 +46,7 @@ export interface MikroTikDeviceManageModalProps {
   onConnectTerminal?: (device: Device) => void;
   onDeviceUpdated?: () => void;
   isLightMode?: boolean;
+  userRole?: string;
 }
 
 export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps> = ({
@@ -54,9 +58,10 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   onConnectTerminal,
   onDeviceUpdated,
   isLightMode = false,
+  userRole = 'Super Admin',
 }) => {
   const { t, isEn } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'ports' | 'bridge' | 'resources' | 'export'>('ports');
+  const [activeTab, setActiveTab] = useState<'ports' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
@@ -76,6 +81,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     updates: MikroTikPortConfigUpdates;
   } | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isWinBoxModalOpen, setIsWinBoxModalOpen] = useState(false);
 
   // Edit Port Form State
   const [editAdminStatus, setEditAdminStatus] = useState<'enabled' | 'disabled'>('enabled');
@@ -94,8 +100,13 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     fetchDevicePorts(device.id)
       .then((data) => {
         if (data && data.ports && data.ports.length > 0) {
-          setPorts(data.ports);
-          setSelectedPort(data.ports[0]);
+          const rawPorts = data.ports || [];
+          const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
+            ...p,
+            port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+          }));
+          setPorts(normalizedPorts);
+          setSelectedPort(normalizedPorts[0]);
         } else {
           // Generate realistic default MikroTik RouterBOARD ports
           const defaultPorts: SwitchPort[] = [
@@ -324,6 +335,52 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Launch WinBox Native Desktop App Button */}
+            <button
+              type="button"
+              id="mikrotik-port-modal-winbox-btn"
+              onClick={() => {
+                const targetHost = (device.ssh_host || device.ip || '').trim();
+                const username = (device.ssh_username || 'admin').trim();
+                const password = device.ssh_password || '';
+                const winboxPort = (device as any)?.winbox_port || 8291;
+                if (targetHost) {
+                  const uri = password
+                    ? `winbox://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${targetHost}:${winboxPort}`
+                    : `winbox://${encodeURIComponent(username)}@${targetHost}:${winboxPort}`;
+                  try {
+                    const a = document.createElement('a');
+                    a.href = uri;
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                      if (document.body.contains(a)) document.body.removeChild(a);
+                    }, 300);
+                  } catch (e) {
+                    console.warn('WinBox launch error:', e);
+                  }
+                }
+                setIsWinBoxModalOpen(true);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
+                isLightMode
+                  ? 'bg-sky-50 hover:bg-sky-600 text-sky-800 hover:text-white border-sky-300 hover:border-sky-500 shadow-sky-100'
+                  : 'bg-sky-950/80 hover:bg-sky-600 text-sky-200 hover:text-white border-sky-600/50 hover:border-sky-400'
+              }`}
+              title={
+                isEn
+                  ? `Launch WinBox on your PC for ${device.name || device.ip || 'MikroTik'}`
+                  : `اجرای مستقیم نرم‌افزار WinBox نصب شده روی سیستم شما برای ${device.name || device.ip || 'میکروتیک'}`
+              }
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0" fill="none">
+                <rect x="2" y="2" width="20" height="20" rx="4" fill="#0284c7" />
+                <path d="M6 7h3l2 7 2-5 2 5 2-7h3l-3.5 11h-2.5l-2-5-2 5H9L6 7z" fill="white" />
+              </svg>
+              <span className="font-mono font-bold">WinBox</span>
+            </button>
+
             {/* Open CLI Terminal Button */}
             <button
               type="button"
@@ -419,6 +476,22 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
             >
               <Layers className="w-4 h-4" />
               <span>{isEn ? 'Bridge & VLANs' : 'بریج و شبکه‌های مجازی'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('vpn')}
+              className={`px-4 py-3 border-b-2 flex items-center gap-2 transition-colors cursor-pointer ${
+                activeTab === 'vpn'
+                  ? isLightMode
+                    ? 'border-cyan-600 text-cyan-700 font-bold bg-white'
+                    : 'border-cyan-400 text-cyan-400 font-bold bg-cyan-950/20'
+                  : isLightMode
+                  ? 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Shield className="w-4 h-4" />
+              <span>{isEn ? 'VPN Suite' : 'مدیریت VPN'}</span>
             </button>
             <button
               type="button"
@@ -523,22 +596,30 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                       : 'bg-black/50 border-slate-800/80'
                   }`}
                 >
-                  {ports.map((port) => (
-                    <MikroTikPortSvg
-                      key={port.port_id}
-                      port={port}
-                      isSelected={selectedPort?.port_id === port.port_id}
-                      onClick={() => setSelectedPort(port)}
-                      onContextMenu={(e) => {
-                        setContextMenu({
-                          x: e.clientX,
-                          y: e.clientY,
-                          port,
-                        });
-                      }}
-                      isLightMode={isLightMode}
-                    />
-                  ))}
+                  {ports.map((port, pIdx) => {
+                    const pId = port.port_id || (port as any).port || port.name || `port-${pIdx + 1}`;
+                    const isSelected = Boolean(
+                      pId &&
+                      selectedPort &&
+                      (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) === pId
+                    );
+                    return (
+                      <MikroTikPortSvg
+                        key={pId}
+                        port={port}
+                        isSelected={isSelected}
+                        onClick={() => setSelectedPort(port)}
+                        onContextMenu={(e) => {
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            port,
+                          });
+                        }}
+                        isLightMode={isLightMode}
+                      />
+                    );
+                  })}
                 </div>
 
                 <div className={`mt-2 text-[11px] flex items-center justify-between ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -609,7 +690,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                         )}
                       </div>
                       <span className={`text-xs font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                        MAC: {selectedPort.mac_address || device.mac || '48:8F:5A:xx:xx:xx'}
+                        MAC: {(selectedPort as any)?.mac_address || device.mac || '48:8F:5A:xx:xx:xx'}
                       </span>
                     </div>
 
@@ -933,7 +1014,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                                   : 'bg-slate-800 text-slate-400'
                               }`}
                             >
-                              {p.status.toUpperCase()}
+                              {(p.status || 'down').toUpperCase()}
                             </span>
                           </td>
                         </tr>
@@ -943,6 +1024,15 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                 </div>
               </div>
             </div>
+          )}
+
+          {activeTab === 'vpn' && device && (
+            <MikroTikVPNSuite
+              device={device}
+              userRole={userRole}
+              onMinimize={onMinimize}
+              isLightMode={isLightMode}
+            />
           )}
 
           {activeTab === 'resources' && (
@@ -1148,6 +1238,16 @@ ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1
             targetPortIds={confirmModal.targetPortIds}
             updates={confirmModal.updates}
             isLoading={isExecuting}
+            isLightMode={isLightMode}
+          />
+        )}
+
+        {/* Direct WinBox Launcher & Setup Modal */}
+        {isWinBoxModalOpen && device && (
+          <WinBoxLauncherModal
+            device={device}
+            isOpen={isWinBoxModalOpen}
+            onClose={() => setIsWinBoxModalOpen(false)}
             isLightMode={isLightMode}
           />
         )}

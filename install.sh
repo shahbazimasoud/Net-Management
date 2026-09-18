@@ -76,6 +76,78 @@ prompt_input() {
   eval "$var_name=\"\${user_input:-\$default_val}\""
 }
 
+ensure_system_swap() {
+  local total_swap_mb=0
+  local total_ram_mb=0
+
+  if [ -f /proc/meminfo ]; then
+    total_swap_mb=$(grep -i SwapTotal /proc/meminfo | awk '{print int($2/1024)}')
+    total_ram_mb=$(grep -i MemTotal /proc/meminfo | awk '{print int($2/1024)}')
+  elif command -v free &>/dev/null; then
+    total_swap_mb=$(free -m 2>/dev/null | awk '/Swap:/ {print $2}')
+    total_ram_mb=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}')
+  fi
+
+  total_swap_mb=${total_swap_mb:-0}
+  total_ram_mb=${total_ram_mb:-0}
+
+  # 1. Expand Process Stack and File Descriptor Limits (Prevents SIGBUS / AST recursion limit)
+  ulimit -s 65536 2>/dev/null || ulimit -s unlimited 2>/dev/null || true
+  ulimit -n 65536 2>/dev/null || ulimit -n 4096 2>/dev/null || true
+  ulimit -v unlimited 2>/dev/null || true
+  ulimit -m unlimited 2>/dev/null || true
+
+  # 2. Kernel inotify and file-max adjustments
+  sysctl -w fs.inotify.max_user_watches=524288 2>/dev/null || true
+  sysctl -w fs.inotify.max_user_instances=1024 2>/dev/null || true
+  sysctl -w fs.file-max=2097152 2>/dev/null || true
+
+  # 3. Guard Shared Memory (/dev/shm) to prevent mmap / POSIX shm SIGBUS errors
+  if [ -d /dev/shm ]; then
+    local shm_size_mb
+    shm_size_mb=$(df -m /dev/shm 2>/dev/null | awk 'NR==2 {print $2}')
+    shm_size_mb=${shm_size_mb:-0}
+    if [ "$shm_size_mb" -lt 1024 ]; then
+      echo -e "${YELLOW}افزایش ظرفیت حافظه مشترک (/dev/shm) به ۲ گیگابایت جهت جلوگیری از کرش SIGBUS...${NC}"
+      mount -o remount,size=2G /dev/shm 2>/dev/null || true
+    fi
+  fi
+
+  # 4. Swap allocation for systems with low swap
+  if [ "$total_swap_mb" -lt 1500 ]; then
+    echo -e "${YELLOW}فضای Swap حافظه ناکافی است (${total_swap_mb}MB). جهت جلوگیری از خطای Bus error و کمبود رم در زمان کامپایل، ۲ گیگابایت Swap موقت ایجاد می‌شود...${NC}"
+
+    if [ -f /swapfile ] && [ "$total_swap_mb" -eq 0 ]; then
+      swapoff /swapfile 2>/dev/null || true
+      rm -f /swapfile 2>/dev/null || true
+    fi
+
+    local swap_created=false
+    if [ ! -f /swapfile ]; then
+      if command -v fallocate &>/dev/null && fallocate -l 2G /swapfile 2>/dev/null; then
+        swap_created=true
+      elif dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null; then
+        swap_created=true
+      fi
+
+      if [ "$swap_created" = true ]; then
+        chmod 600 /swapfile
+        mkswap /swapfile >/dev/null 2>&1 || true
+        swapon /swapfile >/dev/null 2>&1 || true
+        if ! grep -q "/swapfile" /etc/fstab 2>/dev/null; then
+          echo "/swapfile swap swap defaults 0 0" >> /etc/fstab 2>/dev/null || true
+        fi
+        echo -e "${GREEN}✓ فایل Swap فعال شد. فضای Swap فعال: $(free -m 2>/dev/null | awk '/Swap:/ {print $2}')MB${NC}"
+      fi
+    else
+      swapon /swapfile 2>/dev/null || true
+    fi
+  fi
+}
+ensure_system_resources() {
+  ensure_system_swap
+}
+
 # Color definitions for output
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -91,7 +163,7 @@ echo -e "${CYAN}${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║                                                                  ║"
 echo "║     🌐  NetTopology - Enterprise Network Management Panel        ║"
-echo "║     🚀  Version: 1.52.1 (Production Stable)                      ║"
+echo "║     🚀  Version: 1.62.1 (Production Stable)                      ║"
 echo "║     🛡️  Cisco Port Security & CDP/LLDP Topology Visualizer       ║"
 echo "║     🎨  Spatial Cyber Neon & Multi-Theme Network Studio          ║"
 echo "║                                                                  ║"
@@ -325,16 +397,92 @@ fi
 echo ""
 echo -e "${BLUE}[4/6]${NC} ${BOLD}نصب وابستگی‌های پروژه و بیلد نهایی پنل (Building NetTopology)...${NC}"
 
+# Ensure system has enough swap, shm and ulimits to prevent Bus error / OOM
+ensure_system_resources
+
 # Ensure correct permissions
 chown -R "$SUDO_USER:$SUDO_USER" "$APP_DIR" 2>/dev/null || true
 
-# Run npm install as normal user if sudo was used
+# Dynamic memory sizing based on detected system RAM
+SYS_MEM_MB=0
+if [ -f /proc/meminfo ]; then
+  SYS_MEM_MB=$(grep -i MemTotal /proc/meminfo | awk '{print int($2/1024)}')
+elif command -v free &>/dev/null; then
+  SYS_MEM_MB=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}')
+fi
+SYS_MEM_MB=${SYS_MEM_MB:-1024}
+
+NODE_HEAP_MB=2048
+if [ "$SYS_MEM_MB" -ge 4000 ]; then
+  NODE_HEAP_MB=4096
+elif [ "$SYS_MEM_MB" -le 1500 ]; then
+  NODE_HEAP_MB=1536
+fi
+
+mkdir -p "$APP_DIR/.tmp"
+chmod 777 "$APP_DIR/.tmp" 2>/dev/null || true
+export TMPDIR="$APP_DIR/.tmp"
+export NODE_OPTIONS="--max-old-space-size=${NODE_HEAP_MB}"
+rm -rf "$APP_DIR/dist" "$APP_DIR/node_modules/.vite" /tmp/esbuild* "$APP_DIR/.tmp"/* 2>/dev/null || true
+
+# Run npm install
 if [ -n "$SUDO_USER" ]; then
-  su - "$SUDO_USER" -c "cd '$APP_DIR' && npm install"
-  su - "$SUDO_USER" -c "cd '$APP_DIR' && npm run build"
+  su - "$SUDO_USER" -c "cd '$APP_DIR' && export TMPDIR='$APP_DIR/.tmp' && npm install"
 else
   npm install
-  npm run build
+fi
+
+SYS_ARCH=$(uname -m)
+BUILD_OK=false
+
+# Tier 1: Standard npm run build
+if [ -n "$SUDO_USER" ]; then
+  if su - "$SUDO_USER" -c "cd '$APP_DIR' && export TMPDIR='$APP_DIR/.tmp' && export NODE_OPTIONS='--max-old-space-size=${NODE_HEAP_MB}' && npm run build"; then
+    BUILD_OK=true
+  fi
+else
+  if npm run build; then
+    BUILD_OK=true
+  fi
+fi
+
+# Tier 2: Staged compilation with native binding repair
+if [ "$BUILD_OK" = false ]; then
+  echo -e "${YELLOW}کامپایل استاندارد با محدودیت مواجه شد. در حال بهینه‌سازی باینری‌ها و اجرای بیلد دومرحله‌ای...${NC}"
+  rm -rf "$APP_DIR/dist" "$APP_DIR/node_modules/.vite" /tmp/esbuild* "$APP_DIR/.tmp"/* 2>/dev/null || true
+  
+  if [ "$SYS_ARCH" = "x86_64" ]; then
+    npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
+  elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
+    npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+  fi
+  npm rebuild 2>/dev/null || true
+
+  if npx vite build --emptyOutDir && npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs; then
+    BUILD_OK=true
+  fi
+fi
+
+# Tier 3: Universal WebAssembly Engine Fallback
+if [ "$BUILD_OK" = false ]; then
+  echo -e "${YELLOW}در حال اجرای کامپایلر ایزوله WebAssembly (@rollup/wasm-node)...${NC}"
+  rm -rf "$APP_DIR/dist" "$APP_DIR/node_modules/.vite" /tmp/esbuild* "$APP_DIR/.tmp"/* 2>/dev/null || true
+  npm install --no-save @rollup/wasm-node 2>/dev/null || true
+
+  # Inject WASM engine directly into Rollup native resolution path
+  if [ -d "$APP_DIR/node_modules/@rollup/wasm-node/dist" ] && [ -d "$APP_DIR/node_modules/rollup/dist" ]; then
+    cp -rf "$APP_DIR/node_modules/@rollup/wasm-node/dist/wasm-node" "$APP_DIR/node_modules/rollup/dist/" 2>/dev/null || true
+    cp -f "$APP_DIR/node_modules/@rollup/wasm-node/dist/native.js" "$APP_DIR/node_modules/rollup/dist/native.js" 2>/dev/null || true
+  fi
+
+  if npx vite build --emptyOutDir && npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs; then
+    BUILD_OK=true
+  fi
+fi
+
+if [ "$BUILD_OK" = false ]; then
+  echo -e "${RED}خطا: کامپایل پروژه ناموفق بود. لطفاً از وجود فضای دیسک کافی اطمینان حاصل کنید.${NC}"
+  exit 1
 fi
 
 echo -e "${GREEN}✓ کامپایل و بیلد پروژه با موفقیت انجام شد.${NC}"

@@ -178,17 +178,41 @@ export async function fetchDevicePorts(deviceId: string): Promise<{
   return res.json();
 }
 
+export async function syncDevicePorts(deviceId: string): Promise<{
+  device: Device;
+  ports: SwitchPort[];
+  active_count: number;
+  inactive_count: number;
+  admin_disabled_count: number;
+  is_live: boolean;
+  sync_source: string;
+  error?: string;
+  message?: string;
+}> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    return fetchDevicePorts(deviceId) as any;
+  }
+  return res.json();
+}
+
 export async function updateSwitchPort(
   deviceId: string,
   portId: string,
   updates: Partial<SwitchPort>
-): Promise<{ port: SwitchPort; message: string }> {
+): Promise<{ port: SwitchPort; message: string; success?: boolean; cli_output?: string }> {
   const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/${encodeURIComponent(portId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error('Failed to update port');
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || errData.message || 'Failed to update port');
+  }
   return res.json();
 }
 
@@ -206,6 +230,27 @@ export async function batchUpdateSwitchPorts(
   return res.json();
 }
 
+export interface DiscoveredHardware {
+  hostname?: string;
+  model?: string;
+  serial_number?: string;
+  mac_address?: string;
+  os_version?: string;
+  uptime?: string;
+  cpu_model?: string;
+  total_ports?: number;
+  memory_total_mb?: number;
+  memory_free_mb?: number;
+  device_type?: 'switch' | 'router' | 'access_point';
+  platform_detected?: string;
+}
+
+export interface DiscoveredPower {
+  power_supplies: number;
+  power_watts: number;
+  source: string;
+}
+
 export async function testDeviceConnection(data: {
   ip: string;
   ssh_host?: string;
@@ -218,9 +263,12 @@ export async function testDeviceConnection(data: {
   platform?: string;
   connection_mode?: string;
   simulate?: boolean;
+  lang?: string;
 }): Promise<{
   success: boolean;
   message: string;
+  message_en?: string;
+  message_fa?: string;
   latency_ms?: number;
   banner?: string;
   protocol?: string;
@@ -232,6 +280,13 @@ export async function testDeviceConnection(data: {
   raw_status_output?: string;
   live_discovery?: boolean;
   simulated?: boolean;
+  hardware?: DiscoveredHardware;
+  power?: DiscoveredPower;
+  master_session_id?: string;
+  serial_number?: string;
+  mac?: string;
+  uptime?: string;
+  firmware?: string;
 }> {
   const res = await fetch(`${API_BASE}/devices/test-connection`, {
     method: 'POST',
@@ -241,21 +296,78 @@ export async function testDeviceConnection(data: {
   return res.json();
 }
 
-export function getTerminalWebSocketUrl(deviceId: string, protocol?: 'ssh' | 'telnet', role?: string): string {
+export function getTerminalWebSocketUrl(
+  deviceId: string,
+  protocol?: 'ssh' | 'telnet',
+  role?: string,
+  deviceInfo?: {
+    ip?: string;
+    ssh_host?: string;
+    ssh_port?: number;
+    ssh_username?: string;
+    ssh_password?: string;
+    password?: string;
+    enable_password?: string;
+    platform?: string;
+  }
+): string {
   const loc = window.location;
   const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
   const query = new URLSearchParams();
   query.set('deviceId', deviceId);
   if (protocol) query.set('protocol', protocol);
   if (role) query.set('role', role);
-  return `${wsProto}//${loc.host}/ws/terminal?${query.toString()}`;
+  if (deviceInfo) {
+    const h = deviceInfo.ssh_host || deviceInfo.ip;
+    if (h) query.set('host', h);
+    if (deviceInfo.ssh_port) query.set('port', String(deviceInfo.ssh_port));
+    if (deviceInfo.ssh_username) query.set('username', deviceInfo.ssh_username);
+    const pass = deviceInfo.ssh_password || deviceInfo.password;
+    if (pass) query.set('password', pass);
+    if (deviceInfo.enable_password) query.set('enable_password', deviceInfo.enable_password);
+    if (deviceInfo.platform) query.set('platform', deviceInfo.platform);
+  }
+  return `${wsProto}//${loc.host}/ws/ssh/${encodeURIComponent(deviceId)}?${query.toString()}`;
 }
+
+export const getSshWebSocketUrl = getTerminalWebSocketUrl;
 
 export async function closeDeviceTerminalSession(deviceId: string): Promise<{ success: boolean; message: string }> {
   const res = await fetch(`${API_BASE}/devices/${deviceId}/terminal`, {
     method: 'DELETE',
   });
   return res.json().catch(() => ({ success: true, message: 'Terminal closed' }));
+}
+
+export interface DeviceUnsavedChangesInfo {
+  has_unsaved_changes: boolean;
+  pending_changes?: Array<{
+    port_id?: string;
+    type?: string;
+    description?: string;
+    command?: string;
+    timestamp?: string;
+  }>;
+  modified_ports?: Array<{
+    port_id: string;
+    mode: string;
+    vlan: number;
+    status: string;
+    admin_status?: string;
+    description: string;
+    port_security_enabled?: boolean;
+    change_summary?: string;
+  }>;
+  last_modified_time?: string;
+  cli_diff?: string;
+}
+
+export async function fetchDeviceUnsavedChanges(deviceId: string): Promise<DeviceUnsavedChangesInfo> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/unsaved-changes`);
+  if (!res.ok) {
+    return { has_unsaved_changes: true, pending_changes: [] };
+  }
+  return res.json();
 }
 
 export async function writeMemory(deviceId: string): Promise<{ success: boolean; device: Device; message: string }> {
@@ -318,9 +430,28 @@ export async function pingDevice(id: string): Promise<{ device: Device; ping_res
   return res.json();
 }
 
+export async function pingHost(host: string, count: number = 2, timeout: number = 2): Promise<{ success: boolean; latency_ms?: number; packet_loss?: number; message?: string; output?: string; is_online?: boolean }> {
+  const res = await fetch(`${API_BASE}/tools/ping`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host, count, timeout }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Ping failed' }));
+    throw new Error(err.error || err.message || 'Ping failed');
+  }
+  return res.json();
+}
+
 export async function fetchVlans(): Promise<{ vlans: VlanInfo[] }> {
   const res = await fetch(`${API_BASE}/vlans`);
   if (!res.ok) throw new Error('Failed to fetch VLANs');
+  return res.json();
+}
+
+export async function fetchDeviceVlans(deviceId: string): Promise<{ vlans: VlanInfo[]; device_id?: string; device_name?: string }> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vlans`);
+  if (!res.ok) throw new Error('Failed to fetch device VLANs');
   return res.json();
 }
 
@@ -438,6 +569,7 @@ export async function sshConnect(params: {
 }
 
 export async function sshExecute(params: {
+  deviceId?: string;
   host?: string;
   port?: number;
   username?: string;
@@ -568,3 +700,129 @@ export async function saveAccessPoliciesApi(policies: AccessPolicy[]): Promise<{
   if (!res.ok) throw new Error('Failed to save access policies');
   return res.json();
 }
+
+// -------------------------------------------------------------
+// MikroTik VPN Management Suite APIs
+// -------------------------------------------------------------
+
+export async function fetchMikroTikVPNCapabilities(deviceId: string): Promise<import('../types').MikroTikVPNCapabilities> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vpn/capabilities`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Failed to fetch VPN capabilities');
+  }
+  return res.json();
+}
+
+export async function fetchMikroTikVPNList(deviceId: string): Promise<{
+  device_id: string;
+  platform: string;
+  connection_mode: string;
+  is_real: boolean;
+  total: number;
+  vpns: import('../types').MikroTikVPNItem[];
+}> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vpn`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Failed to query VPN status (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function validateMikroTikVPN(
+  deviceId: string,
+  vpnType: string,
+  mode: string,
+  config: Record<string, any>
+): Promise<import('../types').VPNValidationResult> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vpn/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vpn_type: vpnType, mode, config }),
+  });
+  const data = await res.json().catch(() => ({ valid: false, errors: ['Request failed'], warnings: [] }));
+  return data;
+}
+
+export async function previewMikroTikVPN(
+  deviceId: string,
+  vpnType: string,
+  mode: string,
+  config: Record<string, any>
+): Promise<import('../types').VPNPreviewResult> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vpn/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vpn_type: vpnType, mode, config }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || err.errors?.join(', ') || 'Failed to generate VPN configuration preview');
+  }
+  return res.json();
+}
+
+export async function applyMikroTikVPN(
+  deviceId: string,
+  vpnType: string,
+  mode: string,
+  config: Record<string, any>,
+  userRole?: string
+): Promise<import('../types').VPNApplyResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (userRole) {
+    headers['X-User-Role'] = userRole;
+  }
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vpn/apply`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ vpn_type: vpnType, mode, config, user_role: userRole }),
+  });
+  const data = await res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+  if (!res.ok && data.success === undefined) {
+    data.success = false;
+  }
+  return data;
+}
+
+export async function verifyMikroTikVPN(
+  deviceId: string,
+  vpnId: string,
+  vpnType?: string,
+  config?: Record<string, any>
+): Promise<import('../types').VPNVerificationDetails> {
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vpn/${encodeURIComponent(vpnId)}/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vpn_type: vpnType, config }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Verification query failed on router');
+  }
+  return res.json();
+}
+
+export async function deleteMikroTikVPN(
+  deviceId: string,
+  vpnId: string,
+  vpnType?: string,
+  userRole?: string
+): Promise<import('../types').VPNDeleteResult> {
+  const headers: Record<string, string> = {};
+  if (userRole) {
+    headers['X-User-Role'] = userRole;
+  }
+  const q = vpnType ? `?vpn_type=${encodeURIComponent(vpnType)}` : '';
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/vpn/${encodeURIComponent(vpnId)}${q}`, {
+    method: 'DELETE',
+    headers,
+  });
+  const data = await res.json().catch(() => ({ success: false, message: 'Delete request failed' }));
+  if (!res.ok) {
+    throw new Error(data.message || 'Failed to delete VPN configuration from router');
+  }
+  return data;
+}
+

@@ -119,13 +119,13 @@ class MikroTikIPsecSiteToSiteProvider(VPNProvider):
         profile_name = f"profile-{name}"
         proposal_name = f"prop-{name}"
 
-        # 1. IPsec Proposal (Phase 2)
+        # 1. IPsec Proposal
         commands.append(
             f'/ip ipsec proposal add name="{proposal_name}" auth-algorithms={hsh} '
             f'enc-algorithms={enc} pfs-group={dh} lifetime=8h comment="Proposal for {name}"'
         )
 
-        # 2. IPsec Profile (Phase 1)
+        # 2. IPsec Profile
         commands.append(
             f'/ip ipsec profile add name="{profile_name}" hash-algorithm={hsh} '
             f'enc-algorithm={enc} dh-group={dh} lifetime=1d nat-traversal=yes dpd-interval=30s comment="Profile for {name}"'
@@ -319,7 +319,7 @@ class MikroTikIPsecSiteToSiteProvider(VPNProvider):
                     "status": "up" if is_up else "standby",
                     "local_address": device.get("ip", "0.0.0.0"),
                     "remote_address": remote_addr,
-                    "uptime": "Active SA" if is_up else "Phase 1 / Standby"
+                    "uptime": "Active SA" if is_up else "Standby"
                 })
 
         return results

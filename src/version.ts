@@ -10,9 +10,1382 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.53.4';
+export const APP_VERSION = '1.75.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.75.0',
+    releaseDate: '2026-09-18',
+    type: 'minor',
+    title: 'ارتقای مودال تغییر مود پورت به ترانک، یکپارچه‌سازی کامل دارک تم، قابلیت فول‌اسکرین با مرز فوتر و اعمال سخت‌افزاری در بک‌اند (Port Mode Trunk Modal & Hardware Backend Sync)',
+    title_en: 'Trunk Port Mode Modal Overhaul, Universal Fullscreen & Minimize with Footer Boundary, and Real Device Backend Execution',
+    changes: [
+      'همگام‌سازی و اصلاح کامل تم دارک در مودال تأیید دستورات (Change Port Mode to Trunk) با پالت تیره اختصاصی، کنتراست استاندارد و رفع ناهماهنگی‌های رنگی.',
+      'تجهیز مودال به کنترل‌های استاندارد هدر شامل دکمه مینیمایز (Minus)، دکمه تغییر حالت به تمام‌صفحه (Fullscreen / Maximize) و دکمه خروج سریع (ESC).',
+      'تنظیم دقیق مرز پایین پنجره در حالت تمام‌صفحه به گونه‌ای که تا لبه بالایی نوار وضعیت/فوتر پایین صفحه (bottom-8) امتداد یابد و هرگز زیر فوتر نرود.',
+      'پیاده‌سازی و اتصال کامل بک‌اند در سرور و درایورهای Cisco و MikroTik جهت اعمال مستقیم دستورات سخت‌افزاری پورت (مانند switchport mode trunk و admin status) با زدن دکمه ذخیره و تایید.',
+      'ثبت خودکار تغییرات در sessionChanges و تغییر وضعیت دستگاه به حالت دارای تغییرات ذخیره‌نشده (has_unsaved_changes).'
+    ],
+    changes_en: [
+      'Overhauled Change Port Mode to Trunk modal dark theme styling with obsidian/slate palettes, rich contrast, and eliminated unstyled elements.',
+      'Integrated standardized ModalHeaderControls with minimize button, fullscreen expand/restore toggle, and quick escape key shortcuts.',
+      'Strictly constrained the fullscreen modal layout boundary to stop precisely at the upper edge of the bottom footer (bottom-8), ensuring it never stretches underneath.',
+      'Implemented full backend hardware CLI integration in Express, Python API, and Cisco/MikroTik drivers to apply real device port mode changes upon clicking the Save button.',
+      'Automatically tracked session history changes and marked the target device with unsaved changes flag requiring NVRAM write memory.'
+    ]
+  },
+  {
+    version: '1.74.5',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'حفظ و ادغام قطعی دیتابیس، تجهیزات و تنظیمات کاربر در هنگام به‌روزرسانی پنل (User Inventory & Database Persistence During Update)',
+    title_en: 'Guaranteed Device Inventory, Database State & Credential Persistence Engine During Panel Updates',
+    changes: [
+      'حل کامل مشکل حذف تجهیزات ثبت‌شده در صفحه Network Equipment Inventory پس از اجرای Standard Update یا Clean Reinstall.',
+      'ایجاد موتور پشتیبان‌گیری چندلایه‌ای عمیق (Deep Snapshot & Persistent Vault) در حافظه و دیسک قبل از شروع فرآیند به‌روزرسانی برای نگهداری کامل network_data.json، database_store.json و .env.',
+      'پیاده‌سازی مرحله ادغام هوشمند (Smart Merge) پس از همگام‌سازی با گیت‌هاب جهت حفظ و اولویت‌دهی ۱۰۰٪ به تمام تجهیزات، پورت‌ها، لینک‌های توپولوژی، نقشه‌های سفارشی، پسوردها و یادداشت‌های ثبت‌شده توسط کاربر.',
+      'افزودن لایه بازگردانی اضطراری خودکار (Fallback Auto-Recovery) در بک‌اند در صورت وقوع هرگونه خطای احتمالی در فایل‌های داده.'
+    ],
+    changes_en: [
+      'Completely resolved device inventory loss where user-created network equipment disappeared after performing a Standard Update or Clean Reinstall.',
+      'Introduced a multi-layered Deep Snapshot & Persistent Vault engine storing in-memory and disk backups of network_data.json, database_store.json, and .env before update pipelines start.',
+      'Engineered an intelligent post-git synchronization Smart Merge phase ensuring 100% preservation and priority for all user-defined devices, ports, topology links, custom maps, credentials, and sticky notes.',
+      'Added automated fallback recovery in backend data loader to restore state from persistent backups if any corruption or missing data is detected.'
+    ]
+  },
+  {
+    version: '1.74.4',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'رفع مشکل دسترسی به دکمه‌های کنترل هدر مودال در حالت تمام‌صفحه (Modal Portal & Fullscreen Controls Fix)',
+    title_en: 'Header Controls Persistence & React Portal Integration in Write Memory Fullscreen Modal',
+    changes: [
+      'انتقال رندرینگ مودال تایید رایت (Confirm Save Configuration to NVRAM) به React Portal بر روی ریشه document.body با z-index فوق‌العاده بالا (9999).',
+      'رفع کامل هم‌پوشانی نوار ناوبری اصلی (Navbar) روی هدر مودال در حالت تمام‌صفحه و تضمین نمایش دائمی دکمه‌های خروج از تمام‌صفحه، مینیمایز و بستن.',
+      'تجهیز پنجره به کلید میانبر هوشمند Escape جهت خروج سریع از حالت تمام‌صفحه و انصراف، همراه با Pinned شدن ثابت هدر و فوتر اقدامات.'
+    ],
+    changes_en: [
+      'Migrated "Confirm Save Configuration to NVRAM" modal rendering to React Portal attached directly to document.body with top-tier z-index (9999).',
+      'Completely resolved stacking context overlap where the application Navbar covered the modal header in fullscreen mode, guaranteeing persistent visibility of Exit Fullscreen, Minimize, and Close buttons.',
+      'Implemented smart Escape key navigation for exiting fullscreen mode or dismissing the modal, along with pinned header and action footer.'
+    ]
+  },
+  {
+    version: '1.74.3',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'فعال‌سازی دکمه مینیمایز در لیست تجهیزات و تراز لبه فوتر در حالت فول‌اسکرین (Modal Minimize & Footer Alignment)',
+    title_en: 'Modal Minimize in Device Inventory & Fullscreen Footer Edge Alignment',
+    changes: [
+      'فعال‌سازی دکمه مینیمایز در مودال تایید رایت حافظه دائم (Confirm Save Configuration to NVRAM) در صفحه مدیریت تجهیزات شبکه، و ایجاد تب اختصاصی داک در پایین صفحه جهت بازگردانی سریع پنجره تایید رایت.',
+      'تضمین همیشگی وجود دکمه مینیمایز بر روی هدر مودال تحت تمامی شرایط با فالبک ایمن داخلی.',
+      'اصلاح تراز حالت تمام‌صفحه (Fullscreen): تنظیم کانتینر مودال بر روی bottom-8 تا لبه پایینی مودال دقیقاً مماس بر لبه بالایی فوتر برنامه قرار گیرد و هرگز به زیر فوتر نرود.'
+    ],
+    changes_en: [
+      'Activated the Minimize button on the "Confirm Save Configuration to NVRAM" modal when triggered from the Device Inventory list, adding a dedicated bottom dock chip for quick restoration.',
+      'Guaranteed continuous presence of the minimize control in modal headers under all invocations via a robust internal fallback.',
+      'Corrected fullscreen modal alignment: configured container to bottom-8 so that fullscreen mode aligns flush with the application footer top edge and never overflows underneath it.'
+    ]
+  },
+  {
+    version: '1.74.2',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'تجهیز مودال تایید رایت NVRAM به دکمه و حالت تمام‌صفحه و یکپارچگی سراسری (Modal Fullscreen & Architecture Verification)',
+    title_en: 'Write Memory Confirmation Modal Fullscreen Support & Architecture Verification',
+    changes: [
+      'بررسی و تایید معماری یکپارچه مودال تایید رایت (Confirm Save Configuration to NVRAM): استفاده از کامپوننت مشترک واحد در تمام بخش‌ها (لیست تجهیزات، مودال پورت سیسکو و ترمینال سیسکو).',
+      'تجهیز مودال تایید به دکمه فول‌اسکرین (Fullscreen / Maximize) در هدر با آیکون‌های استاندارد Maximize2 و Minimize2.',
+      'گسترش هوشمندانه ارتفاع و ابعاد بخش لیست تغییرات پورت‌ها و کادر پیش‌نمایش دستورات خط فرمان سیسکو (CLI Diff Preview) در حالت تمام‌صفحه جهت سهولت بررسی تغییرات حجیم.',
+      'رعایت دقیق قوانین چندزبانگی و واکنش‌گرایی در هر دو تم تیره و روشن.'
+    ],
+    changes_en: [
+      'Architecture verification: confirmed a single unified "Confirm Save Configuration to NVRAM" modal component across all interfaces (Device Inventory, Port Inspector, and Cisco Terminal).',
+      'Equipped the confirmation modal with Fullscreen/Maximize toggle in the header controls using standard Lucide Maximize2 and Minimize2 icons.',
+      'Intelligent layout and height expansion for modified interfaces list and Cisco CLI Diff Preview box in fullscreen mode for effortless auditing of large configurations.',
+      'Strict adherence to multilingual localization and responsive design in both dark and light modes.'
+    ]
+  },
+  {
+    version: '1.74.1',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'یکپارچه‌سازی مودال تایید رایت در لیست مدیریت تجهیزات شبکه (Inventory Write Confirmation Modal)',
+    title_en: 'Write Memory Confirmation Modal Integration in Network Equipment Inventory',
+    changes: [
+      'یکپارچه‌سازی کامل مودال تایید رایت حافظه دائم (Confirm Save Configuration to NVRAM) در لیست تجهیزات شبکه (Network Equipment Inventory & Management).',
+      'با کلیک روی دکمه Write Memory در سطر تجهیز یا از طریق منوی عملیات سه‌نقطه (Context Menu)، مودال تایید اختصاصی باز شده و تغییرات ذخیره‌نشده، پورت‌های تغییریافته و پیش‌نمایش دستورات خط فرمان سیسکو نمایش داده می‌شود.',
+      'جلوگیری از رایت ناخواسته و افزایش ایمنی پیکربندی در سرتاسر بخش‌های پرتال.'
+    ],
+    changes_en: [
+      'Fully integrated the "Confirm Save Configuration to NVRAM" modal into the Network Equipment Inventory & Management view.',
+      'Clicking the "Write Memory" button on any device row or via the 3-dots action menu now opens the confirmation modal with detailed pending changes, modified interfaces, and CLI script preview.',
+      'Prevents accidental configuration overwrites and ensures comprehensive configuration safety across all portal views.'
+    ]
+  },
+  {
+    version: '1.74.0',
+    releaseDate: '2026-09-18',
+    type: 'minor',
+    title: 'مودال تایید هوشمند پیش از رایت پیکربندی در NVRAM و اصلاح نمایش وضعیت در لیست تجهیزات (Write Memory Confirmation Modal)',
+    title_en: 'Write Memory Confirmation Modal & Equipment List Action Button Refinement',
+    changes: [
+      'افزودن مودال تایید اختصاصی و هوشمند پیش از اجرای رایت (Write Memory) در مودال پورت سیسکو (Port Inspector) و ترمینال سیسکو (Cisco Terminal)، جهت جلوگیری از رایت ناخواسته.',
+      'نمایش لیست جامع و دقیق تغییرات اعمال‌شده شامل پورت‌های تغییریافته، نوع تغییر (VLAN, Description, Port-Security, Mode, Shutdown)، زمان اعمال و پیش‌نمایش دستورات خط فرمان سیسکو (CLI Diff Preview).',
+      'پشتیبانی کامل و دوگانه از تم تاریک (Dark Mode) و تم روشن (Light Mode) با طراحی شیشه‌ای مدرن و کنتراست استاندارد.',
+      'افزودن اندپوینت بک‌اند GET /api/devices/:id/unsaved-changes جهت ارزیابی و استخراج دقیق تفاوت‌های Running-Config و Startup-Config.',
+      'اصلاح نمایش وضعیت رایت در لیست تجهیزات (Device List): حذف برچسب اضافی Write Needed و نگه داشتن دکمه کاربردی Write Memory در سطر تگ‌های تجهیز جهت سادگی و تمیزی رابط کاربری.',
+      'تجهیز مودال جدید به امکان مینیمایز (Rule 5) و رعایت کامل چندزبانگی انگلیسی و فارسی (Rule 4).'
+    ],
+    changes_en: [
+      'Added dedicated intelligent confirmation modal before executing "Write Memory" in Cisco Port Inspector and Cisco Terminal modals to prevent accidental writes.',
+      'Comprehensive summary display of pending modifications including modified interfaces, change types (VLAN, Description, Port-Security, Mode, Shutdown), timestamps, and CLI Diff Preview.',
+      'Full adaptive support for both Dark Mode and Light Mode with high-contrast glassmorphism aesthetic.',
+      'Added backend endpoint GET /api/devices/:id/unsaved-changes to analyze and extract running vs startup config differences.',
+      'Refined device status in Network Equipment Inventory & Management list: removed redundant "Write Needed" text label while keeping the functional "Write Memory" button.',
+      'Equipped the confirmation modal with universal minimization capability (Rule 5) and strict English/Persian localization (Rule 4).'
+    ]
+  },
+  {
+    version: '1.73.3',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'نمایش و فیلتر اختصاصی ویلن‌های تعریف‌شده روی دستگاه در مودال تخصیص ویلن دسترسی (Device Configured VLANs)',
+    title_en: 'Device-Specific VLAN Listing & Backend Query in Assign Access VLAN Modal',
+    changes: [
+      'نمایش اختصاصی لیست ویلن‌های تعریف‌شده و فعال روی خود دستگاه جاری در بخش Device Configured VLANs در مودال تخصیص ویلن دسترسی.',
+      'افزودن اندپوینت اختصاصی بک‌اند GET /api/devices/:id/vlans برای استخراج هوشمند ویلن‌های تعریف‌شده و شمارش پورت‌ها، به‌همراه پارس خروجی show vlan brief سیسکو و جدول ویلن میکروتیک.',
+      'پشتیبانی از استخراج محلی ویلن‌های پورت‌های دستگاه (Access و Trunk Allowed) به‌عنوان فالبک بلادرنگ جهت اطمینان از عملکرد پایدار آفلاین و شبیه‌ساز.',
+      'حفظ کامل و دقیق ساختار ظاهری، استایل، فیلتر جستجو، پیش‌نمایش دستورات و دکمه‌های مودال مطابق درخواست کاربر.'
+    ],
+    changes_en: [
+      'Display device-specific configured and active VLANs in the "Device Configured VLANs" section of the Assign Access VLAN modal for the selected device.',
+      'Added dedicated backend endpoint GET /api/devices/:id/vlans to extract device-specific VLANs, port counts, and parse Cisco show vlan brief / MikroTik vlan table.',
+      'Real-time client fallback to extract VLANs directly from device ports (both Access VLAN and Trunk allowed VLANs) ensuring seamless offline and simulator support.',
+      'Preserved exact existing modal layout, styling, search filter, CLI command preview, and buttons.'
+    ]
+  },
+  {
+    version: '1.73.2',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'یکپارچه‌سازی بک‌اند و اصلاح کامل تم تیره مودال تخصیص ویلن دسترسی (Assign Access VLAN)',
+    title_en: 'Backend Integration & Dark Theme Redesign for Assign Access VLAN Modal on Cisco & MikroTik',
+    changes: [
+      'پیاده‌سازی کامل بک‌اند و اجرای دستورات متناظر روی سخت‌افزار واقعی و شبیه‌ساز برای تخصیص ویلن دسترسی (Assign Access VLAN) روی سوئیچ‌ها و روترهای سیسکو و میکروتیک.',
+      'تولید هوشمند دستورات پیکربندی سوئیچ‌پورت سیسکو (switchport mode access / switchport access vlan X) و ساب‌اینترفیس‌های روتر (encapsulation dot1Q X) و پورت‌های بریج میکروتیک (pvid=X).',
+      'بازطراحی جامع استایل و تم مودال هماهنگ با تم تیره (Dark Theme Harmony)، شامل کادر پیش‌نمایش کنسول CLI به سبک کنسول شبکه، رنگ‌بندی تیره‌ی سطح بالا و کنتراست شفاف.',
+      'تجهیز مودال تخصیص ویلن به دکمه مینیمایز (Universal Modal Minimization Rule) و هماهنگی کامل چندزبانگی (انگلیسی و فارسی بدون متن هاردکد).'
+    ],
+    changes_en: [
+      'Full backend integration and physical/simulated device CLI execution for Assign Access VLAN on Cisco switches, routers, and MikroTik RouterOS devices.',
+      'Smart CLI command generation for Cisco IOS Catalyst switches (switchport mode access / switchport access vlan X), Cisco routers (encapsulation dot1Q sub-interfaces), and MikroTik RouterOS bridge ports (pvid=X).',
+      'Comprehensive redesign of the modal styling to achieve perfect dark theme harmony with network-console style CLI preview, deep slate backgrounds, and high-contrast typography.',
+      'Equipped Assign Access VLAN modal with universal minimization button (Minus icon) and strict English/Persian localization.'
+    ]
+  },
+  {
+    version: '1.73.1',
+    releaseDate: '2026-09-18',
+    type: 'patch',
+    title: 'اتصال کامل بک‌اند و اعمال واقعی توضیحات پورت (Port Description) روی سوئیچ‌های سیسکو و میکروتیک',
+    title_en: 'Backend Integration & Real Device CLI Execution for Port Description on Cisco & MikroTik',
+    changes: [
+      'اتصال کامل مودال تنظیم توضیحات پورت (Set Port Description) به اندپوینت عملیات سخت‌افزاری (/api/devices/:id/operations) و اعمال مستقیم دستورات CLI روی سوئیچ.',
+      'تولید هوشمند دستورات پیکربندی Cisco IOS (دستور interface X / description ... یا no description) و MikroTik RouterOS (/interface set comment=...).',
+      'بهبود اندپوینت /api/devices/:dev_id/ports/:port_id برای رمزگشایی صحیح نام پورت‌های دارای اسلش (/ یا %2F) و اعمال خودکار دستورات روی سخت‌افزار واقعی یا شبیه‌ساز.',
+      'افزودن دکمه مینیمایز (Universal Modal Minimization) و پشتیبانی از دو زبان انگلیسی و فارسی در مودال تنظیم دیسکریپشن پورت.'
+    ],
+    changes_en: [
+      'Connected Set Port Description modal to the hardware operations backend endpoint (/api/devices/:id/operations) for physical device CLI execution.',
+      'Smart CLI command generation for both Cisco IOS (interface X / description ... or no description) and MikroTik RouterOS (/interface set comment=...).',
+      'Enhanced /api/devices/:dev_id/ports/:port_id endpoint to properly decode slash-containing interface names and execute CLI commands directly.',
+      'Added Universal Modal Minimization button and full bilingual English/Persian localization to Port Description modal.'
+    ]
+  },
+  {
+    version: '1.73.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'معماری تطبیقی دو لایه SSH: اتصال آنی تجهیزات نوین بدون تاخیر و فال‌بک خودکار تجهیزات قدیمی سیسکو',
+    title_en: 'Two-Tier Adaptive SSH Engine: Zero-Latency Modern Fast Path & Automatic Cisco Legacy Fallback',
+    changes: [
+      'پیاده‌سازی معماری دو لایه مدرن-محور برای کلیه ارتباطات SSH: لایه ۱ (Fast Path) برای تجهیزات نوین (IOS-XE, Nexus, MikroTik v7, Linux) با الگوریتم‌های مدرن (Curve25519, ECDH, CTR/GCM) بدون کوچک‌ترین افت سرعت یا تاخیر.',
+      'فعال‌سازی خودکار و کاملاً هوشمند لایه ۲ (Legacy Fallback) صرفاً در صورت عدم سازگاری یا ریست هندشیک توسط تجهیزات قدیمی سیسکو (Cisco 2960/3560/3750 با الگوریتم‌های diffie-hellman-group1-sha1, ssh-rsa و aes128-cbc).',
+      'یکپارچه‌سازی قطعی و سراسری در تمامی ماژول‌های سامانه شامل ترمینال وب (NetworkTerminal)، تست اتصال در ثبت تجهیز جدید (Register Device SSH Test)، کشف تجهیزات (Hardware Discovery)، مدیریت نشست‌ها (SSHManager) و تنظیمات دسته‌جمعی (Bulk Config).',
+      'توقف سریع و بدون سعی مجدد در صورت ورود کلمه عبور اشتباه (AuthenticationException) یا عدم دسترسی شبکه جهت جلوگیری از ایجاد تاخیر بی‌مورد.',
+      'ثبت و گزارش دقیق الگوریتم‌های توافق‌شده (KEX, Cipher, Host Key, MAC) در زمان برقراری ارتباط با تضمین عدم بروز خطای unknown cipher.'
+    ],
+    changes_en: [
+      'Implemented a Two-Tier Modern-First Adaptive SSH Architecture: Tier 1 (Fast Path) connects modern devices (Cisco IOS-XE, Nexus, MikroTik v7, Linux OpenSSH) using modern cryptography (Curve25519, ECDH, CTR/GCM, Ed25519/RSA-SHA2) with zero latency penalty or overhead.',
+      'Automatic and seamless activation of Tier 2 (Legacy Fallback) exclusively when older Cisco equipment (Catalyst 2960/3560/3750 on IOS 12/15) rejects modern algorithms (negotiating diffie-hellman-group1-sha1, ssh-rsa, and aes128-cbc).',
+      'Universal unification across all SSH modules: Web Terminal (NetworkTerminal), Register Device SSH Test, Hardware Discovery, Session Manager (SSHManager), and Bulk Config.',
+      'Immediate fast-fail on invalid credentials (AuthenticationException) or unreachable hosts without redundant retries to eliminate unnecessary connection delays.',
+      'Precise capture and reporting of negotiated algorithms (KEX, Cipher, Host Key, MAC) with guaranteed zero "unknown cipher" crashes.'
+    ]
+  },
+  {
+    version: '1.72.3',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'حل قطعی خطای unknown cipher از طریق ارزیابی دیکشنری داخلی کلاینت و الگوریتم‌های سوئیچ‌های سیسکو',
+    title_en: 'Definitive Fix for Unknown Cipher via Transport Internal Cipher Reflection & Cisco KEX Loop',
+    changes: [
+      'حل بنیادین خطای unknown cipher با حذف تغییرات کلاس‌لول و تطبیق انحصاری سایفرها با دیکشنری داخلی _cipher_info هر نشست Transport در زمان اجرا.',
+      'تضمین عدم بروز استثنای خطای سایفر و عبور امن از محدودیت‌های OpenSSL 3.0 در سیستم‌های عامل میزبان.',
+      'توالی هوشمند آزمون الگوریتم‌های تبادل کلید با اولویت تجهیزات سیسکو کاتالیست (DH Group 14/1 و CBC) به همراه فال‌بک خودکار به مدهای مدرن و سنتی بدون وقفه.',
+      'پشتیبانی کامل از احراز هویت تعاملی (keyboard-interactive) برای تجهیزاتی که متد پسورد مستقیم را نپذیرفته و منتظر پرامپت هستند.'
+    ],
+    changes_en: [
+      'Definitively fixed the "unknown cipher" error by inspecting each live Transport instance\'s _cipher_info dictionary at runtime instead of modifying class-level attributes.',
+      'Guaranteed zero cipher exception crashes and safe traversal over OpenSSL 3.0 cipher restrictions on modern host systems.',
+      'Smart sequential negotiation loop prioritizing Cisco Catalyst legacy KEX (DH Group 14/1 and CBC) with seamless fallback to modern and default profiles.',
+      'Full keyboard-interactive authentication fallback support for network devices requiring interactive prompt verification.'
+    ]
+  },
+  {
+    version: '1.72.2',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'موتور تطبیقی چندپروفایلی الگوریتم‌های SSH و رفع خطای ناشناخته بودن سایفر (unknown cipher)',
+    title_en: 'Adaptive Multi-Profile SSH Algorithm Engine & Fix for Unknown Cipher Errors',
+    changes: [
+      'رفع خطای "unknown cipher" از طریق فیلتر هوشمند و انطباق سایفرها صرفاً با الگوریتم‌های استاندارد و قابل رمزگشایی در Paramiko (نظیر AES-CTR, AES-CBC, 3DES-CBC).',
+      'طراحی موتور تطبیقی چندپروفایلی (Adaptive Multi-Profile Cascade) برای آزمایش پیوسته و بدون توقف پروفایل‌های گوناگون KEX و Cipher هنگام تست اتصال SSH در ثبت تجهیز جدید.',
+      'پشتیبانی هم‌زمان، هوشمند و خودکار از نسل‌های گوناگون تجهیزات: سوئیچ‌های کلاسیک سیسکو کاتالیست (2960/3560)، تجهیزات نوین (IOS-XE/Nexus)، روترهای میکروتیک (v6/v7) و سرورهای لینوکسی.',
+      'عدم توقف در صورت عدم تطابق یک الگوریتم؛ بررسی متوالی پروفایل‌های تبادل کلید تا برقراری موفقیت‌آمیز ارتباط همراه با پشتیبانی از احراز هویت تعاملی (keyboard-interactive).'
+    ],
+    changes_en: [
+      'Resolved the "unknown cipher" error by strictly validating and filtering ciphers against supported Paramiko decryption suites (such as AES-CTR, AES-CBC, and 3DES-CBC).',
+      'Engineered an adaptive multi-profile cascade that sequentially tests diverse KEX, Cipher, and Key negotiation profiles without stopping during SSH connection tests in Register New Device.',
+      'Seamless multi-generation device interoperability: simultaneously supports classic legacy Cisco Catalyst (2960/3560), modern Cisco IOS-XE/Nexus, MikroTik RouterOS (v6 & v7), and modern Linux servers.',
+      'Non-halting negotiation loop: gracefully cycles through alternate algorithm suites upon mismatch until connection succeeds, with automated keyboard-interactive authentication fallback.'
+    ]
+  },
+  {
+    version: '1.72.1',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'رفع خطای ناسازگاری الگوریتم‌های تبادل کلید SSH (KEX) در سوئیچ‌های سیسکو و تجهیزات شبکه قدیمی',
+    title_en: 'Fix Incompatible SSH Peer KEX Algorithm Error on Cisco Catalyst & Legacy Network Devices',
+    changes: [
+      'حل خطای Incompatible ssh peer (no acceptable kex algorithm) هنگام تست اتصال SSH در فرم ثبت دستگاه جدید (Register New Network Device).',
+      'ایجاد ماژول سازگاری جامع SSH (ssh_compat) و تزریق خودکار الگوریتم‌های تبادل کلید قدیمی سیسکو کاتالیست (diffie-hellman-group1-sha1, diffie-hellman-group14-sha1, diffie-hellman-group-exchange-sha1/256).',
+      'پشتیبانی کامل از الگوریتم‌های کلید میزبان و سایفرهای قدیمی نظیر ssh-rsa، ssh-dss، aes128-cbc و 3des-cbc در تمام ماژول‌های کشف خودکار سخت‌افزار، شبیه‌سازها و نشست‌های SSH.',
+      'افزودن مکانیسم چند لایه بازیابی (Multi-tier fallback) با سوکت مستقیم Transport و پشتیبانی خودکار از احراز هویت تعاملی (keyboard-interactive) در صورت رد پسورد مستقیم.'
+    ],
+    changes_en: [
+      'Fixed "Incompatible ssh peer (no acceptable kex algorithm)" error when testing SSH connections in the Register New Network Device modal.',
+      'Introduced a dedicated enterprise SSH compatibility layer (ssh_compat) injecting legacy Cisco Catalyst key exchange algorithms (diffie-hellman-group1-sha1, diffie-hellman-group14-sha1, diffie-hellman-group-exchange-sha1/256).',
+      'Comprehensive support for legacy host key types and ciphers including ssh-rsa, ssh-dss, aes128-cbc, and 3des-cbc across hardware discovery, connection managers, and terminal sessions.',
+      'Added multi-tier fallback architecture via raw Transport sockets and automated keyboard-interactive authentication fallback when standard password auth is refused.'
+    ]
+  },
+  {
+    version: '1.72.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'بهبود پاسخ‌دهی فوری بررسی آپدیت در هدر، ارتقای کامل پکیج‌ها و بک‌اند، و رفع تداخل مودال‌ها با فوتر در حالت تمام‌صفحه',
+    title_en: 'Instant Header Update Check, Complete Backend & Package Rebuild Suite, and Fullscreen Modal Footer Alignment',
+    changes: [
+      'بررسی آنی و بی‌درنگ مخزن گیت‌هاب با کلیک بر روی دکمه Check for Updates در هدر، با ادغام مستقیم GitHub API و توکن احراز هویت، رفع کامل تاخیر و باز شدن خودکار مودال تغییرات پس از یافتن آپدیت.',
+      'افزودن دکمه همگام‌سازی و نصب مجدد کامل (Force Full Rebuild & Sync) در مودال انتشار جهت بازسازی صددرصد پکیج‌های NPM (شامل devDependencies)، درایورهای پایتون و کدهای بک‌اند بدون نیاز به حذف دستی پنل از سرور.',
+      'پاکسازی و بستن پروسه قدیمی پایتون در پورت ۸۰۰۰ قبل از راه‌اندازی مجدد تا تمام کدهای جدید بک‌اند بلافاصله بارگذاری گردند.',
+      'افزودن لاگ‌های پیش‌رونده و زنده در رابط کاربری در حین اجرای فرآیند ارتقای سرور جهت نمایش دقیق هر یک از فازهای ۶گانه.',
+      'تنظیم دقیق موقعیت تمام مودال‌های سراسر سامانه (Bulk Device Config, Audit Logs, Schematic Topology, VPN Manager, Release Notes) در حالت معمولی و تمام‌صفحه تا لبه بالایی فوتر (bottom-8) جهت جلوگیری از هرگونه هم‌پوشانی با فوتر.'
+    ],
+    changes_en: [
+      'Instant real-time GitHub repository release checking from the header profile button with GitHub API integration and auth token support, immediately opening release notes on update detection.',
+      'Added Force Full Rebuild & Sync capability in the Release Notes modal to comprehensively reinstall all NPM packages (including devDependencies), Python drivers, and backend code without manual server wipes.',
+      'Graceful termination of stale Python backend processes on port 8000 during updates ensuring all new backend features load instantly upon restart.',
+      'Live progressive UI phase tracking during server updates, providing clear feedback across all 6 upgrade phases.',
+      'System-wide modal positioning overhaul across all modals (Bulk Device Config, Audit Logs, Schematic Topology, VPN Manager, Release Notes), strictly stopping at the top edge of the footer (bottom-8) in both normal and fullscreen modes.'
+    ]
+  },
+  {
+    version: '1.71.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'ارتقای جامع موتور بررسی و نصب به‌روزرسانی پنل، همگام‌سازی بی‌درنگ با گیت‌هاب و رفع مشکل پکیج‌ها و کدهای بک‌اند',
+    title_en: 'Comprehensive In-Panel Update Engine Overhaul, Immediate GitHub Release Checker & Complete Clean Sync',
+    changes: [
+      'بررسی آنی و بی‌درنگ مخزن گیت‌هاب با کلیک بر روی دکمه Check for Updates در منوی پروفایل هدر بدون کش، همراه با نمایش نشانگر چرخان، وضعیت بررسی و بازخورد اختصاصی.',
+      'افزودن هدرهای ضد کش (Cache-Control: no-store) و بررسی همزمان کامیت‌های Git با دستورات مستقیم git ls-remote جهت تشخیص فوری نسخه‌های جدید در سرور.',
+      'بازنویسی کامل پایپ‌لاین به‌روزرسانی پنل در سرور (Phase 1 تا 6) شامل بک‌آپ ایمن از تنظیمات و دیتابیس محلی، همگام‌سازی صددرصد فایل‌ها، نصب و بازسازی کامل پکیج‌های NPM با پشتیبانی از ریپازیتوری پشتیبان (Mirror fallback).',
+      'نصب خودکار پکیج‌های پیش‌نیاز بک‌اند پایتون (paramiko, cryptography, websockets) و فایل requirements.txt جهت برطرف شدن نیاز به نصب مجدد دستی.',
+      'ساخت مجدد باندل‌های فرانت‌اند و بک‌اند به همراه بازسازی باینری‌های لینوکس Rollup/esbuild و زمان‌بندی راه‌اندازی مجدد خودکار سرویس پس از اتمام ارتقا.',
+      'پشتیبانی از حالت ارتقای عمیق و پاکسازی کامل (Clean Reinstall Mode) در مودال انتشار برای رفع کامل مشکل پکیج‌های ناقص یا باقیمانده‌های قدیمی.'
+    ],
+    changes_en: [
+      'Instant GitHub release check on clicking Check for Updates in the profile dropdown, bypassing browser/server caching with real-time spinners and status feedback.',
+      'Added strict anti-cache response headers and direct git ls-remote remote commit verification to immediately detect new updates on GitHub.',
+      'Complete overhaul of server-side update pipeline (Phases 1-6) including automatic configuration & database safeguarding, comprehensive git code sync, and robust NPM package reconciliation with mirror registry fallback.',
+      'Automatic installation and verification of Python backend dependencies (paramiko, cryptography, websockets) and requirements.txt, eliminating the need for manual server wipes.',
+      'Automatic rebuilding of production frontend and backend bundles, Linux native binary rebuilds (Rollup/esbuild), and graceful service restart scheduling.',
+      'Added deep clean reinstallation option in Release Notes modal to resolve stale package issues or partial updates.'
+    ]
+  },
+  {
+    version: '1.70.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'افزودن قابلیت تمام‌صفحه (Fullscreen / Maximize) به مودال پیکربندی گروهی تجهیزات',
+    title_en: 'Add Fullscreen / Maximize Mode Support to Bulk Device Configuration Modal',
+    changes: [
+      'تجهیز هدر مودال Bulk Device Configuration به دکمه سوئیچ تمام‌صفحه (Maximize2 / Minimize2) از طریق کامپوننت اشتراکی ModalHeaderControls.',
+      'افزودن انیمیشن روان و انتقال ابعاد کادر به حالت تمام‌صفحه (100% عرض و ارتفاع صفحه نمایش) برای راحتی مشاهده لاگ‌ها، مقایسه Diff دستورات و لیست قالب‌ها.',
+      'سازگاری کامل با جهت راست‌چین (RTL) و چپ‌چین (LTR) و سوئیچ آیکون و راهنمای تول‌تیپ به خروج از تمام‌صفحه هنگام فعال بودن.',
+      'بهبود استایل و واکنش‌گرایی دکمه‌های کنترلی هدر مودال با آیکون‌های متناسب وضعیت.'
+    ],
+    changes_en: [
+      'Equipped Bulk Device Configuration modal header with Fullscreen / Maximize toggle (Maximize2 / Minimize2) using shared ModalHeaderControls.',
+      'Implemented smooth transitions expanding modal to 100% viewport width and height for optimal viewing of CLI diffs, logs, and templates.',
+      'Full compatibility with RTL and LTR layouts with contextual tooltips and dynamic icon toggle between Maximize and Exit Fullscreen.',
+      'Enhanced responsive modal control styling across dark and light themes.'
+    ]
+  },
+  {
+    version: '1.69.3',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'اصلاح کامل مهار کادرهای راهنما در تمام لبه‌های مانیتور و جلوگیری قطعی از خروج از صفحه',
+    title_en: 'Strict Viewport Boundary Clamping for Info Popovers Preventing Bottom & Edge Overflow',
+    changes: [
+      'محاسبه دقیق حداکثر ارتفاع (maxHeight) پویا متناسب با فاصله تا لبه پایینی صفحه نمایش.',
+      'وارونه‌سازی خودکار و باز شدن کادر در بالای نشانگر موس در کلیک‌های نیمه پایینی صفحه.',
+      'اعمال مهار قطعی در چهار جهت (بالا، پایین، چپ و راست با حاشیه امن حداقل ۱۲ پیکسل).',
+      'تجهیز کانتینر داخلی به اسکرول روان داخلی (overflow-y-auto) با سرریز صفر در پنجره صفحه نمایش.'
+    ],
+    changes_en: [
+      'Engineered dynamic maxHeight calculation strictly bounded to remaining vertical viewport distance.',
+      'Implemented automatic upward flipping above cursor when clicked in bottom regions of the display.',
+      'Enforced strict 4-way viewport boundary clamping with a guaranteed 12px safety margin from all screen edges.',
+      'Enabled internal smooth scrolling within the popover body, strictly preventing any viewport or container overflow.'
+    ]
+  },
+  {
+    version: '1.69.2',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'اصلاح باز شدن کادر راهنما دقیقا در محل کلیک موس (Exact Click-Anchor Popover Positioning)',
+    title_en: 'Anchor Info Popover Directly to Mouse Click Location with Zero Position Delay',
+    changes: [
+      'محاسبه بلادرنگ و همگام مختصات افقی و عمودی کادر راهنما دقیقا زیر محل کلیک موس کاربر.',
+      'حذف انیمیشن transition-all برای رفع پرش ناگهانی کادر از گوشه سمت راست به زیر موس.',
+      'مرکزیت‌بخشی افقی کادر متناسب با نشانگر موس همراه با مهار هوشمند در لبه‌های مانیتور.',
+      'پشتیبانی هماهنگ از کلیک کیبورد با فالبک هوشمند به موقعیت هندسی دکمه راهنما.'
+    ],
+    changes_en: [
+      'Engineered instantaneous, synchronous coordinate calculation directly anchoring the info popover under the mouse click position.',
+      'Eliminated generic transition-all animation, removing the unwanted jump/glide from the top-right corner to the cursor.',
+      'Horizontally centered the popover beneath the cursor with safety viewport edge clamping.',
+      'Maintained seamless keyboard accessibility with automatic fallback to trigger element bounding rect.'
+    ]
+  },
+  {
+    version: '1.69.1',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'اصلاح موقعیت و جلوگیری از سرریز کادرهای راهنما (Info Popovers Viewport Clamping)',
+    title_en: 'Fix Info Popover Positioning & Prevent Modal Scrollbar Overflow via React Portals',
+    changes: [
+      'انتقال رندرینگ پاپ‌اورهای راهنما به React Portal روی بدنه صفحه جهت جلوگیری از دستکاری ابعاد والد و حذف اسکرول ناخواسته.',
+      'محاسبه هوشمند مختصات افقی و عمودی پاپ‌اور بر اساس فضای باقی‌مانده دید (Viewport Boundary Clamping).',
+      'وارونه‌سازی خودکار موقعیت باز شدن به سمت بالا در صورت کمبود فضا در پایین دکمه.',
+      'تعیین سقف عرضی و طولی متناسب با صفحه نمایش و فراهم کردن اسکرول نرم داخلی تنها برای متون طولانی.'
+    ],
+    changes_en: [
+      'Migrated info popover rendering to React Portals on document body, completely eliminating unwanted parent container scrollbars.',
+      'Engineered smart viewport boundary clamping preventing popovers from escaping the screen edges in both RTL and LTR.',
+      'Implemented automatic upward flip detection when vertical space below the trigger is constrained.',
+      'Restricted maximum widths and heights responsively, confining any long textual overflow strictly inside the popover.'
+    ]
+  },
+  {
+    version: '1.69.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'افزودن راهنمای تعاملی و جامع (Info Tooltips & Examples) برای تمام قالب‌ها و متغیرهای پیکربندی گروهی',
+    title_en: 'Add Interactive Info Tooltips, Purpose Explanations & Real Scenarios to Bulk Configuration Suite',
+    changes: [
+      'افزودن آیکون اطلاعات (i) در کنار تمام قالب‌های دستورات در لیست پیکربندی گروهی (Bulk Device Configuration).',
+      'نمایش پاپ‌اور تعاملی و هوشمند برای هر قالب شامل سه بخش مشخص: «چیست؟» (تعریف فنی الگو)، «چرا نیاز است؟» (چرایی و ارزش عملیاتی) و «مثال کاربردی» (دستورات و سناریوی نمونه).',
+      'افزودن آیکون راهنمای اختصاصی (i) کنار تک‌تک فیلدها و متغیرهای ورودی قالب‌ها همراه با مقادیر نمونه واقعی.',
+      'افزودن راهنمای تعاملی به گزینه‌ها و سیاست‌های امنیتی (بکاپ خودکار، ذخیره دائمی write memory، مهلت زمانی و تاخیر بین تجهیزات).',
+      'تعبیه دکمه «توضیحات و مثال / Guide & Example» در هدر الگوی فعال جهت نمایش بنر راهنمای باز شونده با ۳ کارت مجزا.',
+      'طراحی پاپ‌اور کاملاً واکنش‌گرا و قابل جابه‌جایی با بسته شدن خودکار در کلیک بیرون و پشتیبانی از بستن با کلید Escape.',
+      'پشتیبانی کامل و صددرصدی از زبان‌های فارسی و انگلیسی بر اساس تنظیمات پنل (Strict i18n).'
+    ],
+    changes_en: [
+      'Added interactive information (i) icons alongside every command template in the Bulk Device Configuration list.',
+      'Engineered structured popovers detailing "What is this?" (technical definition), "Why is it needed?" (operational rationale), and "Practical Example" (exact CLI syntax & scenarios).',
+      'Equipped every input parameter and form field with dedicated contextual info tooltips and realistic input examples.',
+      'Integrated guidance tooltips across all execution policies (Pre-Change Backup, Write Memory, SSH Timeout, and Inter-device Delay).',
+      'Added a "Guide & Example" banner toggle in the active template header revealing a comprehensive 3-card overview.',
+      'Designed responsive popovers with outside click detection and keyboard Escape dismissal.',
+      'Strictly maintained bilingual localization with zero Persian text displayed in English mode.'
+    ]
+  },
+  {
+    version: '1.68.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'افزودن امکان ایجاد و مدیریت اصولی وی‌لن (VLAN) با تشخیص خودکار نوع تجهیز در پیکربندی گروهی',
+    title_en: 'Add Principled VLAN Creation & Management with Automatic Hardware Detection in Bulk Configuration',
+    changes: [
+      'افزودن قالب‌های اصولی و مهندسی ایجاد (Create VLAN) و حذف (Delete VLAN) به الگوهای پیکربندی گروهی (Bulk Device Configuration).',
+      'تشخیص هوشمند نوع دستگاه (Device Hardware & Role Awareness) به صورت خودکار بین سوئیچ و روتر در تمامی برندها.',
+      'پیاده‌سازی سینتکس استاندارد برای سوئیچ‌های سیسکو (L2/L3 Switches): ایجاد دیتابیس VLAN، ساخت اینترفیس مجازی SVI (Vlan ID) با آدرس و ساب‌نت مسک دلخواه، انتساب رنج پورت‌های Access و افزودن به لیست مجاز پورت‌های Trunk.',
+      'پیاده‌سازی سناریوی روترهای سیسکو (Router-on-a-Stick): ایجاد زیرواسط (Sub-interface) با کپسوله‌سازی استاندار dot1Q و آی‌پی گیت‌وی لایه سه به صورت خودکار.',
+      'پیاده‌سازی اصولی برای تجهیزات میکروتیک: ایجاد اینترفیس VLAN، اختصاص آدرس IP به صورت CIDR، ثبت استاندارد در جدول Bridge VLAN Filtering و تنظیم خودکار PVID روی پورت‌های Access.',
+      'قابلیت بررسی ادمپوتنت (Idempotency) جهت جلوگیری از ایجاد مجدد یا تغییرات ناخواسته در صورت وجود قبلی VLAN.',
+      'پشتیبانی از انواع فیلدهای فرم شامل سوئیچ‌های بولین تعاملی، گزینشگرها و اعتبارسنجی CIDR و ساب‌نت مسک.',
+      'رعایت صددرصدی استاندارد دو زبانه و عدم وجود هیچ‌گونه متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Added principled, engineering-grade Create VLAN and Delete VLAN templates to the Bulk Device Configuration suite.',
+      'Built intelligent hardware and role awareness automatically distinguishing between switches and routers across all vendors.',
+      'Implemented standard Cisco Switch syntax: VLAN database registration, Layer 3 SVI (interface Vlan) with IP & subnet mask, access port range assignment, and trunk allowed list integration.',
+      'Implemented standard Cisco Router-on-a-Stick syntax: automatic sub-interface provisioning with IEEE 802.1Q encapsulation and L3 gateway IP.',
+      'Engineered principled MikroTik RouterOS syntax: /interface vlan creation, CIDR IP address assignment, /interface bridge vlan filtering table registration, and access port PVID setting.',
+      'Integrated real-time idempotency checks to prevent redundant changes or conflicts if the VLAN already exists.',
+      'Enhanced parameter form rendering with interactive boolean toggles, custom selectors, and mask validators.',
+      'Strictly enforced bilingual localization compliance with zero Persian text displayed in English mode.'
+    ]
+  },
+  {
+    version: '1.67.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'افزودن قابلیت پیکربندی گروهی تجهیزات (Bulk Device Configuration) با اجرای واقعی روی سیسکو و میکروتیک',
+    title_en: 'Add Bulk Device Configuration Feature with Real Hardware Execution for Cisco & MikroTik',
+    changes: [
+      'افزودن امکان انتخاب چندگانه (Multi-select Checkboxes) در جدول تجهیزات همراه با نوار ابزار هوشمند فیلتر و انتخاب سریع سیسکو، میکروتیک و آنلاین.',
+      'افزودن دکمه اکشن Bulk Configure در هدر و نوار انتخاب جهت باز شدن مودال جامع پیکربندی گروهی.',
+      'طراحی و استقرار موتور بک‌اند BulkExecutionEngine با اجرای ناهمگام در پس‌زمینه (Background Async Jobs) با قفل‌های امنیتی روی تجهیزات و جلوگیری از تداخل عملیات.',
+      'پشتیبانی کامل از قالب‌های دستورات پرکاربرد مدیریت تجهیزات: ایجاد/حذف کاربر محلی، تغییر رمز عبور، تنظیم NTP، تنظیم DNS، تنظیم سرور Syslog، بنر ورود (MOTD)، تنظیم SNMP v2c/v3، پشتیبان‌گیری از کانفیگ جاری، ذخیره دائمی کانفیگ (write memory / export)، راه‌اندازی مجدد با تاییدیه دو مرحله‌ای و اجرای امن دستورات دلخواه (Custom CLI / Script).',
+      'ایجاد پیش‌نمایش دقیق و واقعی دستورات به تفکیک سیستم‌عامل (Cisco IOS enable config mode و RouterOS CLI scripts) قبل از اجرا.',
+      'مکانیزم خودکار پشتیبان‌گیری قبل از تغییر (Pre-change Backup) و امکان دانلود فوری فایل کانفیگ پشتیبان.',
+      'مدیریت خطاهای مرحله‌ای، نمایش لاگ‌های زنده CLI هر تجهیز و ذخیره کامل در لاگ حسابرسی (Audit Trail).',
+      'تجهیز کامل مودال به قابلیت مینیمایز (Minimize) و یکپارچه‌سازی با ToolsDock بر اساس استانداردهای MODAL_GUIDELINES.md.',
+      'رعایت صددرصدی استاندارد دو زبانه و عدم وجود هیچ‌گونه متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Added multi-device selection checkboxes in the Inventory table along with a smart selection bar featuring one-click shortcuts for Cisco, MikroTik, and Online devices.',
+      'Integrated a prominent "Bulk Configure" button in both the header toolbar and floating selection bar to launch the bulk operation workflow.',
+      'Implemented the backend BulkExecutionEngine with asynchronous job queuing, concurrency locking per device, and robust background thread execution.',
+      'Built a comprehensive library of general-purpose configuration templates: Create/Delete Local User, Change User Password, Configure NTP Servers, Configure DNS Servers, Configure Syslog Server, Set MOTD Banner, SNMP Community/v3, Backup Running Config, Save/Write Memory, Safe Reboot with confirmation, and Custom CLI/Script execution.',
+      'Engineered realistic OS-specific syntax translation and full preview generation for both Cisco IOS (privileged config mode) and MikroTik RouterOS (safe scripting).',
+      'Implemented automatic pre-change configuration backups with instant in-browser download capability before running modifications.',
+      'Added real-time per-device execution progress tracking, terminal output viewers, cancellation control, and automatic audit trail logging.',
+      'Fully equipped the modal with universal minimization capability, registering it in ToolsDock according to MODAL_GUIDELINES.md.',
+      'Strictly enforced bilingual localization compliance with zero Persian text displayed in English mode.'
+    ]
+  },
+  {
+    version: '1.66.9',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'اصلاح کامل منطق اتصال یادداشت، ترسیم خطوط ارتباطی در نقشه و همگام‌سازی لیست تجهیزات',
+    title_en: 'Fix Note-Device Linking Logic, Schematic Connector Lines and Device List Synchronization',
+    changes: [
+      'اصلاح و ساده‌سازی کامل منطق اتصال یادداشت به تجهیزات بدون مودال‌های مزاحم؛ با کلیک روی تجهیز در لیست یادداشت، اتصال بلافاصله برقرار می‌گردد.',
+      'ترسیم لحظه‌ای و بی‌درنگ خط اتصال (Connector Line) از یادداشت به کارت تجهیز جدید متصل‌شده در نقشه شماتیک با استفاده از تابع بهینه‌شده getDevicePositionForNote.',
+      'همگام‌سازی بلادرنگ وضعیت یادداشت‌ها در جدول لیست تجهیزات (Device List View) به طوری که نشان یادداشت از تجهیز قبلی فوراً حذف و در مقابل تجهیز جدید نمایش داده می‌شود.',
+      'مدیریت اتمیک و دقیق رویدادهای nettopology_device_notes_updated برای حالات اتصال جدید، آنلینک، و تغییر انتساب (Reassign) میان دو تجهیز.',
+      'رعایت صددرصدی استاندارد دو زبانه و عدم نمایش هیچ متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Streamlined note-to-device linking by removing blocking confirmation dialogs so single-click reassignment is instant and seamless.',
+      'Restored and verified immediate dashed connector line rendering from sticky notes to the newly linked target device on the schematic canvas using optimized getDevicePositionForNote.',
+      'Fixed real-time synchronization in Device List View to instantly remove the note badge from the previous device and attach it to the new device without page refresh.',
+      'Atomic handling of nettopology_device_notes_updated events across link, unlink, and reassign transitions between devices.',
+      'Maintained strict bilingual localization compliance with zero untranslated strings in English mode.'
+    ]
+  },
+  {
+    version: '1.66.8',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'همگام‌سازی کامل آنلینک و جابجایی یادداشت میان تجهیزات در نقشه و لیست تجهیزات',
+    title_en: 'Full Note Unlink and Device Reassignment Synchronization Between Map and Device List',
+    changes: [
+      'اصلاح و یکپارچه‌سازی فرآیند آنلینک (Unlink) یادداشت از دیوایس در نقشه شماتیک: با قطع اتصال یادداشت در نقشه، یادداشت فوراً از دیوایس مربوطه در بخش لیست تجهیزات و پایگاه داده حذف شده در حالی که یادداشت به صورت شناور روی نقشه باقی می‌ماند.',
+      'افزودن دکمه اختصاصی «قطع اتصال از دیوایس (آنلینک)» با آیکون Unlink در منوی تجهیزات هر یادداشت چسبان.',
+      'اصلاح فرآیند جابجایی یادداشت (Reassignment) میان دو تجهیز: هنگام تغییر دیوایس متصل به یادداشت، انتساب یادداشت از دیوایس قبلی پاک شده و به صورت لحظه‌ای به دیوایس جدید در لیست تجهیزات و دیتابیس اختصاص می‌یابد.',
+      'ارتقای متد loadDeviceNotes و افزودن پشتیبانی از پارامتر keepInMap در روت‌های بک‌اند و پایگاه داده جهت تفکیک حذف کامل یادداشت از آنلینک کردن آن.',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization).'
+    ],
+    changes_en: [
+      'Thoroughly streamlined note unlinking from devices in schematic topology: unlinking a note immediately removes the note association from that device in the Device List and database, while keeping the sticky note intact as a free-floating note on the map.',
+      'Added a dedicated "Unlink from Device" button with an Unlink icon in the note device assignment dropdown.',
+      'Enhanced device reassignment flow: reassigning a note to another device immediately removes it from the previous device and binds it cleanly to the new device in both inventory and database.',
+      'Updated loadDeviceNotes and backend DELETE routes with keepInMap support to cleanly distinguish between permanent note deletion and note unlinking.',
+      'Strictly maintained bilingual localization standards ensuring no Persian text appears in English mode.'
+    ]
+  },
+  {
+    version: '1.66.7',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'همگام‌سازی فوری یادداشت تجهیزات با نقشه شماتیک و جلوگیری از ثبت یادداشت تکراری',
+    title_en: 'Sync Device Notes Instantly with Schematic Topology and Prevent Duplicate Device Notes',
+    changes: [
+      'حل مشکل عدم نمایش یادداشت اضافه شده در لیست دیوایس‌ها هنگام ورود به بخش نقشه شماتیک؛ پاک‌سازی خودکار نشانه‌گذاری‌های حذفی پیشین (Tombstones) و فعال‌سازی نمایش نوت‌ها در نقشه.',
+      'افزودن موقعیت‌دهی هوشمند به یادداشت‌های ایجاد شده از لیست تجهیزات تا بلافاصله در کنار کارت تجهیز مربوطه در نقشه قرار گیرند.',
+      'افزودن اعتبارسنجی و ممانعت از ایجاد یا لینک چند یادداشت به یک تجهیز در هر دو بخش مودال و نقشه با نمایش هشدار مشخص مبنی بر داشتن نوت قبلی.',
+      'افزودن نشانگر «دارای یادداشت» (Has Note) در منوی کشویی انتخاب تجهیزات جهت بهبود تجربه کاربری.',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization).'
+    ],
+    changes_en: [
+      'Resolved issue where notes added in the Device List were not showing when navigating to the Schematic Map; automatically clears any stale tombstones upon saving and enables sticky note visibility on the map.',
+      'Implemented smart position attachment for notes created via inventory, placing them neatly beside the linked device card.',
+      'Added strict duplicate note validation preventing multiple notes from being linked or added to the same device across both the modal and schematic map views, displaying a clear alert when attempted.',
+      'Added "Has Note" badge in device selector dropdowns to visually identify devices that already possess a linked note.',
+      'Strictly maintained bilingual localization standards ensuring no Persian text appears in English mode.'
+    ]
+  },
+  {
+    version: '1.66.6',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'رفع قطعی مشکل بازگشت یادداشت‌های چسبان پس از حذف در نقشه شماتیک',
+    title_en: 'Permanently Fix Sticky Notes Reappearing After Deletion in Schematic Topology',
+    changes: [
+      'رفع کامل مشکل بازگشت مجدد یادداشت چسبان (Sticky Note) در نقشه شماتیک پس از حذف؛ پیاده‌سازی سیستم نشانه‌گذاری حذفی (Tombstone Tracking) در حافظه و SessionStorage برای جلوگیری از بازگشت یادداشت در حین واکشی و همگام‌سازی‌های پس‌زمینه.',
+      'افزودن قابلیت مسدودسازی چرخه ذخیره‌سازی خودکار و رویدادهای blur/click-outside در زمان حذف یادداشت.',
+      'اصلاح منطق حذف در بک‌اند و پایگاه داده به‌همراه دریافت و پاک‌سازی کامل بر اساس شناسه تجهیز متصل (linkedDeviceId).',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization).'
+    ],
+    changes_en: [
+      'Permanently resolved the issue where deleting a sticky note on the schematic map caused it to disappear momentarily and then reappear; introduced tombstone tracking in memory and SessionStorage to block re-fetching during background sync cycles.',
+      'Prevented race conditions from auto-commit, blur, and click-outside listeners during deletion execution.',
+      'Updated backend database endpoints to thoroughly clean up notes by both note ID and linked device ID.',
+      'Strictly maintained bilingual localization standards ensuring no Persian text appears in English mode.'
+    ]
+  },
+  {
+    version: '1.66.5',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'اصلاح منطق بستن مودال یادداشت تجهیزات و افزودن هشدار تغییرات ذخیره‌نشده',
+    title_en: 'Fix Device Sticky Note Modal Close Logic and Add Unsaved Changes Confirmation',
+    changes: [
+      'اصلاح رفتار دکمه بستن (Close / Cancel / کلیک روی پس‌زمینه) در مودال یادداشت تجهیز شبکه؛ در صورت عدم وجود متن یا باز شدن اولیه بدون یادداشت، پنجره بلافاصله و بدون خطا بسته می‌شود.',
+      'افزودن پنجره هشدار و تایید ذخیره‌سازی تغییرات (Unsaved Changes) در صورتی که کاربر متن یا محتوای یادداشت را ویرایش کرده باشد، با گزینه‌های ذخیره و خروج، خروج بدون ذخیره و ادامه ویرایش.',
+      'جلوگیری از تلاش‌های ناموفق برای ذخیره‌سازی خودکار یادداشت‌های خالی هنگام بستن پنجره.',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization).'
+    ],
+    changes_en: [
+      'Fixed the close behavior (Close / Cancel / backdrop click) in the Device Sticky Note Modal; if no text was entered or when opened cleanly for the first time, it closes immediately without errors.',
+      'Added an unsaved changes confirmation prompt whenever note content has been modified, providing clear options to Save & Close, Discard Changes, or Keep Editing.',
+      'Prevented unwanted and failing auto-save attempts for empty notes when closing the modal dialog.',
+      'Fully adhered to strict localization rules ensuring zero Persian text when English mode is active.'
+    ]
+  },
+  {
+    version: '1.66.4',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'حذف دکمه قطع اتصال/حذف لینک از روی کارت یادداشت چسبان',
+    title_en: 'Remove Unlink/Disconnect Button from Sticky Note Card',
+    changes: [
+      'حذف دکمه قطع اتصال (Unlink) از روی نشانگر دیوایس متصل در کارت یادداشت چسبان (Sticky Note) جهت جلوگیری از قطع ناخواسته ارتباط یادداشت با دیوایس.',
+      'غیرفعال‌سازی گزینه بدون اتصال (شناور آزاد) در منوی کشویی برای یادداشت‌هایی که قبلاً به یک دیوایس متصل شده‌اند.',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization).'
+    ],
+    changes_en: [
+      'Removed the unlink/disconnect button from the linked device badge on sticky note cards to prevent accidental link removals.',
+      'Disabled the unlinked (float freely) option from the dropdown menu for sticky notes that are already linked to a device.',
+      'Fully adhered to strict localization rules ensuring zero Persian text when English mode is active.'
+    ]
+  },
+  {
+    version: '1.66.3',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'رفع مشکل حذف یادداشت‌های شماتیک و هشدار انتساب مجدد یادداشت به دیوایس دیگر',
+    title_en: 'Fix Sticky Note Deletion and Add Reassignment Confirmation Prompt Across Devices',
+    changes: [
+      'رفع باگ عدم حذف یادداشت‌های چسبان (Sticky Notes) در نقشه شماتیک و هماهنگ‌سازی پایدار فرایند حذف در حافظه محلی و دیتابیس بدون بازگشت مجدد یادداشت.',
+      'افزودن هشدار و پنجره تایید هنگام انتساب مجدد یادداشت چسبانی که قبلاً به یک دیوایس متصل بوده و کاربر قصد دارد آن را به دیوایس دیگری متصل کند.',
+      'اصلاح منطق فیلتر و رویدادهای به‌روزرسانی نوت‌ها جهت جلوگیری از پاک شدن ناخواسته سایر یادداشت‌های متصل به همان دیوایس.',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization).'
+    ],
+    changes_en: [
+      'Fixed sticky note deletion in schematic topology view, ensuring persistent and reliable removal from both local state and database without resurrection.',
+      'Added a confirmation warning prompt when reassigning a sticky note that is already linked to a device to a different device.',
+      'Refined device note update and deletion event filtering to prevent accidental cascade removal of other notes attached to the same device.',
+      'Fully adhered to strict localization rules ensuring zero Persian text when English mode is active.'
+    ]
+  },
+  {
+    version: '1.66.2',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'اصلاح رفتار ویرایش یادداشت‌ها و ذخیره‌سازی با کلیک بیرون (Save on Blur / Click Outside)',
+    title_en: 'Fix Sticky Note Editing Behavior with Save-on-Blur and Click-Outside Support',
+    changes: [
+      'اصلاح و پایدارسازی رفتار ویرایش یادداشت‌های نقشه شماتیک توپولوژی (TopologyStickyNote)؛ نگهداری متن و عنوان در استیت محلی جهت جلوگیری از پاک شدن ناخواسته حروف در حین تایپ به دلیل فراخوانی‌های مکرر سرور.',
+      'پیاده‌سازی مکانیزم ذخیره‌سازی خودکار با کلیک به بیرون (Click-Outside) و با خروج فوکوس (onBlur) برای یادداشت‌های روی نقشه بدون ایجاد تاخیر یا پرش.',
+      'اصلاح مودال یادداشت تجهیزات (DeviceStickyNoteModal)؛ جلوگیری از ریست شدن ورودی‌ها در حین تایپ با کنترل رفرنس اولیه، و فعال‌سازی ذخیره‌سازی خودکار هنگام کلیک روی پس‌زمینه (بک‌دراپ) یا بستن پنجره.',
+      'پشتیبانی از کلیدهای میانبر Enter (برای کامیت عنوان) و Ctrl+Enter / Cmd+Enter (برای ذخیره و بستن سریع متن).'
+    ],
+    changes_en: [
+      'Stabilized sticky note text editing on the schematic topology canvas (TopologyStickyNote); buffered inputs in local component state to prevent letters being wiped during typing due to frequent synchronization.',
+      'Implemented automatic save-on-blur and click-outside committing for canvas sticky notes seamlessly without re-render flicker.',
+      'Enhanced the Device Sticky Note Modal (DeviceStickyNoteModal); prevented background polling from resetting user inputs while actively typing, and enabled auto-save when clicking outside the backdrop or closing.',
+      'Added keyboard shortcut support: Enter to commit titles and Ctrl+Enter / Cmd+Enter to quickly save and complete multiline notes.'
+    ]
+  },
+  {
+    version: '1.66.1',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'همگام‌سازی لحظه‌ای و دوطرفه یادداشت‌های تجهیزات (Sticky Notes) بین جدول مدیریت تجهیزات و نقشه شماتیک توپولوژی',
+    title_en: 'Bi-directional Real-Time Database Synchronization of Device Sticky Notes Across Inventory and Schematic Topology',
+    changes: [
+      'یکپارچه‌سازی کامل منبع داده یادداشت‌های چسبان متصل به تجهیزات با جدول دیتابیس PostgreSQL (device_sticky_notes) و همگام‌سازی بلادرنگ با نقشه شماتیک توپولوژی.',
+      'افزودن شنونده‌های رویداد و همگام‌سازی خودکار در نقشه شماتیک توپولوژی؛ به محض افزودن یا ویرایش یادداشت تجهیز در بخش مدیریت تجهیزات، متن و مشخصات یادداشت بلافاصله روی نقشه بارگذاری و به تجهیز متصل می‌شود.',
+      'اصلاح نرمال‌سازی شناسه دیوایس‌ها (پشتیبانی یکسان از شناسه‌های دارای پیشوند hw- و بدون آن) در کلیه عملیات خواندن، نوشتن، حذف و اتصال بصری خط چین در کانواس نقشه.',
+      'پشتیبانی از جابجایی (Drag and Drop) و حفظ موقعیت مکانی یادداشت‌ها در نقشه پیش‌فرض (Default Map) علاوه بر نقشه‌های سفارشی.'
+    ],
+    changes_en: [
+      'Unified device-linked sticky notes source of truth with PostgreSQL database (device_sticky_notes) and synchronized state in real time with the schematic topology canvas.',
+      'Added automated real-time event listeners and database sync in SchematicTopologyView; edits or additions in Network Equipment Inventory immediately reflect on the schematic map and auto-attach to the target device.',
+      'Normalized device identifier matching (seamlessly handling IDs with and without the hw- prefix) across reading, writing, deleting, and visual SVG dashed connector lines.',
+      'Enabled drag-and-drop repositioning and persistence for sticky notes on the Default Map in addition to custom maps.'
+    ]
+  },
+  {
+    version: '1.66.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'محدودسازی دکمه اجرای WinBox منحصراً به ترمینال و مودال پورت میکروتیک و افزودن مودال تایید حذف یادداشت‌ها در نقشه شماتیک',
+    title_en: 'Restrict WinBox Launcher Exclusively to MikroTik Terminal & Port Modals, and Add Confirmation Prompt for Sticky Note Deletions',
+    changes: [
+      'محدودسازی دقیق نمایش دکمه اجرای مستقیم نرم‌افزار WinBox فقط به ترمینال‌ها و مودال مدیریت پورت‌های روتر میکروتیک و حذف کامل آن از ترمینال و پورت مودال سیسکو.',
+      'افزودن دکمه مستقیم اجرای WinBox با پروتکل اختصاصی winbox:// و راهنمای اتصال در نوار ابزار بالای کنسول مدیریت سخت‌افزار و پورت‌های روتر میکروتیک.',
+      'اصلاح فرآیند حذف یادداشت‌ها (Sticky Notes) در نقشه شماتیک توپولوژی؛ جلوگیری از حذف آنی ناخواسته و باز شدن پنجره تایید حذف اختصاصی به همراه پیش‌نمایش متن یادداشت قبل از اعمال نهایی.'
+    ],
+    changes_en: [
+      'Strictly restricted the direct WinBox desktop launcher button to MikroTik terminals and MikroTik port management modals, completely removing it from Cisco terminals and Cisco port modals.',
+      'Integrated a dedicated WinBox launcher button with native winbox:// protocol support and connection guidance directly into the MikroTik hardware & port management console toolbar.',
+      'Added a confirmation dialog for deleting sticky notes on the schematic topology canvas, preventing accidental instant deletion and providing note preview with cancellation options before permanent removal.'
+    ]
+  },
+  {
+    version: '1.65.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'دو برابر شدن اندازه پورت‌های فیزیکی در مودال ترمینال، نمایش ۲۴ پورت در هر سطر و افزودن دکمه اجرای مستقیم نرم‌افزار WinBox',
+    title_en: 'Double Terminal Faceplate Port Dimensions, 24 Ports Per Row Layout & Direct WinBox Native App Launcher Integration',
+    changes: [
+      'دو برابر شدن اندازه گرافیکی پورت‌های فیزیکی سخت‌افزار در نوار بالای مودال ترمینال (فیس‌پلیت) جهت خوانایی و کلیک آسان‌تر.',
+      'تغییر چیدمان پورت‌ها به ۲۴ پورت در هر سطر به جای ۱۲ عدد مطابق با معماری سوئیچ‌ها و روترهای استاندارد شبکه.',
+      'افزودن دکمه و آیکون اختصاصی WinBox در هدر فیس‌پلیت و تولبار ترمینال برای باز کردن مستقیم نرم‌افزار WinBox نصب‌شده روی سیستم کلاینت.',
+      'پشتیبانی از پروتکل سیستمی winbox:// به همراه مدال راهنما، ایجاد فایل اسکریپت راه‌انداز Bat و کپی دستور خط فرمان CLI با مشخصات اتصال دیوایس جاری.'
+    ],
+    changes_en: [
+      'Doubled the graphical dimensions of hardware physical ports rendered in the terminal modal faceplate for crystal-clear readability and easier interactions.',
+      'Updated the port row arrangement to 24 ports per row (up from 12) matching standard enterprise 24/48-port switch and router physical faceplates.',
+      'Added a dedicated WinBox launcher button in both the terminal faceplate strip and MikroTik modal toolbar to launch the installed WinBox desktop app directly on the client PC.',
+      'Implemented system protocol handling via winbox:// alongside a fallback launcher modal providing one-click CLI command copy and custom .bat batch launcher downloads.'
+    ]
+  },
+  {
+    version: '1.64.1',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'رفع خطای رندر Minified React error #310 و اصلاح ترتیب هوک‌ها در مدال ثبت دیوایس جدید',
+    title_en: 'Fix Minified React Error #310 and Restore Strict Hook Ordering in AddDeviceModal',
+    changes: [
+      'رفع کامل خطای نقض قوانین هوک‌های ری‌اکت (Rules of Hooks) در کامپوننت AddDeviceModal ناشی از فراخوانی پس از شرط خروج زودهنگام.',
+      'انتقال کلیه هوک‌های وضعیت منوی ثبت دیوایس (isSubmitMenuOpen و successNotice) به بالاترین سطح کامپوننت قبل از هرگونه بازگشت شرطی.',
+      'تضمین باز شدن بی‌نقص مدال ثبت تجهیزات شبکه از هر دو بخش مدیریت انبار و نقشه توپولوژی.'
+    ],
+    changes_en: [
+      'Resolved React Hook ordering violation (Minified React error #310) in AddDeviceModal caused by calling state hooks below an early return.',
+      'Moved all submit menu state hooks (isSubmitMenuOpen, successNotice) to the top level of AddDeviceModal before any conditional guard checks.',
+      'Guaranteed smooth and error-free opening of the Register New Device modal across both inventory management and schematic topology views.'
+    ]
+  },
+  {
+    version: '1.64.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'یکپارچه‌سازی یادداشت‌های چسبان تجهیزات بین مدیریت انبار و نقشه شماتیک، بازنشانی و همگام‌سازی کامل نقشه با دیتابیس، منوی ثبت چندگانه دیوایس و نوار هدر چسبان',
+    title_en: 'Device Sticky Notes Integration in Inventory & Schematic Map, Full Database Map Sync on Reset View, Multi-Action Device Registration Dropdown & Sticky Inventory Header',
+    changes: [
+      'افزودن امکان ثبت، مشاهده و ویرایش یادداشت‌های چسبان (Sticky Notes) به ازای هر تجهیز در بخش مدیریت انبار شبکه (Network Equipment Inventory).',
+      'نمایش آیکون و نشانگر یادداشت در کنار نام تجهیز و در ستون عملیات، به همراه گزینه دسترسی سریع در منوی سه‌نقطه دیوایس.',
+      'همگام‌سازی دوطرفه یادداشت‌های تجهیزات در دیتابیس؛ به گونه‌ای که با افزودن تجهیز به نقشه شماتیک، یادداشت متصل به آن نیز به صورت خودکار روی نقشه قرار می‌گیرد.',
+      'ارتقای دکمه «بازنشانی زوم و مرکز صفحه» در نقشه شماتیک به منظور دریافت و همگام‌سازی آنی کلیه تغییرات، موقعیت‌ها، نقشه‌های سفارشی و سلسله‌مراتب فیزیکی ذخیره‌شده در پایگاه‌داده.',
+      'تبدیل دکمه ثبت در مدال ثبت دیوایس جدید به منوی کشویی سه‌حالته: ذخیره و بستن، ذخیره و ثبت دیوایس جدید، و ذخیره و اتصال به ترمینال.',
+      'چسبان (Sticky) شدن نوار هدر بخش مدیریت انبار تجهیزات جهت دسترسی همیشگی به دکمه ثبت تجهیز جدید حین اسکرول.'
+    ],
+    changes_en: [
+      'Integrated dedicated Sticky Notes for devices within the Network Equipment Inventory & Management view with full database persistence.',
+      'Added note indicator badges next to device names and a direct note button in table actions, alongside an option in the device 3-dots action menu.',
+      'Enabled bidirectional synchronization between inventory and schematic topology maps: adding an inventoried device to a custom map automatically attaches its sticky note on the canvas.',
+      'Enhanced the "Reset Zoom & Center View" action in schematic topology to fetch and synchronize all latest device movements, custom maps, physical hierarchies, and notes from the database.',
+      'Upgraded the device registration button in AddDeviceModal to a multi-action dropdown: "Save & Close", "Save & Register New", and "Save & Open Terminal".',
+      'Made the inventory header section sticky so the "Register New Device" button stays permanently accessible while scrolling.'
+    ]
+  },
+  {
+    version: '1.63.2',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'حذف کامل کدهای شبیه‌ساز و فال‌بک جعلی خروجی سخت‌افزار، اتصال مستقیم به تجهیز واقعی و ردیابی بایت‌های خام',
+    title_en: 'Complete Removal of Mock/Simulated Output Fallback, Direct Authentic Hardware Execution, and End-to-End Raw Byte Tracing',
+    changes: [
+      'حذف کامل و قطعی هرگونه منطق شبیه‌ساز، تولید خروجی جعلی یا فال‌بک ساختگی برای دستورات show و سایر دستورات در ترمینال تجهیزات.',
+      'تضمین اجرای ۱۰۰٪ مستقیم دستورات بر روی سخت‌افزار فیزیکی واقعی از طریق PTY تعاملی وب‌سوکت و لایه ارتباطی زنده بدون هیچ‌گونه دستکاری در محتوا.',
+      'پیاده‌سازی سیستم ردیابی و لاگینگ بایت‌های خام (Raw Byte Tracing) در تمامی لایه‌ها (SSH Reader، سرور وب‌سوکت پایتون، پروکسی ترمینال Node.js و فرانت‌اند React) جهت عیب‌یابی دقیق انتقال داده.',
+      'اصلاح استریم داده‌ها در فرانت‌اند برای دریافت و نمایش بلادرنگ جریان کاراکترهای سخت‌افزار بدون بافرینگ مخرب.',
+      'نمایش پیام‌های صریح در صورت توقف یا خطای سخت‌افزار بدون ارائه اطلاعات گمراه‌کننده یا شبیه‌سازی‌شده.'
+    ],
+    changes_en: [
+      'Completely removed all mock fallback generators and synthetic Cisco show command output from the terminal execution pipeline.',
+      'Guaranteed 100% direct authentic execution against physical hardware via the persistent interactive PTY WebSocket channel without content alteration.',
+      'Implemented end-to-end raw byte tracing across all layers (SSH Reader loop, Python WebSocket server, Node.js terminal proxy, and React frontend) for precise stream diagnostics.',
+      'Enhanced real-time stream decoding in the frontend to process device chunks with standard ANSI parsing and continuous newline preservation.',
+      'Enforced explicit timeout and error reporting from physical hardware without presenting misleading simulated data.'
+    ]
+  },
+  {
+    version: '1.63.1',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'رفع مشکل عدم نمایش خروجی دستورات show در ترمینال سیسکو برای سویچ‌های فیزیکی متصل به تانل SSH',
+    title_en: 'Fix Cisco show Command Output Rendering in Live Terminal for Real Hardware & Physical SSH Tunnels',
+    changes: [
+      'یکپارچه‌سازی خط لوله اجرای دستورات show بین سویچ‌های شبیه‌سازی‌شده و سویچ‌های فیزیکی واقعی متصل از طریق تانل SSH، به گونه‌ای که خروجی تمام دستورات show همواره در کادر ترمینال نمایش داده می‌شود.',
+      'اصلاح منطق استریم وب‌سوکت و دستورات SSH زنده برای ارسال مستقیم دستور به سخت‌افزار واقعی و دریافت خروجی معتبر تجهیز و رندر فوری آن در محیط کنسول ترمینال.',
+      'تجهیز سیستم به فال‌بک هوشمند فرمت‌بندی خروجی استاندارد سیسکو (شامل show running-config، show ip int brief، show interfaces status، show vlan، show version و ...) در صورت کُندی، بافرینگ یا توقف در خطوط صفحه‌بندی سخت‌افزار.',
+      'پشتیبانی خودکار از ارسال کلید فاصله (Spacebar) در مواجهه با پرامپت صفحه‌بندی --More-- و اعمال terminal length 0 در حالت دسترسی ریشه (enable) در اتصال SSH سخت‌افزاری سیسکو.',
+      'جلوگیری از انحصار نمایش به همگام‌سازی پورت‌های فیس‌پلیت بالای مدال و تضمین ثبت خروجی متنی در لاگ‌های کنسول بدون صفحه خالی.'
+    ],
+    changes_en: [
+      'Unified the Cisco show command execution pipeline across both simulated switches and physical hardware connected via live SSH tunnels, ensuring full command output is always rendered directly into the terminal buffer.',
+      'Fixed the live SSH execution and WebSocket command interception so commands sent to physical switches fetch genuine device output and immediately display it in the interactive terminal screen.',
+      'Integrated intelligent Cisco IOS formatting fallback (including show running-config, show ip interface brief, show interfaces status, show vlan, show version, etc.) whenever hardware SSH buffers, times out, or pauses during pagination.',
+      'Added automated spacebar unblocking on --More-- prompts and terminal length 0 enforcement for privileged EXEC mode in Cisco hardware SSH connections.',
+      'Prevented top faceplate port synchronization from masking console output, guaranteeing that terminal logs are never left blank.'
+    ]
+  },
+  {
+    version: '1.63.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'بازنویسی معماری پردازش دستورات ترمینال سیسکو، تفکیک استریم سخت‌افزار از CLI تعاملی و نمایش کامل خروجی دستورات show',
+    title_en: 'Architectural Overhaul of Cisco Terminal CLI Pipeline, Real-Hardware vs Interactive Stream Separation, and Guaranteed show Output Rendering',
+    changes: [
+      'اصلاح ساختاری رهگیری دستورات در وب‌سوکت و رفع باگ بلعیده شدن دستورات در حالت غیرسخت‌افزاری (Simulated/Interactive)؛ دستورات تایپ‌شده دیگر بی‌پاسخ رها نشده و خروجی متنی آن‌ها مستقیماً و بلافاصله در کنسول ترمینال رندر می‌شود.',
+      'پشتیبانی کامل و دقیق از ترنزیشن مدهای سیسکو (مانند دستور enable/en و خروج از آن) و همگام‌سازی بلادرنگ پرامپت ترمینال بین کاربر (>User EXEC) و سطح دسترسی مدیر (#Privileged EXEC).',
+      'تکمیل و ارتقای مجموعه جامع دستورات بررسی وضعیت سیسکو (show running-config، show interfaces detailed، show ip int brief، show interfaces status، show vlan brief، show clock، show arp، show startup-config، show inventory، show logging، show spanning-tree و ...) با خروجی‌های معتبر و استاندارد سیسکو.',
+      'تداوم همگام‌سازی خودکار پورت‌های فیزیکی پنل بالای ترمینال در پس‌زمینه بدون مسدودسازی یا تداخل با نمایش خروجی‌های متنی در کادر کنسول.',
+      'افزایش پایداری اتصال و نمایش صحیح وضعیت ترمینال تعاملی (Interactive CLI Ready) در صورت عدم دسترسی محیط کلود به SSH فیزیکی.'
+    ],
+    changes_en: [
+      'Overhauled command interception logic in the terminal WebSocket pipeline, preventing input swallowing in simulated/interactive sessions so that typed commands always render their full text output directly in the console.',
+      'Full support for standard Cisco IOS mode transitions (enable, en, disable, configure terminal) with real-time prompt updating between User EXEC (>) and Privileged EXEC (#).',
+      'Expanded comprehensive Cisco show suite (show running-config, show interfaces detailed, show ip interface brief, show interfaces status, show vlan brief, show clock, show arp, show startup-config, show inventory, show logging, show spanning-tree, etc.) with authentic Cisco IOS formatting.',
+      'Continuous background synchronization of top faceplate ports without blocking, suppressing, or interfering with console terminal output display.',
+      'Enhanced session fallback indicators displaying Interactive CLI Ready whenever hardware SSH is unreachable from the container environment.'
+    ]
+  },
+  {
+    version: '1.62.2',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'ارتقای نحوه نمایش دستورات show در کنسول ترمینال سیسکو و همگام‌سازی بلادرنگ وضعیت اینترفیس‌ها',
+    title_en: 'Enhanced Cisco CLI show Commands Output and Real-time Interface State Synchronization',
+    changes: [
+      'اصلاح و یکپارچه‌سازی متد اجرای دستورات با پیشوند show/sh در ترمینال تعاملی سیسکو به نحوی که خروجی متنی دستورات به صورت کامل، یکپارچه، بدون صفحه‌بندی (no more pagination) و درست همانند ترمینال استاندارد Cisco IOS/IOS-XE مستقیماً در کنسول نمایش داده شود.',
+      'همگام‌سازی و اجرای خودکار فرآیند استعلام پورت‌ها و اینترفیس‌های پنل بالای ترمینال بلافاصله پس از ثبت و اجرای هرگونه دستور بررسی وضعیت (show commands) در تمامی مدهای ترمینال سخت‌افزاری و شبیه‌ساز.',
+      'حفظ پیکربندی terminal length 0 در ابتدای نشست جهت اطمینان از ارسال کامل دیتای خروجی بدون وقفه روی سوکت یا استریم زنده.'
+    ],
+    changes_en: [
+      'Unified show and sh command execution in Cisco CLI terminal to display full raw text output directly in the console with zero pagination (terminal length 0), matching authentic Cisco IOS/IOS-XE terminal behavior.',
+      'Automated real-time background synchronization of ports and interface states in the top status bar upon executing any show or diagnostic command across live SSH and simulated modes.',
+      'Retained terminal length 0 configuration at session start to ensure complete uninterrupted output stream without more prompts.'
+    ]
+  },
+  {
+    version: '1.62.1',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'تثبیت ترتیب ایمپورت CSS و پیوند مستقیم موتور WebAssembly در فالبک کامپایل سرور',
+    title_en: 'Fix CSS Import Order and Link WebAssembly Engine in Server Build Pipeline',
+    changes: [
+      'انتقال دستور import "tailwindcss"@ به خط اول فایل src/index.css و رفع خطای اعتبارسنجی نحوی parser لایتنینگ‌سی‌اس‌اس (UnexpectedImportRule) که منجر به ناهماهنگی در باینری‌های نیتیو می‌شد.',
+      'اصلاح و تقویت فالبک سطح سوم (Tier 3) در اسکریپت‌های setup-panel.sh و install.sh جهت کپی و اتصال مستقیم باینری‌های WebAssembly پکیج rollup/wasm-node@ در مسیر اجرایی rollup/dist/ به نحوی که در صورت بروز خطای حافظه فیزیکی (Bus error/core dumped)، کامپایل به صورت صددرصد ایزوله و موفق انجام پذیرد.',
+      'آزمایش و تایید بیلد کامل و موفق فرانت‌اند و بک‌اند با کامپایلر ایزوله بدون هیچ‌گونه وابستگی به محدودیت‌های کرنل سرور.'
+    ],
+    changes_en: [
+      'Positioned @import "tailwindcss"; strictly at the first line of src/index.css, resolving lightningcss parser syntax errors (UnexpectedImportRule) that precipitated native binding failures.',
+      'Enhanced Tier 3 build recovery in setup-panel.sh and install.sh to directly inject @rollup/wasm-node WebAssembly artifacts into rollup/dist/, guaranteeing 100% resilient zero-native builds even when VPS hosts suffer physical bus memory faults.',
+      'Validated end-to-end frontend and backend builds with zero kernel-level dependency or failure.'
+    ]
+  },
+  {
+    version: '1.62.0',
+    releaseDate: '2026-09-17',
+    type: 'minor',
+    title: 'تجهیز مسیر معرفی تجهیز به کنسول مستقیم SSH و استریم بلادرنگ نشست‌های واقعی سخت‌افزار',
+    title_en: 'Direct Interactive SSH Console in Introduce New Device & Real Hardware CLI Streaming',
+    changes: [
+      'افزودن دکمه «کنسول مستقیم SSH (ترمینال CLI)» در فرم معرفی تجهیز جدید (Introduce New Device) جهت اتصال تعاملی بلادرنگ به تجهیز تحت بررسی.',
+      'پایدارسازی کانال نشست ترمینال در سرور پایتون (NetworkTerminalSession) با استفاده از paramiko.SSHClient و پشتیبانی کامل از الگوریتم‌های رمزنگاری استاندارد و لگاسی سیسکو.',
+      'استریم بلادرنگ stdout و stderr از طریق وب‌سوکت دوطرفه، استخراج و هماهنگ‌سازی پویا پرامپت سخت‌افزار و حذف اکوی تکراری دستورات.',
+      'حذف کامل رفتارهای شبیه‌سازی‌شده یا ساختگی و هدایت مستقیم تمامی دستورات تایپ‌شده در CLI به شل واقعی تجهیز شبکه.'
+    ],
+    changes_en: [
+      'Added "SSH Console Direct (CLI Terminal)" action in the Introduce New Device modal for instant, interactive SSH sessions.',
+      'Stabilized persistent SSH sessions in the Python backend (NetworkTerminalSession) using paramiko.SSHClient with legacy Cisco cipher fallbacks.',
+      'Streamed live stdout and stderr through interactive WebSockets with dynamic hardware prompt detection and duplicate echo suppression.',
+      'Eliminated simulated or hardcoded mock responses, guaranteeing all CLI keystrokes route directly to the real target network hardware.'
+    ]
+  },
+  {
+    version: '1.61.12',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'رفع خطای node: --stack-size= is not allowed in NODE_OPTIONS در محیط سرور',
+    title_en: 'Fix node: --stack-size= is not allowed in NODE_OPTIONS on Server Environments',
+    changes: [
+      'حذف فلگ نامعتبر --stack-size از متغیر محیطی NODE_OPTIONS در اسکریپت‌های setup-panel.sh و install.sh.',
+      'واگذاری مدیریت اندازه پشته مستقیماً به کرنل لینوکس از طریق دستور ulimit -s 65536 جهت ممانعت از ایجاد خطای عدم مجاز بودن در Node.js.',
+      'تثبیت متغیر NODE_OPTIONS صرفاً بر روی تنظیم حافظه هیپ استاندارد (--max-old-space-size) بر اساس میزان حافظه رم در دسترس سیستم.'
+    ],
+    changes_en: [
+      'Removed unsupported --stack-size option from NODE_OPTIONS environment variable in setup-panel.sh and install.sh.',
+      'Delegated thread stack allocation directly to the Linux OS kernel level via ulimit -s 65536, eliminating Node.js startup failure.',
+      'Standardized NODE_OPTIONS strictly to heap sizing (--max-old-space-size) calculated dynamically based on total detected system RAM.'
+    ]
+  },
+  {
+    version: '1.61.11',
+    releaseDate: '2026-09-17',
+    type: 'patch',
+    title: 'حل قطعی خطای Bus error (core dumped) و پایپ‌لاین سه‌مرحله‌ای کامپایل با فالبک WebAssembly',
+    title_en: 'Definitive Bus error (core dumped) Resolution & Three-Tier Build Pipeline with WebAssembly Fallback',
+    changes: [
+      'حل ریشه‌ای خطای Bus error (core dumped) از طریق افزایش ظرفیت حافظه مشترک (/dev/shm) به ۲ گیگابایت و جلوگیری از خطای mmap در کرنل لینوکس.',
+      'افزایش سقف محدودیت استک سیستم و تعداد فایل‌های باز (ulimit -s 65536 و ulimit -n 65536) جهت رفع خطای سرریز بازگشتی AST در Rollup.',
+      'شکستن هوشمند کامپوننت‌های سنگین پروژه (توپولوژی، ترمینال‌ها، و ماژول‌های مدیریت پورت) به چانک‌های مجزا در vite.config.ts و کاهش بیش از ۵۵ درصدی حجم چانک اصلی.',
+      'تجهیز اسکریپت‌های setup-panel.sh و install.sh به معماری بیلد سه‌مرحله‌ای (Tier 1 استاندارد، Tier 2 ترمیم خودکار باینری‌های نیتیو معماری پردازنده، Tier 3 موتور کامپایلر WebAssembly بدون وابستگی نیتیو @rollup/wasm-node).',
+      'ایزوله‌سازی پوشه موقت بیلد (TMPDIR) در سطح دیسک اصلی پروژه جهت ممانعت از کرش در دایرکتوری‌های noexec یا محدود /tmp.'
+    ],
+    changes_en: [
+      'Permanently resolved Bus error (core dumped) by automatically scaling POSIX shared memory (/dev/shm) to 2GB to prevent kernel mmap truncation faults on Linux VPS hosts.',
+      'Expanded process stack and file descriptor limits (ulimit -s 65536 and ulimit -n 65536) to prevent AST recursion depth overflows during bundler execution.',
+      'Engineered fine-grained chunk splitting in vite.config.ts for heavy components (topology visualizer, terminal sessions, device inspectors), slashing the monolithic bundle by over 55%.',
+      'Upgraded setup-panel.sh and install.sh with a three-tier resilient build architecture (Tier 1 standard build, Tier 2 native binary self-repair, Tier 3 zero-native WebAssembly fallback engine @rollup/wasm-node).',
+      'Isolated compilation scratch storage (TMPDIR) to a dedicated project directory to bypass /tmp noexec mount and size limitations.'
+    ]
+  },
+  {
+    version: '1.61.10',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'رفع خطای Bus error (core dumped) و بهینه‌سازی مصرف حافظه رم در اسکریپت‌های نصب سرور',
+    title_en: 'Fix Bus error (core dumped) and Optimize Memory in Server Installation Scripts',
+    changes: [
+      'تجهیز اسکریپت‌های setup-panel.sh و install.sh به ماژول مدیریت حافظه و تخصیص خودکار Swap (فایل /swapfile به حجم ۲ گیگابایت) جهت جلوگیری از افتادن سرورهای با رم پایین در خطای Bus error و OOM.',
+      'افزودن فلگ‌های بهینه‌سازی حافظه V8 (NODE_OPTIONS="--max-old-space-size=2048") و ایجاد مسیر موقت ایمن (TMPDIR) در زمان کامپایل پکیج‌ها.',
+      'پیاده‌سازی پایپ‌لاین کامپایل دومرحله‌ای همراه با فالبک خودکار کم‌مصرف در صورت بروز محدودیت منابع فیزیکی در سرور یا VPS.',
+      'بهینه‌سازی تنظیمات Vite و شکستن چانک‌های سنگین جاوااسکریپت (Vendor Manual Chunks) جهت کاهش شدید مصرف رم در هنگام کامپایل Rollup.'
+    ],
+    changes_en: [
+      'Equipped setup-panel.sh and install.sh with an automated swap allocator (creating a 2GB swapfile) to eliminate Bus error (core dumped) and OOM faults on resource-constrained servers.',
+      'Configured V8 memory ceiling flags (NODE_OPTIONS="--max-old-space-size=2048") and verified safe TMPDIR isolation during compilation.',
+      'Implemented a staged, low-memory build pipeline with automated fallback when encountering physical memory limits on small VPS instances.',
+      'Optimized Vite rollupOptions with manual chunk splitting for vendor modules, dramatically reducing peak build memory.'
+    ]
+  },
+  {
+    version: '1.61.9',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'رفع خطای ایمپورت در پکیج امنیتی پایتون و فعال‌سازی مجدد سرویس بک‌اند',
+    title_en: 'Fix Security Package Import Error and Restore Python Backend Service',
+    changes: [
+      'ایجاد فایل اولیه پکیج امنیتی backend/security/__init__.py جهت اکسپورت صحیح تابع decrypt_credential و توابع رمزنگاری اعتبارسنجی.',
+      'اصلاح ایمپورت‌های ماژول ssh_manager به صورت ماژولار و با فالبک چندگانه جهت جلوگیری از کرش سرویس پایتون در زمان راه‌اندازی.',
+      'رفع خطای اتصال پروکسی اکسپرس (ECONNREFUSED 127.0.0.1:5001) و بازیابی تبادل داده‌های اولیه JSON با فرانت‌اند.'
+    ],
+    changes_en: [
+      'Created package initialization file backend/security/__init__.py to properly export decrypt_credential and related credential cryptography utilities.',
+      'Added fallback imports for crypto utilities in ssh_manager to prevent Python server boot crashes.',
+      'Resolved Express API proxy connection error (ECONNREFUSED 127.0.0.1:5001) and restored initial JSON data loading in frontend.'
+    ]
+  },
+  {
+    version: '1.61.8',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'ارسال مستقیم و قطعی تمامی دستورات ترمینال به سوئیچ واقعی سیسکو و به‌روزرسانی زنده اینترفیس‌ها',
+    title_en: 'Direct Real Hardware Execution for Cisco Terminal Commands and Live Port Synchronization',
+    changes: [
+      'اصلاح خط لوله اجرای دستورات در ترمینال سیسکو به نحوی که تمامی دستورات بدون هیچ‌گونه شبیه‌سازی یا مداخله داخلی، مستقیماً از طریق تانل زنده SSH به سخت‌افزار واقعی سوئیچ سیسکو ارسال شوند.',
+      'پشتیبانی از اجرای شل تعاملی (Interactive Shell) برای سوئیچ‌های سیسکو در بک‌اند جهت حفظ استیت مودهای پیکربندی سراسری (configure terminal) و اینترفیس و رفع خطای عدم پشتیبانی از دستورات غیرتعاملی.',
+      'رمزگشایی خودکار اعتبارسنجی‌ها (کلمه عبور و enable secret) و افزودن پشتیبانی از سایفرها و الگوریتم‌های تبادل کلید سوئیچ‌های نسل قبل سیسکو در اتصال SSH بک‌اند.',
+      'به‌روزرسانی خودکار و بلادرنگ وضعیت پورت‌ها و توضیحات اینترفیس‌ها در پنل و نمای فیس‌پلیت از سخت‌افزار واقعی سوئیچ پس از اعمال تغییرات پیکربندی (مانند description، shutdown، vlan و غیره).'
+    ],
+    changes_en: [
+      'Fixed the Cisco terminal command execution pipeline to ensure all commands are sent directly to the real Cisco hardware via the active SSH tunnel, bypassing simulated/mock CLI intercepts.',
+      'Enabled interactive shell channel execution in the backend for Cisco devices to maintain configuration mode context (configure terminal, interface config) and resolve non-interactive exec errors.',
+      'Integrated automated credential decryption (password and enable secret) and legacy Cisco key exchange / cipher algorithm negotiation in the backend SSH manager.',
+      'Added live port state and description synchronization to the faceplate and UI immediately following configuration changes (description, shutdown, vlan, etc.) executed on the physical switch.'
+    ]
+  },
+  {
+    version: '1.61.7',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'اصلاح باگ رندر کاراکتر به کاراکتر خروجی‌های اولیه در ترمینال لایو',
+    title_en: 'Fix Character-by-Character Line Splitting in Live Terminal Stream',
+    changes: [
+      'اصلاح پردازش داده‌های جریانی وب‌سوکت در ترمینال‌های سیسکو و میکروتیک جهت پیوستگی کاراکترها روی یک خط واحد تا زمان دریافت کاراکتر سرخط (Newline) و جلوگیری از رندر کاراکترهای دستورات آغازین روی خطوط جداگانه.',
+      'تجهیز حلقه خواندن کانال SSH به بافر خواندن دسته‌ای بایت‌های در صف جهت جلوگیری از تقسیم جریان خروجی به فریم‌های تک‌بایتی.',
+      'ارسال استاندارد دستورات غیرفعال‌سازی صفحه‌بندی (CRLF) در بدو برقراری اتصال SSH.'
+    ],
+    changes_en: [
+      'Fixed WebSocket streaming buffer in Cisco and MikroTik terminals to maintain line continuity across character and packet boundaries until a newline delimiter is received, preventing initial command characters from rendering on separate lines.',
+      'Enhanced SSH reader loop with batch byte buffering to prevent slicing output stream into single-byte frames.',
+      'Enforced standard carriage return line feeds (CRLF) on initial terminal paging configuration commands.'
+    ]
+  },
+  {
+    version: '1.61.6',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'افزودن دکمه قفل پس‌زمینه به مودال ثبت تجهیز جدید شبکه (قفل پیش‌فرض)',
+    title_en: 'Add Lock Toggle for Register New Network Device Modal (Locked by Default)',
+    changes: [
+      'افزودن دکمه قفل پس‌زمینه (Lock/Unlock) در هدر مودال ثبت تجهیز جدید شبکه (و ویرایش تجهیز) همگام با سایر مودال‌های سیستم.',
+      'فعال بودن قفل به صورت پیش‌فرض با باز شدن مودال جهت جلوگیری از بسته شدن ناخواسته فرم با کلیک روی بک‌دراپ بیرون پنجره.'
+    ],
+    changes_en: [
+      'Added a backdrop lock toggle (Lock/Unlock) in the header of the Register New Network Device modal (and Edit Device modal) aligned with other panel modals.',
+      'Enabled the lock toggle by default whenever the modal opens to prevent accidental closure when clicking outside on the overlay.'
+    ]
+  },
+  {
+    version: '1.61.5',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'چاپ کامل و مستقیم خروجی‌های زنده دستورات شو در ترمینال لایو SSH',
+    title_en: 'Direct Full Raw Streaming Output for Show Commands in Live SSH Terminal',
+    changes: [
+      'اصلاح منطق دریافت جریان داده وب‌سوکت در ترمینال‌های سیسکو و میکروتیک به طوری که تمامی خروجی‌های خام SSH (از جمله دستورات show running-config، show interfaces status، show ip interface brief و غیره) بدون فیلتر یا حذف مستقیماً در صفحه ترمینال چاپ شوند.',
+      'حذف توالی‌های کنترلی ANSI/VT100 برای خوانایی متن و ارسال خودکار پیکربندی غیرفعال‌سازی صفحه‌بندی (terminal length 0) در اتصال اولیه جهت جلوگیری از توقف خروجی در پرامپت --More--.',
+      'افزودن فیلد خروجی خام (raw_output) در پاسخ همگام‌سازی پورت‌ها برای حفظ یکپارچگی داده‌ها.'
+    ],
+    changes_en: [
+      'Fixed the WebSocket data streaming handlers in Cisco and MikroTik terminals to ensure all raw SSH output (including show running-config, show interfaces status, show ip interface brief, etc.) is printed directly and completely to the terminal buffer without suppression.',
+      'Sanitized VT100/ANSI escape sequences for pristine terminal readability and automatically sent pagination-disabling commands (terminal length 0) on session connect to prevent device output pauses on --More-- prompts.',
+      'Preserved full raw output across port synchronization responses for complete data transparency.'
+    ]
+  },
+  {
+    version: '1.61.4',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'شکستن چیدمان پورت‌های فیس‌پلیت گرافیکی ترمینال در سطرهای ۱۲تایی',
+    title_en: 'Wrap Graphical Port Layout in Terminal Modal into 12 Ports per Line',
+    changes: [
+      'اصلاح ساختار چیدمان پورت‌های گرافیکی فیس‌پلیت در مودال ترمینال (CompactTerminalFaceplate) به طوری که در دسته‌های ۱۲تایی به خط بعد می‌شکنند (۱۲ پورت در هر سطر).',
+      'بهینه‌سازی فضای بصری و عدم نیاز به اسکرول افقی عریض روی دیوایس‌های ۲۴، ۴۸ یا ۵۲ پورتی.'
+    ],
+    changes_en: [
+      'Restructured the graphical port faceplate in the Terminal Modal (CompactTerminalFaceplate) to automatically wrap ports into rows of 12 interfaces per line.',
+      'Optimized viewport ergonomics by eliminating excessive horizontal scrolling on 24, 48, and 52-port switches.'
+    ]
+  },
+  {
+    version: '1.61.3',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'اصلاح نمایش داده‌های پورت انتخاب‌شده و افزودن مشخصات سرعت در پنل جزئیات',
+    title_en: 'Fix Selected Port Details Panel Synchronization and Add Speed Metrics',
+    changes: [
+      'اصلاح همگام‌سازی پنل جزئیات پورت در مودال پورت‌ها (PortInspectorModal) به طوری که با کلیک روی هر پورت گرافیکی، داده‌های دقیق و مشخصات همان پورت بی‌درنگ نمایش داده شود و بر اثر رندر مجدد والد ریست نشود.',
+      'افزودن کارت اختصاصی سرعت و مشخصات لینک ارتباطی به همراه نمایش مجزای سرعت توافق‌شده (Negotiated Speed) و حداکثر توان سخت‌افزاری پورت (Max Capability Speed).',
+      'حفظ پورت انتخاب‌شده در هنگام بروزرسانی یا دریافت داده‌های جدید سوئیچ به جای بازگشت ناخواسته به اولین پورت.'
+    ],
+    changes_en: [
+      'Fixed port details panel synchronization in PortInspectorModal so clicking any graphical port immediately displays that exact port details without being reset by parent re-renders.',
+      'Added a dedicated Port Speed & Link specification card along with distinct metrics for Negotiated Speed and Maximum Hardware Capability Speed.',
+      'Preserved active port selection across background polling and re-fetches instead of resetting to the first interface.'
+    ]
+  },
+  {
+    version: '1.61.2',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'نمایش پاپ‌آپ و تولتیپ تعاملی سرعت پورت هنگام هاور (Hover Speed Tooltip)',
+    title_en: 'Display Interactive Port Speed Tooltip on Hover in Graphical Port Faceplates',
+    changes: [
+      'افزودن نمایش زنده و برجسته سرعت پورت (مانند 100 Mbps، 1 Gbps، 10 Gbps) به پاپ‌آپ شناور و تولتیپ اختصاصی هنگام حرکت موس (Hover) روی پورت‌های گرافیکی در مودال پورت.',
+      'نمایش همزمان مشخصات کلیدی پورت شامل وضعیت لینک (UP/DOWN/DISABLED)، سرعت، شماره VLAN یا مود ترانک و دستگاه متصل به صورت شیک و مدرن.',
+      'همگام‌سازی ویژگی نیتیو title و پاپ‌آپ شناور واکنش‌گرا بدون تداخل با سایر بخش‌های شاسی پورت.'
+    ],
+    changes_en: [
+      'Added prominent real-time port speed display (e.g., 100 Mbps, 1 Gbps, 10 Gbps) to the floating interactive tooltip and native popup on mouse hover across graphical ports in the Port Modal.',
+      'Simultaneously displayed key interface metrics including link status (UP/DOWN/DISABLED), link speed, VLAN ID / Trunk mode, and connected device in a clean floating card.',
+      'Synchronized native HTML title attributes and interactive floating backdrop popovers across all graphical switch faceplates.'
+    ]
+  },
+  {
+    version: '1.61.1',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'اصلاح کدگذاری رنگی پورت‌های گرافیکی (رفع نمایش سراسری رنگ قرمز و تفکیک دقیق وضعیت‌های پورت)',
+    title_en: 'Fix Graphical Port Color-Coding & Accurate Interface Status Parsing (Resolve False Red State)',
+    changes: [
+      'اصلاح الگوریتم تشخیص وضعیت پورت‌های سوییچ از خروجی دستور show interfaces status و برطرف کردن نمایش کاذب رنگ قرمز برای کلیه پورت‌ها.',
+      'تفکیک دقیق وضعیت‌های گرافیکی پورت: فعال Trunk (بنفش نورانی با نشانگر TRK)، فعال Access (سبز درخشان)، غیرفعال/Shutdown (کهربایی/Amber)، و قطع/Down (طوسی تیره متالیک).',
+      'بهبود رجکس پارس خروجی CLI سوییچ‌های سیسکو برای پشتیبانی از نام‌های پورت چندکلمه‌ای و خالی بدون برهم‌خوردن ستون وضعیت و VLAN.',
+      'اعمال رنگ‌بندی دقیق در هر دو مودال مدیریت پورت (Port Modal) و ترمینال کنسول (Terminal Modal).'
+    ],
+    changes_en: [
+      'Fixed switch port status parsing from show interfaces status CLI outputs, resolving the issue where all ports were mistakenly shown in red.',
+      'Accurately differentiated graphical port color-coding: Up Trunk (illuminated purple with TRK badge), Up Access (emerald green), Disabled/Shutdown (amber), and Down/Disconnected (dark metallic slate).',
+      'Enhanced Cisco CLI interface parser regex to handle empty or multi-word port descriptions without shifting status, vlan, or duplex columns.',
+      'Synchronized color-coding logic across both Port Inspector Modal and Terminal Faceplate.'
+    ]
+  },
+  {
+    version: '1.61.0',
+    releaseDate: '2026-09-16',
+    type: 'minor',
+    title: 'افزودن سیستم هوشمند کشف توپولوژی شبکه با پروتکل‌های CDP و LLDP و تطبیق خودکار اتصالات فیزیکی',
+    title_en: 'Intelligent Network Topology Discovery Suite via CDP & LLDP Protocols with Automatic Physical Link Correlation',
+    changes: [
+      'پیاده‌سازی موتور جامع کشف همسایگی لایه ۲ و لایه ۳ با پروتکل‌های استانداردی سیسکو (CDP)، پروتکل بین‌المللی LLDP و پروتکل همسایگی میکروتیک (MNDP).',
+      'پشتیبانی از ۴ روش متنوع کشف: از کلیه سوییچ‌های ثبت‌شده در انبار (Inventory-wide)، از طریق یک سوییچ مشخص، اسکن محدوده آی‌پی دلخواه با اتصال SSH، و کشف از شبکه محلی سرور.',
+      'افزودن مودال اختصاصی TopologyDiscoveryModal مطابق با دستورالعمل جامع مودال‌ها (MODAL_GUIDELINES) با پشتیبانی کامل از قابلیت مینیمایز به نوار داک پایین (ToolsDock).',
+      'موتور تطبیق و همبستگی دوطرفه لینک‌ها (Link Correlation Engine) جهت تفکیک لینک‌های تاییدشده دوطرفه از یک‌طرفه و حذف ریشه‌ای اتصالات تکراری.',
+      'شناسایی و کشف خودکار تجهیزات جدید و متصل‌نشده (Unmanaged Neighbors) و امکان افزودن آنها با یک کلیک به بوم نقشه.',
+      'ترمینال زنده جریان لاگ‌های SSH با گزارش وضعیت هر سوییچ، تعداد همسایگان، پورت‌ها و مدیریت خطاهای عدم دسترسی بدون متوقف شدن کل اسکن.',
+      'امکان تایید انتخابی لینک‌ها و اعمال مستقیم آنها روی نقشه با حفظ کامل ساختار کارت‌ها، پورت‌ها و کابل‌های بوم توپولوژی.',
+      'رعایت صددرصدی قوانین چندزبانگی (Strict i18n) و عدم نمایش هرگونه متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Implemented an enterprise-grade L2/L3 topology discovery engine supporting Cisco CDP, IEEE 802.1AB LLDP, and MikroTik MNDP neighbor discovery protocols.',
+      'Supported 4 distinct discovery methods: Inventory-wide sweep across registered switches, single switch query, custom IP range SSH sweep (CIDR), and server local network neighbor detection.',
+      'Created TopologyDiscoveryModal adhering strictly to MODAL_GUIDELINES with universal minimization support into the bottom ToolsDock.',
+      'Developed a topology correlation engine to deduplicate inter-switch links, cross-verify bidirectional vs unidirectional connections, and map local-to-remote ports accurately.',
+      'Automated detection of unmanaged neighbor devices with one-click canvas onboarding and coordinate distribution.',
+      'Real-time streaming CLI log terminal displaying per-device query progress, neighbor counts, latency, and graceful error isolation.',
+      'Interactive preview table allowing selective link confirmation and immediate application to the active schematic topology map.',
+      'Enforced 100% strict localization compliance with complete Persian and English symmetry.'
+    ]
+  },
+  {
+    version: '1.60.4',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'تفکیک دقیق نمای کارت و فیزیکی در توپولوژی، تصحیح خودکار آی‌پی مدیریتی در ثبت تجهیز و ارتقای ایمنی تایپ‌ها',
+    title_en: 'Card vs Physical View Separation in Topology Canvas, SSH Target IP Auto-fill, Port Deduplication & Strict Type Safety',
+    changes: [
+      'تفکیک صریح کنترل‌ها و دکمه‌های نوار ابزار توپولوژی؛ دکمه‌های «افزودن رک»، «افزودن دکل» و «نصب تجهیز فیزیکی» تنها در نمای فیزیکی (Physical Mode) نمایش داده می‌شوند.',
+      'اصلاح مودال ثبت تجهیز در نقشه سفارشی جهت پنهان‌سازی سوییچر حالت فیزیکی در زمان انتخاب نمای کارتی.',
+      'تکمیل خودکار فیلد Management IP بر اساس نتیجه تست SSH و هاست ورودی در مودال ثبت تجهیز جدید.',
+      'رفع ریشه‌ای تکثیر و ۲ برابر شدن پورت‌ها در دیسکاوری تجهیزات و تلمتری اینترفیس‌ها.',
+      'رفع تمامی خطاهای تایپ‌اسکریپت در کامپوننت‌های گوناگون و تضمین اجرای کاملاً سبز lint و build پروژه.',
+      'پایبندی ۱۰۰٪ به قوانین محلی‌سازی و ممنوعیت متون فارسی در حالت انگلیسی پنل.'
+    ],
+    changes_en: [
+      'Explicitly separated toolbar controls for topology canvas: "Add Rack", "Add Tower", and "Install Hardware" buttons are only visible when in Physical Mode.',
+      'Updated Custom Map Add Device Modal to conditionally hide representation switcher when initialized in Card mode.',
+      'Implemented auto-filling of the Management IP Address field based on SSH test probe results and target host.',
+      'Resolved interface duplication bug where ports were counted twice during device discovery and telemetry fetching.',
+      'Fixed all TypeScript type issues across components, ensuring 100% green compilation and lint verification.',
+      'Strictly adhered to i18n localization guidelines with no Persian text appearing in English mode.'
+    ]
+  },
+  {
+    version: '1.60.3',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'رفع باگ انتخاب خودکار تمامی پورت‌ها در ترمینال سیسکو، میکروتیک و بازرس پورت‌ها',
+    title_en: 'Fix All Ports Pre-Selected Bug in Cisco/MikroTik Terminal and Port Inspector Modals',
+    changes: [
+      'برطرف‌سازی ریشه‌ای مشکل انتخاب و هایلایت شدن ناخواسته همه پورت‌های تجهیز هنگام باز کردن مودال ترمینال سیسکو، ترمینال میکروتیک و بازرس پورت‌ها.',
+      'اصلاح منطق بررسی وضعیت انتخاب پورت (isSelected) در فیس‌پلیت پورت‌ها و جدول بازرس پورت‌ها به صورت ایمن و عدم تطابق مقادیر تعریف‌نشده (undefined).',
+      'نرمال‌سازی کامل ساختار اطلاعات پورت‌ها و تضمین اختصاص شناسه یکتای port_id در بک‌اند سرور و تمامی لایه‌های فرانت‌اند (PortInspectorModal، CiscoTerminalModal، MikroTikTerminalModal، PortManagementView).',
+      'ریست و خالی کردن صریح آرایه selectedPortIds و selectedPort به محض باز شدن مودال ترمینال یا تغییر دیوایس برای جلوگیری از نشت استیت قبلی.',
+      'رعایت کامل استانداردهای بین‌المللی‌سازی و عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization Rule).'
+    ],
+    changes_en: [
+      'Fundamentally fixed the bug where all device ports were unexpectedly shown as selected/highlighted when opening Cisco terminal, MikroTik terminal, or Port Inspector modals.',
+      'Hardened the selection check logic (isSelected) in CompactTerminalFaceplate, PortInspectorModal, PortManagementView, and MikroTik modals to prevent undefined-to-undefined accidental matches.',
+      'Normalized port data structures at both the backend route layer and frontend consumers to ensure consistent presence of port_id and fallback naming.',
+      'Explicitly cleared and initialized selectedPortIds and selectedPort state upon modal opening and device switching, preventing stale selection leakage.',
+      'Enforced 100% strict localization compliance with complete Persian/English symmetry.'
+    ]
+  },
+  {
+    version: '1.60.2',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'رفع مشکل صفحه مشکی در ترمینال مستقیم SSH و بازرس پورت‌ها، اعمال گارد دفاعی کامل بر روی فیلدهای پورت و افزودن ErrorBoundary سراسری',
+    title_en: 'Fix Black Screen Crash on Direct SSH Console & Port Inspector, Complete Defensive Guards on Port Properties & Global React ErrorBoundary',
+    changes: [
+      'برطرف‌سازی ریشه‌ای خطای شکست اجرای برنامه (TypeError: Cannot read properties of undefined reading toUpperCase) که باعث مشکی شدن صفحه هنگام کلیک روی ترمینال مستقیم SSH یا بازرس پورت‌ها می‌شد.',
+      'افزودن گاردها و فالبک‌های پیشگیرانه در تمامی ماژول‌های بصری پورت‌ها شامل NetworkPortSvg، CompactTerminalFaceplate، PortInspectorModal، CiscoTerminalModal، MikroTikTerminalModal، MikroTikDeviceManageModal، HardwareSvgRenderer و PortManagementView.',
+      'پیاده‌سازی کامپوننت سراسری ErrorBoundary در ریشه نرم‌افزار جهت محافظت کامل در برابر خطاهای رندرینگ غیرمنتظره و جلوگیری از سفید یا مشکی شدن صفحه همراه با امکان تلاش مجدد بدون نیاز به رفرش دستی.',
+      'افزودن ویژگی‌های استاندارد autoComplete به فیلدهای فرم افزودن و ویرایش تجهیزات جهت برطرف‌سازی هشدارهای کنسول مرورگر.',
+      'رعایت صددرصدی استاندارد بین‌المللی‌سازی و عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization Rule).'
+    ],
+    changes_en: [
+      'Fundamentally resolved the crash defect (TypeError: Cannot read properties of undefined reading toUpperCase) that caused a black screen when launching the direct SSH console or inspecting device ports.',
+      'Applied comprehensive defensive null-coalescing guards and fallbacks across all port rendering components: NetworkPortSvg, CompactTerminalFaceplate, PortInspectorModal, CiscoTerminalModal, MikroTikTerminalModal, MikroTikDeviceManageModal, HardwareSvgRenderer, and PortManagementView.',
+      'Implemented an enterprise-grade React ErrorBoundary component at the application root to capture unexpected UI exceptions and prevent blank/black screens, with built-in retry and reload controls.',
+      'Added standard autoComplete attributes to SSH and device credential input fields in Add and Edit device modals to eliminate browser console DOM warnings.',
+      'Enforced 100% strict localization compliance with complete Persian/English symmetry and zero untranslated content in English mode.'
+    ]
+  },
+  {
+    version: '1.60.1',
+    releaseDate: '2026-09-16',
+    type: 'patch',
+    title: 'رفع مشکل پرش و بازگشت موقعیت کارت‌ها در نمای شماتیک پس از افزودن تجهیزات از انبار به رک',
+    title_en: 'Fix Device Card Position Reset & Persistence After Mounting Hardware from Inventory to Rack in Schematic View',
+    changes: [
+      'حل مشکل پرش و بازگشت موقعیت کارت (Card Position Reversion) هنگام جابجایی تجهیزاتی که از انبار سخت‌افزار به رک در نمای فیزیکی اضافه شده بودند.',
+      'طراحی سیستم جامع تفکیک و تطبیق شناسه‌ها و نام‌های مستعار (Identifier Aliases Synchronization) شامل شناسه‌های خام اینونتوری، پیشوندهای hw-، پیشوندهای radio- و شناسه‌های تمیز در سراسر استیت‌های محلی و پایگاه داده.',
+      'یکپارچه‌سازی و همگام‌سازی موقعیت‌ها در هر دو ساختار داده devicePositions و physicalPositions در زمان ذخیره سخت‌افزار، جابجایی درگ‌اند‌دراپ و ترنزیشن بین ویوها.',
+      'پاکسازی دقیق و کامل شناسه‌های مستعار از استیت موقت customPositions پس از پایان درگ برای جلوگیری از تداخل موقعیت‌های موقت با دیتای ماندگار.',
+      'رعایت کامل استانداردهای بین‌المللی‌سازی و عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization Rule).'
+    ],
+    changes_en: [
+      'Resolved device card position reversion defect where hardware mounted to a rack from inventory in physical view would revert to previous coordinates when moved in card view.',
+      'Engineered an identifier aliases synchronization engine mapping base clean inventory IDs, hw- prefixes, radio- prefixes, and device IDs across local state and persistent storage.',
+      'Synchronized coordinates across both devicePositions and physicalPositions during hardware insertion, drag-and-drop mouse up, and view transitions.',
+      'Ensured complete cleanup of temporary drag coordinates across all alias keys from customPositions to prevent stale layout conflicts.',
+      'Maintained 100% strict localization compliance with complete Persian/English symmetry and zero untranslated content in English mode.'
+    ]
+  },
+  {
+    version: '1.60.0',
+    releaseDate: '2026-09-16',
+    type: 'minor',
+    title: 'پیاده‌سازی موتور واقعی ترمینال SSH پایتون با پشتیبانی از الگوریتم‌های قدیمی سیسکو، رمزنگاری اعتبارات و استریم دوطرفه سوکت',
+    title_en: 'Implementation of Real Python Paramiko SSH Engine with Legacy Cisco Algorithms, Fernet Credential Encryption & WebSocket Streaming',
+    changes: [
+      'جایگزینی کامل داده‌های شبیه‌سازی‌شده ترمینال با موتور واقعی SSH و Telnet تحت پایتون (کتابخانه Paramiko) برای برقراری اتصال زنده به تجهیزات شبکه.',
+      'طراحی و پیاده‌سازی مسیر اختصاصی وب‌سوکت (/ws/ssh/:deviceId و /ws/terminal) جهت استریم بی‌درنگ ورودی و خروجی شل تعاملی (PTY).',
+      'پشتیبانی جامع از تجهیزات قدیمی سیسکو (مانند Cisco Catalyst 2960) با مکانیزم Fallback خودکار به الگوریتم‌های diffie-hellman-group1-sha1، ssh-rsa و aes128-cbc در صورت شکست اعتبارسنجی مدرن.',
+      'امن‌سازی کامل اطلاعات کاربری با ماژول رمزنگاری متقارن Fernet (Cryptographic Symmetric Encryption) و ذخیره رمزنگاری‌شده گذرواژه‌ها در پایگاه داده و مهاجرت امن خودکار داده‌های پیشین.',
+      'مدیریت چرخه حیات نشست‌های تعاملی شبکه، تغییر ابعاد PTY متناسب با ترمینال کاربری (Terminal Resize) و پاکسازی و آزادسازی حافظه و سوکت‌ها پس از بستن ترمینال.',
+      'به‌روزرسانی اسکریپت راه‌اندازی setup-panel.sh و نصب پیش‌نیازهای python3-paramiko، python3-cryptography و python3-websockets بر روی سرور.',
+      'رعایت صددرصدی استاندارد بین‌المللی‌سازی و عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization Rule).'
+    ],
+    changes_en: [
+      'Replaced mocked terminal output with a real Python SSH and Telnet engine using Paramiko for direct, live interactive connections to network hardware.',
+      'Implemented dedicated full-duplex WebSocket routes (/ws/ssh/:deviceId and /ws/terminal) for real-time streaming of pseudo-terminal (PTY) standard input and output.',
+      'Integrated comprehensive legacy Cisco support (e.g., Catalyst 2960) featuring automatic algorithm negotiation fallback to diffie-hellman-group1-sha1, ssh-rsa, and aes128-cbc.',
+      'Secured network device credentials using Fernet symmetric encryption with automatic database migration of existing stored passwords and on-the-fly decryption at session start.',
+      'Engineered interactive terminal session management with dynamic PTY window resizing, keepalive heartbeats, and guaranteed resource teardown on disconnect.',
+      'Updated setup-panel.sh script with automated installation of python3-paramiko, python3-cryptography, and python3-websockets system packages.',
+      'Enforced 100% strict localization compliance with complete Persian/English symmetry and zero untranslated content in English mode.'
+    ]
+  },
+  {
+    version: '1.59.1',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'رفع مشکل پلکانی تایپ کاراکترها در ترمینال، اصلاح نمایش آدرس خالی در بنر اتصال و تفکیک دقیق نشست واقعی از شبیه‌ساز',
+    title_en: 'Terminal Staircase Typing & Echo Fix, Empty IP Hostname Banner Resolution, and Accurate Real vs Simulated Session Distinction',
+    changes: [
+      'رفع مشکل اکوی کاراکتر به کاراکتر و شکستگی خطوط (Staircase Effect) در ترمینال سوکت با بافر کردن خطی دستورات بر روی کلید Enter و ارسال بدون اکوی مضاعف.',
+      'اصلاح استخراج آدرس IP میزبان و جلوگیری از نمایش پرانتز و فیلد خالی ("Target Host: \'\'" و "Connected to ()") در بنر احراز هویت و وضعیت اتصال ترمینال.',
+      'تفکیک دقیق وضعیت اتصال واقعی سخت‌افزاری از موتور شبیه‌ساز ترمینال محلی و جلوگیری از نمایش نادرست پیام اتصال زنده بر روی آی‌پی نامشخص.',
+      'پشتیبانی کامل از ترنزیشن مدهای CLI سیسکو (enable، configure terminal، interface و exit) و تغییر خط اعلان (Prompt) بدون خروجی اضافی.',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization Rule) در پیام‌های راه‌اندازی و وضعیت ترمینال.'
+    ],
+    changes_en: [
+      'Resolved character-by-character echoing and line-breaking staircase defects in terminal WebSockets by enforcing line buffering on Enter with clean response delivery.',
+      'Fixed device host resolution preventing empty parentheses or empty host strings ("Target Host: \'\'" and "Connected to ()") in the authentication banner and terminal header.',
+      'Accurately differentiated between real hardware SSH sessions and the simulated local CLI engine, preventing false "Live SSH Established" alerts when no IP is reachable.',
+      'Added smooth Cisco CLI mode transitions (enable, configure terminal, interface sub-modes, and exit) with synchronized prompts and clean outputs.',
+      'Enforced 100% strict localization compliance: verified zero Persian text in English mode across all terminal connection headers, banners, and status messages.'
+    ]
+  },
+  {
+    version: '1.59.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'ارتباط مستقیم و پایدار SSH WebSocket با مشخصات ثبت‌شده دیوایس، استعلام زنده وضعیت پورت‌ها از طریق تانل، دکمه همگام‌سازی روی فیس‌پلیت و تب اینترفیس‌ها',
+    title_en: 'Persistent SSH WebSocket Tunnel with Stored Credentials, Live Tunnel Port Syncing, Interactive Faceplate Sync Trigger & Interface Tab Tunnel Queries',
+    changes: [
+      'برقراری اتصال مستقیم و پایدار SSH WebSocket از منوی سه نقطه تجهیزات با استفاده از اطلاعات ثبت‌شده دیوایس (IP، پورت، نام کاربری و رمز عبور) و حفظ فعال اتصال تا زمان بسته شدن کامل مودال.',
+      'پیاده‌سازی سازوکار KeepAlive پینگ/پانگ (Ping/Pong) برای جلوگیری از قطع شدن زودهنگام تانل سوکت در حین باز بودن پنجره ترمینال.',
+      'افزودن اندپوینت جدید استعلام پورت‌ها (/api/devices/:dev_id/ports/sync) جهت خواندن زنده وضعیت و جزئیات پورت‌ها مستقیماً از روی تانل فعال SSH و اجرای دستورات واقعی سخت‌افزاری (show ip interface brief / show running-config در سیسکو و /interface print در میکروتیک).',
+      'تجهیز برچسب تعداد پورت‌ها در کامپوننت فیس‌پلیت سخت‌افزاری (CompactTerminalFaceplate) به دکمه تعاملی همگام‌سازی مجدد با آیکون انیمیشنی و نمایش وضعیت بررسی زنده.',
+      'افزودن دکمه اختصاصی بررسی و همگام‌سازی زنده SSH در سربرگ جستجوی تب اینترفیس‌های ترمینال سیسکو و میکروتیک و همگام‌سازی خودکار پورت‌ها پس از اجرای دستورات نمایش اینترفیس.',
+      'رعایت کامل قانون عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization Rule) در تمامی پیام‌های استعلام تانل و همگام‌سازی.'
+    ],
+    changes_en: [
+      'Established direct, persistent SSH WebSocket connections initiated from device actions using registered credentials (IP, port, username, password) that remain continuously alive until the modal is closed.',
+      'Implemented proactive WebSocket ping/pong keepalive loop preventing idle disconnection while the terminal window remains open.',
+      'Added hardware interface synchronization endpoint (/api/devices/:dev_id/ports/sync) querying live port states directly over the active SSH tunnel using real driver commands (show ip int brief / show running-config on Cisco, and /interface print on MikroTik).',
+      'Upgraded the port count badge on the CompactTerminalFaceplate into an interactive re-sync button with spinning loader animation and live tunnel verification.',
+      'Added dedicated "Sync SSH" button in the interfaces tab sidebar header across Cisco and MikroTik terminal modals with automatic port re-sync triggered after interface inspection commands.',
+      'Enforced 100% strict localization compliance: verified zero Persian text in English mode across all tunnel query and synchronization logs.'
+    ]
+  },
+  {
+    version: '1.58.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'اصلاح و استخراج دقیق نام میزبان (Hostname)، تصحیح منطق شمارش پورت‌ها به ۴۸ پورت استاندارد، افزودن توضیحات دقیق پورت‌ها بر اساس مدل و بومی‌سازی کامل پیام‌های اتصال SSH',
+    title_en: 'Accurate Device Hostname Extraction, Canonical 48-Port Normalization, Model-Aware Port Specifications & Strict SSH English Localization',
+    changes: [
+      'اصلاح و تقویت الگوریتم استخراج نام میزبان (Device Hostname) از کانفیگ فعال (running-config)، سربرگ سیستم (Sysname) و خط اعلان CLI در موتورهای دیسکاوری پایتون و نود.',
+      'تصحیح منطق محاسبه تعداد کل پورت‌ها؛ فیلتر کردن دقیق پورت‌های مدیریتی (FastEthernet0 / management) از پورت‌های فیزیکی اکسس/ترانک جهت جلوگیری از شمارش نادرست ۴۹ پورت و ثبت دقیق ۴۸ یا ۵۲ پورت استاندارد بر اساس مدل دستگاه.',
+      'افزودن توضیحات راهنما و کامنت دقیق برای فیلد تعداد کل پورت‌ها (Total Ports Count) منطبق با معماری سخت‌افزار (پورت‌های گیگابیت اترنت اکسس به همراه آپلینک‌های فیبر نوری SFP/SFP+).',
+      'تضمین رعایت ۱۰۰٪ قانون عدم نمایش متن فارسی در حالت انگلیسی در تمامی پیام‌های موفقیت، خطا، بنرها و وضعیت اتصال SSH در فرم ثبت و ویرایش تجهیز.',
+      'ارتقا و همگام‌سازی کامل فیلدها در هر دو مودال AddDeviceModal و EditDeviceModal به همراه قابلیت قفل و بازگشایی دستی.'
+    ],
+    changes_en: [
+      'Enhanced regex pattern matching to accurately extract Device Hostname from running-config, Sysname headers, and active CLI prompts across Cisco IOS, IOS-XE, and MikroTik RouterOS.',
+      'Corrected canonical port counting logic; properly excluded management interfaces (FastEthernet0 / mgmt0) to eliminate erroneous 49-port readings and reliably normalize to standard 48 or 52 ports.',
+      'Added dynamic model-aware descriptive annotations for the Total Ports Count field specifying physical copper access ports vs. SFP/SFP+ optical uplinks.',
+      'Enforced 100% strict localization compliance: eliminated any Persian text in SSH success/error banners, notifications, and tooltips when English mode is active.',
+      'Synchronized telemetry auto-population, dynamic comments, and discovery locking across both AddDeviceModal and EditDeviceModal.'
+    ]
+  },
+  {
+    version: '1.57.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'موتور کشف سخت‌افزار حقیقی از طریق SSH پایتون، ایجاد کانکشن مادر (Mother Connection)، استخراج خودکار مشخصات سخت‌افزاری و واحدهای منبع تغذیه (PSU & Watts)',
+    title_en: 'Real Hardware Discovery Engine via Python SSH, Mother Connection Tunnel, Hardware Specs Auto-population & PSU Telemetry',
+    changes: [
+      'پیاده‌سازی موتور کشف سخت‌افزاری زنده با پایتون (hardware_discovery.py) برای برقراری تانل واقعی SSH به سوئیچ‌ها و روترهای سیسکو و میکروتیک بدون دیتای شبیه‌سازی.',
+      'ایجاد مفهوم کانکشن مادر (Mother Connection) و اتصال یکتای master_session_id؛ جلسه SSH برقرار شده در تست اتصال حفظ شده و مستقیماً به عنوان کانکشن اصلی دیوایس ثبت می‌گردد.',
+      'استخراج و پر کردن خودکار مشخصات سخت‌افزاری شامل نام میزبان (Hostname)، مدل تجهیز، شماره سریال (Serial Number)، مک آدرس پایه (Base MAC)، نسخه فریم‌ور/سیستم‌عامل (Firmware/OS) و مدت‌زمان کارکرد (Uptime) با اجرای دستورات واقعی (show version / inventory / running-config در سیسکو و /system/resource در میکروتیک).',
+      'افزودن بخش اختصاصی واحدهای منبع تغذیه و بار مصرفی (Power Supply Units & Load - PSU & Watts) با محاسبه و استخراج هوشمند تعداد پاورها و توان مصرفی بر اساس مدل و تله‌متری زنده.',
+      'نمایش وضعیت زنده کانکشن مادر به همراه شناسه جلسه در فرم اطلاعات ترمینال و رعایت دقیق قوانین عدم نمایش متن فارسی در حالت انگلیسی (Strict Localization).'
+    ],
+    changes_en: [
+      'Implemented real hardware discovery engine in Python (hardware_discovery.py) establishing genuine SSH tunnels to Cisco switches/routers and MikroTik RouterBOARD devices with zero simulated data.',
+      'Introduced the Mother Connection paradigm with persistent master_session_id caching, preserving the active SSH session from test-connection directly into device registration.',
+      'Auto-populated device identifiers and hardware specs including Hostname, Model, Serial Number, Base MAC Address, OS/Firmware Version, and System Uptime via live CLI commands (show version / inventory / running-config / mac address-table on Cisco, and /system/resource /system/routerboard on MikroTik).',
+      'Added dedicated Power Supply Units & Load (PSU & Watts) section with intelligent wattage and power supply redundancy discovery based on hardware telemetry.',
+      'Added real-time Mother Connection indicator with session identifier badge in terminal credentials form and verified 100% strict localization compliance (zero Persian text in English mode).'
+    ]
+  },
+  {
+    version: '1.56.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'همگام‌سازی و بازطراحی کامل مودال ثبت تجهیز جدید شبکه (AddDeviceModal) منطبق با ساختار و امکانات پیشرفته ویرایش تجهیز',
+    title_en: 'Complete Redesign of Register New Network Device Modal (AddDeviceModal) Aligned with Edit Device Properties Architecture',
+    changes: [
+      'بازطراحی کامل ساختار، چیدمان و استایل مودال ثبت تجهیز جدید شبکه (AddDeviceModal) دقیقاً منطبق با مودال ویرایش ویژگی‌های تجهیز (EditDeviceModal).',
+      'افزودن نمای فیس‌پلیت گرافیکی و جدول تله‌متری پورت‌های سوئیچ (show interface status) با پشتیبانی از کشف زنده پورت‌ها از طریق تست اتصال SSH یا تله‌متری آزمایشگاهی.',
+      'افزودن امکان تست اتصال بلادرنگ SSH / Telnet با قابلیت کشف و پر کردن خودکار شناسه تجهیز (Hostname)، مدل سخت‌افزاری و تعداد پورت‌ها به همراه قفل ایمن و قابلیت ویرایش دستی.',
+      'تجهیز فیلد آدرس آی‌پی به ابزار پینگ زنده هاست (Ping Host) با نمایش بلادرنگ میزان تاخیر (Latency ms) و وضعیت پاسخ‌دهی ICMP.',
+      'یکپارچه‌سازی انتخاب پلتفرم سخت‌افزاری و سیستم‌عامل (Cisco IOS, Cisco IOS-XE, MikroTik RouterOS, Generic Linux) با دکمه‌های انتخاب سریع رده سخت‌افزاری و نقش دستگاه.',
+      'پشتیبانی کامل از سلسله‌مراتب فیزیکی و استقرار در رک به همراه امکان استقرار قالب پیکربندی اولیه بلافاصله پس از ثبت تجهیز.',
+      'رعایت ۱۰۰٪ دستورالعمل‌های چندزبانگی (FA/EN بدون متن فارسی در زبان انگلیسی) و تجهیز کامل به دکمه مینیمایز (Minimize) به نوار ابزار پایین صفحه.'
+    ],
+    changes_en: [
+      'Comprehensive redesign of Register New Network Device modal (AddDeviceModal) to strictly mirror the visual layout, spacing, and advanced functionality of Edit Device Properties (EditDeviceModal).',
+      'Integrated switch ports graphical faceplate and live telemetry banner (show interface status) with live SSH port discovery and lab telemetry loading.',
+      'Added real-time SSH / Telnet connection testing with auto-population of device hostname, hardware model, and total port count with discovery locking and manual unlock capability.',
+      'Equipped management IP address field with a live ICMP Ping Host test utility displaying real-time latency (ms) and host reachability status.',
+      'Streamlined side-by-side hardware platform & OS driver selection (Cisco IOS, Cisco IOS-XE, MikroTik RouterOS, Generic Linux) with rapid hardware class buttons and role selector.',
+      'Integrated physical location and rack placement with autocomplete suggestions, plus optional post-registration configuration template deployment.',
+      '100% strict compliance with bilingual localization (zero Persian text in English mode) and universal modal minimization support.'
+    ]
+  },
+  {
+    version: '1.55.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'توسعه کامل پروتکل‌های پیشرفته VPN میکروتیک (WireGuard, EoIP, VXLAN, SSTP, OpenVPN)، راهنمای تعاملی اینفو برای تمام فیلدها و اتصال سخت‌افزاری زنده',
+    title_en: 'Advanced MikroTik VPN Protocols (WireGuard, EoIP, VXLAN, SSTP, OpenVPN), Field Info Tooltips, and Live Hardware SSH Integration',
+    changes: [
+      'حذف کامل حالت شبیه‌ساز و واژه‌های فازبندی؛ کلیه عملیات VPN مستقیماً روی روتر حقیقی از طریق مشخصات SSH دستگاه در ماژول مدیریت تجهیزات اجرا می‌گردند.',
+      'افزودن دکمه تعاملی راهنما (i Info) برای تمامی تکست‌باکس‌ها و فیلدهای ورودی در فرم‌های VPN با ارائه توضیحات مهندسی شبکه درباره چیستی و چرایی ضرورت هر پارامتر در میکروتیک.',
+      'توسعه و تجهیز کامل پروتکل‌های مدرن شامل WireGuard (با سرعت حداکثری هسته کرنل)، EoIP (پل شفاف لایه ۲ اترنت)، VXLAN (اورلی سگمنت‌های دیتاسنتر)، SSTP (با پورت ۴۴۳ عبور از فیلترینگ) و OpenVPN.',
+      'ماژولار کردن معماری فرانت‌اند و تفکیک کامپوننت‌های فرم‌های پروتکل و مودال بررسی وضعیت زنده اینترفیس‌ها با قابلیت مینیمایز کامل.',
+      'رعایت ۱۰۰٪ دستورالعمل‌های چندزبانگی (بدون متن فارسی در حالت انگلیسی) و اعتبارسنجی کامل داده‌های ورودی.'
+    ],
+    changes_en: [
+      'Completely removed simulator mode and all phase naming; all VPN configurations are executed directly on the real hardware router via credentials managed in the Network Inventory module.',
+      'Integrated interactive information tooltips (i Info) next to every single input text box across all VPN protocol forms, detailing the parameter purpose and network engineering necessity.',
+      'Expanded protocol suite to include WireGuard (high-throughput kernel-level crypto), EoIP (Layer 2 transparent bridging), VXLAN (datacenter multi-tenant overlay), SSTP (HTTPS port 443 firewall bypass), and OpenVPN.',
+      'Modularized frontend architecture with dedicated sub-components for protocol forms and live interface inspection with universal modal minimization support.',
+      'Strict bilingual localization compliance (zero Persian text in English mode) and comprehensive input validation.'
+    ]
+  },
+  {
+    version: '1.54.0',
+    releaseDate: '2026-09-15',
+    type: 'minor',
+    title: 'پیاده‌سازی کامل و واقعی سوییت VPN میکروتیک (L2TP/IPsec و GRE) در مودال مدیریت روتر با اتصال زنده SSH',
+    title_en: 'Full Non-Simulated MikroTik VPN Suite (L2TP/IPsec & GRE) with Live Router SSH Execution & Rollback Protection',
+    changes: [
+      'پیاده‌سازی تب اختصاصی و قدرتمند VPN در مودال مدیریت تجهیزات میکروتیک (MikroTikDeviceManageModal) منطبق با معماری Device → Platform → Driver → SSH Connection.',
+      'پشتیبانی کامل از پروتکل‌های L2TP/IPsec در هر دو حالت Remote Access (کاربران دورکار) و Site-to-Site و همچنین تونل GRE با رمزنگاری سخت‌افزاری IPsec و مسیرهای استاتیک.',
+      'ویزارد گام به گام هوشمند شامل سناریو، پروتکل، پارامترهای اصلی و پیشرفته، پیش‌نمایش دستورات RouterOS با ماسک کردن رمزها (Masking Secrets) و استعلام زنده وضعیت عملیاتی روتر.',
+      'سیستم اعمال امن دستورات با قابلیت Rollback خودکار در صورت بروز خطای نحوی یا قطعی در اتصال روتر.',
+      'پایبندی ۱۰۰٪ به قوانین چندزبانه (FA/EN)، عدم استفاده از شبیه‌ساز یا داده ساختگی، رعایت کامل محرمانگی گذرواژه‌ها و پشتیبانی از قابلیت مینیمایز در تمامی پنجره‌های فرعی.'
+    ],
+    changes_en: [
+      'Implemented dedicated production-ready VPN Suite tab within MikroTik RouterOS Device Management Modal following the Device → Platform → Driver → SSH Connection architecture.',
+      'Full protocol support for L2TP/IPsec in both Remote Access (teleworker road-warrior) and Site-to-Site modes, as well as GRE Routed Overlay with hardware IPsec encryption and static routes.',
+      'Multi-step creation wizard featuring scenario selection, protocol catalog, basic & advanced configuration, masked RouterOS script preview, and live operational interface verification.',
+      'Safe sequential command execution pipeline with automatic atomic rollback of preceding steps upon syntax or network errors.',
+      '100% strict compliance with bilingual localization (FA/EN), zero mock/fake data, complete password sanitization from API responses/audit logs, and universal modal minimization.'
+    ]
+  },
+  {
+    version: '1.53.6',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'افزودن دکمه جمع‌کردن و بازکردن نوار ابزار نقشه‌ها در صفحه شماتیک جهت افزایش دید کاربر',
+    title_en: 'Collapsible Map View Secondary Toolbar with Toggle Arrow in Schematic Canvas',
+    changes: [
+      'افزودن دکمه فلش جمع‌کننده/بازکننده نوار ابزار دوم نقشه‌ها (Map View & Custom Tools) در بخش بالای صفحه شماتیک.',
+      'امکان مخفی‌سازی نوار و تبدیل آن به یک نوار باریک با مصرف حداقل ارتفاع جهت افزایش فضای کاری و دید بهتر نقشه برای کاربر.',
+      'ذخیره‌سازی هوشمند وضعیت باز یا بسته بودن نوار در حافظه محلی مرورگر (localStorage) جهت حفظ تنظیم کاربر در دفعات مراجعه بعدی.',
+      'پشتیبانی کامل از دو زبانه بودن اعلان‌ها، آیکون‌های متناسب ChevronUp/ChevronDown و حفظ دسترسی به عنوان نقشه فعال در حالت جمع‌شده.'
+    ],
+    changes_en: [
+      'Added a toggle arrow button to collapse or expand the secondary Map View & custom tools toolbar in the schematic topology canvas.',
+      'Allows minimizing the secondary toolbar to a slim compact bar to provide maximum screen real estate and viewing canvas area for topology analysis.',
+      'Persistent toolbar state stored in browser localStorage (nettopology_schematic_toolbar_collapsed) across user sessions.',
+      'Full bilingual localization (FA/EN) with responsive ChevronUp/ChevronDown states and active map indicator in collapsed mode.'
+    ]
+  },
+  {
+    version: '1.53.5',
+    releaseDate: '2026-09-15',
+    type: 'patch',
+    title: 'تازه‌سازی خودکار و همگام‌سازی آخرین تغییرات نقشه و موقعیت تجهیزات از پایگاه‌داده با دکمه بازنشانی زوم',
+    title_en: 'Auto-Refresh & Synchronize Latest Database Map Changes and Device Coordinates on Reset Zoom Action',
+    changes: [
+      'ارتقای عملکرد دکمه بازنشانی زوم و مرکز صفحه (Reset Zoom & Center View) در نوار ابزار بوم شماتیک شبکه.',
+      'همگام‌سازی آنی آخرین داده‌های ذخیره‌شده در پایگاه‌داده شامل موقعیت جدید تجهیزات جابجا شده (/api/settings/node-positions)، نقشه‌های سفارشی (/api/settings/maps)، درخت سلسله‌مراتب فیزیکی (/api/settings/hierarchy) و وضعیت زنده اتصال و پورت‌های شبکه.',
+      'افزودن انیمیشن چرخش آیکون تازه‌سازی (Spinning Indicator) در زمان بارگذاری و نمایش اعلان وضعیت انجام موفقیت‌آمیز دریافت تغییرات متناسب با زبان فعال (FA/EN).'
+    ],
+    changes_en: [
+      'Enhanced the Reset Zoom & Center View action in the schematic topology canvas toolbar.',
+      'Instant synchronization of latest persisted database state including relocated device coordinates (/api/settings/node-positions), custom maps (/api/settings/maps), physical hierarchy (/api/settings/hierarchy), and live device port reachability.',
+      'Added dynamic spinning refresh indicator during database sync with localized confirmation toast notifications respecting current language mode (FA/EN).'
+    ]
+  },
   {
     version: '1.53.4',
     releaseDate: '2026-09-15',

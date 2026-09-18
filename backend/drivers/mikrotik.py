@@ -65,10 +65,13 @@ class MikroTikDriver(NetworkDeviceDriver):
         elif action == "set_description":
             desc = params.get("description", "")
             return f"/interface set [find name=\"{clean_iface}\"] comment=\"{desc}\""
-        elif action == "set_vlan":
+        elif action in ("set_vlan", "change_vlan", "assign_vlan", "mode_access"):
             vlan = params.get("vlan", 1)
             # Standard RouterOS VLAN assignment on bridge or sub-interface
             return f"/interface bridge port set [find interface=\"{clean_iface}\"] pvid={vlan}\n/interface vlan add name=\"vlan{vlan}-{clean_iface}\" vlan-id={vlan} interface=\"{clean_iface}\" disabled=no"
+        elif action == "mode_trunk":
+            # Set port to admit-only-vlan-tagged and configure 802.1Q tagged bridge VLAN
+            return f"/interface bridge port set [find interface=\"{clean_iface}\"] frame-types=admit-only-vlan-tagged\n/interface bridge vlan add bridge=bridge tagged=\"{clean_iface}\" vlan-ids=1-4094 comment=\"Trunk mode on {clean_iface}\""
         elif action == "save_config":
             return "# [RouterOS Info] Configurations in MikroTik RouterOS are committed automatically to persistent storage."
         elif action in ("port_sec_enable", "port_sec_disable"):
@@ -127,6 +130,28 @@ class MikroTikDriver(NetworkDeviceDriver):
                 })
 
         return ports
+
+    def parse_vlans(self, output: str) -> List[Dict[str, Any]]:
+        vlans = []
+        seen = set()
+        for line in output.splitlines():
+            line_str = line.strip()
+            # Match e.g.: 0  R  name="vlan10" mtu=1500 l2mtu=1580 vlan-id=10 interface=ether1
+            m = re.search(r'vlan-id=(\d+)', line_str, re.IGNORECASE)
+            name_m = re.search(r'name=["\']?([A-Za-z0-9_.-]+)["\']?', line_str, re.IGNORECASE)
+            if m:
+                vid = int(m.group(1))
+                if vid in seen or vid > 4094:
+                    continue
+                seen.add(vid)
+                name = name_m.group(1) if name_m else f"VLAN {vid}"
+                vlans.append({
+                    "id": vid,
+                    "name": name,
+                    "status": "active",
+                    "ports_count": 1
+                })
+        return vlans
 
     def get_default_ports(self, count: int = 16) -> List[Dict[str, Any]]:
         generated = []

@@ -1,8 +1,9 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
-import { ChevronDown, ChevronUp, Layers, CheckCircle2, AlertCircle, Shield, Cable } from 'lucide-react';
+import React, { useState, useRef, useLayoutEffect, useMemo } from 'react';
+import { ChevronDown, ChevronUp, Layers, CheckCircle2, AlertCircle, Shield, Cable, RefreshCw } from 'lucide-react';
 import { Device, SwitchPort } from '../../types';
 import { NetworkPortSvg } from '../NetworkPortSvg';
 import { MikroTikPortSvg } from '../MikroTikPortSvg';
+import { WinBoxLauncherModal } from './WinBoxLauncherModal';
 import { useLanguage } from '../../i18n/LanguageContext';
 
 export interface CompactTerminalFaceplateProps {
@@ -14,6 +15,8 @@ export interface CompactTerminalFaceplateProps {
   selectedPortId?: string | null;
   selectedPortIds?: string[];
   defaultExpanded?: boolean;
+  onSyncPorts?: () => void;
+  isSyncing?: boolean;
 }
 
 export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> = ({
@@ -25,11 +28,56 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
   selectedPortId,
   selectedPortIds,
   defaultExpanded = true,
+  onSyncPorts,
+  isSyncing = false,
 }) => {
   const { isEn } = useLanguage();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [isWinBoxModalOpen, setIsWinBoxModalOpen] = useState(false);
   const [activeHoverPort, setActiveHoverPort] = useState<SwitchPort | null>(null);
   const [hoverCoords, setHoverCoords] = useState<{ x: number; y: number } | null>(null);
+
+  const isActuallyMikroTik = Boolean(
+    isMikroTik ||
+    (device?.vendor && device.vendor.toLowerCase().includes('mikrotik')) ||
+    (device?.role && device.role.toLowerCase().includes('mikrotik')) ||
+    (device?.model && device.model.toLowerCase().includes('mikrotik')) ||
+    ((device as any)?.device_type && String((device as any).device_type).toLowerCase().includes('mikrotik')) ||
+    ((device as any)?.os_type && String((device as any).os_type).toLowerCase().includes('routeros'))
+  );
+
+  const handleOpenWinBox = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const targetHost = (device.ssh_host || device.ip || '').trim();
+    const username = (device.ssh_username || 'admin').trim();
+    const password = device.ssh_password || '';
+    const winboxPort = (device as any).winbox_port || 8291;
+
+    // Immediately trigger winbox:// protocol in background
+    if (targetHost) {
+      const uri = password
+        ? `winbox://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${targetHost}:${winboxPort}`
+        : `winbox://${encodeURIComponent(username)}@${targetHost}:${winboxPort}`;
+
+      try {
+        const a = document.createElement('a');
+        a.href = uri;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (document.body.contains(a)) {
+            document.body.removeChild(a);
+          }
+        }, 300);
+      } catch (err) {
+        console.warn('WinBox protocol launch error:', err);
+      }
+    }
+
+    // Open helper modal for user convenience & fallback options
+    setIsWinBoxModalOpen(true);
+  };
 
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number; arrowLeft: number } | null>(null);
@@ -62,14 +110,36 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
     return null;
   }
 
-  const upCount = ports.filter((p) => p.status === 'up').length;
-  const downCount = ports.filter((p) => p.status !== 'up' && p.admin_status !== 'disabled').length;
-  const disabledCount = ports.filter((p) => p.admin_status === 'disabled').length;
-  const trunkCount = ports.filter((p) => p.mode === 'trunk').length;
+  const isPortUp = (p: SwitchPort) => {
+    const s = String(p.status || '').toLowerCase().trim();
+    const a = String(p.admin_status || '').toLowerCase().trim();
+    const isDis = a === 'disabled' || a === 'shutdown' || s === 'disabled' || s === 'err-disabled' || s === 'administratively down';
+    return !isDis && (s === 'up' || s === 'connected' || s === 'active' || s === 'running');
+  };
+  const isPortDisabled = (p: SwitchPort) => {
+    const s = String(p.status || '').toLowerCase().trim();
+    const a = String(p.admin_status || '').toLowerCase().trim();
+    return a === 'disabled' || a === 'shutdown' || s === 'disabled' || s === 'err-disabled' || s === 'administratively down';
+  };
 
-  const currentSelectedPort = ports.find((p) => p.port_id === selectedPortId);
+  const upCount = ports.filter(isPortUp).length;
+  const disabledCount = ports.filter(isPortDisabled).length;
+  const downCount = ports.filter((p) => !isPortUp(p) && !isPortDisabled(p)).length;
+  const trunkCount = ports.filter((p) => String(p.mode || '').toLowerCase().trim() === 'trunk').length;
+
+  const currentSelectedPort = selectedPortId
+    ? ports.find((p) => (p.port_id || (p as any).port || p.name) === selectedPortId)
+    : undefined;
   const displayPort = activeHoverPort || currentSelectedPort;
-  const multiSelectedCount = selectedPortIds ? selectedPortIds.length : 0;
+  const multiSelectedCount = Array.isArray(selectedPortIds) ? selectedPortIds.length : 0;
+
+  const portRows = useMemo(() => {
+    const rows: SwitchPort[][] = [];
+    for (let i = 0; i < ports.length; i += 24) {
+      rows.push(ports.slice(i, i + 24));
+    }
+    return rows;
+  }, [ports]);
 
   return (
     <div
@@ -99,12 +169,66 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
             )}
           </button>
 
-          <span
-            className="text-[10px] font-mono font-bold text-white px-2 py-0.5 rounded bg-slate-800 border border-slate-700 shadow-xs shrink-0"
-            style={{ color: '#ffffff', fontWeight: 'bold' }}
+          {/* Interactive Port Count & Resync Button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isSyncing && onSyncPorts) {
+                onSyncPorts();
+              }
+            }}
+            disabled={isSyncing}
+            className={`group/sync flex items-center gap-1.5 text-[10px] font-mono font-bold px-2 py-0.5 rounded transition-all shadow-xs border shrink-0 ${
+              isSyncing
+                ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/40 cursor-wait'
+                : 'bg-slate-800 hover:bg-indigo-600 text-white border-slate-700 hover:border-indigo-400 active:scale-95 cursor-pointer'
+            }`}
+            title={
+              isEn
+                ? 'Click to sync & verify interface statuses via SSH tunnel'
+                : 'کلیک جهت بررسی و همگام‌سازی وضعیت پورت‌ها از طریق تانل SSH'
+            }
           >
-            {ports.length} {isEn ? 'Ports' : 'پورت'}
-          </span>
+            <RefreshCw
+              className={`w-3 h-3 ${
+                isSyncing
+                  ? 'animate-spin text-cyan-400'
+                  : 'text-slate-400 group-hover/sync:text-white transition-transform group-hover/sync:rotate-180'
+              }`}
+            />
+            <span style={{ color: '#ffffff', fontWeight: 'bold' }}>
+              {ports.length} {isEn ? 'Ports' : 'پورت'}
+            </span>
+            <span className="text-[9px] text-cyan-300/90 font-sans border-l border-slate-600 pl-1 group-hover/sync:text-white">
+              {isSyncing ? (isEn ? 'Syncing...' : 'بررسی...') : (isEn ? 'Sync' : 'بررسی')}
+            </span>
+          </button>
+
+          {/* WinBox Native App Launcher Button (Strictly for MikroTik only) */}
+          {isActuallyMikroTik && (
+            <button
+              type="button"
+              id="faceplate-winbox-btn"
+              onClick={handleOpenWinBox}
+              className={`group/wb flex items-center gap-1.5 text-[10px] font-mono font-bold px-2 py-0.5 rounded transition-all shadow-xs border shrink-0 cursor-pointer ${
+                isLightMode
+                  ? 'bg-sky-50 hover:bg-sky-600 text-sky-800 hover:text-white border-sky-300 hover:border-sky-500 shadow-sky-100'
+                  : 'bg-sky-950/80 hover:bg-sky-600 text-sky-200 hover:text-white border-sky-600/50 hover:border-sky-400'
+              } active:scale-95`}
+              title={
+                isEn
+                  ? `Launch WinBox on your PC for ${device.name || device.ip} (${device.ip || 'No IP'})`
+                  : `اجرای نرم‌افزار WinBox نصب شده روی سیستم شما برای ${device.name || device.ip} (${device.ip || 'بدون IP'})`
+              }
+            >
+              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0 group-hover/wb:scale-110 transition-transform" fill="none">
+                <rect x="2" y="2" width="20" height="20" rx="4" fill="#0284c7" />
+                <path d="M6 7h3l2 7 2-5 2 5 2-7h3l-3.5 11h-2.5l-2-5-2 5H9L6 7z" fill="white" />
+              </svg>
+              <span className="font-bold">WinBox</span>
+            </button>
+          )}
 
           {/* Status Counts */}
           <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono shrink-0">
@@ -162,7 +286,7 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
               <span className={isLightMode ? 'text-slate-300' : 'text-slate-600'}>•</span>
               <span
                 className={`font-bold ${
-                  displayPort.status === 'up'
+                  (displayPort.status || '').toLowerCase() === 'up'
                     ? isLightMode
                       ? 'text-emerald-700'
                       : 'text-emerald-400'
@@ -171,11 +295,11 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
                     : 'text-rose-400'
                 }`}
               >
-                {displayPort.status.toUpperCase()}
+                {(displayPort.status || 'down').toUpperCase()}
               </span>
               <span className={isLightMode ? 'text-slate-300' : 'text-slate-600'}>•</span>
               <span className={`font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                VLAN {displayPort.vlan} ({displayPort.mode.toUpperCase()})
+                VLAN {displayPort.vlan ?? 1} ({((displayPort.mode || 'access')).toUpperCase()})
               </span>
               {displayPort.connected_device && displayPort.connected_device !== 'Disconnected' && (
                 <>
@@ -225,65 +349,81 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
                 : 'bg-slate-900/90 border-slate-800'
             }`}
           >
-            <div className="flex items-center gap-1.5 min-w-max py-0.5">
-              {ports.map((port) => {
-                const isSelected =
-                  selectedPortId === port.port_id ||
-                  (selectedPortIds && selectedPortIds.includes(port.port_id));
-                const isHovered = activeHoverPort?.port_id === port.port_id;
+            <div className="flex flex-col gap-2 min-w-max py-0.5">
+              {portRows.map((row, rowIdx) => (
+                <div key={rowIdx} className="flex items-center gap-1.5">
+                  {row.map((port, pIdx) => {
+                    const globalIdx = rowIdx * 24 + pIdx;
+                    const pId = port.port_id || (port as any).port || port.name || `port-${globalIdx + 1}`;
+                    const isSelected = Boolean(
+                      pId && (
+                        (selectedPortId && selectedPortId === pId) ||
+                        (Array.isArray(selectedPortIds) && selectedPortIds.length > 0 && selectedPortIds.includes(pId))
+                      )
+                    );
+                    const isHovered = Boolean(
+                      activeHoverPort &&
+                      (activeHoverPort.port_id || (activeHoverPort as any).port || activeHoverPort.name) === pId
+                    );
 
-                return (
-                  <div
-                    key={port.port_id}
-                    onClick={(e) => onPortClick?.(port, e)}
-                    onMouseEnter={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setHoverCoords({ x: rect.left + rect.width / 2, y: rect.bottom + 8 });
-                      setActiveHoverPort(port);
-                    }}
-                    onMouseLeave={() => {
-                      setActiveHoverPort((cur) => (cur?.port_id === port.port_id ? null : cur));
-                      setHoverCoords(null);
-                    }}
-                    className={`cursor-pointer shrink-0 rounded transition-shadow ${
-                      isSelected
-                        ? isMikroTik
-                          ? 'ring-2 ring-cyan-400 z-20 shadow-[0_0_8px_rgba(6,182,212,0.6)]'
-                          : 'ring-2 ring-indigo-400 z-20 shadow-[0_0_8px_rgba(129,140,248,0.6)]'
-                        : isHovered
-                        ? 'ring-2 ring-slate-400/80 z-10'
-                        : 'hover:ring-1 hover:ring-slate-500/60'
-                    }`}
-                    style={{
-                      width: '28px',
-                      height: isMikroTik ? '42px' : '40px',
-                      position: 'relative',
-                    }}
-                  >
-                    <div
-                      style={{
-                        transform: 'scale(0.5)',
-                        transformOrigin: 'top left',
-                        width: '56px',
-                        pointerEvents: 'none',
-                      }}
-                    >
-                      {isMikroTik ? (
-                        <MikroTikPortSvg
-                          port={port}
-                          isSelected={isSelected}
-                          isLightMode={isLightMode}
-                        />
-                      ) : (
-                        <NetworkPortSvg
-                          port={port}
-                          isSelected={isSelected}
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                    return (
+                      <div
+                        key={pId}
+                        onClick={(e) => onPortClick?.(port, e)}
+                        onMouseEnter={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setHoverCoords({ x: rect.left + rect.width / 2, y: rect.bottom + 8 });
+                          setActiveHoverPort(port);
+                        }}
+                        onMouseLeave={() => {
+                          setActiveHoverPort((cur) => {
+                            if (!cur) return null;
+                            const curId = cur.port_id || (cur as any).port || cur.name;
+                            return curId === pId ? null : cur;
+                          });
+                          setHoverCoords(null);
+                        }}
+                        className={`cursor-pointer shrink-0 rounded transition-shadow ${
+                          isSelected
+                            ? isMikroTik
+                              ? 'ring-2 ring-cyan-400 z-20 shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+                              : 'ring-2 ring-indigo-400 z-20 shadow-[0_0_8px_rgba(129,140,248,0.6)]'
+                            : isHovered
+                            ? 'ring-2 ring-slate-400/80 z-10'
+                            : 'hover:ring-1 hover:ring-slate-500/60'
+                        }`}
+                        style={{
+                          width: isMikroTik ? '64px' : '56px',
+                          height: isMikroTik ? '84px' : '80px',
+                          position: 'relative',
+                        }}
+                      >
+                        <div
+                          style={{
+                            transform: 'scale(1)',
+                            transformOrigin: 'top left',
+                            width: isMikroTik ? '64px' : '56px',
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          {isMikroTik ? (
+                            <MikroTikPortSvg
+                              port={port}
+                              isSelected={isSelected}
+                              isLightMode={isLightMode}
+                            />
+                          ) : (
+                            <NetworkPortSvg
+                              port={port}
+                              isSelected={isSelected}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -316,21 +456,23 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
             <div className="relative z-10 flex items-center gap-2 font-bold">
               <span
                 className={`w-2 h-2 rounded-full shrink-0 ${
-                  activeHoverPort.status === 'up'
+                  (activeHoverPort.status || '').toLowerCase() === 'up'
                     ? 'bg-emerald-400 shadow-xs shadow-emerald-400'
                     : 'bg-rose-400'
                 }`}
               />
-              <span className="text-cyan-300 font-bold">{activeHoverPort.port_id}</span>
-              <span className="text-slate-400 text-[10px]">({activeHoverPort.name})</span>
+              <span className="text-cyan-300 font-bold">{activeHoverPort.port_id || activeHoverPort.name || 'Port'}</span>
+              {activeHoverPort.name && activeHoverPort.name !== activeHoverPort.port_id && (
+                <span className="text-slate-400 text-[10px]">({activeHoverPort.name})</span>
+              )}
               <span className="opacity-40">•</span>
-              <span className={activeHoverPort.status === 'up' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                {activeHoverPort.status.toUpperCase()}
+              <span className={(activeHoverPort.status || '').toLowerCase() === 'up' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                {(activeHoverPort.status || 'down').toUpperCase()}
               </span>
               <span className="opacity-40">•</span>
-              <span className="text-amber-300">VLAN {activeHoverPort.vlan}</span>
+              <span className="text-amber-300">VLAN {activeHoverPort.vlan ?? 1}</span>
               <span className="opacity-40">•</span>
-              <span className="text-purple-300">{activeHoverPort.mode.toUpperCase()}</span>
+              <span className="text-purple-300">{(activeHoverPort.mode || 'access').toUpperCase()}</span>
             </div>
 
             {activeHoverPort.connected_device && activeHoverPort.connected_device !== 'Disconnected' && (
@@ -343,6 +485,16 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
           </div>
         );
       })()}
+
+      {/* WinBox Launcher & Configuration Helper Modal (Strictly for MikroTik only) */}
+      {isActuallyMikroTik && isWinBoxModalOpen && (
+        <WinBoxLauncherModal
+          device={device}
+          isOpen={isWinBoxModalOpen}
+          onClose={() => setIsWinBoxModalOpen(false)}
+          isLightMode={isLightMode}
+        />
+      )}
     </div>
   );
 };

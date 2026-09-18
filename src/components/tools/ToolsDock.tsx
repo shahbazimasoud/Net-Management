@@ -36,7 +36,9 @@ export type StandardModalId =
   | 'port_inspector'
   | 'terminal'
   | 'apply_template'
-  | 'release_notes';
+  | 'release_notes'
+  | 'topology_discovery'
+  | 'bulk_device_config';
 
 export interface MinimizedStandardModal {
   id: StandardModalId;
@@ -86,6 +88,8 @@ const STANDARD_MODAL_ICONS: Record<StandardModalId, React.ComponentType<{ classN
   terminal: Terminal,
   apply_template: FileSpreadsheet,
   release_notes: History,
+  topology_discovery: Radar,
+  bulk_device_config: Sliders,
 };
 
 export interface UnifiedDockItem {
@@ -203,14 +207,16 @@ export const ToolsDock: React.FC<ToolsDockProps> = ({
       config: allMinimizedItems.filter((i) => i.category === 'config').length,
     };
 
-    return [
+    const categoryList: { id: DockCategoryId; labelEn: string; labelFa: string; count: number }[] = [
       { id: 'all', labelEn: 'All', labelFa: 'همه', count: counts.all },
       { id: 'tools', labelEn: 'Network Tools', labelFa: 'ابزارهای شبکه', count: counts.tools },
       { id: 'device', labelEn: 'Devices & Ports', labelFa: 'تجهیزات و پورت‌ها', count: counts.device },
       { id: 'terminal', labelEn: 'Terminals', labelFa: 'ترمینال‌ها', count: counts.terminal },
       { id: 'config', labelEn: 'Templates', labelFa: 'تمپلت‌ها', count: counts.config },
       { id: 'system', labelEn: 'System', labelFa: 'سیستم', count: counts.system },
-    ].filter((cat) => cat.id === 'all' || cat.count > 0);
+    ];
+
+    return categoryList.filter((cat) => cat.id === 'all' || cat.count > 0);
   }, [allMinimizedItems]);
 
   // Filter items based on active category

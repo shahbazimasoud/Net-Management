@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CustomTopologyStickyNote, StickyNoteColor, Device } from '../../types';
-import { Trash2, GripHorizontal, Link2, Pin, Check, X } from 'lucide-react';
+import { Trash2, GripHorizontal, Link2, Pin, Check, X, AlertTriangle, Unlink } from 'lucide-react';
 
 interface TopologyStickyNoteProps {
   note: CustomTopologyStickyNote;
   isEn: boolean;
   availableDevices: Device[];
+  allNotes?: CustomTopologyStickyNote[];
   onUpdate: (note: CustomTopologyStickyNote) => void;
   onDelete: (noteId: string) => void;
   onStartDrag: (e: React.MouseEvent, noteId: string) => void;
@@ -82,6 +83,7 @@ export const TopologyStickyNote: React.FC<TopologyStickyNoteProps> = ({
   note,
   isEn,
   availableDevices,
+  allNotes,
   onUpdate,
   onDelete,
   onStartDrag,
@@ -90,29 +92,98 @@ export const TopologyStickyNote: React.FC<TopologyStickyNoteProps> = ({
   const [isLinkingOpen, setIsLinkingOpen] = useState(false);
   const palette = COLOR_PALETTES[note.color] || COLOR_PALETTES.yellow;
 
+  // Local state for title and content to prevent premature server sync and overwrites during typing
+  const [localTitle, setLocalTitle] = useState(note.title || '');
+  const [localContent, setLocalContent] = useState(note.content || '');
+  const isFocusedRef = useRef(false);
+  const isDeletingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const latestValuesRef = useRef({ title: localTitle, content: localContent });
+  useEffect(() => {
+    latestValuesRef.current = { title: localTitle, content: localContent };
+  }, [localTitle, localContent]);
+
+  // Sync from props only when note ID changes or when not actively editing
+  useEffect(() => {
+    if (!isFocusedRef.current && !isDeletingRef.current) {
+      setLocalTitle(note.title || '');
+      setLocalContent(note.content || '');
+    }
+  }, [note.id, note.title, note.content]);
+
+  // Commit changes to parent only when user finishes typing or clicks outside
+  const commitChanges = useCallback(() => {
+    if (isDeletingRef.current) return;
+    const currentTitle = latestValuesRef.current.title;
+    const currentContent = latestValuesRef.current.content;
+    const prevTitle = note.title || '';
+    const prevContent = note.content || '';
+
+    if (currentTitle !== prevTitle || currentContent !== prevContent) {
+      onUpdate({
+        ...note,
+        title: currentTitle,
+        content: currentContent,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }, [note, onUpdate]);
+
+  // Click outside listener: commit changes whenever user clicks anywhere outside this sticky note
+  useEffect(() => {
+    const handleDocumentMouseDown = (e: MouseEvent) => {
+      if (isDeletingRef.current) return;
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        if (isFocusedRef.current) {
+          isFocusedRef.current = false;
+          commitChanges();
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentMouseDown, true);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown, true);
+    };
+  }, [commitChanges]);
+
+  const handleBlur = (e: React.FocusEvent) => {
+    if (containerRef.current && containerRef.current.contains(e.relatedTarget as Node)) {
+      return;
+    }
+    isFocusedRef.current = false;
+    commitChanges();
+  };
+
   const linkedDevice = note.linkedDeviceId
     ? availableDevices.find((d) => d.id === note.linkedDeviceId)
     : null;
 
   const handleColorChange = (c: StickyNoteColor) => {
-    onUpdate({ ...note, color: c, updatedAt: new Date().toISOString() });
-  };
-
-  const handleTitleChange = (val: string) => {
-    onUpdate({ ...note, title: val, updatedAt: new Date().toISOString() });
-  };
-
-  const handleContentChange = (val: string) => {
-    onUpdate({ ...note, content: val, updatedAt: new Date().toISOString() });
+    onUpdate({
+      ...note,
+      title: latestValuesRef.current.title,
+      content: latestValuesRef.current.content,
+      color: c,
+      updatedAt: new Date().toISOString(),
+    });
   };
 
   const handleLinkDevice = (deviceId?: string) => {
-    onUpdate({ ...note, linkedDeviceId: deviceId, updatedAt: new Date().toISOString() });
+    onUpdate({
+      ...note,
+      title: latestValuesRef.current.title,
+      content: latestValuesRef.current.content,
+      linkedDeviceId: deviceId,
+      updatedAt: new Date().toISOString(),
+    });
     setIsLinkingOpen(false);
   };
 
   return (
     <div
+      ref={containerRef}
       className={`w-[230px] rounded-xl border-2 ${palette.border} ${palette.bg} ${palette.text} ${palette.shadow} select-none transition-all flex flex-col relative group`}
       style={{ minHeight: '150px' }}
     >
@@ -140,7 +211,9 @@ export const TopologyStickyNote: React.FC<TopologyStickyNoteProps> = ({
           {/* Link to Device button */}
           <button
             type="button"
-            onClick={() => setIsLinkingOpen(!isLinkingOpen)}
+            onClick={() => {
+              setIsLinkingOpen(!isLinkingOpen);
+            }}
             className={`p-1 rounded hover:bg-black/10 transition ${
               note.linkedDeviceId ? 'text-blue-700 font-bold' : 'opacity-70 hover:opacity-100'
             }`}
@@ -160,8 +233,20 @@ export const TopologyStickyNote: React.FC<TopologyStickyNoteProps> = ({
           {/* Delete Button */}
           <button
             type="button"
-            onClick={() => onDelete(note.id)}
-            className="p-1 rounded hover:bg-rose-500/20 text-rose-800 hover:text-rose-950 transition opacity-70 hover:opacity-100"
+            id={`delete-note-btn-${note.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              isDeletingRef.current = true;
+              isFocusedRef.current = false;
+              onDelete(note.id);
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              isDeletingRef.current = true;
+              isFocusedRef.current = false;
+            }}
+            className="p-1 rounded hover:bg-rose-500/20 text-rose-800 hover:text-rose-950 transition opacity-70 hover:opacity-100 cursor-pointer"
             title={isEn ? 'Delete Note' : 'حذف یادداشت'}
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -172,75 +257,106 @@ export const TopologyStickyNote: React.FC<TopologyStickyNoteProps> = ({
       {/* Device Linking Selector Dropdown */}
       {isLinkingOpen && (
         <div
-          className="p-2 bg-slate-900 border border-white/20 rounded-lg shadow-xl text-white text-[11px] m-1 z-30 space-y-1.5"
+          className="p-2 bg-slate-900 border border-white/20 rounded-lg shadow-2xl text-white text-[11px] m-1 z-30 space-y-1.5 animate-scale-up"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between pb-1 border-b border-white/10 font-bold">
             <span>{isEn ? 'Attach Note to Device:' : 'اتصال یادداشت به دیوایس:'}</span>
             <button
               onClick={() => setIsLinkingOpen(false)}
-              className="text-slate-400 hover:text-white"
+              className="text-slate-400 hover:text-white cursor-pointer"
             >
               <X className="w-3 h-3" />
             </button>
           </div>
           <div className="max-h-36 overflow-y-auto space-y-1">
-            <button
-              type="button"
-              onClick={() => handleLinkDevice(undefined)}
-              className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between ${
-                !note.linkedDeviceId
-                  ? 'bg-blue-600 text-white font-bold'
-                  : 'hover:bg-white/10 text-slate-300'
-              }`}
-            >
-              <span>{isEn ? '— None (Float Freely) —' : '— بدون اتصال (شناور آزاد) —'}</span>
-              {!note.linkedDeviceId && <Check className="w-3 h-3" />}
-            </button>
-            {availableDevices.map((dev) => (
-              <button
-                key={dev.id}
-                type="button"
-                onClick={() => handleLinkDevice(dev.id)}
-                className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between ${
-                  note.linkedDeviceId === dev.id
-                    ? 'bg-blue-600 text-white font-bold'
-                    : 'hover:bg-white/10 text-slate-300'
-                }`}
-              >
-                <div className="truncate pr-1">
-                  <span className="font-semibold">{dev.name}</span>{' '}
-                  <span className="text-[9px] opacity-70">({dev.ip})</span>
-                </div>
-                {note.linkedDeviceId === dev.id && <Check className="w-3 h-3 flex-shrink-0" />}
-              </button>
-            ))}
-          </div>
+                {note.linkedDeviceId ? (
+                  <button
+                    type="button"
+                    id={`unlink-device-btn-${note.id}`}
+                    onClick={() => handleLinkDevice(undefined)}
+                    className="w-full text-left px-2 py-1.5 rounded text-[10px] flex items-center justify-between bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-white font-medium border border-rose-500/30 transition cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Unlink className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                      <span>{isEn ? 'Unlink from Device' : 'قطع اتصال از دیوایس (آنلینک)'}</span>
+                    </span>
+                    <span className="text-[9px] text-rose-300/80 bg-rose-500/20 px-1 py-0.5 rounded shrink-0">
+                      {isEn ? 'Float' : 'شناور'}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleLinkDevice(undefined)}
+                    className="w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between bg-blue-600 text-white font-bold"
+                  >
+                    <span>{isEn ? '— None (Float Freely) —' : '— بدون اتصال (شناور آزاد) —'}</span>
+                    <Check className="w-3 h-3" />
+                  </button>
+                )}
+                {availableDevices.map((dev) => {
+                  const cleanDevId = dev.id.replace(/^hw-/, '');
+                  const isLinkedToThis =
+                    note.linkedDeviceId === dev.id ||
+                    (note.linkedDeviceId && note.linkedDeviceId.replace(/^hw-/, '') === cleanDevId);
+
+                  const otherNote = allNotes?.find(
+                    (n) =>
+                      n.id !== note.id &&
+                      n.linkedDeviceId &&
+                      (n.linkedDeviceId === dev.id ||
+                        n.linkedDeviceId === cleanDevId ||
+                        n.linkedDeviceId === 'hw-' + cleanDevId ||
+                        n.linkedDeviceId.replace(/^hw-/, '') === cleanDevId)
+                  );
+
+                  return (
+                    <button
+                      key={dev.id}
+                      type="button"
+                      onClick={() => handleLinkDevice(dev.id)}
+                      className={`w-full text-left px-2 py-1 rounded text-[10px] flex items-center justify-between transition ${
+                        isLinkedToThis
+                          ? 'bg-blue-600 text-white font-bold'
+                          : otherNote
+                          ? 'hover:bg-amber-500/20 text-slate-300'
+                          : 'hover:bg-white/10 text-slate-300'
+                      }`}
+                    >
+                      <div className="truncate pr-1 flex items-center gap-1">
+                        <span className="font-semibold truncate">{dev.name}</span>{' '}
+                        <span className="text-[9px] opacity-70 flex-shrink-0">({dev.ip})</span>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {otherNote && !isLinkedToThis && (
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-500/40 font-medium">
+                            {isEn ? 'Has Note' : 'دارای یادداشت'}
+                          </span>
+                        )}
+                        {isLinkedToThis && <Check className="w-3 h-3 flex-shrink-0" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
         </div>
       )}
 
       {/* Linked Device Badge (if linked) */}
       {linkedDevice && (
         <div
-          className="mx-2 mt-1.5 px-2 py-0.5 rounded-md bg-black/10 flex items-center justify-between text-[9px] font-mono border border-black/15"
+          className="mx-2 mt-1.5 px-2 py-0.5 rounded-md bg-black/10 flex items-center text-[9px] font-mono border border-black/15"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <button
             type="button"
             onClick={() => onFocusDevice && onFocusDevice(linkedDevice.id)}
-            className="flex items-center gap-1 font-bold truncate hover:underline"
+            className="w-full flex items-center gap-1 font-bold truncate hover:underline cursor-pointer"
             title={isEn ? 'Focus Device on Canvas' : 'مشاهده دیوایس متصل'}
           >
             <Link2 className="w-2.5 h-2.5 flex-shrink-0" />
             <span className="truncate">{linkedDevice.name}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleLinkDevice(undefined)}
-            className="p-0.5 hover:bg-black/15 rounded text-rose-700"
-            title={isEn ? 'Unlink' : 'قطع اتصال'}
-          >
-            <X className="w-2.5 h-2.5" />
           </button>
         </div>
       )}
@@ -250,16 +366,35 @@ export const TopologyStickyNote: React.FC<TopologyStickyNoteProps> = ({
         {/* Title Input */}
         <input
           type="text"
-          value={note.title || ''}
-          onChange={(e) => handleTitleChange(e.target.value)}
+          value={localTitle}
+          onChange={(e) => setLocalTitle(e.target.value)}
+          onFocus={() => {
+            isFocusedRef.current = true;
+          }}
+          onBlur={handleBlur}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              commitChanges();
+            }
+          }}
           placeholder={isEn ? 'Note title...' : 'عنوان یادداشت...'}
           className="w-full bg-transparent font-bold text-xs border-b border-black/15 pb-0.5 outline-none placeholder:opacity-50"
         />
 
         {/* Text Area */}
         <textarea
-          value={note.content}
-          onChange={(e) => handleContentChange(e.target.value)}
+          value={localContent}
+          onChange={(e) => setLocalContent(e.target.value)}
+          onFocus={() => {
+            isFocusedRef.current = true;
+          }}
+          onBlur={handleBlur}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              commitChanges();
+              (e.target as HTMLTextAreaElement).blur();
+            }
+          }}
           placeholder={
             isEn
               ? 'Write notes, IP allocations, VLANs, maintenance reminders...'

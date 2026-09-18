@@ -14,6 +14,8 @@ import {
   Terminal,
   Loader2,
   ShieldCheck,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { APP_VERSION, RELEASE_HISTORY } from '../version';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -57,6 +59,8 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
     )
   );
 
+  const [isMaximized, setIsMaximized] = React.useState(false);
+
   if (!isOpen) return null;
 
   const hasUpdate = Boolean(updateInfo?.hasUpdate);
@@ -74,11 +78,17 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fade-in"
+      className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
+        isMaximized ? 'p-0' : 'p-2 sm:p-4'
+      } modal-backdrop-blur animate-fade-in`}
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >
-      <div className={`relative w-full max-w-3xl max-h-[90vh] sm:max-h-[86vh] flex flex-col rounded-2xl spatial-glass border shadow-[0_0_50px_rgba(99,102,241,0.3)] overflow-hidden my-auto ${
+      <div className={`relative w-full ${
+        isMaximized
+          ? 'h-full max-h-full max-w-none rounded-none border-none my-0'
+          : 'max-w-3xl max-h-[90vh] sm:max-h-[86vh] rounded-2xl border my-auto'
+      } flex flex-col spatial-glass shadow-[0_0_50px_rgba(99,102,241,0.3)] overflow-hidden ${
         isLight ? 'bg-white border-slate-200 text-slate-900 shadow-xl' : 'border-white/20 text-slate-100'
       }`}>
         {/* Header (Pinned) */}
@@ -145,6 +155,25 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={async () => {
+                await checkUpdate(false, true);
+              }}
+              disabled={checking}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                isLight
+                  ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-300'
+                  : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/30'
+              } disabled:opacity-50`}
+              title={isEn ? 'Check GitHub repository for updates now' : 'بررسی آنی مخزن گیت‌هاب برای نسخه‌های جدید'}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">
+                {checking ? (isEn ? 'Checking...' : 'در حال بررسی...') : (isEn ? 'Check Updates' : 'بررسی آپدیت')}
+              </span>
+            </button>
+
             {onMinimize && (
               <button
                 type="button"
@@ -160,6 +189,19 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                 <Minus className="w-5 h-5" />
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setIsMaximized((prev) => !prev)}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                isLight
+                  ? 'text-slate-600 hover:text-black hover:bg-slate-200'
+                  : 'text-slate-300 hover:text-cyan-300 hover:bg-white/10'
+              }`}
+              title={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+              aria-label={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+            >
+              {isMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+            </button>
             <button
               type="button"
               onClick={onClose}
@@ -178,7 +220,7 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
         {/* Content List (Scrollable) */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
           {/* Active Update Ready Banner & In-Panel Updater Section */}
-          {hasUpdate && (
+          {(hasUpdate || updating || updateSuccess) && (
             <div className={`update-ready-banner p-5 rounded-2xl border relative overflow-hidden shadow-xs ${
               isLight
                 ? 'bg-slate-50 border-slate-200 text-black'
@@ -308,23 +350,39 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                 ) : updating ? (
                   <div className="p-4 rounded-xl bg-indigo-950/50 border border-indigo-500/40 text-indigo-200 space-y-3">
                     <div className="flex items-center gap-3">
-                      <Loader2 className="w-5 h-5 text-cyan-300 animate-spin" />
-                      <div className="font-bold text-sm text-white">
-                        {isEn
-                          ? `Updating panel to v${updateInfo?.latestVersion}...`
-                          : `در حال ارتقای پنل به نگارش v${updateInfo?.latestVersion}...`}
+                      <Loader2 className="w-5 h-5 text-cyan-300 animate-spin shrink-0" />
+                      <div>
+                        <div className="font-bold text-sm text-white">
+                          {isEn
+                            ? `Updating panel to v${updateInfo?.latestVersion || APP_VERSION}...`
+                            : `در حال ارتقای پنل به نگارش v${updateInfo?.latestVersion || APP_VERSION}...`}
+                        </div>
+                        <div className="text-[11px] text-cyan-300/80">
+                          {isEn
+                            ? 'Syncing code, installing dependencies, building bundle & restarting service...'
+                            : 'همگام‌سازی کدها، نصب پکیج‌ها، ساخت مجدد باندل و ری‌استارت سرویس...'}
+                        </div>
                       </div>
                     </div>
-                    <div className="bg-black/60 rounded-lg p-2.5 font-mono text-[11px] text-slate-300 border border-white/10 flex items-center gap-2">
-                      <Terminal className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                      <span className="truncate">
-                        {updateLogs[updateLogs.length - 1] || 'Executing update steps...'}
-                      </span>
+
+                    {/* Live Scrolling Terminal Logs */}
+                    <div className="bg-black/80 rounded-xl p-3 font-mono text-[11px] text-slate-300 border border-white/10 space-y-1 max-h-48 overflow-y-auto">
+                      <div className="flex items-center gap-2 text-cyan-400 border-b border-white/10 pb-1.5 mb-1.5 font-bold">
+                        <Terminal className="w-3.5 h-3.5 shrink-0" />
+                        <span>{isEn ? 'Live Update Console' : 'کنسول زنده ارتقای پنل'}</span>
+                      </div>
+                      {updateLogs.map((logLine, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5 leading-relaxed text-slate-200">
+                          <span className="text-cyan-400 shrink-0">›</span>
+                          <span className="break-words">{logLine}</span>
+                        </div>
+                      ))}
                     </div>
+
                     <p className="text-[11px] text-slate-400">
                       {isEn
-                        ? 'Please keep this window open while files are synchronized and rebuilt.'
-                        : 'لطفاً تا اتمام بارگذاری و کامپایل فایل‌های سیستمی این پنجره را نبندید.'}
+                        ? 'Please keep this window open. The server will restart and automatically reload when complete.'
+                        : 'لطفاً این پنجره را باز نگه دارید. سرور پس از اتمام به طور خودکار ری‌استارت و تازه‌سازی می‌شود.'}
                     </p>
                   </div>
                 ) : (
@@ -336,20 +394,35 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                       </div>
                     )}
 
-                    <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                       <button
-                        onClick={performUpdate}
-                        className={`w-full sm:flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-xl font-bold text-sm shadow-md transition cursor-pointer ${
+                        onClick={() => performUpdate()}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm shadow-md transition cursor-pointer ${
                           isLight
                             ? 'bg-slate-900 hover:bg-black active:scale-98 text-white'
                             : 'bg-gradient-to-r from-rose-600 via-purple-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 active:scale-98 text-white shadow-[0_0_25px_rgba(244,63,94,0.4)]'
                         }`}
                       >
-                        <ArrowUpCircle className="w-5 h-5 text-rose-200" />
+                        <ArrowUpCircle className="w-4 h-4 text-rose-200" />
                         <span>
                           {isEn
-                            ? `Update Panel to v${updateInfo?.latestVersion} Now`
-                            : `ارتقای پنل به نگارش v${updateInfo?.latestVersion}`}
+                            ? `Standard Update to v${updateInfo?.latestVersion}`
+                            : `ارتقای استاندارد به v${updateInfo?.latestVersion}`}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={() => performUpdate({ clean: true })}
+                        className={`flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl font-semibold text-xs transition cursor-pointer border ${
+                          isLight
+                            ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900 shadow-xs'
+                            : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/30 text-amber-200 hover:text-white'
+                        }`}
+                        title={isEn ? 'Purge node_modules and clean reinstall all dependencies' : 'پاکسازی کامل node_modules و نصب مجدد تمام پکیج‌ها'}
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                        <span>
+                          {isEn ? 'Clean Reinstall & Update' : 'نصب تمیز و پاکسازی عمیق پکیج‌ها'}
                         </span>
                       </button>
 
@@ -357,18 +430,58 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
                         href={updateInfo?.repoUrl || 'https://github.com/shahbazimasoud/Net-Management'}
                         target="_blank"
                         rel="noreferrer"
-                        className={`w-full sm:w-auto flex items-center justify-center gap-1.5 py-3 px-4 rounded-xl text-xs font-medium transition cursor-pointer border ${
+                        className={`flex items-center justify-center gap-1.5 py-2.5 px-3.5 rounded-xl text-xs font-medium transition cursor-pointer border ${
                           isLight
                             ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-800'
                             : 'bg-white/5 hover:bg-white/10 border-white/15 text-slate-300 hover:text-white'
                         }`}
                       >
-                        <ExternalLink className="w-4 h-4" />
+                        <ExternalLink className="w-3.5 h-3.5" />
                         <span>GitHub</span>
                       </a>
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* If No Update Available, Provide Manual Full Reinstall & Sync Action */}
+          {!hasUpdate && !updating && !updateSuccess && (
+            <div className={`mb-4 rounded-xl p-3.5 border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+              isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/5 border-white/10'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className={`text-xs font-bold ${isLight ? 'text-black' : 'text-slate-200'}`}>
+                    {isEn ? `System is on version v${APP_VERSION}` : `سامانه روی نگارش v${APP_VERSION} قرار دارد`}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {isEn
+                      ? 'If packages or backend changes were incomplete on server, you can trigger a full clean sync & rebuild anytime.'
+                      : 'چنانچه در سرور برخی پکیج‌ها یا تغییرات بک‌اند ناقص مانده‌اند، می‌توانید همگام‌سازی و نصب مجدد کامل را اجرا کنید.'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => performUpdate({ clean: true })}
+                  disabled={updating}
+                  className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                    isLight
+                      ? 'bg-amber-100 hover:bg-amber-200 border-amber-300 text-amber-900'
+                      : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/30 text-amber-200 hover:text-white'
+                  } disabled:opacity-50`}
+                  title={isEn ? 'Force full clean reinstall of all NPM packages, Python drivers, and rebuild bundle' : 'نصب تمیز و بازسازی کامل پکیج‌ها و درایورهای پایتون'}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${updating ? 'animate-spin' : ''}`} />
+                  <span>
+                    {isEn ? 'Force Rebuild & Sync' : 'همگام‌سازی و نصب مجدد کامل'}
+                  </span>
+                </button>
               </div>
             </div>
           )}
@@ -498,9 +611,9 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               : 'border-white/10 bg-slate-900/85 text-slate-400'
           }`}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <button
-              onClick={() => checkUpdate(false)}
+              onClick={() => checkUpdate(false, true)}
               disabled={checking}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer text-xs font-medium ${
                 isLight
@@ -510,8 +623,24 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               title={t('update_btn_check_now')}
             >
               <RefreshCw className={`w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 ${checking ? 'animate-spin' : ''}`} />
-              <span>{checking ? t('update_checking_in_progress') : t('update_btn_check_now')}</span>
+              <span>{checking ? t('update_checking_in_progress') : (isEn ? 'Check for Updates' : 'بررسی نگارش جدید')}</span>
             </button>
+
+            {!hasUpdate && (
+              <button
+                onClick={() => performUpdate({ clean: true })}
+                disabled={updating}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition cursor-pointer text-xs font-medium ${
+                  isLight
+                    ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900 shadow-xs'
+                    : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/25 text-amber-300 hover:text-amber-100'
+                }`}
+                title={isEn ? 'Force clean reinstall all NPM & Python dependencies and rebuild production bundle' : 'پاکسازی و نصب مجدد تمام پکیج‌های نود و پایتون و بازسازی بیلد'}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${updating ? 'animate-spin' : ''}`} />
+                <span>{isEn ? 'Clean Reinstall & Rebuild' : 'نصب مجدد و بازسازی عمیق'}</span>
+              </button>
+            )}
 
             <button
               onClick={toggleSimulatedUpdate}

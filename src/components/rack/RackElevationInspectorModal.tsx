@@ -69,13 +69,13 @@ export const RackElevationInspectorModal: React.FC<RackElevationInspectorModalPr
 
   if (!isOpen || !rack) return null;
 
-  const safeRack = {
+  const safeRack: CustomTopologyRack = {
     ...rack,
     id: rack.id || 'rack-default',
     name: rack.name || 'Rack Cabinet',
     devices: Array.isArray(rack.devices) ? rack.devices : [],
-    units: Number(rack.units) || 42,
-    depth: Number(rack.depth) || 100,
+    units: (Number(rack.units) || 42) as any,
+    depth: (Number(rack.depth) || 100) as any,
     viewMode: (rack.viewMode === 'rear' ? 'rear' : 'front') as RackViewMode,
   };
 
@@ -116,7 +116,7 @@ export const RackElevationInspectorModal: React.FC<RackElevationInspectorModalPr
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center p-3 sm:p-5 pt-16 sm:pt-16 pb-4 bg-black/90 backdrop-blur-xl animate-fade-in"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[1000] flex items-center justify-center p-3 sm:p-5 pt-16 sm:pt-16 pb-4 bg-black/90 backdrop-blur-xl animate-fade-in"
       dir={isRtl ? 'rtl' : 'ltr'}
     >
       <div

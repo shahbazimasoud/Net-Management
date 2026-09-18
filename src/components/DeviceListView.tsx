@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Plus,
@@ -20,13 +20,21 @@ import {
   Save,
   FileCode2,
   MoreVertical,
-  Edit3
+  Edit3,
+  StickyNote,
+  Sliders,
+  HardDrive,
+  Maximize2,
+  X,
 } from 'lucide-react';
-import { Device, DeviceType } from '../types';
+import { Device, DeviceType, CustomTopologyStickyNote } from '../types';
 import { useLanguage } from '../i18n';
 import { updateDevice } from '../services/api';
+import { syncDeviceNotesFromDatabase } from '../services/settingsStorage';
 import { EditDeviceModal } from './EditDeviceModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
+import { DeviceStickyNoteModal } from './DeviceStickyNoteModal';
+import { CiscoWriteConfirmModal } from './CiscoWriteConfirmModal';
 
 interface DeviceListViewProps {
   devices: Device[];
@@ -40,6 +48,7 @@ interface DeviceListViewProps {
   onRefreshAll: () => void;
   isRefreshing: boolean;
   onEditDevice?: (device: Device) => void;
+  onOpenBulkConfig?: (devices: Device[]) => void;
 }
 
 export const DeviceListView: React.FC<DeviceListViewProps> = ({
@@ -54,16 +63,23 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   onRefreshAll,
   isRefreshing,
   onEditDevice,
+  onOpenBulkConfig,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | DeviceType>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'unsaved'>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
   const [pingingId, setPingingId] = useState<string | null>(null);
   const [writingId, setWritingId] = useState<string | null>(null);
+  const [confirmWriteDevice, setConfirmWriteDevice] = useState<Device | null>(null);
+  const [minimizedWriteDevice, setMinimizedWriteDevice] = useState<Device | null>(null);
   const [internalEditingDevice, setInternalEditingDevice] = useState<Device | null>(null);
   const [deviceToDelete, setDeviceToDelete] = useState<Device | null>(null);
+  const [deviceNotes, setDeviceNotes] = useState<Record<string, CustomTopologyStickyNote>>({});
+  const [selectedNoteDevice, setSelectedNoteDevice] = useState<Device | null>(null);
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{
     id: string;
     top?: number;
@@ -72,6 +88,110 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
     right?: number;
     device: Device;
   } | null>(null);
+
+  // Synchronize and load device-linked sticky notes
+  const loadDeviceNotes = useCallback(async () => {
+    const notesMap: Record<string, CustomTopologyStickyNote> = {};
+    try {
+      // 1. Read from dedicated device sticky notes cache
+      const raw = localStorage.getItem('nettopology_device_sticky_notes_v1');
+      if (raw) {
+        const list: CustomTopologyStickyNote[] = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          list.forEach((n) => {
+            if (n.linkedDeviceId) {
+              notesMap[n.linkedDeviceId] = n;
+              notesMap[n.linkedDeviceId.replace(/^hw-/, '')] = n;
+              notesMap['hw-' + n.linkedDeviceId.replace(/^hw-/, '')] = n;
+            }
+          });
+        }
+      }
+      // 2. Scan custom maps for notes linked to devices
+      ['nettopology_custom_maps_v2', 'net_topology_custom_maps_v2'].forEach((key) => {
+        const rawMaps = localStorage.getItem(key);
+        if (rawMaps) {
+          const maps = JSON.parse(rawMaps);
+          if (Array.isArray(maps)) {
+            maps.forEach((m) => {
+              if (Array.isArray(m.stickyNotes)) {
+                m.stickyNotes.forEach((sn: CustomTopologyStickyNote) => {
+                  if (sn.linkedDeviceId && !notesMap[sn.linkedDeviceId]) {
+                    notesMap[sn.linkedDeviceId] = sn;
+                    notesMap[sn.linkedDeviceId.replace(/^hw-/, '')] = sn;
+                    notesMap['hw-' + sn.linkedDeviceId.replace(/^hw-/, '')] = sn;
+                  }
+                });
+              }
+            });
+          }
+        }
+      });
+    } catch (e) {}
+
+    setDeviceNotes(notesMap);
+
+    // 3. Background sync from database
+    try {
+      const dbNotes = await syncDeviceNotesFromDatabase();
+      if (Array.isArray(dbNotes)) {
+        const freshDbMap: Record<string, CustomTopologyStickyNote> = {};
+        dbNotes.forEach((n) => {
+          if (n && n.linkedDeviceId) {
+            freshDbMap[n.linkedDeviceId] = n;
+            freshDbMap[n.linkedDeviceId.replace(/^hw-/, '')] = n;
+            freshDbMap['hw-' + n.linkedDeviceId.replace(/^hw-/, '')] = n;
+          }
+        });
+        setDeviceNotes(freshDbMap);
+      }
+    } catch (e) {}
+  }, []);
+
+  const getNoteForDevice = useCallback(
+    (id: string): CustomTopologyStickyNote | undefined => {
+      if (!id) return undefined;
+      return deviceNotes[id] || deviceNotes[id.replace(/^hw-/, '')] || deviceNotes['hw-' + id.replace(/^hw-/, '')];
+    },
+    [deviceNotes]
+  );
+
+  useEffect(() => {
+    loadDeviceNotes();
+    const handleUpdate = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail) {
+        setDeviceNotes((current) => {
+          const next = { ...current };
+          if (detail.previousDeviceId) {
+            const prevId = detail.previousDeviceId;
+            const cleanPrev = prevId.replace(/^hw-/, '');
+            delete next[prevId];
+            delete next[cleanPrev];
+            delete next['hw-' + cleanPrev];
+          }
+          if (detail.newDeviceId && detail.note) {
+            const newId = detail.newDeviceId;
+            const cleanNew = newId.replace(/^hw-/, '');
+            next[newId] = detail.note;
+            next[cleanNew] = detail.note;
+            next['hw-' + cleanNew] = detail.note;
+          }
+          return next;
+        });
+      }
+      loadDeviceNotes();
+    };
+    window.addEventListener('nettopology_device_notes_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('nettopology_device_notes_updated', handleUpdate);
+    };
+  }, [loadDeviceNotes]);
+
+  const handleOpenDeviceNote = (dev: Device) => {
+    setSelectedNoteDevice(dev);
+    setIsNoteModalOpen(true);
+  };
 
   // Close 3-dots action menu on outside scroll or window resize
   useEffect(() => {
@@ -175,39 +295,72 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
 
   return (
     <div className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto ${isRtl ? 'text-right' : 'text-left'} text-slate-100`}>
-      {/* Page Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 spatial-glass p-5 rounded-2xl border border-white/10 shadow-xl backdrop-blur-xl">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-base sm:text-lg font-bold text-white glow-text-cyan">
-              {t('devicelist_title')}
-            </h2>
-            <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
-              {t('status_devices_count', { count: devices.length })}
-            </span>
+      {/* Page Header (Sticky header so Register New Device remains fixed on scroll) */}
+      <div className="sticky top-0 z-20 -mt-2 pt-2 pb-2 bg-slate-950/85 backdrop-blur-xl border-b border-white/5 -mx-4 sm:-mx-6 px-4 sm:px-6 transition-all">
+        <div className="flex flex-wrap items-center justify-between gap-3 spatial-glass p-4 sm:p-5 rounded-2xl border border-white/10 shadow-xl backdrop-blur-xl">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-base sm:text-lg font-bold text-white glow-text-cyan">
+                {t('devicelist_title')}
+              </h2>
+              <span className="text-xs font-mono px-2 py-0.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
+                {t('status_devices_count', { count: devices.length })}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+              {t('devicelist_subtitle')}
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-            {t('devicelist_subtitle')}
-          </p>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onRefreshAll}
-            disabled={isRefreshing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-medium shadow-xs transition active:scale-95 cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
-            <span>{t('devicelist_btn_ping_all')}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenBulkConfig && (
+              <button
+                id="btn-bulk-configure"
+                onClick={() => {
+                  const selected = devices.filter((d) => selectedDeviceIds.has(d.id));
+                  if (selected.length > 0) {
+                    onOpenBulkConfig(selected);
+                  }
+                }}
+                disabled={selectedDeviceIds.size === 0}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+                  selectedDeviceIds.size > 0
+                    ? 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white border-cyan-400/40 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                    : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
+                }`}
+                title={isEn ? 'Execute common configuration across selected hardware' : 'پیکربندی همزمان دستورات روی تجهیزات انتخاب شده'}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>
+                  {isEn
+                    ? selectedDeviceIds.size > 0
+                      ? `Bulk Configure (${selectedDeviceIds.size})`
+                      : 'Bulk Configure'
+                    : selectedDeviceIds.size > 0
+                    ? `پیکربندی گروهی (${selectedDeviceIds.size})`
+                    : 'پیکربندی گروهی'}
+                </span>
+              </button>
+            )}
 
-          <button
-            onClick={onOpenAddModal}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t('devicelist_btn_add_device')}</span>
-          </button>
+            <button
+              onClick={onRefreshAll}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-medium shadow-xs transition active:scale-95 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
+              <span>{t('devicelist_btn_ping_all')}</span>
+            </button>
+
+            <button
+              id="btn-sticky-register-device"
+              onClick={onOpenAddModal}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{t('devicelist_btn_add_device')}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -329,12 +482,107 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
         </div>
       </div>
 
+      {/* Multi-Device Selection Action Bar */}
+      {selectedDeviceIds.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 shadow-lg text-xs font-mono animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">
+              <Sliders className="w-3.5 h-3.5" />
+              <span>
+                {isEn
+                  ? `${selectedDeviceIds.size} of ${devices.length} devices selected`
+                  : `${selectedDeviceIds.size} از ${devices.length} تجهیز انتخاب شده است`}
+              </span>
+            </span>
+
+            {/* Quick Filter Selection Shortcuts */}
+            <div className="hidden sm:flex items-center gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => {
+                  const ciscoIds = devices.filter((d) => d.platform?.includes('cisco')).map((d) => d.id);
+                  setSelectedDeviceIds(new Set(ciscoIds));
+                }}
+                className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30 cursor-pointer"
+              >
+                {isEn ? 'Only Cisco' : 'فقط سیسکو'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const mtikIds = devices.filter((d) => d.platform?.includes('mikrotik')).map((d) => d.id);
+                  setSelectedDeviceIds(new Set(mtikIds));
+                }}
+                className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 cursor-pointer"
+              >
+                {isEn ? 'Only MikroTik' : 'فقط میکروتیک'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const onlineIds = devices.filter((d) => d.is_online).map((d) => d.id);
+                  setSelectedDeviceIds(new Set(onlineIds));
+                }}
+                className="px-2 py-0.5 rounded bg-white/10 text-slate-300 hover:bg-white/20 border border-white/10 cursor-pointer"
+              >
+                {isEn ? 'Only Online' : 'فقط آنلاین'}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedDeviceIds(new Set())}
+              className="px-2.5 py-1 text-slate-400 hover:text-white transition cursor-pointer"
+            >
+              {isEn ? 'Clear Selection' : 'لغو انتخاب‌ها'}
+            </button>
+
+            {onOpenBulkConfig && (
+              <button
+                type="button"
+                onClick={() => {
+                  const selected = devices.filter((d) => selectedDeviceIds.has(d.id));
+                  if (selected.length > 0) onOpenBulkConfig(selected);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-bold shadow-md shadow-cyan-500/20 cursor-pointer active:scale-95 transition"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Launch Bulk Configure' : 'اجرای پیکربندی گروهی'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Devices List Table */}
       <div className="spatial-glass border border-white/10 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl">
         <div className="overflow-x-auto min-h-[380px]">
           <table className={`w-full ${isRtl ? 'text-right' : 'text-left'} text-xs device-table`}>
             <thead>
               <tr className="bg-slate-950/80 text-slate-300 border-b-2 border-white/15 text-[11px] font-bold uppercase tracking-wider font-mono">
+                <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15 w-10 text-center`}>
+                  <input
+                    type="checkbox"
+                    checked={filteredDevices.length > 0 && selectedDeviceIds.size === filteredDevices.length}
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate =
+                          selectedDeviceIds.size > 0 && selectedDeviceIds.size < filteredDevices.length;
+                      }
+                    }}
+                    onChange={() => {
+                      if (selectedDeviceIds.size === filteredDevices.length && filteredDevices.length > 0) {
+                        setSelectedDeviceIds(new Set());
+                      } else {
+                        setSelectedDeviceIds(new Set(filteredDevices.map((d) => d.id)));
+                      }
+                    }}
+                    className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
+                    title={isEn ? 'Select all filtered devices' : 'انتخاب تمام تجهیزات'}
+                  />
+                </th>
                 <th className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/15`}>
                   {isEn ? 'Device Name & ID' : 'نام و شناسه تجهیز'}
                 </th>
@@ -364,15 +612,34 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             <tbody className="divide-y divide-white/10">
               {filteredDevices.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-10 text-center text-slate-400">
+                  <td colSpan={9} className="p-10 text-center text-slate-400">
                     {t('devicelist_no_devices')}
                   </td>
                 </tr>
               ) : (
                 filteredDevices.map((dev) => {
                   const isPinging = pingingId === dev.id;
+                  const devNote = getNoteForDevice(dev.id);
                   return (
                     <tr key={dev.id} className="border-b border-white/10 hover:bg-white/5 transition-colors group">
+                      {/* Selection Checkbox */}
+                      <td className={`p-3.5 ${isRtl ? 'border-l' : 'border-r'} border-white/10 text-center`}>
+                        <input
+                          type="checkbox"
+                          checked={selectedDeviceIds.has(dev.id)}
+                          onChange={() => {
+                            setSelectedDeviceIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(dev.id)) next.delete(dev.id);
+                              else next.add(dev.id);
+                              return next;
+                            });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
+                          aria-label={`Select ${dev.name}`}
+                        />
+                      </td>
                       {/* Name & Role */}
                       <td className="p-3.5">
                         <div className="flex items-center gap-3">
@@ -394,31 +661,54 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                             )}
                           </div>
                           <div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-bold text-white font-mono text-xs">{dev.name}</span>
-                              {dev.has_unsaved_changes && (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold" title={isEn ? 'Unsaved changes in NVRAM (Startup-Config)' : 'دارای تغییرات ذخیره نشده در Startup-Config (Running vs Startup)'}>
-                                  <AlertTriangle className="w-2.5 h-2.5 text-amber-400" />
-                                  <span>Write Needed</span>
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-slate-400">{dev.role}</div>
 
-                            {/* If unsaved changes, quick write button */}
-                            {dev.has_unsaved_changes && onWriteMemory && (
-                              <div className="flex items-center gap-1 mt-1.5">
+                              {/* Sticky Note Badge / Indicator Button */}
+                              {devNote ? (
                                 <button
-                                  onClick={() => handleWriteMem(dev.id)}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenDeviceNote(dev);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 text-[10px] font-medium shadow-xs transition active:scale-95 cursor-pointer"
+                                  title={isEn ? `Sticky Note: "${devNote.title || 'Device Note'}" - Click to view or edit` : `یادداشت چسبان: «${devNote.title || 'یادداشت تجهیز'}» - کلیک جهت مشاهده یا ویرایش`}
+                                >
+                                  <StickyNote className="w-2.5 h-2.5 text-amber-400 fill-amber-400/40 shrink-0" />
+                                  <span className="max-w-[110px] truncate">{devNote.title || (isEn ? 'Note' : 'یادداشت')}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenDeviceNote(dev);
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 border border-white/10 hover:border-amber-500/30 text-[10px] transition cursor-pointer"
+                                  title={isEn ? 'Add sticky note for this device' : 'افزودن یادداشت استیکی برای این تجهیز'}
+                                >
+                                  <StickyNote className="w-2.5 h-2.5 shrink-0" />
+                                  <span>{isEn ? '+ Note' : '+ یادداشت'}</span>
+                                </button>
+                              )}
+
+                              {dev.has_unsaved_changes && onWriteMemory && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setConfirmWriteDevice(dev);
+                                  }}
                                   disabled={writingId === dev.id}
-                                  className="px-2 py-0.5 rounded bg-amber-500/30 hover:bg-amber-500/50 text-amber-200 border border-amber-500/50 font-bold text-[10px] transition flex items-center gap-1 shadow-sm cursor-pointer"
-                                  title={isEn ? 'Execute "write memory" to commit running-config to NVRAM' : 'اجرای دستور write memory و ذخیره دائم در NVRAM'}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 border border-amber-500/50 font-bold text-[10px] transition shadow-sm cursor-pointer"
+                                  title={isEn ? 'Review changes & write running-config to NVRAM' : 'مشاهده تغییرات و ذخیره دائم در NVRAM'}
                                 >
                                   <Save className="w-2.5 h-2.5" />
                                   <span>{writingId === dev.id ? (isEn ? 'Writing...' : 'در حال رایت...') : 'Write Memory'}</span>
                                 </button>
-                              </div>
-                            )}
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-400">{dev.role}</div>
                           </div>
                         </div>
                       </td>
@@ -516,9 +806,27 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         </button>
                       </td>
 
-                      {/* Actions with 3-Dots Menu */}
+                      {/* Actions with Note & 3-Dots Menu */}
                       <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {/* Dedicated Sticky Note direct button */}
+                          <button
+                            onClick={() => handleOpenDeviceNote(dev)}
+                            className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
+                              devNote
+                                ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                : 'bg-white/5 hover:bg-amber-500/15 text-slate-300 hover:text-amber-300 border-white/10 hover:border-amber-500/30'
+                            }`}
+                            title={
+                              devNote
+                                ? (isEn ? `Sticky Note: "${devNote.title || 'Device Note'}" (Click to view or edit)` : `یادداشت چسبان: «${devNote.title || 'یادداشت تجهیز'}» (جهت مشاهده یا ویرایش کلیک کنید)`)
+                                : (isEn ? 'Add Sticky Note for this device' : 'افزودن یادداشت استیکی برای این تجهیز')
+                            }
+                          >
+                            <StickyNote className={`w-4 h-4 ${devNote ? 'text-amber-400 fill-amber-400/40' : ''}`} />
+                          </button>
+
+                          {/* 3-Dots Menu Trigger */}
                           <button
                             onClick={(e) => handleToggleActionMenu(e, dev)}
                             className={`p-1.5 sm:p-2 rounded-xl border transition active:scale-95 shadow-xs cursor-pointer ${
@@ -613,6 +921,32 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                   </button>
                 )}
 
+                {/* Device Sticky Note */}
+                <button
+                  onClick={() => {
+                    const dev = menuAnchor.device;
+                    setMenuAnchor(null);
+                    handleOpenDeviceNote(dev);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-300 hover:bg-amber-500/15 hover:text-amber-200 transition ${
+                    isRtl ? 'text-right' : 'text-left'
+                  } group/item cursor-pointer`}
+                >
+                  <StickyNote className="w-4 h-4 text-amber-400 group-hover/item:scale-110 transition shrink-0" />
+                  <div className="flex flex-col">
+                    <span>
+                      {getNoteForDevice(menuAnchor.device.id)
+                        ? (isEn ? 'View / Edit Sticky Note' : 'مشاهده و ویرایش یادداشت چسبان')
+                        : (isEn ? 'Add Sticky Note' : 'افزودن یادداشت چسبان')}
+                    </span>
+                    <span className="text-[10px] text-amber-400/80 font-mono">
+                      {getNoteForDevice(menuAnchor.device.id)
+                        ? (getNoteForDevice(menuAnchor.device.id)?.title || 'Note')
+                        : (isEn ? 'Attach note to device' : 'پیوست یادداشت به تجهیز')}
+                    </span>
+                  </div>
+                </button>
+
                 {/* Edit Device Properties */}
                 <button
                   onClick={() => {
@@ -676,9 +1010,9 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                 {menuAnchor.device.has_unsaved_changes && onWriteMemory && (
                   <button
                     onClick={() => {
-                      const devId = menuAnchor.device.id;
+                      const dev = menuAnchor.device;
                       setMenuAnchor(null);
-                      handleWriteMem(devId);
+                      setConfirmWriteDevice(dev);
                     }}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-amber-300 hover:bg-amber-500/15 transition ${
                       isRtl ? 'text-right' : 'text-left'
@@ -749,6 +1083,115 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           setDeviceToDelete(null);
         }}
       />
+
+      {/* Device Sticky Note Modal */}
+      {isNoteModalOpen && selectedNoteDevice && (
+        <DeviceStickyNoteModal
+          isOpen={isNoteModalOpen}
+          device={selectedNoteDevice}
+          existingNote={getNoteForDevice(selectedNoteDevice.id)}
+          onClose={() => {
+            setIsNoteModalOpen(false);
+            setSelectedNoteDevice(null);
+          }}
+          onSaved={(savedNote) => {
+            const rawId = selectedNoteDevice.id;
+            const cleanId = rawId.replace(/^hw-/, '');
+            setDeviceNotes((prev) => ({
+              ...prev,
+              [rawId]: savedNote,
+              [cleanId]: savedNote,
+              ['hw-' + cleanId]: savedNote,
+            }));
+            setIsNoteModalOpen(false);
+            setSelectedNoteDevice(null);
+          }}
+          onDeleted={(deletedId) => {
+            const rawId = selectedNoteDevice.id;
+            const cleanId = rawId.replace(/^hw-/, '');
+            setDeviceNotes((prev) => {
+              const copy = { ...prev };
+              delete copy[rawId];
+              delete copy[cleanId];
+              delete copy['hw-' + cleanId];
+              return copy;
+            });
+            setIsNoteModalOpen(false);
+            setSelectedNoteDevice(null);
+          }}
+        />
+      )}
+
+      {/* Cisco Write Memory Confirmation Modal */}
+      {confirmWriteDevice && (
+        <CiscoWriteConfirmModal
+          isOpen={!!confirmWriteDevice}
+          onClose={() => setConfirmWriteDevice(null)}
+          onMinimize={() => {
+            setMinimizedWriteDevice(confirmWriteDevice);
+            setConfirmWriteDevice(null);
+          }}
+          onConfirm={async () => {
+            const devId = confirmWriteDevice.id;
+            await handleWriteMem(devId);
+            setConfirmWriteDevice(null);
+            setMinimizedWriteDevice(null);
+          }}
+          device={confirmWriteDevice}
+          isWriting={writingId === confirmWriteDevice.id}
+        />
+      )}
+
+      {/* Minimized Write Confirmation Dock Tab (Rule 5 Compliance) */}
+      {minimizedWriteDevice && (
+        <div
+          dir={isEn ? 'ltr' : 'rtl'}
+          className={`fixed bottom-10 z-[1100] ${
+            isRtl ? 'right-6' : 'left-6'
+          } flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-slate-900/95 border border-amber-500/60 shadow-2xl shadow-amber-500/20 text-xs backdrop-blur-xl animate-in slide-in-from-bottom-2 text-slate-100`}
+        >
+          <div className="p-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0">
+            <HardDrive className="w-4 h-4 animate-pulse" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-amber-300 text-xs">
+                {isEn ? 'Pending NVRAM Write:' : 'در انتظار رایت در NVRAM:'}
+              </span>
+              <span className="font-mono text-slate-100 text-xs font-bold truncate max-w-[140px]">
+                {minimizedWriteDevice.name}
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400 font-mono">
+              {minimizedWriteDevice.ip}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 ml-2 rtl:mr-2 rtl:ml-0 border-l rtl:border-r rtl:border-l-0 border-slate-700/80 pl-2 rtl:pr-2 rtl:pl-0 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmWriteDevice(minimizedWriteDevice);
+                setMinimizedWriteDevice(null);
+              }}
+              className="p-1.5 rounded-lg hover:bg-amber-500/25 text-amber-300 hover:text-white transition cursor-pointer"
+              title={isEn ? 'Restore Confirmation Modal' : 'بازگردانی پنجره تایید رایت'}
+              aria-label={isEn ? 'Restore' : 'بازگردانی'}
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMinimizedWriteDevice(null)}
+              className="p-1.5 rounded-lg hover:bg-red-500/25 text-slate-400 hover:text-red-300 transition cursor-pointer"
+              title={isEn ? 'Dismiss' : 'بستن'}
+              aria-label={isEn ? 'Close' : 'بستن'}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

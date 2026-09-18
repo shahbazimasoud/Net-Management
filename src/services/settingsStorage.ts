@@ -6,16 +6,18 @@ import {
   LocalUser,
   LocalGroup,
   ADSecurityGroup,
-  ADUser
+  ADUser,
+  CustomTopologyStickyNote
 } from '../types';
 
-const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   DEVICE_GROUPS: 'nettopology_device_groups_v1',
   AD_CONFIG: 'nettopology_ad_config_v1',
   ACCESS_POLICIES: 'nettopology_access_policies_v1',
   ACTIVE_SIMULATED_ROLE: 'nettopology_simulated_role_v1',
   LOCAL_USERS: 'nettopology_local_users_v1',
   LOCAL_GROUPS: 'nettopology_local_groups_v1',
+  DEVICE_STICKY_NOTES: 'nettopology_device_sticky_notes_v1',
 };
 
 // Initial Seed: Local Groups
@@ -694,3 +696,514 @@ export async function simulateTestADConnection(cfg: ActiveDirectoryConfig): Prom
     logs,
   };
 }
+
+// ==========================================
+// Device Sticky Notes Persistence (DB & Local)
+// ==========================================
+
+export async function syncDeviceNotesFromDatabase(): Promise<CustomTopologyStickyNote[]> {
+  try {
+    const token = localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/settings/device-notes', { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const notes: CustomTopologyStickyNote[] = Array.isArray(data?.notes)
+        ? data.notes
+        : Array.isArray(data)
+        ? data
+        : [];
+      if (Array.isArray(notes)) {
+        localStorage.setItem(STORAGE_KEYS.DEVICE_STICKY_NOTES, JSON.stringify(notes));
+        return notes;
+      }
+    }
+  } catch (e) {
+    console.warn('[Sync Device Notes Error]', e);
+  }
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_STICKY_NOTES);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function syncNoteIntoLocalMaps(note: CustomTopologyStickyNote): void {
+  const mapKeys = ['nettopology_custom_maps_v2', 'net_topology_custom_maps_v2'];
+  const targetDevId = note.linkedDeviceId;
+  const cleanTargetDevId = targetDevId?.replace(/^hw-/, '');
+  const hwTargetDevId = cleanTargetDevId ? 'hw-' + cleanTargetDevId : undefined;
+
+  mapKeys.forEach((key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const maps = JSON.parse(raw);
+      if (!Array.isArray(maps)) return;
+
+      let hasChanges = false;
+      const updatedMaps = maps.map((m: any) => {
+        if (!m) return m;
+        const currentNotes: CustomTopologyStickyNote[] = Array.isArray(m.stickyNotes) ? m.stickyNotes : [];
+        const exists = currentNotes.some(
+          (sn) =>
+            sn.id === note.id ||
+            (targetDevId &&
+              (sn.linkedDeviceId === targetDevId ||
+                sn.linkedDeviceId === cleanTargetDevId ||
+                sn.linkedDeviceId === hwTargetDevId))
+        );
+
+        let newNotes: CustomTopologyStickyNote[];
+        if (exists) {
+          hasChanges = true;
+          newNotes = currentNotes.map((sn) => {
+            if (
+              sn.id === note.id ||
+              (targetDevId &&
+                (sn.linkedDeviceId === targetDevId ||
+                  sn.linkedDeviceId === cleanTargetDevId ||
+                  sn.linkedDeviceId === hwTargetDevId))
+            ) {
+              return {
+                ...sn,
+                id: note.id,
+                title: note.title,
+                content: note.content,
+                color: note.color || sn.color,
+                updatedAt: note.updatedAt || new Date().toISOString(),
+              };
+            }
+            return sn;
+          });
+        } else {
+          // Check if map contains this device
+          const hasDevice =
+            (Array.isArray(m.deviceIds) &&
+              (m.deviceIds.includes(targetDevId) ||
+                (cleanTargetDevId && m.deviceIds.includes(cleanTargetDevId)) ||
+                (hwTargetDevId && m.deviceIds.includes(hwTargetDevId)))) ||
+            (m.devicePositions &&
+              (m.devicePositions[targetDevId!] ||
+                (cleanTargetDevId && m.devicePositions[cleanTargetDevId]) ||
+                (hwTargetDevId && m.devicePositions[hwTargetDevId])));
+
+          if (hasDevice) {
+            hasChanges = true;
+            const devPos =
+              (m.devicePositions &&
+                (m.devicePositions[targetDevId!] ||
+                  (cleanTargetDevId && m.devicePositions[cleanTargetDevId]) ||
+                  (hwTargetDevId && m.devicePositions[hwTargetDevId]))) ||
+              { x: 200, y: 150 };
+            newNotes = [
+              ...currentNotes,
+              {
+                ...note,
+                x: (devPos.x || 200) + 80,
+                y: (devPos.y || 150) + 40,
+              },
+            ];
+          } else {
+            newNotes = currentNotes;
+          }
+        }
+
+        return {
+          ...m,
+          stickyNotes: newNotes,
+        };
+      });
+
+      if (hasChanges) {
+        localStorage.setItem(key, JSON.stringify(updatedMaps));
+      }
+    } catch (e) {}
+  });
+
+  // Also sync default map sticky notes in localStorage
+  try {
+    const rawDefault = localStorage.getItem('nettopology_default_sticky_notes_v1');
+    const defaultNotes: CustomTopologyStickyNote[] = rawDefault ? JSON.parse(rawDefault) : [];
+    const exists = defaultNotes.some(
+      (sn) =>
+        sn.id === note.id ||
+        (targetDevId &&
+          (sn.linkedDeviceId === targetDevId ||
+            sn.linkedDeviceId === cleanTargetDevId ||
+            sn.linkedDeviceId === hwTargetDevId))
+    );
+
+    let updatedDefault: CustomTopologyStickyNote[];
+    if (exists) {
+      updatedDefault = defaultNotes.map((sn) => {
+        if (
+          sn.id === note.id ||
+          (targetDevId &&
+            (sn.linkedDeviceId === targetDevId ||
+              sn.linkedDeviceId === cleanTargetDevId ||
+              sn.linkedDeviceId === hwTargetDevId))
+        ) {
+          return {
+            ...sn,
+            id: note.id,
+            title: note.title,
+            content: note.content,
+            color: note.color || sn.color,
+            updatedAt: note.updatedAt || new Date().toISOString(),
+          };
+        }
+        return sn;
+      });
+    } else {
+      updatedDefault = [...defaultNotes, note];
+    }
+    localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updatedDefault));
+  } catch (e) {}
+}
+
+function removeNoteFromLocalMaps(noteId: string, deviceId?: string): void {
+  const mapKeys = ['nettopology_custom_maps_v2', 'net_topology_custom_maps_v2'];
+  const cleanTargetDevId = deviceId?.replace(/^hw-/, '');
+  const hwTargetDevId = cleanTargetDevId ? 'hw-' + cleanTargetDevId : undefined;
+
+  mapKeys.forEach((key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const maps = JSON.parse(raw);
+      if (!Array.isArray(maps)) return;
+
+      const updatedMaps = maps.map((m: any) => {
+        if (!m || !Array.isArray(m.stickyNotes)) return m;
+        return {
+          ...m,
+          stickyNotes: m.stickyNotes.filter((sn: any) => {
+            if (noteId && sn.id === noteId) return false;
+            if (deviceId && (sn.linkedDeviceId === deviceId || sn.linkedDeviceId === cleanTargetDevId || sn.linkedDeviceId === hwTargetDevId)) return false;
+            return true;
+          }),
+        };
+      });
+      localStorage.setItem(key, JSON.stringify(updatedMaps));
+    } catch (e) {}
+  });
+
+  try {
+    const rawDefault = localStorage.getItem('nettopology_default_sticky_notes_v1');
+    if (rawDefault) {
+      const defaultNotes: CustomTopologyStickyNote[] = JSON.parse(rawDefault);
+      if (Array.isArray(defaultNotes)) {
+        const updatedDefault = defaultNotes.filter((sn) => {
+          if (noteId && sn.id === noteId) return false;
+          if (deviceId && (sn.linkedDeviceId === deviceId || sn.linkedDeviceId === cleanTargetDevId || sn.linkedDeviceId === hwTargetDevId)) return false;
+          return true;
+        });
+        localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updatedDefault));
+      }
+    }
+  } catch (e) {}
+}
+
+/**
+ * Handle unlinking or reassigning a sticky note from one device to another.
+ * Ensures the previous device immediately loses the note across local storage,
+ * memory, and database, and attaches it cleanly to the new device (if specified).
+ */
+export async function handleDeviceNoteLinkChange(
+  noteId: string,
+  previousDeviceId?: string,
+  newDeviceId?: string,
+  updatedNote?: CustomTopologyStickyNote
+): Promise<void> {
+  const cleanPrev = previousDeviceId ? previousDeviceId.replace(/^hw-/, '') : undefined;
+  const hwPrev = cleanPrev ? 'hw-' + cleanPrev : undefined;
+
+  const cleanNew = newDeviceId ? newDeviceId.replace(/^hw-/, '') : undefined;
+  const hwNew = cleanNew ? 'hw-' + cleanNew : undefined;
+
+  // 1. Update localStorage DEVICE_STICKY_NOTES
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_STICKY_NOTES);
+    let notes: CustomTopologyStickyNote[] = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(notes)) {
+      // Remove any existing note bound to previousDeviceId or matching this noteId
+      notes = notes.filter((n) => {
+        if (!n) return false;
+        if (n.id === noteId && !newDeviceId) return false;
+        if (n.id === noteId && newDeviceId && n.linkedDeviceId !== newDeviceId) return false;
+        if (previousDeviceId && (n.linkedDeviceId === previousDeviceId || n.linkedDeviceId === cleanPrev || n.linkedDeviceId === hwPrev)) {
+          return false;
+        }
+        return true;
+      });
+
+      // If newDeviceId is specified, add or update note for new device
+      if (newDeviceId && updatedNote) {
+        const fullNote: CustomTopologyStickyNote = {
+          ...updatedNote,
+          id: noteId,
+          linkedDeviceId: newDeviceId,
+          updatedAt: new Date().toISOString(),
+        };
+        const existingIdx = notes.findIndex(
+          (n) =>
+            n.id === noteId ||
+            n.linkedDeviceId === newDeviceId ||
+            n.linkedDeviceId === cleanNew ||
+            n.linkedDeviceId === hwNew
+        );
+        if (existingIdx >= 0) {
+          notes[existingIdx] = fullNote;
+        } else {
+          notes.unshift(fullNote);
+        }
+      }
+
+      localStorage.setItem(STORAGE_KEYS.DEVICE_STICKY_NOTES, JSON.stringify(notes));
+    }
+  } catch (e) {}
+
+  // 2. Update default notes & custom maps in localStorage so unlinked note retains note info but drops linkedDeviceId
+  try {
+    const defaultRaw = localStorage.getItem('nettopology_default_sticky_notes_v1');
+    if (defaultRaw) {
+      const defaultNotes = JSON.parse(defaultRaw);
+      if (Array.isArray(defaultNotes)) {
+        const updatedDefault = defaultNotes.map((n) => {
+          if (n && n.id === noteId) {
+            const next = { ...n, updatedAt: new Date().toISOString() };
+            if (newDeviceId) {
+              next.linkedDeviceId = newDeviceId;
+            } else {
+              delete next.linkedDeviceId;
+            }
+            return next;
+          }
+          return n;
+        });
+        localStorage.setItem('nettopology_default_sticky_notes_v1', JSON.stringify(updatedDefault));
+      }
+    }
+  } catch (e) {}
+
+  ['nettopology_custom_maps_v2', 'net_topology_custom_maps_v2'].forEach((key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const maps = JSON.parse(raw);
+      if (!Array.isArray(maps)) return;
+      const updatedMaps = maps.map((m: any) => {
+        if (!m || !Array.isArray(m.stickyNotes)) return m;
+        return {
+          ...m,
+          stickyNotes: m.stickyNotes.map((sn: any) => {
+            if (sn && sn.id === noteId) {
+              const next = { ...sn, updatedAt: new Date().toISOString() };
+              if (newDeviceId) {
+                next.linkedDeviceId = newDeviceId;
+              } else {
+                delete next.linkedDeviceId;
+              }
+              return next;
+            }
+            return sn;
+          }),
+        };
+      });
+      localStorage.setItem(key, JSON.stringify(updatedMaps));
+    } catch (e) {}
+  });
+
+  // 3. Sync with backend API
+  try {
+    const token = localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    if (!newDeviceId) {
+      // Unlink: delete note from device notes database (pass previousDeviceId to clear device binding)
+      const qp = new URLSearchParams();
+      if (previousDeviceId) qp.set('deviceId', previousDeviceId);
+      qp.set('keepInMap', 'true');
+      await fetch(`/api/settings/device-notes/${encodeURIComponent(noteId)}?${qp.toString()}`, {
+        method: 'DELETE',
+        headers,
+      });
+    } else if (updatedNote) {
+      // Reassign or Link: save new note with newDeviceId and pass previousDeviceId for atomic cleanup
+      await fetch('/api/settings/device-notes', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          note: { ...updatedNote, id: noteId, linkedDeviceId: newDeviceId },
+          previousDeviceId,
+        }),
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.warn('[Sync Link Change Error]', e);
+  }
+
+  // 4. Dispatch events so DeviceListView immediately updates
+  window.dispatchEvent(
+    new CustomEvent('nettopology_device_notes_updated', {
+      detail: {
+        id: noteId,
+        previousDeviceId,
+        newDeviceId,
+        unlinked: !newDeviceId,
+        note: updatedNote && newDeviceId ? { ...updatedNote, linkedDeviceId: newDeviceId } : undefined,
+      },
+    })
+  );
+  window.dispatchEvent(new CustomEvent('nettopology_custom_maps_updated'));
+}
+
+export async function persistDeviceNoteToDatabase(note: CustomTopologyStickyNote): Promise<CustomTopologyStickyNote> {
+  // Clear any tombstone for this device or note in sessionStorage so it is never suppressed
+  try {
+    const targetDevId = note.linkedDeviceId;
+    const cleanTargetDevId = targetDevId?.replace(/^hw-/, '');
+    const hwTargetDevId = cleanTargetDevId ? 'hw-' + cleanTargetDevId : undefined;
+
+    const rawDevs = sessionStorage.getItem('nettopology_deleted_devices_tombstone');
+    if (rawDevs) {
+      const devs: string[] = JSON.parse(rawDevs);
+      if (Array.isArray(devs)) {
+        const filteredDevs = devs.filter(
+          (d) => d !== targetDevId && d !== cleanTargetDevId && d !== hwTargetDevId
+        );
+        sessionStorage.setItem('nettopology_deleted_devices_tombstone', JSON.stringify(filteredDevs));
+      }
+    }
+
+    const rawNotes = sessionStorage.getItem('nettopology_deleted_notes_tombstone');
+    if (rawNotes) {
+      const notes: string[] = JSON.parse(rawNotes);
+      if (Array.isArray(notes)) {
+        const filteredNotes = notes.filter((id) => id !== note.id);
+        sessionStorage.setItem('nettopology_deleted_notes_tombstone', JSON.stringify(filteredNotes));
+      }
+    }
+
+    // Ensure notes display toggle is enabled so added note is immediately visible
+    localStorage.setItem('nettopology_show_sticky_notes', 'true');
+  } catch (e) {}
+
+  // Update local cache immediately
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_STICKY_NOTES);
+    const existing: CustomTopologyStickyNote[] = raw ? JSON.parse(raw) : [];
+    const targetDevId = note.linkedDeviceId;
+    const cleanTargetDevId = targetDevId?.replace(/^hw-/, '');
+    // Filter out any prior records that had this noteId or this target device to prevent stale links
+    const filtered = existing.filter(
+      (n) =>
+        n &&
+        n.id !== note.id &&
+        (!targetDevId ||
+          (n.linkedDeviceId !== targetDevId &&
+            n.linkedDeviceId !== cleanTargetDevId &&
+            n.linkedDeviceId !== 'hw-' + cleanTargetDevId))
+    );
+    const updated = [note, ...filtered];
+    localStorage.setItem(STORAGE_KEYS.DEVICE_STICKY_NOTES, JSON.stringify(updated));
+  } catch (e) {}
+
+  // Synchronize local custom maps & default map notes
+  syncNoteIntoLocalMaps(note);
+
+  try {
+    const token = localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/settings/device-notes', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ note }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.note) {
+        syncNoteIntoLocalMaps(data.note);
+        window.dispatchEvent(new CustomEvent('nettopology_device_notes_updated', { detail: data.note }));
+        window.dispatchEvent(new CustomEvent('nettopology_custom_maps_updated'));
+        return data.note;
+      }
+    }
+  } catch (e) {
+    console.warn('[Persist Device Note Error]', e);
+  }
+
+  window.dispatchEvent(new CustomEvent('nettopology_device_notes_updated', { detail: note }));
+  window.dispatchEvent(new CustomEvent('nettopology_custom_maps_updated'));
+  return note;
+}
+
+export async function deleteDeviceNoteFromDatabase(noteId: string, deviceId?: string): Promise<void> {
+  const cleanDevId = deviceId?.replace(/^hw-/, '');
+  const hwDevId = cleanDevId ? 'hw-' + cleanDevId : undefined;
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_STICKY_NOTES);
+    const existing: CustomTopologyStickyNote[] = raw ? JSON.parse(raw) : [];
+    const updated = existing.filter((n) => {
+      if (noteId && n.id === noteId) return false;
+      if (deviceId && (n.linkedDeviceId === deviceId || n.linkedDeviceId === cleanDevId || n.linkedDeviceId === hwDevId)) return false;
+      return true;
+    });
+    localStorage.setItem(STORAGE_KEYS.DEVICE_STICKY_NOTES, JSON.stringify(updated));
+  } catch (e) {}
+
+  // Clean from local maps and default notes
+  removeNoteFromLocalMaps(noteId, deviceId);
+
+  try {
+    const token = localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const queryParams = new URLSearchParams();
+    if (deviceId) queryParams.set('deviceId', deviceId);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+    await fetch(`/api/settings/device-notes/${encodeURIComponent(noteId)}${queryString}`, {
+      method: 'DELETE',
+      headers,
+    });
+  } catch (e) {
+    console.warn('[Delete Device Note Error]', e);
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('nettopology_device_notes_updated', {
+      detail: { id: noteId, deviceId, deleted: true },
+    })
+  );
+  window.dispatchEvent(new CustomEvent('nettopology_custom_maps_updated'));
+}
+
+export function getDeviceNote(
+  deviceId: string,
+  notes?: CustomTopologyStickyNote[]
+): CustomTopologyStickyNote | undefined {
+  if (!deviceId) return undefined;
+  if (Array.isArray(notes)) {
+    return notes.find((n) => n && n.linkedDeviceId === deviceId);
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_STICKY_NOTES);
+    if (!raw) return undefined;
+    const list: CustomTopologyStickyNote[] = JSON.parse(raw);
+    return Array.isArray(list) ? list.find((n) => n && n.linkedDeviceId === deviceId) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+

@@ -14,9 +14,11 @@ import {
   Sliders,
   Cpu,
   ShieldCheck,
-  CopyPlus
+  CopyPlus,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
-import { ConfigTemplate, TemplateVariable } from '../types';
+import { ConfigTemplate, TemplateVariable, TemplateTargetType } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 
 interface TemplateEditorModalProps {
@@ -24,7 +26,7 @@ interface TemplateEditorModalProps {
   onClose: () => void;
   templateToEdit?: ConfigTemplate | null;
   onSave: (template: Partial<ConfigTemplate>) => Promise<void>;
-  onSaveAsClone?: (template: Partial<ConfigTemplate>) => Promise<void>;
+  onSaveAsClone?: (template: Partial<ConfigTemplate>) => Promise<any>;
 }
 
 const COMMON_VARS: { name: string; label: string; labelEn: string; default_value: string; type: TemplateVariable['type'] }[] = [
@@ -54,14 +56,15 @@ export const TemplateEditorModal: React.FC<TemplateEditorModalProps> = ({
   const { t, isEn } = useLanguage();
   const [name, setName] = useState('');
   const [vendor, setVendor] = useState<'cisco' | 'mikrotik' | 'generic'>('cisco');
-  const [targetType, setTargetType] = useState<'switch' | 'router' | 'all'>('switch');
+  const [targetType, setTargetType] = useState<TemplateTargetType>('switch');
   const [role, setRole] = useState('Access Switch');
   const [description, setDescription] = useState('');
-  const [defaultCliMode, setDefaultCliMode] = useState<'GLOBAL_CONFIG' | 'PRIVILEGED_EXEC' | 'ROUTEROS'>('GLOBAL_CONFIG');
+  const [defaultCliMode, setDefaultCliMode] = useState<string>('GLOBAL_CONFIG');
   const [commands, setCommands] = useState('');
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -314,10 +317,16 @@ write memory`);
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto" data-modal-backdrop="true">
+    <div className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
+      isMaximized ? 'p-0' : 'p-2 sm:p-4'
+    } modal-backdrop-blur animate-fadeIn overflow-y-auto`} data-modal-backdrop="true">
       <div 
         dir={isEn ? 'ltr' : 'rtl'}
-        className="w-full max-w-5xl my-auto max-h-[92vh] sm:max-h-[90vh] flex flex-col bg-slate-900/95 border border-white/10 rounded-2xl shadow-[0_0_60px_rgba(0,0,0,0.8)] overflow-hidden text-slate-100 backdrop-blur-2xl"
+        className={`w-full ${
+          isMaximized
+            ? 'h-full max-h-full max-w-none rounded-none border-none my-0'
+            : 'max-w-5xl my-auto max-h-[92vh] sm:max-h-[90vh] rounded-2xl border'
+        } flex flex-col bg-slate-900/95 border-white/10 shadow-[0_0_60px_rgba(0,0,0,0.8)] overflow-hidden text-slate-100 backdrop-blur-2xl`}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-white/10 bg-slate-950/60 shrink-0">
@@ -338,12 +347,25 @@ write memory`);
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsMaximized((prev) => !prev)}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              title={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+              aria-label={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+            >
+              {isMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              title={isEn ? 'Close' : 'بستن'}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Form Body */}

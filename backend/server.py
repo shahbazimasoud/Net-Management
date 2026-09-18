@@ -8,7 +8,37 @@ import random
 import uuid
 from typing import Dict, Any, List, Optional
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
+
+# Ensure current and parent directories are in sys.path before any relative or package imports
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_parent_dir = os.path.dirname(_current_dir)
+for _p in [_parent_dir, _current_dir]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from backend.connections.hardware_discovery import execute_real_hardware_probe
+except ImportError:
+    try:
+        from connections.hardware_discovery import execute_real_hardware_probe
+    except ImportError:
+        execute_real_hardware_probe = None
+
+try:
+    from backend.connections.ssh_compat import ensure_paramiko_compatibility, connect_ssh_device
+except ImportError:
+    try:
+        from connections.ssh_compat import ensure_paramiko_compatibility, connect_ssh_device
+    except ImportError:
+        try:
+            from ssh_compat import ensure_paramiko_compatibility, connect_ssh_device
+        except ImportError:
+            ensure_paramiko_compatibility = lambda: False
+            connect_ssh_device = None
+
+if ensure_paramiko_compatibility:
+    ensure_paramiko_compatibility()
 
 # Global active SSH sessions registry: session_id -> session dict
 ACTIVE_SSH_SESSIONS = {}
@@ -75,17 +105,20 @@ try:
     from backend.connections.ssh_manager import connection_manager
     from backend.connections.network_terminal import NetworkTerminalSession, terminal_session_manager
     from backend.vpn import get_vpn_provider
+    from backend.security.crypto import encrypt_credential, decrypt_credential, migrate_database_credentials
 except ImportError:
     try:
         from drivers import get_driver, detect_platform_from_model
         from connections.ssh_manager import connection_manager
         from connections.network_terminal import NetworkTerminalSession, terminal_session_manager
         from vpn import get_vpn_provider
+        from security.crypto import encrypt_credential, decrypt_credential, migrate_database_credentials
     except ImportError:
         from backend.drivers import get_driver, detect_platform_from_model
         from backend.connections.ssh_manager import connection_manager
         from backend.connections.network_terminal import NetworkTerminalSession, terminal_session_manager
         from backend.vpn import get_vpn_provider
+        from backend.security.crypto import encrypt_credential, decrypt_credential, migrate_database_credentials
 
 try:
     from backend.network_tools import (
@@ -111,6 +144,15 @@ except ImportError:
         check_host_get_result,
         check_host_get_nodes
     )
+
+try:
+    from backend.bulk_config import os_mapper_registry, bulk_execution_engine
+except ImportError:
+    try:
+        from bulk_config import os_mapper_registry, bulk_execution_engine
+    except ImportError:
+        os_mapper_registry = None
+        bulk_execution_engine = None
 
 def record_audit_log(data: Dict[str, Any], user: str, device_id: str, device_name: str, action: str, details: str, result: str = "success"):
     logs = data.setdefault("audit_logs", [])
@@ -1020,6 +1062,39 @@ def get_initial_seed_data():
         "access_policies": get_default_access_policies()
     }
 
+def normalize_port_list(port_list):
+    if not isinstance(port_list, list):
+        return []
+    normalized = []
+    seen = set()
+    for idx, p in enumerate(port_list):
+        if not isinstance(p, dict):
+            continue
+        p_copy = dict(p)
+        if not p_copy.get("port_id"):
+            p_copy["port_id"] = p_copy.get("port") or p_copy.get("name") or f"port-{idx+1}"
+        if not p_copy.get("port"):
+            p_copy["port"] = p_copy["port_id"]
+        if not p_copy.get("name"):
+            p_copy["name"] = p_copy["port_id"]
+        if not p_copy.get("mode"):
+            p_copy["mode"] = "access"
+        
+        stat = str(p_copy.get("status", "down")).strip().lower()
+        admin_stat = str(p_copy.get("admin_status", "")).strip().lower()
+        is_disabled = admin_stat in ("disabled", "shutdown") or stat in ("disabled", "err-disabled", "administratively down", "shutdown")
+        is_up = not is_disabled and stat in ("up", "connected", "active", "running")
+
+        p_copy["status"] = "up" if is_up else "down"
+        p_copy["admin_status"] = "disabled" if is_disabled else "enabled"
+
+        canon_id = str(p_copy["port_id"]).strip().lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te")
+        if canon_id in seen:
+            continue
+        seen.add(canon_id)
+        normalized.append(p_copy)
+    return normalized
+
 # Persistence operations
 db_lock = threading.Lock()
 
@@ -1067,9 +1142,59 @@ def load_data():
                 if dev_updated:
                     save_data_unsafe(data)
 
+                # Auto-normalize ports structure to guarantee port_id
+                ports_updated = False
+                if "ports" in data and isinstance(data["ports"], dict):
+                    for dev_id, p_list in data["ports"].items():
+                        if isinstance(p_list, list):
+                            normalized = normalize_port_list(p_list)
+                            if normalized != p_list:
+                                data["ports"][dev_id] = normalized
+                                ports_updated = True
+                if ports_updated:
+                    save_data_unsafe(data)
+
                 return data
         except Exception as e:
-            print(f"Error reading {DATA_FILE}: {e}, regenerating seed data")
+            print(f"Error reading {DATA_FILE}: {e}. Attempting recovery from persistent backups...")
+            recovered = False
+            # Check database_store.json
+            db_store_file = os.path.join(DATA_DIR, "database_store.json")
+            if os.path.exists(db_store_file):
+                try:
+                    with open(db_store_file, "r", encoding="utf-8") as f_db:
+                        db_content = json.load(f_db)
+                        if isinstance(db_content.get("devices"), list) and len(db_content["devices"]) > 0:
+                            data = get_initial_seed_data()
+                            data["devices"] = db_content["devices"]
+                            if "ports" in db_content:
+                                data["ports"] = db_content["ports"]
+                            save_data_unsafe(data)
+                            print(f"[Recovery] Restored {len(data['devices'])} devices from database_store.json")
+                            recovered = True
+                            return data
+                except Exception as db_err:
+                    print(f"[Recovery] Could not recover from database_store.json: {db_err}")
+
+            if not recovered:
+                # Check backend/backups
+                backups_dir = os.path.join(DATA_DIR, "backups")
+                if os.path.exists(backups_dir):
+                    backup_files = sorted([os.path.join(backups_dir, f) for f in os.listdir(backups_dir)], reverse=True)
+                    for b_file in backup_files:
+                        target_json = b_file if b_file.endswith(".json") else os.path.join(b_file, "network_data.json")
+                        if os.path.exists(target_json):
+                            try:
+                                with open(target_json, "r", encoding="utf-8") as bf:
+                                    b_data = json.load(bf)
+                                    if isinstance(b_data.get("devices"), list) and len(b_data["devices"]) > 0:
+                                        save_data_unsafe(b_data)
+                                        print(f"[Recovery] Restored {len(b_data['devices'])} devices from backup: {target_json}")
+                                        return b_data
+                            except Exception:
+                                continue
+
+            print(f"[Notice] No backup found to recover. Generating seed data.")
             data = get_initial_seed_data()
             save_data_unsafe(data)
             return data
@@ -1175,6 +1300,78 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             self._send_json(200 if res.get("success") else 502, res)
             return
 
+        # -------------------------------------------------------------
+        # Bulk Device Configuration Endpoints
+        # -------------------------------------------------------------
+        if path == "/api/bulk-config/templates":
+            if not os_mapper_registry:
+                self._send_json(500, {"error": "bulk_config module not loaded"})
+                return
+            templates = os_mapper_registry.get_all_templates()
+            self._send_json(200, {"templates": templates})
+            return
+
+        if path == "/api/bulk-config/jobs":
+            if not bulk_execution_engine:
+                self._send_json(500, {"error": "bulk_config engine not loaded"})
+                return
+            jobs = bulk_execution_engine.list_jobs(limit=30)
+            self._send_json(200, {"jobs": jobs})
+            return
+
+        if path.startswith("/api/bulk-config/jobs/") and path.endswith("/export"):
+            parts = path.split("/")
+            job_id = parts[4]
+            query = parse_qs(url.query)
+            fmt = query.get("format", ["csv"])[0].lower()
+            if not bulk_execution_engine:
+                self._send_json(500, {"error": "bulk_config engine not loaded"})
+                return
+            if fmt == "json":
+                job = bulk_execution_engine.get_job(job_id)
+                if not job:
+                    self._send_json(404, {"error": "Job not found"})
+                    return
+                self._send_json(200, job.to_dict())
+            else:
+                csv_data = bulk_execution_engine.export_job_report_csv(job_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", f"attachment; filename=bulk_report_{job_id}.csv")
+                self.end_headers()
+                self.wfile.write(csv_data.encode("utf-8"))
+            return
+
+        if path.startswith("/api/bulk-config/jobs/"):
+            parts = path.split("/")
+            job_id = parts[4]
+            if not bulk_execution_engine:
+                self._send_json(500, {"error": "bulk_config engine not loaded"})
+                return
+            job = bulk_execution_engine.get_job(job_id)
+            if not job:
+                self._send_json(404, {"error": "Job not found"})
+                return
+            self._send_json(200, job.to_dict())
+            return
+
+        if path.startswith("/api/bulk-config/backups/"):
+            parts = path.split("/")
+            backup_id = parts[4]
+            if not bulk_execution_engine:
+                self._send_json(500, {"error": "bulk_config engine not loaded"})
+                return
+            content = bulk_execution_engine.get_backup_content(backup_id)
+            if content is None:
+                self._send_json(404, {"error": "Backup snapshot not found"})
+                return
+            self._send_json(200, {
+                "backupId": backup_id,
+                "content": content,
+                "length": len(content)
+            })
+            return
+
         if path.startswith("/api/devices/") and path.endswith("/capabilities") and "/vpn/" not in path:
             # /api/devices/:id/capabilities
             parts = path.split("/")
@@ -1224,13 +1421,20 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 })
                 return
 
-            req_real = (device.get("connection_mode") == "ssh")
-            sess = connection_manager.get_or_create_session(device, require_real=req_real)
-            if req_real and sess.status != "connected":
+            conn = device.get("connection", {}) or {}
+            conn_host = conn.get("host") or device.get("ssh_host") or device.get("ip", "")
+            conn_port = int(conn.get("port") or device.get("ssh_port") or 22)
+            conn_user = conn.get("username") or device.get("ssh_username") or "admin"
+
+            sess = connection_manager.get_or_create_session(device, require_real=True)
+            if sess.status != "connected":
                 self._send_json(503, {
                     "error": "ssh_connection_failed",
-                    "message": f"اتصال SSH به روتر میکروتیک برقرار نشد: {sess.error_message}",
-                    "isReal": True
+                    "message": f"اتصال SSH به روتر میکروتیک ({conn_user}@{conn_host}:{conn_port}) برقرار نشد: {sess.error_message}",
+                    "isReal": True,
+                    "target_host": conn_host,
+                    "target_port": conn_port,
+                    "target_user": conn_user
                 })
                 return
 
@@ -1320,6 +1524,183 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if path.startswith("/api/devices/") and path.endswith("/vlans"):
+            # GET /api/devices/:id/vlans
+            parts = path.split("/")
+            dev_id = parts[3]
+            device = next((d for d in data["devices"] if d["id"] == dev_id), None)
+            if not device:
+                self._send_json(404, {"error": "Device not found"})
+                return
+
+            platform = device.get("platform", "cisco_ios_xe")
+            conn_mode = device.get("connection_mode", "ssh")
+            driver = get_driver(platform, conn_mode)
+            existing_ports = data.get("ports", {}).get(dev_id, [])
+
+            # Real device query if online and connected
+            live_vlans = []
+            if conn_mode != "simulator":
+                sess = connection_manager.get_or_create_session(device, require_real=True)
+                if sess.status == "connected" and sess.is_real and sess.paramiko_client:
+                    try:
+                        if hasattr(driver, "parse_vlans"):
+                            cmd = "show vlan brief" if "cisco" in platform.lower() else "/interface vlan print"
+                            r = connection_manager.execute_command(device, cmd, require_real=True)
+                            if r.get("success") and r.get("output"):
+                                live_vlans = driver.parse_vlans(r["output"])
+                    except Exception as e:
+                        print(f"[Device VLANs live query note] {e}")
+
+            # Map of global catalog
+            global_vlans = {v["id"]: v for v in data.get("vlans", [])}
+
+            vlan_port_counts = {}
+            for p in existing_ports:
+                v = p.get("vlan")
+                if v is not None:
+                    try:
+                        vid = int(v)
+                        vlan_port_counts[vid] = vlan_port_counts.get(vid, 0) + 1
+                    except Exception:
+                        pass
+                av = p.get("allowed_vlans")
+                if av:
+                    for part in str(av).split(","):
+                        part = part.strip()
+                        if part.isdigit():
+                            vid = int(part)
+                            if vid not in vlan_port_counts:
+                                vlan_port_counts[vid] = 0
+
+            # Merge live vlans if any
+            for lv in live_vlans:
+                vid = lv.get("id")
+                if vid and vid not in vlan_port_counts:
+                    vlan_port_counts[vid] = lv.get("ports_count", 0)
+
+            # Ensure at least VLAN 1 is included if ports exist or default
+            if 1 not in vlan_port_counts:
+                vlan_port_counts[1] = 0
+
+            device_vlans = []
+            for vid in sorted(vlan_port_counts.keys()):
+                live_item = next((x for x in live_vlans if x.get("id") == vid), None)
+                g_item = global_vlans.get(vid, {})
+                vname = (live_item and live_item.get("name")) or g_item.get("name") or (f"Default / Management" if vid == 1 else f"VLAN {vid}")
+                device_vlans.append({
+                    "id": vid,
+                    "name": vname,
+                    "status": "active",
+                    "ports_count": vlan_port_counts[vid]
+                })
+
+            self._send_json(200, {
+                "device_id": dev_id,
+                "device_name": device.get("name"),
+                "vlans": device_vlans,
+                "total": len(device_vlans)
+            })
+            return
+
+        if path.startswith("/api/devices/") and path.endswith("/unsaved-changes"):
+            # GET /api/devices/:id/unsaved-changes
+            parts = path.split("/")
+            dev_id = parts[3]
+            device = next((d for d in data["devices"] if d["id"] == dev_id), None)
+            if not device:
+                self._send_json(404, {"error": "Device not found"})
+                return
+
+            ports = data.get("ports", {}).get(dev_id, [])
+            modified_ports = []
+            for p in ports:
+                is_mod = (
+                    (p.get("description") and p.get("description").strip()) or
+                    p.get("vlan", 1) != 1 or
+                    p.get("mode") == "trunk" or
+                    p.get("port_security_enabled") or
+                    p.get("admin_status") == "disabled"
+                )
+                if is_mod:
+                    summary_parts = []
+                    if p.get("admin_status") == "disabled":
+                        summary_parts.append("shutdown")
+                    if p.get("mode") == "trunk":
+                        summary_parts.append(f"mode trunk (allowed: {p.get('allowed_vlans', 'all')})")
+                    elif p.get("vlan", 1) != 1:
+                        summary_parts.append(f"vlan {p.get('vlan')}")
+                    if p.get("description"):
+                        summary_parts.append(f"description \"{p.get('description')}\"")
+                    if p.get("port_security_enabled"):
+                        summary_parts.append(f"port-security ({p.get('port_security_mode', 'sticky')})")
+
+                    modified_ports.append({
+                        "port_id": p.get("port_id"),
+                        "mode": p.get("mode", "access"),
+                        "vlan": p.get("vlan", 1),
+                        "status": p.get("status", "down"),
+                        "admin_status": p.get("admin_status", "enabled"),
+                        "description": p.get("description", ""),
+                        "port_security_enabled": p.get("port_security_enabled", False),
+                        "change_summary": ", ".join(summary_parts) if summary_parts else "Active custom configuration"
+                    })
+
+            pending = device.get("pending_changes", [])
+            cli_diff_lines = [
+                f"! ==============================================================================",
+                f"! Cisco IOS Running-Config Pending Changes for NVRAM (Startup-Config)",
+                f"! Target Device: {device.get('name')} ({device.get('ip')})",
+                f"! Platform: {device.get('platform', 'cisco_ios')} - Role: {device.get('role', 'Switch')}",
+                f"! Status: Active in volatile RAM (Running-Config) | Unsaved in NVRAM",
+                f"! ==============================================================================",
+                f"configure terminal",
+            ]
+
+            if pending:
+                cli_diff_lines.append(f"! [Recent Pending Session Operations]")
+                for item in pending:
+                    cli_diff_lines.append(f"! * {item.get('port_id', 'Device')}: {item.get('description', item.get('type', 'change'))}")
+                    if item.get("command"):
+                        cli_diff_lines.append(f" {item.get('command')}")
+
+            if modified_ports:
+                cli_diff_lines.append(f"!")
+                cli_diff_lines.append(f"! [Active Configured Interfaces to be Written]")
+                for mp in modified_ports:
+                    cli_diff_lines.append(f"interface {mp['port_id']}")
+                    if mp.get("description"):
+                        cli_diff_lines.append(f" description {mp['description']}")
+                    if mp.get("mode") == "trunk":
+                        cli_diff_lines.append(f" switchport mode trunk")
+                    else:
+                        cli_diff_lines.append(f" switchport mode access")
+                        if mp.get("vlan", 1) != 1:
+                            cli_diff_lines.append(f" switchport access vlan {mp['vlan']}")
+                    if mp.get("port_security_enabled"):
+                        cli_diff_lines.append(f" switchport port-security")
+                    if mp.get("admin_status") == "disabled":
+                        cli_diff_lines.append(f" shutdown")
+                    else:
+                        cli_diff_lines.append(f" no shutdown")
+                    cli_diff_lines.append(f" exit")
+
+            cli_diff_lines.extend([
+                f"end",
+                f"write memory",
+                f"! Destination: NVRAM:startup-config",
+                f"! [Building configuration... OK]"
+            ])
+
+            self._send_json(200, {
+                "has_unsaved_changes": device.get("has_unsaved_changes", False),
+                "pending_changes": pending,
+                "modified_ports": modified_ports,
+                "last_modified_time": device.get("last_modified_time", ""),
+                "cli_diff": "\n".join(cli_diff_lines)
+            })
+            return
+
         if path.startswith("/api/devices/") and "/ports" in path:
             # /api/devices/:id/ports
             parts = path.split("/")
@@ -1335,10 +1716,10 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             existing_ports = data.get("ports", {}).get(dev_id, [])
 
             if conn_mode == "simulator":
-                ports = existing_ports
+                ports = normalize_port_list(existing_ports)
                 if not ports:
                     total = device.get("total_ports", 24)
-                    ports = driver.get_default_ports(total)
+                    ports = normalize_port_list(driver.get_default_ports(total))
                     data["ports"][dev_id] = ports
                     save_data(data)
                 self._send_json(200, {
@@ -1362,7 +1743,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                     r = connection_manager.execute_command(device, cmd, require_real=True)
                     if r.get("success") and r.get("output"):
                         full_output += "\n" + r["output"]
-                parsed = driver.parse_interfaces(full_output)
+                parsed = normalize_port_list(driver.parse_interfaces(full_output))
                 if parsed:
                     data.setdefault("ports", {})[dev_id] = parsed
                     save_data(data)
@@ -1381,10 +1762,11 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             # If device is unreachable:
             err_msg = sess.error_message or f"Device unreachable at {sess.host}:{sess.port}"
             if existing_ports:
+                normalized_existing = normalize_port_list(existing_ports)
                 # Return cached data with clear offline notice
                 self._send_json(200, {
                     "device": sanitize_device(device),
-                    "ports": existing_ports,
+                    "ports": normalized_existing,
                     "is_live": False,
                     "cached": True,
                     "mode": "cached_offline",
@@ -1648,6 +2030,89 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             return
 
         # -------------------------------------------------------------
+        # Bulk Device Configuration POST Endpoints
+        # -------------------------------------------------------------
+        if path == "/api/bulk-config/preview":
+            if not os_mapper_registry:
+                self._send_json(500, {"error": "bulk_config module not loaded"})
+                return
+            template_id = body.get("template_id") or body.get("templateId")
+            params = body.get("params") or body.get("parameters") or {}
+            target_ids = body.get("device_ids") or body.get("deviceIds") or []
+
+            if not template_id:
+                self._send_json(400, {"error": "template_id is required"})
+                return
+            if not target_ids:
+                self._send_json(400, {"error": "device_ids list cannot be empty"})
+                return
+
+            target_devices = [d for d in data.get("devices", []) if d.get("id") in target_ids]
+            try:
+                preview = os_mapper_registry.generate_preview(template_id, params, target_devices)
+                self._send_json(200, {
+                    "templateId": template_id,
+                    "deviceCount": len(target_devices),
+                    "preview": preview
+                })
+            except Exception as ex:
+                self._send_json(400, {"error": str(ex)})
+            return
+
+        if path == "/api/bulk-config/jobs":
+            if not bulk_execution_engine:
+                self._send_json(500, {"error": "bulk_config engine not loaded"})
+                return
+            template_id = body.get("template_id") or body.get("templateId")
+            params = body.get("params") or body.get("parameters") or {}
+            target_ids = body.get("device_ids") or body.get("deviceIds") or []
+            timeout_sec = int(body.get("timeout_sec") or body.get("timeoutSec") or 25)
+            delay_ms = int(body.get("delay_ms") or body.get("delayMs") or 1500)
+            auto_backup = bool(body.get("auto_backup", body.get("autoBackup", True)))
+            save_after_apply = bool(body.get("save_after_apply", body.get("saveAfterApply", True)))
+            danger_conf = str(body.get("danger_confirmation") or body.get("dangerConfirmation") or "")
+
+            if not template_id or not target_ids:
+                self._send_json(400, {"error": "template_id and device_ids are required"})
+                return
+
+            try:
+                job = bulk_execution_engine.create_job(
+                    template_id=template_id,
+                    params=params,
+                    device_ids=target_ids,
+                    timeout_sec=timeout_sec,
+                    delay_ms=delay_ms,
+                    auto_backup=auto_backup,
+                    save_after_apply=save_after_apply,
+                    danger_confirmation=danger_conf
+                )
+                started = bulk_execution_engine.start_job(job.job_id, data.get("devices", []))
+                self._send_json(201, {
+                    "success": started,
+                    "jobId": job.job_id,
+                    "status": job.status,
+                    "message": "Bulk execution job queued and initiated successfully."
+                })
+            except Exception as ex:
+                self._send_json(400, {"error": str(ex)})
+            return
+
+        if path.startswith("/api/bulk-config/jobs/") and path.endswith("/cancel"):
+            parts = path.split("/")
+            job_id = parts[4]
+            if not bulk_execution_engine:
+                self._send_json(500, {"error": "bulk_config engine not loaded"})
+                return
+            success = bulk_execution_engine.cancel_job(job_id)
+            self._send_json(200 if success else 400, {
+                "success": success,
+                "jobId": job_id,
+                "message": "Job cancellation processed." if success else "Could not cancel job."
+            })
+            return
+
+        # -------------------------------------------------------------
         # Lazy Connection & Platform Driver Endpoints
         # -------------------------------------------------------------
         if path.startswith("/api/devices/") and path.endswith("/connection"):
@@ -1712,6 +2177,8 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
 
             interface = body.get("interface", "")
             params = body.get("params", {})
+            params["device_type"] = device.get("type", "switch")
+            params["is_router"] = device.get("type") == "router"
             platform = device.get("platform", "cisco_ios_xe")
             driver = get_driver(platform, device.get("connection_mode", "simulator"))
 
@@ -1739,7 +2206,28 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
 
             # Reflect state update on internal port object only if device succeeded
             ports = data.get("ports", {}).get(dev_id, [])
-            target_port = next((p for p in ports if p.get("port_id") == interface), None)
+
+            def match_port_flexible(p, target_id):
+                if not p or not target_id:
+                    return False
+                t_raw = str(target_id).strip()
+                t_norm = t_raw.lower().replace(" ", "")
+                p_id = str(p.get("port_id", "")).lower().replace(" ", "")
+                p_name = str(p.get("name", "")).lower().replace(" ", "")
+                if p_id == t_norm or p_name == t_norm or p_id == t_raw.lower() or p_name == t_raw.lower():
+                    return True
+                for full, short in [("gigabitethernet", "gi"), ("tengigabitethernet", "te"), ("fastethernet", "fa"), ("ethernet", "eth")]:
+                    t_f = t_norm.replace(short, full)
+                    p_f = p_id.replace(short, full)
+                    if t_f == p_f:
+                        return True
+                    t_s = t_norm.replace(full, short)
+                    p_s = p_id.replace(full, short)
+                    if t_s == p_s:
+                        return True
+                return False
+
+            target_port = next((p for p in ports if match_port_flexible(p, interface)), None)
             if target_port:
                 if operation in ("disable_interface", "shutdown"):
                     target_port["admin_status"] = "disabled"
@@ -1747,8 +2235,8 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 elif operation in ("enable_interface", "no_shutdown"):
                     target_port["admin_status"] = "enabled"
                     target_port["status"] = "up"
-                elif operation in ("set_vlan", "change_vlan"):
-                    target_port["vlan"] = params.get("vlan", 1)
+                elif operation in ("set_vlan", "change_vlan", "assign_vlan"):
+                    target_port["vlan"] = int(params.get("vlan", 1))
                     target_port["mode"] = "access"
                 elif operation == "mode_trunk":
                     target_port["mode"] = "trunk"
@@ -1759,8 +2247,37 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 elif operation == "port_sec_disable":
                     target_port["port_security_enabled"] = False
                 elif operation == "set_description":
-                    target_port["description"] = params.get("description", "")
-                save_data(data)
+                    target_port["description"] = (params.get("description") or "").strip()
+
+            if "pending_changes" not in device or not isinstance(device["pending_changes"], list):
+                device["pending_changes"] = []
+            target_port_id = interface or (target_port.get("port_id") if target_port else "interface")
+            desc_text = f"Interface {target_port_id}: {operation.replace('_', ' ').title()}"
+            if operation == "set_description":
+                desc_text = f"Interface {target_port_id}: description \"{params.get('description', '')}\""
+            elif operation == "mode_access":
+                desc_text = f"Interface {target_port_id}: switchport mode access"
+            elif operation == "mode_trunk":
+                desc_text = f"Interface {target_port_id}: switchport mode trunk"
+            elif operation == "shutdown":
+                desc_text = f"Interface {target_port_id}: shutdown"
+            elif operation == "no_shutdown":
+                desc_text = f"Interface {target_port_id}: no shutdown"
+            elif operation == "port_sec_enable":
+                desc_text = f"Interface {target_port_id}: port-security enable"
+            elif operation == "port_sec_disable":
+                desc_text = f"Interface {target_port_id}: port-security disable"
+
+            device["pending_changes"].append({
+                "port_id": target_port_id,
+                "type": operation,
+                "description": desc_text,
+                "command": cli_cmd,
+                "timestamp": time.strftime("%H:%M:%S")
+            })
+            device["has_unsaved_changes"] = True
+            device["last_modified_time"] = time.strftime("%H:%M:%S")
+            save_data(data)
 
             self._send_json(200, {
                 "success": True,
@@ -1902,13 +2419,20 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             mode = body.get("mode", "remote_access")
             cfg = body.get("config", {})
 
-            req_real = (device.get("connection_mode") == "ssh")
-            sess = connection_manager.get_or_create_session(device, require_real=req_real)
-            if req_real and sess.status != "connected":
+            conn = device.get("connection", {}) or {}
+            conn_host = conn.get("host") or device.get("ssh_host") or device.get("ip", "")
+            conn_port = int(conn.get("port") or device.get("ssh_port") or 22)
+            conn_user = conn.get("username") or device.get("ssh_username") or "admin"
+
+            sess = connection_manager.get_or_create_session(device, require_real=True)
+            if sess.status != "connected":
                 self._send_json(503, {
                     "error": "ssh_connection_failed",
-                    "message": f"برقراری ارتباط مستقیم SSH با روتر میکروتیک ناموفق بود: {sess.error_message}",
-                    "isReal": True
+                    "message": f"برقراری ارتباط مستقیم SSH با روتر میکروتیک ({conn_user}@{conn_host}:{conn_port}) ناموفق بود: {sess.error_message}",
+                    "isReal": True,
+                    "target_host": conn_host,
+                    "target_port": conn_port,
+                    "target_user": conn_user
                 })
                 return
 
@@ -1966,9 +2490,19 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             elif "gre" in v_lower:
                 detected = "gre"
 
-            vpn_type = (body.get("vpn_type") or "").strip().lower() or detected
-            req_real = (device.get("connection_mode") == "ssh")
-            sess = connection_manager.get_or_create_session(device, require_real=req_real)
+            conn = device.get("connection", {}) or {}
+            conn_host = conn.get("host") or device.get("ssh_host") or device.get("ip", "")
+            conn_port = int(conn.get("port") or device.get("ssh_port") or 22)
+            conn_user = conn.get("username") or device.get("ssh_username") or "admin"
+
+            sess = connection_manager.get_or_create_session(device, require_real=True)
+            if sess.status != "connected":
+                self._send_json(503, {
+                    "error": "ssh_connection_failed",
+                    "message": f"اتصال SSH به روتر میکروتیک ({conn_user}@{conn_host}:{conn_port}) جهت صحت‌سنجی برقرار نشد: {sess.error_message}",
+                    "isReal": True
+                })
+                return
             try:
                 provider = get_vpn_provider("mikrotik_routeros")
                 verify_res = provider.verify(device, sess, vpn_id, vpn_type, body.get("config"))
@@ -2019,21 +2553,144 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             self._send_json(200, res)
             return
 
+        if path.startswith("/api/devices/") and path.endswith("/ports/sync"):
+            # POST /api/devices/:dev_id/ports/sync
+            parts = path.split("/")
+            dev_id = parts[3] if len(parts) >= 4 else ""
+            device = next((d for d in data["devices"] if d["id"] == dev_id), None)
+            if not device:
+                self._send_json(404, {"error": "Device not found", "success": False})
+                return
+
+            platform = device.get("platform", "cisco_ios_xe")
+            conn_mode = device.get("connection_mode", "ssh")
+            driver = get_driver(platform, conn_mode)
+            existing_ports = data.get("ports", {}).get(dev_id, [])
+
+            conn = device.get("connection", {}) or {}
+            conn_host = conn.get("host") or device.get("ssh_host") or device.get("ip", "")
+
+            is_live_sync = False
+            parsed = None
+
+            # Attempt live SSH interface query if device has a host/ip configured
+            if conn_host:
+                sess = connection_manager.get_or_create_session(device, require_real=True)
+                if sess.status == "connected" and sess.is_real and sess.paramiko_client:
+                    try:
+                        cmds = driver.get_interface_query_commands()
+                        full_output = ""
+                        for cmd in cmds:
+                            r = connection_manager.execute_command(device, cmd, require_real=True)
+                            if r.get("success") and r.get("output"):
+                                full_output += "\n" + r["output"]
+                        parsed = driver.parse_interfaces(full_output)
+                        if parsed:
+                            is_live_sync = True
+                    except Exception as e:
+                        print(f"[PortSync] SSH interface query error: {e}")
+
+            if is_live_sync and parsed:
+                normalized_parsed = normalize_port_list(parsed)
+                data.setdefault("ports", {})[dev_id] = normalized_parsed
+                device["total_ports"] = len(normalized_parsed)
+                save_data(data)
+                self._send_json(200, {
+                    "device": sanitize_device(device),
+                    "ports": normalized_parsed,
+                    "is_live": True,
+                    "raw_output": full_output,
+                    "sync_source": "ssh_tunnel",
+                    "active_count": sum(1 for p in normalized_parsed if p.get("status") == "up"),
+                    "inactive_count": sum(1 for p in normalized_parsed if p.get("status") == "down"),
+                    "admin_disabled_count": sum(1 for p in normalized_parsed if p.get("admin_status") == "disabled"),
+                    "message": "Interface data synchronized live via SSH tunnel."
+                })
+                return
+
+            # Fallback to existing or simulator driver ports
+            ports = normalize_port_list(existing_ports)
+            if not ports:
+                total = device.get("total_ports", 24)
+                ports = normalize_port_list(driver.get_default_ports(total))
+                data.setdefault("ports", {})[dev_id] = ports
+                save_data(data)
+
+            self._send_json(200, {
+                "device": sanitize_device(device),
+                "ports": ports,
+                "is_live": False,
+                "sync_source": "simulator",
+                "active_count": sum(1 for p in ports if p.get("status") == "up"),
+                "inactive_count": sum(1 for p in ports if p.get("status") == "down"),
+                "admin_disabled_count": sum(1 for p in ports if p.get("admin_status") == "disabled"),
+                "message": "Ports synchronized from device database."
+            })
+            return
+
         if path == "/api/devices/test-connection":
             # Test and establish REAL connection to device based on exact registered credentials and platform
             ip = body.get("ssh_host", body.get("ip", body.get("host", ""))).strip()
             proto = (body.get("protocol") or body.get("connection_protocol") or "ssh").lower()
-            port = int(body.get("ssh_port", body.get("port", 23 if proto == "telnet" else 22)))
+            default_port = 23 if proto == "telnet" else 22
+            port = int(body.get("ssh_port", body.get("port", default_port)))
             user = body.get("ssh_username", body.get("username", "admin")).strip()
             pwd = body.get("ssh_password", body.get("password", "")).strip()
+            enable_pwd = body.get("enable_password", "").strip()
             platform = body.get("platform", "cisco_ios_xe")
+            lang = (body.get("lang") or ("en" if "en" in self.headers.get("Accept-Language", "").lower() else "fa")).lower()
+            is_en = (lang == "en")
 
             if not ip:
-                self._send_json(400, {"success": False, "error": "IP address is required"})
+                err_msg = "IP address is required" if is_en else "آدرس IP الزامی است"
+                self._send_json(400, {"success": False, "error": err_msg, "message": err_msg})
                 return
 
             driver = get_driver(platform, "ssh")
             start_t = time.time()
+
+            if proto == "ssh" and execute_real_hardware_probe:
+                probe_res = execute_real_hardware_probe(
+                    ip=ip,
+                    port=port,
+                    username=user,
+                    password=pwd,
+                    enable_password=enable_pwd,
+                    protocol=proto,
+                    platform=platform,
+                    lang=lang
+                )
+
+                if probe_res.get("success"):
+                    session_id = probe_res.get("session_id")
+                    p_client = probe_res.pop("paramiko_client", None)
+                    if session_id and p_client:
+                        with ACTIVE_SESSIONS_LOCK:
+                            ACTIVE_SSH_SESSIONS[session_id] = {
+                                "session_id": session_id,
+                                "sessionId": session_id,
+                                "host": ip,
+                                "port": port,
+                                "username": user,
+                                "paramiko_client": p_client,
+                                "socket": None,
+                                "status": "connected",
+                                "connected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                "platform": platform,
+                                "device_id": body.get("device_id", ""),
+                                "role": "mother_connection",
+                                "telemetry": {
+                                    "hardware": probe_res.get("hardware"),
+                                    "power": probe_res.get("power"),
+                                    "ports_count": len(probe_res.get("ports") or [])
+                                }
+                            }
+                    self._send_json(200, probe_res)
+                    return
+                else:
+                    self._send_json(200, probe_res)
+                    return
+
             connected = False
             banner = ""
             error_msg = ""
@@ -2066,20 +2723,36 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                     import paramiko
                     p_client = paramiko.SSHClient()
                     p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    p_client.connect(
-                        hostname=ip,
-                        port=port,
-                        username=user,
-                        password=pwd,
-                        timeout=3.0,
-                        allow_agent=False,
-                        look_for_keys=False
-                    )
+                    
+                    if connect_ssh_device:
+                        auth_ok, auth_err = connect_ssh_device(
+                            p_client,
+                            hostname=ip,
+                            port=port,
+                            username=user,
+                            password=pwd,
+                            timeout=5.0,
+                            banner_timeout=5.0,
+                            auth_timeout=5.0
+                        )
+                        if not auth_ok:
+                            connected = False
+                            error_msg = f"SSH connection failed on {ip}:{port} for user '{user}': {auth_err}"
+                    else:
+                        p_client.connect(
+                            hostname=ip,
+                            port=port,
+                            username=user,
+                            password=pwd,
+                            timeout=5.0,
+                            allow_agent=False,
+                            look_for_keys=False
+                        )
+
                     transport = p_client.get_transport()
                     if transport and transport.is_authenticated():
-                        sec_opt = transport.get_security_options()
-                        if sec_opt and sec_opt.ciphers:
-                            cipher = sec_opt.ciphers[0]
+                        info = getattr(p_client, '_negotiation_info', {})
+                        cipher = info.get("cipher") or getattr(transport, 'remote_cipher', None) or cipher
                         banner = transport.get_banner() or banner
                     p_client.close()
                 except Exception as auth_err:
@@ -2087,6 +2760,8 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                     error_msg = f"Authentication check: {str(auth_err)}"
 
             if not connected:
+                msg_en = f"Connection to {ip}:{port} failed: device unreachable or port closed."
+                msg_fa = f"عدم برقراری ارتباط با {ip}:{port}: دستگاه پاسخگو نیست یا پورت بسته است."
                 self._send_json(200, {
                     "success": False,
                     "connected": False,
@@ -2095,10 +2770,14 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                     "port": port,
                     "latency_ms": latency,
                     "error": error_msg or f"Connection timed out connecting to {ip}:{port}",
-                    "message": f"عدم برقراری ارتباط با {ip}:{port}: دستگاه پاسخگو نیست یا پورت بسته است."
+                    "message_en": msg_en,
+                    "message_fa": msg_fa,
+                    "message": msg_en if is_en else msg_fa
                 })
                 return
 
+            msg_en = f"Connection to {ip}:{port} successfully established with platform {driver.platform_name}."
+            msg_fa = f"ارتباط با موفقیت به {ip}:{port} با پلتفرم {driver.platform_name} برقرار گردید."
             self._send_json(200, {
                 "success": True,
                 "connected": True,
@@ -2112,7 +2791,9 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 "latency_ms": latency,
                 "banner": banner,
                 "connected_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "message": f"ارتباط با موفقیت به {ip}:{port} با پلتفرم {driver.platform_name} برقرار گردید."
+                "message_en": msg_en,
+                "message_fa": msg_fa,
+                "message": msg_en if is_en else msg_fa
             })
             return
 
@@ -2129,7 +2810,10 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             default_port = 23 if conn_proto == "telnet" else 22
             conn_port = int(conn_data.get("port") or body.get("ssh_port") or default_port)
             conn_user = conn_data.get("username") or body.get("ssh_username", "admin")
-            conn_pass = conn_data.get("password") or body.get("ssh_password", "")
+            conn_pass_raw = conn_data.get("password") or body.get("ssh_password", "")
+            conn_pass = encrypt_credential(conn_pass_raw)
+            enable_pass_raw = body.get("enable_password", "")
+            enable_pass = encrypt_credential(enable_pass_raw)
 
             driver = get_driver(platform, connection_mode)
 
@@ -2169,14 +2853,30 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 "ssh_port": conn_port,
                 "ssh_username": conn_user,
                 "ssh_password": conn_pass,
-                "enable_password": body.get("enable_password", ""),
-                "ssh_status": "authenticated"
+                "enable_password": enable_pass,
+                "ssh_status": "authenticated",
+                "serial_number": body.get("serial_number", ""),
+                "master_session_id": body.get("master_session_id", "")
             }
+
+            master_sid = body.get("master_session_id")
+            if master_sid:
+                with ACTIVE_SESSIONS_LOCK:
+                    if master_sid in ACTIVE_SSH_SESSIONS:
+                        ACTIVE_SSH_SESSIONS[master_sid]["device_id"] = new_id
+                        ACTIVE_SSH_SESSIONS[master_sid]["device_name"] = new_device["name"]
+                        ACTIVE_SSH_SESSIONS[master_sid]["role"] = "mother_connection"
+                        print(f"[Python SSH Engine] Inherited mother session {master_sid} for newly registered device {new_id} ({new_device['name']})")
+
             data["devices"].append(new_device)
 
-            # Generate driver-specific ports for new device
+            # Generate driver-specific ports or use discovered ports for new device
             total_ports = new_device["total_ports"]
-            new_ports = driver.get_default_ports(total_ports)
+            detected_ports = body.get("detected_ports")
+            if detected_ports and isinstance(detected_ports, list) and len(detected_ports) > 0:
+                new_ports = normalize_port_list(detected_ports)
+            else:
+                new_ports = normalize_port_list(driver.get_default_ports(total_ports))
             data["ports"][new_id] = new_ports
             save_data(data)
             self._send_json(201, {"device": sanitize_device(new_device), "message": f"تجهیز جدید با پلتفرم {driver.platform_name} با موفقیت ثبت شد."})
@@ -2293,6 +2993,8 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": "Device not found"})
                 return
             device["has_unsaved_changes"] = False
+            device["pending_changes"] = []
+            device["last_write_memory_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
             save_data(data)
             self._send_json(200, {
                 "success": True,
@@ -2590,6 +3292,14 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                     if "port_security_violation" in updates:
                         port["port_security_violation"] = updates["port_security_violation"]
 
+            if "pending_changes" not in device or not isinstance(device["pending_changes"], list):
+                device["pending_changes"] = []
+            device["pending_changes"].append({
+                "port_id": f"{updated_count} Ports Batch",
+                "type": "batch_update",
+                "description": f"Batch update on {updated_count} interfaces",
+                "timestamp": time.strftime("%H:%M:%S")
+            })
             device["has_unsaved_changes"] = True
             device["last_modified_time"] = time.strftime("%H:%M:%S")
             save_data(data)
@@ -2604,35 +3314,130 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/devices/") and "/ports/" in path:
             # /api/devices/:dev_id/ports/:port_id
-            parts = path.split("/")
-            dev_id = parts[3]
-            port_id = parts[5]
+            after_dev = path[len("/api/devices/"):]
+            dev_id = after_dev.split("/ports/")[0].strip()
+            raw_port_id = after_dev.split("/ports/")[1].strip()
+            port_id = unquote(raw_port_id).strip()
 
             ports = data.get("ports", {}).get(dev_id, [])
-            port = next((p for p in ports if p["port_id"] == port_id or p["name"] == port_id), None)
+            device = next((d for d in data["devices"] if d["id"] == dev_id), None)
+
+            def match_port_flexible(p, target_id):
+                if not p or not target_id:
+                    return False
+                t_raw = str(target_id).strip()
+                t_norm = t_raw.lower().replace(" ", "")
+                p_id = str(p.get("port_id", "")).lower().replace(" ", "")
+                p_name = str(p.get("name", "")).lower().replace(" ", "")
+                if p_id == t_norm or p_name == t_norm or p_id == t_raw.lower() or p_name == t_raw.lower():
+                    return True
+                for full, short in [("gigabitethernet", "gi"), ("tengigabitethernet", "te"), ("fastethernet", "fa"), ("ethernet", "eth")]:
+                    t_f = t_norm.replace(short, full)
+                    p_f = p_id.replace(short, full)
+                    if t_f == p_f:
+                        return True
+                    t_s = t_norm.replace(full, short)
+                    p_s = p_id.replace(full, short)
+                    if t_s == p_s:
+                        return True
+                return False
+
+            port = next((p for p in ports if match_port_flexible(p, port_id) or match_port_flexible(p, raw_port_id)), None)
             if not port:
-                self._send_json(404, {"error": "Port not found"})
+                self._send_json(404, {"error": f"Port '{port_id}' not found on device '{dev_id}'"})
                 return
 
+            cli_output = ""
             # Update port properties (admin_status, status, mode, vlan, allowed_vlans, speed, description)
             if "admin_status" in body:
                 port["admin_status"] = body["admin_status"]
                 if body["admin_status"] == "disabled":
                     port["status"] = "down"
+                if device:
+                    try:
+                        platform = device.get("platform", "cisco_ios_xe")
+                        driver = get_driver(platform, device.get("connection_mode", "simulator"))
+                        target_iface = port.get("port_id") or port.get("name") or port_id
+                        action_name = "shutdown" if body["admin_status"] == "disabled" else "no_shutdown"
+                        cli_cmd = driver.generate_action_cli(action_name, target_iface, {
+                            "device_type": device.get("type", "switch"),
+                            "is_router": device.get("type") == "router"
+                        })
+                        require_real = device.get("connection_mode") != "simulator"
+                        exec_res = connection_manager.execute_command(device, cli_cmd, require_real=require_real)
+                        cli_output = (cli_output + "\n" + exec_res.get("output", "")).strip()
+                    except Exception as e:
+                        print(f"[SetPortAdminStatus Direct CLI Note] {e}")
+
             if "status" in body and port.get("admin_status") != "disabled":
                 port["status"] = body["status"]
+
             if "mode" in body:
-                port["mode"] = body["mode"]  # "trunk" or "access"
+                new_mode = str(body["mode"]).lower().strip()
+                port["mode"] = new_mode  # "trunk" or "access"
+                if new_mode == "trunk" and not port.get("allowed_vlans"):
+                    port["allowed_vlans"] = "1-4094"
+                if device:
+                    try:
+                        platform = device.get("platform", "cisco_ios_xe")
+                        driver = get_driver(platform, device.get("connection_mode", "simulator"))
+                        target_iface = port.get("port_id") or port.get("name") or port_id
+                        action_name = "mode_trunk" if new_mode == "trunk" else "mode_access"
+                        cli_cmd = driver.generate_action_cli(action_name, target_iface, {
+                            "device_type": device.get("type", "switch"),
+                            "is_router": device.get("type") == "router",
+                            "vlan": port.get("vlan", 1)
+                        })
+                        require_real = device.get("connection_mode") != "simulator"
+                        exec_res = connection_manager.execute_command(device, cli_cmd, require_real=require_real)
+                        cli_output = (cli_output + "\n" + exec_res.get("output", "")).strip()
+                    except Exception as e:
+                        print(f"[SetPortMode Direct CLI Note] {e}")
+
             if "vlan" in body:
-                port["vlan"] = int(body["vlan"])
+                new_vlan = int(body["vlan"])
+                port["vlan"] = new_vlan
+                if "mode" not in body and port.get("mode") != "trunk":
+                    port["mode"] = "access"
+                if device:
+                    try:
+                        platform = device.get("platform", "cisco_ios_xe")
+                        driver = get_driver(platform, device.get("connection_mode", "simulator"))
+                        target_iface = port.get("port_id") or port.get("name") or port_id
+                        vlan_params = {
+                            "vlan": new_vlan,
+                            "device_type": device.get("type", "switch"),
+                            "is_router": device.get("type") == "router"
+                        }
+                        cli_cmd = driver.generate_action_cli("set_vlan", target_iface, vlan_params)
+                        require_real = device.get("connection_mode") != "simulator"
+                        exec_res = connection_manager.execute_command(device, cli_cmd, require_real=require_real)
+                        cli_output = (cli_output + "\n" + exec_res.get("output", "")).strip()
+                    except Exception as e:
+                        print(f"[SetPortVlan Direct CLI Note] {e}")
             if "allowed_vlans" in body:
                 port["allowed_vlans"] = str(body["allowed_vlans"])
             if "speed" in body:
                 port["speed"] = body["speed"]
             if "connected_device" in body:
                 port["connected_device"] = body["connected_device"]
+
+            # If description is provided, update state and execute CLI command on physical/simulated device
             if "description" in body:
-                port["description"] = body["description"]
+                clean_desc = str(body["description"]).strip()
+                port["description"] = clean_desc
+                if device:
+                    try:
+                        platform = device.get("platform", "cisco_ios_xe")
+                        driver = get_driver(platform, device.get("connection_mode", "simulator"))
+                        target_iface = port.get("port_id") or port.get("name") or port_id
+                        cli_cmd = driver.generate_action_cli("set_description", target_iface, {"description": clean_desc})
+                        require_real = device.get("connection_mode") != "simulator"
+                        exec_res = connection_manager.execute_command(device, cli_cmd, require_real=require_real)
+                        cli_output = exec_res.get("output", "")
+                    except Exception as e:
+                        print(f"[SetPortDescription Direct CLI Note] {e}")
+
             if "port_security_enabled" in body:
                 port["port_security_enabled"] = bool(body["port_security_enabled"])
             if "port_security_max_mac" in body:
@@ -2662,13 +3467,26 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 port["port_security_learned_macs"] = []
 
             # Mark device as having unsaved running-config changes (needs write memory)
-            device = next((d for d in data["devices"] if d["id"] == dev_id), None)
             if device:
+                if "pending_changes" not in device or not isinstance(device["pending_changes"], list):
+                    device["pending_changes"] = []
+                device["pending_changes"].append({
+                    "port_id": port_id,
+                    "type": "port_update",
+                    "description": f"Interface {port_id} configuration update",
+                    "command": cli_output,
+                    "timestamp": time.strftime("%H:%M:%S")
+                })
                 device["has_unsaved_changes"] = True
                 device["last_modified_time"] = time.strftime("%H:%M:%S")
 
             save_data(data)
-            self._send_json(200, {"port": port, "message": f"پیکربندی پورت {port_id} با موفقیت به‌روزرسانی شد."})
+            self._send_json(200, {
+                "success": True,
+                "port": port,
+                "cli_output": cli_output,
+                "message": f"پیکربندی پورت {port_id} با موفقیت به‌روزرسانی شد."
+            })
             return
 
         if path.startswith("/api/devices/"):
@@ -2682,6 +3500,13 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             for k in ["name", "ip", "ssh_host", "connection_protocol", "connection", "platform", "connection_mode", "type", "role", "model", "building", "floor", "unit", "rack", "cdp_enabled", "lldp_enabled", "snmp_community", "is_online", "ssh_port", "ssh_username", "ssh_password", "enable_password", "ssh_status", "total_ports"]:
                 if k in body:
                     device[k] = body[k]
+            if "ssh_password" in body and body["ssh_password"]:
+                device["ssh_password"] = encrypt_credential(body["ssh_password"])
+            if "enable_password" in body and body["enable_password"]:
+                device["enable_password"] = encrypt_credential(body["enable_password"])
+            if "connection" in device and isinstance(device["connection"], dict):
+                if "password" in device["connection"] and device["connection"]["password"]:
+                    device["connection"]["password"] = encrypt_credential(device["connection"]["password"])
             if "ports" in body and isinstance(body["ports"], list):
                 if "ports" not in data:
                     data["ports"] = {}
@@ -2771,8 +3596,19 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 detected = "gre"
 
             vpn_type = (q_type or "").strip().lower() or detected
-            req_real = (device.get("connection_mode") == "ssh")
-            sess = connection_manager.get_or_create_session(device, require_real=req_real)
+            conn = device.get("connection", {}) or {}
+            conn_host = conn.get("host") or device.get("ssh_host") or device.get("ip", "")
+            conn_port = int(conn.get("port") or device.get("ssh_port") or 22)
+            conn_user = conn.get("username") or device.get("ssh_username") or "admin"
+
+            sess = connection_manager.get_or_create_session(device, require_real=True)
+            if sess.status != "connected":
+                self._send_json(503, {
+                    "error": "ssh_connection_failed",
+                    "message": f"اتصال SSH به روتر میکروتیک ({conn_user}@{conn_host}:{conn_port}) جهت حذف VPN برقرار نشد: {sess.error_message}",
+                    "isReal": True
+                })
+                return
             try:
                 provider = get_vpn_provider("mikrotik_routeros")
                 del_res = provider.delete(device, sess, vpn_id, vpn_type)
@@ -2838,7 +3674,19 @@ def start_websocket_server(ws_port: int):
         req_path = path or getattr(websocket, 'path', '') or ''
         parsed_url = urlparse(req_path)
         qs = parse_qs(parsed_url.query)
-        device_id = qs.get("deviceId", qs.get("device_id", [""]))[0].strip()
+
+        # Support /ws/ssh/<device_id> or /ssh/<device_id> or ?deviceId=...
+        device_id = ""
+        path_clean = parsed_url.path.strip('/')
+        parts = path_clean.split('/')
+        if len(parts) >= 3 and parts[0] == 'ws' and parts[1] == 'ssh':
+            device_id = parts[2]
+        elif len(parts) >= 2 and parts[0] == 'ssh':
+            device_id = parts[1]
+
+        if not device_id:
+            device_id = qs.get("deviceId", qs.get("device_id", [""]))[0].strip()
+
         user_role = qs.get("role", qs.get("user_role", ["Super Admin"]))[0].strip()
         req_protocol = qs.get("protocol", [""])[0].strip().lower()
         cols = int(qs.get("cols", [120])[0])
@@ -2855,18 +3703,36 @@ def start_websocket_server(ws_port: int):
                     "error": f"Permission denied for role '{user_role}' to access network terminal.",
                     "code": "PERMISSION_DENIED"
                 }))
+                await asyncio.sleep(1.0)
                 await websocket.close()
                 return
 
             # Lookup device
             data = load_data()
-            device = next((d for d in data.get("devices", []) if d.get("id") == device_id), None)
+            device = next((d for d in data.get("devices", []) if d.get("id") == device_id or d.get("name") == device_id), None)
             if not device:
+                # Also check database_store.json
+                store_file = os.path.join(DATA_DIR, "database_store.json")
+                if os.path.exists(store_file):
+                    try:
+                        with open(store_file, "r", encoding="utf-8") as sf:
+                            sdata = json.load(sf)
+                            device = next((d for d in sdata.get("devices", []) if d.get("id") == device_id or d.get("name") == device_id), None)
+                    except Exception:
+                        pass
+
+            if not device:
+                err_msg = f"Device with ID '{device_id}' was not found in inventory."
                 await websocket.send(json.dumps({
                     "type": "error",
-                    "error": f"Device with ID '{device_id}' was not found in inventory.",
+                    "error": err_msg,
                     "code": "DEVICE_NOT_FOUND"
                 }))
+                await websocket.send(json.dumps({
+                    "type": "data",
+                    "data": f"\r\n\x1b[1;31m[Device Not Found]\x1b[0m {err_msg}\r\n"
+                }))
+                await asyncio.sleep(1.0)
                 await websocket.close()
                 return
 
@@ -2882,11 +3748,17 @@ def start_websocket_server(ws_port: int):
             platform = device.get("platform", "cisco_ios_xe")
 
             if not host:
+                err_msg = f"No Management IP or Host configured for device '{device.get('name', device_id)}'."
                 await websocket.send(json.dumps({
                     "type": "error",
-                    "error": f"No Management IP or Host configured for device '{device.get('name', device_id)}'.",
+                    "error": err_msg,
                     "code": "NO_HOST"
                 }))
+                await websocket.send(json.dumps({
+                    "type": "data",
+                    "data": f"\r\n\x1b[1;31m[No IP Configured]\x1b[0m {err_msg}\r\n"
+                }))
+                await asyncio.sleep(1.0)
                 await websocket.close()
                 return
 
@@ -2903,12 +3775,13 @@ def start_websocket_server(ws_port: int):
 
             def on_data_received(chunk: str):
                 try:
+                    print(f"[WS-BACKEND-SEND] session={session.session_id} chars={len(chunk)} preview={repr(chunk[:100])}")
                     asyncio.run_coroutine_threadsafe(
                         websocket.send(json.dumps({"type": "data", "data": chunk})),
                         loop
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[WS-BACKEND-SEND-ERR] {e}")
 
             def on_session_closed():
                 try:
@@ -2942,6 +3815,7 @@ def start_websocket_server(ws_port: int):
             # Connect in thread executor so it doesn't block the asyncio event loop
             connected = await loop.run_in_executor(None, session.connect)
             if not connected:
+                # Real error already printed into terminal via session._send_error_to_terminal
                 await websocket.send(json.dumps({
                     "type": "error",
                     "error": session.error_message or f"Connection failed to {host}:{port} via {protocol.upper()}.",
@@ -2952,13 +3826,17 @@ def start_websocket_server(ws_port: int):
                     "status": "failed",
                     "message": session.error_message or "Connection failed"
                 }))
-                await websocket.close()
+                # Keep websocket open until client disconnects or user closes modal
+                # so the exact error remains readable in the UI
+                async for _ in websocket:
+                    pass
                 return
 
             # Connected notification
             await websocket.send(json.dumps({
                 "type": "status",
                 "status": "connected",
+                "is_real": True,
                 "sessionId": session.session_id,
                 "protocol": protocol,
                 "host": host,
@@ -2966,6 +3844,7 @@ def start_websocket_server(ws_port: int):
                 "username": username,
                 "banner": session.banner,
                 "latency_ms": session.latency_ms,
+                "legacy_algorithms": session.used_legacy_algorithms,
                 "message": f"Connected to {host}:{port} ({session.banner or protocol.upper()})"
             }))
 
@@ -2977,9 +3856,13 @@ def start_websocket_server(ws_port: int):
                     msg = {"type": "input", "data": raw_msg}
 
                 msg_type = msg.get("type", "input")
-                if msg_type in ("input", "stdin"):
+                if msg_type == "ping":
+                    await websocket.send(json.dumps({"type": "pong", "timestamp": int(time.time() * 1000)}))
+                elif msg_type in ("input", "stdin"):
                     data_str = msg.get("data", "")
-                    session.write_input(data_str)
+                    if data_str:
+                        print(f"[WS-BACKEND-RECV-INPUT] session={session.session_id} chars={len(data_str)} data={repr(data_str)}")
+                        session.write_input(data_str)
                 elif msg_type == "resize":
                     c = int(msg.get("cols", cols))
                     r = int(msg.get("rows", rows))
@@ -3001,7 +3884,7 @@ def start_websocket_server(ws_port: int):
         asyncio.set_event_loop(ws_loop)
         start_server_coro = websockets.serve(terminal_ws_handler, "127.0.0.1", ws_port)
         ws_loop.run_until_complete(start_server_coro)
-        print(f"[Python WS Server] Terminal WebSocket server running on ws://127.0.0.1:{ws_port}")
+        print(f"[Python WS Server] Real Paramiko SSH WebSocket server running on ws://127.0.0.1:{ws_port}")
         ws_loop.run_forever()
 
     t = threading.Thread(target=run_ws_loop, daemon=True)
@@ -3011,7 +3894,16 @@ def run_server(port=5001, host=None):
     if host is None:
         host = os.environ.get("PYTHON_HOST") or os.environ.get("HOST") or '0.0.0.0'
 
-    # Start WebSocket terminal engine on PYTHON_WS_PORT or port + 1
+    # 1. Encrypt any unencrypted passwords in the database on startup
+    try:
+        migrate_database_credentials(DATA_FILE)
+        store_file = os.path.join(DATA_DIR, "database_store.json")
+        if os.path.exists(store_file):
+            migrate_database_credentials(store_file)
+    except Exception as e:
+        print(f"[Server Startup] Credential migration notice: {e}")
+
+    # 2. Start WebSocket terminal engine on PYTHON_WS_PORT or port + 1
     ws_port = int(os.environ.get("PYTHON_WS_PORT", port + 1))
     start_websocket_server(ws_port)
 

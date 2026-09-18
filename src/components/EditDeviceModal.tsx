@@ -32,6 +32,7 @@ import {
 import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort } from '../types';
 import { testDeviceConnection, pingDevice, fetchDevicePorts } from '../services/api';
 import { useLanguage } from '../i18n';
+import { getDevicePortComment } from '../data/portSpecs';
 
 export interface EditDeviceModalProps {
   isOpen: boolean;
@@ -99,6 +100,13 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Lock toggle: prevent backdrop click from closing modal (enabled by default)
+  const [preventBackdropClose, setPreventBackdropClose] = useState<boolean>(true);
+
+  const togglePreventBackdropClose = () => {
+    setPreventBackdropClose((prev) => !prev);
+  };
+
   // Sync state when device prop changes or modal opens
   useEffect(() => {
     if (!device || !isOpen) return;
@@ -132,6 +140,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
     setError(null);
     setIsLockedByDiscovery(false);
     setDiscoverySource(null);
+    setPreventBackdropClose(true);
 
     // Fetch existing ports for this device if configured
     if (device.id) {
@@ -192,42 +201,54 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
         platform,
         connection_mode: connectionMode,
         simulate: forcedSimulate || connectionMode === 'simulator',
+        lang: isEn ? 'en' : 'fa',
       });
 
       if (res.success) {
-        if (res.hostname) {
-          setName(res.hostname);
+        const hw = res.hardware;
+        const detectedHostname = hw?.hostname || res.hostname || '';
+        if (detectedHostname) {
+          setName(detectedHostname);
         }
-        if (res.model) {
-          setModel(res.model);
+        const detectedModel = hw?.model || res.model || '';
+        if (detectedModel) {
+          setModel(detectedModel);
         }
-        if (res.total_ports) {
-          setTotalPorts(res.total_ports);
-        }
+        const resolvedTotalPorts = res.total_ports || hw?.total_ports || (res.ports && res.ports.length > 0 ? res.ports.length : 24);
+        setTotalPorts(resolvedTotalPorts);
+
         if (res.ports && res.ports.length > 0) {
           setDiscoveredPorts(res.ports);
           setIsPortsExpanded(true);
         }
         setIsLockedByDiscovery(true);
         setDiscoverySource(res.simulated ? (isEn ? 'Simulator' : 'شبیه‌ساز') : 'SSH (show interface status)');
+
+        const successMsg = isEn
+          ? (res.message_en || (res.message && !/[\u0600-\u06FF]/.test(res.message) ? res.message : `SSH connection established and authenticated successfully. Discovered ${resolvedTotalPorts} ports, PSU specs & hardware telemetry.`))
+          : (res.message_fa || res.message || `ارتباط SSH با موفقیت برقرار و احراز هویت انجام شد. تعداد ${resolvedTotalPorts} پورت شناسایی گردید.`);
+
         setSshTestResult({
           success: true,
-          message: res.message || (isEn
-            ? `SSH connection successful! Discovered ${res.ports?.length || res.total_ports || 24} ports, trunk/access modes, hostname & model.`
-            : `اتصال SSH برقرار شد! ${res.ports?.length || res.total_ports || 24} پورت، وضعیت ترانک/اکسس، نام دستگاه و مدل از سوئیچ استخراج شدند.`),
+          message: successMsg,
           latency_ms: res.latency_ms,
         });
       } else {
+        const failMsg = isEn
+          ? (res.message_en || (res.message && !/[\u0600-\u06FF]/.test(res.message) ? res.message : `${connectionProtocol.toUpperCase()} connection failed: ${res.error || 'Device unreachable or credentials rejected'}`))
+          : (res.message_fa || res.message || (res.error || `اتصال ${connectionProtocol.toUpperCase()} ناموفق بود`));
         setSshTestResult({
           success: false,
-          message: res.message || (res.error || (isEn ? `${connectionProtocol.toUpperCase()} connection failed` : `اتصال ${connectionProtocol.toUpperCase()} ناموفق بود`)),
+          message: failMsg,
           latency_ms: res.latency_ms,
         });
       }
     } catch (err: any) {
       setSshTestResult({
         success: false,
-        message: err.message || (isEn ? `${connectionProtocol.toUpperCase()} connection failed` : `اتصال ${connectionProtocol.toUpperCase()} ناموفق بود`),
+        message: isEn
+          ? `Connection error: ${err.message || 'Failed to establish SSH session'}`
+          : `خطای برقراری ارتباط: ${err.message || 'اتصال ناموفق بود'}`,
       });
     } finally {
       setIsTestingSsh(false);
@@ -325,7 +346,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
       className="fixed top-0 left-0 right-0 bottom-8 z-[1100] flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto"
       data-modal-backdrop="true"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !preventBackdropClose) onClose();
       }}
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -366,6 +387,31 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {/* Lock Modal Backdrop Close Toggle Button */}
+            <button
+              type="button"
+              onClick={togglePreventBackdropClose}
+              className={`p-1.5 rounded-lg border text-xs flex items-center gap-1.5 transition font-medium cursor-pointer ${
+                preventBackdropClose
+                  ? 'bg-amber-500/20 text-amber-500 dark:text-amber-300 border-amber-500/50 shadow-xs'
+                  : isLightMode
+                    ? 'bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 border-slate-300'
+                    : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 border-slate-700'
+              }`}
+              title={
+                preventBackdropClose
+                  ? (isEn ? 'Modal Locked: Clicking outside will NOT close it (Click to unlock)' : 'مودال قفل است: کلیک بیرون پنجره آن را نمی‌بندد (جهت باز کردن کلیک کنید)')
+                  : (isEn ? 'Lock Modal: Prevent closing when clicking outside' : 'قفل مودال: جلوگیری از بسته شدن با کلیک بیرون پنجره')
+              }
+              aria-label={
+                preventBackdropClose
+                  ? (isEn ? 'Unlock modal backdrop' : 'باز کردن قفل مودال')
+                  : (isEn ? 'Lock modal backdrop' : 'قفل کردن مودال')
+              }
+            >
+              {preventBackdropClose ? <Lock className="w-4 h-4 text-amber-500 dark:text-amber-400" /> : <Unlock className="w-4 h-4" />}
+            </button>
+
             {onMinimize && (
               <button
                 type="button"
@@ -808,7 +854,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                             const isTrunk = p.mode === 'trunk';
                             return (
                               <div
-                                key={p.id || p.name}
+                                key={p.port_id || p.name}
                                 className={`p-1 rounded-lg border text-center transition flex flex-col items-center justify-between min-h-[52px] ${
                                   isUp
                                     ? isTrunk
@@ -869,7 +915,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                           </thead>
                           <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-[10px]">
                             {discoveredPorts.map((p) => (
-                              <tr key={p.id || p.name} className={isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50'}>
+                              <tr key={p.port_id || p.name} className={isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50'}>
                                 <td className="p-1.5 font-bold">{p.name}</td>
                                 <td className="p-1.5 text-amber-600 dark:text-amber-400">{p.description || '-'}</td>
                                 <td className="p-1.5">
@@ -1033,6 +1079,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                     value={sshHost}
                     onChange={(e) => setSshHost(e.target.value)}
                     placeholder={ip || '192.168.1.50'}
+                    autoComplete="off"
                     className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
                       isLightMode
                         ? 'bg-white border-indigo-300 text-slate-900 focus:border-indigo-600 shadow-xs'
@@ -1050,6 +1097,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                     type="number"
                     value={sshPort}
                     onChange={(e) => setSshPort(Number(e.target.value))}
+                    autoComplete="off"
                     className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
                       isLightMode
                         ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
@@ -1068,6 +1116,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                     value={sshUsername}
                     onChange={(e) => setSshUsername(e.target.value)}
                     placeholder="admin"
+                    autoComplete="username"
                     className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
                       isLightMode
                         ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
@@ -1095,6 +1144,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                     value={sshPassword}
                     onChange={(e) => setSshPassword(e.target.value)}
                     placeholder="••••••••"
+                    autoComplete="current-password"
                     className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
                       isLightMode
                         ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
@@ -1114,6 +1164,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                       value={enablePassword}
                       onChange={(e) => setEnablePassword(e.target.value)}
                       placeholder="cisco"
+                      autoComplete="off"
                       className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
                         isLightMode
                           ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
@@ -1195,6 +1246,13 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                     }`}
                     dir="ltr"
                   />
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                      {name
+                        ? (isEn ? `Extracted Hostname: "${name}"` : `نام استخراج‌شده از سوییچ: «${name}»`)
+                        : (isEn ? 'Device hostname will be automatically populated from SSH' : 'نام تجهیز به طور خودکار پس از استخراج از SSH ثبت خواهد شد')}
+                    </span>
+                  </div>
                 </div>
 
                 <div>
@@ -1313,13 +1371,25 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                     dir="ltr"
                   >
                     <option value={2}>2 Ports ({isEn ? 'AP / Gateway' : 'برای AP یا گیت‌وی'})</option>
+                    <option value={4}>4 Ports ({isEn ? 'Router / Firewall' : 'روتر یا فایروال'})</option>
                     <option value={8}>8 Ports ({isEn ? 'Router / Mini Switch' : 'روتر یا سوئیچ ۸ پورت'})</option>
+                    <option value={10}>10 Ports (8 Copper + 2 SFP+)</option>
                     <option value={16}>16 Ports</option>
-                    <option value={24}>24 Ports</option>
+                    <option value={24}>24 Ports ({isEn ? 'Standard 24-Port Switch' : 'سوئیچ استاندارد ۲۴ پورت'})</option>
+                    <option value={26}>26 Ports (24 Copper + 2 SFP)</option>
                     <option value={28}>28 Ports (24 Copper + 4 SFP+)</option>
-                    <option value={48}>48 Ports</option>
+                    <option value={48}>48 Ports ({isEn ? 'Standard 48-Port Switch' : 'سوئیچ استاندارد ۴۸ پورت'})</option>
+                    <option value={50}>50 Ports (48 Copper + 2 SFP)</option>
                     <option value={52}>52 Ports (48 Copper + 4 SFP+)</option>
+                    {![2, 4, 8, 10, 16, 24, 26, 28, 48, 50, 52].includes(totalPorts) && (
+                      <option value={totalPorts}>{totalPorts} Ports ({isEn ? 'Detected Ports' : 'پورت‌های شناسایی‌شده'})</option>
+                    )}
                   </select>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium leading-tight">
+                      {getDevicePortComment(totalPorts, model, type, isEn)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

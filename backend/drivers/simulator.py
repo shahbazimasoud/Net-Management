@@ -555,7 +555,22 @@ class SimulatorDriver(NetworkDeviceDriver):
 
         else:
             # Cisco emulation
-            if cmd_lower in ("show version", "sh ver"):
+            if cmd_lower in ("enable", "en"):
+                return {"success": True, "output": ""}
+
+            elif cmd_lower in ("disable", "dis"):
+                return {"success": True, "output": ""}
+
+            elif cmd_lower in ("configure terminal", "conf t"):
+                return {"success": True, "output": "Enter configuration commands, one per line.  End with CNTL/Z."}
+
+            elif cmd_lower in ("exit", "end"):
+                return {"success": True, "output": ""}
+
+            elif cmd_lower in ("terminal length 0", "term len 0", "terminal width 512", "term width 512"):
+                return {"success": True, "output": ""}
+
+            elif cmd_lower in ("show version", "sh ver"):
                 return {"success": True, "output": f"Cisco IOS XE Software, Version 17.09.03a\nCisco IOS Software [Cupertino], Catalyst L3 Switch Software\nSystem image file is \"bootflash:packages.conf\"\ncisco {device.get('model', 'Catalyst 9300-48P')} with 8388608K bytes of physical memory.\nUptime is {device.get('uptime', '34 weeks, 2 days, 11 hours')}\nBase Ethernet MAC Address: {device.get('mac', '00:50:56:A1:02:01')}"}
 
             elif cmd_lower in ("show ip interface brief", "sh ip int br"):
