@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.84.0';
+export const APP_VERSION = '1.85.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.85.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'تفکیک هوشمند ترمینال میکروتیک و سیسکو در گزینه‌های ثبت تجهیز و باز کردن مستقیم خط فرمان',
+    title_en: 'Smart Brand-Aware Terminal Dispatch for MikroTik and Cisco in Device Registration',
+    changes: [
+      'تفکیک داینامیک گزینه Save & Open Terminal در منوی کشویی ثبت تجهیز متناسب با پلتفرم انتخابی، مدل سخت‌افزاری و سیستم‌عامل شناسایی‌شده دیوایس.',
+      'نمایش عنوان اختصاصی Save & Open MikroTik Terminal با برچسب و رنگ فیروزه‌ای برای دیوایس‌های RouterOS و RouterBOARD، و عنوان Save & Open Cisco Terminal با برچسب سبز برای سوئیچ‌ها و روترهای سیسکو.',
+      'ارسال مستقیم دیوایس ثبت‌شده به متد onOpenTerminal والد یا باز کردن مستقیم مودال مناسب (MikroTikTerminalModal یا CiscoTerminalModal) متناسب با نوع برند بدون تداخل خط فرمان.',
+      'پشتیبانی کامل از هر دو حالت انگلیسی و فارسی مطابق با استاندارد سخت‌گیرانه چندزبانگی.'
+    ],
+    changes_en: [
+      'Implemented brand-aware terminal dispatch in the device registration dropdown options based on the chosen platform, hardware model, and detected OS.',
+      'Dynamic action button title showing "Save & Open MikroTik Terminal" with cyan styling for RouterOS/RouterBOARD devices and "Save & Open Cisco Terminal" with emerald badge for Cisco devices.',
+      'Direct forwarding of newly registered devices to parent onOpenTerminal handler and embedded fallback launching MikroTikTerminalModal or CiscoTerminalModal accordingly.',
+      'Strict bilingual support with complete English and Persian localization.'
+    ]
+  },
   {
     version: '1.84.0',
     releaseDate: '2026-09-19',

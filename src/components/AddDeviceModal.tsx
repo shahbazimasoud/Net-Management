@@ -30,11 +30,12 @@ import {
   ExternalLink,
   Trash2,
 } from 'lucide-react';
-import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig } from '../types';
+import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig, isMikroTikDevice } from '../types';
 import { fetchTemplates, testDeviceConnection, pingHost, fetchDevices } from '../services/api';
 import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
 import { CiscoTerminalModal } from './CiscoTerminalModal';
+import { MikroTikTerminalModal } from './MikroTikTerminalModal';
 
 export interface AddDeviceModalProps {
   isOpen: boolean;
@@ -757,7 +758,11 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           id: `dev-${Date.now()}`,
         };
         onClose();
-        setDirectTerminalDev(devForTerminal);
+        if (onOpenTerminal) {
+          onOpenTerminal(devForTerminal);
+        } else {
+          setDirectTerminalDev(devForTerminal);
+        }
       }
     } catch (err: any) {
       setError(err.message || (isEn ? 'Failed to register device' : 'خطا در ثبت مشخصات تجهیز جدید'));
@@ -2531,27 +2536,57 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                         </div>
                       </button>
 
-                      {/* 3. Save & Open Terminal */}
-                      <button
-                        type="button"
-                        id="btn-action-save-terminal"
-                        onClick={() => handlePerformSubmit('save_terminal')}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-start transition cursor-pointer ${
-                          isLightMode
-                            ? 'hover:bg-slate-100 text-slate-800'
-                            : 'hover:bg-white/10 text-white'
-                        }`}
-                      >
-                        <div className="p-1.5 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                          <Terminal className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <div className="font-bold">{isEn ? '3. Save & Open Terminal' : '۳- ثبت و اتصال به ترمینال دیوایس'}</div>
-                          <div className="text-[10px] text-slate-400 font-normal">
-                            {isEn ? 'Save and open interactive CLI console' : 'ثبت و باز کردن فوری ترمینال تعاملی'}
-                          </div>
-                        </div>
-                      </button>
+                      {/* 3. Save & Open Terminal (Brand-Aware) */}
+                      {(() => {
+                        const isCurrentMikroTik = isMikroTikDevice({
+                          platform,
+                          model,
+                          name,
+                          firmware,
+                        });
+                        const terminalBrandName = isCurrentMikroTik ? 'MikroTik' : 'Cisco';
+                        return (
+                          <button
+                            type="button"
+                            id="btn-action-save-terminal"
+                            onClick={() => handlePerformSubmit('save_terminal')}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-start transition cursor-pointer ${
+                              isLightMode
+                                ? 'hover:bg-slate-100 text-slate-800'
+                                : 'hover:bg-white/10 text-white'
+                            }`}
+                          >
+                            <div className={`p-1.5 rounded-md border ${
+                              isCurrentMikroTik
+                                ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                                : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            }`}>
+                              <Terminal className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold">
+                                  {isEn
+                                    ? `3. Save & Open ${terminalBrandName} Terminal`
+                                    : `۳- ثبت و اتصال به ترمینال ${isCurrentMikroTik ? 'میکروتیک' : 'سیسکو'}`}
+                                </span>
+                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                                  isCurrentMikroTik
+                                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                }`}>
+                                  {terminalBrandName}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-normal truncate">
+                                {isEn
+                                  ? `Save and open interactive ${terminalBrandName} CLI console`
+                                  : `ثبت و باز کردن مستقیم کنسول ترمینال تعاملی ${isCurrentMikroTik ? 'میکروتیک' : 'سیسکو'}`}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })()}
                     </div>
                   </>
                 )}
@@ -2564,12 +2599,21 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
     document.body
   )}
       {directTerminalDev && (
-        <CiscoTerminalModal
-          isOpen={!!directTerminalDev}
-          device={directTerminalDev}
-          onClose={() => setDirectTerminalDev(null)}
-          isLightMode={isLightMode}
-        />
+        isMikroTikDevice(directTerminalDev) ? (
+          <MikroTikTerminalModal
+            isOpen={!!directTerminalDev}
+            device={directTerminalDev}
+            onClose={() => setDirectTerminalDev(null)}
+            isLightMode={isLightMode}
+          />
+        ) : (
+          <CiscoTerminalModal
+            isOpen={!!directTerminalDev}
+            device={directTerminalDev}
+            onClose={() => setDirectTerminalDev(null)}
+            isLightMode={isLightMode}
+          />
+        )
       )}
     </>
   );
