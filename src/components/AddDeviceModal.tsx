@@ -550,7 +550,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           ? (isEn ? 'Simulator' : 'شبیه‌ساز')
           : (res.master_session_id
             ? (isEn ? 'Python SSH (Mother Connection)' : 'پایتون SSH (کانکشن مادر)')
-            : 'SSH (show interface status)');
+            : ((res as any).library_used ? `${(res as any).library_used} (${(res as any).ssh_suite || 'RouterOS Engine'})` : 'SSH (show interface status)'));
         setDiscoverySource(srcText);
 
         const successMsg = isEn
@@ -561,7 +561,10 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           success: true,
           message: successMsg,
           latency_ms: res.latency_ms,
-        });
+          library_used: (res as any).library_used,
+          ssh_suite: (res as any).ssh_suite,
+          negotiation: (res as any).negotiation || (res as any).ssh_negotiation,
+        } as any);
       } else {
         const failMsg = isEn
           ? (res.message_en || (res.message && !/[\u0600-\u06FF]/.test(res.message) ? res.message : `${connectionProtocol.toUpperCase()} connection failed: ${res.error || 'Device unreachable or credentials rejected'}`))
@@ -570,7 +573,9 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           success: false,
           message: failMsg,
           latency_ms: res.latency_ms,
-        });
+          library_used: (res as any).library_used,
+          ssh_suite: (res as any).ssh_suite,
+        } as any);
       }
     } catch (err: any) {
       setSshTestResult({
@@ -1439,6 +1444,15 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                 }`}>
                   <Terminal className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
                   <span>{isEn ? 'Terminal Protocol & Credentials:' : 'مشخصات اتصال ترمینال و دسترسی CLI:'}</span>
+                  {platform === 'mikrotik_routeros' && (
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-mono font-semibold ${
+                      isLightMode
+                        ? 'bg-sky-50 text-sky-800 border-sky-300 shadow-xs'
+                        : 'bg-sky-950/70 text-sky-300 border-sky-600/50 shadow-xs'
+                    }`}>
+                      {isEn ? 'Engine: ssh2 Native Library (MikroTik)' : 'موتور: کتابخانه اختصاصی ssh2 (میکروتیک)'}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <div className={`inline-flex rounded-lg p-0.5 border text-[11px] font-semibold ${
@@ -1522,15 +1536,20 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                           {isEn ? 'Latency' : 'تاخیر اتصال'}: {sshTestResult.latency_ms} ms
                         </span>
                       )}
-                      {((sshTestResult as any).negotiation || (sshTestResult as any).ssh_negotiation) && (
+                      {((sshTestResult as any).library_used || (sshTestResult as any).ssh_suite || (sshTestResult as any).negotiation || (sshTestResult as any).ssh_negotiation) && (
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono border ${
                           isLightMode 
-                            ? 'bg-emerald-100/80 text-emerald-900 border-emerald-300' 
-                            : 'bg-emerald-950/60 text-emerald-300 border-emerald-600/40'
+                            ? 'bg-indigo-100/80 text-indigo-900 border-indigo-300' 
+                            : 'bg-indigo-950/60 text-indigo-300 border-indigo-600/40'
                         }`}>
-                          {isEn ? 'SSH Suite' : 'سوئیت امنیتی SSH'}: {((sshTestResult as any).negotiation?.tier || (sshTestResult as any).ssh_negotiation?.tier || 'adaptive').replace('_', ' ')}
+                          {isEn ? 'Engine' : 'موتور'}: {(sshTestResult as any).library_used || 'SSH'}
+                          {(sshTestResult as any).ssh_suite 
+                            ? ` (${(sshTestResult as any).ssh_suite})`
+                            : ((sshTestResult as any).negotiation?.tier || (sshTestResult as any).ssh_negotiation?.tier)
+                              ? ` (${((sshTestResult as any).negotiation?.tier || (sshTestResult as any).ssh_negotiation?.tier).replace('_', ' ')})`
+                              : ''}
                           {((sshTestResult as any).negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher) 
-                            ? ` (${(sshTestResult as any).negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher})` 
+                            ? ` [${(sshTestResult as any).negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher}]` 
                             : ''}
                         </span>
                       )}

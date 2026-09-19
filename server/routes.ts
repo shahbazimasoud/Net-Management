@@ -709,10 +709,30 @@ apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response)
   const langHeader = (req.headers['accept-language'] as string) || '';
   const lang = (req.body?.lang || (langHeader.toLowerCase().includes('en') ? 'en' : 'fa')).toLowerCase();
   const isEn = lang.startsWith('en') || req.body?.is_en === true;
+  const platform = String(req.body?.platform || '').toLowerCase();
+  const isMikrotik = platform.includes('mikrotik') || platform.includes('routeros');
 
   try {
+    // 1. If user selected MikroTik RouterOS under Hardware Platform & OS, prioritize the dedicated Node.js ssh2 engine
+    if (isMikrotik) {
+      try {
+        const nodeDiscoveryResult = await testAndDiscoverDeviceViaSsh({
+          ...req.body,
+          lang: isEn ? 'en' : 'fa',
+          is_en: isEn,
+        });
+
+        if (nodeDiscoveryResult && nodeDiscoveryResult.success) {
+          return res.json(nodeDiscoveryResult);
+        }
+        // If ssh2 had an error, we will also test Python backend before giving up
+      } catch (nodeErr: any) {
+        // Continue to check Python fallback if needed
+      }
+    }
+
     const pythonPort = process.env.BACKEND_PORT || process.env.PYTHON_PORT || '5001';
-    // Forward directly to Python backend SSH discovery engine to establish real Python SSH tunnel & mother connection
+    // Forward to Python backend SSH discovery engine
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -729,7 +749,7 @@ apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response)
 
       if (pythonResp && pythonResp.ok) {
         const pythonData = await pythonResp.json();
-        if (pythonData) {
+        if (pythonData && pythonData.success) {
           if (pythonData.hardware) {
             pythonData.hostname = pythonData.hostname || pythonData.hardware.hostname;
             pythonData.model = pythonData.model || pythonData.hardware.model;

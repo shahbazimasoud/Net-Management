@@ -484,24 +484,14 @@ def _authenticate_mikrotik_transport(
     timeout: float = 6.0
 ) -> Tuple[bool, Optional[str]]:
     """
-    Helper to authenticate MikroTik transport handling password, auth_none (empty/default admin),
-    trimmed password, and keyboard-interactive.
+    Helper to authenticate MikroTik transport handling password and keyboard-interactive cleanly,
+    and auth_none only if password is truly empty.
     """
     user_to_try = username or "admin"
-    auth_ok = False
     auth_err = None
 
-    # 1. If password is empty or None, try auth_none first
-    if not password:
-        try:
-            transport.auth_none(user_to_try)
-            if transport.is_authenticated():
-                return True, None
-        except Exception as e_none:
-            auth_err = str(e_none)
-
-    # 2. Try standard password authentication
-    if not auth_ok and password is not None:
+    # 1. If password is provided, attempt standard password authentication
+    if password:
         try:
             transport.auth_password(username=user_to_try, password=password)
             if transport.is_authenticated():
@@ -509,34 +499,41 @@ def _authenticate_mikrotik_transport(
         except Exception as e_pwd:
             auth_err = str(e_pwd)
 
-    # 3. Try trimmed password if there were leading/trailing spaces
-    if not auth_ok and password and password.strip() != password:
-        try:
-            transport.auth_password(username=user_to_try, password=password.strip())
-            if transport.is_authenticated():
-                return True, None
-        except Exception as e_trim:
-            auth_err = str(e_trim)
+        # 2. If password authentication failed, try keyboard-interactive prompt with the password
+        if not transport.is_authenticated():
+            try:
+                def interactive_handler(title, instructions, prompt_list):
+                    return [password for _ in prompt_list]
+                transport.auth_interactive(username=user_to_try, handler=interactive_handler)
+                if transport.is_authenticated():
+                    return True, None
+            except Exception as e_int:
+                auth_err = auth_err or str(e_int)
 
-    # 4. Fallback to auth_none for default admin user (even if password string was sent)
-    if not auth_ok and user_to_try.lower() == "admin":
+        # 3. Try trimmed password if there were leading/trailing spaces
+        if not transport.is_authenticated() and password.strip() != password:
+            try:
+                transport.auth_password(username=user_to_try, password=password.strip())
+                if transport.is_authenticated():
+                    return True, None
+            except Exception as e_trim:
+                auth_err = str(e_trim)
+
+    # 4. If password is empty or None, try auth_none
+    else:
         try:
             transport.auth_none(user_to_try)
             if transport.is_authenticated():
                 return True, None
-        except Exception:
-            pass
+        except Exception as e_none:
+            auth_err = str(e_none)
 
-    # 5. Fallback to keyboard-interactive prompt
-    if not auth_ok:
-        def interactive_handler(title, instructions, prompt_list):
-            return [password or "" for _ in prompt_list]
         try:
-            transport.auth_interactive(username=user_to_try, handler=interactive_handler)
+            transport.auth_password(username=user_to_try, password="")
             if transport.is_authenticated():
                 return True, None
-        except Exception as e_int:
-            auth_err = auth_err or str(e_int)
+        except Exception as e_empty:
+            auth_err = auth_err or str(e_empty)
 
     return False, auth_err or f"Authentication failed for user '{user_to_try}'"
 
@@ -574,6 +571,40 @@ def connect_mikrotik_ssh(
 
     last_error = None
     user_to_try = username or "admin"
+
+    # ==========================================================================
+    # Tier 0: Direct High-Level Paramiko Connection (look_for_keys=False, allow_agent=False)
+    # Native Paramiko SSHClient auto-negotiation handles both password and PAM interactive
+    # ==========================================================================
+    try:
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(
+            hostname=hostname,
+            port=port,
+            username=user_to_try,
+            password=password if password is not None else "",
+            look_for_keys=False,
+            allow_agent=False,
+            timeout=timeout,
+            banner_timeout=banner_timeout,
+            auth_timeout=auth_timeout
+        )
+        t0 = client.get_transport()
+        if t0 and t0.is_authenticated():
+            client._negotiation_info = extract_negotiation_info(t0, "mikrotik_tier0_native")
+            logger.info(
+                f"[MikroTik SSH Tier 0 Native] Connected successfully to {hostname}:{port} | "
+                f"KEX: {client._negotiation_info.get('kex')} | "
+                f"Cipher: {client._negotiation_info.get('cipher')} | "
+                f"Key: {client._negotiation_info.get('key_type')}"
+            )
+            return True, None
+    except paramiko.AuthenticationException as e_auth:
+        last_error = f"Authentication failed for user '{user_to_try}'"
+        logger.debug(f"[MikroTik SSH Tier 0] Auth failed: {e_auth}")
+    except Exception as e_t0:
+        last_error = str(e_t0)
+        logger.debug(f"[MikroTik SSH Tier 0] Native connect notice: {e_t0}. Proceeding to tiered security suites...")
 
     # ==========================================================================
     # Tier 1: Modern Fast Path (RouterOS v7+, CHR, newer CCR/CRS)

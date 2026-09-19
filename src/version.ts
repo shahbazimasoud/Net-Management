@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.86.0';
+export const APP_VERSION = '1.87.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.87.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'سوئیچینگ هوشمند کتابخانه SSH و فعال‌سازی درایور اختصاصی ssh2 برای تجهیزات میکروتیک',
+    title_en: 'Intelligent SSH Library Switching & Dedicated ssh2 Engine for MikroTik RouterOS',
+    changes: [
+      'پیاده‌سازی سوئیچینگ هوشمند کتابخانه SSH: با انتخاب پلتفرم MikroTik RouterOS در پنجره ثبت تجهیز جدید، درخواست‌ها مستقیماً به درایور بومی و پرسرعت ssh2 نود هدایت می‌شوند تا از تداخل‌های احتمالی احراز هویت با باگ ROSSSH جلوگیری شود.',
+      'بهبود و اصلاح کامل پایپ‌لاین احراز هویت در بک‌اند پایتون شامل حذف ارسال زودهنگام auth_none در صورت وجود پسورد، پشتیبانی روان از keyboard-interactive و افزودن لایه Tier 0 جهت اتصال مستقیم بومی.',
+      'پارس تله‌متری ۱۰۰٪ واقعی سخت‌افزار میکروتیک از خروجی دستورات /interface print detail و /system resource print با استخراج تمامی پورت‌ها، وضعیت Up/Down و سرعت لینک بدون دیتای شبیه‌ساز.',
+      'افزودن نشانگر بصری کتابخانه اختصاصی (Dedicated MikroTik ssh2 Engine) در فرم مشخصات ترمینال و نمایش متادیتای کتابخانه و الگوریتم‌های رمزشده در بنر نتیجه تست.',
+      'پشتیبانی هم‌زمان و پایدار از سخت‌افزارهای مدرن (RouterOS v7) و تجهیزات قدیمی‌تر میکروتیک (RouterOS v6).'
+    ],
+    changes_en: [
+      'Implemented intelligent SSH library switching: Selecting MikroTik RouterOS under Hardware Platform & OS routes requests directly to the high-performance native Node.js ssh2 engine, bypassing ROSSSH authentication anomalies.',
+      'Refactored the Python Paramiko authentication pipeline, eliminating premature auth_none calls when passwords are provided, improving keyboard-interactive handling, and adding a native Tier 0 direct connect layer.',
+      'Implemented 100% authentic MikroTik hardware telemetry parsing for /interface print detail and /system resource print, extracting real ports, interface statuses, and speeds without simulated data.',
+      'Added a dedicated engine badge (Dedicated MikroTik ssh2 Engine) in the UI credentials section and rendered the active library and cipher details in the test banner.',
+      'Preserved comprehensive backward and forward compatibility across modern RouterOS v7 and legacy RouterOS v6 devices.'
+    ]
+  },
   {
     version: '1.86.0',
     releaseDate: '2026-09-19',

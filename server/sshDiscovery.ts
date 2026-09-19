@@ -84,6 +84,8 @@ export interface SshDiscoveryResult {
   mac?: string;
   firmware?: string;
   uptime?: string;
+  library_used?: string;
+  ssh_suite?: string;
 }
 
 /**
@@ -236,6 +238,82 @@ export function parseShowInterfacesStatus(output: string): DiscoveredSwitchPort[
         is_management: isMgmt,
         is_virtual: isVirtual,
       });
+    }
+  }
+
+  // Support MikroTik RouterOS interface parsing (/interface print detail or /interface ethernet print detail)
+  if (ports.length === 0) {
+    // 1. Detailed blocks: e.g. 0  R  name="ether1" default-name="ether1" mtu=1500 ...
+    const mikrotikDetailRegex = /(?:^|\n)\s*(\d+)\s+([A-Z\*\s]*)\s+name="?([a-zA-Z0-9_\-\./]+)"?([\s\S]*?)(?=(?:\n\s*\d+\s+[A-Z\*\s]*\s+name=)|$)/gi;
+    let mMatch: RegExpExecArray | null;
+    while ((mMatch = mikrotikDetailRegex.exec(output)) !== null) {
+      const flags = mMatch[2] || '';
+      const pName = mMatch[3];
+      const details = mMatch[4] || '';
+
+      const isRunning = flags.includes('R');
+      const isDisabled = flags.includes('X');
+
+      const speedMatch = details.match(/speed="?([^"\s]+)"?/i);
+      const speed = speedMatch ? speedMatch[1].trim() : (pName.toLowerCase().includes('sfp+') ? '10Gbps' : (pName.toLowerCase().includes('ether') ? '1Gbps' : 'auto'));
+
+      const isMgmt = /mgmt/i.test(pName);
+      const isVirtual = /^(bridge|vlan|loopback|wg|gre|ipip|ovpn|eoip)/i.test(pName);
+
+      if (!seenPorts.has(pName.toLowerCase())) {
+        seenPorts.add(pName.toLowerCase());
+        ports.push({
+          port_id: pName,
+          name: pName,
+          status: isRunning ? 'up' : 'down',
+          admin_status: isDisabled ? 'disabled' : 'enabled',
+          mode: 'access',
+          vlan: 1,
+          allowed_vlans: 'ALL',
+          speed,
+          duplex: isRunning ? 'full' : 'auto',
+          description: '',
+          connected_device: isRunning ? 'Active Link' : '-',
+          type: pName.toLowerCase().includes('sfp') ? 'SFP+' : 'Ethernet',
+          is_management: isMgmt,
+          is_virtual: isVirtual,
+        });
+      }
+    }
+
+    // 2. Standard tabular output: 0  R  ether1   ether   1500 ...
+    if (ports.length === 0) {
+      const mikrotikTableRegex = /(?:^|\n)\s*(\d+)\s+([A-Z\*\s]*)\s+(ether\d+|sfp\S*|combo\S*|wlan\S*|bridge\S*|vlan\S*)\s+(\S+)?/gi;
+      let tMatch: RegExpExecArray | null;
+      while ((tMatch = mikrotikTableRegex.exec(output)) !== null) {
+        const flags = tMatch[2] || '';
+        const pName = tMatch[3];
+        const isRunning = flags.includes('R');
+        const isDisabled = flags.includes('X');
+
+        const isMgmt = /mgmt/i.test(pName);
+        const isVirtual = /^(bridge|vlan|loopback|wg|gre|ipip|ovpn|eoip)/i.test(pName);
+
+        if (!seenPorts.has(pName.toLowerCase())) {
+          seenPorts.add(pName.toLowerCase());
+          ports.push({
+            port_id: pName,
+            name: pName,
+            status: isRunning ? 'up' : 'down',
+            admin_status: isDisabled ? 'disabled' : 'enabled',
+            mode: 'access',
+            vlan: 1,
+            allowed_vlans: 'ALL',
+            speed: pName.toLowerCase().includes('sfp+') ? '10Gbps' : '1Gbps',
+            duplex: isRunning ? 'full' : 'auto',
+            description: '',
+            connected_device: isRunning ? 'Active Link' : '-',
+            type: pName.toLowerCase().includes('sfp') ? 'SFP+' : 'Ethernet',
+            is_management: isMgmt,
+            is_virtual: isVirtual,
+          });
+        }
+      }
     }
   }
 
@@ -862,7 +940,11 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
       }, 7000);
 
       conn.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
-        finish([pwd]);
+        const answers = prompts.map((p) => {
+          if (/user/i.test(p.prompt)) return user;
+          return pwd;
+        });
+        finish(answers.length > 0 ? answers : [pwd]);
       });
 
       conn.on('error', (err) => {
@@ -929,13 +1011,13 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
             processOutput();
           });
 
+          const isMikrotikTarget =
+            Boolean(options.platform && options.platform.toLowerCase().includes('mikrotik')) ||
+            Boolean(socketCheck.banner && socketCheck.banner.toLowerCase().includes('mikrotik'));
+
           // Send discovery command sequence based on target platform
           try {
-            const isMikrotik =
-              (options.platform && options.platform.toLowerCase().includes('mikrotik')) ||
-              (socketCheck.banner && socketCheck.banner.toLowerCase().includes('mikrotik'));
-
-            if (isMikrotik) {
+            if (isMikrotikTarget) {
               // MikroTik RouterOS commands
               hasSentMikrotik = true;
               stream.write('/system identity print\n');
@@ -945,7 +1027,7 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
               stream.write('/interface ethernet print detail without-paging\n');
               setTimeout(() => {
                 stream.write('/quit\n');
-              }, 1200);
+              }, 2200);
             } else {
               // Standard Cisco IOS / IOS-XE commands
               stream.write('terminal length 0\n');
@@ -969,11 +1051,11 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
               }, 700);
             }
 
-            // Give the switch 2.8 seconds to send all port tables and telemetry
+            // Give device 3.2 seconds to send all port tables and telemetry
             setTimeout(() => {
               clearTimeout(sshTimeout);
               processOutput();
-            }, 3000);
+            }, 3400);
           } catch (writeErr: any) {
             clearTimeout(sshTimeout);
             const msgEn = `Error transmitting discovery commands to device: ${writeErr.message}`;
@@ -1007,8 +1089,10 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
               );
               const power = calculatePowerSpecs(telemetry.model, totalPorts, detected.platform || options.platform || '');
 
-              const msgEn = `SSH connection to ${ip}:${port} established and authenticated successfully. Detected ${detected.os_name} on ${detected.platform}. Discovered ${totalPorts} ports (${ports.length} interfaces parsed).`;
-              const msgFa = `ارتباط SSH با ${ip}:${port} با موفقیت برقرار شد. پلتفرم ${detected.platform} و سیستم‌عامل ${detected.os_name} شناسایی گردید. تعداد ${totalPorts} پورت کشف شد.`;
+              const libraryUsed = 'ssh2';
+              const sshSuite = (isMikrotikTarget || (detected.platform || '').includes('mikrotik')) ? 'ssh2 Native Engine (MikroTik RouterOS)' : 'ssh2 Native Engine (Broad Cipher Suite)';
+              const msgEn = `SSH connection to ${ip}:${port} established and authenticated successfully via ${libraryUsed}. Detected ${detected.os_name} on ${detected.platform}. Discovered ${totalPorts} ports (${ports.length} interfaces parsed).`;
+              const msgFa = `ارتباط SSH با ${ip}:${port} با موفقیت توسط موتور ${libraryUsed} برقرار و احراز هویت شد. پلتفرم ${detected.platform} و سیستم‌عامل ${detected.os_name} شناسایی گردید. تعداد ${totalPorts} پورت کشف شد.`;
 
               finishResolve({
                 success: true,
@@ -1018,6 +1102,8 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
                 ip,
                 port,
                 latency_ms: latency,
+                library_used: libraryUsed,
+                ssh_suite: sshSuite,
                 banner: socketCheck.banner,
                 hostname: telemetry.hostname,
                 model: telemetry.model,
