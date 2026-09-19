@@ -194,6 +194,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
     setIsSaving(true);
     try {
       const payload: Partial<RemoteServer> = {
+        id: serverToEdit?.id,
         name: name.trim(),
         hostname: hostname.trim() || undefined,
         ip: ip.trim(),
@@ -202,6 +203,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         category,
         environment,
         description: description.trim() || undefined,
+        notes: description.trim() || undefined,
         tags,
         status: serverToEdit?.status || 'online',
         ...(osType === 'linux'

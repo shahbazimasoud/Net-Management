@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.92.0';
+export const APP_VERSION = '1.92.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.92.1',
+    releaseDate: '2026-09-19',
+    type: 'patch',
+    title: 'رفع خطای Server not found در هنگام ویرایش و ذخیره سرورهای ویندوز و لینوکس و همگام‌سازی دوجانبه پایگاه داده',
+    title_en: 'Fix "Server not found" Error on Editing and Saving Windows/Linux Remote Servers with Resilient Database Upsert Sync',
+    changes: [
+      'رفع ریشه‌ای خطای Server not found هنگام ذخیره تغییرات سرور با پیاده‌سازی متد بازیابی هوشمند در server/db.ts (جستجوی سه‌لایه در پایگاه داده PostgreSQL، فایل دیتابیس لوکال و سرورهای پیش‌فرض بر اساس ID و IP).',
+      'همگام‌سازی مداوم و لحظه‌ای لیست سرورهای ریموت در database_store.json با پایگاه داده PostgreSQL در کلیه توابع خواندن، ویرایش و حذف.',
+      'پیاده‌سازی مکانیزم امن Upsert با فرمان استاندارد ON CONFLICT (id) DO UPDATE SET در PostgreSQL برای تضمین ذخیره بی‌نقص تغییرات حتی در صورت عدم وجود رکورد اولیه.',
+      'ارسال صریح شناسه یکتای سرور (id) در پی‌لود ویرایش مودال AddEditServerModal و RemoteServersView برای جلوگیری از ایجاد تداخل یا خطای اعتبارسنجی پارامترهای روت.'
+    ],
+    changes_en: [
+      'Resolved the root cause of the "Server not found" error during server edit and save by implementing three-tier fallback lookup in server/db.ts across PostgreSQL, local JSON store, and default servers matching by ID and IP.',
+      'Maintained active bi-directional synchronization between PostgreSQL and database_store.json across all read, update, and delete remote server operations.',
+      'Implemented robust UPSERT logic using PostgreSQL ON CONFLICT (id) DO UPDATE SET to guarantee successful persistence under all concurrency and dual-store conditions.',
+      'Explicitly included server ID in the update payload within AddEditServerModal and RemoteServersView to prevent route parameter mismatch.'
+    ]
+  },
   {
     version: '1.92.0',
     releaseDate: '2026-09-19',

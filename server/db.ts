@@ -133,6 +133,7 @@ export interface RemoteServer {
   uptime_str?: string;
   location?: string;
   notes?: string;
+  description?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -2626,7 +2627,16 @@ export async function getAllRemoteServers(): Promise<RemoteServer[]> {
     try {
       const res = await pool.query('SELECT * FROM remote_servers ORDER BY created_at DESC');
       if (res.rows && res.rows.length > 0) {
-        return res.rows.map(rowToRemoteServer);
+        const list = res.rows.map(rowToRemoteServer);
+        // Keep fallback store synchronized with PostgreSQL
+        try {
+          const store = loadFallbackStore();
+          store.remote_servers = list;
+          saveFallbackStore(store);
+        } catch {
+          // ignore fallback sync error
+        }
+        return list;
       }
     } catch (e) {
       console.warn('[DB Error getAllRemoteServers, falling back to local store]', e);
@@ -2642,12 +2652,37 @@ export async function getAllRemoteServers(): Promise<RemoteServer[]> {
 }
 
 export async function getRemoteServerById(id: string): Promise<RemoteServer | null> {
+  const cleanId = (id || '').trim();
+  if (!cleanId) return null;
+
   await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
-      const res = await pool.query('SELECT * FROM remote_servers WHERE id = $1 LIMIT 1', [id]);
+      const res = await pool.query(
+        'SELECT * FROM remote_servers WHERE id = $1 OR LOWER(id) = LOWER($1) OR ip = $1 LIMIT 1',
+        [cleanId]
+      );
       if (res.rows && res.rows.length > 0) {
-        return rowToRemoteServer(res.rows[0]);
+        const srv = rowToRemoteServer(res.rows[0]);
+        // Also ensure fallback store is populated with this server
+        try {
+          const store = loadFallbackStore();
+          if (!Array.isArray(store.remote_servers)) {
+            store.remote_servers = [];
+          }
+          const fIdx = store.remote_servers.findIndex(
+            (s) => s.id === srv.id || s.id.toLowerCase() === srv.id.toLowerCase()
+          );
+          if (fIdx >= 0) {
+            store.remote_servers[fIdx] = srv;
+          } else {
+            store.remote_servers.push(srv);
+          }
+          saveFallbackStore(store);
+        } catch {
+          // ignore
+        }
+        return srv;
       }
     } catch (e) {
       console.warn('[DB Error getRemoteServerById, falling back to local store]', e);
@@ -2655,8 +2690,15 @@ export async function getRemoteServerById(id: string): Promise<RemoteServer | nu
   }
 
   const store = loadFallbackStore();
-  const found = (store.remote_servers || []).find((s) => s.id === id);
-  return found || null;
+  const found = (store.remote_servers || []).find(
+    (s) => s.id === cleanId || s.id.toLowerCase() === cleanId.toLowerCase() || s.ip === cleanId
+  );
+  if (found) return found;
+
+  const defaultFound = DEFAULT_REMOTE_SERVERS.find(
+    (s) => s.id === cleanId || s.id.toLowerCase() === cleanId.toLowerCase() || s.ip === cleanId
+  );
+  return defaultFound ? { ...defaultFound } : null;
 }
 
 export async function createRemoteServer(data: Partial<RemoteServer>): Promise<RemoteServer> {
@@ -2779,66 +2821,136 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
 }
 
 export async function updateRemoteServer(id: string, updates: Partial<RemoteServer>): Promise<RemoteServer | null> {
+  const cleanId = (id || updates.id || '').trim();
+  if (!cleanId) return null;
+
+  // 1. Fetch current existing server from PostgreSQL, fallback store, or defaults
+  let current = await getRemoteServerById(cleanId);
   const store = loadFallbackStore();
   if (!Array.isArray(store.remote_servers)) {
     store.remote_servers = [];
   }
-  const idx = store.remote_servers.findIndex((s) => s.id === id);
-  if (idx < 0) return null;
 
-  const current = store.remote_servers[idx];
+  let storeIdx = store.remote_servers.findIndex(
+    (s) => s.id === cleanId || s.id.toLowerCase() === cleanId.toLowerCase() || (updates.ip && s.ip === updates.ip)
+  );
+
+  if (!current && storeIdx >= 0) {
+    current = store.remote_servers[storeIdx];
+  }
+
+  if (!current) {
+    const defaultFound = DEFAULT_REMOTE_SERVERS.find(
+      (s) => s.id === cleanId || s.id.toLowerCase() === cleanId.toLowerCase() || (updates.ip && s.ip === updates.ip)
+    );
+    if (defaultFound) {
+      current = { ...defaultFound };
+    }
+  }
+
+  if (!current) {
+    console.warn(`[updateRemoteServer] Server not found for ID "${cleanId}"`);
+    return null;
+  }
+
+  const targetId = current.id || cleanId;
   const updated: RemoteServer = {
     ...current,
     ...updates,
-    tags: Array.isArray(updates.tags) ? updates.tags : current.tags,
+    id: targetId,
+    name: updates.name !== undefined ? updates.name.trim() : current.name,
+    hostname: updates.hostname !== undefined ? updates.hostname.trim() : (current.hostname || ''),
+    ip: updates.ip !== undefined ? updates.ip.trim() : current.ip,
+    os_type: updates.os_type !== undefined ? updates.os_type : current.os_type,
+    os_distro: updates.os_distro !== undefined ? updates.os_distro.trim() : current.os_distro,
+    environment: updates.environment !== undefined ? updates.environment : current.environment,
+    category: updates.category !== undefined ? updates.category : current.category,
+    role: updates.role !== undefined ? updates.role : current.role,
+    tags: Array.isArray(updates.tags) ? updates.tags : (current.tags || []),
+    ssh_port: updates.ssh_port !== undefined ? Number(updates.ssh_port) : current.ssh_port,
+    ssh_username: updates.ssh_username !== undefined ? updates.ssh_username.trim() : current.ssh_username,
+    ssh_password: updates.ssh_password !== undefined ? updates.ssh_password : current.ssh_password,
+    ssh_key_path: updates.ssh_key_path !== undefined ? updates.ssh_key_path : current.ssh_key_path,
+    default_shell: updates.default_shell !== undefined ? updates.default_shell : current.default_shell,
+    win_protocol: updates.win_protocol !== undefined ? updates.win_protocol : current.win_protocol,
+    win_port: updates.win_port !== undefined ? Number(updates.win_port) : current.win_port,
+    win_username: updates.win_username !== undefined ? updates.win_username.trim() : current.win_username,
+    win_domain: updates.win_domain !== undefined ? updates.win_domain.trim() : current.win_domain,
+    status: updates.status !== undefined ? updates.status : (current.status || 'online'),
+    cpu_cores: updates.cpu_cores !== undefined ? Number(updates.cpu_cores) : current.cpu_cores,
+    ram_gb: updates.ram_gb !== undefined ? Number(updates.ram_gb) : current.ram_gb,
+    disk_gb: updates.disk_gb !== undefined ? Number(updates.disk_gb) : current.disk_gb,
+    uptime_str: updates.uptime_str !== undefined ? updates.uptime_str : current.uptime_str,
+    location: updates.location !== undefined ? updates.location.trim() : current.location,
+    notes: updates.notes !== undefined ? updates.notes.trim() : (updates.description !== undefined ? updates.description.trim() : (current.notes || current.description || '')),
+    description: updates.description !== undefined ? updates.description.trim() : (updates.notes !== undefined ? updates.notes.trim() : (current.description || current.notes || '')),
     updated_at: new Date().toISOString(),
   };
-  store.remote_servers[idx] = updated;
+
+  // 2. Persist in fallback store
+  if (storeIdx >= 0) {
+    store.remote_servers[storeIdx] = updated;
+  } else {
+    const existingIdx = store.remote_servers.findIndex((s) => s.id === targetId);
+    if (existingIdx >= 0) {
+      store.remote_servers[existingIdx] = updated;
+    } else {
+      store.remote_servers.push(updated);
+    }
+  }
   saveFallbackStore(store);
 
-  // Update PostgreSQL
+  // 3. Upsert / Update in PostgreSQL
   await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
       await pool.query(
-        `UPDATE remote_servers SET
-          name = COALESCE($1, name),
-          hostname = COALESCE($2, hostname),
-          ip = COALESCE($3, ip),
-          os_type = COALESCE($4, os_type),
-          os_distro = COALESCE($5, os_distro),
-          environment = COALESCE($6, environment),
-          category = COALESCE($7, category),
-          role = COALESCE($8, role),
-          tags = COALESCE($9::jsonb, tags),
-          ssh_port = COALESCE($10, ssh_port),
-          ssh_username = COALESCE($11, ssh_username),
-          ssh_password = COALESCE($12, ssh_password),
-          ssh_key_path = COALESCE($13, ssh_key_path),
-          default_shell = COALESCE($14, default_shell),
-          win_protocol = COALESCE($15, win_protocol),
-          win_port = COALESCE($16, win_port),
-          win_username = COALESCE($17, win_username),
-          win_domain = COALESCE($18, win_domain),
-          status = COALESCE($19, status),
-          cpu_cores = COALESCE($20, cpu_cores),
-          ram_gb = COALESCE($21, ram_gb),
-          disk_gb = COALESCE($22, disk_gb),
-          uptime_str = COALESCE($23, uptime_str),
-          location = COALESCE($24, location),
-          notes = COALESCE($25, notes),
-          updated_at = NOW()
-        WHERE id = $26`,
+        `INSERT INTO remote_servers (
+          id, name, hostname, ip, os_type, os_distro, environment, category, role, tags,
+          ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
+          win_protocol, win_port, win_username, win_domain,
+          status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
+          created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          hostname = EXCLUDED.hostname,
+          ip = EXCLUDED.ip,
+          os_type = EXCLUDED.os_type,
+          os_distro = EXCLUDED.os_distro,
+          environment = EXCLUDED.environment,
+          category = EXCLUDED.category,
+          role = EXCLUDED.role,
+          tags = EXCLUDED.tags,
+          ssh_port = EXCLUDED.ssh_port,
+          ssh_username = EXCLUDED.ssh_username,
+          ssh_password = EXCLUDED.ssh_password,
+          ssh_key_path = EXCLUDED.ssh_key_path,
+          default_shell = EXCLUDED.default_shell,
+          win_protocol = EXCLUDED.win_protocol,
+          win_port = EXCLUDED.win_port,
+          win_username = EXCLUDED.win_username,
+          win_domain = EXCLUDED.win_domain,
+          status = EXCLUDED.status,
+          cpu_cores = EXCLUDED.cpu_cores,
+          ram_gb = EXCLUDED.ram_gb,
+          disk_gb = EXCLUDED.disk_gb,
+          uptime_str = EXCLUDED.uptime_str,
+          location = EXCLUDED.location,
+          notes = EXCLUDED.notes,
+          updated_at = NOW()`,
         [
+          updated.id,
           updated.name,
-          updated.hostname,
+          updated.hostname || '',
           updated.ip,
           updated.os_type,
-          updated.os_distro,
+          updated.os_distro || '',
           updated.environment,
           updated.category,
-          updated.role,
-          JSON.stringify(updated.tags),
+          updated.role || 'General Server',
+          JSON.stringify(updated.tags || []),
           updated.ssh_port,
           updated.ssh_username,
           updated.ssh_password,
@@ -2855,7 +2967,8 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           updated.uptime_str,
           updated.location,
           updated.notes,
-          id,
+          updated.created_at || new Date().toISOString(),
+          updated.updated_at,
         ]
       );
     } catch (e) {
@@ -2867,12 +2980,17 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
 }
 
 export async function deleteRemoteServer(id: string): Promise<boolean> {
+  const cleanId = (id || '').trim();
+  if (!cleanId) return false;
+
   const store = loadFallbackStore();
   if (!Array.isArray(store.remote_servers)) {
     store.remote_servers = [];
   }
   const prevLen = store.remote_servers.length;
-  store.remote_servers = store.remote_servers.filter((s) => s.id !== id);
+  store.remote_servers = store.remote_servers.filter(
+    (s) => s.id !== cleanId && s.id.toLowerCase() !== cleanId.toLowerCase()
+  );
   if (store.remote_servers.length !== prevLen) {
     saveFallbackStore(store);
   }
@@ -2880,7 +2998,7 @@ export async function deleteRemoteServer(id: string): Promise<boolean> {
   await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
-      await pool.query('DELETE FROM remote_servers WHERE id = $1', [id]);
+      await pool.query('DELETE FROM remote_servers WHERE id = $1 OR LOWER(id) = LOWER($1)', [cleanId]);
     } catch (e) {
       console.error('[DB Error deleteRemoteServer in PostgreSQL]', e);
     }

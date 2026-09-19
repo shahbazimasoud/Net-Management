@@ -210,7 +210,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Handle Save Server (create or update)
   const handleSaveServer = async (serverData: Partial<RemoteServer>) => {
     if (serverToEdit) {
-      await updateRemoteServer(serverToEdit.id, serverData);
+      await updateRemoteServer(serverToEdit.id, { ...serverData, id: serverToEdit.id });
     } else {
       await createRemoteServer(serverData);
     }
