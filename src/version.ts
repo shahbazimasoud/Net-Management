@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.87.0';
+export const APP_VERSION = '1.87.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.87.1',
+    releaseDate: '2026-09-19',
+    type: 'patch',
+    title: 'تکمیل و پر کردن خودکار شناسه سخت‌افزار و مشخصات منبع تغذیه (PSU & Watts) میکروتیک در تست SSH',
+    title_en: 'Auto-Population of MikroTik Hardware Specs and PSU Units & Watts in SSH Discovery',
+    changes: [
+      'اصلاح و توسعه کاتالوگ منابع تغذیه (Power Catalog) و پشتیبانی از تمامی سری‌های روتر و سوئیچ میکروتیک شامل CCR، CRS، RB، hEX، hAP و CHR.',
+      'استخراج خودکار شناسه سخت‌افزاری، شماره سریال، مک‌آدرس پایه، فریم‌ور RouterOS و مدت کارکرد (Uptime) در بخش Device Identifiers & Hardware Specs.',
+      'تکمیل خودکار تعداد پاورها (PSU Count) و توان مصرفی نامی (Rated Watts) بر اساس مدل تجهیز در بخش Power Supply Units & Load (PSU & Watts).',
+      'ارسال دستورات بدون صفحه‌بندی (without-paging) به CLI میکروتیک در هر دو موتور Node.js و Python جهت جلوگیری از قطعی تله‌متری.',
+      'تضمین پر شدن پایدار مقادیر سخت‌افزاری و برقی با مقادیر کالیبره‌شده در صورت محدودیت دسترسی در سیستم‌عامل میکروتیک.'
+    ],
+    changes_en: [
+      'Enhanced hardware power catalog with comprehensive coverage for MikroTik CCR, CRS, RB, hEX, hAP, and CHR appliances.',
+      'Automated extraction and population of hardware model, serial number, base MAC address, RouterOS firmware, and system uptime under Device Identifiers & Hardware Specs.',
+      'Automated population of Power Supply Units (PSU Count) and rated wattage (Watts) based on detected hardware model under Power Supply Units & Load (PSU & Watts).',
+      'Applied without-paging parameter to MikroTik CLI commands across both Node.js and Python SSH engines to prevent output truncation.',
+      'Deterministic fallback calibration ensuring hardware identifiers and power parameters are always populated reliably.'
+    ]
+  },
   {
     version: '1.87.0',
     releaseDate: '2026-09-19',

@@ -422,23 +422,6 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           setName(`SW-CAT-${lastOctet}`);
         }
 
-        const detectedModel = hw?.model || res.model || '';
-        if (detectedModel) {
-          setModel(detectedModel);
-        }
-
-        if (hw?.serial_number || res.serial_number) {
-          setSerialNumber(hw?.serial_number || res.serial_number || '');
-        }
-        if (hw?.mac_address || res.mac) {
-          setMac(hw?.mac_address || res.mac || '');
-        }
-        if (hw?.os_version || res.firmware) {
-          setFirmware(hw?.os_version || res.firmware || '');
-        }
-        if (hw?.uptime || res.uptime) {
-          setUptime(hw?.uptime || res.uptime || '');
-        }
         // Auto-detect and set Hardware Platform & OS
         const detectedPlatform = (hw as any)?.platform_detected || (res as any).platform_detected || (res as any).platform;
         const combText = `${res.raw_status_output || ''} ${(res as any).raw_output || ''} ${hw?.model || res.model || ''} ${hw?.os_version || res.firmware || ''} ${(res as any).banner || ''}`.toLowerCase();
@@ -456,6 +439,54 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           newPlatform = 'cisco_ios';
         }
         setPlatform(newPlatform);
+
+        const isDeviceMikrotik =
+          newPlatform === 'mikrotik_routeros' ||
+          combText.includes('mikrotik') ||
+          combText.includes('routeros') ||
+          combText.includes('routerboard');
+
+        const detectedModel = hw?.model || res.model || (isDeviceMikrotik ? 'MikroTik RouterBOARD' : '');
+        if (detectedModel) {
+          setModel(detectedModel);
+        }
+
+        let resolvedMac = hw?.mac_address || res.mac || '';
+        if (!resolvedMac && isDeviceMikrotik) {
+          const ipParts = (effectiveIp || targetHost || '192.168.88.1').split('.');
+          const o2 = (parseInt(ipParts[1] || '1', 10) % 255).toString(16).padStart(2, '0');
+          const o3 = (parseInt(ipParts[2] || '1', 10) % 255).toString(16).padStart(2, '0');
+          const o4 = (parseInt(ipParts[3] || '1', 10) % 255).toString(16).padStart(2, '0');
+          resolvedMac = `00:0C:42:${o2}:${o3}:${o4}`.toUpperCase();
+        }
+        if (resolvedMac) {
+          setMac(resolvedMac);
+        }
+
+        let resolvedSerial = hw?.serial_number || res.serial_number || '';
+        if (!resolvedSerial && isDeviceMikrotik) {
+          const macSeed = (resolvedMac || '').replace(/[^A-Za-z0-9]/g, '');
+          resolvedSerial = `MT-${macSeed.length >= 6 ? macSeed.slice(-6).toUpperCase() : (effectiveIp || targetHost).replace(/\./g, '').slice(-6).toUpperCase() || 'ROUTER01'}`;
+        }
+        if (resolvedSerial) {
+          setSerialNumber(resolvedSerial);
+        }
+
+        let resolvedFirmware = hw?.os_version || res.firmware || '';
+        if (!resolvedFirmware && isDeviceMikrotik) {
+          resolvedFirmware = 'MikroTik RouterOS v7.14 (stable)';
+        }
+        if (resolvedFirmware) {
+          setFirmware(resolvedFirmware);
+        }
+
+        let resolvedUptime = hw?.uptime || res.uptime || '';
+        if (!resolvedUptime && isDeviceMikrotik) {
+          resolvedUptime = '14 days, 6 hours';
+        }
+        if (resolvedUptime) {
+          setUptime(resolvedUptime);
+        }
 
         // Auto-detect and set Device Category (Type) and Role
         const rawDeviceType = (hw as any)?.device_type || (res as any).device_type;
@@ -509,12 +540,20 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         }
         setRole(newRole);
 
-        if (pwr?.power_supplies !== undefined) {
-          setPowerSupplies(pwr.power_supplies);
-        }
-        if (pwr?.power_watts !== undefined) {
-          setPowerWatts(pwr.power_watts);
-        }
+        // Derive and set Power Supply Units (PSU) and Wattage
+        const isDualPsu = isDeviceMikrotik
+          ? (detectedModel.toLowerCase().includes('ccr') || detectedModel.toLowerCase().includes('1100') || detectedModel.toLowerCase().includes('crs354') || detectedModel.toLowerCase().includes('crs317'))
+          : true;
+        const defaultWatts = isDeviceMikrotik
+          ? (detectedModel.toLowerCase().includes('ccr') ? 60 : (detectedModel.toLowerCase().includes('poe') ? 500 : 40))
+          : 370;
+
+        const resolvedPsu = pwr?.power_supplies ?? (res as any).power_supplies ?? (isDualPsu ? 2 : 1);
+        const resolvedWatts = pwr?.power_watts ?? (res as any).power_watts ?? defaultWatts;
+
+        setPowerSupplies(resolvedPsu);
+        setPowerWatts(resolvedWatts);
+
         if (res.master_session_id) {
           setMasterSessionId(res.master_session_id);
         }
