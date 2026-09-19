@@ -8,6 +8,7 @@ import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfi
 import { AssignVlanModal } from './AssignVlanModal';
 import { NetworkPortSvg } from './NetworkPortSvg';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useModalDock } from '../context/ModalDockContext';
 
 interface PortManagementViewProps {
   devices: Device[];
@@ -15,6 +16,7 @@ interface PortManagementViewProps {
 
 export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices }) => {
   const { t, isRtl, isEn } = useLanguage();
+  const { dockModal, undockModal } = useModalDock();
   const switchesAndRouters = devices.filter((d) => d.type === 'switch' || d.type === 'router');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>(
     switchesAndRouters[0]?.id || devices[0]?.id || ''
@@ -1592,8 +1594,23 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
       {confirmModalState && currentDevice && (
         <CiscoCommandConfirmModal
           isOpen={!!confirmModalState}
-          onClose={() => setConfirmModalState(null)}
-          onMinimize={() => setConfirmModalState(null)}
+          onClose={() => {
+            setConfirmModalState(null);
+            undockModal('cisco_confirm_port_cmd');
+          }}
+          onMinimize={() => {
+            const savedState = confirmModalState;
+            setConfirmModalState(null);
+            dockModal({
+              id: 'cisco_confirm_port_cmd',
+              labelEn: savedState.action === 'mode_trunk' ? 'Change Port Mode to Trunk' : 'Confirm Port Command',
+              labelFa: savedState.action === 'mode_trunk' ? 'تأیید تغییر مود پورت به Trunk' : 'تأیید دستور پورت',
+              badge: `${savedState.port.port}`,
+              category: 'config',
+              onRestore: () => setConfirmModalState(savedState),
+              onClose: () => setConfirmModalState(null),
+            });
+          }}
           onConfirm={handleConfirmExecuteCommand}
           action={confirmModalState.action}
           port={confirmModalState.port}
@@ -1606,8 +1623,23 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
       {vlanAssignModalPort && currentDevice && (
         <AssignVlanModal
           isOpen={!!vlanAssignModalPort}
-          onClose={() => setVlanAssignModalPort(null)}
-          onMinimize={() => setVlanAssignModalPort(null)}
+          onClose={() => {
+            setVlanAssignModalPort(null);
+            undockModal('assign_vlan_modal');
+          }}
+          onMinimize={() => {
+            const savedPort = vlanAssignModalPort;
+            setVlanAssignModalPort(null);
+            dockModal({
+              id: 'assign_vlan_modal',
+              labelEn: 'Assign Access VLAN',
+              labelFa: 'تخصیص VLAN اکسس',
+              badge: savedPort.port,
+              category: 'config',
+              onRestore: () => setVlanAssignModalPort(savedPort),
+              onClose: () => setVlanAssignModalPort(null),
+            });
+          }}
           onAssign={handleConfirmAssignVlan}
           port={vlanAssignModalPort}
           device={currentDevice}

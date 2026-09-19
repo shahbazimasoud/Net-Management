@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.88.0';
+export const APP_VERSION = '1.89.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.89.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'بازطراحی یکپارچه ترمینال لینوکس با پرامپت درونی و سایدبار اسنیپت، حالت نمایش لیستی و منوی سه‌نقطه در Remote Servers و یکپارچه‌سازی مینیمایز مودال‌ها در ToolsDock',
+    title_en: 'Native Inline Linux Terminal Redesign with Collapsible Snippets Sidebar, List View & 3-Dot Menus in Remote Servers, and Universal Modal Minimization in ToolsDock',
+    changes: [
+      'بازطراحی بنیادین ترمینال لینوکس (LinuxTerminalModal) با حذف کادر ورودی مجزا و ادغام صددرصدی خط فرمان در داخل محیط متنی ترمینال دقیقاً مشابه ترمینال واقعی لینوکس.',
+      'افزودن سایدبار چندزبانه و تاشونده مشابه ترمینال سیسکو شامل دسته‌بندی اسنیپت‌های پرکاربرد لینوکس، جستجوی سریع، درج آنی در پرامپت، اجرای مستقیم و تاریخچه دستورات.',
+      'پیاده‌سازی موتور هوشمند اجرای دستورات لینوکس با شبیه‌سازی دقیق و پشتیبانی از خروجی‌های واقعی فرمان‌های سیستمی، شبکه، حافظه و داکر در صورت عدم دسترسی سوکت مستقیم.',
+      'بهینه‌سازی کامل صفحه Remote Servers & Automation Fleet با افزودن منوی سه‌نقطه (3-dot) برای سازماندهی دکمه‌های پرشمار کارت‌ها و حذف شلوغی رابط کاربری.',
+      'افزودن حالت نمایش لیستی (List View Mode) علاوه بر حالت کارت‌ها و جدول برای دسترسی افقی و متراکم به سرورها.',
+      'انتقال و ادغام تگ‌های اتوماسیون در نوار فیلترها به صورت دراپ‌داون اختصاصی و حذف بلوک بزرگ تگ‌ها از نمای اصلی.',
+      'تجهیز و اتصال کامل تمامی مودال‌ها (شامل Change Port Mode to Trunk، Add Device to Custom Map، ترمینال لینوکس و ریموت ویندوز) به ModalDockContext جهت مینیمایز استاندارد در نوار ابزار پایین (ToolsDock).'
+    ],
+    changes_en: [
+      'Engineered native inline Linux Terminal (LinuxTerminalModal) eliminating the separate input box and unifying command entry directly within the terminal console stream.',
+      'Added a collapsible Cisco-style sidebar featuring categorized Linux command snippets, real-time search, quick insert into prompt, instant execution, and command history.',
+      'Integrated an intelligent Linux command execution emulator delivering realistic terminal output for system, storage, network, service, and Docker commands during offline/sandbox sessions.',
+      'Optimized the Remote Servers & Automation Fleet interface with contextual 3-dot action menus, decluttering cards and consolidating secondary actions (ping, IP copy, edit, delete).',
+      'Introduced ergonomic List View mode alongside Grid and Table layouts for streamlined high-density fleet administration.',
+      'Integrated Automation Tags into the primary filter toolbar via a dedicated tag selector dropdown, removing the permanent visual clutter from the main view.',
+      'Integrated all modals (including Change Port Mode to Trunk, Add Device to Custom Map, Linux Terminal, and Windows Remote) with ModalDockContext for universal minimization to ToolsDock.'
+    ]
+  },
   {
     version: '1.88.0',
     releaseDate: '2026-09-19',

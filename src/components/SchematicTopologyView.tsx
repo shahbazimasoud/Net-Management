@@ -84,6 +84,7 @@ import {
 import { CustomMapPortSelectorModal } from './CustomMapPortSelectorModal';
 import { CustomMapLinkConfigModal } from './CustomMapLinkConfigModal';
 import { CustomMapAddDeviceModal } from './CustomMapAddDeviceModal';
+import { useModalDock } from '../context/ModalDockContext';
 import { CustomMapManageModal } from './CustomMapManageModal';
 import { AddRackModal } from './rack/AddRackModal';
 import { EditRackModal } from './rack/EditRackModal';
@@ -362,6 +363,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   panelTheme: propPanelTheme,
 }) => {
   const { t, isEn, isRtl } = useLanguage();
+  const { dockModal, undockModal } = useModalDock();
   let currentUser: any = null;
   try {
     const auth = useAuth();
@@ -8713,8 +8715,22 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {isAddDeviceOpen && currentCustomMap && (
         <CustomMapAddDeviceModal
           isOpen={isAddDeviceOpen}
-          onClose={() => setIsAddDeviceOpen(false)}
-          onMinimize={() => setIsAddDeviceOpen(false)}
+          onClose={() => {
+            setIsAddDeviceOpen(false);
+            undockModal('custom_map_add_device');
+          }}
+          onMinimize={() => {
+            setIsAddDeviceOpen(false);
+            dockModal({
+              id: 'custom_map_add_device',
+              labelEn: 'Add Device to Custom Map',
+              labelFa: 'افزودن تجهیز به نقشه سفارشی',
+              badge: currentCustomMap.name,
+              category: 'device',
+              onRestore: () => setIsAddDeviceOpen(true),
+              onClose: () => setIsAddDeviceOpen(false),
+            });
+          }}
           availableDevices={allAvailableDevices}
           existingDeviceIds={currentCustomMap.deviceIds || []}
           racks={currentCustomMap.racks || []}
@@ -8727,8 +8743,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {isManageMapOpen && (
         <CustomMapManageModal
           isOpen={isManageMapOpen}
-          onClose={() => setIsManageMapOpen(false)}
-          onMinimize={() => setIsManageMapOpen(false)}
+          onClose={() => {
+            setIsManageMapOpen(false);
+            undockModal('custom_map_manage');
+          }}
+          onMinimize={() => {
+            setIsManageMapOpen(false);
+            dockModal({
+              id: 'custom_map_manage',
+              labelEn: 'Manage Custom Maps',
+              labelFa: 'مدیریت نقشه‌های سفارشی',
+              category: 'config',
+              onRestore: () => setIsManageMapOpen(true),
+              onClose: () => setIsManageMapOpen(false),
+            });
+          }}
           mode={manageMapMode}
           currentMap={manageMapMode !== 'create' ? currentCustomMap || undefined : undefined}
           onCreateMap={handleCreateCustomMap}

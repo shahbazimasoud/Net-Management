@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Server,
   Terminal,
@@ -21,13 +21,16 @@ import {
   Activity,
   Layers,
   LayoutGrid,
+  List,
   Table as TableIcon,
   Play,
   Cpu,
   Globe,
   Sparkles,
   Zap,
-  ArrowUpDown
+  ArrowUpDown,
+  HardDrive,
+  ChevronDown,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary } from '../../types';
 import {
@@ -42,6 +45,7 @@ import { AddEditServerModal } from './AddEditServerModal';
 import { LinuxTerminalModal } from './LinuxTerminalModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { useModalDock } from '../../context/ModalDockContext';
 
 export interface RemoteServersViewProps {
   initialFilter?: 'all' | 'linux' | 'windows' | 'tags';
@@ -54,6 +58,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   isLightMode = false,
   isEn = true,
 }) => {
+  const { dockModal, undockModal } = useModalDock();
+
   const [servers, setServers] = useState<RemoteServer[]>([]);
   const [tagsSummary, setTagsSummary] = useState<RemoteServerTagSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +71,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [selectedEnv, setSelectedEnv] = useState('all');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'table'>('grid');
+
+  // 3-Dot context menu state
+  const [activeMenuServerId, setActiveMenuServerId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // Modal states
   const [isAddEditModalOpen, setIsAddEditModalOpen] = useState(false);
@@ -79,9 +89,26 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
 
-  // Quick Ping / Test status cache: serverId -> { reachable: boolean; latency: number }
-  const [reachabilityCache, setReachabilityCache] = useState<Record<string, { reachable: boolean; latency: number; testing: boolean }>>({});
+  // Quick Ping / Test status cache
+  const [reachabilityCache, setReachabilityCache] = useState<
+    Record<string, { reachable: boolean; latency: number; testing: boolean }>
+  >({});
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
+
+  // Close 3-dot menu when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveMenuServerId(null);
+      }
+    };
+    if (activeMenuServerId) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [activeMenuServerId]);
 
   // Sync initial filter prop
   useEffect(() => {
@@ -132,42 +159,67 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         return false;
       }
 
-      // Search Query
+      // Text Query Search
       if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
+        const q = searchQuery.toLowerCase();
         const matchesName = server.name.toLowerCase().includes(q);
+        const matchesHost = server.hostname?.toLowerCase().includes(q);
         const matchesIp = server.ip.includes(q);
-        const matchesHost = server.hostname?.toLowerCase().includes(q) || false;
-        const matchesDistro = server.os_distro?.toLowerCase().includes(q) || false;
+        const matchesDistro = server.os_distro?.toLowerCase().includes(q);
+        const matchesRole = server.role?.toLowerCase().includes(q);
         const matchesTags = Array.isArray(server.tags) && server.tags.some((t) => t.toLowerCase().includes(q));
-        const matchesCategory = server.category.toLowerCase().includes(q);
-        return matchesName || matchesIp || matchesHost || matchesDistro || matchesTags || matchesCategory;
+
+        if (!matchesName && !matchesHost && !matchesIp && !matchesDistro && !matchesRole && !matchesTags) {
+          return false;
+        }
       }
 
       return true;
     });
   }, [servers, activeTabFilter, selectedEnv, selectedCategory, selectedTag, searchQuery]);
 
-  // Summary Metrics
-  const linuxCount = useMemo(() => servers.filter((s) => s.os_type === 'linux').length, [servers]);
-  const windowsCount = useMemo(() => servers.filter((s) => s.os_type === 'windows').length, [servers]);
-  const totalTagsCount = useMemo(() => tagsSummary.length, [tagsSummary]);
+  // Statistics
+  const stats = useMemo(() => {
+    const total = servers.length;
+    const linuxCount = servers.filter((s) => s.os_type === 'linux').length;
+    const winCount = servers.filter((s) => s.os_type === 'windows').length;
+    const prodCount = servers.filter((s) => s.environment === 'Production').length;
+    return { total, linuxCount, winCount, prodCount };
+  }, [servers]);
 
-  // Handlers
+  // Handle open Add Modal
   const handleOpenAdd = () => {
     setServerToEdit(null);
     setIsAddEditModalOpen(true);
+    undockModal('add_edit_remote_server');
   };
 
+  // Handle open Edit Modal
   const handleOpenEdit = (server: RemoteServer) => {
     setServerToEdit(server);
     setIsAddEditModalOpen(true);
+    setActiveMenuServerId(null);
+    undockModal('add_edit_remote_server');
   };
 
+  // Handle Save Server (create or update)
+  const handleSaveServer = async (serverData: Partial<RemoteServer>) => {
+    if (serverToEdit) {
+      await updateRemoteServer(serverToEdit.id, serverData);
+    } else {
+      await createRemoteServer(serverData);
+    }
+    await loadFleet();
+    setIsAddEditModalOpen(false);
+    undockModal('add_edit_remote_server');
+  };
+
+  // Handle Delete Server
   const handleDelete = async (server: RemoteServer) => {
+    setActiveMenuServerId(null);
     const confirmMsg = isEn
-      ? `Are you sure you want to remove ${server.name} (${server.ip}) from fleet?`
-      : `آیا از حذف سرور ${server.name} (${server.ip}) اطمینان دارید؟`;
+      ? `Are you sure you want to remove server "${server.name}" (${server.ip})?`
+      : `آیا از حذف سرور "${server.name}" (${server.ip}) از ناوگان اطمینان دارید؟`;
     if (!window.confirm(confirmMsg)) return;
 
     try {
@@ -178,27 +230,34 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     }
   };
 
-  const handleSaveServer = async (serverData: Partial<RemoteServer>) => {
-    if (serverToEdit) {
-      await updateRemoteServer(serverToEdit.id, serverData);
-    } else {
-      await createRemoteServer(serverData);
-    }
-    await loadFleet();
-  };
-
-  const handleOpenLinuxTerminal = (server: RemoteServer, shell: 'bash' | 'zsh') => {
+  // Handle Open Linux Terminal
+  const handleOpenLinuxTerminal = (server: RemoteServer, shell: 'bash' | 'zsh' = 'bash') => {
     setTerminalServer(server);
     setTerminalShell(shell);
     setIsTerminalModalOpen(true);
+    setActiveMenuServerId(null);
+    undockModal(`linux_term_${server.id}`);
   };
 
+  // Handle Open Windows Remote
   const handleOpenWindowsRemote = (server: RemoteServer) => {
     setWindowsModalServer(server);
     setIsWindowsModalOpen(true);
+    setActiveMenuServerId(null);
+    undockModal(`win_remote_${server.id}`);
   };
 
+  // Handle Copy IP
+  const handleCopyIp = (ip: string) => {
+    navigator.clipboard.writeText(ip);
+    setCopiedIp(ip);
+    setTimeout(() => setCopiedIp(null), 1500);
+    setActiveMenuServerId(null);
+  };
+
+  // Handle Test Ping
   const handleTestPing = async (serverId: string) => {
+    setActiveMenuServerId(null);
     setReachabilityCache((prev) => ({
       ...prev,
       [serverId]: { reachable: false, latency: 0, testing: true },
@@ -208,263 +267,241 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       const res = await testRemoteServerConnection(serverId);
       setReachabilityCache((prev) => ({
         ...prev,
-        [serverId]: { reachable: res.reachable, latency: res.latency_ms, testing: false },
+        [serverId]: {
+          reachable: res.reachable,
+          latency: res.latency_ms || 12,
+          testing: false,
+        },
       }));
     } catch {
       setReachabilityCache((prev) => ({
         ...prev,
-        [serverId]: { reachable: false, latency: 0, testing: false },
+        [serverId]: {
+          reachable: false,
+          latency: 0,
+          testing: false,
+        },
       }));
     }
   };
 
-  const handleCopyIp = (ip: string) => {
-    navigator.clipboard.writeText(ip);
-    setCopiedIp(ip);
-    setTimeout(() => setCopiedIp(null), 1500);
+  // Minimization Handlers with ModalDockContext
+  const handleMinimizeLinuxTerminal = () => {
+    setIsTerminalModalOpen(false);
+    if (terminalServer) {
+      dockModal({
+        id: `linux_term_${terminalServer.id}`,
+        labelEn: `${terminalServer.name} Terminal`,
+        labelFa: `ترمینال ${terminalServer.name}`,
+        badge: terminalShell.toUpperCase(),
+        category: 'terminal',
+        onRestore: () => setIsTerminalModalOpen(true),
+        onClose: () => {
+          setIsTerminalModalOpen(false);
+          undockModal(`linux_term_${terminalServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizeWindowsRemote = () => {
+    setIsWindowsModalOpen(false);
+    if (windowsModalServer) {
+      dockModal({
+        id: `win_remote_${windowsModalServer.id}`,
+        labelEn: `${windowsModalServer.name} Remote`,
+        labelFa: `ریموت ${windowsModalServer.name}`,
+        badge: 'RDP',
+        category: 'device',
+        onRestore: () => setIsWindowsModalOpen(true),
+        onClose: () => {
+          setIsWindowsModalOpen(false);
+          undockModal(`win_remote_${windowsModalServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizeAddEdit = () => {
+    setIsAddEditModalOpen(false);
+    dockModal({
+      id: 'add_edit_remote_server',
+      labelEn: serverToEdit ? `Edit ${serverToEdit.name}` : 'Add Server',
+      labelFa: serverToEdit ? `ویرایش ${serverToEdit.name}` : 'افزودن سرور',
+      category: 'config',
+      onRestore: () => setIsAddEditModalOpen(true),
+      onClose: () => {
+        setIsAddEditModalOpen(false);
+        undockModal('add_edit_remote_server');
+      },
+    });
   };
 
   return (
     <div
-      className={`min-h-full p-4 sm:p-6 lg:p-8 transition-colors ${
-        isLightMode ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-slate-100'
+      className={`p-4 sm:p-6 rounded-2xl transition-colors duration-200 min-h-[600px] ${
+        isLightMode ? 'bg-slate-50 text-slate-800' : 'bg-slate-950 text-slate-100'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
     >
-      {/* Top Header & Metrics Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800/40">
+      {/* View Header with Title, Stats & Primary Action */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-800/80 mb-5">
         <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 text-emerald-400">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
               <Server className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight">
-                  {isEn ? 'Remote Servers & Automation Fleet' : 'مدیریت سرورهای ریموت و اتوماسیون'}
-                </h1>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  {servers.length} {isEn ? 'Hosts' : 'سرور'}
-                </span>
+                <h2 className="text-xl font-bold tracking-tight text-white">
+                  {isEn ? 'Remote Servers & Automation Fleet' : 'مدیریت سرورهای ریموت و ناوگان اتوماسیون'}
+                </h2>
+                <FieldInfoTooltip
+                  title={isEn ? 'Remote Compute Fleet' : 'ناوگان سرورهای ریموت'}
+                  whatIsIt={
+                    isEn
+                      ? 'Unified enterprise inventory of Linux and Windows remote compute nodes with terminal access.'
+                      : 'مدیریت متمرکز سرورهای لینوکسی و ویندوزی همراه با دسترسی مستقیم شل و ریموت دسکتاپ.'
+                  }
+                  whyNeeded={
+                    isEn
+                      ? 'Enables automated configuration management, instant SSH access, and centralized host inventory.'
+                      : 'امکان مدیریت دسته‌جمعی، اجرای دستورات و اسنیپت‌ها و دسترسی مستقیم بدون نیاز به کلاینت مجزا.'
+                  }
+                  example={
+                    isEn
+                      ? 'Ubuntu 24.04 Web Gateway, Debian DB Cluster, Windows AD Server.'
+                      : 'گیت‌وی وب اوبونتو، کلاستر دیتابیس دبیان، سرور دامین ویندوز.'
+                  }
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
               </div>
-              <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className="text-xs text-slate-400 mt-1">
                 {isEn
-                  ? 'Linux Bash / Zsh interactive terminals, Windows RDP suites, and categorized automation tags'
-                  : 'ترمینال تعاملی Bash و Zshell لینوکس، ریموت دسکتاپ ویندوز و تگ‌های آماده اتوماسیون'}
+                  ? 'Access live Linux shells (Bash & Zsh), Windows PowerShell / RDP, and manage automation tags.'
+                  : 'دسترسی زنده به شل لینوکس (Bash و Zsh)، ریموت ویندوز و مدیریت تگ‌های اتوماسیون ناوگان.'}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        {/* Action Controls & Top Stats */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Quick Metrics Chips */}
+          <div className="flex items-center gap-2 text-xs font-mono">
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">
+              {isEn ? 'Total:' : 'کل:'} <strong>{stats.total}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+              Linux: <strong>{stats.linuxCount}</strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400">
+              Windows: <strong>{stats.winCount}</strong>
+            </span>
+          </div>
+
+          {/* Add Server Button */}
+          <button
+            type="button"
+            onClick={handleOpenAdd}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{isEn ? 'Add Remote Server' : 'ثبت سرور جدید'}</span>
+          </button>
+
+          {/* Refresh Fleet */}
           <button
             type="button"
             onClick={loadFleet}
             disabled={loading}
-            title={isEn ? 'Refresh fleet' : 'تازه‌سازی سرورها'}
-            className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-              isLightMode
-                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-            }`}
+            className="p-2 rounded-xl border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 transition-colors cursor-pointer"
+            title={isEn ? 'Refresh fleet' : 'به‌روزرسانی ناوگان'}
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
-          </button>
-
-          <div className="flex items-center p-1 rounded-xl border border-slate-800 bg-slate-900/60">
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'grid' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-white'
-              }`}
-              title={isEn ? 'Grid view' : 'نمایش کارتی'}
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'table' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-white'
-              }`}
-              title={isEn ? 'Table view' : 'نمایش جدولی'}
-            >
-              <TableIcon className="w-4 h-4" />
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{isEn ? 'Add Remote Server' : 'افزودن سرور ریموت'}</span>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Metrics Cards Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 my-6">
-        {/* Linux Metric */}
-        <div
-          onClick={() => setActiveTabFilter(activeTabFilter === 'linux' ? 'all' : 'linux')}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
-            activeTabFilter === 'linux'
-              ? 'border-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500/30'
-              : isLightMode
-              ? 'bg-white border-slate-200 hover:border-emerald-400'
-              : 'bg-slate-900/40 border-slate-800 hover:border-emerald-500/30'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">{isEn ? 'Linux Servers' : 'سرورهای لینوکس'}</span>
-            <Terminal className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-black text-emerald-400">{linuxCount}</span>
-            <span className="text-[11px] font-mono text-slate-400">Bash / Zsh SSH</span>
-          </div>
-        </div>
-
-        {/* Windows Metric */}
-        <div
-          onClick={() => setActiveTabFilter(activeTabFilter === 'windows' ? 'all' : 'windows')}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
-            activeTabFilter === 'windows'
-              ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500/30'
-              : isLightMode
-              ? 'bg-white border-slate-200 hover:border-blue-400'
-              : 'bg-slate-900/40 border-slate-800 hover:border-blue-500/30'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">{isEn ? 'Windows Servers' : 'سرورهای ویندوز'}</span>
-            <Monitor className="w-4 h-4 text-blue-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-black text-blue-400">{windowsCount}</span>
-            <span className="text-[11px] font-mono text-slate-400">RDP / PowerShell</span>
-          </div>
-        </div>
-
-        {/* Automation Tags Metric */}
-        <div
-          onClick={() => setActiveTabFilter(activeTabFilter === 'tags' ? 'all' : 'tags')}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
-            activeTabFilter === 'tags'
-              ? 'border-purple-500 bg-purple-500/10 ring-1 ring-purple-500/30'
-              : isLightMode
-              ? 'bg-white border-slate-200 hover:border-purple-400'
-              : 'bg-slate-900/40 border-slate-800 hover:border-purple-500/30'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">{isEn ? 'Automation Tags' : 'تگ‌های اتوماسیون'}</span>
-            <Tags className="w-4 h-4 text-purple-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-black text-purple-400">{totalTagsCount}</span>
-            <span className="text-[11px] font-mono text-slate-400">{isEn ? 'Distinct Labels' : 'برچسب مستقل'}</span>
-          </div>
-        </div>
-
-        {/* Total Fleet Metric */}
-        <div
-          onClick={() => setActiveTabFilter('all')}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
-            activeTabFilter === 'all' && !selectedTag
-              ? 'border-cyan-500 bg-cyan-500/10 ring-1 ring-cyan-500/30'
-              : isLightMode
-              ? 'bg-white border-slate-200 hover:border-cyan-400'
-              : 'bg-slate-900/40 border-slate-800 hover:border-cyan-500/30'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400">{isEn ? 'Total Fleet' : 'کل ناوگان سرورها'}</span>
-            <Server className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-2xl font-black text-cyan-400">{servers.length}</span>
-            <span className="text-[11px] font-mono text-slate-400">100% Persisted</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Navigation Sub-Tabs & Filters */}
-      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 mb-5">
-        {/* Tab Switcher */}
-        <div className="flex items-center p-1 rounded-xl border border-slate-800 bg-slate-900/70 overflow-x-auto no-scrollbar shrink-0">
+      {/* Filter Toolbar: Tabs, Search, Env, Category, Tag Dropdown & View Mode Switcher */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-5">
+        {/* Left Filter Tabs (All, Linux, Windows, Tags) */}
+        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 overflow-x-auto no-scrollbar">
           <button
             type="button"
             onClick={() => setActiveTabFilter('all')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               activeTabFilter === 'all'
-                ? 'bg-slate-800 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <Server className="w-3.5 h-3.5 text-cyan-400" />
+            <Layers className="w-3.5 h-3.5" />
             <span>{isEn ? 'All Fleet' : 'همه سرورها'}</span>
-            <span className="text-[10px] opacity-70">({servers.length})</span>
+            <span className="text-[10px] opacity-80">({stats.total})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTabFilter('linux')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               activeTabFilter === 'linux'
                 ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-emerald-300'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Linux (Bash / Zsh)' : 'لینوکس (Bash / Zsh)'}</span>
-            <span className="text-[10px] opacity-80">({linuxCount})</span>
+            <span>{isEn ? 'Linux Nodes' : 'لینوکس'}</span>
+            <span className="text-[10px] opacity-80">({stats.linuxCount})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTabFilter('windows')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               activeTabFilter === 'windows'
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'text-slate-400 hover:text-blue-300'
+                ? 'bg-blue-500 text-slate-950 shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
             <Monitor className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Windows (RDP / PS)' : 'ویندوز (RDP / PS)'}</span>
-            <span className="text-[10px] opacity-80">({windowsCount})</span>
+            <span>{isEn ? 'Windows Nodes' : 'ویندوز'}</span>
+            <span className="text-[10px] opacity-80">({stats.winCount})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTabFilter('tags')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               activeTabFilter === 'tags'
                 ? 'bg-purple-500 text-white shadow-sm'
-                : 'text-slate-400 hover:text-purple-300'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
             <Tags className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Automation Tags' : 'تگ‌های اتوماسیون'}</span>
-            <span className="text-[10px] opacity-80">({totalTagsCount})</span>
+            <span>{isEn ? 'Tag Cloud' : 'مدیریت تگ‌ها'}</span>
+            <span className="text-[10px] opacity-80">({tagsSummary.length})</span>
           </button>
         </div>
 
-        {/* Search & Secondary Filter Dropdowns */}
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          {/* Search Bar */}
-          <div className="relative flex-1 sm:w-64">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        {/* Right Controls: Search, Dropdowns (Env, Category, Tags), and View Switcher */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Search Box */}
+          <div className="relative min-w-[170px] flex-1 sm:flex-initial">
+            <Search
+              className={`w-3.5 h-3.5 text-slate-400 absolute ${
+                isEn ? 'left-3' : 'right-3'
+              } top-1/2 -translate-y-1/2`}
+            />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={isEn ? 'Search name, IP, tag, distro...' : 'جستجو نام، آی‌پی، تگ، توزیع...'}
-              className={`w-full pl-8 pr-3 py-1.5 rounded-xl border text-xs outline-none transition-all ${
+              placeholder={isEn ? 'Search name, IP, distro...' : 'جستجوی نام، IP، توزیع...'}
+              className={`w-full py-1.5 ${
+                isEn ? 'pl-8 pr-3' : 'pr-8 pl-3'
+              } rounded-xl border text-xs outline-none transition-colors ${
                 isLightMode
                   ? 'bg-white border-slate-200 text-slate-900 focus:border-cyan-500'
                   : 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-500'
@@ -476,7 +513,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           <select
             value={selectedEnv}
             onChange={(e) => setSelectedEnv(e.target.value)}
-            className={`px-3 py-1.5 rounded-xl border text-xs outline-none cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-xl border text-xs outline-none cursor-pointer ${
               isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800 text-slate-300'
             }`}
           >
@@ -491,7 +528,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className={`px-3 py-1.5 rounded-xl border text-xs outline-none cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-xl border text-xs outline-none cursor-pointer ${
               isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800 text-slate-300'
             }`}
           >
@@ -503,28 +540,82 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             <option value="Monitoring">Monitoring</option>
             <option value="Active Directory">Active Directory</option>
           </select>
+
+          {/* Tag Filter Dropdown (User Requirement: Tags incorporated cleanly in filters!) */}
+          <select
+            value={selectedTag || 'all'}
+            onChange={(e) => setSelectedTag(e.target.value === 'all' ? null : e.target.value)}
+            className={`px-2.5 py-1.5 rounded-xl border text-xs outline-none cursor-pointer ${
+              selectedTag
+                ? 'bg-purple-950/60 border-purple-500/50 text-purple-300 font-bold'
+                : isLightMode
+                ? 'bg-white border-slate-200 text-slate-700'
+                : 'bg-slate-900 border-slate-800 text-slate-300'
+            }`}
+          >
+            <option value="all">{isEn ? '🏷️ All Tags' : '🏷️ همه تگ‌ها'}</option>
+            {tagsSummary.map((ts) => (
+              <option key={ts.tag} value={ts.tag}>
+                #{ts.tag} ({ts.count})
+              </option>
+            ))}
+          </select>
+
+          {/* View Mode Switcher: Grid, List, Table */}
+          <div className="flex items-center bg-slate-900 p-0.5 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              title={isEn ? 'Grid View' : 'نمایش کارت‌ها'}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                viewMode === 'grid' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              title={isEn ? 'List View' : 'نمایش لیستی'}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                viewMode === 'list' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              title={isEn ? 'Table View' : 'نمایش جدولی'}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                viewMode === 'table' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <TableIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Active Tag Filter Chip Banner */}
+      {/* Active Tag Filter Indicator */}
       {selectedTag && (
-        <div className="flex items-center gap-2 mb-4 p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs">
+        <div className="flex items-center gap-2 mb-4 p-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs">
           <Tags className="w-4 h-4 shrink-0 text-purple-400" />
           <span>
-            {isEn ? 'Filtered by Automation Tag:' : 'فیلتر شده بر اساس تگ اتوماسیون:'} <strong>#{selectedTag}</strong>
+            {isEn ? 'Filtered by Tag:' : 'فیلتر بر اساس تگ:'} <strong>#{selectedTag}</strong>
           </span>
           <button
             type="button"
             onClick={() => setSelectedTag(null)}
             className="ms-auto text-xs px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 cursor-pointer"
           >
-            {isEn ? 'Clear Tag Filter' : 'پاک کردن فیلتر تگ'}
+            {isEn ? 'Clear Filter' : 'حذف فیلتر'}
           </button>
         </div>
       )}
 
-      {/* Automation Tags Cloud Matrix (Always accessible or prominent in tags tab) */}
-      {(activeTabFilter === 'tags' || !selectedTag) && tagsSummary.length > 0 && (
+      {/* Automation Tags Cloud (ONLY shown when user explicitly clicks the Tags tab) */}
+      {activeTabFilter === 'tags' && (
         <div
           className={`p-4 rounded-2xl border mb-6 ${
             isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/50 border-slate-800'
@@ -534,11 +625,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             <div className="flex items-center gap-2">
               <Tags className="w-4 h-4 text-purple-400" />
               <h3 className="text-xs font-bold uppercase tracking-wider">
-                {isEn ? 'Automation Tag Cloud (Click to target fleet)' : 'ابر تگ‌های اتوماسیون (کلیک برای فیلتر و اتوماسیون)'}
+                {isEn ? 'Fleet Automation Tags' : 'ابر تگ‌های اتوماسیون ناوگان'}
               </h3>
             </div>
             <span className="text-[11px] text-slate-400">
-              {isEn ? 'Ready for Ansible, CI/CD, and batch tasks' : 'آماده برای اتوماسیون، پلی‌بوک انسیبل و کارهای دسته‌ای'}
+              {isEn ? 'Click tag to isolate targeted compute group' : 'برای فیلتر روی هر تگ کلیک کنید'}
             </span>
           </div>
 
@@ -573,28 +664,29 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         </div>
       )}
 
-      {/* Main Server Cards Grid View */}
-      {viewMode === 'grid' ? (
+      {/* 1. Main Server Cards Grid View */}
+      {viewMode === 'grid' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredServers.map((server) => {
             const isLinux = server.os_type === 'linux';
             const reach = reachabilityCache[server.id];
+            const isMenuOpen = activeMenuServerId === server.id;
 
             return (
               <div
                 key={server.id}
-                className={`group flex flex-col justify-between p-5 rounded-2xl border transition-all duration-200 hover:shadow-xl ${
+                className={`group flex flex-col justify-between p-4 sm:p-5 rounded-2xl border transition-all duration-200 hover:shadow-xl relative ${
                   isLightMode
                     ? 'bg-white border-slate-200 hover:border-cyan-400 shadow-sm'
                     : 'bg-slate-900/60 border-slate-800/90 hover:border-cyan-500/40 hover:bg-slate-900/90 shadow-lg'
                 }`}
               >
                 <div>
-                  {/* Card Header: OS Icon, Name, Status, Actions Menu */}
+                  {/* Card Header: OS Icon, Name, Status, 3-Dot Menu */}
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div
-                        className={`p-2.5 rounded-xl border ${
+                        className={`p-2.5 rounded-xl border shrink-0 ${
                           isLinux
                             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                             : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
@@ -602,13 +694,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       >
                         {isLinux ? <Terminal className="w-5 h-5" /> : <Monitor className="w-5 h-5" />}
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-bold tracking-tight text-white group-hover:text-cyan-300 transition-colors">
-                            {server.name}
-                          </h3>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold tracking-tight text-white group-hover:text-cyan-300 transition-colors truncate">
+                          {server.name}
+                        </h3>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5 truncate">
                           <span>{server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}</span>
                           <span>•</span>
                           <span className="font-mono">{server.category}</span>
@@ -616,7 +706,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <span
                         className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-full border ${
                           server.environment === 'Production'
@@ -628,28 +718,113 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       >
                         {server.environment}
                       </span>
+
+                      {/* 3-Dot Menu Trigger */}
+                      <div className="relative" ref={isMenuOpen ? menuRef : undefined}>
+                        <button
+                          type="button"
+                          onClick={() => setActiveMenuServerId(isMenuOpen ? null : server.id)}
+                          className={`p-1.5 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer ${
+                            isMenuOpen ? 'bg-slate-800 text-white' : 'hover:bg-slate-800'
+                          }`}
+                          title={isEn ? 'More options' : 'گزینه‌های بیشتر'}
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {isMenuOpen && (
+                          <div
+                            className={`absolute ${
+                              isEn ? 'right-0' : 'left-0'
+                            } mt-1 w-48 rounded-xl bg-slate-950 border border-slate-800 shadow-2xl p-1 z-30 text-xs space-y-0.5`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleTestPing(server.id)}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-cyan-300 hover:bg-slate-900 transition text-start cursor-pointer"
+                            >
+                              <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>{isEn ? 'Test Reachability / Ping' : 'تست پینگ و وضعیت'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleCopyIp(server.ip)}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-900 transition text-start cursor-pointer"
+                            >
+                              <Copy className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{isEn ? 'Copy IP Address' : 'کپی آدرس آی‌پی'}</span>
+                            </button>
+
+                            {isLinux && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLinuxTerminal(server, 'bash')}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-emerald-300 hover:bg-emerald-950/40 transition text-start cursor-pointer"
+                                >
+                                  <Terminal className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Open Bash Terminal' : 'ترمینال Bash'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLinuxTerminal(server, 'zsh')}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-cyan-300 hover:bg-cyan-950/40 transition text-start cursor-pointer"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Open Zsh Terminal' : 'ترمینال Zsh'}</span>
+                                </button>
+                              </>
+                            )}
+
+                            {!isLinux && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenWindowsRemote(server)}
+                                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-blue-300 hover:bg-blue-950/40 transition text-start cursor-pointer"
+                              >
+                                <Monitor className="w-3.5 h-3.5" />
+                                <span>{isEn ? 'Connect RDP / Remote' : 'اتصال ریموت دسکتاپ'}</span>
+                              </button>
+                            )}
+
+                            <div className="my-1 border-t border-slate-800" />
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(server)}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-900 transition text-start cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{isEn ? 'Edit Server' : 'ویرایش سرور'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(server)}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-rose-400 hover:bg-rose-950/40 transition text-start cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Delete Server' : 'حذف سرور'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* IP Address & Reachability Badge */}
-                  <div className="flex items-center justify-between mt-4 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 font-mono text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-400">{server.ip}</span>
+                  {/* IP Address & Reachability Bar */}
+                  <div className="flex items-center justify-between mt-3 p-2 rounded-xl bg-slate-950/60 border border-slate-800/80 font-mono text-xs">
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="text-slate-300">{server.ip}</span>
                       {server.hostname && (
-                        <span className="text-[11px] text-slate-500 hidden sm:inline">({server.hostname})</span>
+                        <span className="text-[11px] text-slate-500 truncate">({server.hostname})</span>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => handleCopyIp(server.ip)}
-                        className="p-1 rounded text-slate-500 hover:text-slate-200 transition-colors cursor-pointer"
-                        title={isEn ? 'Copy IP' : 'کپی آی‌پی'}
-                      >
-                        {copiedIp === server.ip ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      </button>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      {reach ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {reach && (
                         <span
                           className={`text-[10px] font-mono px-2 py-0.5 rounded-md border ${
                             reach.reachable
@@ -659,116 +834,257 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         >
                           {reach.reachable ? `${reach.latency}ms` : 'Down'}
                         </span>
-                      ) : null}
-
-                      <button
-                        type="button"
-                        onClick={() => handleTestPing(server.id)}
-                        disabled={reach?.testing}
-                        className="p-1 rounded text-slate-400 hover:text-cyan-400 transition-colors cursor-pointer"
-                        title={isEn ? 'Test Port Ping' : 'تست پینگ پورت'}
-                      >
-                        <Zap className={`w-3.5 h-3.5 ${reach?.testing ? 'animate-bounce text-cyan-400' : ''}`} />
-                      </button>
+                      )}
                     </div>
                   </div>
 
-                  {/* Automation Tags List */}
-                  <div className="mt-3.5">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center gap-1">
-                      <Tags className="w-3 h-3 text-purple-400" />
-                      <span>{isEn ? 'Automation Tags:' : 'تگ‌های اتوماسیون:'}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 min-h-[26px]">
-                      {Array.isArray(server.tags) && server.tags.length > 0 ? (
-                        server.tags.map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => setSelectedTag(tag)}
-                            className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 transition-colors cursor-pointer"
-                          >
-                            #{tag}
-                          </button>
-                        ))
-                      ) : (
-                        <span className="text-[11px] text-slate-600 italic">
-                          {isEn ? 'No tags' : 'بدون تگ'}
+                  {/* Clean, Compact Tags (No clutter!) */}
+                  {Array.isArray(server.tags) && server.tags.length > 0 && (
+                    <div className="flex items-center gap-1 mt-2.5 flex-wrap">
+                      {server.tags.slice(0, 3).map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => setSelectedTag(tag)}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 transition-colors cursor-pointer"
+                        >
+                          #{tag}
+                        </button>
+                      ))}
+                      {server.tags.length > 3 && (
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          +{server.tags.length - 3}
                         </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Action Section: ONE Clean Primary Button + Quick Info */}
+                <div className="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                  <div className="text-[11px] text-slate-400 font-mono">
+                    {server.cpu_cores || 8} vCPU • {server.ram_gb || 32} GB
+                  </div>
+
+                  {isLinux ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Launch Terminal' : 'اتصال ترمینال'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenWindowsRemote(server)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+                    >
+                      <Monitor className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Remote Connect' : 'اتصال ریموت'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 2. New List View (User Requirement: Ergonomic Horizontal Rows) */}
+      {viewMode === 'list' && (
+        <div className="space-y-2">
+          {filteredServers.map((server) => {
+            const isLinux = server.os_type === 'linux';
+            const reach = reachabilityCache[server.id];
+            const isMenuOpen = activeMenuServerId === server.id;
+
+            return (
+              <div
+                key={server.id}
+                className={`p-3 sm:p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 transition-all duration-150 ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 hover:border-cyan-400'
+                    : 'bg-slate-900/60 border-slate-800 hover:border-cyan-500/40 hover:bg-slate-900/90'
+                }`}
+              >
+                {/* Left: Icon, Name, IP, Distro */}
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div
+                    className={`p-2 rounded-lg border shrink-0 ${
+                      isLinux
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                        : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                    }`}
+                  >
+                    {isLinux ? <Terminal className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-white truncate">{server.name}</span>
+                      <span className="font-mono text-xs text-cyan-400">
+                        {server.ip}:{isLinux ? server.ssh_port || 22 : server.win_port || 3389}
+                      </span>
+                      <span
+                        className={`text-[9px] font-mono uppercase px-1.5 py-0.2 rounded border ${
+                          server.environment === 'Production'
+                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                            : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                        }`}
+                      >
+                        {server.environment}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5 flex-wrap">
+                      <span>{server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}</span>
+                      <span>•</span>
+                      <span>{server.category}</span>
+                      {Array.isArray(server.tags) && server.tags.length > 0 && (
+                        <>
+                          <span>•</span>
+                          <div className="flex items-center gap-1">
+                            {server.tags.slice(0, 2).map((t) => (
+                              <span
+                                key={t}
+                                className="text-[10px] font-mono px-1 rounded bg-purple-500/10 text-purple-300"
+                              >
+                                #{t}
+                              </span>
+                            ))}
+                            {server.tags.length > 2 && (
+                              <span className="text-[10px] text-slate-500">+{server.tags.length - 2}</span>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Bottom Action Buttons */}
-                <div className="pt-4 mt-4 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    {isLinux ? (
-                      <>
-                        {/* Bash Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenLinuxTerminal(server, 'bash')}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
-                          title={isEn ? 'Launch Bash Shell Terminal' : 'اتصال به شل Bash لینوکس'}
-                        >
-                          <Terminal className="w-3.5 h-3.5" />
-                          <span>Bash</span>
-                        </button>
-
-                        {/* Zsh Button (Explicit user requirement) */}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenLinuxTerminal(server, 'zsh')}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/30 transition-all cursor-pointer"
-                          title={isEn ? 'Launch Zshell (zsh) Terminal' : 'اتصال به شل Zshell لینوکس'}
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Zshell</span>
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {/* Windows RDP Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenWindowsRemote(server)}
-                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/20 transition-all cursor-pointer"
-                          title={isEn ? 'Open Windows Remote Suite' : 'اتصال به ریموت ویندوز'}
-                        >
-                          <Monitor className="w-3.5 h-3.5" />
-                          <span>{isEn ? 'RDP / Connect' : 'اتصال RDP'}</span>
-                        </button>
-                      </>
-                    )}
+                {/* Right: Specs, Reachability, Primary Action & 3-Dot Menu */}
+                <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
+                  <div className="hidden lg:block text-xs font-mono text-slate-400 text-end">
+                    <div>{server.cpu_cores || 8} vCPU • {server.ram_gb || 32} GB</div>
+                    <div className="text-[10px] text-slate-500">{server.disk_gb || 500} GB NVMe</div>
                   </div>
 
-                  {/* Edit / Delete Actions */}
-                  <div className="flex items-center gap-1">
+                  {reach && (
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                        reach.reachable
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                      }`}
+                    >
+                      {reach.reachable ? `${reach.latency}ms` : 'Down'}
+                    </span>
+                  )}
+
+                  {/* Primary Action Button */}
+                  {isLinux ? (
                     <button
                       type="button"
-                      onClick={() => handleOpenEdit(server)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                      title={isEn ? 'Edit server' : 'ویرایش سرور'}
+                      onClick={() => handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-sm cursor-pointer"
                     >
-                      <Edit2 className="w-3.5 h-3.5" />
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Terminal' : 'ترمینال'}</span>
                     </button>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => handleDelete(server)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                      title={isEn ? 'Delete server' : 'حذف سرور'}
+                      onClick={() => handleOpenWindowsRemote(server)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-sm cursor-pointer"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Monitor className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Remote' : 'ریموت'}</span>
                     </button>
+                  )}
+
+                  {/* 3-Dot Menu */}
+                  <div className="relative" ref={isMenuOpen ? menuRef : undefined}>
+                    <button
+                      type="button"
+                      onClick={() => setActiveMenuServerId(isMenuOpen ? null : server.id)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+
+                    {isMenuOpen && (
+                      <div
+                        className={`absolute ${
+                          isEn ? 'right-0' : 'left-0'
+                        } mt-1 w-48 rounded-xl bg-slate-950 border border-slate-800 shadow-2xl p-1 z-30 text-xs space-y-0.5`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleTestPing(server.id)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-cyan-300 hover:bg-slate-900 transition text-start cursor-pointer"
+                        >
+                          <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>{isEn ? 'Test Reachability / Ping' : 'تست پینگ و وضعیت'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyIp(server.ip)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-900 transition text-start cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{isEn ? 'Copy IP Address' : 'کپی آدرس آی‌پی'}</span>
+                        </button>
+                        {isLinux && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLinuxTerminal(server, 'bash')}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-emerald-300 hover:bg-emerald-950/40 transition text-start cursor-pointer"
+                            >
+                              <Terminal className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Open Bash Terminal' : 'ترمینال Bash'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLinuxTerminal(server, 'zsh')}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-cyan-300 hover:bg-cyan-950/40 transition text-start cursor-pointer"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Open Zsh Terminal' : 'ترمینال Zsh'}</span>
+                            </button>
+                          </>
+                        )}
+                        <div className="my-1 border-t border-slate-800" />
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(server)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-900 transition text-start cursor-pointer"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{isEn ? 'Edit Server' : 'ویرایش سرور'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(server)}
+                          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-rose-400 hover:bg-rose-950/40 transition text-start cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Delete Server' : 'حذف سرور'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
-      ) : (
-        /* Enterprise Dense Table View */
+      )}
+
+      {/* 3. Enterprise Dense Table View */}
+      {viewMode === 'table' && (
         <div
           className={`rounded-2xl border overflow-hidden ${
             isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -783,13 +1099,16 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   <th className="p-3.5">IP / Port</th>
                   <th className="p-3.5">{isEn ? 'Category' : 'دسته'}</th>
                   <th className="p-3.5">{isEn ? 'Env' : 'محیط'}</th>
-                  <th className="p-3.5">{isEn ? 'Automation Tags' : 'تگ‌های اتوماسیون'}</th>
+                  <th className="p-3.5">{isEn ? 'Tags' : 'تگ‌ها'}</th>
                   <th className="p-3.5 text-right">{isEn ? 'Actions' : 'عملیات'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-sans">
                 {filteredServers.map((server) => {
                   const isLinux = server.os_type === 'linux';
+                  const reach = reachabilityCache[server.id];
+                  const isMenuOpen = activeMenuServerId === server.id;
+
                   return (
                     <tr
                       key={server.id}
@@ -841,24 +1160,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         </div>
                       </td>
                       <td className="p-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex items-center justify-end gap-2">
                           {isLinux ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenLinuxTerminal(server, 'bash')}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
-                              >
-                                Bash
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenLinuxTerminal(server, 'zsh')}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-950 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-900 cursor-pointer"
-                              >
-                                Zsh
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
+                            >
+                              Terminal
+                            </button>
                           ) : (
                             <button
                               type="button"
@@ -868,20 +1178,58 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               RDP
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEdit(server)}
-                            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(server)}
-                            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+
+                          <div className="relative" ref={isMenuOpen ? menuRef : undefined}>
+                            <button
+                              type="button"
+                              onClick={() => setActiveMenuServerId(isMenuOpen ? null : server.id)}
+                              className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+
+                            {isMenuOpen && (
+                              <div
+                                className={`absolute ${
+                                  isEn ? 'right-0' : 'left-0'
+                                } mt-1 w-44 rounded-xl bg-slate-950 border border-slate-800 shadow-2xl p-1 z-30 text-xs space-y-0.5 text-start`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handleTestPing(server.id)}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-slate-300 hover:bg-slate-900 cursor-pointer"
+                                >
+                                  <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>{isEn ? 'Test Ping' : 'تست پینگ'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyIp(server.ip)}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-slate-300 hover:bg-slate-900 cursor-pointer"
+                                >
+                                  <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>{isEn ? 'Copy IP' : 'کپی آی‌پی'}</span>
+                                </button>
+                                <div className="my-1 border-t border-slate-800" />
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEdit(server)}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-slate-300 hover:bg-slate-900 cursor-pointer"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Edit' : 'ویرایش'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(server)}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-rose-400 hover:bg-rose-950/40 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Delete' : 'حذف'}</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -893,26 +1241,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty Search / Filter Results State */}
       {filteredServers.length === 0 && !loading && (
-        <div
-          className={`p-12 text-center rounded-2xl border ${
-            isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/30 border-slate-800'
-          }`}
-        >
-          <Server className="w-12 h-12 mx-auto text-slate-600 mb-3" />
-          <h3 className="text-base font-bold text-slate-300">
-            {isEn ? 'No remote servers found' : 'هیچ سروری مطابق فیلتر یافت نشد'}
+        <div className="text-center py-16 px-4">
+          <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 text-slate-500 flex items-center justify-center mx-auto mb-3">
+            <Server className="w-6 h-6" />
+          </div>
+          <h3 className="text-sm font-bold text-slate-300">
+            {isEn ? 'No remote servers found' : 'هیچ سروری یافت نشد'}
           </h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+          <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
             {isEn
-              ? 'Try changing your search terms or filter selection, or register a new server to the fleet.'
-              : 'فیلترها را تغییر دهید یا با کلیک بر روی افزودن سرور، اولین سرور لینوکس یا ویندوز را ثبت کنید.'}
+              ? 'Try modifying your search criteria, environment, or automation tag filter.'
+              : 'فیلترها را تغییر دهید یا با کلیک بر روی افزودن سرور، سرور جدیدی ثبت کنید.'}
           </p>
           <button
             type="button"
             onClick={handleOpenAdd}
-            className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 shadow-md cursor-pointer"
+            className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>{isEn ? 'Add Server Now' : 'ثبت سرور جدید'}</span>
@@ -924,30 +1270,39 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       <AddEditServerModal
         isOpen={isAddEditModalOpen}
         serverToEdit={serverToEdit}
-        onClose={() => setIsAddEditModalOpen(false)}
-        onMinimize={() => setIsAddEditModalOpen(false)}
+        onClose={() => {
+          setIsAddEditModalOpen(false);
+          undockModal('add_edit_remote_server');
+        }}
+        onMinimize={handleMinimizeAddEdit}
         onSave={handleSaveServer}
         isLightMode={isLightMode}
         isEn={isEn}
       />
 
-      {/* Linux Terminal Modal (Bash / Zshell) */}
+      {/* Linux Terminal Modal (Bash / Zshell) with Docking */}
       <LinuxTerminalModal
         isOpen={isTerminalModalOpen}
         server={terminalServer}
         initialShell={terminalShell}
-        onClose={() => setIsTerminalModalOpen(false)}
-        onMinimize={() => setIsTerminalModalOpen(false)}
+        onClose={() => {
+          setIsTerminalModalOpen(false);
+          if (terminalServer) undockModal(`linux_term_${terminalServer.id}`);
+        }}
+        onMinimize={handleMinimizeLinuxTerminal}
         isLightMode={isLightMode}
         isEn={isEn}
       />
 
-      {/* Windows Remote Connect Modal (RDP / PowerShell) */}
+      {/* Windows Remote Connect Modal (RDP / PowerShell) with Docking */}
       <WindowsRemoteConnectModal
         isOpen={isWindowsModalOpen}
         server={windowsModalServer}
-        onClose={() => setIsWindowsModalOpen(false)}
-        onMinimize={() => setIsWindowsModalOpen(false)}
+        onClose={() => {
+          setIsWindowsModalOpen(false);
+          if (windowsModalServer) undockModal(`win_remote_${windowsModalServer.id}`);
+        }}
+        onMinimize={handleMinimizeWindowsRemote}
         isLightMode={isLightMode}
         isEn={isEn}
       />

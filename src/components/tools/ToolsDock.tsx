@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { ActiveToolState, NetworkToolId } from './types';
+import { useModalDock } from '../../context/ModalDockContext';
 import {
   Calculator,
   KeyRound,
@@ -126,6 +127,8 @@ export const ToolsDock: React.FC<ToolsDockProps> = ({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  const { dockedModals, restoreModal, closeModal } = useModalDock();
+
   const containerRef = useRef<HTMLDivElement>(null);
   const dockRootRef = useRef<HTMLDivElement>(null);
 
@@ -166,8 +169,25 @@ export const ToolsDock: React.FC<ToolsDockProps> = ({
       });
     });
 
+    // Dynamically Docked Modals via ModalDockContext
+    dockedModals.forEach((docked) => {
+      if (items.some((it) => it.id === docked.id)) return;
+      items.push({
+        key: `docked_${docked.id}`,
+        type: 'modal',
+        id: docked.id,
+        labelEn: docked.labelEn,
+        labelFa: docked.labelFa,
+        badge: docked.badge,
+        category: docked.category,
+        icon: STANDARD_MODAL_ICONS[docked.id as StandardModalId] || (docked.category === 'terminal' ? Terminal : docked.category === 'device' ? Server : Activity),
+        onRestore: () => restoreModal(docked.id),
+        onClose: () => closeModal(docked.id),
+      });
+    });
+
     return items;
-  }, [activeTools, minimizedModals, onRestoreTool, onCloseTool, onRestoreModal, onCloseModal]);
+  }, [activeTools, minimizedModals, dockedModals, onRestoreTool, onCloseTool, onRestoreModal, onCloseModal, restoreModal, closeModal]);
 
   // Bugfix (Issue 3): When all items are closed, or activeCategory has 0 items, auto-reset to 'all'
   useEffect(() => {

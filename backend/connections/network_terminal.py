@@ -553,6 +553,10 @@ class NetworkTerminalSession:
 
         self.close()
 
+    def send_input(self, data: str) -> bool:
+        """Alias for write_input to support legacy callers."""
+        return self.write_input(data)
+
     def write_input(self, data: str) -> bool:
         """Sends user keystrokes/commands directly to the device channel."""
         if self.status not in ("CONNECTED", "ACTIVE"):

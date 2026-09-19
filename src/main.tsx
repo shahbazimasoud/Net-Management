@@ -5,6 +5,7 @@ import './index.css';
 import { LanguageProvider } from './i18n';
 import { UpdateProvider } from './context/UpdateContext';
 import { AuthProvider } from './context/AuthContext';
+import { ModalDockProvider } from './context/ModalDockContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 createRoot(document.getElementById('root')!).render(
@@ -12,9 +13,11 @@ createRoot(document.getElementById('root')!).render(
     <LanguageProvider>
       <UpdateProvider>
         <AuthProvider>
-          <ErrorBoundary>
-            <App />
-          </ErrorBoundary>
+          <ModalDockProvider>
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
+          </ModalDockProvider>
         </AuthProvider>
       </UpdateProvider>
     </LanguageProvider>

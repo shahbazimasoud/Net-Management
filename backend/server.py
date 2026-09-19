@@ -3830,6 +3830,22 @@ def start_websocket_server(ws_port: int):
                     except Exception:
                         pass
 
+            if not device and (qs.get("host") or qs.get("ip")):
+                dev_ip = (qs.get("host") or qs.get("ip"))[0].strip()
+                device = {
+                    "id": device_id,
+                    "name": qs.get("name", [device_id])[0],
+                    "ip": dev_ip,
+                    "ssh_host": dev_ip,
+                    "ssh_port": int(qs.get("port", ["22"])[0]),
+                    "ssh_username": qs.get("username", [qs.get("user", ["root"])])[0],
+                    "ssh_password": qs.get("password", [""])[0],
+                    "connection_protocol": "ssh",
+                    "default_shell": qs.get("shell", ["bash"])[0],
+                    "platform": qs.get("platform", ["linux"])[0],
+                    "is_remote_server": True,
+                }
+
             if not device:
                 err_msg = f"Device or Server with ID '{device_id}' was not found in inventory."
                 await websocket.send(json.dumps({
@@ -3848,11 +3864,11 @@ def start_websocket_server(ws_port: int):
             conn = device.get("connection", {})
             protocol = req_protocol or conn.get("protocol") or device.get("connection_protocol") or "ssh"
             protocol = protocol.lower()
-            host = conn.get("host") or device.get("ssh_host") or device.get("ip", "").strip()
+            host = (qs.get("host") or qs.get("ip") or [conn.get("host") or device.get("ssh_host") or device.get("ip", "")])[0].strip()
             default_port = 23 if protocol == "telnet" else 22
-            port = int(conn.get("port") or device.get("ssh_port") or default_port)
-            username = conn.get("username") or device.get("ssh_username") or "admin"
-            password = conn.get("password") or device.get("ssh_password") or ""
+            port = int((qs.get("port") or [conn.get("port") or device.get("ssh_port") or default_port])[0])
+            username = (qs.get("username") or qs.get("user") or [conn.get("username") or device.get("ssh_username") or "admin"])[0].strip()
+            password = (qs.get("password") or [conn.get("password") or device.get("ssh_password") or ""])[0]
             enable_password = conn.get("enable_password") or device.get("enable_password") or ""
             platform = device.get("platform", "cisco_ios_xe")
             req_shell = qs.get("shell", [device.get("default_shell", "bash")])[0].strip().lower()

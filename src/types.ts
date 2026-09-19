@@ -1212,6 +1212,12 @@ export interface RemoteServer {
   win_domain?: string;
   win_username?: string;
   win_password?: string;
+  cpu_cores?: number;
+  ram_gb?: number;
+  disk_gb?: number;
+  uptime_str?: string;
+  location?: string;
+  notes?: string;
   created_at?: string;
   updated_at?: string;
 }
