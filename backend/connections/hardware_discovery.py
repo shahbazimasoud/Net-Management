@@ -652,12 +652,57 @@ def execute_real_hardware_probe(
     hw["total_ports"] = total_ports
     power = calculate_power_specs(hw["model"], total_ports, platform)
 
+    # Intelligent detection of exact platform, device type, and role
+    comb_str = f"{raw_output_accumulated} {hw.get('model', '')} {hw.get('os_version', '')} {banner}".lower()
+    detected_plat = platform
+    if "mikrotik" in comb_str or "routeros" in comb_str or "routerboard" in comb_str:
+        detected_plat = "mikrotik_routeros"
+    elif "ios-xe" in comb_str or "ios xe" in comb_str or "c9" in comb_str:
+        detected_plat = "cisco_ios_xe"
+    elif "cisco" in comb_str or "catalyst" in comb_str:
+        detected_plat = "cisco_ios"
+    elif "linux" in comb_str or "ubuntu" in comb_str or "debian" in comb_str:
+        detected_plat = "generic_linux"
+
+    if any(k in comb_str for k in ["firewall", "security", "asa", "fortigate", "pfsense"]):
+        dev_type = "firewall"
+        detected_role = "Security Appliance"
+    elif any(k in comb_str for k in ["access point", "wireless", "aironet", "unifi"]):
+        dev_type = "access_point"
+        detected_role = "Wireless AP"
+    elif detected_plat == "mikrotik_routeros":
+        if any(k in comb_str for k in ["crs", "css"]):
+            dev_type = "switch"
+            detected_role = "Distribution Switch" if total_ports > 24 else "Access Switch"
+        else:
+            dev_type = "router"
+            detected_role = "Edge Gateway"
+    elif detected_plat == "generic_linux":
+        dev_type = "router"
+        detected_role = "Edge Gateway"
+    else:
+        if any(k in comb_str for k in ["router", "gateway", "isr", "asr", "csr"]):
+            dev_type = "router"
+            detected_role = "Edge Gateway"
+        else:
+            dev_type = "switch"
+            if any(k in comb_str for k in ["core", "9500", "9600", "6500", "nexus"]):
+                detected_role = "Core Switch"
+            elif any(k in comb_str for k in ["distribution", "aggregation", "3750", "3850", "9300"]):
+                detected_role = "Distribution Switch"
+            else:
+                detected_role = "Access Switch"
+
+    hw["platform_detected"] = detected_plat
+    hw["role_detected"] = detected_role
+    hw["device_type"] = dev_type
+
     connected_count = sum(1 for p in ports if p.get("status") == "connected")
     notconnect_count = sum(1 for p in ports if p.get("status") == "notconnect")
     disabled_count = sum(1 for p in ports if p.get("status") == "disabled")
 
-    msg_en = f"SSH connection to {ip}:{port} successfully established. Telemetry extracted: {hw['hostname']} ({hw['model']}), {total_ports} ports discovered."
-    msg_fa = f"اتصال SSH به {ip}:{port} با موفقیت برقرار شد. مشخصات سخت‌افزاری دریافت شد: {hw['hostname']} ({hw['model']}) با {total_ports} پورت شناسایی گردید."
+    msg_en = f"SSH connection to {ip}:{port} successfully established. Telemetry extracted: {hw['hostname']} ({hw['model']}), Platform: {detected_plat}, Role: {detected_role}, {total_ports} ports discovered."
+    msg_fa = f"اتصال SSH به {ip}:{port} با موفقیت برقرار شد. مشخصات سخت‌افزاری دریافت شد: {hw['hostname']} ({hw['model']})، پلتفرم: {detected_plat}، رده: {detected_role} با {total_ports} پورت شناسایی گردید."
 
     return {
         "success": True,
@@ -666,9 +711,12 @@ def execute_real_hardware_probe(
         "ip": ip,
         "port": port,
         "username": username,
-        "platform": platform,
+        "platform": detected_plat,
+        "platform_detected": detected_plat,
+        "role_detected": detected_role,
+        "device_type": dev_type,
         "latency_ms": latency,
-        "banner": banner or f"SSH-2.0 Real Tunnel ({platform})",
+        "banner": banner or f"SSH-2.0 Real Tunnel ({detected_plat})",
         "session_id": session_id,
         "master_session_id": session_id,
         "is_master": True,

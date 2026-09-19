@@ -38,7 +38,7 @@ import {
   saveDeviceStickyNote,
   deleteDeviceStickyNote,
 } from './db';
-import { testAndDiscoverDeviceViaSsh } from './sshDiscovery';
+import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
   startDiscoveryJob,
   getDiscoveryJobStatus,
@@ -739,8 +739,25 @@ apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response)
             pythonData.firmware = pythonData.firmware || pythonData.hardware.os_version;
             pythonData.uptime = pythonData.uptime || pythonData.hardware.uptime;
             pythonData.ip = pythonData.ip || pythonData.hardware.ip;
+            pythonData.platform_detected = pythonData.platform_detected || pythonData.hardware.platform_detected;
+            pythonData.role_detected = pythonData.role_detected || pythonData.hardware.role_detected;
+            pythonData.device_type = pythonData.device_type || pythonData.hardware.device_type;
           }
           pythonData.ip = pythonData.ip || req.body?.ssh_host || req.body?.host || req.body?.ip;
+
+          if (!pythonData.platform_detected || !pythonData.role_detected) {
+            const autoDet = detectPlatformAndRole(
+              pythonData.raw_output || pythonData.raw_status_output || '',
+              pythonData.model || '',
+              pythonData.firmware || '',
+              pythonData.banner || '',
+              pythonData.total_ports || 24,
+              req.body?.platform
+            );
+            pythonData.platform_detected = pythonData.platform_detected || autoDet.platform;
+            pythonData.role_detected = pythonData.role_detected || autoDet.role;
+            pythonData.device_type = pythonData.device_type || autoDet.device_type;
+          }
 
           if (pythonData.ports_telemetry && (!pythonData.ports || pythonData.ports.length === 0)) {
             pythonData.ports = pythonData.ports_telemetry.ports;

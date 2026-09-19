@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.83.1';
+export const APP_VERSION = '1.84.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.84.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'تشخیص هوشمند سیستم‌عامل، پلتفرم و رده تجهیز در تست اتصال و ارتقای دکمه به Test SSH & Fetch Data',
+    title_en: 'Auto-detection of OS, Hardware Platform, Device Role & Category in Connection Test, and Upgraded Fetch Data Action',
+    changes: [
+      'تغییر عنوان دکمه تست پروتکل ترمینال در مودال ثبت تجهیز جدید به Test SSH & Fetch Data (و Test Telnet & Fetch Data) با رفتار پویای بارگذاری و برقراری ارتباط زنده.',
+      'تشخیص خودکار و هوشمند سیستم‌عامل و پلتفرم سخت‌افزاری (Hardware Platform & OS) نظیر Cisco IOS، Cisco IOS-XE، MikroTik RouterOS و Generic Linux بر اساس تله‌متری زنده و تحلیل فرامین و بنر اتصال.',
+      'تنظیم خودکار رده و دسته‌بندی تجهیز (Device Role & Category) شامل تشخیص سوئیچ (Core/Distribution/Access)، روتر (Edge Gateway)، اکسس‌پوینت یا فایروال بر اساس مدل و ساختار سخت‌افزاری دریافت شده.',
+      'توسعه ماژول‌های دیسکاوری پایتون و نودجی‌اس جهت تشخیص فوری پاسخ‌های RouterOS و IOS و تکمیل خودکار فیلدهای فرم ثبت تجهیز.'
+    ],
+    changes_en: [
+      'Renamed the connection test buttons in the Register New Network Device modal to "Test SSH & Fetch Data" and "Test Telnet & Fetch Data" with live status feedback.',
+      'Implemented automated OS and Hardware Platform detection (Cisco IOS, Cisco IOS-XE, MikroTik RouterOS, and Generic Linux) based on live telemetry, banner inspection, and command outputs.',
+      'Automatically set Device Role & Category (Core, Distribution, Access Switch, Edge Gateway Router, Wireless AP, Security Firewall) based on model numbers and port counts upon successful connection.',
+      'Enhanced discovery engines in both Python and Node.js backends for prompt detection and form auto-population.'
+    ]
+  },
   {
     version: '1.83.1',
     releaseDate: '2026-09-18',

@@ -47,6 +47,8 @@ export interface DiscoveredHardware {
   total_ports?: number;
   device_type?: string;
   platform_detected?: string;
+  role_detected?: string;
+  os_detected?: string;
 }
 
 export interface DiscoveredPower {
@@ -419,6 +421,174 @@ export function parseDeviceTelemetry(
   return { hostname, model, serial_number, mac, firmware, uptime };
 }
 
+export interface DetectedPlatformRole {
+  platform: 'cisco_ios' | 'cisco_ios_xe' | 'mikrotik_routeros' | 'generic_linux';
+  device_type: 'switch' | 'router' | 'access_point' | 'firewall';
+  role: string;
+  os_name: string;
+}
+
+/**
+ * Intelligently analyzes raw command outputs, model strings, OS version strings,
+ * and connection banners to determine the exact OS/Platform, Device Type, and Role/Category.
+ */
+export function detectPlatformAndRole(
+  rawOutput: string = '',
+  model: string = '',
+  firmware: string = '',
+  banner: string = '',
+  totalPorts: number = 24,
+  fallbackPlatform?: string
+): DetectedPlatformRole {
+  const combined = `${rawOutput} ${model} ${firmware} ${banner}`.toLowerCase();
+
+  let platform: 'cisco_ios' | 'cisco_ios_xe' | 'mikrotik_routeros' | 'generic_linux' = 'cisco_ios';
+  let osName = 'Cisco IOS';
+
+  // 1. Detect MikroTik RouterOS
+  const isMikrotik =
+    combined.includes('mikrotik') ||
+    combined.includes('routeros') ||
+    combined.includes('routerboard') ||
+    combined.includes('/system') ||
+    combined.includes('winbox') ||
+    /\[[^@]+@[^\]]+\]\s*>/.test(rawOutput) ||
+    /\b(ccr\d+|crs\d+|css\d+|rb\d+|hex|hap|chr)\b/i.test(combined);
+
+  // 2. Detect Cisco IOS-XE
+  const isIosXe =
+    combined.includes('ios-xe') ||
+    combined.includes('ios xe') ||
+    combined.includes('cat9') ||
+    combined.includes('catalyst 9') ||
+    /\bc9[2-6]\d{2}\b/i.test(combined) ||
+    /\b(asr1\d+|asr9\d+|isr4\d+|csr1000v?|c8000)\b/i.test(combined) ||
+    /\b(3850|3650)\b/i.test(combined) ||
+    (/\bcisco\b/i.test(combined) && /\b(16\.\d+|17\.\d+)\b/.test(combined));
+
+  // 3. Detect Generic Linux
+  const isLinux =
+    !isMikrotik &&
+    !isIosXe &&
+    !combined.includes('cisco') &&
+    (combined.includes('linux') ||
+      combined.includes('ubuntu') ||
+      combined.includes('debian') ||
+      combined.includes('centos') ||
+      combined.includes('red hat') ||
+      combined.includes('rhel') ||
+      combined.includes('alpine') ||
+      combined.includes('arch linux') ||
+      combined.includes('kernel'));
+
+  if (isMikrotik) {
+    platform = 'mikrotik_routeros';
+    osName = firmware.toLowerCase().includes('routeros')
+      ? firmware
+      : (firmware ? `MikroTik RouterOS v${firmware}` : 'MikroTik RouterOS');
+  } else if (isIosXe) {
+    platform = 'cisco_ios_xe';
+    osName = firmware.toLowerCase().includes('ios-xe')
+      ? firmware
+      : (firmware ? `Cisco IOS-XE ${firmware}` : 'Cisco IOS-XE');
+  } else if (isLinux) {
+    platform = 'generic_linux';
+    osName = firmware || 'Linux / Ubuntu Server';
+  } else if (
+    fallbackPlatform &&
+    ['cisco_ios', 'cisco_ios_xe', 'mikrotik_routeros', 'generic_linux'].includes(fallbackPlatform)
+  ) {
+    platform = fallbackPlatform as any;
+    osName =
+      platform === 'cisco_ios_xe'
+        ? 'Cisco IOS-XE'
+        : platform === 'mikrotik_routeros'
+        ? 'MikroTik RouterOS'
+        : 'Cisco IOS';
+  } else {
+    platform = 'cisco_ios';
+    osName = firmware ? `Cisco IOS ${firmware}` : 'Cisco IOS';
+  }
+
+  // 4. Detect Device Role & Category (Type)
+  let deviceType: 'switch' | 'router' | 'access_point' | 'firewall' = 'switch';
+  let role = 'Access Switch';
+
+  const isFirewall =
+    combined.includes('firewall') ||
+    combined.includes('security appliance') ||
+    combined.includes('asa') ||
+    combined.includes('fortigate') ||
+    combined.includes('fortinet') ||
+    combined.includes('pfsense') ||
+    combined.includes('opnsense') ||
+    combined.includes('palo alto') ||
+    combined.includes('pan-os');
+
+  const isAccessPoint =
+    combined.includes('access point') ||
+    combined.includes('wireless') ||
+    combined.includes('aironet') ||
+    combined.includes('capwap') ||
+    combined.includes('unifi') ||
+    /\b(c91\d{2}|ap\d+|wap\d+)\b/i.test(combined);
+
+  if (isFirewall) {
+    deviceType = 'firewall';
+    role = 'Security Appliance';
+  } else if (isAccessPoint) {
+    deviceType = 'access_point';
+    role = 'Wireless AP';
+  } else if (platform === 'mikrotik_routeros') {
+    // MikroTik CRS/CSS are switches; CCR/RB/hEX/hAP/CHR are routers
+    if (/\b(crs\d+|css\d+)\b/i.test(combined)) {
+      deviceType = 'switch';
+      role = totalPorts > 24 ? 'Distribution Switch' : 'Access Switch';
+    } else {
+      deviceType = 'router';
+      role = 'Edge Gateway';
+    }
+  } else if (platform === 'generic_linux') {
+    deviceType = 'router';
+    role = 'Edge Gateway';
+  } else {
+    // Cisco platforms
+    const isRouter =
+      combined.includes('router') ||
+      combined.includes('gateway') ||
+      /\b(isr\d*|asr\d*|csr\d*|c8000|c1100|28\d{2}|29\d{2}|19\d{2}|72\d{2})\b/i.test(combined);
+
+    if (isRouter) {
+      deviceType = 'router';
+      role = 'Edge Gateway';
+    } else {
+      deviceType = 'switch';
+      // Core vs Distribution vs Access
+      if (
+        combined.includes('core') ||
+        /\b(9500|9600|6500|6800|nexus)\b/i.test(combined)
+      ) {
+        role = 'Core Switch';
+      } else if (
+        combined.includes('distribution') ||
+        combined.includes('aggregation') ||
+        /\b(3750|3850|9300)\b/i.test(combined)
+      ) {
+        role = 'Distribution Switch';
+      } else {
+        role = 'Access Switch';
+      }
+    }
+  }
+
+  return {
+    platform,
+    device_type: deviceType,
+    role,
+    os_name: osName,
+  };
+}
+
 /**
  * Backwards compatibility export for parseDeviceVersionAndHostname
  */
@@ -556,8 +726,16 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
   if (isSimulator) {
     const simData = generateSimulatedSwitchData(ip, options.platform);
     const power = calculatePowerSpecs(simData.model, simData.total_ports, options.platform || '');
-    const msgEn = `Simulator connection successful. Discovered ${simData.total_ports} ports via show interface status.`;
-    const msgFa = `اتصال شبیه‌ساز با موفقیت برقرار شد. ${simData.total_ports} پورت با دستور show interface status شناسایی شد.`;
+    const detected = detectPlatformAndRole(
+      simData.raw_status_output,
+      simData.model,
+      '15.2(7)E3',
+      '',
+      simData.total_ports,
+      options.platform
+    );
+    const msgEn = `Simulator connection successful. Discovered ${simData.total_ports} ports via show interface status. Platform: ${detected.platform} | Role: ${detected.role}.`;
+    const msgFa = `اتصال شبیه‌ساز با موفقیت برقرار شد. ${simData.total_ports} پورت با دستور show interface status شناسایی شد. پلتفرم: ${detected.platform} | رده: ${detected.role}.`;
     return {
       success: true,
       connected: true,
@@ -581,8 +759,10 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
         os_version: '15.2(7)E3',
         uptime: '28 weeks, 4 days',
         total_ports: simData.total_ports,
-        device_type: 'switch',
-        platform_detected: options.platform || 'cisco_ios',
+        device_type: detected.device_type,
+        platform_detected: detected.platform,
+        role_detected: detected.role,
+        os_detected: detected.os_name,
       },
       serial_number: 'FCZ2411B02X',
       mac: '00:2A:6A:11:22:33',
@@ -724,8 +904,24 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
             });
           }
 
+          let hasSentMikrotik = false;
           stream.on('data', (chunk: Buffer) => {
-            streamOutput += chunk.toString('utf-8');
+            const chunkStr = chunk.toString('utf-8');
+            streamOutput += chunkStr;
+            // Dynamic discovery: if device answers with MikroTik prompt or syntax error to Cisco command, send MikroTik commands immediately
+            if (
+              !hasSentMikrotik &&
+              (chunkStr.includes('MikroTik') ||
+                chunkStr.includes('syntax error') ||
+                /\[[^@]+@[^\]]+\]\s*>/.test(chunkStr) ||
+                chunkStr.includes('bad command'))
+            ) {
+              hasSentMikrotik = true;
+              stream.write('/system identity print\n');
+              stream.write('/system resource print\n');
+              stream.write('/system routerboard print\n');
+              stream.write('/interface ethernet print detail without-paging\n');
+            }
           });
 
           stream.on('close', () => {
@@ -741,6 +937,7 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
 
             if (isMikrotik) {
               // MikroTik RouterOS commands
+              hasSentMikrotik = true;
               stream.write('/system identity print\n');
               stream.write('/system resource print\n');
               stream.write('/system routerboard print\n');
@@ -800,10 +997,18 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
               const telemetry = parseDeviceTelemetry(streamOutput, ip);
               const ports = parseShowInterfacesStatus(streamOutput);
               const totalPorts = calculateCanonicalPortCount(ports, telemetry.model);
-              const power = calculatePowerSpecs(telemetry.model, totalPorts, options.platform || '');
+              const detected = detectPlatformAndRole(
+                streamOutput,
+                telemetry.model,
+                telemetry.firmware,
+                socketCheck.banner,
+                totalPorts,
+                options.platform
+              );
+              const power = calculatePowerSpecs(telemetry.model, totalPorts, detected.platform || options.platform || '');
 
-              const msgEn = `SSH connection to ${ip}:${port} established and authenticated successfully. Discovered ${totalPorts} ports (${ports.length} interfaces parsed).`;
-              const msgFa = `ارتباط SSH با ${ip}:${port} با موفقیت برقرار و احراز هویت انجام شد. تعداد ${totalPorts} پورت شناسایی گردید.`;
+              const msgEn = `SSH connection to ${ip}:${port} established and authenticated successfully. Detected ${detected.os_name} on ${detected.platform}. Discovered ${totalPorts} ports (${ports.length} interfaces parsed).`;
+              const msgFa = `ارتباط SSH با ${ip}:${port} با موفقیت برقرار شد. پلتفرم ${detected.platform} و سیستم‌عامل ${detected.os_name} شناسایی گردید. تعداد ${totalPorts} پورت کشف شد.`;
 
               finishResolve({
                 success: true,
@@ -822,18 +1027,20 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
                 power,
                 serial_number: telemetry.serial_number,
                 mac: telemetry.mac,
-                firmware: telemetry.firmware,
+                firmware: telemetry.firmware || detected.os_name,
                 uptime: telemetry.uptime,
                 hardware: {
                   hostname: telemetry.hostname,
                   model: telemetry.model,
                   serial_number: telemetry.serial_number,
                   mac_address: telemetry.mac,
-                  os_version: telemetry.firmware,
+                  os_version: telemetry.firmware || detected.os_name,
                   uptime: telemetry.uptime,
                   total_ports: totalPorts,
-                  device_type: /router/i.test(telemetry.model) ? 'router' : 'switch',
-                  platform_detected: options.platform || 'cisco_ios',
+                  device_type: detected.device_type,
+                  platform_detected: detected.platform,
+                  role_detected: detected.role,
+                  os_detected: detected.os_name,
                 },
                 message_en: msgEn,
                 message_fa: msgFa,
@@ -928,8 +1135,16 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
   }
 
   // Fallback for Telnet
-  const msgEn = `Telnet port ${ip}:${port} is open and reachable.`;
-  const msgFa = `پورت تلنت ${ip}:${port} باز و در دسترس است.`;
+  const detected = detectPlatformAndRole(
+    '',
+    '',
+    '',
+    socketCheck.banner || '',
+    24,
+    options.platform
+  );
+  const msgEn = `Telnet port ${ip}:${port} is reachable. Banner: ${socketCheck.banner || 'Connected'}. Detected: ${detected.platform} | Role: ${detected.role}.`;
+  const msgFa = `پورت تلنت ${ip}:${port} در دسترس است. پلتفرم: ${detected.platform} | رده: ${detected.role}.`;
   return {
     success: true,
     connected: true,
@@ -938,6 +1153,22 @@ export async function testAndDiscoverDeviceViaSsh(options: SshDiscoveryOptions):
     port,
     latency_ms: latency,
     banner: socketCheck.banner,
+    hostname: socketCheck.banner?.match(/hostname\s+([^\s\r\n]+)/i)?.[1] || `DEV-${ip.split('.').pop() || '01'}`,
+    model: socketCheck.banner?.match(/(Catalyst\s+[^\s\r\n]+|CCR[^\s\r\n]+|CRS[^\s\r\n]+)/i)?.[1] || (detected.platform === 'mikrotik_routeros' ? 'MikroTik RouterBOARD' : 'Network Device'),
+    total_ports: 24,
+    hardware: {
+      hostname: socketCheck.banner?.match(/hostname\s+([^\s\r\n]+)/i)?.[1] || `DEV-${ip.split('.').pop() || '01'}`,
+      model: detected.platform === 'mikrotik_routeros' ? 'MikroTik RouterBOARD' : 'Network Device',
+      serial_number: '',
+      mac_address: '',
+      os_version: detected.os_name,
+      uptime: '',
+      total_ports: 24,
+      device_type: detected.device_type,
+      platform_detected: detected.platform,
+      role_detected: detected.role,
+      os_detected: detected.os_name,
+    },
     message_en: msgEn,
     message_fa: msgFa,
     message: isEn ? msgEn : msgFa,

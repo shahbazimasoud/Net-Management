@@ -438,12 +438,76 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         if (hw?.uptime || res.uptime) {
           setUptime(hw?.uptime || res.uptime || '');
         }
-        if (hw?.device_type) {
-          setType(hw.device_type);
+        // Auto-detect and set Hardware Platform & OS
+        const detectedPlatform = (hw as any)?.platform_detected || (res as any).platform_detected || (res as any).platform;
+        const combText = `${res.raw_status_output || ''} ${(res as any).raw_output || ''} ${hw?.model || res.model || ''} ${hw?.os_version || res.firmware || ''} ${(res as any).banner || ''}`.toLowerCase();
+        
+        let newPlatform: DevicePlatform = platform;
+        if (detectedPlatform && ['cisco_ios', 'cisco_ios_xe', 'mikrotik_routeros', 'generic_linux'].includes(detectedPlatform)) {
+          newPlatform = detectedPlatform as DevicePlatform;
+        } else if (combText.includes('mikrotik') || combText.includes('routeros') || combText.includes('routerboard')) {
+          newPlatform = 'mikrotik_routeros';
+        } else if (combText.includes('ios-xe') || combText.includes('ios xe') || combText.includes('cat9') || combText.includes('c9')) {
+          newPlatform = 'cisco_ios_xe';
+        } else if (combText.includes('linux') || combText.includes('ubuntu') || combText.includes('debian')) {
+          newPlatform = 'generic_linux';
+        } else if (combText.includes('cisco') || combText.includes('catalyst')) {
+          newPlatform = 'cisco_ios';
         }
-        if (hw?.platform_detected) {
-          setPlatform(hw.platform_detected as DevicePlatform);
+        setPlatform(newPlatform);
+
+        // Auto-detect and set Device Category (Type) and Role
+        const rawDeviceType = (hw as any)?.device_type || (res as any).device_type;
+        const rawRole = (hw as any)?.role_detected || (res as any).role_detected;
+        
+        let newType: DeviceType = type;
+        let newRole: string = role;
+
+        if (rawDeviceType && ['switch', 'router', 'access_point', 'firewall'].includes(rawDeviceType)) {
+          newType = rawDeviceType as DeviceType;
+        } else if (combText.includes('firewall') || combText.includes('asa') || combText.includes('security appliance') || combText.includes('fortigate') || combText.includes('pfsense')) {
+          newType = 'firewall';
+        } else if (combText.includes('access point') || combText.includes('wireless') || combText.includes('aironet') || combText.includes('unifi')) {
+          newType = 'access_point';
+        } else if (newPlatform === 'mikrotik_routeros') {
+          if (/\b(crs\d+|css\d+)\b/i.test(combText)) {
+            newType = 'switch';
+          } else {
+            newType = 'router';
+          }
+        } else if (newPlatform === 'generic_linux') {
+          newType = 'router';
+        } else {
+          // Cisco
+          if (combText.includes('router') || combText.includes('gateway') || /\b(isr\d*|asr\d*|csr\d*|c8000|c1100|28\d{2}|29\d{2})\b/i.test(combText)) {
+            newType = 'router';
+          } else {
+            newType = 'switch';
+          }
         }
+        setType(newType);
+
+        // Determine specific Role
+        if (rawRole) {
+          newRole = rawRole;
+        } else if (newType === 'firewall') {
+          newRole = 'Security Appliance';
+        } else if (newType === 'access_point') {
+          newRole = 'Wireless AP';
+        } else if (newType === 'router') {
+          newRole = 'Edge Gateway';
+        } else {
+          // switch
+          if (combText.includes('core') || /\b(9500|9600|6500|6800|nexus)\b/i.test(combText)) {
+            newRole = 'Core Switch';
+          } else if (combText.includes('distribution') || combText.includes('aggregation') || /\b(3750|3850|9300)\b/i.test(combText)) {
+            newRole = 'Distribution Switch';
+          } else {
+            newRole = 'Access Switch';
+          }
+        }
+        setRole(newRole);
+
         if (pwr?.power_supplies !== undefined) {
           setPowerSupplies(pwr.power_supplies);
         }
@@ -1411,12 +1475,16 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     {isTestingSsh ? (
                       <>
                         <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>{isEn ? 'Testing & Discovering...' : 'اتصال و دریافت پورت‌ها...'}</span>
+                        <span>{isEn ? 'Testing & Fetching Data...' : 'در حال تست و دریافت مشخصات...'}</span>
                       </>
                     ) : (
                       <>
                         <Terminal className="w-3 h-3" />
-                        <span>{isEn ? `Test ${connectionProtocol.toUpperCase()}` : `تست اتصال ${connectionProtocol.toUpperCase()}`}</span>
+                        <span>
+                          {connectionProtocol === 'ssh'
+                            ? (isEn ? 'Test SSH & Fetch Data' : 'تست SSH و دریافت مشخصات')
+                            : (isEn ? 'Test Telnet & Fetch Data' : 'تست Telnet و دریافت مشخصات')}
+                        </span>
                       </>
                     )}
                   </button>
