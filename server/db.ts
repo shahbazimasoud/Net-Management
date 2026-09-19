@@ -106,6 +106,37 @@ export async function ensurePostgresConnection(): Promise<boolean> {
 // Local persistent file fallback (used if PostgreSQL is offline or unprovisioned)
 const FALLBACK_FILE = path.join(process.cwd(), 'backend', 'database_store.json');
 
+export interface RemoteServer {
+  id: string;
+  name: string;
+  hostname?: string;
+  ip: string;
+  os_type: 'linux' | 'windows';
+  os_distro?: string;
+  environment: 'Production' | 'Staging' | 'Development' | 'Testing' | 'DMZ' | 'DR';
+  category: string;
+  role: string;
+  tags: string[];
+  ssh_port?: number;
+  ssh_username?: string;
+  ssh_password?: string;
+  ssh_key_path?: string;
+  default_shell?: 'bash' | 'zsh' | 'sh';
+  win_protocol?: 'rdp' | 'powershell' | 'winrm';
+  win_port?: number;
+  win_username?: string;
+  win_domain?: string;
+  status: 'online' | 'offline' | 'unreachable';
+  cpu_cores?: number;
+  ram_gb?: number;
+  disk_gb?: number;
+  uptime_str?: string;
+  location?: string;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface FallbackStore {
   users: any[];
   user_groups: any[];
@@ -118,6 +149,7 @@ interface FallbackStore {
   audit_logs: any[];
   ad_config: any;
   device_sticky_notes?: any[];
+  remote_servers?: RemoteServer[];
 }
 
 function loadInitialDevices(): any[] {
@@ -438,6 +470,134 @@ const DEFAULT_AD_CONFIG = {
   status: 'configured'
 };
 
+export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [
+  {
+    id: 'srv-web-prod01',
+    name: 'Web & API Gateway (Prod-01)',
+    hostname: 'web-prod01.internal',
+    ip: '192.168.10.15',
+    os_type: 'linux',
+    os_distro: 'Ubuntu 24.04 LTS',
+    environment: 'Production',
+    category: 'Web Server',
+    role: 'Nginx Reverse Proxy & Node API',
+    tags: ['web', 'nginx', 'production', 'automation-tier1', 'k8s-ingress'],
+    ssh_port: 22,
+    ssh_username: 'root',
+    ssh_password: '',
+    default_shell: 'bash',
+    status: 'online',
+    cpu_cores: 8,
+    ram_gb: 32,
+    disk_gb: 500,
+    uptime_str: '72 days, 14 hours',
+    location: 'Datacenter A (Rack R-04)',
+    notes: 'Main customer-facing HTTPS gateway and SSL termination point',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  },
+  {
+    id: 'srv-db-master',
+    name: 'PostgreSQL DB Master (Cluster-01)',
+    hostname: 'db-master01.internal',
+    ip: '192.168.10.20',
+    os_type: 'linux',
+    os_distro: 'Debian 12 Bookworm',
+    environment: 'Production',
+    category: 'Database Server',
+    role: 'Primary Relational Database',
+    tags: ['database', 'postgresql', 'production', 'high-priority', 'backup-daily', 'ansible-target'],
+    ssh_port: 22,
+    ssh_username: 'root',
+    ssh_password: '',
+    default_shell: 'zsh',
+    status: 'online',
+    cpu_cores: 16,
+    ram_gb: 64,
+    disk_gb: 1200,
+    uptime_str: '115 days, 6 hours',
+    location: 'Datacenter A (Rack R-05)',
+    notes: 'High-availability replication leader with WAL archive',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  },
+  {
+    id: 'srv-ci-runner',
+    name: 'DevOps CI/CD Automation Worker',
+    hostname: 'runner-devops.internal',
+    ip: '192.168.10.35',
+    os_type: 'linux',
+    os_distro: 'Rocky Linux 9.4',
+    environment: 'Staging',
+    category: 'DevOps & Automation',
+    role: 'Ansible & Docker Build Engine',
+    tags: ['devops', 'ansible', 'docker', 'ci-cd', 'automation-tier1', 'staging'],
+    ssh_port: 22,
+    ssh_username: 'devops',
+    ssh_password: '',
+    default_shell: 'zsh',
+    status: 'online',
+    cpu_cores: 8,
+    ram_gb: 32,
+    disk_gb: 400,
+    uptime_str: '28 days, 9 hours',
+    location: 'Datacenter B (Rack R-02)',
+    notes: 'Automated deployment engine with Ansible playbooks and Docker daemon',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  },
+  {
+    id: 'srv-dc-corp01',
+    name: 'Active Directory Domain Controller (DC-01)',
+    hostname: 'dc01.corp.internal',
+    ip: '192.168.10.10',
+    os_type: 'windows',
+    os_distro: 'Windows Server 2022 Datacenter',
+    environment: 'Production',
+    category: 'Directory Services',
+    role: 'Primary Domain Controller & DNS',
+    tags: ['active-directory', 'domain-controller', 'dns', 'critical', 'corp-infra'],
+    win_protocol: 'rdp',
+    win_port: 3389,
+    win_username: 'Administrator',
+    win_domain: 'CORP.INTERNAL',
+    status: 'online',
+    cpu_cores: 8,
+    ram_gb: 32,
+    disk_gb: 300,
+    uptime_str: '142 days, 18 hours',
+    location: 'Datacenter A (Rack R-03)',
+    notes: 'FSMO role holder, Kerberos KDC, and root Active Directory authority',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  },
+  {
+    id: 'srv-app-win01',
+    name: 'Enterprise ERP & File Services',
+    hostname: 'app-win01.corp.internal',
+    ip: '192.168.10.25',
+    os_type: 'windows',
+    os_distro: 'Windows Server 2022 Standard',
+    environment: 'Production',
+    category: 'Application Server',
+    role: 'IIS Web Server & SMB Shares',
+    tags: ['iis', 'storage', 'smb', 'windows-infra', 'erp-backend'],
+    win_protocol: 'powershell',
+    win_port: 5985,
+    win_username: 'Administrator',
+    win_domain: 'CORP.INTERNAL',
+    status: 'online',
+    cpu_cores: 12,
+    ram_gb: 48,
+    disk_gb: 2000,
+    uptime_str: '63 days, 4 hours',
+    location: 'Datacenter A (Rack R-04)',
+    notes: 'Internal IIS business applications and high-throughput network shares',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+];
+
 function loadFallbackStore(): FallbackStore {
   let store: any = null;
   try {
@@ -540,6 +700,9 @@ function loadFallbackStore(): FallbackStore {
   }
   if (!Array.isArray(store.device_sticky_notes)) {
     store.device_sticky_notes = [];
+  }
+  if (!Array.isArray(store.remote_servers) || store.remote_servers.length === 0) {
+    store.remote_servers = DEFAULT_REMOTE_SERVERS;
   }
   if (!Array.isArray(store.audit_logs)) {
     store.audit_logs = [
@@ -848,6 +1011,62 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
     }
   } catch (err: any) {
     console.warn('[Database Sync Notice] Device Sticky Notes sync notice:', err.message);
+  }
+
+  // 11. Sync Remote Servers Fleet
+  try {
+    const srvCountRes = await client.query('SELECT count(*) as count FROM remote_servers');
+    if (parseInt(srvCountRes.rows[0]?.count || '0', 10) === 0) {
+      const serversToSeed = (Array.isArray(initialData.remote_servers) && initialData.remote_servers.length > 0)
+        ? initialData.remote_servers
+        : DEFAULT_REMOTE_SERVERS;
+      for (const s of serversToSeed) {
+        if (!s || !s.id || !s.ip) continue;
+        await client.query(
+          `INSERT INTO remote_servers (
+            id, name, hostname, ip, os_type, os_distro, environment, category, role, tags,
+            ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
+            win_protocol, win_port, win_username, win_domain,
+            status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
+            created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            s.id,
+            s.name || s.id,
+            s.hostname || '',
+            s.ip,
+            s.os_type || 'linux',
+            s.os_distro || (s.os_type === 'windows' ? 'Windows Server 2022' : 'Ubuntu 24.04 LTS'),
+            s.environment || 'Production',
+            s.category || 'Application Server',
+            s.role || 'General Server',
+            JSON.stringify(s.tags || []),
+            s.ssh_port || 22,
+            s.ssh_username || 'root',
+            s.ssh_password || '',
+            s.ssh_key_path || '',
+            s.default_shell || 'bash',
+            s.win_protocol || 'rdp',
+            s.win_port || 3389,
+            s.win_username || 'Administrator',
+            s.win_domain || 'CORP.INTERNAL',
+            s.status || 'online',
+            s.cpu_cores || 4,
+            s.ram_gb || 16,
+            s.disk_gb || 250,
+            s.uptime_str || '15 days',
+            s.location || 'Datacenter A',
+            s.notes || '',
+            s.created_at || new Date().toISOString(),
+            s.updated_at || new Date().toISOString()
+          ]
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Remote Servers sync notice:', err.message);
   }
 }
 
@@ -2362,4 +2581,331 @@ export async function deleteDeviceStickyNote(noteId: string, deviceId?: string, 
       console.error('[DB Delete Error in deleteDeviceStickyNote]', e);
     }
   }
+}
+
+// ==========================================
+// REMOTE SERVERS FLEET CRUD & TAG OPERATIONS
+// ==========================================
+
+function rowToRemoteServer(r: any): RemoteServer {
+  return {
+    id: r.id,
+    name: r.name || r.id,
+    hostname: r.hostname || '',
+    ip: r.ip || '',
+    os_type: (r.os_type || 'linux').toLowerCase() as 'linux' | 'windows',
+    os_distro: r.os_distro || (r.os_type === 'windows' ? 'Windows Server 2022' : 'Ubuntu 24.04 LTS'),
+    environment: r.environment || 'Production',
+    category: r.category || 'Application Server',
+    role: r.role || 'General Server',
+    tags: Array.isArray(r.tags) ? r.tags : (typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : []),
+    ssh_port: Number(r.ssh_port) || 22,
+    ssh_username: r.ssh_username || 'root',
+    ssh_password: r.ssh_password || '',
+    ssh_key_path: r.ssh_key_path || '',
+    default_shell: (r.default_shell || 'bash') as 'bash' | 'zsh' | 'sh',
+    win_protocol: (r.win_protocol || 'rdp') as 'rdp' | 'powershell' | 'winrm',
+    win_port: Number(r.win_port) || 3389,
+    win_username: r.win_username || 'Administrator',
+    win_domain: r.win_domain || 'CORP.INTERNAL',
+    status: (r.status || 'online') as 'online' | 'offline' | 'unreachable',
+    cpu_cores: Number(r.cpu_cores) || 4,
+    ram_gb: Number(r.ram_gb) || 16,
+    disk_gb: Number(r.disk_gb) || 250,
+    uptime_str: r.uptime_str || '15 days',
+    location: r.location || 'Datacenter A',
+    notes: r.notes || '',
+    created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+    updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+  };
+}
+
+export async function getAllRemoteServers(): Promise<RemoteServer[]> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM remote_servers ORDER BY created_at DESC');
+      if (res.rows && res.rows.length > 0) {
+        return res.rows.map(rowToRemoteServer);
+      }
+    } catch (e) {
+      console.warn('[DB Error getAllRemoteServers, falling back to local store]', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.remote_servers) || store.remote_servers.length === 0) {
+    store.remote_servers = [...DEFAULT_REMOTE_SERVERS];
+    saveFallbackStore(store);
+  }
+  return store.remote_servers;
+}
+
+export async function getRemoteServerById(id: string): Promise<RemoteServer | null> {
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM remote_servers WHERE id = $1 LIMIT 1', [id]);
+      if (res.rows && res.rows.length > 0) {
+        return rowToRemoteServer(res.rows[0]);
+      }
+    } catch (e) {
+      console.warn('[DB Error getRemoteServerById, falling back to local store]', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const found = (store.remote_servers || []).find((s) => s.id === id);
+  return found || null;
+}
+
+export async function createRemoteServer(data: Partial<RemoteServer>): Promise<RemoteServer> {
+  const newServer: RemoteServer = {
+    id: data.id || `srv-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+    name: data.name?.trim() || 'New Server',
+    hostname: data.hostname?.trim() || '',
+    ip: data.ip?.trim() || '127.0.0.1',
+    os_type: data.os_type || 'linux',
+    os_distro: data.os_distro || (data.os_type === 'windows' ? 'Windows Server 2022' : 'Ubuntu 24.04 LTS'),
+    environment: data.environment || 'Production',
+    category: data.category || 'Application Server',
+    role: data.role || 'General Server',
+    tags: Array.isArray(data.tags) ? data.tags.map((t) => t.trim()).filter(Boolean) : [],
+    ssh_port: Number(data.ssh_port) || 22,
+    ssh_username: data.ssh_username?.trim() || 'root',
+    ssh_password: data.ssh_password || '',
+    ssh_key_path: data.ssh_key_path || '',
+    default_shell: data.default_shell || 'bash',
+    win_protocol: data.win_protocol || 'rdp',
+    win_port: Number(data.win_port) || 3389,
+    win_username: data.win_username?.trim() || 'Administrator',
+    win_domain: data.win_domain?.trim() || 'CORP.INTERNAL',
+    status: data.status || 'online',
+    cpu_cores: Number(data.cpu_cores) || 4,
+    ram_gb: Number(data.ram_gb) || 16,
+    disk_gb: Number(data.disk_gb) || 250,
+    uptime_str: data.uptime_str || '1 day',
+    location: data.location?.trim() || 'Datacenter A',
+    notes: data.notes?.trim() || '',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  // Always update JSON fallback store
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.remote_servers)) {
+    store.remote_servers = [];
+  }
+  store.remote_servers.push(newServer);
+  saveFallbackStore(store);
+
+  // PostgreSQL write
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO remote_servers (
+          id, name, hostname, ip, os_type, os_distro, environment, category, role, tags,
+          ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
+          win_protocol, win_port, win_username, win_domain,
+          status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
+          created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          hostname = EXCLUDED.hostname,
+          ip = EXCLUDED.ip,
+          os_type = EXCLUDED.os_type,
+          os_distro = EXCLUDED.os_distro,
+          environment = EXCLUDED.environment,
+          category = EXCLUDED.category,
+          role = EXCLUDED.role,
+          tags = EXCLUDED.tags,
+          ssh_port = EXCLUDED.ssh_port,
+          ssh_username = EXCLUDED.ssh_username,
+          ssh_password = EXCLUDED.ssh_password,
+          ssh_key_path = EXCLUDED.ssh_key_path,
+          default_shell = EXCLUDED.default_shell,
+          win_protocol = EXCLUDED.win_protocol,
+          win_port = EXCLUDED.win_port,
+          win_username = EXCLUDED.win_username,
+          win_domain = EXCLUDED.win_domain,
+          status = EXCLUDED.status,
+          cpu_cores = EXCLUDED.cpu_cores,
+          ram_gb = EXCLUDED.ram_gb,
+          disk_gb = EXCLUDED.disk_gb,
+          uptime_str = EXCLUDED.uptime_str,
+          location = EXCLUDED.location,
+          notes = EXCLUDED.notes,
+          updated_at = NOW()`,
+        [
+          newServer.id,
+          newServer.name,
+          newServer.hostname || '',
+          newServer.ip,
+          newServer.os_type,
+          newServer.os_distro || '',
+          newServer.environment,
+          newServer.category,
+          newServer.role,
+          JSON.stringify(newServer.tags),
+          newServer.ssh_port || 22,
+          newServer.ssh_username || 'root',
+          newServer.ssh_password || '',
+          newServer.ssh_key_path || '',
+          newServer.default_shell || 'bash',
+          newServer.win_protocol || 'rdp',
+          newServer.win_port || 3389,
+          newServer.win_username || 'Administrator',
+          newServer.win_domain || '',
+          newServer.status,
+          newServer.cpu_cores || 4,
+          newServer.ram_gb || 16,
+          newServer.disk_gb || 250,
+          newServer.uptime_str || '',
+          newServer.location || '',
+          newServer.notes || '',
+          newServer.created_at,
+          newServer.updated_at,
+        ]
+      );
+    } catch (e) {
+      console.error('[DB Error createRemoteServer in PostgreSQL]', e);
+    }
+  }
+
+  return newServer;
+}
+
+export async function updateRemoteServer(id: string, updates: Partial<RemoteServer>): Promise<RemoteServer | null> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.remote_servers)) {
+    store.remote_servers = [];
+  }
+  const idx = store.remote_servers.findIndex((s) => s.id === id);
+  if (idx < 0) return null;
+
+  const current = store.remote_servers[idx];
+  const updated: RemoteServer = {
+    ...current,
+    ...updates,
+    tags: Array.isArray(updates.tags) ? updates.tags : current.tags,
+    updated_at: new Date().toISOString(),
+  };
+  store.remote_servers[idx] = updated;
+  saveFallbackStore(store);
+
+  // Update PostgreSQL
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `UPDATE remote_servers SET
+          name = COALESCE($1, name),
+          hostname = COALESCE($2, hostname),
+          ip = COALESCE($3, ip),
+          os_type = COALESCE($4, os_type),
+          os_distro = COALESCE($5, os_distro),
+          environment = COALESCE($6, environment),
+          category = COALESCE($7, category),
+          role = COALESCE($8, role),
+          tags = COALESCE($9::jsonb, tags),
+          ssh_port = COALESCE($10, ssh_port),
+          ssh_username = COALESCE($11, ssh_username),
+          ssh_password = COALESCE($12, ssh_password),
+          ssh_key_path = COALESCE($13, ssh_key_path),
+          default_shell = COALESCE($14, default_shell),
+          win_protocol = COALESCE($15, win_protocol),
+          win_port = COALESCE($16, win_port),
+          win_username = COALESCE($17, win_username),
+          win_domain = COALESCE($18, win_domain),
+          status = COALESCE($19, status),
+          cpu_cores = COALESCE($20, cpu_cores),
+          ram_gb = COALESCE($21, ram_gb),
+          disk_gb = COALESCE($22, disk_gb),
+          uptime_str = COALESCE($23, uptime_str),
+          location = COALESCE($24, location),
+          notes = COALESCE($25, notes),
+          updated_at = NOW()
+        WHERE id = $26`,
+        [
+          updated.name,
+          updated.hostname,
+          updated.ip,
+          updated.os_type,
+          updated.os_distro,
+          updated.environment,
+          updated.category,
+          updated.role,
+          JSON.stringify(updated.tags),
+          updated.ssh_port,
+          updated.ssh_username,
+          updated.ssh_password,
+          updated.ssh_key_path,
+          updated.default_shell,
+          updated.win_protocol,
+          updated.win_port,
+          updated.win_username,
+          updated.win_domain,
+          updated.status,
+          updated.cpu_cores,
+          updated.ram_gb,
+          updated.disk_gb,
+          updated.uptime_str,
+          updated.location,
+          updated.notes,
+          id,
+        ]
+      );
+    } catch (e) {
+      console.error('[DB Error updateRemoteServer in PostgreSQL]', e);
+    }
+  }
+
+  return updated;
+}
+
+export async function deleteRemoteServer(id: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.remote_servers)) {
+    store.remote_servers = [];
+  }
+  const prevLen = store.remote_servers.length;
+  store.remote_servers = store.remote_servers.filter((s) => s.id !== id);
+  if (store.remote_servers.length !== prevLen) {
+    saveFallbackStore(store);
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query('DELETE FROM remote_servers WHERE id = $1', [id]);
+    } catch (e) {
+      console.error('[DB Error deleteRemoteServer in PostgreSQL]', e);
+    }
+  }
+  return true;
+}
+
+export async function updateRemoteServerTags(id: string, tags: string[]): Promise<RemoteServer | null> {
+  const cleanTags = Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)));
+  return updateRemoteServer(id, { tags: cleanTags });
+}
+
+export async function getRemoteServerTagsSummary(): Promise<{ tag: string; count: number }[]> {
+  const servers = await getAllRemoteServers();
+  const counts: Record<string, number> = {};
+  for (const s of servers) {
+    if (Array.isArray(s.tags)) {
+      for (const t of s.tags) {
+        if (t) {
+          counts[t] = (counts[t] || 0) + 1;
+        }
+      }
+    }
+  }
+  return Object.entries(counts)
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count);
 }

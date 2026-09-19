@@ -20,6 +20,7 @@ import { TopologyDiscoveryModal } from './components/TopologyDiscoveryModal';
 import { BulkDeviceConfigModal } from './components/BulkDeviceConfigModal';
 import { SettingsView } from './components/settings/SettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
+import { RemoteServersView } from './components/servers/RemoteServersView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
 import { ToolsDock, StandardModalId, MinimizedStandardModal } from './components/tools/ToolsDock';
 import { NetworkToolId, ActiveToolState } from './components/tools/types';
@@ -713,6 +714,25 @@ export default function App() {
           )}
 
           {activeTab === 'logs' && <AuditLogsView />}
+
+          {(activeTab === 'remote-servers' ||
+            activeTab === 'remote-linux' ||
+            activeTab === 'remote-windows' ||
+            activeTab === 'remote-tags') && (
+            <RemoteServersView
+              initialFilter={
+                activeTab === 'remote-linux'
+                  ? 'linux'
+                  : activeTab === 'remote-windows'
+                  ? 'windows'
+                  : activeTab === 'remote-tags'
+                  ? 'tags'
+                  : 'all'
+              }
+              isLightMode={panelTheme === 'light'}
+              isEn={isEn}
+            />
+          )}
 
           {(activeTab === 'settings' ||
             activeTab === 'settings-groups' ||

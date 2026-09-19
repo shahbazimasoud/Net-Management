@@ -3810,11 +3810,28 @@ def start_websocket_server(ws_port: int):
                         with open(store_file, "r", encoding="utf-8") as sf:
                             sdata = json.load(sf)
                             device = next((d for d in sdata.get("devices", []) if d.get("id") == device_id or d.get("name") == device_id), None)
+                            if not device:
+                                # Lookup in remote_servers fleet
+                                srv = next((s for s in sdata.get("remote_servers", []) if s.get("id") == device_id or s.get("name") == device_id or s.get("hostname") == device_id), None)
+                                if srv:
+                                    device = {
+                                        "id": srv.get("id"),
+                                        "name": srv.get("name"),
+                                        "ip": srv.get("ip"),
+                                        "platform": "linux",
+                                        "ssh_host": srv.get("ip"),
+                                        "ssh_port": srv.get("ssh_port", 22),
+                                        "ssh_username": srv.get("ssh_username", "root"),
+                                        "ssh_password": srv.get("ssh_password", ""),
+                                        "connection_protocol": "ssh",
+                                        "default_shell": srv.get("default_shell", "bash"),
+                                        "is_remote_server": True,
+                                    }
                     except Exception:
                         pass
 
             if not device:
-                err_msg = f"Device with ID '{device_id}' was not found in inventory."
+                err_msg = f"Device or Server with ID '{device_id}' was not found in inventory."
                 await websocket.send(json.dumps({
                     "type": "error",
                     "error": err_msg,
@@ -3822,7 +3839,7 @@ def start_websocket_server(ws_port: int):
                 }))
                 await websocket.send(json.dumps({
                     "type": "data",
-                    "data": f"\r\n\x1b[1;31m[Device Not Found]\x1b[0m {err_msg}\r\n"
+                    "data": f"\r\n\x1b[1;31m[Host Not Found]\x1b[0m {err_msg}\r\n"
                 }))
                 await asyncio.sleep(1.0)
                 await websocket.close()
@@ -3838,6 +3855,7 @@ def start_websocket_server(ws_port: int):
             password = conn.get("password") or device.get("ssh_password") or ""
             enable_password = conn.get("enable_password") or device.get("enable_password") or ""
             platform = device.get("platform", "cisco_ios_xe")
+            req_shell = qs.get("shell", [device.get("default_shell", "bash")])[0].strip().lower()
 
             if not host:
                 err_msg = f"No Management IP or Host configured for device '{device.get('name', device_id)}'."
@@ -3939,6 +3957,14 @@ def start_websocket_server(ws_port: int):
                 "legacy_algorithms": session.used_legacy_algorithms,
                 "message": f"Connected to {host}:{port} ({session.banner or protocol.upper()})"
             }))
+
+            # If this is a Linux remote server and user explicitly requested bash/zsh, switch shell
+            if device.get("is_remote_server") and req_shell in ["bash", "zsh"]:
+                try:
+                    await asyncio.sleep(0.2)
+                    session.send_input(f"which {req_shell} >/dev/null 2>&1 && exec {req_shell} -l\n")
+                except Exception:
+                    pass
 
             # Listen for interactive client messages
             async for raw_msg in websocket:

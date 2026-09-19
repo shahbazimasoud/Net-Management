@@ -231,3 +231,40 @@ CREATE TABLE IF NOT EXISTS device_sticky_notes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_device_sticky_notes_dev ON device_sticky_notes(device_id);
+
+-- 13. Remote Servers Fleet (Linux & Windows Host Management with Categorization & Automation Tags)
+CREATE TABLE IF NOT EXISTS remote_servers (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    hostname VARCHAR(128),
+    ip VARCHAR(64) NOT NULL,
+    os_type VARCHAR(32) NOT NULL DEFAULT 'linux', -- 'linux' | 'windows'
+    os_distro VARCHAR(64) DEFAULT 'Ubuntu 24.04 LTS',
+    environment VARCHAR(64) DEFAULT 'Production', -- 'Production' | 'Staging' | 'Development' | 'Testing' | 'DMZ' | 'DR'
+    category VARCHAR(64) DEFAULT 'Application Server',
+    role VARCHAR(64) DEFAULT 'Web & API Backend',
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ssh_port INT DEFAULT 22,
+    ssh_username VARCHAR(64) DEFAULT 'root',
+    ssh_password VARCHAR(255),
+    ssh_key_path VARCHAR(255),
+    default_shell VARCHAR(32) DEFAULT 'bash', -- 'bash' | 'zsh' | 'sh'
+    win_protocol VARCHAR(32) DEFAULT 'rdp', -- 'rdp' | 'powershell' | 'winrm'
+    win_port INT DEFAULT 3389,
+    win_username VARCHAR(64) DEFAULT 'Administrator',
+    win_domain VARCHAR(64) DEFAULT 'CORP.INTERNAL',
+    status VARCHAR(32) DEFAULT 'online', -- 'online' | 'offline' | 'unreachable'
+    cpu_cores INT DEFAULT 4,
+    ram_gb INT DEFAULT 16,
+    disk_gb INT DEFAULT 250,
+    uptime_str VARCHAR(64) DEFAULT '45 days, 12 hours',
+    location VARCHAR(128) DEFAULT 'Datacenter A (Rack R-04)',
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_remote_servers_os_type ON remote_servers(os_type);
+CREATE INDEX IF NOT EXISTS idx_remote_servers_environment ON remote_servers(environment);
+CREATE INDEX IF NOT EXISTS idx_remote_servers_category ON remote_servers(category);
+CREATE INDEX IF NOT EXISTS idx_remote_servers_ip ON remote_servers(ip);

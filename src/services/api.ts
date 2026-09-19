@@ -10,7 +10,9 @@ import {
   DeviceConfigExtractResult,
   DeviceGroup,
   ActiveDirectoryConfig,
-  AccessPolicy
+  AccessPolicy,
+  RemoteServer,
+  RemoteServerTagSummary
 } from '../types';
 
 const API_BASE = '/api';
@@ -1023,6 +1025,147 @@ export async function fetchMikroTikSystemResources(
     throw new Error(err.error || err.warning || err.message || 'Failed to fetch MikroTik system resources');
   }
   return res.json();
+}
+
+// ----------------------------------------------------------------------
+// Remote Server Fleet & Automation Tags Client APIs
+// ----------------------------------------------------------------------
+
+export async function fetchRemoteServers(params?: {
+  os?: string;
+  env?: string;
+  category?: string;
+  tag?: string;
+  search?: string;
+}): Promise<{ success: boolean; count: number; servers: RemoteServer[] }> {
+  const query = new URLSearchParams();
+  if (params?.os) query.set('os', params.os);
+  if (params?.env) query.set('env', params.env);
+  if (params?.category) query.set('category', params.category);
+  if (params?.tag) query.set('tag', params.tag);
+  if (params?.search) query.set('search', params.search);
+
+  const qs = query.toString();
+  const url = `${API_BASE}/remote-servers${qs ? `?${qs}` : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to fetch remote servers' }));
+    throw new Error(err.error || 'Failed to fetch remote servers');
+  }
+  return res.json();
+}
+
+export async function fetchRemoteServerTags(): Promise<{ success: boolean; tags: RemoteServerTagSummary[] }> {
+  const res = await fetch(`${API_BASE}/remote-servers/tags`);
+  if (!res.ok) {
+    throw new Error('Failed to fetch remote server tags');
+  }
+  return res.json();
+}
+
+export async function fetchRemoteServerById(id: string): Promise<{ success: boolean; server: RemoteServer }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    throw new Error('Server not found');
+  }
+  return res.json();
+}
+
+export async function createRemoteServer(server: Partial<RemoteServer>): Promise<{ success: boolean; server: RemoteServer }> {
+  const res = await fetch(`${API_BASE}/remote-servers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to create server' }));
+    throw new Error(err.error || 'Failed to create server');
+  }
+  return res.json();
+}
+
+export async function updateRemoteServer(
+  id: string,
+  server: Partial<RemoteServer>
+): Promise<{ success: boolean; server: RemoteServer }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to update server' }));
+    throw new Error(err.error || 'Failed to update server');
+  }
+  return res.json();
+}
+
+export async function deleteRemoteServer(id: string): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error('Failed to delete server');
+  }
+  return res.json();
+}
+
+export async function updateRemoteServerTags(
+  id: string,
+  tags: string[]
+): Promise<{ success: boolean; server: RemoteServer }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to update server tags');
+  }
+  return res.json();
+}
+
+export async function testRemoteServerConnection(id: string): Promise<{
+  success: boolean;
+  reachable: boolean;
+  host: string;
+  port: number;
+  latency_ms: number;
+  protocol?: string;
+  error?: string;
+  message: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/test-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return res.json();
+}
+
+export function getRemoteServerWebSocketUrl(
+  serverId: string,
+  shell: 'bash' | 'zsh' = 'bash',
+  serverInfo?: {
+    ip?: string;
+    ssh_port?: number;
+    ssh_username?: string;
+    ssh_password?: string;
+  }
+): string {
+  const loc = window.location;
+  const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  const query = new URLSearchParams();
+  query.set('deviceId', serverId);
+  query.set('protocol', 'ssh');
+  query.set('platform', 'linux');
+  query.set('shell', shell);
+  if (serverInfo) {
+    if (serverInfo.ip) query.set('host', serverInfo.ip);
+    if (serverInfo.ssh_port) query.set('port', String(serverInfo.ssh_port));
+    if (serverInfo.ssh_username) query.set('username', serverInfo.ssh_username);
+    if (serverInfo.ssh_password) query.set('password', serverInfo.ssh_password);
+  }
+  return `${wsProto}//${loc.host}/ws/ssh/${encodeURIComponent(serverId)}?${query.toString()}`;
 }
 
 

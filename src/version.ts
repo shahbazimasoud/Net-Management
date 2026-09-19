@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.87.1';
+export const APP_VERSION = '1.88.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.88.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'افزودن ماژول مدیریت سرورهای ریموت (Remote Servers)، ترمینال تعاملی Bash و Zshell لینوکس، سوئیت اتصال ویندوز و تگ‌های اتوماسیون',
+    title_en: 'Remote Servers Fleet Management, Interactive Linux Bash/Zshell Terminals, Windows RDP Suite & Automation Tagging System',
+    changes: [
+      'ایجاد آیتم والد جدید Remote Servers در سایدبار با زیرشاخه‌های سرورهای لینوکس، ویندوز و تگ‌های اتوماسیون با طراحی مهندسی، مدرن و هماهنگ با تم تیره و روشن.',
+      'پشتیبانی کامل از سرورهای لینوکسی و امکان اجرای بلادرنگ شل‌های Bash و Zshell (zsh) همراه با نوارهای ابزار میانبر دستورات، تغییر تم و تاریخچه دستورات.',
+      'طراحی سوئیت اختصاصی دسترسی ریموت سرورهای ویندوزی شامل تولید و دانلود آنی فایل میانبر RDP (.rdp)، کپی دستورات اجرای بومی mstsc و کدهای پاورشل ریموتینگ (Enter-PSSession).',
+      'پیاده‌سازی سیستم جامع برچسب‌گذاری (Automation Tags) و دسته‌بندی نقش‌ها جهت بهره‌برداری در سناریوهای اتوماسیون، پایپ‌لاین‌های CI/CD و پلی‌بوک‌های Ansible.',
+      'ایجاد ساختار داده‌ای پایدار در دیتابیس (جدول remote_servers در PostgreSQL با همگام‌سازی فایل JSON) همراه با API کامل CRUD و پایش زنده وضعیت پورت سرورها.',
+      'رعایت کامل استانداردهای پنج‌گانه مودال‌ها شامل دکمه‌های کنترل سه‌گانه، انطباق لبه پایینی تا بالای فوتر (bottom-8)، دو زبانه بودن صددرصد و تولتیپ‌های سه‌بخشی ایمن.'
+    ],
+    changes_en: [
+      'Added new parent navigation group "Remote Servers" in the sidebar with dedicated views for Linux hosts, Windows hosts, and Automation Tags.',
+      'Full Linux server management with interactive WebSocket terminals supporting one-click switching between Bash (/bin/bash) and Zshell (/bin/zsh), command snippets, and terminal history.',
+      'Dedicated Windows Remote Suite featuring one-click .rdp file generator and download, native mstsc execution commands, and PowerShell Remoting (Enter-PSSession) integration.',
+      'Engineered a comprehensive Automation Tagging matrix and role categorization system designed for Ansible playbooks, CI/CD pipelines, and bulk automation targeting.',
+      'Implemented dual-persistence database schema for remote_servers (PostgreSQL + JSON store) with complete REST API endpoints and live reachability / latency probes.',
+      'Strict adherence to universal modal architecture: triad controls (Close/Minimize/Fullscreen), bottom-8 footer clearance, 100% bilingual i18n, and boundary-safe 3-part field info tooltips.'
+    ]
+  },
   {
     version: '1.87.1',
     releaseDate: '2026-09-19',

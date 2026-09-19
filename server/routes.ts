@@ -37,7 +37,15 @@ import {
   getDeviceStickyNotes,
   saveDeviceStickyNote,
   deleteDeviceStickyNote,
+  getAllRemoteServers,
+  getRemoteServerById,
+  createRemoteServer,
+  updateRemoteServer,
+  deleteRemoteServer,
+  updateRemoteServerTags,
+  getRemoteServerTagsSummary,
 } from './db';
+import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
   startDiscoveryJob,
@@ -867,6 +875,239 @@ apiRouter.post('/topology/discovery/apply', async (req: Request, res: Response) 
   try {
     const result = await applyDiscoveryResultsToMap(req.body);
     res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Remote Servers Fleet & Automation Tags Endpoints
+// -------------------------------------------------------------
+
+// GET /api/remote-servers - List all servers with optional query filters
+apiRouter.get('/remote-servers', async (req: Request, res: Response) => {
+  try {
+    let servers = await getAllRemoteServers();
+    const { os, env, category, tag, search } = req.query;
+
+    if (typeof os === 'string' && os) {
+      servers = servers.filter((s) => s.os_type.toLowerCase() === os.toLowerCase());
+    }
+    if (typeof env === 'string' && env && env !== 'all') {
+      servers = servers.filter((s) => s.environment.toLowerCase() === env.toLowerCase());
+    }
+    if (typeof category === 'string' && category && category !== 'all') {
+      servers = servers.filter((s) => s.category.toLowerCase() === category.toLowerCase());
+    }
+    if (typeof tag === 'string' && tag) {
+      servers = servers.filter((s) => Array.isArray(s.tags) && s.tags.includes(tag));
+    }
+    if (typeof search === 'string' && search.trim()) {
+      const q = search.trim().toLowerCase();
+      servers = servers.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          (s.hostname && s.hostname.toLowerCase().includes(q)) ||
+          s.ip.includes(q) ||
+          (s.os_distro && s.os_distro.toLowerCase().includes(q)) ||
+          (s.role && s.role.toLowerCase().includes(q)) ||
+          (Array.isArray(s.tags) && s.tags.some((t) => t.toLowerCase().includes(q)))
+      );
+    }
+
+    res.json({ success: true, count: servers.length, servers });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/tags - Distinct tags with count
+apiRouter.get('/remote-servers/tags', async (req: Request, res: Response) => {
+  try {
+    const summary = await getRemoteServerTagsSummary();
+    res.json({ success: true, tags: summary });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/remote-servers/:id - Get single server details
+apiRouter.get('/remote-servers/:id', async (req: Request, res: Response) => {
+  try {
+    const server = await getRemoteServerById(req.params.id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    res.json({ success: true, server });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers - Create new remote server
+apiRouter.post('/remote-servers', async (req: Request, res: Response) => {
+  try {
+    const { name, ip, os_type } = req.body;
+    if (!name || !ip) {
+      return res.status(400).json({ success: false, error: 'Server name and IP address are required.' });
+    }
+
+    const created = await createRemoteServer(req.body);
+
+    // Audit log
+    await addAuditLog({
+      userName: req.headers['x-user-name'] as string || 'Admin',
+      action: 'Create Remote Server',
+      category: 'device',
+      target: `${created.name} (${created.ip})`,
+      status: 'success',
+      details: `Added new ${created.os_type.toUpperCase()} server with tags: ${(created.tags || []).join(', ') || 'none'}`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    });
+
+    res.status(201).json({ success: true, server: created });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/remote-servers/:id - Update existing remote server
+apiRouter.put('/remote-servers/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updated = await updateRemoteServer(id, req.body);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    // Audit log
+    await addAuditLog({
+      userName: req.headers['x-user-name'] as string || 'Admin',
+      action: 'Update Remote Server',
+      category: 'device',
+      target: `${updated.name} (${updated.ip})`,
+      status: 'success',
+      details: `Updated server settings and tags: ${(updated.tags || []).join(', ') || 'none'}`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    });
+
+    res.json({ success: true, server: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/remote-servers/:id - Remove server from fleet
+apiRouter.delete('/remote-servers/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const existing = await getRemoteServerById(id);
+    const deleted = await deleteRemoteServer(id);
+
+    if (existing) {
+      await addAuditLog({
+        userName: req.headers['x-user-name'] as string || 'Admin',
+        action: 'Delete Remote Server',
+        category: 'device',
+        target: `${existing.name} (${existing.ip})`,
+        status: 'success',
+        details: `Deleted server ${existing.name} from inventory`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+    }
+
+    res.json({ success: deleted });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/tags - Update tags only
+apiRouter.post('/remote-servers/:id/tags', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { tags } = req.body;
+    if (!Array.isArray(tags)) {
+      return res.status(400).json({ success: false, error: 'Tags must be an array of strings' });
+    }
+    const updated = await updateRemoteServerTags(id, tags);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    res.json({ success: true, server: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/test-connection - Test TCP port reachability
+apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const targetPort = server.os_type === 'linux' ? (server.ssh_port || 22) : (server.win_port || 3389);
+    const targetHost = server.ip;
+
+    const start = Date.now();
+    const socket = new net.Socket();
+    socket.setTimeout(3500);
+
+    let resolved = false;
+
+    socket.connect(targetPort, targetHost, () => {
+      if (resolved) return;
+      resolved = true;
+      const latency = Date.now() - start;
+      socket.destroy();
+      // Update status to online in background
+      updateRemoteServer(server.id, { status: 'online' }).catch(() => {});
+      res.json({
+        success: true,
+        reachable: true,
+        host: targetHost,
+        port: targetPort,
+        latency_ms: latency,
+        protocol: server.os_type === 'linux' ? 'SSH' : (server.win_protocol?.toUpperCase() || 'RDP'),
+        message: `Connection successful to ${targetHost}:${targetPort} in ${latency}ms`
+      });
+    });
+
+    socket.on('error', (err: any) => {
+      if (resolved) return;
+      resolved = true;
+      socket.destroy();
+      const latency = Date.now() - start;
+      res.json({
+        success: true,
+        reachable: false,
+        host: targetHost,
+        port: targetPort,
+        latency_ms: latency,
+        error: err.message,
+        message: `Port unreachable or connection refused: ${err.message}`
+      });
+    });
+
+    socket.on('timeout', () => {
+      if (resolved) return;
+      resolved = true;
+      socket.destroy();
+      res.json({
+        success: true,
+        reachable: false,
+        host: targetHost,
+        port: targetPort,
+        error: 'Connection timeout',
+        message: `Connection timed out after 3500ms to ${targetHost}:${targetPort}`
+      });
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

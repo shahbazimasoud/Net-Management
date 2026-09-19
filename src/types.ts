@@ -1190,5 +1190,36 @@ export interface BulkJobStatus {
   logs: BulkJobLog[];
 }
 
+export interface RemoteServer {
+  id: string;
+  name: string;
+  hostname?: string;
+  ip: string;
+  os_type: 'linux' | 'windows';
+  os_distro?: string;
+  category: 'Infrastructure' | 'Database' | 'Kubernetes' | 'Web / App' | 'Monitoring' | 'Active Directory' | 'General' | string;
+  environment: 'Production' | 'Staging' | 'Development' | 'DMZ' | string;
+  tags: string[];
+  role?: string;
+  description?: string;
+  status: 'online' | 'offline' | 'unreachable' | 'maintenance';
+  ssh_port?: number;
+  ssh_username?: string;
+  ssh_password?: string;
+  default_shell?: 'bash' | 'zsh' | 'sh';
+  win_protocol?: 'rdp' | 'powershell' | 'winrm' | 'ssh';
+  win_port?: number;
+  win_domain?: string;
+  win_username?: string;
+  win_password?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RemoteServerTagSummary {
+  tag: string;
+  count: number;
+}
+
 
 

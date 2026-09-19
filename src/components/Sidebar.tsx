@@ -17,7 +17,10 @@ import {
   Users,
   Server,
   Archive,
-  ScrollText
+  ScrollText,
+  Terminal,
+  Monitor,
+  Tags
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
@@ -26,6 +29,10 @@ export type ActiveTab =
   | 'devices'
   | 'schematic'
   | 'templates'
+  | 'remote-servers'
+  | 'remote-linux'
+  | 'remote-windows'
+  | 'remote-tags'
   | 'ports'
   | 'scanner'
   | 'logs'
@@ -54,7 +61,7 @@ interface NavItem {
 }
 
 interface NavParentGroup {
-  id: 'infra' | 'monitor' | 'system';
+  id: 'infra' | 'servers' | 'monitor' | 'system';
   titleKey: string;
   tagKey: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -104,6 +111,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_templates',
           icon: FileCode2,
           badge: null,
+        },
+      ],
+    },
+    {
+      id: 'servers',
+      titleKey: 'parent_servers_title',
+      tagKey: 'parent_servers_tag',
+      icon: Server,
+      colorClass: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
+      items: [
+        {
+          id: 'remote-servers',
+          labelKey: 'tab_remote_servers',
+          icon: Server,
+          badge: null,
+        },
+        {
+          id: 'remote-linux',
+          labelKey: 'tab_remote_linux',
+          icon: Terminal,
+          badge: 'SSH',
+        },
+        {
+          id: 'remote-windows',
+          labelKey: 'tab_remote_windows',
+          icon: Monitor,
+          badge: 'RDP',
+        },
+        {
+          id: 'remote-tags',
+          labelKey: 'tab_remote_tags',
+          icon: Tags,
+          badge: 'Auto',
         },
       ],
     },
