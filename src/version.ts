@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.92.1';
+export const APP_VERSION = '1.93.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.93.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'بازطراحی جامع صفحه ناوگان سرورهای ریموت با زبان طراحی Spatial-Glass، تنظیم نمای پیش‌فرض لیستی، فشرده‌سازی مودال ثبت و همگام‌سازی بصری با صفحه تجهیزات شبکه',
+    title_en: 'Comprehensive Redesign of Remote Servers Fleet with Spatial-Glass Design Language, Default List View, Compact Add/Edit Modal, and Visual Parity with Network Equipment Inventory',
+    changes: [
+      'بازطراحی کامل صفحه Remote Servers & Automation Fleet منطبق با سبک طراحی Spatial-Glass صفحه تجهیزات شبکه (Network Equipment Inventory & Management).',
+      'تغییر نمای پیش‌فرض به نمای لیستی (viewMode = "list") با جدول شیشه‌ای مدرن، پدینگ‌های ارگونومیک، چک‌باکس‌های انتخاب چندتایی و نوار ابزار عملیات دسته‌جمعی.',
+      'افزودن منوی سه‌نقطه شناور با ساختار پورتال (createPortal) و الگوریتم سنجش لبه‌های صفحه (Auto-Flip و Clamping) برای دسترسی فوری به ترمینال، ریموت دسکتاپ، تست پینگ، کپی آی‌پی و ویرایش/حذف سرور.',
+      'بازطراحی و فشرده‌سازی کامل مودال ثبت و ویرایش سرور (AddEditServerModal) با هدر کنترل‌های سه‌گانه، تم تاریک و روشن هماهنگ، آیکون قفل پس‌زمینه و ابعاد ارگونومیک بدون بزرگ‌نمایی زننده.',
+      'پیاده‌سازی ۴ کارت آمار سریع (Linux Nodes, Windows Nodes, Reachability Status, Fleet Capacity) با افکت عمق فضایی (Spatial Depth) و دکمه تست پینگ دسته‌جمعی ناوگان.'
+    ],
+    changes_en: [
+      'Overhauled the Remote Servers & Automation Fleet page to strictly match the compact, ergonomic Spatial-Glass aesthetic of the Network Equipment Inventory & Management view.',
+      'Set the default view mode to List view (viewMode = "list") featuring a glass-morphic table, ergonomic cell spacing, multi-select checkboxes, and a bulk action bar.',
+      'Implemented a boundary-clamped 3-dot floating action portal menu with auto-flip logic for quick SSH terminal, in-browser RDP, ping keepalive, IP copying, and server editing/deletion.',
+      'Compacted and redesigned AddEditServerModal with 3-pillar header controls, light/dark theme adaptability, backdrop lock toggle, and ergonomic sizing without excessive whitespace.',
+      'Added 4 quick stat cards (Linux Nodes, Windows Nodes, Reachability Status, Fleet Capacity) with spatial depth cards and a fleet-wide bulk ping test action.'
+    ]
+  },
   {
     version: '1.92.1',
     releaseDate: '2026-09-19',
