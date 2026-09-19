@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.89.1';
+export const APP_VERSION = '1.90.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.90.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'پیاده‌سازی گیت‌وی ریموت دسکتاپ بر بستر پروتکل گوآکامولی (Apache Guacamole)، تونل وب‌سوکت دوطرفه RDP/VNC و رمزنگاری توکن یک‌بارمصرف',
+    title_en: 'In-Browser Remote Desktop Gateway Integration via Guacamole Protocol, Bi-Directional RDP/VNC WebSocket Tunnel & Cryptographic Token Authentication',
+    changes: [
+      'ایجاد ماژول گیت‌وی ریموت دسکتاپ (server/remoteDesktopGateway.ts) منطبق با معماری استاندارد Apache Guacamole جهت ترجمه بدون کلاینت پروتکل‌های RDP و VNC در مرورگر.',
+      'پیاده‌سازی سازوکار امنیتی توکن یک‌بارمصرف (Single-Use Token) مبتنی بر رمزنگاری با اعتبار ۶۰ ثانیه‌ای و تفکیک صددرصدی احراز هویت بدون ارسال اطلاعات کاربری به فرانت‌اند.',
+      'افزودن تونل دوطرفه وب‌سوکت (/ws/guacamole و /api/remote-desktop/tunnel) برای انتقال بسته‌های گوآکامولی، کلیدهای فشرده شده، ماوس، کلیپ‌بورد و تصاویر فریم‌ها.',
+      'ثبت خودکار گزارش‌های حسابرسی (Audit Logging) در پایگاه‌داده برای صدور توکن، شروع نشست، پایان نشست و زمان بی‌کاری (Idle Timeout) با انقضای خودکار ۱۵ دقیقه‌ای.',
+      'افزودن قابلیت پایش وضعیت گیت‌وی و نشست‌های همزمان فعال (Concurrent Sessions) جهت جلوگیری از تداخل کاربران بر روی یک سرور.'
+    ],
+    changes_en: [
+      'Engineered backend Remote Desktop Gateway (server/remoteDesktopGateway.ts) leveraging standard Apache Guacamole protocol architecture for clientless in-browser RDP/VNC access.',
+      'Implemented secure single-use cryptographic token workflow (60-second TTL) ensuring server credentials remain 100% server-side and are never exposed to browser clients.',
+      'Built high-performance bi-directional WebSocket tunnel (/ws/guacamole & /api/remote-desktop/tunnel) multiplexing Guacamole instructions, mouse/keyboard streams, and frame buffers.',
+      'Integrated comprehensive enterprise audit logging for token grants, session initiation, disconnects, and a 15-minute inactivity idle timeout guard.',
+      'Introduced live gateway health probes and concurrent target session tracking to prevent administrative collisions on shared fleet hosts.'
+    ]
+  },
   {
     version: '1.89.1',
     releaseDate: '2026-09-19',

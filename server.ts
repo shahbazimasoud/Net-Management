@@ -38,6 +38,7 @@ dotenv.config();
 import { initDatabase } from './server/db';
 import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
+import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket } from './server/remoteDesktopGateway';
 
 const app = express();
 const PORT = 3000;
@@ -845,6 +846,9 @@ app.get('/api/tools/check-host/nodes', async (req: Request, res: Response) => {
   }
 });
 
+// Mount In-Browser Remote Desktop / Remote Console API routes
+registerRemoteDesktopRoutes(app, projectRoot);
+
 // Mount PostgreSQL & Authentication API router
 app.use('/api', apiRouter);
 
@@ -927,6 +931,9 @@ async function startServer() {
 
   // Setup native WebSocket terminal engine for interactive SSH/CLI sessions
   setupTerminalWebSocket(server, PYTHON_PORT, projectRoot, PYTHON_WS_PORT);
+
+  // Setup In-Browser Remote Desktop / Remote Console (RDP & VNC) gateway via Guacamole protocol
+  setupRemoteDesktopWebSocket(server, projectRoot);
 
   server.listen(PORT, HOST, () => {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);
