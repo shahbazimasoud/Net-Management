@@ -28,6 +28,7 @@ export interface WindowsRemoteConnectModalProps {
   server: RemoteServer | null;
   onClose: () => void;
   onMinimize: () => void;
+  onLaunchInBrowserRdp?: (server: RemoteServer) => void;
   isLightMode?: boolean;
   isEn?: boolean;
 }
@@ -37,6 +38,7 @@ export const WindowsRemoteConnectModal: React.FC<WindowsRemoteConnectModalProps>
   server,
   onClose,
   onMinimize,
+  onLaunchInBrowserRdp,
   isLightMode = false,
   isEn = true,
 }) => {
@@ -279,6 +281,52 @@ export const WindowsRemoteConnectModal: React.FC<WindowsRemoteConnectModalProps>
               <span>{testingPort ? (isEn ? 'Testing...' : 'در حال تست...') : isEn ? 'Test Port Reachability' : 'تست برقراری ارتباط'}</span>
             </button>
           </div>
+
+          {/* In-Browser Live RDP Gateway Launcher */}
+          {onLaunchInBrowserRdp && (
+            <div
+              className={`p-5 rounded-2xl border transition-all ${
+                isLightMode
+                  ? 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200'
+                  : 'bg-gradient-to-r from-blue-950/40 via-cyan-950/30 to-slate-900/60 border-cyan-500/30'
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 shrink-0">
+                    <Monitor className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-slate-100">
+                        {isEn ? 'Direct In-Browser Remote Desktop (RDP)' : 'اتصال مستقیم ریموت دسکتاپ در مرورگر'}
+                      </h4>
+                      <span className="text-[10px] px-2 py-0.2 rounded-full font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                        {isEn ? 'NO CLIENT SOFTWARE' : 'بدون نرم‌افزار جانبی'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                      {isEn
+                        ? 'Open and control this Windows server directly inside the web browser via the high-speed Apache Guacamole gateway tunnel.'
+                        : 'این سرور ویندوزی را مستقیماً در همین مرورگر وب با گیت‌وی پرسرعت آپاچی گوآکامولی و احراز هویت توکنی باز کنید.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onLaunchInBrowserRdp(server);
+                  }}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 shadow-lg shadow-cyan-500/20 transition-all cursor-pointer shrink-0"
+                >
+                  <Monitor className="w-4 h-4" />
+                  <span>{isEn ? 'Launch In-Browser Session' : 'شروع نشست در مرورگر'}</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Option 1: 1-Click RDP File Generator & Download */}
           <div

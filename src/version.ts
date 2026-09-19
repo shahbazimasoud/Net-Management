@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.90.0';
+export const APP_VERSION = '1.91.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.91.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'تکمیل مودال جامع ریموت دسکتاپ و کنسول VNC زنده درون مرورگر با استانداردهای پنج‌گانه، کلیدهای میانبر سیستمی، همگام‌سازی کلیپ‌بورد و یکپارچه‌سازی در نماهای سه‌گانه سرورها',
+    title_en: 'Full In-Browser Remote Desktop (RDP) and Live VNC Console with 5-Pillar Modal Compliance, System Hotkeys, Clipboard Sync, and Multi-View Server Integration',
+    changes: [
+      'پیاده‌سازی کامپوننت مودال زنده ریموت دسکتاپ درون مرورگر (InBrowserRemoteDesktopModal.tsx) مبتنی بر بوم رندرینگ HTML5 Canvas و پروتکل Apache Guacamole بدون نیاز به هیچ‌گونه نرم‌افزار سمت کلاینت.',
+      'تجهیز مودال به استانداردهای پنج‌گانه: دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز به ToolsDock، تمام‌صفحه)، فاصله دقیق بالای فوتر (bottom-8)، تم‌های تیره و روشن، پشتیبانی کامل دو زبانه و کادرهای راهنمای Info سه‌بخشی ایمن.',
+      'افزودن نوار ابزار تعاملی فوقانی با ارسال مستقیم کلیدهای سیستمی (Ctrl+Alt+Del، Alt+Tab، کلید ویندوز، Esc)، ابزار همگام‌سازی دوطرفه کلیپ‌بورد و تغییر مقیاس هوشمند رزولوشن.',
+      'یکپارچه‌سازی کامل دسترسی مستقیم ریموت در هر سه نمای سرورها (نمای کارتی، نمای لیستی، و نمای جدولی) به همراه دکمه اختصاصی در مودال کانفیگ ویندوز.',
+      'تعبیه سازوکار خودکار شبیه‌ساز امن (Simulation Fallback Mode) در صورت عدم دسترسی به دیمن گوآکامولی، پایش تاخیر شبکه، و تایمر انقضای نشست پس از ۱۵ دقیقه عدم فعالیت.'
+    ],
+    changes_en: [
+      'Delivered full in-browser Remote Desktop & VNC Modal (InBrowserRemoteDesktopModal.tsx) powered by HTML5 Canvas and Apache Guacamole protocol for 100% clientless web administration.',
+      'Engineered with strict 5-pillar modal compliance: universal triad controls (Close, Minimize to ToolsDock, Fullscreen), exact footer clearance (bottom-8), dark/light themes, bilingual i18n, and boundary-safe 3-part info tooltips.',
+      'Integrated live session toolbar with one-click system hotkeys (Ctrl+Alt+Del, Alt+Tab, Windows Key, Esc), bi-directional clipboard sync, and adaptive canvas viewport scaling.',
+      'Unified one-click access across all 3 server dashboard views (Card grid, compact List rows, and dense Table) plus a dedicated launcher inside the Windows RDP configuration dialog.',
+      'Added intelligent fallback simulation mode for disconnected guacd environments, real-time latency ping monitors, and 15-minute inactivity session expiration guards.'
+    ]
+  },
   {
     version: '1.90.0',
     releaseDate: '2026-09-19',

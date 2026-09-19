@@ -44,6 +44,7 @@ import {
 import { AddEditServerModal } from './AddEditServerModal';
 import { LinuxTerminalModal } from './LinuxTerminalModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
+import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -88,6 +89,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
+
+  const [inBrowserRemoteServer, setInBrowserRemoteServer] = useState<RemoteServer | null>(null);
+  const [inBrowserProtocol, setInBrowserProtocol] = useState<'rdp' | 'vnc'>('rdp');
+  const [isInBrowserModalOpen, setIsInBrowserModalOpen] = useState(false);
 
   // Quick Ping / Test status cache
   const [reachabilityCache, setReachabilityCache] = useState<
@@ -247,6 +252,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     undockModal(`win_remote_${server.id}`);
   };
 
+  // Handle Open In-Browser Remote Desktop (RDP / VNC via Guacamole Gateway)
+  const handleOpenInBrowserRemote = (server: RemoteServer, protocol: 'rdp' | 'vnc' = 'rdp') => {
+    setInBrowserRemoteServer(server);
+    setInBrowserProtocol(protocol);
+    setIsInBrowserModalOpen(true);
+    setActiveMenuServerId(null);
+    undockModal(`inbrowser_remote_${server.id}`);
+  };
+
   // Handle Copy IP
   const handleCopyIp = (ip: string) => {
     navigator.clipboard.writeText(ip);
@@ -317,6 +331,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onClose: () => {
           setIsWindowsModalOpen(false);
           undockModal(`win_remote_${windowsModalServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizeInBrowserRemote = () => {
+    setIsInBrowserModalOpen(false);
+    if (inBrowserRemoteServer) {
+      dockModal({
+        id: `inbrowser_remote_${inBrowserRemoteServer.id}`,
+        labelEn: `${inBrowserRemoteServer.name} ${inBrowserProtocol.toUpperCase()}`,
+        labelFa: `ریموت ${inBrowserRemoteServer.name} (${inBrowserProtocol.toUpperCase()})`,
+        badge: inBrowserProtocol.toUpperCase(),
+        category: 'device',
+        onRestore: () => setIsInBrowserModalOpen(true),
+        onClose: () => {
+          setIsInBrowserModalOpen(false);
+          undockModal(`inbrowser_remote_${inBrowserRemoteServer.id}`);
         },
       });
     }
@@ -761,6 +793,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               <>
                                 <button
                                   type="button"
+                                  onClick={() => handleOpenInBrowserRemote(server, 'vnc')}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-amber-300 hover:bg-amber-950/40 transition text-start cursor-pointer font-medium"
+                                >
+                                  <Monitor className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>{isEn ? 'In-Browser VNC Console' : 'کنسول گرافیکی VNC در مرورگر'}</span>
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => handleOpenLinuxTerminal(server, 'bash')}
                                   className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-emerald-300 hover:bg-emerald-950/40 transition text-start cursor-pointer"
                                 >
@@ -779,14 +819,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                             )}
 
                             {!isLinux && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenWindowsRemote(server)}
-                                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-blue-300 hover:bg-blue-950/40 transition text-start cursor-pointer"
-                              >
-                                <Monitor className="w-3.5 h-3.5" />
-                                <span>{isEn ? 'Connect RDP / Remote' : 'اتصال ریموت دسکتاپ'}</span>
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-cyan-300 hover:bg-cyan-950/40 transition text-start cursor-pointer font-medium"
+                                >
+                                  <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>{isEn ? 'In-Browser RDP (Web Gateway)' : 'ریموت دسکتاپ در مرورگر (وب گیت‌وی)'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenWindowsRemote(server)}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-blue-300 hover:bg-blue-950/40 transition text-start cursor-pointer"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Native RDP / PowerShell Suite' : 'تنظیمات mstsc و پاورشل'}</span>
+                                </button>
+                              </>
                             )}
 
                             <div className="my-1 border-t border-slate-800" />
@@ -878,11 +928,12 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => handleOpenWindowsRemote(server)}
+                      onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+                      title={isEn ? 'Open live in-browser RDP session' : 'اتصال زنده ریموت دسکتاپ در مرورگر'}
                     >
                       <Monitor className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Remote Connect' : 'اتصال ریموت'}</span>
+                      <span>{isEn ? 'In-Browser RDP' : 'ریموت در مرورگر'}</span>
                     </button>
                   )}
                 </div>
@@ -996,11 +1047,12 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => handleOpenWindowsRemote(server)}
+                      onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-sm cursor-pointer"
+                      title={isEn ? 'Open live in-browser RDP session' : 'اجرای ریموت دسکتاپ در مرورگر'}
                     >
                       <Monitor className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Remote' : 'ریموت'}</span>
+                      <span>{isEn ? 'In-Browser RDP' : 'ریموت دسکتاپ'}</span>
                     </button>
                   )}
 
@@ -1018,7 +1070,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       <div
                         className={`absolute ${
                           isEn ? 'right-0' : 'left-0'
-                        } mt-1 w-48 rounded-xl bg-slate-950 border border-slate-800 shadow-2xl p-1 z-30 text-xs space-y-0.5`}
+                        } mt-1 w-52 rounded-xl bg-slate-950 border border-slate-800 shadow-2xl p-1 z-30 text-xs space-y-0.5`}
                       >
                         <button
                           type="button"
@@ -1040,6 +1092,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           <>
                             <button
                               type="button"
+                              onClick={() => handleOpenInBrowserRemote(server, 'vnc')}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-amber-300 hover:bg-amber-950/40 transition text-start cursor-pointer font-medium"
+                            >
+                              <Monitor className="w-3.5 h-3.5 text-amber-400" />
+                              <span>{isEn ? 'In-Browser VNC Console' : 'کنسول گرافیکی VNC در مرورگر'}</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleOpenLinuxTerminal(server, 'bash')}
                               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-emerald-300 hover:bg-emerald-950/40 transition text-start cursor-pointer"
                             >
@@ -1053,6 +1113,26 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                             >
                               <Sparkles className="w-3.5 h-3.5" />
                               <span>{isEn ? 'Open Zsh Terminal' : 'ترمینال Zsh'}</span>
+                            </button>
+                          </>
+                        )}
+                        {!isLinux && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-cyan-300 hover:bg-cyan-950/40 transition text-start cursor-pointer font-medium"
+                            >
+                              <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>{isEn ? 'In-Browser RDP Session' : 'ریموت دسکتاپ در مرورگر'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenWindowsRemote(server)}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-blue-300 hover:bg-blue-950/40 transition text-start cursor-pointer"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>{isEn ? 'Native RDP / PowerShell Suite' : 'تنظیمات mstsc و پاورشل'}</span>
                             </button>
                           </>
                         )}
@@ -1172,10 +1252,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleOpenWindowsRemote(server)}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-500 cursor-pointer"
+                              onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-500 cursor-pointer shadow-sm"
+                              title={isEn ? 'Launch In-Browser RDP' : 'اجرای ریموت در مرورگر'}
                             >
-                              RDP
+                              Web RDP
                             </button>
                           )}
 
@@ -1192,8 +1273,27 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               <div
                                 className={`absolute ${
                                   isEn ? 'right-0' : 'left-0'
-                                } mt-1 w-44 rounded-xl bg-slate-950 border border-slate-800 shadow-2xl p-1 z-30 text-xs space-y-0.5 text-start`}
+                                } mt-1 w-48 rounded-xl bg-slate-950 border border-slate-800 shadow-2xl p-1 z-30 text-xs space-y-0.5 text-start`}
                               >
+                                {isLinux ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenInBrowserRemote(server, 'vnc')}
+                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-amber-300 hover:bg-slate-900 cursor-pointer font-medium"
+                                  >
+                                    <Monitor className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>{isEn ? 'In-Browser VNC' : 'کنسول VNC مرورگر'}</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenWindowsRemote(server)}
+                                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-blue-300 hover:bg-slate-900 cursor-pointer"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Native RDP Suite' : 'تنظیمات mstsc'}</span>
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleTestPing(server.id)}
@@ -1303,6 +1403,21 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           if (windowsModalServer) undockModal(`win_remote_${windowsModalServer.id}`);
         }}
         onMinimize={handleMinimizeWindowsRemote}
+        onLaunchInBrowserRdp={(srv) => handleOpenInBrowserRemote(srv, 'rdp')}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* In-Browser Remote Desktop Modal (Guacamole Gateway RDP / VNC) */}
+      <InBrowserRemoteDesktopModal
+        isOpen={isInBrowserModalOpen}
+        server={inBrowserRemoteServer}
+        protocol={inBrowserProtocol}
+        onClose={() => {
+          setIsInBrowserModalOpen(false);
+          if (inBrowserRemoteServer) undockModal(`inbrowser_remote_${inBrowserRemoteServer.id}`);
+        }}
+        onMinimize={handleMinimizeInBrowserRemote}
         isLightMode={isLightMode}
         isEn={isEn}
       />

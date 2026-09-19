@@ -1212,6 +1212,9 @@ export interface RemoteServer {
   win_domain?: string;
   win_username?: string;
   win_password?: string;
+  vnc_port?: number;
+  vnc_username?: string;
+  vnc_password?: string;
   cpu_cores?: number;
   ram_gb?: number;
   disk_gb?: number;
