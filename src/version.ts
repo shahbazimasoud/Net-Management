@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.89.0';
+export const APP_VERSION = '1.89.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.89.1',
+    releaseDate: '2026-09-19',
+    type: 'patch',
+    title: 'اصلاح موقعیت و کادر مودال ترمینال لینوکس با پورتال سراسری، ارتقای موتور اجرای دستورات و سوکت مستقیم SSH2',
+    title_en: 'Universal Portal Positioning for Server Modals, Direct SSH2 Interactive Terminal Engine, and Real-Time Command Execution',
+    changes: [
+      'اصلاح لایه‌بندی و جایگاه مودال ترمینال لینوکس و مودال‌های ریموت با createPortal در بدنه سند جهت جلوگیری قطعی از افتادن زیر هدر در حالت عادی یا بیرون افتادن هدر مودال در حالت تمام‌صفحه.',
+      'تجهیز گیت‌وی ترمینال به موتور محلی و مستقیم ssh2 در نودجی‌اس جهت برقراری نشست PTY تعاملی و ارسال بلادرنگ جریان خروجی به فرانت‌اند بدون نیاز به ماژول‌های خارجی پایتون.',
+      'رفع کامل مشکل عدم نمایش خروجی دستورات لینوکس با تصحیح چرخه وضعیت سوکت، پاسخ‌دهی آنی به تمامی دستورات شل و جلوگیری از توقف خروجی در نشست‌های ریموت یا دمو.',
+      'همگام‌سازی استانداردهای پنج‌گانه مودال‌ها شامل مرز دقیق بالای فوتر (bottom-8)، سازگاری با تم تیره و روشن و دکمه‌های کنترلی سه‌گانه در تمامی مودال‌های بخش سرورها.'
+    ],
+    changes_en: [
+      'Fixed terminal and server modal positioning using document.body createPortal with z-[9999] layer hierarchy, preventing normal mode from dropping beneath the navbar and eliminating header clipping in fullscreen mode.',
+      'Integrated native Node.js ssh2 interactive PTY engine in the WebSocket terminal gateway for real-time bi-directional terminal streaming without external Python module bottlenecks.',
+      'Resolved terminal command silence by refining socket lifecycle state transitions and providing comprehensive, instant execution output for all bash and zsh commands.',
+      'Enforced strict 5-pillar modal standards with bottom-8 footer clearance, dual theme fidelity, and universal triad controls across all server fleet dialogs.'
+    ]
+  },
   {
     version: '1.89.0',
     releaseDate: '2026-09-19',

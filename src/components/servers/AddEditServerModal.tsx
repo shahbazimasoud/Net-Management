@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Minus,
@@ -230,12 +231,12 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
-      className={`fixed z-50 flex items-center justify-center ${
+      className={`fixed z-[9999] flex flex-col items-center justify-center ${
         isMaximized
           ? 'top-0 left-0 right-0 bottom-8 p-0'
-          : 'inset-0 p-4 md:p-6 bg-black/60 backdrop-blur-sm'
+          : 'inset-0 p-4 md:p-6 bg-black/80 backdrop-blur-sm'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -976,6 +977,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

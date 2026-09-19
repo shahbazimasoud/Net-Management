@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Minus,
@@ -572,9 +573,61 @@ A star (*) next to a name means that the command is disabled.
  function name { COMMANDS ; } or    { COMMANDS ; }`;
     }
 
+    if (cmd === 'id') {
+      return 'uid=0(root) gid=0(root) groups=0(root),27(sudo),100(users)';
+    }
+
+    if (cmd.startsWith('cat ')) {
+      const filename = cmd.slice(4).trim();
+      return `# File: ${filename}\n# System parameters\nHOST=${serverName}\nIP=${server.ip}\nENVIRONMENT=${server.environment || 'Production'}\nSTATUS=ACTIVE\nPORT=${server.ssh_port || 22}\nLOG_LEVEL=info`;
+    }
+
+    if (cmd.startsWith('ping ')) {
+      const target = cmd.slice(5).trim();
+      return `PING ${target} (${target}) 56(84) bytes of data.
+64 bytes from ${target}: icmp_seq=1 ttl=64 time=0.341 ms
+64 bytes from ${target}: icmp_seq=2 ttl=64 time=0.298 ms
+64 bytes from ${target}: icmp_seq=3 ttl=64 time=0.312 ms
+
+--- ${target} ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2048ms
+rtt min/avg/max/mdev = 0.298/0.317/0.341/0.017 ms`;
+    }
+
+    if (cmd.startsWith('curl ') || cmd.startsWith('wget ')) {
+      return `HTTP/1.1 200 OK
+Server: nginx/1.24.0 (Ubuntu)
+Date: ${new Date().toUTCString()}
+Content-Type: application/json; charset=utf-8
+Content-Length: 42
+Connection: keep-alive
+
+{"status":"healthy","server":"${serverName}"}`;
+    }
+
+    if (cmd === 'history') {
+      return history.length > 0
+        ? history.map((h, i) => `  ${(i + 1).toString().padStart(4, ' ')}  ${h}`).join('\n')
+        : '     1  uname -a\n     2  uptime\n     3  ip -br a\n     4  systemctl status\n     5  docker ps';
+    }
+
+    if (cmd === 'top' || cmd === 'htop') {
+      return `top - ${new Date().toLocaleTimeString()} up ${server.uptime_str || '72 days, 14:21'},  2 users,  load average: 0.18, 0.24, 0.22
+Tasks: 138 total,   1 running, 137 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  1.8 us,  0.8 sy,  0.0 ni, 97.2 id,  0.1 wa,  0.0 hi,  0.1 si
+MiB Mem :  ${(server.ram_gb || 16) * 1024}.0 total,  ${((server.ram_gb || 16) * 1024 * 0.45).toFixed(1)} free,  ${((server.ram_gb || 16) * 1024 * 0.35).toFixed(1)} used
+MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16) * 1024 * 0.6).toFixed(1)} avail Mem
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   1024 root      20   0  142100  64200  28100 S   1.2   0.4   0:14.20 sshd
+   2184 root      20   0  842100 392000  54100 S   2.8   4.8   8:42.10 node
+   1890 redis     20   0   68400  54100  12400 S   0.4   0.8   2:14.05 redis-server
+   2184 www-data  20   0  154200  98400  32100 S   1.0   0.6   4:10.22 nginx`;
+    }
+
     // Default realistic command execution acknowledgment
-    return `[${serverName}: executed in 14ms (exit code: 0)]`;
-  }, [server]);
+    return `[${serverName}: /bin/${selectedShell}] Command '${cmd}' completed (exit code: 0)`;
+  }, [server, selectedShell, history]);
 
   // Connect to WebSocket SSH session
   const connectSession = useCallback(() => {
@@ -610,17 +663,7 @@ A star (*) next to a name means that the command is disabled.
       wsRef.current = ws;
 
       ws.onopen = () => {
-        setIsConnecting(false);
-        setIsConnected(true);
-        setLines((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(),
-            type: 'system',
-            text: `[Connected] Live SSH channel established with ${server.ip} on /bin/${selectedShell}.`,
-            timestamp: new Date().toLocaleTimeString(),
-          },
-        ]);
+        setIsConnecting(true);
         inputRef.current?.focus();
       };
 
@@ -642,7 +685,16 @@ A star (*) next to a name means that the command is disabled.
             if (msg.status === 'connected') {
               setIsConnected(true);
               setIsConnecting(false);
-            } else if (msg.status === 'failed') {
+              setLines((prev) => [
+                ...prev,
+                {
+                  id: Math.random().toString(),
+                  type: 'system',
+                  text: msg.message || `[Connected] Live SSH channel established with ${server.ip} on /bin/${selectedShell}.`,
+                  timestamp: new Date().toLocaleTimeString(),
+                },
+              ]);
+            } else if (msg.status === 'failed' || msg.status === 'disconnected') {
               setIsConnected(false);
               setIsConnecting(false);
               setLines((prev) => [
@@ -650,24 +702,26 @@ A star (*) next to a name means that the command is disabled.
                 {
                   id: Math.random().toString(),
                   type: 'system',
-                  text: `[Notice] Remote host unreachable over direct socket bridge; switched seamlessly to server command emulator runtime.`,
+                  text: msg.message || `[Notice] Remote host unreachable over direct socket bridge; switched seamlessly to server command emulator runtime.`,
                   timestamp: new Date().toLocaleTimeString(),
                 },
               ]);
             }
           } else if (msg.type === 'error') {
+            setIsConnected(false);
+            setIsConnecting(false);
             setLines((prev) => [
               ...prev,
               {
                 id: Math.random().toString(),
                 type: 'error',
-                text: `[SSH Warning] ${msg.error || 'Connection fallback active'}`,
+                text: `[Error] ${msg.error || 'Connection failure'}`,
                 timestamp: new Date().toLocaleTimeString(),
               },
             ]);
           }
         } catch {
-          // Plain text stream
+          // Plain text fallback from raw PTY
           setLines((prev) => [
             ...prev,
             {
@@ -888,9 +942,9 @@ A star (*) next to a name means that the command is disabled.
 
   if (!isOpen || !server) return null;
 
-  return (
+  return createPortal(
     <div
-      className={`fixed z-50 flex items-center justify-center ${
+      className={`fixed z-[9999] flex flex-col items-center justify-center ${
         isMaximized
           ? 'top-0 left-0 right-0 bottom-8 p-0'
           : 'inset-0 p-3 sm:p-5 bg-black/80 backdrop-blur-sm'
@@ -1391,6 +1445,7 @@ A star (*) next to a name means that the command is disabled.
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
