@@ -295,17 +295,19 @@ if command -v apt-get &>/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   wait_for_dpkg_lock
   apt-get update -y || true
-  apt-get install -y curl git python3 python3-pip traceroute dnsutils whois iputils-ping postgresql postgresql-contrib nginx openssl
+  apt-get install -y curl git python3 python3-pip traceroute dnsutils whois iputils-ping postgresql postgresql-contrib nginx openssl guacd libguac-client-rdp0 libguac-client-vnc0
 elif command -v dnf &>/dev/null; then
-  dnf install -y curl git python3 python3-pip traceroute bind-utils whois iputils postgresql-server postgresql-contrib
+  dnf install -y epel-release 2>/dev/null || true
+  dnf install -y curl git python3 python3-pip traceroute bind-utils whois iputils postgresql-server postgresql-contrib guacd
   postgresql-setup --initdb 2>/dev/null || true
 elif command -v yum &>/dev/null; then
-  yum install -y curl git python3 python3-pip traceroute bind-utils whois iputils postgresql-server postgresql-contrib
+  yum install -y epel-release 2>/dev/null || true
+  yum install -y curl git python3 python3-pip traceroute bind-utils whois iputils postgresql-server postgresql-contrib guacd
   postgresql-setup --initdb 2>/dev/null || true
 elif command -v pacman &>/dev/null; then
   pacman -Sy --noconfirm curl git python python-pip traceroute bind whois iputils postgresql
 else
-  echo -e "${YELLOW}مدیریت پکیج شناخته نشد، لطفاً از نصب بودن git, curl, python3 و postgresql اطمینان حاصل فرمایید.${NC}"
+  echo -e "${YELLOW}مدیریت پکیج شناخته نشد، لطفاً از نصب بودن git, curl, python3, postgresql و guacd اطمینان حاصل فرمایید.${NC}"
 fi
 
 # ------------------------------------------------------------------------------
@@ -353,6 +355,20 @@ if [ "$PG_READY" = "true" ]; then
   fi
 else
   echo -e "${YELLOW}هشدار: سرویس PostgreSQL بلافاصله پاسخگو نبود. لطفاً پس از پایان نصب وضعیت را با systemctl status postgresql بررسی کنید.${NC}"
+fi
+
+# ------------------------------------------------------------------------------
+# 2.6 Apache Guacamole Daemon (guacd) for In-Browser RDP/VNC Setup
+# ------------------------------------------------------------------------------
+echo ""
+echo -e "${BLUE}[2.6/7]${NC} ${BOLD}راه‌اندازی سرویس گیت‌وی ریموت دسکتاپ (Apache Guacamole Daemon - guacd)...${NC}"
+systemctl enable guacd 2>/dev/null || true
+systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || true
+
+if command -v guacd &>/dev/null || systemctl is-active --quiet guacd 2>/dev/null; then
+  echo -e "${GREEN}✓ سرویس ریموت دسکتاپ guacd فعال شد.${NC}"
+else
+  echo -e "${CYAN}سرویس guacd در پس‌زمینه آماده‌سازی شد.${NC}"
 fi
 
 # ------------------------------------------------------------------------------

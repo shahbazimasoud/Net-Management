@@ -425,14 +425,18 @@ DEBIAN_FRONTEND=noninteractive apt-get install -f -y -o Dpkg::Options::="--force
 log_step "Updating local package catalog (apt-get update)..."
 safe_apt_update
 
-log_step "Installing system tools, Nginx web server, and PostgreSQL database engine..."
+log_step "Installing system tools, Nginx web server, Guacamole RDP/VNC Gateway, and PostgreSQL database engine..."
 safe_apt_install \
   git curl build-essential python3 python3-pip python3-paramiko python3-cryptography python3-websockets ca-certificates gnupg lsb-release xz-utils openssl ufw traceroute dnsutils whois iputils-ping \
-  postgresql postgresql-contrib postgresql-client nginx
+  postgresql postgresql-contrib postgresql-client nginx guacd libguac-client-rdp0 libguac-client-vnc0
 
 log_step "Ensuring PostgreSQL service is enabled and started..."
 systemctl enable postgresql 2>/dev/null || true
 systemctl start postgresql 2>/dev/null || service postgresql start 2>/dev/null || true
+
+log_step "Ensuring Apache Guacamole Daemon (guacd) service is enabled and started..."
+systemctl enable guacd 2>/dev/null || true
+systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || true
 
 # Wait for PostgreSQL socket to become responsive
 PG_READY=false

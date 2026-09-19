@@ -1230,5 +1230,7 @@ export interface RemoteServerTagSummary {
   count: number;
 }
 
+declare module 'guacamole-common-js';
+
 
 

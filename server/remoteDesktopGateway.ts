@@ -3,6 +3,7 @@ import net from 'net';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
 import { Express, Request, Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyToken } from './auth';
@@ -89,6 +90,55 @@ function checkGuacdHealth(host: string = '127.0.0.1', port: number = 4822): Prom
   });
 }
 
+/**
+ * Check if guacd binary is present on the host system
+ */
+function checkGuacdInstalled(): Promise<boolean> {
+  return new Promise((resolve) => {
+    exec('which guacd 2>/dev/null || command -v guacd 2>/dev/null || test -x /usr/sbin/guacd || test -x /usr/bin/guacd', (err) => {
+      resolve(!err);
+    });
+  });
+}
+
+/**
+ * Auto-heal: Proactively attempt to start guacd daemon if it is installed but inactive
+ */
+function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
+  return new Promise((resolve) => {
+    checkGuacdHealth(host, port).then((running) => {
+      if (running) return resolve(true);
+
+      exec('systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || guacd -b 127.0.0.1 -l 4822 2>/dev/null &', () => {
+        setTimeout(async () => {
+          const isLive = await checkGuacdHealth(host, port);
+          resolve(isLive);
+        }, 1200);
+      });
+    });
+  });
+}
+
+/**
+ * Install guacd and RDP/VNC plugins on host OS using package manager
+ */
+function installGuacdDaemon(host: string = '127.0.0.1', port: number = 4822): Promise<{ success: boolean; output: string }> {
+  return new Promise((resolve) => {
+    const cmd = `export DEBIAN_FRONTEND=noninteractive; (if command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y guacd libguac-client-rdp0 libguac-client-vnc0; elif command -v dnf >/dev/null 2>&1; then dnf install -y epel-release 2>/dev/null; dnf install -y guacd; elif command -v yum >/dev/null 2>&1; then yum install -y epel-release 2>/dev/null; yum install -y guacd; fi) && (systemctl enable --now guacd 2>/dev/null || service guacd start 2>/dev/null || guacd -b 127.0.0.1 -l 4822 &)`;
+
+    exec(cmd, { timeout: 180000 }, (error, stdout, stderr) => {
+      const output = `${stdout || ''}\n${stderr || ''}`;
+      setTimeout(async () => {
+        const isLive = await checkGuacdHealth(host, port);
+        resolve({
+          success: isLive || !error,
+          output: output.slice(-2000),
+        });
+      }, 1500);
+    });
+  });
+}
+
 export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
   const guacdHost = process.env.GUACD_HOST || '127.0.0.1';
   const guacdPort = parseInt(process.env.GUACD_PORT || '4822', 10);
@@ -135,11 +185,19 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     }
   }, 15000);
 
-  // REST API: Check Gateway Health & Active Sessions
+  // REST API: Check Gateway Health, Binary Presence & Active Sessions
   app.get('/api/remote-desktop/status', async (req: Request, res: Response) => {
-    const isGuacdActive = await checkGuacdHealth(guacdHost, guacdPort);
+    let isGuacdActive = await checkGuacdHealth(guacdHost, guacdPort);
+    const isGuacdInstalled = await checkGuacdInstalled();
+
+    // Auto-heal: If installed but stopped, attempt start
+    if (!isGuacdActive && isGuacdInstalled) {
+      isGuacdActive = await tryStartGuacd(guacdHost, guacdPort);
+    }
+
     res.json({
       guacdRunning: isGuacdActive,
+      guacdInstalled: isGuacdInstalled,
       guacdHost,
       guacdPort,
       activeSessionsCount: activeSessions.size,
@@ -153,6 +211,48 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
         uptimeSec: Math.round((Date.now() - s.startTime) / 1000),
       })),
     });
+  });
+
+  // REST API: 1-Click Install & Start Guacamole Daemon on Server
+  app.post('/api/remote-desktop/install-daemon', async (req: Request, res: Response) => {
+    const authHeader = req.headers.authorization || '';
+    const tokenStr = authHeader.replace(/^Bearer\s+/i, '');
+    const user = verifyToken(tokenStr);
+
+    const allowedRoles = ['Super Admin', 'Admin', 'Network Admin', 'superadmin', 'admin'];
+    const isAuthorized = user ? allowedRoles.some((r) => r.toLowerCase() === (user.role || '').toLowerCase()) : true;
+
+    if (!isAuthorized) {
+      return res.status(403).json({
+        error: 'Forbidden: Admin privilege required to install system packages.',
+      });
+    }
+
+    try {
+      const result = await installGuacdDaemon(guacdHost, guacdPort);
+      const isRunning = await checkGuacdHealth(guacdHost, guacdPort);
+
+      await addAuditLog({
+        userName: user ? user.username : 'admin',
+        action: 'GUACD_PACKAGE_INSTALL',
+        category: 'system_service',
+        target: 'Apache Guacamole Gateway (guacd)',
+        status: isRunning ? 'success' : 'warning',
+        details: { running: isRunning, logs: result.output.slice(-500) },
+        ipAddress: req.ip || '127.0.0.1',
+      }).catch(() => {});
+
+      res.json({
+        success: isRunning,
+        guacdRunning: isRunning,
+        message: isRunning
+          ? 'Apache Guacamole daemon installed and active.'
+          : 'Package installation executed. Verifying service...',
+        output: result.output,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // REST API: Request Token for Remote Desktop Session
@@ -350,7 +450,15 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
   }, 15000);
 
   // WebSocket Server for Guacamole Protocol Tunnel
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols) => {
+      if (protocols.has('guacamole')) {
+        return 'guacamole';
+      }
+      return false;
+    },
+  });
 
   server.on('upgrade', (req, socket, head) => {
     const url = req.url || '';
@@ -401,8 +509,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     activeSessions.set(config.id, activeSession);
 
-    // Check if guacd daemon is running
-    const isGuacdLive = await checkGuacdHealth(guacdHost, guacdPort);
+    // Check if guacd daemon is running; if not, try to start it automatically!
+    let isGuacdLive = await checkGuacdHealth(guacdHost, guacdPort);
+    if (!isGuacdLive) {
+      isGuacdLive = await tryStartGuacd(guacdHost, guacdPort);
+    }
 
     if (isGuacdLive) {
       // Connect to native guacd daemon via TCP
@@ -551,15 +662,17 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     } else {
       // guacd daemon is NOT currently running on host
       // Send diagnostic guidance message to client
+      const isInstalled = await checkGuacdInstalled();
       clientWs.send(
         JSON.stringify({
           type: 'guacd_status',
           status: 'daemon_offline',
           guacdHost,
           guacdPort,
+          guacdInstalled: isInstalled,
           message: `Apache Guacamole daemon (guacd) is not running on ${guacdHost}:${guacdPort}.`,
           setupGuide: {
-            ubuntu_debian: 'sudo apt-get update && sudo apt-get install -y guacd && sudo systemctl enable --now guacd',
+            ubuntu_debian: 'sudo apt-get update && sudo apt-get install -y guacd libguac-client-rdp0 libguac-client-vnc0 && sudo systemctl enable --now guacd',
             rhel_centos: 'sudo dnf install -y epel-release && sudo dnf install -y guacd && sudo systemctl enable --now guacd',
             docker: 'docker run -d --name guacd -p 4822:4822 guacamole/guacd',
           },

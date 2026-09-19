@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import Guacamole from 'guacamole-common-js';
 import {
   X,
   Minus,
@@ -13,19 +14,16 @@ import {
   Sliders,
   Shield,
   Activity,
-  Wifi,
-  WifiOff,
   Copy,
   Check,
   AlertTriangle,
   CheckCircle2,
   Keyboard,
-  Power,
-  Layers,
-  Settings,
-  HelpCircle,
   Clock,
-  Laptop
+  Download,
+  Server,
+  Cpu,
+  Info
 } from 'lucide-react';
 import { RemoteServer } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -40,7 +38,7 @@ interface InBrowserRemoteDesktopModalProps {
   isEn?: boolean;
 }
 
-type ScalingMode = 'fit' | 'native' | 'fill';
+type ScalingMode = 'fit' | 'native';
 
 export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalProps> = ({
   isOpen,
@@ -63,8 +61,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [activeDurationSec, setActiveDurationSec] = useState<number>(0);
-  const [latencyMs, setLatencyMs] = useState<number>(14);
+  const [latencyMs, setLatencyMs] = useState<number>(12);
   const [guacdSetupInfo, setGuacdSetupInfo] = useState<any>(null);
+
+  // 1-Click Auto Installer States
+  const [isInstallingGuacd, setIsInstallingGuacd] = useState(false);
+  const [installLog, setInstallLog] = useState<string | null>(null);
+  const [installSuccess, setInstallSuccess] = useState<boolean | null>(null);
+  const [cmdCopied, setCmdCopied] = useState(false);
 
   // Display Settings
   const [scalingMode, setScalingMode] = useState<ScalingMode>('fit');
@@ -74,39 +78,89 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const [clipboardText, setClipboardText] = useState('');
   const [clipboardCopied, setClipboardCopied] = useState(false);
 
-  // Interactive Canvas and Stream refs
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Guacamole Client and DOM refs
+  const displayContainerRef = useRef<HTMLDivElement | null>(null);
+  const guacClientRef = useRef<any>(null);
+  const guacTunnelRef = useRef<any>(null);
+  const guacMouseRef = useRef<any>(null);
+  const guacKeyboardRef = useRef<any>(null);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
   const [idleRemainingSec, setIdleRemainingSec] = useState<number>(900); // 15 minutes = 900s
 
-  const isRdp = protocol === 'rdp' || (server?.os_type === 'windows');
-  const protocolName = isRdp ? 'RDP (Remote Desktop)' : 'VNC / Console';
-  const defaultPort = isRdp ? (server?.win_port || 3389) : (server?.vnc_port || 5900);
+  const isRdp = protocol === 'rdp' || server?.os_type === 'windows';
+  const protocolName = isRdp ? 'Windows RDP Suite' : 'Linux VNC Console';
+  const defaultPort = isRdp ? server?.win_port || 3389 : server?.vnc_port || 5900;
+  const guacdCliCmd = 'sudo apt-get install -y guacd libguac-client-rdp0 libguac-client-vnc0 && sudo systemctl enable --now guacd';
 
-  // Reset states when modal opens
-  useEffect(() => {
-    if (isOpen && server) {
-      setConnectionStatus('idle');
-      setErrorMessage(null);
-      setActiveDurationSec(0);
-      setIdleRemainingSec(900);
-      lastActivityRef.current = Date.now();
-      initiateConnection();
-    } else {
-      cleanupConnection();
+  // Register user activity on interaction
+  const registerActivity = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    setIdleRemainingSec(900);
+  }, []);
+
+  // Teardown and cleanup existing connection
+  const cleanupConnection = useCallback(() => {
+    if (guacClientRef.current) {
+      try {
+        guacClientRef.current.disconnect();
+      } catch {}
+      guacClientRef.current = null;
+    }
+    if (guacTunnelRef.current) {
+      try {
+        guacTunnelRef.current.disconnect();
+      } catch {}
+      guacTunnelRef.current = null;
+    }
+    if (durationIntervalRef.current) {
+      clearInterval(durationIntervalRef.current);
+      durationIntervalRef.current = null;
+    }
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    if (displayContainerRef.current) {
+      displayContainerRef.current.innerHTML = '';
+    }
+  }, []);
+
+  // Update scaling of Guacamole display
+  const updateDisplayScale = useCallback(() => {
+    if (!guacClientRef.current || !displayContainerRef.current) return;
+    const display = guacClientRef.current.getDisplay();
+    if (!display) return;
+
+    if (scalingMode === 'native') {
+      display.scale(1.0);
+      return;
     }
 
+    const container = displayContainerRef.current;
+    const containerWidth = container.clientWidth - 8;
+    const containerHeight = container.clientHeight - 8;
+    const displayWidth = display.getWidth();
+    const displayHeight = display.getHeight();
+
+    if (displayWidth > 0 && displayHeight > 0 && containerWidth > 0 && containerHeight > 0) {
+      const scale = Math.min(containerWidth / displayWidth, containerHeight / displayHeight);
+      display.scale(Math.max(0.2, scale));
+    }
+  }, [scalingMode]);
+
+  // Window resize listener to auto-scale display
+  useEffect(() => {
+    window.addEventListener('resize', updateDisplayScale);
     return () => {
-      cleanupConnection();
+      window.removeEventListener('resize', updateDisplayScale);
     };
-  }, [isOpen, server?.id]);
+  }, [updateDisplayScale]);
 
   // Duration and Idle tracking timer
   useEffect(() => {
-    if (connectionStatus === 'connected' || connectionStatus === 'guacd_offline') {
+    if (connectionStatus === 'connected') {
       durationIntervalRef.current = setInterval(() => {
         setActiveDurationSec((prev) => prev + 1);
         const elapsedSinceActivity = Math.floor((Date.now() - lastActivityRef.current) / 1000);
@@ -122,31 +176,105 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     };
   }, [connectionStatus]);
 
-  // Register user activity on mouse/keyboard
-  const registerActivity = useCallback(() => {
-    lastActivityRef.current = Date.now();
-    setIdleRemainingSec(900);
-  }, []);
+  // Step 2: Establish real Guacamole Tunnel & Client
+  const connectGuacamoleTunnel = useCallback((token: string) => {
+    setConnectionStatus('connecting');
 
-  const cleanupConnection = () => {
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {}
-      wsRef.current = null;
-    }
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = null;
-    }
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current);
-      durationIntervalRef.current = null;
-    }
-  };
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProto}//${window.location.host}/ws/guacamole?token=${encodeURIComponent(token)}`;
 
-  // Step 1: Request single-use cryptographic token from backend (RBAC authenticated)
-  const initiateConnection = async () => {
+    try {
+      // Initialize native Guacamole WebSocket Tunnel
+      const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
+      guacTunnelRef.current = tunnel;
+
+      const client = new Guacamole.Client(tunnel);
+      guacClientRef.current = client;
+
+      // Attach client display element to the DOM container
+      const display = client.getDisplay();
+      const displayElem = display.getElement();
+      displayElem.style.margin = 'auto';
+      displayElem.style.outline = 'none';
+
+      if (displayContainerRef.current) {
+        displayContainerRef.current.innerHTML = '';
+        displayContainerRef.current.appendChild(displayElem);
+      }
+
+      // Track client state changes
+      // 0 = IDLE, 1 = CONNECTING, 2 = WAITING, 3 = CONNECTED, 4 = DISCONNECTING, 5 = DISCONNECTED
+      client.onstatechange = (state: number) => {
+        if (state === 3) {
+          setConnectionStatus('connected');
+          registerActivity();
+          setTimeout(updateDisplayScale, 200);
+        } else if (state === 5) {
+          setConnectionStatus('disconnected');
+        }
+      };
+
+      client.onerror = (status: any) => {
+        console.warn('[RemoteDesktop] Guacamole client error:', status);
+        setConnectionStatus('error');
+        setErrorMessage(
+          status?.message ||
+            (isEn
+              ? 'Remote desktop connection encountered a protocol error.'
+              : 'اتصال ریموت دسکتاپ با خطای پروتکل مواجه شد.')
+        );
+      };
+
+      // Mouse input handling
+      const mouse: any = new Guacamole.Mouse(displayElem);
+      guacMouseRef.current = mouse;
+      mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
+        registerActivity();
+        client.sendMouseState(mouseState);
+      };
+
+      // Keyboard input handling
+      const keyboard: any = new Guacamole.Keyboard(document);
+      guacKeyboardRef.current = keyboard;
+      keyboard.onkeydown = (keysym: number) => {
+        registerActivity();
+        client.sendKeyEvent(1, keysym);
+      };
+      keyboard.onkeyup = (keysym: number) => {
+        registerActivity();
+        client.sendKeyEvent(0, keysym);
+      };
+
+      // Handle server-to-client clipboard sync
+      client.onclipboard = (stream: any, mimetype: string) => {
+        if (mimetype === 'text/plain') {
+          const reader = new Guacamole.StringReader(stream);
+          let text = '';
+          reader.ontext = (chunk: string) => {
+            text += chunk;
+          };
+          reader.onend = () => {
+            setClipboardText(text);
+          };
+        }
+      };
+
+      // Tunnel error hook
+      tunnel.onerror = (status: any) => {
+        console.warn('[RemoteDesktop] Tunnel error:', status);
+      };
+
+      // Connect to server
+      client.connect();
+    } catch (err: any) {
+      console.error('[RemoteDesktop] Tunnel exception:', err);
+      setConnectionStatus('error');
+      setErrorMessage(err.message || (isEn ? 'Failed to establish tunnel' : 'خطا در ایجاد تونل ارتباطی'));
+    }
+  }, [isEn, registerActivity, updateDisplayScale]);
+
+  // Step 1: Request single-use session token and verify gateway status
+  const initiateConnection = useCallback(async () => {
     if (!server) return;
     cleanupConnection();
     setConnectionStatus('requesting_token');
@@ -156,6 +284,21 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     const authToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
 
     try {
+      // 1. Verify guacd gateway status
+      const statusRes = await fetch('/api/remote-desktop/status', {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      }).catch(() => null);
+
+      if (statusRes && statusRes.ok) {
+        const gatewayData = await statusRes.json();
+        setGuacdSetupInfo(gatewayData);
+        if (!gatewayData.guacdRunning) {
+          setConnectionStatus('guacd_offline');
+          return;
+        }
+      }
+
+      // 2. Request single-use connection token
       const resp = await fetch('/api/remote-desktop/token', {
         method: 'POST',
         headers: {
@@ -180,267 +323,125 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       setSessionToken(tokenData.token);
       setSessionId(tokenData.sessionId);
 
-      // Step 2: Open WebSocket tunnel with single-use token
-      connectTunnel(tokenData.token);
+      // 3. Connect via Guacamole Tunnel
+      connectGuacamoleTunnel(tokenData.token);
     } catch (err: any) {
       console.error('[RemoteDesktop] Token error:', err);
       setConnectionStatus('error');
-      setErrorMessage(err.message || (isEn ? 'Failed to obtain connection token' : 'خطا در دریافت توکن امنیتی'));
+      setErrorMessage(err.message || (isEn ? 'Failed to obtain session token' : 'خطا در دریافت توکن امنیتی'));
     }
-  };
+  }, [server, cleanupConnection, displayResolution, isRdp, connectGuacamoleTunnel, isEn]);
 
-  // Step 2: Connect WebSocket tunnel to Guacamole gateway
-  const connectTunnel = (token: string) => {
-    setConnectionStatus('connecting');
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/guacamole?token=${encodeURIComponent(token)}`;
+  // 1-Click Auto-Install Guacamole Daemon
+  const handleAutoInstallGuacd = async () => {
+    setIsInstallingGuacd(true);
+    setInstallLog(null);
+    setInstallSuccess(null);
 
     try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      const authToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
+      const res = await fetch('/api/remote-desktop/install-daemon', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+      });
 
-      ws.onopen = () => {
-        setConnectionStatus('connected');
-        registerActivity();
-
-        // Start ping latency check
-        pingIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            const start = Date.now();
-            ws.send(JSON.stringify({ type: 'ping', time: start }));
-          }
-        }, 5000);
-      };
-
-      ws.onmessage = (event) => {
-        registerActivity();
-        const data = event.data;
-
-        // Check if message is a JSON control frame
-        if (typeof data === 'string' && data.startsWith('{')) {
-          try {
-            const msg = JSON.parse(data);
-            if (msg.type === 'pong') {
-              const rtt = Math.max(5, Date.now() - (msg.timestamp || Date.now()));
-              setLatencyMs(rtt);
-            } else if (msg.type === 'guacd_status' && msg.status === 'daemon_offline') {
-              setConnectionStatus('guacd_offline');
-              setGuacdSetupInfo(msg);
-              renderSimulatedDesktop();
-            } else if (msg.type === 'tunnel_ready') {
-              setConnectionStatus('connected');
-            } else if (msg.type === 'session_terminated') {
-              setConnectionStatus('disconnected');
-              setErrorMessage(msg.message || (isEn ? 'Session terminated' : 'نشست بسته شد'));
-            } else if (msg.type === 'error') {
-              setErrorMessage(msg.message);
-            }
-          } catch {}
-          return;
-        }
-
-        // Guacamole protocol frames (length.value,...)
-        renderSimulatedDesktop();
-      };
-
-      ws.onerror = () => {
-        // Fallback to simulated render mode if socket disconnects
-        setConnectionStatus('guacd_offline');
-        renderSimulatedDesktop();
-      };
-
-      ws.onclose = () => {
-        if (connectionStatus === 'connected') {
-          setConnectionStatus('disconnected');
-        }
-      };
+      const data = await res.json();
+      if (data.success || data.guacdRunning) {
+        setInstallSuccess(true);
+        setInstallLog(data.output || (isEn ? 'Daemon installed and started.' : 'سرویس نصب شد و فعال گردید.'));
+        setTimeout(() => {
+          setIsInstallingGuacd(false);
+          initiateConnection();
+        }, 1500);
+      } else {
+        setInstallSuccess(false);
+        setInstallLog(
+          data.output ||
+            data.error ||
+            (isEn
+              ? 'Package installation completed with warnings. Verifying service...'
+              : 'نصب بسته‌ها انجام شد اما وضعیت دیمن نامشخص است.')
+        );
+        setIsInstallingGuacd(false);
+      }
     } catch (err: any) {
-      setConnectionStatus('error');
-      setErrorMessage(err.message || 'WebSocket connection error');
+      setInstallSuccess(false);
+      setInstallLog(err.message);
+      setIsInstallingGuacd(false);
     }
   };
 
-  // Render high-fidelity canvas representation of the Remote Desktop
-  const renderSimulatedDesktop = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  const handleCopyCmd = () => {
+    navigator.clipboard.writeText(guacdCliCmd);
+    setCmdCopied(true);
+    setTimeout(() => setCmdCopied(false), 2000);
+  };
 
-    const width = canvas.width;
-    const height = canvas.height;
-
-    // Desktop background gradient
-    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
-    if (isRdp) {
-      // Windows 11 / Server 2022 Bloom Azure theme
-      bgGradient.addColorStop(0, '#001a33');
-      bgGradient.addColorStop(0.5, '#003366');
-      bgGradient.addColorStop(1, '#004080');
-    } else {
-      // Ubuntu / Linux GNOME Yaru theme
-      bgGradient.addColorStop(0, '#2c001e');
-      bgGradient.addColorStop(0.6, '#77216f');
-      bgGradient.addColorStop(1, '#5e2750');
-    }
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(0, 0, width, height);
-
-    // Grid accent lines
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < width; x += 60) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-    for (let y = 0; y < height; y += 60) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
-
-    // Windows / Linux Remote Window
-    const winX = width * 0.15;
-    const winY = height * 0.15;
-    const winW = width * 0.7;
-    const winH = height * 0.65;
-
-    // Window shadow & body
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(winX + 10, winY + 10, winW, winH);
-
-    ctx.fillStyle = isLightMode ? '#f8fafc' : '#0f172a';
-    ctx.fillRect(winX, winY, winW, winH);
-
-    // Window border
-    ctx.strokeStyle = isLightMode ? '#cbd5e1' : '#334155';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(winX, winY, winW, winH);
-
-    // Window Titlebar
-    ctx.fillStyle = isLightMode ? '#e2e8f0' : '#1e293b';
-    ctx.fillRect(winX, winY, winW, 36);
-
-    // Titlebar Text
-    ctx.fillStyle = isLightMode ? '#0f172a' : '#f8fafc';
-    ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
-    const winTitle = isRdp
-      ? `Administrator: Windows PowerShell (Active Session: ${server?.name || 'Remote Host'})`
-      : `root@${server?.name || 'linux-node'}: ~ (Bash Session)`;
-    ctx.fillText(winTitle, winX + 16, winY + 23);
-
-    // Window controls (minimize, maximize, close)
-    const ctrlX = winX + winW - 70;
-    ctx.fillStyle = '#ef4444';
-    ctx.beginPath();
-    ctx.arc(ctrlX + 50, winY + 18, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#eab308';
-    ctx.beginPath();
-    ctx.arc(ctrlX + 30, winY + 18, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#22c55e';
-    ctx.beginPath();
-    ctx.arc(ctrlX + 10, winY + 18, 5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Window Console Content
-    ctx.fillStyle = isLightMode ? '#000000' : '#00ffcc';
-    ctx.font = '12px "Courier New", monospace';
-    const lines = isRdp
-      ? [
-          `Windows PowerShell`,
-          `Copyright (C) Microsoft Corporation. All rights reserved.`,
-          ``,
-          `PS C:\\Users\\Administrator> Get-ComputerInfo | Select-Object WindowsProductName, CsName, OsUptime`,
-          `WindowsProductName : Windows Server 2022 Datacenter`,
-          `CsName             : ${server?.name?.toUpperCase() || 'SRV-WIN-NODE01'}`,
-          `OsUptime           : 14.06:22:18`,
-          ``,
-          `PS C:\\Users\\Administrator> Test-NetConnection -ComputerName ${server?.ip || '127.0.0.1'} -Port 3389`,
-          `TcpTestSucceeded   : True (Latency: ${latencyMs} ms)`,
-          ``,
-          `PS C:\\Users\\Administrator> _`,
-        ]
-      : [
-          `Linux ${server?.name || 'linux-srv'} 6.8.0-45-generic #45-Ubuntu SMP`,
-          `Welcome to Ubuntu 24.04.1 LTS (GNU/Linux 6.8.0-45-generic x86_64)`,
-          ``,
-          `root@${server?.name || 'linux-node'}:~# systemctl status netmanagement-agent`,
-          `● netmanagement-agent.service - NetTopology Automation Fleet Agent`,
-          `     Loaded: loaded (/etc/systemd/system/netmanagement.service; enabled)`,
-          `     Active: active (running) since Tue 2026-09-15 08:30:12 UTC`,
-          `   Main PID: 18402 (node)`,
-          `      Tasks: 18 (limit: 19124)`,
-          `     Memory: 142.4M`,
-          `        CPU: 1.241s`,
-          `root@${server?.name || 'linux-node'}:~# _`,
-        ];
-
-    lines.forEach((text, i) => {
-      ctx.fillText(text, winX + 16, winY + 60 + i * 20);
-    });
-
-    // Desktop Taskbar at Bottom
-    const taskbarH = 44;
-    const taskbarY = height - taskbarH;
-    ctx.fillStyle = isLightMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(15, 23, 42, 0.9)';
-    ctx.fillRect(0, taskbarY, width, taskbarH);
-    ctx.strokeStyle = isLightMode ? '#e2e8f0' : '#334155';
-    ctx.beginPath();
-    ctx.moveTo(0, taskbarY);
-    ctx.lineTo(width, taskbarY);
-    ctx.stroke();
-
-    // Start button
-    ctx.fillStyle = isRdp ? '#0284c7' : '#e11d48';
-    ctx.fillRect(12, taskbarY + 6, 32, 32);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillText(isRdp ? '⊞' : '⌘', 22, taskbarY + 26);
-
-    // Active Server Label in Taskbar
-    ctx.fillStyle = isLightMode ? '#0f172a' : '#f8fafc';
-    ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(`${server?.name || 'Remote Host'} (${server?.ip || '127.0.0.1'})`, 54, taskbarY + 27);
-
-    // Clock at right side of taskbar
-    const nowStr = new Date().toLocaleTimeString();
-    ctx.fillStyle = isLightMode ? '#64748b' : '#94a3b8';
-    ctx.font = '11px monospace';
-    ctx.fillText(nowStr, width - 80, taskbarY + 27);
-  }, [isRdp, server, isLightMode, latencyMs]);
-
-  // Redraw canvas on window resize or state change
+  // Reset states when modal opens
   useEffect(() => {
-    renderSimulatedDesktop();
-  }, [renderSimulatedDesktop, displayResolution]);
+    if (isOpen && server) {
+      setActiveDurationSec(0);
+      setIdleRemainingSec(900);
+      lastActivityRef.current = Date.now();
+      initiateConnection();
+    } else {
+      cleanupConnection();
+    }
+
+    return () => {
+      cleanupConnection();
+    };
+  }, [isOpen, server?.id, initiateConnection, cleanupConnection]);
 
   // Special key macros senders
   const sendSpecialKey = (keyCombo: string) => {
     registerActivity();
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'special_key', key: keyCombo }));
-    }
+    if (!guacClientRef.current) return;
+    const client = guacClientRef.current;
 
-    // Flash visual confirmation toast
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgba(6, 182, 212, 0.9)';
-        ctx.fillRect(canvas.width / 2 - 120, 20, 240, 36);
-        ctx.fillStyle = '#080c14';
-        ctx.font = 'bold 13px system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`Key Sent: ${keyCombo}`, canvas.width / 2, 43);
-        ctx.textAlign = 'left';
-        setTimeout(() => renderSimulatedDesktop(), 1200);
-      }
+    if (keyCombo === 'Ctrl+Alt+Del') {
+      // KeySyms: Ctrl = 0xFFE3, Alt = 0xFFE9, Delete = 0xFFFF
+      client.sendKeyEvent(1, 0xffe3);
+      client.sendKeyEvent(1, 0xffe9);
+      client.sendKeyEvent(1, 0xffff);
+      setTimeout(() => {
+        client.sendKeyEvent(0, 0xffff);
+        client.sendKeyEvent(0, 0xffe9);
+        client.sendKeyEvent(0, 0xffe3);
+      }, 150);
+    } else if (keyCombo === 'WinKey') {
+      // KeySym: Super / Windows = 0xFFEB
+      client.sendKeyEvent(1, 0xffeb);
+      setTimeout(() => {
+        client.sendKeyEvent(0, 0xffeb);
+      }, 150);
+    } else if (keyCombo === 'Alt+Tab') {
+      // KeySyms: Alt = 0xFFE9, Tab = 0xFF09
+      client.sendKeyEvent(1, 0xffe9);
+      client.sendKeyEvent(1, 0xff09);
+      setTimeout(() => {
+        client.sendKeyEvent(0, 0xff09);
+        client.sendKeyEvent(0, 0xffe9);
+      }, 150);
+    } else if (keyCombo === 'Esc') {
+      // KeySym: Escape = 0xFF1B
+      client.sendKeyEvent(1, 0xff1b);
+      setTimeout(() => {
+        client.sendKeyEvent(0, 0xff1b);
+      }, 100);
+    } else if (keyCombo === 'Ctrl+Shift+Esc') {
+      // KeySyms: Ctrl = 0xFFE3, Shift = 0xFFE1, Escape = 0xFF1B
+      client.sendKeyEvent(1, 0xffe3);
+      client.sendKeyEvent(1, 0xffe1);
+      client.sendKeyEvent(1, 0xff1b);
+      setTimeout(() => {
+        client.sendKeyEvent(0, 0xff1b);
+        client.sendKeyEvent(0, 0xffe1);
+        client.sendKeyEvent(0, 0xffe3);
+      }, 150);
     }
   };
 
@@ -449,14 +450,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     registerActivity();
     if (!clipboardText.trim()) return;
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'clipboard_sync', text: clipboardText }));
+    if (guacClientRef.current) {
+      guacClientRef.current.setClipboard(clipboardText);
     }
     setClipboardCopied(true);
     setTimeout(() => {
       setClipboardCopied(false);
       setShowClipboardModal(false);
-    }, 1000);
+    }, 1200);
   };
 
   // Safe Close with Modal Lock Check
@@ -540,10 +541,16 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                   }`}
                 >
                   {connectionStatus === 'connected'
-                    ? isEn ? 'LIVE RDP/VNC' : 'زنده'
+                    ? isEn
+                      ? 'LIVE DESKTOP'
+                      : 'دسکتاپ زنده'
                     : connectionStatus === 'guacd_offline'
-                    ? isEn ? 'STANDBY / SIMULATION' : 'آماده به کار / شبیه‌ساز'
-                    : isEn ? 'CONNECTING' : 'در حال اتصال'}
+                    ? isEn
+                      ? 'GATEWAY OFFLINE'
+                      : 'گیت‌وی غیرفعال'
+                    : isEn
+                    ? 'CONNECTING'
+                    : 'در حال اتصال'}
                 </span>
                 {isLocked && (
                   <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30">
@@ -553,7 +560,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                 )}
               </div>
               <p className="text-[11px] text-slate-400 font-mono mt-0.5">
-                {server.ip}:{defaultPort} • {isRdp ? 'Windows RDP Suite' : 'Linux Console/VNC'} • {isEn ? 'Encrypted Gateway Tunnel' : 'تونل رمزنگاری‌شده گیت‌وی'}
+                {server.ip}:{defaultPort} • {isRdp ? 'Windows RDP Suite' : 'Linux Console/VNC'} •{' '}
+                {isEn ? 'Apache Guacamole WebSocket Tunnel' : 'تونل پروتکل وب آپاچی گوآکامولی'}
               </p>
             </div>
           </div>
@@ -739,7 +747,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             {/* Resolution Selector */}
             <select
               value={displayResolution}
-              onChange={(e) => setDisplayResolution(e.target.value as any)}
+              onChange={(e) => {
+                setDisplayResolution(e.target.value as any);
+                setTimeout(initiateConnection, 100);
+              }}
               className={`text-xs px-2 py-1 rounded border font-mono ${
                 isLightMode
                   ? 'bg-white border-slate-300 text-slate-800'
@@ -754,7 +765,11 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             {/* Scaling Mode */}
             <button
               type="button"
-              onClick={() => setScalingMode(scalingMode === 'fit' ? 'native' : 'fit')}
+              onClick={() => {
+                const next = scalingMode === 'fit' ? 'native' : 'fit';
+                setScalingMode(next);
+                setTimeout(updateDisplayScale, 50);
+              }}
               className={`px-2 py-1 rounded border font-mono text-xs flex items-center gap-1 transition-colors cursor-pointer ${
                 scalingMode === 'fit'
                   ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
@@ -763,7 +778,15 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               title={isEn ? 'Toggle Display Fit' : 'تغییر مقیاس صفحه'}
             >
               <Sliders className="w-3 h-3" />
-              <span>{scalingMode === 'fit' ? (isEn ? 'Fit Window' : 'انطباق') : (isEn ? '100% 1:1' : 'اندازه واقعی')}</span>
+              <span>
+                {scalingMode === 'fit'
+                  ? isEn
+                    ? 'Fit Window'
+                    : 'انطباق'
+                  : isEn
+                  ? '100% 1:1'
+                  : 'اندازه واقعی'}
+              </span>
             </button>
 
             {/* Clipboard Sync Button */}
@@ -799,50 +822,41 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
               title={isEn ? 'Reconnect session' : 'اتصال مجدد'}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${connectionStatus === 'connecting' ? 'animate-spin text-cyan-400' : ''}`} />
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${
+                  connectionStatus === 'connecting' || connectionStatus === 'requesting_token'
+                    ? 'animate-spin text-cyan-400'
+                    : ''
+                }`}
+              />
             </button>
           </div>
         </div>
 
-        {/* Informative Diagnostics / Guacd Daemon Banner (Expandable) */}
-        {(showDiagnostics || connectionStatus === 'guacd_offline') && (
+        {/* Informative Diagnostics Drawer (Expandable) */}
+        {showDiagnostics && (
           <div
             className={`px-4 py-2.5 border-b text-xs transition-all ${
-              connectionStatus === 'guacd_offline'
-                ? 'bg-amber-950/40 border-amber-800/40 text-amber-200'
-                : isLightMode
-                ? 'bg-slate-100 border-slate-200 text-slate-700'
-                : 'bg-slate-900 border-slate-800 text-slate-300'
+              isLightMode ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
             }`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <Shield className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
                 <div>
                   <div className="font-bold flex items-center gap-2">
                     <span>
-                      {connectionStatus === 'guacd_offline'
-                        ? isEn
-                          ? 'Apache Guacamole Daemon (guacd) Offline — Running in Interactive UI Simulation Mode'
-                          : 'دیمون آپاچی گوآکامولی (guacd) روی هاست فعال نیست — اجرای شبیه‌ساز تعاملی فعال شد'
-                        : isEn
-                        ? 'Guacamole Gateway Engine Diagnostics'
-                        : 'دیاگنوستیک موتور گیت‌وی گوآکامولی'}
+                      {isEn ? 'Apache Guacamole Gateway Architecture' : 'معماری گیت‌وی وب آپاچی گوآکامولی'}
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      Port 4822
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      guacd TCP:4822
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-1">
                     {isEn
-                      ? 'The web gateway connects to native RDP (port 3389) or VNC (port 5900) via the Guacamole protocol proxy. Credentials are held 100% on the server and verified via single-use cryptographic tokens.'
-                      : 'گیت‌وی وب از طریق پروکسی پروتکل گوآکامولی به پروتکل‌های بومی RDP (پورت ۳۳۸۹) و VNC (پورت ۵۹۰۰) متصل می‌شود. اطلاعات کاربری به صورت صددرصد در سمت سرور نگهداری شده و با توکن‌های یک‌بارمصرف رمزنگاری محافظت می‌گردد.'}
+                      ? 'The web gateway proxies browser WebSocket frames directly into native RDP (TCP:3389) or VNC (TCP:5900) via the Guacamole protocol daemon. Server credentials remain strictly on the backend.'
+                      : 'گیت‌وی وب بسته‌های وب‌سوکت مرورگر را مستقیماً به پروتکل‌های بومی RDP (پورت ۳۳۸۹) و VNC (پورت ۵۹۰۰) از طریق دیمن گوآکامولی هدایت می‌کند. اطلاعات عبور سرورها کاملاً در سمت سرور امن می‌ماند.'}
                   </p>
-                  {connectionStatus === 'guacd_offline' && (
-                    <div className="mt-2 p-2 rounded bg-slate-950/80 border border-slate-800 font-mono text-[11px] text-cyan-300">
-                      <code>sudo apt-get install -y guacd && sudo systemctl enable --now guacd</code>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -857,33 +871,151 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           </div>
         )}
 
-        {/* Remote Desktop Canvas Viewport */}
+        {/* Remote Desktop Canvas Viewport Container */}
         <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden p-1">
-          <canvas
-            ref={canvasRef}
-            width={1920}
-            height={1080}
-            className={`shadow-2xl transition-all ${
-              scalingMode === 'fit'
-                ? 'max-w-full max-h-full object-contain'
-                : 'w-[1920px] h-[1080px]'
+          {/* Live Guacamole Display Element */}
+          <div
+            ref={displayContainerRef}
+            className={`w-full h-full flex items-center justify-center overflow-hidden ${
+              connectionStatus !== 'connected' ? 'hidden' : ''
             }`}
-            tabIndex={0}
           />
 
-          {/* Overlay Status when connecting or error */}
-          {connectionStatus === 'requesting_token' && (
+          {/* Gateway Offline View: 1-Click Auto Installer & Service Setup */}
+          {connectionStatus === 'guacd_offline' && (
+            <div className="max-w-2xl w-full p-6 mx-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl backdrop-blur-md text-center">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+
+              <h3 className="text-base font-bold text-slate-100 mb-2">
+                {isEn
+                  ? 'Apache Guacamole Gateway (guacd) Offline'
+                  : 'سرویس گیت‌وی ریموت دسکتاپ (Apache Guacamole) غیرفعال است'}
+              </h3>
+
+              <p className="text-xs text-slate-400 leading-relaxed max-w-lg mx-auto mb-5">
+                {isEn
+                  ? 'To stream live Windows RDP and Linux VNC screens directly inside the browser, the Guacamole daemon is required on the host server. We have added this package to the panel setup scripts.'
+                  : 'برای نمایش تصویر زنده دسکتاپ ویندوز و کنسول لینوکس درون مرورگر، سرویس دیمن Guacamole بر روی سیستم‌عامل سرور لازم است. این پکیج اکنون به اسکریپت‌های نصب پنل افزوده شده است.'}
+              </p>
+
+              {/* 1-Click Auto Install Action Box */}
+              <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 mb-4 text-left">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs font-bold text-slate-200">
+                      {isEn ? 'Automatic 1-Click Installation' : 'نصب و فعال‌سازی خودکار (۱ کلیک)'}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAutoInstallGuacd}
+                    disabled={isInstallingGuacd}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 text-slate-950 font-bold text-xs shadow-lg shadow-cyan-500/20 transition-all cursor-pointer"
+                  >
+                    {isInstallingGuacd ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>{isEn ? 'Installing guacd packages...' : 'در حال نصب و فعال‌سازی...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Install & Start Gateway' : 'نصب و راه‌اندازی خودکار'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Progress / Status feedback */}
+                {installLog && (
+                  <div
+                    className={`mt-2 p-2.5 rounded-lg font-mono text-[11px] leading-relaxed max-h-32 overflow-y-auto ${
+                      installSuccess
+                        ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-800/40'
+                        : 'bg-amber-950/40 text-amber-300 border border-amber-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold mb-1">
+                      {installSuccess ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                      <span>{installSuccess ? (isEn ? 'Success:' : 'موفقیت:') : (isEn ? 'Output:' : 'نتیجه:')}</span>
+                    </div>
+                    <pre className="whitespace-pre-wrap">{installLog}</pre>
+                  </div>
+                )}
+              </div>
+
+              {/* Manual Command Option */}
+              <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800 text-left">
+                <div className="flex-1 overflow-x-auto font-mono text-[11px] text-cyan-300 whitespace-nowrap py-1">
+                  <code>{guacdCliCmd}</code>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyCmd}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition-colors cursor-pointer shrink-0"
+                >
+                  {cmdCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{cmdCopied ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی دستور')}</span>
+                </button>
+              </div>
+
+              <div className="mt-4 flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={initiateConnection}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  {isEn ? 'Check Status Again' : 'بررسی مجدد وضعیت'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Overlay Status when connecting */}
+          {(connectionStatus === 'requesting_token' || connectionStatus === 'connecting') && (
             <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
               <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mb-3" />
               <p className="text-sm font-bold text-slate-200">
-                {isEn ? 'Authenticating & Requesting Single-Use Session Token...' : 'احراز هویت و دریافت توکن امنیتی یک‌بارمصرف...'}
+                {isEn
+                  ? 'Connecting to Live Remote Desktop Stream...'
+                  : 'در حال برقراری ارتباط زنده با ریموت دسکتاپ...'}
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                {isEn ? 'Enforcing RBAC policy and retrieving server credentials securely.' : 'اعمال سیاست‌های دسترسی و بارگذاری امن اطلاعات کاربری سرور.'}
+                {isEn
+                  ? 'Establishing secure Guacamole WebSocket tunnel with host.'
+                  : 'اتصال تونل رمزنگاری‌شده گوآکامولی با هاست سرور.'}
               </p>
             </div>
           )}
 
+          {/* Overlay Status when disconnected */}
+          {connectionStatus === 'disconnected' && (
+            <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center">
+              <Monitor className="w-10 h-10 text-slate-500 mb-3" />
+              <p className="text-sm font-bold text-slate-200">
+                {isEn ? 'Remote Session Disconnected' : 'نشست ریموت دسکتاپ قطع شد'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                {errorMessage ||
+                  (isEn
+                    ? 'Target server closed connection or session timed out.'
+                    : 'ارتباط توسط سرور مقصد بسته شد یا زمان نشست به پایان رسید.')}
+              </p>
+              <button
+                type="button"
+                onClick={initiateConnection}
+                className="mt-4 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-md transition-colors cursor-pointer"
+              >
+                {isEn ? 'Reconnect Now' : 'اتصال مجدد'}
+              </button>
+            </div>
+          )}
+
+          {/* Error View */}
           {connectionStatus === 'error' && (
             <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
               <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-3">
@@ -893,7 +1025,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                 {isEn ? 'Remote Connection Failed' : 'برقراری اتصال ناموفق بود'}
               </h4>
               <p className="text-xs text-slate-400 max-w-md mt-2 mb-4 font-mono">
-                {errorMessage || (isEn ? 'Unable to reach target host over gateway.' : 'عدم امکان دسترسی به سرور از طریق گیت‌وی.')}
+                {errorMessage ||
+                  (isEn ? 'Unable to reach target host over gateway.' : 'عدم امکان دسترسی به سرور از طریق گیت‌وی.')}
               </p>
               <button
                 type="button"
@@ -1001,7 +1134,15 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                     className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md transition-colors"
                   >
                     {clipboardCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{clipboardCopied ? (isEn ? 'Sent to Remote!' : 'ارسال شد!') : (isEn ? 'Send to Remote' : 'ارسال به ریموت')}</span>
+                    <span>
+                      {clipboardCopied
+                        ? isEn
+                          ? 'Sent to Remote!'
+                          : 'ارسال شد!'
+                        : isEn
+                        ? 'Send to Remote'
+                        : 'ارسال به ریموت'}
+                    </span>
                   </button>
                 </div>
               </div>

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.91.0';
+export const APP_VERSION = '1.92.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.92.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'افزودن نصب خودکار سرویس guacd و پلاگین‌های RDP/VNC به اسکریپت‌های راه‌اندازی، اتصال واقعی Guacamole.Client و قابلیت نصب ۱-کلیک از رابط کاربری',
+    title_en: 'Automated guacd Daemon & RDP/VNC Driver Packaging in Setup Scripts, Live Guacamole.Client Rendering, and 1-Click Gateway Auto-Installer',
+    changes: [
+      'افزودن پکیج‌های guacd، libguac-client-rdp0 و libguac-client-vnc0 به همراه فعال‌سازی خودکار سرویس (systemctl enable --now guacd) در اسکریپت‌های install.sh و setup-panel.sh برای توزیع‌های دبیان، اوبونتو و رد‌هت/سنت‌او‌اس.',
+      'جایگزینی رندرینگ شبیه‌ساز با استریم زنده و واقعی پروتکل Apache Guacamole در کلاینت مرورگر (guacamole-common-js) با انطباق هوشمند ابعاد و ارسال دقیق رویدادهای ماوس و کیبورد.',
+      'افزودن اندپوینت‌های بررسی وضعیت، استارت خودکار (Auto-Heal) و نصب با یک کلیک (POST /api/remote-desktop/install-daemon) در گیت‌وی سرور.',
+      'طراحی کارت هشدار هوشمند در صورت آفلاین بودن دیمن گیت‌وی به همراه دکمه اختصاصی نصب و راه‌اندازی خودکار با ۱ کلیک و باکس کپی فرمان ترمینال به جای نمایش تصویر ساختگی.'
+    ],
+    changes_en: [
+      'Integrated guacd, libguac-client-rdp0, and libguac-client-vnc0 packages with automatic service startup (systemctl enable --now guacd) inside install.sh and setup-panel.sh for Debian, Ubuntu, and RHEL/CentOS.',
+      'Replaced simulation mode with genuine Apache Guacamole live streaming in the browser client (guacamole-common-js) supporting adaptive viewport scaling and real-time mouse/keyboard capture.',
+      'Added gateway auto-heal checks and one-click daemon installer endpoints (POST /api/remote-desktop/install-daemon) in server/remoteDesktopGateway.ts.',
+      'Designed an intelligent Gateway Offline card featuring a 1-Click Auto Install & Start button and quick terminal copy command instead of displaying a mock desktop.'
+    ]
+  },
   {
     version: '1.91.0',
     releaseDate: '2026-09-19',
