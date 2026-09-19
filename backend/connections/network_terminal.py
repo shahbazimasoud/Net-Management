@@ -276,7 +276,8 @@ class NetworkTerminalSession:
             rows=self.rows,
             term_name=term_name,
             timeout=6.0,
-            on_status_msg=self.on_data_callback
+            on_status_msg=self.on_data_callback,
+            platform=self.platform
         )
 
         first_error = None

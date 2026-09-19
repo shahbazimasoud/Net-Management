@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.85.0';
+export const APP_VERSION = '1.85.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.85.1',
+    releaseDate: '2026-09-19',
+    type: 'patch',
+    title: 'رفع خطای احراز هویت SSH در روترهای میکروتیک (MikroTik ROSSSH Bug Fix)',
+    title_en: 'Fix MikroTik RouterOS SSH Authentication Failure (RFC 8332 / ROSSSH)',
+    changes: [
+      'حل مشکل عدم احراز هویت (Authentication failed) در اتصال SSH به روترهای میکروتیک (RouterOS v6 و RouterOS v7).',
+      'دور زدن باگ شناخته‌شده RFC 8332 در سرویس ROSSSH میکروتیک از طریق تفکیک و غیرفعال‌سازی الگوریتم‌های ناسازگار rsa-sha2-256 و rsa-sha2-512.',
+      'غیرفعال‌سازی اجباری look_for_keys و allow_agent در نشست‌های میکروتیک جهت جلوگیری از تلاش برای ارسال کلیدهای SSH محلی سیستم سرور.',
+      'پیاده‌سازی مکانیزم احراز هویت چندمرحله‌ای شامل auth_none (برای حساب‌های پیش‌فرض فاقد رمز عبور admin)، auth_password و keyboard-interactive.',
+      'حفظ کامل و صددرصدی ساختار دو لایه مذاکره تطبیقی (Two-Tier Adaptive Negotiation) برای تجهیزات سیسکو، لینوکس و سایر برندها بدون کوچک‌ترین تغییر.'
+    ],
+    changes_en: [
+      'Resolved SSH "Authentication failed" error on MikroTik RouterOS devices (both RouterOS v6 and v7).',
+      'Bypassed known ROSSSH RFC 8332 bug by safely excluding incompatible rsa-sha2-256 and rsa-sha2-512 pubkey extensions.',
+      'Suppressed look_for_keys and allow_agent for MikroTik targets to prevent premature server-side key rejections.',
+      'Implemented multi-tier authentication engine including auth_none fallback for passwordless admin accounts, auth_password, and keyboard-interactive.',
+      'Strictly preserved 100% of the existing Two-Tier Adaptive Negotiation engine for Cisco and Linux network equipment without any modifications.'
+    ]
+  },
   {
     version: '1.85.0',
     releaseDate: '2026-09-19',

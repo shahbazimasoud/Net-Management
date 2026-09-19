@@ -164,7 +164,8 @@ class SSHConnectionManager:
                 password=password,
                 timeout=6.0,
                 banner_timeout=6.0,
-                auth_timeout=6.0
+                auth_timeout=6.0,
+                platform=platform
             )
             if not connected:
                 err_msg = str(err or "SSH Connection Failed")

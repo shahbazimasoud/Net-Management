@@ -342,6 +342,211 @@ def extract_negotiation_info(transport: Any, tier_name: str) -> Dict[str, Any]:
     }
 
 
+# ==============================================================================
+# MikroTik RouterOS Hardened Key & Cipher Suites
+# RouterOS SSH (ROSSSH) in v6 & v7 has a known RFC 8332 bug where rsa-sha2-256
+# and rsa-sha2-512 extensions cause immediate "Authentication failed."
+# Restricting to standard ssh-rsa / ssh-ed25519 and disabling SHA2-RSA pubkeys
+# allows RouterOS to authenticate cleanly via password or auth_none.
+# ==============================================================================
+MIKROTIK_KEX = (
+    'curve25519-sha256',
+    'curve25519-sha256@libssh.org',
+    'ecdh-sha2-nistp256',
+    'ecdh-sha2-nistp384',
+    'ecdh-sha2-nistp521',
+    'diffie-hellman-group14-sha256',
+    'diffie-hellman-group14-sha1',
+    'diffie-hellman-group-exchange-sha256',
+    'diffie-hellman-group-exchange-sha1',
+    'diffie-hellman-group1-sha1',
+)
+
+MIKROTIK_KEYS = (
+    'ssh-ed25519',
+    'ecdsa-sha2-nistp256',
+    'ecdsa-sha2-nistp384',
+    'ecdsa-sha2-nistp521',
+    'ssh-rsa',
+    'ssh-dss',
+)
+
+MIKROTIK_CIPHERS = (
+    'aes128-ctr',
+    'aes192-ctr',
+    'aes256-ctr',
+    'aes128-gcm@openssh.com',
+    'aes256-gcm@openssh.com',
+    'chacha20-poly1305@openssh.com',
+    'aes128-cbc',
+    'aes192-cbc',
+    'aes256-cbc',
+    '3des-cbc',
+)
+
+MIKROTIK_MACS = (
+    'hmac-sha2-256',
+    'hmac-sha2-512',
+    'hmac-sha1',
+    'hmac-sha1-96',
+    'hmac-md5',
+)
+
+
+def connect_mikrotik_ssh(
+    client: Any,
+    hostname: str,
+    port: int = 22,
+    username: str = "admin",
+    password: str = "",
+    timeout: float = 6.0,
+    banner_timeout: float = 6.0,
+    auth_timeout: float = 6.0
+) -> Tuple[bool, Optional[str]]:
+    """
+    Dedicated, hardened SSH connection engine for MikroTik RouterOS.
+    Bypasses known ROSSSH bugs:
+    1. RFC 8332 rsa-sha2-256 / rsa-sha2-512 incompatibilities in ROSSSH (disables SHA2-RSA pubkeys)
+    2. Suppresses look_for_keys and allow_agent to prevent premature auth failures
+    3. Handles empty/default admin passwords via auth_none fallback
+    4. Supports RouterOS v6 and v7 across all modern and legacy ciphers
+    """
+    ensure_paramiko_compatibility()
+    import paramiko
+    import inspect
+
+    last_error = None
+    user_to_try = username or "admin"
+
+    # --------------------------------------------------------------------------
+    # Step 1: Standard client.connect with look_for_keys=False and disabled_algorithms
+    # --------------------------------------------------------------------------
+    try:
+        connect_kwargs: Dict[str, Any] = {
+            "hostname": hostname,
+            "port": port,
+            "username": user_to_try,
+            "password": password if password else None,
+            "timeout": timeout,
+            "banner_timeout": banner_timeout,
+            "auth_timeout": auth_timeout,
+            "look_for_keys": False,
+            "allow_agent": False,
+        }
+        # Disable rsa-sha2-256 / rsa-sha2-512 if paramiko supports disabled_algorithms
+        try:
+            sig = inspect.signature(client.connect)
+            if "disabled_algorithms" in sig.parameters:
+                connect_kwargs["disabled_algorithms"] = {
+                    "pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]
+                }
+        except Exception:
+            pass
+
+        client.connect(**connect_kwargs)
+        trans = client.get_transport()
+        if trans and trans.is_authenticated():
+            client._transport = trans
+            client._negotiation_info = extract_negotiation_info(trans, "mikrotik_ros_fast")
+            logger.info(f"[MikroTik SSH] Connected successfully to {hostname}:{port} via standard fast path.")
+            return True, None
+    except Exception as e_fast:
+        last_error = str(e_fast).strip()
+        logger.debug(f"[MikroTik SSH Fast Path] Connect attempt failed: {e_fast}. Proceeding to transport-level negotiation...")
+
+    # --------------------------------------------------------------------------
+    # Step 2: Low-level Transport with MIKROTIK_KEYS (excluding rsa-sha2-256/512)
+    # and multi-stage authentication (auth_none, auth_password, keyboard-interactive)
+    # --------------------------------------------------------------------------
+    sock = None
+    transport = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((hostname, port))
+
+        transport = paramiko.Transport(sock)
+        apply_security_options_safely(
+            transport,
+            kex_candidates=MIKROTIK_KEX,
+            key_candidates=MIKROTIK_KEYS,
+            cipher_candidates=MIKROTIK_CIPHERS,
+            mac_candidates=MIKROTIK_MACS
+        )
+
+        transport.start_client(timeout=banner_timeout)
+
+        auth_ok = False
+        auth_err = None
+
+        # A: If password is empty or None, try auth_none first
+        if not password:
+            try:
+                transport.auth_none(user_to_try)
+                auth_ok = transport.is_authenticated()
+            except Exception as e_none:
+                auth_err = str(e_none)
+
+        # B: Try standard password authentication
+        if not auth_ok and password is not None:
+            try:
+                transport.auth_password(username=user_to_try, password=password)
+                auth_ok = transport.is_authenticated()
+            except Exception as e_pwd:
+                auth_err = str(e_pwd)
+
+        # C: Try trimmed password if there were leading/trailing spaces
+        if not auth_ok and password and password.strip() != password:
+            try:
+                transport.auth_password(username=user_to_try, password=password.strip())
+                auth_ok = transport.is_authenticated()
+            except Exception as e_trim:
+                auth_err = str(e_trim)
+
+        # D: If still not authenticated and password was rejected, try auth_none
+        # (RouterOS default admin has no password, but clients sending password string may be rejected)
+        if not auth_ok:
+            try:
+                transport.auth_none(user_to_try)
+                auth_ok = transport.is_authenticated()
+            except Exception:
+                pass
+
+        # E: Fallback to keyboard-interactive prompt
+        if not auth_ok:
+            def interactive_handler(title, instructions, prompt_list):
+                return [password or "" for _ in prompt_list]
+            try:
+                transport.auth_interactive(username=user_to_try, handler=interactive_handler)
+                auth_ok = transport.is_authenticated()
+            except Exception as e_int:
+                auth_err = auth_err or str(e_int)
+
+        if auth_ok:
+            client._transport = transport
+            client._negotiation_info = extract_negotiation_info(transport, "mikrotik_ros_transport")
+            logger.info(f"[MikroTik SSH] Connected successfully to {hostname}:{port} via transport negotiation.")
+            return True, None
+        else:
+            last_error = auth_err or f"Authentication failed for user '{user_to_try}'"
+    except Exception as e_trans:
+        last_error = str(e_trans).strip() or "MikroTik SSH handshake error"
+    finally:
+        if not getattr(client, '_transport', None) or client._transport is not transport:
+            if transport:
+                try:
+                    transport.close()
+                except Exception:
+                    pass
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
+    return False, last_error or f"Authentication failed for user '{username or 'admin'}' on {hostname}:{port}"
+
+
 def connect_ssh_device(
     client: Any,
     hostname: str,
@@ -351,7 +556,8 @@ def connect_ssh_device(
     timeout: float = 6.0,
     banner_timeout: float = 6.0,
     auth_timeout: float = 6.0,
-    on_fallback_log: Optional[Any] = None
+    on_fallback_log: Optional[Any] = None,
+    platform: str = ""
 ) -> Tuple[bool, Optional[str]]:
     """
     Connects to a network device using the Two-Tier Adaptive Negotiation Engine:
@@ -359,6 +565,8 @@ def connect_ssh_device(
       Fast path for 100% of modern infrastructure with zero latency penalty or legacy overhead.
     - Tier 2 (Adaptive Legacy Fallback): If (and only if) Tier 1 fails on algorithm/KEX mismatch,
       automatically retries with legacy Cisco algorithms (DH Group 14/1, ssh-rsa, AES-CBC, 3DES).
+    - MikroTik RouterOS Engine: When target platform is MikroTik (or ROSSSH is identified), executes
+      hardened MikroTik SSH negotiation bypassing RFC 8332 bug and auth_none/password quirks.
     
     Guaranteed zero 'unknown cipher' errors via safe dictionary reflection.
     Returns (True, None) on success, or (False, error_message) on failure.
@@ -366,6 +574,19 @@ def connect_ssh_device(
     """
     ensure_paramiko_compatibility()
     import paramiko
+
+    # Check if target platform is explicitly MikroTik
+    if "mikrotik" in str(platform or "").lower():
+        return connect_mikrotik_ssh(
+            client,
+            hostname=hostname,
+            port=port,
+            username=username,
+            password=password,
+            timeout=timeout,
+            banner_timeout=banner_timeout,
+            auth_timeout=auth_timeout
+        )
 
     # --------------------------------------------------------------------------
     # Attempt 1: Tier 1 - Modern Fast Path
@@ -390,6 +611,31 @@ def connect_ssh_device(
         )
 
         transport1.start_client(timeout=banner_timeout)
+
+        # Dynamic MikroTik Detection via SSH banner:
+        remote_ident = str(getattr(transport1, "remote_version", "") or "").lower()
+        if "rosssh" in remote_ident or "mikrotik" in remote_ident:
+            logger.info(f"[SSH Auto-Discovery] Detected MikroTik RouterOS banner ({remote_ident}) on {hostname}:{port}. Routing to MikroTik SSH Engine.")
+            try:
+                transport1.close()
+            except Exception:
+                pass
+            if sock1:
+                try:
+                    sock1.close()
+                except Exception:
+                    pass
+            return connect_mikrotik_ssh(
+                client,
+                hostname=hostname,
+                port=port,
+                username=username,
+                password=password,
+                timeout=timeout,
+                banner_timeout=banner_timeout,
+                auth_timeout=auth_timeout
+            )
+
         auth_ok, auth_err = authenticate_transport(transport1, username=username, password=password)
 
         if auth_ok:
@@ -503,12 +749,14 @@ def open_adaptive_shell_channel(
     rows: int = 24,
     term_name: str = "xterm-256color",
     timeout: float = 6.0,
-    on_status_msg: Optional[Any] = None
+    on_status_msg: Optional[Any] = None,
+    platform: str = ""
 ) -> Tuple[Optional[Any], Optional[Any], Optional[Any], Dict[str, Any], Optional[str]]:
     """
     Opens an interactive shell channel using the unified Two-Tier Adaptive SSH Engine:
     Tier 1: Modern Fast Path (no legacy overhead)
     Tier 2: Targeted Legacy Fallback (activated if Tier 1 rejects modern KEX/ciphers)
+    MikroTik: Dedicated ROSSSH compatibility engine (RFC 8332 workaround)
     
     Returns:
     (channel, transport, client, negotiation_info, error_message)
@@ -534,7 +782,8 @@ def open_adaptive_shell_channel(
         timeout=timeout,
         banner_timeout=timeout,
         auth_timeout=timeout,
-        on_fallback_log=fallback_cb
+        on_fallback_log=fallback_cb,
+        platform=platform
     )
 
     if not connected or not getattr(client, '_transport', None):

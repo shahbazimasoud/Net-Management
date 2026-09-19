@@ -506,7 +506,8 @@ def execute_real_hardware_probe(
         password=password,
         timeout=6.0,
         banner_timeout=6.0,
-        auth_timeout=6.0
+        auth_timeout=6.0,
+        platform=platform
     )
 
     if not conn_ok:

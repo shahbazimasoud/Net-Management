@@ -2823,7 +2823,8 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                             password=pwd,
                             timeout=5.0,
                             banner_timeout=5.0,
-                            auth_timeout=5.0
+                            auth_timeout=5.0,
+                            platform=platform
                         )
                         if not auth_ok:
                             connected = False
