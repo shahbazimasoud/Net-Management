@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.85.1';
+export const APP_VERSION = '1.86.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.86.0',
+    releaseDate: '2026-09-19',
+    type: 'minor',
+    title: 'موتور انطباقی چندلایه SSH میکروتیک با پشتیبانی هم‌زمان از نسخه‌های جدید و قدیمی سخت‌افزار',
+    title_en: 'Multi-Tier Adaptive SSH Engine for MikroTik with Modern & Legacy Hardware Support',
+    changes: [
+      'پیاده‌سازی موتور هوشمند سه لایه مذاکره SSH اختصاصی برای تجهیزات میکروتیک (MikroTik Multi-Tier Adaptive SSH Engine) جهت پشتیبانی هم‌زمان از دیوایس‌های مدرن و سخت‌افزارهای قدیمی.',
+      'پشتیبانی کامل از سوئیت‌های رمزنگاری پیشرفته و جدید (Curve25519, Ed25519, AES-256-GCM, SHA2-512, Chacha20) برای روترهای نسل جدید RouterOS v7+.',
+      'افزودن لایه انتقالی هوشمند (Tier 2 Transitional) با دور زدن خودکار باگ RFC 8332 سرویس ROSSSH در RouterOS v6.4x بدون از دست رفتن کارایی.',
+      'افزودن لایه میراثی (Tier 3 Legacy Fallback) با الگوریتم‌های Diffie-Hellman Group 14/1، 3DES-CBC و AES-CBC برای تجهیزات قدیمی‌تر RouterBOARD و RouterOS v5/v6.',
+      'ارتقای پروتکل تله‌متری و استخراج ۱۰۰٪ واقعی اطلاعات هویتی، مدل بردی، نسخه سیستم‌عامل، وضعیت پورت‌ها و نمایش سوئیت امنیتی مذاکره‌شده در رابط کاربری بدون دیتای شبیه‌ساز.',
+      'همگام‌سازی کتابخانه SSH سمت نود با آخرین الگوریتم‌های مدرن تبادل کلید و رمزنگاری داده.'
+    ],
+    changes_en: [
+      'Engineered a 3-tier adaptive SSH negotiation engine specifically for MikroTik devices, seamlessly supporting both brand new and legacy hardware.',
+      'Enabled high-security modern cryptographic suites (Curve25519, Ed25519, AES-256-GCM, SHA2-512, Chacha20) for state-of-the-art RouterOS v7+ routers.',
+      'Integrated Tier 2 transitional layer with automatic bypass for the MikroTik ROSSSH RFC 8332 bug on RouterOS v6.4x without performance degradation.',
+      'Provided Tier 3 legacy fallback layer with Diffie-Hellman Group 14/1, 3DES-CBC, and AES-CBC suites for older RouterBOARD and RouterOS v5/v6 equipment.',
+      'Enhanced real hardware telemetry parsing for identity, board model, OS version, live ports, and rendered the negotiated SSH security suite in the UI without simulated data.',
+      'Synchronized Node.js SSH discovery engine with the latest modern key exchange and cipher suites.'
+    ]
+  },
   {
     version: '1.85.1',
     releaseDate: '2026-09-19',

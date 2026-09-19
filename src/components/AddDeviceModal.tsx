@@ -1516,11 +1516,25 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   )}
                   <div className="flex-1">
                     <div className="font-semibold">{sshTestResult.message}</div>
-                    {sshTestResult.latency_ms !== undefined && (
-                      <div className={`text-[11px] mt-0.5 font-mono ${isLightMode ? 'text-emerald-700' : 'text-emerald-400/80'}`}>
-                        {isEn ? 'Latency' : 'تاخیر اتصال'}: {sshTestResult.latency_ms} ms
-                      </div>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] font-mono">
+                      {sshTestResult.latency_ms !== undefined && (
+                        <span className={isLightMode ? 'text-emerald-700' : 'text-emerald-400/80'}>
+                          {isEn ? 'Latency' : 'تاخیر اتصال'}: {sshTestResult.latency_ms} ms
+                        </span>
+                      )}
+                      {((sshTestResult as any).negotiation || (sshTestResult as any).ssh_negotiation) && (
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono border ${
+                          isLightMode 
+                            ? 'bg-emerald-100/80 text-emerald-900 border-emerald-300' 
+                            : 'bg-emerald-950/60 text-emerald-300 border-emerald-600/40'
+                        }`}>
+                          {isEn ? 'SSH Suite' : 'سوئیت امنیتی SSH'}: {((sshTestResult as any).negotiation?.tier || (sshTestResult as any).ssh_negotiation?.tier || 'adaptive').replace('_', ' ')}
+                          {((sshTestResult as any).negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher) 
+                            ? ` (${(sshTestResult as any).negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher})` 
+                            : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

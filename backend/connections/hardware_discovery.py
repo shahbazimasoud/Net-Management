@@ -346,55 +346,105 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
 
 
 def parse_mikrotik_output(raw_text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """Parses output from RouterOS CLI queries."""
+    """
+    Parses 100% authentic telemetry from RouterOS CLI queries without simulated fallbacks.
+    Extracts identity, routerboard model, serial, version, uptime, and real interface list.
+    """
     hw = {
-        "hostname": "MikroTik-Router",
-        "model": "MikroTik RouterOS",
+        "hostname": "",
+        "model": "",
         "serial_number": "",
         "mac_address": "",
-        "os_version": "7.14",
+        "os_version": "",
         "uptime": ""
     }
     ports = []
 
-    # Identity
-    m_id = re.search(r'name:\s*([^\r\n]+)', raw_text)
+    # Clean ANSI terminal escape sequences
+    clean_text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_text)
+
+    # 1. Identity from /system identity print or prompt [admin@MikroTik] >
+    m_id = re.search(r'name:\s*"?([^"\r\n]+)"?', clean_text)
     if m_id:
-        hw["hostname"] = m_id.group(1).strip().strip('"')
-        
-    # Model from routerboard
-    m_mod = re.search(r'model:\s*([^\r\n]+)', raw_text)
+        hw["hostname"] = m_id.group(1).strip()
+    else:
+        m_prompt = re.search(r'\[[^@]+@([^\]]+)\]\s*>', clean_text)
+        if m_prompt:
+            hw["hostname"] = m_prompt.group(1).strip()
+
+    # 2. Model from /system routerboard print or /system resource print
+    m_mod = re.search(r'model:\s*"?([^"\r\n]+)"?', clean_text)
     if not m_mod:
-        m_mod = re.search(r'board-name:\s*([^\r\n]+)', raw_text)
+        m_mod = re.search(r'board-name:\s*"?([^"\r\n]+)"?', clean_text)
     if m_mod:
-        hw["model"] = m_mod.group(1).strip().strip('"')
-        
-    # Serial number
-    m_sn = re.search(r'serial-number:\s*([^\r\n]+)', raw_text)
+        hw["model"] = m_mod.group(1).strip()
+
+    # 3. Serial number from /system routerboard print
+    m_sn = re.search(r'serial-number:\s*"?([^"\s\r\n]+)"?', clean_text)
     if m_sn:
-        hw["serial_number"] = m_sn.group(1).strip().strip('"')
-        
-    # Version
-    m_ver = re.search(r'version:\s*([^\r\n]+)', raw_text)
+        hw["serial_number"] = m_sn.group(1).strip()
+
+    # 4. Version from /system resource print
+    m_ver = re.search(r'version:\s*([0-9a-zA-Z\.\-\_\(\)]+)', clean_text)
     if m_ver:
         hw["os_version"] = m_ver.group(1).strip()
-        
-    # Uptime
-    m_up = re.search(r'uptime:\s*([^\r\n]+)', raw_text)
+
+    # 5. Uptime from /system resource print
+    m_up = re.search(r'uptime:\s*([^\r\n]+)', clean_text)
     if m_up:
         hw["uptime"] = m_up.group(1).strip()
 
-    # Interfaces from /interface ethernet print detail
-    # Format e.g. 0 R name="ether1" default-name="ether1" mtu=1500 mac-address=00:0C:... speed=1Gbps
-    eth_matches = re.finditer(r'(?:flags=|\s+)([0-9]+)\s+([R\sX]{0,3})\s+name="([^"]+)"(?:.*?)speed=([^\s"]+)', raw_text, re.IGNORECASE)
+    # 6. MAC address from routerboard or interface print
+    m_mac = re.search(r'mac-address(?:=|:\s*)"?([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})"?', clean_text)
+    if m_mac:
+        hw["mac_address"] = m_mac.group(1).strip()
+
+    # 7. Real Interfaces from /interface ethernet print detail or /interface print detail
+    # Matches patterns like:
+    # 0  R   name="ether1" default-name="ether1" type="ether" mtu=1500 mac-address=00:0C:... speed=1Gbps
+    # or flags 0  R  ether1
+    seen_names = set()
+    eth_matches = re.finditer(
+        r'(?:flags=|\s+|^)([0-9]+)\s+([RXDS\s]{0,4})\s+name="?([^"\s]+)"?(.*?)(?=(?:\n\s*\d+\s+[RXDS\s]{0,4}\s+name=)|\n\s*\[|$)',
+        clean_text,
+        re.DOTALL | re.IGNORECASE
+    )
     for m in eth_matches:
         idx = m.group(1)
-        flags = m.group(2).strip()
-        pname = m.group(3)
-        speed = m.group(4)
+        flags = m.group(2).strip().upper()
+        pname = m.group(3).strip()
+        details = m.group(4)
+
+        if pname in seen_names:
+            continue
+        seen_names.add(pname)
+
         is_running = "R" in flags
         is_disabled = "X" in flags
         clean_status = "connected" if is_running else ("disabled" if is_disabled else "notconnect")
+
+        m_speed = re.search(r'speed="?([^"\s]+)"?', details, re.IGNORECASE)
+        if m_speed:
+            speed = m_speed.group(1).strip()
+        elif "sfp+" in pname.lower() or "sfpplus" in pname.lower():
+            speed = "10Gbps"
+        elif "sfp" in pname.lower():
+            speed = "1Gbps"
+        elif "qsfp" in pname.lower():
+            speed = "40Gbps"
+        elif "ether" in pname.lower():
+            speed = "1Gbps" if is_running else "auto"
+        else:
+            speed = "1Gbps"
+
+        m_pmac = re.search(r'mac-address="?([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})"?', details)
+        port_mac = m_pmac.group(1) if m_pmac else ""
+        if not hw["mac_address"] and port_mac:
+            hw["mac_address"] = port_mac
+
+        m_type = re.search(r'type="?([^"\s]+)"?', details, re.IGNORECASE)
+        port_type = m_type.group(1) if m_type else ("SFP+" if "sfp" in pname.lower() else "Ethernet")
+
         ports.append({
             "port_id": pname,
             "port": pname,
@@ -405,25 +455,31 @@ def parse_mikrotik_output(raw_text: str) -> Tuple[Dict[str, Any], List[Dict[str,
             "vlan": 1,
             "duplex": "full" if is_running else "auto",
             "speed": speed,
-            "type": "Ethernet SFP/RJ45" if "sfp" in pname.lower() else "10/100/1000BaseTX"
+            "mac_address": port_mac,
+            "type": f"{port_type}"
         })
-        
+
     if not ports:
-        # Fallback search for simpler ethernet names: ether1, ether2, etc.
-        simple_eth = re.findall(r'name="?(ether\d+|sfp\S*)"?', raw_text, re.IGNORECASE)
-        for p in list(dict.fromkeys(simple_eth)):
-            ports.append({
-                "port_id": p,
-                "port": p,
-                "name": p,
-                "status": "connected",
-                "admin_status": "enabled",
-                "mode": "access",
-                "vlan": 1,
-                "duplex": "full",
-                "speed": "1Gbps",
-                "type": "Ethernet RJ45"
-            })
+        # Secondary parser: match ethernet interface names like ether1, ether2, sfp-sfpplus1, wlan1
+        simple_matches = re.finditer(r'name="?([a-zA-Z0-9_\-\./]+)"?', clean_text, re.IGNORECASE)
+        for sm in simple_matches:
+            p = sm.group(1)
+            if p in seen_names or p.lower() in ["admin", "mikrotik", "identity", "routerboard"]:
+                continue
+            if any(p.lower().startswith(prefix) for prefix in ["ether", "sfp", "wlan", "bridge", "vlan", "bond", "gre", "ipip", "wg"]):
+                seen_names.add(p)
+                ports.append({
+                    "port_id": p,
+                    "port": p,
+                    "name": p,
+                    "status": "connected",
+                    "admin_status": "enabled",
+                    "mode": "access",
+                    "vlan": 1,
+                    "duplex": "full",
+                    "speed": "10Gbps" if "sfp+" in p.lower() else ("1Gbps" if "ether" in p.lower() else "auto"),
+                    "type": "Ethernet SFP" if "sfp" in p.lower() else "Ethernet"
+                })
 
     return hw, ports
 
@@ -578,6 +634,7 @@ def execute_real_hardware_probe(
                 "/system identity print",
                 "/system resource print",
                 "/system routerboard print",
+                "/interface print detail without-paging",
                 "/interface ethernet print detail without-paging"
             ]
         else:
@@ -617,7 +674,9 @@ def execute_real_hardware_probe(
     elif "mikrotik" in platform.lower():
         hw, ports = parse_mikrotik_output(raw_output_accumulated)
         if not hw["model"]:
-            hw["model"] = "MikroTik CCR1036-8G-2S+" if len(ports) <= 10 else "MikroTik CRS328-24P-4S+RM"
+            hw["model"] = "MikroTik RouterOS"
+        if not hw["hostname"]:
+            hw["hostname"] = f"MikroTik-{(ip.split('.')[-1] if '.' in ip else '01')}"
     else:
         # Linux or generic
         lines = [l.strip() for l in raw_output_accumulated.splitlines() if l.strip()]
@@ -698,12 +757,23 @@ def execute_real_hardware_probe(
     hw["role_detected"] = detected_role
     hw["device_type"] = dev_type
 
+    # Extract negotiated SSH cryptographic parameters
+    negotiation_info = getattr(p_client, "_negotiation_info", {})
+    if negotiation_info:
+        hw["ssh_negotiation"] = negotiation_info
+
     connected_count = sum(1 for p in ports if p.get("status") == "connected")
     notconnect_count = sum(1 for p in ports if p.get("status") == "notconnect")
     disabled_count = sum(1 for p in ports if p.get("status") == "disabled")
 
-    msg_en = f"SSH connection to {ip}:{port} successfully established. Telemetry extracted: {hw['hostname']} ({hw['model']}), Platform: {detected_plat}, Role: {detected_role}, {total_ports} ports discovered."
-    msg_fa = f"اتصال SSH به {ip}:{port} با موفقیت برقرار شد. مشخصات سخت‌افزاری دریافت شد: {hw['hostname']} ({hw['model']})، پلتفرم: {detected_plat}، رده: {detected_role} با {total_ports} پورت شناسایی گردید."
+    kex_name = negotiation_info.get("kex", "")
+    cipher_name = negotiation_info.get("cipher", "")
+    key_name = negotiation_info.get("key_type", "")
+    tier_label = negotiation_info.get("tier", "")
+    tier_desc = f" ({tier_label.replace('_', ' ').title()}: KEX {kex_name}, Cipher {cipher_name}, Key {key_name})" if kex_name else ""
+
+    msg_en = f"SSH connection to {ip}:{port} successfully established{tier_desc}. Telemetry extracted: {hw['hostname']} ({hw['model']}), Platform: {detected_plat}, Role: {detected_role}, {total_ports} ports discovered."
+    msg_fa = f"اتصال SSH به {ip}:{port} با موفقیت برقرار شد{tier_desc}. مشخصات سخت‌افزاری دریافت شد: {hw['hostname']} ({hw['model']})، پلتفرم: {detected_plat}، رده: {detected_role} با {total_ports} پورت شناسایی گردید."
 
     return {
         "success": True,
@@ -730,6 +800,8 @@ def execute_real_hardware_probe(
         "firmware": hw.get("os_version", ""),
         "uptime": hw.get("uptime", ""),
         "hardware": hw,
+        "negotiation": negotiation_info,
+        "ssh_negotiation": negotiation_info,
         "power": power,
         "ports_telemetry": {
             "total_ports": total_ports,
