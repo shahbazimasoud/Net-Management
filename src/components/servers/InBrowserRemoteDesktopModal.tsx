@@ -87,6 +87,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
+  const connectTimeoutRef = useRef<any>(null);
   const [idleRemainingSec, setIdleRemainingSec] = useState<number>(900); // 15 minutes = 900s
 
   const isRdp = protocol === 'rdp' || server?.os_type === 'windows';
@@ -102,6 +103,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
   // Teardown and cleanup existing connection
   const cleanupConnection = useCallback(() => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
     if (guacClientRef.current) {
       try {
         guacClientRef.current.disconnect();
@@ -181,9 +186,15 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     setConnectionStatus('connecting');
 
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProto}//${window.location.host}/ws/guacamole?token=${encodeURIComponent(token)}`;
+    const wsUrl = `${wsProto}//${window.location.host}/ws/guacamole`;
 
     try {
+      // Clear any prior timeout
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
+        connectTimeoutRef.current = null;
+      }
+
       // Initialize native Guacamole WebSocket Tunnel
       const tunnel = new Guacamole.WebSocketTunnel(wsUrl);
       guacTunnelRef.current = tunnel;
@@ -202,27 +213,109 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         displayContainerRef.current.appendChild(displayElem);
       }
 
+      const translateGuacError = (status: any) => {
+        const code = status?.code;
+        const msg = status?.message;
+        if (msg && typeof msg === 'string' && msg.length > 3) return msg;
+
+        switch (code) {
+          case 0x0200:
+            return isEn ? 'Connection completed.' : 'ارتباط برقرار شد.';
+          case 0x0201:
+            return isEn ? 'Protocol unsupported by target host or gateway.' : 'پروتکل توسط هاست یا گیت‌وی پشتیبانی نمی‌شود.';
+          case 0x0202:
+            return isEn ? 'Server error occurred during remote desktop stream.' : 'خطای سرور در حین ارتباط با ریموت دسکتاپ رخ داد.';
+          case 0x0203:
+            return isEn ? 'Remote server is busy. Try again shortly.' : 'سرور مقصد مشغول است. لطفاً کمی بعد مجدداً تلاش کنید.';
+          case 0x0204:
+            return isEn ? `Connection timed out. Host ${server?.ip || ''} took too long to respond.` : `زمان انتظار به پایان رسید. هاست ${server?.ip || ''} پاسخ نداد.`;
+          case 0x0205:
+            return isEn ? `Remote host ${server?.ip || ''} closed connection or refused RDP security negotiation.` : `هاست ${server?.ip || ''} ارتباط را قطع کرد یا پروتکل RDP را رد نمود.`;
+          case 0x0206:
+            return isEn ? 'Target remote session resource not found.' : 'منبع نشست ریموت دسکتاپ یافت نشد.';
+          case 0x0207:
+            return isEn ? 'Session conflict on target host.' : 'تداخل نشست در هاست مقصد.';
+          case 0x0208:
+            return isEn ? 'Remote desktop session was closed by the host.' : 'نشست ریموت دسکتاپ توسط هاست بسته شد.';
+          case 0x0209:
+            return isEn ? `Remote host ${server?.ip || ''} is unreachable on port ${defaultPort}. Check network and firewall.` : `سرور ${server?.ip || ''} روی پورت ${defaultPort} در دسترس نیست. فایروال و شبکه را بررسی کنید.`;
+          case 0x020a:
+          case 0x020A:
+            return isEn ? 'Authentication failed. Check username, password, or NLA security settings.' : 'احراز هویت ناموفق بود. نام کاربری، رمز عبور یا تنظیمات NLA را بررسی کنید.';
+          case 0x020b:
+          case 0x020B:
+            return isEn ? 'Disconnected due to upstream inactivity.' : 'قطع ارتباط به دلیل عدم فعالیت در سرور.';
+          case 0x0300:
+            return isEn ? 'Invalid client parameters sent to gateway.' : 'پارامترهای ارسالی به گیت‌وی نامعتبر است.';
+          case 0x0301:
+            return isEn ? 'Unauthorized remote session access.' : 'عدم دسترسی مجاز به نشست ریموت.';
+          case 0x0303:
+            return isEn ? 'Remote desktop access forbidden.' : 'دسترسی به ریموت دسکتاپ ممنوع است.';
+          case 0x0308:
+            return isEn ? 'Client connection timeout.' : 'زمان اتصال کلاینت منقضی شد.';
+          default:
+            return isEn
+              ? `Remote desktop error: unable to establish connection with ${server?.ip || 'host'}:${defaultPort}`
+              : `خطا در ریموت دسکتاپ: عدم امکان برقراری ارتباط با ${server?.ip || 'سرور'}:${defaultPort}`;
+        }
+      };
+
       // Track client state changes
       // 0 = IDLE, 1 = CONNECTING, 2 = WAITING, 3 = CONNECTED, 4 = DISCONNECTING, 5 = DISCONNECTED
       client.onstatechange = (state: number) => {
         if (state === 3) {
+          if (connectTimeoutRef.current) {
+            clearTimeout(connectTimeoutRef.current);
+            connectTimeoutRef.current = null;
+          }
           setConnectionStatus('connected');
           registerActivity();
           setTimeout(updateDisplayScale, 200);
         } else if (state === 5) {
-          setConnectionStatus('disconnected');
+          if (connectTimeoutRef.current) {
+            clearTimeout(connectTimeoutRef.current);
+            connectTimeoutRef.current = null;
+          }
+          setConnectionStatus((prev) => {
+            if (prev === 'connected') return 'disconnected';
+            return 'error';
+          });
         }
       };
 
       client.onerror = (status: any) => {
         console.warn('[RemoteDesktop] Guacamole client error:', status);
+        if (connectTimeoutRef.current) {
+          clearTimeout(connectTimeoutRef.current);
+          connectTimeoutRef.current = null;
+        }
         setConnectionStatus('error');
-        setErrorMessage(
-          status?.message ||
-            (isEn
-              ? 'Remote desktop connection encountered a protocol error.'
-              : 'اتصال ریموت دسکتاپ با خطای پروتکل مواجه شد.')
-        );
+        setErrorMessage(translateGuacError(status));
+      };
+
+      tunnel.onerror = (status: any) => {
+        console.warn('[RemoteDesktop] Tunnel error:', status);
+        if (connectTimeoutRef.current) {
+          clearTimeout(connectTimeoutRef.current);
+          connectTimeoutRef.current = null;
+        }
+        setConnectionStatus('error');
+        setErrorMessage(translateGuacError(status));
+      };
+
+      tunnel.onstatechange = (state: number) => {
+        // Guacamole.Tunnel.State: 0=CONNECTING, 1=OPEN, 2=UNSTABLE, 3=CLOSED
+        if (state === 3) {
+          setConnectionStatus((prev) => {
+            if (prev === 'connecting' || prev === 'requesting_token') {
+              return 'error';
+            }
+            if (prev === 'connected') {
+              return 'disconnected';
+            }
+            return prev;
+          });
+        }
       };
 
       // Mouse input handling
@@ -259,19 +352,34 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
       };
 
-      // Tunnel error hook
-      tunnel.onerror = (status: any) => {
-        console.warn('[RemoteDesktop] Tunnel error:', status);
-      };
+      // 15-second safety timeout so it never hangs indefinitely
+      connectTimeoutRef.current = setTimeout(() => {
+        setConnectionStatus((curr) => {
+          if (curr === 'connecting' || curr === 'requesting_token') {
+            try { client.disconnect(); } catch {}
+            setErrorMessage(
+              isEn
+                ? `Connection timed out after 15 seconds. Target host ${server?.ip}:${defaultPort} is unreachable, RDP service is disabled, or a firewall is dropping connection attempts.`
+                : `زمان برقراری اتصال پس از ۱۵ ثانیه به پایان رسید. هاست مقصد ${server?.ip}:${defaultPort} در دسترس نیست، سرویس ریموت دسکتاپ غیرفعال است یا فایروال پورت را مسدود کرده است.`
+            );
+            return 'error';
+          }
+          return curr;
+        });
+      }, 15000);
 
-      // Connect to server
-      client.connect();
+      // Connect to server with token query parameter
+      client.connect('token=' + encodeURIComponent(token));
     } catch (err: any) {
       console.error('[RemoteDesktop] Tunnel exception:', err);
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
+        connectTimeoutRef.current = null;
+      }
       setConnectionStatus('error');
       setErrorMessage(err.message || (isEn ? 'Failed to establish tunnel' : 'خطا در ایجاد تونل ارتباطی'));
     }
-  }, [isEn, registerActivity, updateDisplayScale]);
+  }, [isEn, registerActivity, updateDisplayScale, server, defaultPort]);
 
   // Step 1: Request single-use session token and verify gateway status
   const initiateConnection = useCallback(async () => {

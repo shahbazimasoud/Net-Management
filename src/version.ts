@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.93.0';
+export const APP_VERSION = '1.93.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.93.1',
+    releaseDate: '2026-09-19',
+    type: 'patch',
+    title: 'رفع کامل باگ توقف در Connecting در ریموت دسکتاپ، راه‌اندازی و اجرای دائم سرویس guacd، استریم سالم فریم‌های Guacamole و افزودن تایم‌اوت هوشمند ۱۵ ثانیه‌ای',
+    title_en: 'Fix Remote Desktop Connecting Hang, Ensure Persistent guacd Service, Stream Pure Guacamole Frames, and Add 15s Resilient Timeout',
+    changes: [
+      'بررسی دقیق و رفع ریشه‌ای باگ توقف اتصال روی "Connecting to Live Remote Desktop Stream": نصب کامل بسته‌های دیمن بومی guacd و پلاگین‌های libguac-client-rdp0 و libguac-client-vnc0 روی سیستم‌عامل میزبان.',
+      'اصلاح ساختار هندشیک در گیت‌وی ریموت دسکتاپ (remoteDesktopGateway): تجزیه دقیق دستورات args و پاسخ‌دهی استاندارد با size, audio, video, image و connect به همراه ارسال دستور آماده‌سازی تونل داخلی Guacamole (دستور با طول صفر و UUID نشست).',
+      'حذف ارسال پیام‌های JSON بر روی تونل وب‌سوکت کلاینت Guacamole و جایگزینی با دستورات رسمی پروتکل Guacamole (opcode error با کد وضعیت‌های استاندارد) جهت جلوگیری از خطای Incomplete Instruction و کرش کلاینت.',
+      'اصلاح اتصال فرانت‌اند (InBrowserRemoteDesktopModal): ارسال تمیز پارامتر token در فراخوانی client.connect، مدیریت وضعیت‌های مختلف تونل و کلاینت، و افزودن تایم‌اوت محافظتی ۱۵ ثانیه‌ای جهت نمایش پیام خطای شفاف در صورت عدم دسترسی به سرور مقصد.',
+      'تست و راستی‌آزمایی عملکرد واقعی با ارسال درخواست توکن و برقراری موفق نشست ریموت با دریافت فریم‌های زنده گرافیکی، سایز، نشانگر ماوس و استریم صدا از دیمن guacd.'
+    ],
+    changes_en: [
+      'Completely debugged and fixed the Remote Desktop "Connecting to Live Remote Desktop Stream" freeze: ensured native guacd daemon and plugins (libguac-client-rdp0, libguac-client-vnc0) are installed and actively listening on port 4822.',
+      'Refined the Guacamole gateway handshake in remoteDesktopGateway: reliably parses args instructions, generates mapped connect parameters, and dispatches the internal Guacamole tunnel initiation handshake (zero-length opcode with session UUID).',
+      'Eliminated invalid JSON payloads over the Guacamole client WebSocket, replacing them with standard Guacamole error protocol frames to prevent parsing crashes in guacamole-common-js.',
+      'Updated InBrowserRemoteDesktopModal frontend: passes cleanly encoded token query parameters, handles tunnel and client state transitions, translates Guacamole status codes, and implements a 15-second timeout with actionable error messaging.',
+      'Verified with real automated test scripts confirming successful handshake, display sizing, cursor blobs, audio streams, and interactive frame negotiation.'
+    ]
+  },
   {
     version: '1.93.0',
     releaseDate: '2026-09-19',

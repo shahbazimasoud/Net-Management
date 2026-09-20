@@ -659,6 +659,30 @@
       "details": "User \"admin\" authenticated successfully via Local Database from IP 206.222.8.60",
       "ip_address": "206.222.8.60",
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 OPR/135.0.0.0"
+    },
+    {
+      "id": "log-1789884502204-fqcwv",
+      "timestamp": "2026-09-20T06:08:22.204Z",
+      "user_name": "admin",
+      "action": "REMOTE_DESKTOP_TOKEN_ISSUED",
+      "category": "remote_access",
+      "target": "Active Directory Domain Controller (DC-01) (192.168.10.10:3389)",
+      "status": "success",
+      "details": "{\"protocol\":\"rdp\",\"resolution\":\"1024x768@96dpi\",\"concurrentSessionsOnTarget\":0}",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
+    },
+    {
+      "id": "log-1789884507421-tox1l",
+      "timestamp": "2026-09-20T06:08:27.421Z",
+      "user_name": "admin",
+      "action": "REMOTE_DESKTOP_SESSION_CLOSED",
+      "category": "remote_access",
+      "target": "Active Directory Domain Controller (DC-01) (192.168.10.10)",
+      "status": "info",
+      "details": "{\"durationSec\":5,\"protocol\":\"rdp\"}",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
     }
   ],
   "ad_config": {

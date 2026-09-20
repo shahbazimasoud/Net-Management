@@ -20,6 +20,8 @@ interface RemoteSessionConfig {
   username: string;
   password?: string;
   domain?: string;
+  security?: string;
+  initialProgram?: string;
   width: number;
   height: number;
   dpi: number;
@@ -58,6 +60,25 @@ const TOKEN_TTL_MS = 60 * 1000; // 60 seconds single-use token lifetime
 function encodeGuacElement(val: string | number): string {
   const str = String(val);
   return `${Buffer.byteLength(str, 'utf-8')}.${str}`;
+}
+
+/**
+ * Parse a raw Guacamole protocol instruction into its element tokens
+ */
+function parseGuacInstruction(raw: string): string[] {
+  const parts: string[] = [];
+  let pos = 0;
+  while (pos < raw.length) {
+    const dot = raw.indexOf('.', pos);
+    if (dot === -1) break;
+    const len = parseInt(raw.substring(pos, dot), 10);
+    if (isNaN(len)) break;
+    const val = raw.substring(dot + 1, dot + 1 + len);
+    parts.push(val);
+    pos = dot + 1 + len;
+    if (raw[pos] === ',' || raw[pos] === ';') pos++;
+  }
+  return parts;
 }
 
 /**
@@ -109,7 +130,7 @@ function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): Promise
     checkGuacdHealth(host, port).then((running) => {
       if (running) return resolve(true);
 
-      exec('systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || guacd -b 127.0.0.1 -l 4822 2>/dev/null &', () => {
+      exec('systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || /usr/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || guacd -b 127.0.0.1 -l 4822 2>/dev/null &', () => {
         setTimeout(async () => {
           const isLive = await checkGuacdHealth(host, port);
           resolve(isLive);
@@ -124,7 +145,7 @@ function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): Promise
  */
 function installGuacdDaemon(host: string = '127.0.0.1', port: number = 4822): Promise<{ success: boolean; output: string }> {
   return new Promise((resolve) => {
-    const cmd = `export DEBIAN_FRONTEND=noninteractive; (if command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y guacd libguac-client-rdp0 libguac-client-vnc0; elif command -v dnf >/dev/null 2>&1; then dnf install -y epel-release 2>/dev/null; dnf install -y guacd; elif command -v yum >/dev/null 2>&1; then yum install -y epel-release 2>/dev/null; yum install -y guacd; fi) && (systemctl enable --now guacd 2>/dev/null || service guacd start 2>/dev/null || guacd -b 127.0.0.1 -l 4822 &)`;
+    const cmd = `export DEBIAN_FRONTEND=noninteractive; (if command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confold" guacd libguac-client-rdp0 libguac-client-vnc0; elif command -v dnf >/dev/null 2>&1; then dnf install -y epel-release 2>/dev/null; dnf install -y guacd; elif command -v yum >/dev/null 2>&1; then yum install -y epel-release 2>/dev/null; yum install -y guacd; fi) && (systemctl enable --now guacd 2>/dev/null || service guacd start 2>/dev/null || /usr/sbin/guacd -b 127.0.0.1 -l 4822 || guacd -b 127.0.0.1 -l 4822 &)`;
 
     exec(cmd, { timeout: 180000 }, (error, stdout, stderr) => {
       const output = `${stdout || ''}\n${stderr || ''}`;
@@ -472,18 +493,17 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
   wss.on('connection', async (clientWs: WebSocket, req: http.IncomingMessage) => {
     const hostHeader = req.headers.host || '127.0.0.1:3000';
     const parsedUrl = new URL(req.url || '', `http://${hostHeader}`);
-    const token = parsedUrl.searchParams.get('token') || '';
+    // Clean token query parameter: strip any trailing '?' or '&'
+    const rawToken = parsedUrl.searchParams.get('token') || '';
+    const token = rawToken.replace(/[?&]+$/, '');
 
     // Validate single-use cryptographic token
     const config = pendingTokens.get(token);
     if (!config) {
-      clientWs.send(
-        JSON.stringify({
-          type: 'error',
-          code: 'INVALID_OR_EXPIRED_TOKEN',
-          message: 'Connection rejected: Invalid, expired, or previously consumed session token.',
-        })
-      );
+      console.warn(`[RemoteDesktop] Connection rejected: token not found or expired (${token})`);
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(encodeGuacInstruction('error', 'Invalid, expired, or consumed session token.', '519'));
+      }
       clientWs.close(4401, 'Unauthorized token');
       return;
     }
@@ -515,204 +535,142 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       isGuacdLive = await tryStartGuacd(guacdHost, guacdPort);
     }
 
-    if (isGuacdLive) {
-      // Connect to native guacd daemon via TCP
-      const guacdSocket = new net.Socket();
-      activeSession.socket = guacdSocket;
+    if (!isGuacdLive) {
+      console.warn(`[RemoteDesktop] guacd daemon is offline on host ${guacdHost}:${guacdPort}`);
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(
+          encodeGuacInstruction(
+            'error',
+            `Apache Guacamole daemon (guacd) is offline on host ${guacdHost}:${guacdPort}. Please install or start guacd.`,
+            '519'
+          )
+        );
+        clientWs.close(4503, 'guacd offline');
+      }
+      activeSessions.delete(config.id);
+      return;
+    }
 
-      guacdSocket.connect(guacdPort, guacdHost, () => {
-        activeSession.guacdConnected = true;
+    // Connect to native guacd daemon via TCP
+    const guacdSocket = new net.Socket();
+    activeSession.socket = guacdSocket;
 
-        // Perform Guacamole Handshake
-        // 1. Send select instruction
-        guacdSocket.write(encodeGuacInstruction('select', config.protocol));
-      });
+    let handshakeState: 'SELECT' | 'CONNECTING' | 'READY' = 'SELECT';
+    let guacBuffer = '';
 
-      let handshakeState: 'SELECT' | 'ARGS' | 'CONNECT' | 'READY' = 'SELECT';
-      let guacBuffer = '';
+    guacdSocket.connect(guacdPort, guacdHost, () => {
+      activeSession.guacdConnected = true;
+      console.log(`[RemoteDesktop] Connected to guacd for session ${config.id} (${config.protocol})`);
+      // 1. Send select instruction
+      guacdSocket.write(encodeGuacInstruction('select', config.protocol));
+    });
 
-      guacdSocket.on('data', (chunk: Buffer) => {
-        const text = chunk.toString('utf-8');
-        guacBuffer += text;
+    guacdSocket.on('data', (chunk: Buffer) => {
+      guacBuffer += chunk.toString('utf-8');
+
+      while (true) {
+        const semiIdx = guacBuffer.indexOf(';');
+        if (semiIdx === -1) break;
+
+        const instructionStr = guacBuffer.substring(0, semiIdx);
+        guacBuffer = guacBuffer.substring(semiIdx + 1);
+
+        const parsed = parseGuacInstruction(instructionStr);
+        const opcode = parsed[0];
 
         if (handshakeState === 'SELECT') {
-          // Look for 'args' instruction
-          const semiIdx = guacBuffer.indexOf(';');
-          if (semiIdx !== -1) {
-            const firstInstruction = guacBuffer.substring(0, semiIdx);
-            guacBuffer = guacBuffer.substring(semiIdx + 1);
+          if (opcode === 'args') {
+            const paramNames = parsed.slice(1);
+            const params: Record<string, string> = {
+              hostname: config.serverIp,
+              port: String(config.port || (config.protocol === 'rdp' ? 3389 : 5900)),
+              username: config.username || '',
+              password: config.password || '',
+              domain: config.domain || '',
+              security: config.security || 'any',
+              'ignore-cert': 'true',
+              'resize-method': 'display-update',
+              'enable-font-smoothing': 'true',
+              'enable-theming': 'true',
+              'enable-wallpaper': 'false',
+              'disable-auth': 'false',
+              'color-depth': '24',
+              'initial-program': config.initialProgram || '',
+            };
 
-            if (firstInstruction.includes('args')) {
-              handshakeState = 'ARGS';
+            const connectValues = paramNames.map((name, idx) => {
+              if (idx === 0) return name; // First param is protocol version (e.g. VERSION_1_3_0)
+              return params[name] !== undefined ? params[name] : '';
+            });
 
-              // Send size, audio, video, image instructions
-              guacdSocket.write(
-                encodeGuacInstruction('size', config.width, config.height, config.dpi)
-              );
-              guacdSocket.write(encodeGuacInstruction('audio', 'audio/L16', 'rate=44100', 'channels=2'));
-              guacdSocket.write(encodeGuacInstruction('video'));
-              guacdSocket.write(encodeGuacInstruction('image', 'image/png', 'image/jpeg', 'image/webp'));
-
-              // Send connect instruction with securely resolved parameters
-              const connectParams: string[] = [
-                'connect',
-                'hostname',
-                config.serverIp,
-                'port',
-                String(config.port),
-                'username',
-                config.username,
-                'password',
-                config.password || '',
-                'domain',
-                config.domain || '',
-                'security',
-                'any',
-                'ignore-cert',
-                'true',
-                'resize-method',
-                'display-update',
-                'enable-font-smoothing',
-                'true',
-                'enable-wallpaper',
-                'false',
-                'enable-theming',
-                'true',
-              ];
-
-              guacdSocket.write(encodeGuacInstruction(...connectParams));
-              handshakeState = 'READY';
-
-              // Inform client that live tunnel is established
-              if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.send(
-                  JSON.stringify({
-                    type: 'tunnel_ready',
-                    protocol: config.protocol,
-                    serverName: config.serverName,
-                    serverIp: config.serverIp,
-                    width: config.width,
-                    height: config.height,
-                  })
-                );
-              }
+            guacdSocket.write(encodeGuacInstruction('size', config.width, config.height, config.dpi));
+            guacdSocket.write(encodeGuacInstruction('audio', 'audio/L16'));
+            guacdSocket.write(encodeGuacInstruction('video'));
+            guacdSocket.write(encodeGuacInstruction('image', 'image/png', 'image/jpeg', 'image/webp'));
+            guacdSocket.write(encodeGuacInstruction('connect', ...connectValues));
+            handshakeState = 'CONNECTING';
+          }
+        } else if (handshakeState === 'CONNECTING') {
+          if (opcode === 'ready') {
+            const guacSessionUuid = parsed[1] || config.id;
+            console.log(`[RemoteDesktop] guacd session ready: ${guacSessionUuid}`);
+            // Send Guacamole internal tunnel initialization instruction to browser client (opcode "", param: session UUID)
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(encodeGuacInstruction('', guacSessionUuid));
+              // Also forward the ready instruction
+              clientWs.send(instructionStr + ';');
+            }
+            handshakeState = 'READY';
+          } else if (opcode === 'error') {
+            const errMsg = parsed[1] || 'Remote server connection error';
+            console.warn(`[RemoteDesktop] guacd error during handshake: ${errMsg}`);
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(instructionStr + ';');
             }
           }
+        } else {
+          // handshakeState === 'READY'
+          // Forward all Guacamole instructions directly to client WebSocket
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(instructionStr + ';');
+          }
         }
+      }
+    });
 
-        // Stream Guacamole protocol frames to client WebSocket
-        if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(text);
-        }
-      });
+    // Handle user inputs (mouse, keys, clipboard) from client
+    clientWs.on('message', (msg: WebSocket.Data) => {
+      activeSession.lastActivity = Date.now();
+      const str = msg.toString();
 
-      // Handle user inputs (mouse, keys, clipboard) from client
-      clientWs.on('message', (msg: WebSocket.Data) => {
-        activeSession.lastActivity = Date.now();
-        const str = msg.toString();
+      // Forward directly to guacd
+      if (guacdSocket.writable) {
+        guacdSocket.write(str);
+      }
+    });
 
-        // If client sends JSON control messages (e.g. ping or clipboard sync)
-        if (str.startsWith('{') && str.endsWith('}')) {
-          try {
-            const parsed = JSON.parse(str);
-            if (parsed.type === 'ping') {
-              clientWs.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-              return;
-            }
-            if (parsed.type === 'clipboard_sync' && parsed.text) {
-              guacdSocket.write(
-                encodeGuacInstruction('clipboard', '0', 'text/plain', parsed.text)
-              );
-              return;
-            }
-          } catch {}
-        }
+    guacdSocket.on('error', (err: Error) => {
+      console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(encodeGuacInstruction('error', `Gateway connection error: ${err.message}`, '519'));
+      }
+    });
 
-        // Otherwise, forward raw Guacamole instruction to guacd
-        if (guacdSocket.writable) {
-          guacdSocket.write(str);
-        }
-      });
-
-      guacdSocket.on('error', (err: Error) => {
-        console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
-        if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(
-            JSON.stringify({
-              type: 'error',
-              code: 'GUACD_SOCKET_ERROR',
-              message: `Gateway connection error: ${err.message}`,
-            })
-          );
-        }
-      });
-
-      guacdSocket.on('close', () => {
-        if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(
-            JSON.stringify({
-              type: 'session_closed',
-              message: 'Target server closed the remote desktop connection.',
-            })
-          );
-          clientWs.close();
-        }
-        activeSessions.delete(config.id);
-      });
-    } else {
-      // guacd daemon is NOT currently running on host
-      // Send diagnostic guidance message to client
-      const isInstalled = await checkGuacdInstalled();
-      clientWs.send(
-        JSON.stringify({
-          type: 'guacd_status',
-          status: 'daemon_offline',
-          guacdHost,
-          guacdPort,
-          guacdInstalled: isInstalled,
-          message: `Apache Guacamole daemon (guacd) is not running on ${guacdHost}:${guacdPort}.`,
-          setupGuide: {
-            ubuntu_debian: 'sudo apt-get update && sudo apt-get install -y guacd libguac-client-rdp0 libguac-client-vnc0 && sudo systemctl enable --now guacd',
-            rhel_centos: 'sudo dnf install -y epel-release && sudo dnf install -y guacd && sudo systemctl enable --now guacd',
-            docker: 'docker run -d --name guacd -p 4822:4822 guacamole/guacd',
-          },
-        })
-      );
-
-      // Launch interactive test simulation loop so user can test the UI controls, special keys, resolution scaling, and clipboard
-      let frameSeq = 0;
-      const simTimer = setInterval(() => {
-        if (clientWs.readyState !== WebSocket.OPEN) {
-          clearInterval(simTimer);
-          return;
-        }
-
-        frameSeq++;
-        // Send Guacamole sync instruction: 4.sync,<timestamp>;
-        const syncMsg = encodeGuacInstruction('sync', Date.now());
-        clientWs.send(syncMsg);
-      }, 1000);
-
-      clientWs.on('message', (data: WebSocket.Data) => {
-        activeSession.lastActivity = Date.now();
-        const text = data.toString();
-        if (text.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed.type === 'ping') {
-              clientWs.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-            }
-          } catch {}
-        }
-      });
-
-      clientWs.on('close', () => {
-        clearInterval(simTimer);
-      });
-    }
+    guacdSocket.on('close', () => {
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(encodeGuacInstruction('error', 'Target server closed the remote desktop connection.', '519'));
+        clientWs.close();
+      }
+      activeSessions.delete(config.id);
+    });
 
     clientWs.on('close', () => {
       const durationSec = Math.round((Date.now() - activeSession.startTime) / 1000);
+      try {
+        if (guacdSocket.writable) {
+          guacdSocket.end();
+        }
+      } catch {}
       addAuditLog({
         userName: config.userName,
         action: 'REMOTE_DESKTOP_SESSION_CLOSED',
