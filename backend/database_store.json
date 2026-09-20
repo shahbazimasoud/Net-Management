@@ -1108,6 +1108,7 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9Yc-nbOdFK3IYy3Mh-YHwvwy06WE2T3rolRcCUpUwKp_FrHrW2bq0k24z7nfCdmliB1EI7Doz6nUB8FwNNKllzg=="
       },
+      "winbox_port": 8291,
       "last_seen": "هم اکنون (Just now)"
     }
   ],

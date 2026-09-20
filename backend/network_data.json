@@ -382,6 +382,7 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9afQmUqp0ZxJGlwa1asAeFcXkETWzPMU3reuutwJSc_DCFJsAUPpu15yi7oLCSbc7a5RSM6YeO5pu9qL1lnc2Pw=="
       },
+      "winbox_port": 8291,
       "last_seen": "هم اکنون (Just now)"
     },
     {
@@ -402,6 +403,7 @@
         "username": "admin",
         "password": ""
       },
+      "winbox_port": 8291,
       "mac": "00:50:56:F7:D2:0B",
       "building": "ساختمان مرکزی (Central Bldg)",
       "floor": "طبقه ۱ (Floor 1)",

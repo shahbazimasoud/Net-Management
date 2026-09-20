@@ -1140,6 +1140,9 @@ def load_data():
                         dev["enable_password"] = "cisco_enable"
                         dev["ssh_status"] = "authenticated"
                         dev_updated = True
+                    if "winbox_port" not in dev:
+                        dev["winbox_port"] = 8291
+                        dev_updated = True
                 if dev_updated:
                     save_data_unsafe(data)
 
@@ -2942,6 +2945,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 "last_seen": "هم اکنون (Just now)",
                 "total_ports": int(body.get("total_ports", 24 if "switch" in body.get("type", "switch") else 8)),
                 "ssh_port": conn_port,
+                "winbox_port": int(body.get("winbox_port", 8291)),
                 "ssh_username": conn_user,
                 "ssh_password": conn_pass,
                 "enable_password": enable_pass,
@@ -3589,7 +3593,7 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": "Device not found"})
                 return
 
-            for k in ["name", "ip", "ssh_host", "connection_protocol", "connection", "platform", "connection_mode", "type", "role", "model", "building", "floor", "unit", "rack", "cdp_enabled", "lldp_enabled", "snmp_community", "is_online", "ssh_port", "ssh_username", "ssh_password", "enable_password", "ssh_status", "total_ports", "web_configs"]:
+            for k in ["name", "ip", "ssh_host", "connection_protocol", "connection", "platform", "connection_mode", "type", "role", "model", "building", "floor", "unit", "rack", "cdp_enabled", "lldp_enabled", "snmp_community", "is_online", "ssh_port", "ssh_username", "ssh_password", "enable_password", "ssh_status", "total_ports", "web_configs", "winbox_port"]:
                 if k in body:
                     device[k] = body[k]
             if "ssh_password" in body and body["ssh_password"]:

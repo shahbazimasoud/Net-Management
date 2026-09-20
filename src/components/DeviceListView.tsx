@@ -729,6 +729,12 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                             SSH: {dev.ssh_host}:{dev.ssh_port || 22}
                           </div>
                         )}
+                        {(dev.platform === 'mikrotik_routeros' || (dev.model && dev.model.toLowerCase().includes('mikrotik')) || dev.winbox_port) && (
+                          <div className="text-[10px] text-sky-400 font-normal mt-0.5 flex items-center gap-1 font-mono" title={isEn ? "WinBox Management Port" : "پورت اتصال و مدیریت وین‌باکس"}>
+                            <span className="text-slate-400">WinBox:</span>
+                            <span className="font-bold text-sky-300">{dev.winbox_port || 8291}</span>
+                          </div>
+                        )}
                         {Array.isArray(dev.web_configs) && dev.web_configs.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1 font-sans font-normal">
                             {dev.web_configs.map((wc, wIdx) => {

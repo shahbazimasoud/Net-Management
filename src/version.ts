@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.95.0';
+export const APP_VERSION = '1.96.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.96.0',
+    releaseDate: '2026-09-20',
+    type: 'minor',
+    title: 'افزودن قابلیت تنظیم پورت اتصال وین‌باکس (WinBox Port) در مدیریت تجهیزات شبکه و اجرای مستقیم WinBox با پورت سفارشی',
+    title_en: 'Configurable WinBox Connection Port in Network Equipment Inventory & Direct Launcher with Custom Port Support',
+    changes: [
+      'افزودن فیلد پورت اتصال به نرم‌افزار وین‌باکس (WinBox Port با پیش‌فرض 8291) به مشخصات تجهیز در مودال‌های افزودن (AddDeviceModal) و ویرایش تجهیز (EditDeviceModal).',
+      'تجهیز فیلد پورت وین‌باکس به راهنمای سه‌بخشی استاندارد (FieldInfoTooltip) شامل این چیست، چرا لازم است و مثال‌های کاربردی به دو زبان فارسی و انگلیسی.',
+      'به‌روزرسانی بک‌اند پایتون و اسکیمای پایگاه داده (PostgreSQL و JSON Store) برای ذخیره و ماندگاری دائمی فیلد winbox_port در متدهای ایجاد و ویرایش تجهیز.',
+      'ارتقای مودال‌های مدیریت میکروتیک (MikroTikDeviceManageModal و MikroTikTerminalModal) جهت استخراج پورت تنظیم‌شده و اجرای آنی WinBox از طریق پروتکل winbox:// با پورت سفارشی.',
+      'به‌روزرسانی مودال WinBoxLauncherModal جهت پشتیبانی کامل از پورت سفارشی در دستور خط فرمان (CLI)، اسکریپت اجرایی یک‌کلیک (.bat) و نمایش داینامیک بج پورت در هدر.',
+      'نمایش بج و برچسب تفکیک‌شده پورت وین‌باکس در ستون مشخصات IP در جدول مدیریت موجودی تجهیزات شبکه (DeviceListView).'
+    ],
+    changes_en: [
+      'Added configurable WinBox management port (default 8291) to device profiles in both AddDeviceModal and EditDeviceModal.',
+      'Equipped the WinBox port field with standard 3-part FieldInfoTooltip (What is it, Why is it needed, Practical example) with full English and Persian localization.',
+      'Updated Python backend and database schema (PostgreSQL schema & fallback JSON store) for persistent storage and retrieval of the winbox_port field across create/update endpoints.',
+      'Enhanced MikroTik management modals (MikroTikDeviceManageModal and MikroTikTerminalModal) to extract the configured port and launch WinBox directly via winbox:// with the specified port.',
+      'Upgraded WinBoxLauncherModal to dynamically reflect custom ports in CLI commands, 1-click desktop batch launcher (.bat), protocol handlers, and header badges.',
+      'Added clear WinBox port indicator badge in the IP and Connection column within the Network Equipment Inventory table (DeviceListView).'
+    ]
+  },
   {
     version: '1.95.0',
     releaseDate: '2026-09-20',

@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS devices (
     connection_protocol VARCHAR(32) DEFAULT 'ssh',
     ssh_host VARCHAR(64),
     ssh_port INT DEFAULT 22,
+    winbox_port INT DEFAULT 8291,
     ssh_username VARCHAR(64) DEFAULT 'admin',
     ssh_password VARCHAR(128),
     enable_password VARCHAR(128),
@@ -282,4 +283,7 @@ CREATE TABLE IF NOT EXISTS server_categories (
 );
 
 CREATE INDEX IF NOT EXISTS idx_server_categories_name ON server_categories(name);
+
+-- Dynamic Alterations for Seamless Upgrades
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS winbox_port INT DEFAULT 8291;
 

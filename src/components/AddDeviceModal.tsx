@@ -36,6 +36,7 @@ import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
 import { CiscoTerminalModal } from './CiscoTerminalModal';
 import { MikroTikTerminalModal } from './MikroTikTerminalModal';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 
 export interface AddDeviceModalProps {
   isOpen: boolean;
@@ -93,6 +94,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   const [connectionProtocol, setConnectionProtocol] = useState<'ssh' | 'telnet'>('ssh');
   const [sshHost, setSshHost] = useState('');
   const [sshPort, setSshPort] = useState(22);
+  const [winboxPort, setWinboxPort] = useState(8291);
   const [sshUsername, setSshUsername] = useState('admin');
   const [sshPassword, setSshPassword] = useState('');
   const [enablePassword, setEnablePassword] = useState('');
@@ -702,6 +704,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         lldp_enabled: lldpEnabled,
         snmp_community: snmpCommunity.trim(),
         ssh_port: Number(sshPort) || 22,
+        winbox_port: Number(winboxPort) || 8291,
         ssh_username: sshUsername.trim() || 'admin',
         ssh_password: sshPassword,
         enable_password: enablePassword,
@@ -1687,7 +1690,50 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   />
                 </div>
 
-                {platform !== 'mikrotik_routeros' && platform !== 'generic_linux' ? (
+                {platform === 'mikrotik_routeros' || (model && model.toLowerCase().includes('mikrotik')) ? (
+                  <div className="sm:col-span-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className={`block text-[11px] font-medium flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                        <span>{isEn ? 'WinBox Port:' : 'پورت وین‌باکس (WinBox):'}</span>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-sky-500/20 text-sky-400 border border-sky-500/30 font-bold">
+                          RouterOS
+                        </span>
+                      </label>
+                      <FieldInfoTooltip
+                        title={isEn ? 'WinBox Management Port' : 'پورت اتصال و مدیریت وین‌باکس'}
+                        whatIsIt={
+                          isEn
+                            ? 'The TCP listening port used by MikroTik RouterOS WinBox native management protocol (default is 8291).'
+                            : 'پورت پروتکل اختصاصی TCP سرویس WinBox در سیستم‌عامل میکروتیک RouterOS که استاندارد پیش‌فرض آن 8291 است.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Allows direct one-click desktop WinBox connection using this configured port from device views and modals.'
+                            : 'امکان اجرای مستقیم نرم‌افزار WinBox روی سیستم با پورت اختصاصی از صفحه مدیریت و کارت‌های تجهیز را فراهم می‌کند.'
+                        }
+                        example={
+                          isEn
+                            ? 'Default: 8291 (or custom secure ports e.g. 8292, 18291).'
+                            : 'مقدار پیش‌فرض: 8291 (یا پورت‌های سفارشی امنیتی/فورواردینگ مانند 8292 یا 18291).'
+                        }
+                        isLightMode={isLightMode}
+                      />
+                    </div>
+                    <input
+                      type="number"
+                      value={winboxPort}
+                      onChange={(e) => setWinboxPort(Number(e.target.value) || 8291)}
+                      placeholder="8291"
+                      autoComplete="off"
+                      className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
+                        isLightMode
+                          ? 'bg-white border-sky-300 text-slate-900 focus:border-sky-600 shadow-xs'
+                          : 'bg-slate-900 border-sky-500/40 text-white focus:border-sky-400'
+                      }`}
+                      dir="ltr"
+                    />
+                  </div>
+                ) : platform !== 'generic_linux' ? (
                   <div className="sm:col-span-4">
                     <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
                       {isEn ? 'Enable Secret Password:' : 'رمز Enable (اختیاری):'}

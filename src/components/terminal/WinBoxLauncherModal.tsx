@@ -39,18 +39,19 @@ export const WinBoxLauncherModal: React.FC<WinBoxLauncherModalProps> = ({
   const username = (device.ssh_username || 'admin').trim();
   const password = device.ssh_password || '';
   const winboxPort = (device as any).winbox_port || 8291;
+  const targetHostWithPort = winboxPort && winboxPort !== 8291 ? `${targetHost}:${winboxPort}` : targetHost;
 
   // URI Scheme for WinBox URL handler
   const protocolUrlWithCreds = password
     ? `winbox://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${targetHost}:${winboxPort}`
     : `winbox://${encodeURIComponent(username)}@${targetHost}:${winboxPort}`;
 
-  const protocolUrlSimple = `winbox://${targetHost}`;
+  const protocolUrlSimple = `winbox://${targetHostWithPort}`;
 
   // Direct CLI command for winbox.exe / winbox64.exe
   const cliCommand = password
-    ? `winbox64.exe ${targetHost} ${username} "${password}"`
-    : `winbox64.exe ${targetHost} ${username}`;
+    ? `winbox64.exe ${targetHostWithPort} ${username} "${password}"`
+    : `winbox64.exe ${targetHostWithPort} ${username}`;
 
   const handleLaunchProtocol = (simple = false) => {
     const url = simple ? protocolUrlSimple : protocolUrlWithCreds;
@@ -86,33 +87,33 @@ title Launching WinBox - ${targetHost}
 echo Connecting to ${targetHost}...
 
 rem 1. Check if winbox64.exe or winbox.exe is in PATH
-where winbox64.exe >nul 2>nul && (start "" winbox64.exe ${targetHost} ${username} ${password ? `"${password}"` : ''} && exit)
-where winbox.exe >nul 2>nul && (start "" winbox.exe ${targetHost} ${username} ${password ? `"${password}"` : ''} && exit)
+where winbox64.exe >nul 2>nul && (start "" winbox64.exe ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''} && exit)
+where winbox.exe >nul 2>nul && (start "" winbox.exe ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''} && exit)
 
 rem 2. Check common Windows download and desktop locations
 if exist "%USERPROFILE%\\Downloads\\winbox64.exe" (
-  start "" "%USERPROFILE%\\Downloads\\winbox64.exe" ${targetHost} ${username} ${password ? `"${password}"` : ''}
+  start "" "%USERPROFILE%\\Downloads\\winbox64.exe" ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''}
   exit
 )
 if exist "%USERPROFILE%\\Downloads\\winbox.exe" (
-  start "" "%USERPROFILE%\\Downloads\\winbox.exe" ${targetHost} ${username} ${password ? `"${password}"` : ''}
+  start "" "%USERPROFILE%\\Downloads\\winbox.exe" ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''}
   exit
 )
 if exist "%USERPROFILE%\\Desktop\\winbox64.exe" (
-  start "" "%USERPROFILE%\\Desktop\\winbox64.exe" ${targetHost} ${username} ${password ? `"${password}"` : ''}
+  start "" "%USERPROFILE%\\Desktop\\winbox64.exe" ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''}
   exit
 )
 if exist "%USERPROFILE%\\Desktop\\winbox.exe" (
-  start "" "%USERPROFILE%\\Desktop\\winbox.exe" ${targetHost} ${username} ${password ? `"${password}"` : ''}
+  start "" "%USERPROFILE%\\Desktop\\winbox.exe" ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''}
   exit
 )
 if exist "%ProgramFiles%\\MikroTik\\winbox64.exe" (
-  start "" "%ProgramFiles%\\MikroTik\\winbox64.exe" ${targetHost} ${username} ${password ? `"${password}"` : ''}
+  start "" "%ProgramFiles%\\MikroTik\\winbox64.exe" ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''}
   exit
 )
 
 rem 3. Fallback generic invocation
-start "" winbox.exe ${targetHost} ${username} ${password ? `"${password}"` : ''}
+start "" winbox.exe ${targetHostWithPort} ${username} ${password ? `"${password}"` : ''}
 `;
 
     const blob = new Blob([batContent], { type: 'application/bat' });
@@ -185,7 +186,7 @@ start "" winbox.exe ${targetHost} ${username} ${password ? `"${password}"` : ''}
                   {isEn ? 'MikroTik WinBox Launcher' : 'اجرای نرم‌افزار WinBox میکروتیک'}
                 </h3>
                 <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">
-                  Port 8291
+                  Port {winboxPort}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-mono truncate max-w-[280px]">

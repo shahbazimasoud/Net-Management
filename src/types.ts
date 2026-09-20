@@ -121,6 +121,7 @@ export interface Device {
   master_session_id?: string;
   detected_ports?: SwitchPort[];
   web_configs?: DeviceWebConfig[];
+  winbox_port?: number;
 }
 
 export interface DeviceWebConfig {
