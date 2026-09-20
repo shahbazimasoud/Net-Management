@@ -1261,6 +1261,10 @@ export async function initDatabase(): Promise<void> {
       console.warn('[Database Schema Warning]', schemaErr.message);
     }
 
+    try {
+      await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS prompt_password_on_connect BOOLEAN DEFAULT FALSE');
+    } catch {}
+
     // Synchronize all fallback records into PostgreSQL
     await syncFallbackToPostgres(client, initialData);
     console.log('[Database] Fallback store synchronization to PostgreSQL completed successfully.');
@@ -2749,6 +2753,7 @@ function rowToRemoteServer(r: any): RemoteServer {
     win_port: Number(r.win_port) || 3389,
     win_username: r.win_username || 'Administrator',
     win_domain: r.win_domain || 'CORP.INTERNAL',
+    prompt_password_on_connect: Boolean(r.prompt_password_on_connect),
     status: (r.status || 'online') as 'online' | 'offline' | 'unreachable',
     cpu_cores: Number(r.cpu_cores) || 4,
     ram_gb: Number(r.ram_gb) || 16,
@@ -2896,9 +2901,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
           win_protocol, win_port, win_username, win_domain,
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
+          prompt_password_on_connect,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -2925,6 +2931,7 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           uptime_str = EXCLUDED.uptime_str,
           location = EXCLUDED.location,
           notes = EXCLUDED.notes,
+          prompt_password_on_connect = EXCLUDED.prompt_password_on_connect,
           updated_at = NOW()`,
         [
           newServer.id,
@@ -2953,6 +2960,7 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           newServer.uptime_str || '',
           newServer.location || '',
           newServer.notes || '',
+          Boolean(newServer.prompt_password_on_connect),
           newServer.created_at,
           newServer.updated_at,
         ]
@@ -3068,9 +3076,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
           win_protocol, win_port, win_username, win_domain,
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
+          prompt_password_on_connect,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -3097,6 +3106,7 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           uptime_str = EXCLUDED.uptime_str,
           location = EXCLUDED.location,
           notes = EXCLUDED.notes,
+          prompt_password_on_connect = EXCLUDED.prompt_password_on_connect,
           updated_at = NOW()`,
         [
           updated.id,
@@ -3125,6 +3135,7 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           updated.uptime_str,
           updated.location,
           updated.notes,
+          Boolean(updated.prompt_password_on_connect),
           updated.created_at || new Date().toISOString(),
           updated.updated_at,
         ]

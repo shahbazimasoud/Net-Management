@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.96.0';
+export const APP_VERSION = '1.97.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.97.0',
+    releaseDate: '2026-09-20',
+    type: 'minor',
+    title: 'ارتقای ترمینال تعاملی سرورهای لینوکس: رفع کاراکترهای اسکیپ کدهای رنگی ANSI، سیستم هوشمند Intellisense و تکمیل خودکار با Tab، قابلیت تقسیم صفحه (Split Screen) و اصلاح بررسی رمز عبور در زمان اتصال',
+    title_en: 'Linux Terminal Overhaul: Clean ANSI Escape Codes Formatting, Intelligent Tab-Completion Engine, Multi-Shell Split Screen Layout, and Connection-Time Password Auth Enforcement',
+    changes: [
+      'پیاده‌سازی موتور پردازش و استخراج کدهای رنگی و کنترل ANSI (شامل کدهای SGR، رنگ‌های 256گانه، متن‌های Bold و پاک‌سازی کاراکترهای مخرب و زائد نظیر [33m و [0m) در خروجی‌های ترمینال لینوکس.',
+      'افزودن سیستم هوشمند Intellisense لینوکس با پایگاه جامع دستورات (systemctl، docker، ip، ss، ufw، journalctl، free، df و...) همراه با توضیحات دوزبانه.',
+      'پیاده‌سازی قابلیت تکمیل خودکار با کلید Tab (Autocomplete) شامل پیش‌نمایش متنی شناور (Ghost Suggestion)، محاسبه طولانی‌ترین پیشوند مشترک (LCP) و پاپ‌آپ انتخاب گزینه‌ها.',
+      'طراحی و پیاده‌سازی قابلیت تقسیم صفحه (Split Screen) مشابه ترمینال سیسکو با امکان باز کردن ۲ شل کناری (Columns)، ۲ شل ردیفی (Rows) یا ۴ شل همزمان (Grid 2x2) با سشن‌های وب‌سوکت و تاریخچه مستقل.',
+      'اصلاح و اعمال قطعی قابلیت «درخواست رمز عبور در لحظه اتصال» (Prompt for password at connection time): جلوگیری از اتصال مستقیم بدون رمز و نمایش مودال امن احراز هویت در زمان اتصال بدون ذخیره در دیتابیس.'
+    ],
+    changes_en: [
+      'Implemented robust ANSI escape sequences and SGR/256-color parsing and sanitization engine, resolving raw escaped characters (such as [33m, [0m, and stray bracketed markers) into clean styled terminal output.',
+      'Added Linux Terminal Intellisense engine featuring a comprehensive catalog of system commands, subcommands, and flags with dual-language descriptions.',
+      'Implemented Tab-key autocompletion with inline ghost text suggestions, Longest Common Prefix (LCP) completion, and an interactive candidate popover.',
+      'Engineered Cisco-style Multi-Shell Split Screen workspace supporting Side-by-Side (Columns), Stacked (Rows), and Quad (2x2 Grid) views with independent WebSocket channels and histories.',
+      'Enforced "Prompt for password at connection time" with strict zero-storage authentication guard in backend and frontend, preventing direct unauthenticated bypass.'
+    ]
+  },
   {
     version: '1.96.0',
     releaseDate: '2026-09-20',

@@ -34,10 +34,20 @@ import {
   ArrowRight,
   Send,
   CornerDownLeft,
+  Columns,
+  Rows,
+  Grid2X2,
+  Plus,
+  ArrowLeftRight,
+  Eye,
+  EyeOff,
+  KeyRound,
 } from 'lucide-react';
 import { RemoteServer } from '../../types';
 import { getRemoteServerWebSocketUrl } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { renderAnsiFormattedText, stripAnsi } from './terminalAnsi';
+import { getIntellisense, IntellisenseResult, LINUX_COMMANDS_CATALOG } from './linuxIntellisense';
 
 export interface LinuxTerminalModalProps {
   isOpen: boolean;
@@ -52,10 +62,24 @@ export interface LinuxTerminalModalProps {
 
 interface TerminalLogLine {
   id: string;
-  type: 'prompt-command' | 'output' | 'error' | 'system';
+  type: 'prompt-command' | 'output' | 'error' | 'system' | 'info';
   prompt?: string;
   text: string;
   timestamp: string;
+}
+
+interface TerminalPane {
+  id: string;
+  title: string;
+  selectedShell: 'bash' | 'zsh';
+  lines: TerminalLogLine[];
+  inputVal: string;
+  history: string[];
+  historyIdx: number;
+  isConnected: boolean;
+  isConnecting: boolean;
+  ephemeralPassword?: string;
+  isPasswordPromptActive: boolean;
 }
 
 interface SnippetItem {
@@ -82,121 +106,128 @@ const LINUX_COMMAND_SNIPPETS: SnippetItem[] = [
   {
     category: 'System & OS',
     categoryFa: 'سیستم و سیستم‌عامل',
-    label: 'OS Release & Version',
+    label: 'OS Distro Release',
     labelFa: 'مشخصات توزیع لینوکس',
     cmd: 'cat /etc/os-release',
-    desc: 'Show operating system name, codename, and release version numbers.',
-    descFa: 'نمایش نام توزیع، نسخه و مشخصات انتشار لینوکس.',
+    desc: 'Display operating system identification data and release codename.',
+    descFa: 'مشاهده مشخصات دقیق توزیع و نسخه سیستم‌عامل.',
   },
   {
     category: 'System & OS',
     categoryFa: 'سیستم و سیستم‌عامل',
     label: 'System Uptime & Load',
-    labelFa: 'مدت کارکرد و بار سیستم',
-    cmd: 'uptime',
-    desc: 'Show how long the system has been running and 1/5/15 minute load averages.',
-    descFa: 'مدت زمان روشن بودن سرور و میانگین لود ۱، ۵ و ۱۵ دقیقه گذشته.',
+    labelFa: 'مدت زمان روشن بودن سرور',
+    cmd: 'uptime -p',
+    desc: 'Show pretty system uptime duration and 1/5/15 minute load averages.',
+    descFa: 'نمایش مدت زمان کارکرد پیوسته سرور و میانگین بار پردازشی.',
   },
   {
     category: 'System & OS',
     categoryFa: 'سیستم و سیستم‌عامل',
-    label: 'System Hostname Details',
-    labelFa: 'جزئیات هاست‌نیم سیستم',
-    cmd: 'hostnamectl',
-    desc: 'Query and control the system hostname and related machine credentials.',
-    descFa: 'بررسی مشخصات هاست‌نیم، شاسی و شناسه ماشین.',
-  },
-
-  // Storage & Memory
-  {
-    category: 'Storage & Memory',
-    categoryFa: 'حافظه و دیسک',
-    label: 'Disk Space Usage',
-    labelFa: 'فضای پارتیشن‌های دیسک',
-    cmd: 'df -h -x tmpfs -x devtmpfs',
-    desc: 'Display file system disk space usage in human-readable gigabytes.',
-    descFa: 'نمایش فضای پر و خالی پارتیشن‌های اصلی دیسک به گیگابایت.',
-  },
-  {
-    category: 'Storage & Memory',
-    categoryFa: 'حافظه و دیسک',
-    label: 'RAM & Swap Stats',
-    labelFa: 'مصرف حافظه رم و سواپ',
+    label: 'Memory Usage Overview',
+    labelFa: 'خلاصه وضعیت حافظه رم',
     cmd: 'free -h',
-    desc: 'Display amount of free and used physical memory and swap in system.',
-    descFa: 'نمایش وضعیت رم فیزیکی، حافظه کش، بافر و سواپ.',
+    desc: 'Show total, used, free and available physical memory and swap in human-readable units.',
+    descFa: 'نمایش حجم کل، اشغال‌شده و آزاد حافظه رم و سواپ.',
   },
   {
-    category: 'Storage & Memory',
-    categoryFa: 'حافظه و دیسک',
-    label: 'Block Storage Devices',
-    labelFa: 'تجهیزات ذخیره‌سازی بلاک',
-    cmd: 'lsblk -o NAME,SIZE,FSTYPE,TYPE,MOUNTPOINT',
-    desc: 'List information about all available block storage drives and partitions.',
-    descFa: 'لیست هارد دیسک‌ها، دیسک‌های NVMe و نقاط اتصال پارتیشن‌ها.',
+    category: 'System & OS',
+    categoryFa: 'سیستم و سیستم‌عامل',
+    label: 'Disk Filesystem Usage',
+    labelFa: 'وضعیت فضای پارتیشن‌ها و دیسک',
+    cmd: 'df -h -x tmpfs -x devtmpfs',
+    desc: 'Display human-readable disk space usage excluding virtual in-memory mounts.',
+    descFa: 'مشاهده فضای مصرفی پارتیشن‌های اصلی دیسک به گیگابایت.',
+  },
+  {
+    category: 'System & OS',
+    categoryFa: 'سیستم و سیستم‌عامل',
+    label: 'CPU Hardware Specifications',
+    labelFa: 'مشخصات سخت‌افزاری پردازنده',
+    cmd: 'lscpu | head -n 20',
+    desc: 'Display CPU architecture, model name, core counts, and virtualization capabilities.',
+    descFa: 'نمایش مدل، تعداد هسته‌ها و ویژگی‌های پردازنده سرور.',
   },
 
   // Network & Ports
   {
     category: 'Network & Ports',
     categoryFa: 'شبکه و پورت‌ها',
-    label: 'Network IP Addresses',
-    labelFa: 'آدرس‌های IP اینترفیس‌ها',
+    label: 'Active IP Addresses',
+    labelFa: 'آدرس‌های IP فعال اینترفیس‌ها',
     cmd: 'ip -br a',
-    desc: 'Display brief tabular list of network interfaces and assigned IPs.',
-    descFa: 'نمایش سریع کارت‌های شبکه، وضعیت و آدرس‌های IP اختصاص یافته.',
+    desc: 'Show brief table of all network interfaces and assigned IPv4/IPv6 addresses.',
+    descFa: 'مشاهده خلاصه اینترفیس‌های شبکه و آی‌پی‌های اختصاص‌یافته.',
   },
   {
     category: 'Network & Ports',
     categoryFa: 'شبکه و پورت‌ها',
-    label: 'Listening Ports (Sockets)',
-    labelFa: 'پورت‌های باز و سرویس‌ها',
+    label: 'Listening TCP/UDP Ports',
+    labelFa: 'پورت‌های باز و پروسس‌های متصل',
     cmd: 'ss -tulpn',
-    desc: 'Show all listening TCP and UDP sockets with owning process IDs.',
-    descFa: 'بررسی پورت‌های باز لیسن کننده TCP/UDP همراه با شناسه پروسس.',
+    desc: 'List all listening TCP and UDP sockets with program names and process IDs.',
+    descFa: 'مشاهده کلیه پورت‌های در حال شنود همراه با نام برنامه و PID.',
   },
   {
     category: 'Network & Ports',
     categoryFa: 'شبکه و پورت‌ها',
-    label: 'Routing Table',
-    labelFa: 'جدول روتینگ شبکه',
+    label: 'Kernel Routing Table',
+    labelFa: 'جدول روتینگ کرنل',
     cmd: 'ip route show',
-    desc: 'Display default gateway and kernel network routing entries.',
-    descFa: 'نمایش گیت‌وی پیش‌فرض و روت‌های جدول مسیریابی هسته لینوکس.',
+    desc: 'Display current default gateway and local subnet kernel routing table.',
+    descFa: 'نمایش مسیرهای مسیریابی و گیت‌وی پیش‌فرض سرور.',
   },
   {
     category: 'Network & Ports',
     categoryFa: 'شبکه و پورت‌ها',
-    label: 'Test Ping Gateway',
-    labelFa: 'تست پینگ به اینترنت',
-    cmd: 'ping -c 4 8.8.8.8',
-    desc: 'Send 4 ICMP echo requests to verify network connectivity and latency.',
-    descFa: 'ارسال ۴ پکت ICMP برای تست تأخیر و برقراری ارتباط با اینترنت.',
+    label: 'Firewall Rules Status',
+    labelFa: 'وضعیت فایروال UFW',
+    cmd: 'ufw status verbose',
+    desc: 'Display active rules and open incoming ports in Uncomplicated Firewall.',
+    descFa: 'بررسی وضعیت فایروال و پورت‌های مجاز ورودی.',
   },
   {
     category: 'Network & Ports',
     categoryFa: 'شبکه و پورت‌ها',
-    label: 'Test Local HTTP Endpoint',
-    labelFa: 'تست ریسپانس HTTP لوکال',
-    cmd: 'curl -I http://127.0.0.1:80',
-    desc: 'Send HTTP HEAD request to check web server status and headers.',
-    descFa: 'ارسال درخواست HTTP جهت بررسی سربرگ‌ها و آنلاین بودن وب‌سرور.',
+    label: 'DNS Resolution Test',
+    labelFa: 'بررسی کارکرد دی‌ان‌اس',
+    cmd: 'cat /etc/resolv.conf',
+    desc: 'Display configured system DNS nameservers and search domains.',
+    descFa: 'مشاهده سرورهای دی‌ان‌اس تنظیم‌شده در سرور.',
+  },
+  {
+    category: 'Network & Ports',
+    categoryFa: 'شبکه و پورت‌ها',
+    label: 'Public External IP',
+    labelFa: 'آدرس آی‌پی پابلیک سرور',
+    cmd: 'curl -s ifconfig.me',
+    desc: 'Query external gateway to retrieve current public egress IP of the host.',
+    descFa: 'استعلام آی‌پی اینترنتی و خروجی سرور.',
   },
 
-  // Web & Services
+  // Services & Web Server
   {
     category: 'Services & Web Server',
     categoryFa: 'سرویس‌ها و وب‌سرور',
-    label: 'Nginx Service Status',
-    labelFa: 'وضعیت سرویس Nginx',
-    cmd: 'systemctl status nginx --no-pager',
-    desc: 'Inspect Nginx reverse proxy service active state and recent logs.',
-    descFa: 'مشاهده وضعیت فعال بودن و لاگ‌های اخیر وب‌سرور Nginx.',
+    label: 'Systemd Failed Services',
+    labelFa: 'سرویس‌های دارای خطای سیستم‌دی',
+    cmd: 'systemctl --failed',
+    desc: 'List all systemd units that are currently in a failed or degraded state.',
+    descFa: 'فهرست سرویس‌هایی که با خطا مواجه و متوقف شده‌اند.',
   },
   {
     category: 'Services & Web Server',
     categoryFa: 'سرویس‌ها و وب‌سرور',
-    label: 'Test Nginx Configuration',
+    label: 'Recent System Journal Errors',
+    labelFa: 'لاگ خطاهای اخیر ژورنال سیستم',
+    cmd: 'journalctl -p err -n 25 --no-pager',
+    desc: 'Display last 25 systemd error logs recorded across all services.',
+    descFa: 'مشاهده ۲۵ خط آخر از پیام‌های خطای بحرانی سیستم.',
+  },
+  {
+    category: 'Services & Web Server',
+    categoryFa: 'سرویس‌ها و وب‌سرور',
+    label: 'Nginx Config Test',
     labelFa: 'تست سلامت فایل کانفیگ Nginx',
     cmd: 'nginx -t',
     desc: 'Verify Nginx configuration syntax and test host files before reload.',
@@ -216,7 +247,7 @@ const LINUX_COMMAND_SNIPPETS: SnippetItem[] = [
     categoryFa: 'سرویس‌ها و وب‌سرور',
     label: 'Docker Containers Status',
     labelFa: 'وضعیت کانتینرهای داکر',
-    cmd: 'docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"',
+    cmd: 'docker ps',
     desc: 'Display all running Docker containers, uptime and port mappings.',
     descFa: 'نمایش لیست کانتینرهای فعال داکر، وضعیت سلامت و مپینگ پورت‌ها.',
   },
@@ -248,17 +279,17 @@ const LINUX_COMMAND_SNIPPETS: SnippetItem[] = [
     label: 'Active Logged In Users',
     labelFa: 'کاربران آنلاین در سیستم',
     cmd: 'who -u',
-    desc: 'Show users currently logged into the server with session terminal IDs.',
-    descFa: 'نمایش کاربران متصل به سرور و ترمینال‌های فعال آن‌ها.',
+    desc: 'Show all interactive user login sessions currently active on terminals.',
+    descFa: 'نمایش کاربران متصل به سرور و ترمینال‌های فعال.',
   },
   {
     category: 'Security & Logins',
     categoryFa: 'امنیت و ورودها',
     label: 'Recent Login History',
-    labelFa: 'تاریخچه لاگین‌های اخیر',
+    labelFa: 'تاریخچه آخرین ورودهای کاربران',
     cmd: 'last -n 10',
-    desc: 'Show last 10 successful user logins and system reboot events.',
-    descFa: '۱۰ ورود موفق اخیر به سرور و زمان‌های ریبوت سیستم.',
+    desc: 'View last 10 successful user logins, remote IPs and session durations.',
+    descFa: 'مشاهده ۱۰ ورود اخیر به سرور همراه با آدرس IP.',
   },
 ];
 
@@ -273,651 +304,863 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   isEn = true,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
-  const [selectedShell, setSelectedShell] = useState<'bash' | 'zsh'>(initialShell);
-  const [lines, setLines] = useState<TerminalLogLine[]>([]);
-  const [inputVal, setInputVal] = useState('');
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIdx, setHistoryIdx] = useState(-1);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<'snippets' | 'specs' | 'history'>('snippets');
   const [snippetSearch, setSnippetSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const terminalScrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Split Screen & Multi-Pane Layout
+  const [layoutMode, setLayoutMode] = useState<'single' | 'split-cols' | 'split-rows' | 'grid-4'>('single');
+  const [isSplitMenuOpen, setIsSplitMenuOpen] = useState(false);
+  const splitMenuRef = useRef<HTMLDivElement>(null);
 
-  // Sync initial shell when server changes
+  // Panes management
+  const [panes, setPanes] = useState<TerminalPane[]>(() => [
+    {
+      id: 'pane-1',
+      title: 'Shell #1',
+      selectedShell: initialShell,
+      lines: [],
+      inputVal: '',
+      history: [],
+      historyIdx: -1,
+      isConnected: false,
+      isConnecting: false,
+      ephemeralPassword: sessionPassword,
+      isPasswordPromptActive: Boolean(server?.prompt_password_on_connect && !sessionPassword),
+    },
+  ]);
+  const [activePaneId, setActivePaneId] = useState<string>('pane-1');
+
+  // Input & Scroll Refs per pane
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const scrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const wsRefs = useRef<Record<string, WebSocket | null>>({});
+
+  // Intellisense State for active pane
+  const [intellisenseIndex, setIntellisenseIndex] = useState<number>(0);
+  const [showIntellisensePopup, setShowIntellisensePopup] = useState<boolean>(false);
+
+  // Inline password input state when prompt_password_on_connect is active
+  const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
+  const [showPasswordText, setShowPasswordText] = useState<Record<string, boolean>>({});
+
+  // Sync pane 1 initial shell and password if server changes
   useEffect(() => {
-    if (server?.default_shell === 'zsh') {
-      setSelectedShell('zsh');
-    } else {
-      setSelectedShell(initialShell);
+    if (server) {
+      setPanes((prev) => {
+        if (prev.length === 0) return prev;
+        const copy = [...prev];
+        const p1 = copy[0];
+        copy[0] = {
+          ...p1,
+          selectedShell: initialShell,
+          ephemeralPassword: sessionPassword,
+          isPasswordPromptActive: Boolean(server.prompt_password_on_connect && !sessionPassword),
+        };
+        return copy;
+      });
     }
-  }, [server, initialShell]);
+  }, [server, initialShell, sessionPassword]);
 
-  // Dynamic Prompt generator
-  const getPromptString = useCallback(() => {
-    const user = server?.ssh_username || 'root';
-    const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'linux-host';
-    if (selectedShell === 'zsh') {
-      return `${user}@${host}:~% `;
+  // Click outside split menu listener
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (splitMenuRef.current && !splitMenuRef.current.contains(e.target as Node)) {
+        setIsSplitMenuOpen(false);
+      }
+    };
+    if (isSplitMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
     }
-    return `${user}@${host}:~# `;
-  }, [server, selectedShell]);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isSplitMenuOpen]);
 
-  // Emulated realistic response generator when offline or in simulation sandbox
-  const generateEmulatedResponse = useCallback((command: string): string => {
-    const cmd = command.trim();
-    const serverName = server?.name || 'Linux Server';
-    const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'web-prod01.internal';
-    const ip = server?.ip || '192.168.10.15';
-    const distro = server?.os_distro || 'Ubuntu 24.04 LTS';
-    const cores = server?.cpu_cores || 8;
-    const ram = server?.ram_gb || 32;
-    const disk = server?.disk_gb || 500;
+  // Prompt Generator
+  const getPromptString = useCallback(
+    (shellType: 'bash' | 'zsh') => {
+      const user = server?.ssh_username || 'root';
+      const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'server';
+      if (shellType === 'zsh') {
+        return `➜  ${user}@${host} ~ `;
+      }
+      return `${user}@${host}:~# `;
+    },
+    [server]
+  );
 
-    if (!cmd) return '';
+  // Emulated Command Response Generator
+  const generateEmulatedResponse = useCallback(
+    (command: string): string => {
+      const cmd = command.trim();
+      const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'web-prod01.internal';
+      const ip = server?.ip || '192.168.10.15';
+      const distro = server?.os_distro || 'Ubuntu 24.04 LTS';
+      const cores = server?.cpu_cores || 8;
+      const ram = server?.ram_gb || 32;
+      const disk = server?.disk_gb || 500;
 
-    if (cmd === 'clear' || cmd === 'cls') {
-      return '__CLEAR__';
-    }
+      if (!cmd) return '';
 
-    if (cmd === 'uname -a') {
-      return `Linux ${host} 6.8.0-40-generic #40-Ubuntu SMP PREEMPT_DYNAMIC Fri Aug  9 12:20:00 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux`;
-    }
+      // Clear screen
+      if (cmd === 'clear' || cmd === 'cls') {
+        return '__CLEAR__';
+      }
 
-    if (cmd === 'cat /etc/os-release') {
-      return `PRETTY_NAME="${distro}"
-NAME="Ubuntu"
-VERSION_ID="24.04"
-VERSION="24.04 LTS (Noble Numbat)"
-VERSION_CODENAME=noble
-ID=ubuntu
-ID_LIKE=debian
-HOME_URL="https://www.ubuntu.com/"
-SUPPORT_URL="https://help.ubuntu.com/"
-BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"`;
-    }
+      // Help
+      if (cmd === 'help' || cmd === '--help') {
+        return (
+          `Linux System Emulator Runtime\n` +
+          `Available built-in commands:\n` +
+          `  uname, free, df, uptime, ip, ss, ufw, systemctl, journalctl, docker, ps, cat, ls, whoami, reboot, clear\n` +
+          `Use the Snippets sidebar for instant executable commands.`
+        );
+      }
 
-    if (cmd === 'uptime') {
-      return ` 14:32:05 up 72 days, 14:18,  2 users,  load average: 0.24, 0.31, 0.28`;
-    }
+      // uname -a
+      if (cmd.startsWith('uname')) {
+        return `Linux ${host} 6.8.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Apr 20 00:40:06 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux`;
+      }
 
-    if (cmd === 'hostname' || cmd === 'hostnamectl') {
-      return ` Static hostname: ${host}
-       Icon name: computer-server
-         Chassis: rack
-      Machine ID: b7d1a2c349e54f0a9182374619d0842e
-         Boot ID: f8291a0c441249b9901726a8d7120194
-Operating System: ${distro}
-          Kernel: Linux 6.8.0-40-generic
-    Architecture: x86-64
- Hardware Vendor: Supermicro
-  Hardware Model: SYS-6029P-WTR`;
-    }
+      // free -h / free -m
+      if (cmd.startsWith('free')) {
+        const usedRam = Math.round(ram * 0.38);
+        const freeRam = ram - usedRam - 2;
+        return (
+          `               total        used        free      shared  buff/cache   available\n` +
+          `Mem:           ${ram}Gi       ${usedRam}Gi       ${freeRam}Gi       320Mi       2.0Gi        ${freeRam + 1}Gi\n` +
+          `Swap:          4.0Gi       128Mi       3.8Gi`
+        );
+      }
 
-    if (cmd.startsWith('free')) {
-      const usedRam = Math.round(ram * 0.38);
-      const freeRam = ram - usedRam - 4;
-      return `               total        used        free      shared  buff/cache   available
-Mem:            ${ram}Gi       ${usedRam}Gi       ${freeRam}Gi       240Mi       4.0Gi        ${ram - usedRam}Gi
-Swap:          8.0Gi          0B       8.0Gi`;
-    }
+      // df -h
+      if (cmd.startsWith('df')) {
+        const usedDisk = Math.round(disk * 0.42);
+        const availDisk = disk - usedDisk;
+        return (
+          `Filesystem      Size  Used Avail Use% Mounted on\n` +
+          `/dev/nvme0n1p2  ${disk}G  ${usedDisk}G  ${availDisk}G  42% /\n` +
+          `/dev/nvme0n1p1  511M  6.1M  505M   2% /boot/efi\n` +
+          `/dev/nvme1n1    1.8T  412G  1.3T  25% /var/data`
+        );
+      }
 
-    if (cmd.startsWith('df')) {
-      const usedDisk = Math.round(disk * 0.28);
-      const availDisk = disk - usedDisk;
-      return `Filesystem      Size  Used Avail Use% Mounted on
-/dev/sda1       ${Math.round(disk * 0.4)}G   42G  ${Math.round(disk * 0.4) - 42}G  31% /
-/dev/sdb1       ${Math.round(disk * 0.6)}G   98G  ${Math.round(disk * 0.6) - 98}G  34% /data
-/dev/sda2       953M  142M  748M  16% /boot
-tmpfs           ${Math.round(ram / 2)}G     0  ${Math.round(ram / 2)}G   0% /dev/shm`;
-    }
+      // uptime
+      if (cmd.startsWith('uptime')) {
+        return ` 14:28:10 up 45 days, 12:35,  2 users,  load average: 0.24, 0.31, 0.28`;
+      }
 
-    if (cmd === 'lsblk' || cmd.startsWith('lsblk')) {
-      return `NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS
-sda      8:0    0   200G  0 disk 
-├─sda1   8:1    0   199G  0 part /
-└─sda2   8:2    0     1G  0 part /boot
-sdb      8:16   0   300G  0 disk 
-└─sdb1   8:17   0   300G  0 part /data`;
-    }
-
-    if (cmd === 'ip -br a' || cmd === 'ip -br addr' || cmd === 'ip a' || cmd === 'ip addr') {
-      return `lo               UNKNOWN        127.0.0.1/8 ::1/128 
-eth0             UP             ${ip}/24 fe80::216:3eff:fe45:8910/64 
-docker0          UP             172.17.0.1/16 `;
-    }
-
-    if (cmd === 'ip route' || cmd === 'ip route show' || cmd === 'route -n') {
-      const gw = ip.replace(/\.\d+$/, '.1');
-      return `default via ${gw} dev eth0 proto static onlink 
-172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 
-${ip.replace(/\.\d+$/, '.0')}/24 dev eth0 proto kernel scope link src ${ip}`;
-    }
-
-    if (cmd.startsWith('ping')) {
-      return `PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
-64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=8.14 ms
-64 bytes from 8.8.8.8: icmp_seq=2 ttl=118 time=8.02 ms
-64 bytes from 8.8.8.8: icmp_seq=3 ttl=118 time=7.98 ms
-64 bytes from 8.8.8.8: icmp_seq=4 ttl=118 time=8.21 ms
-
---- 8.8.8.8 ping statistics ---
-4 packets transmitted, 4 received, 0% packet loss, time 3004ms
-rtt min/avg/max/mdev = 7.980/8.087/8.210/0.091 ms`;
-    }
-
-    if (cmd.startsWith('curl')) {
-      return `HTTP/1.1 200 OK
-Server: nginx/1.26.0 (Ubuntu)
-Date: ${new Date().toUTCString()}
-Content-Type: application/json; charset=utf-8
-Content-Length: 68
-Connection: keep-alive
-X-Upstream-Gateway: ${host}
-
-{"status":"operational","service":"api-gateway","version":"2.4.1"}`;
-    }
-
-    if (cmd.includes('systemctl status nginx')) {
-      return `● nginx.service - A high performance web server and a reverse proxy server
-     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: enabled)
-     Active: active (running) since Thu 2026-03-05 10:14:22 UTC; 14 days ago
-       Docs: man:nginx(8)
-   Main PID: 21840 (nginx)
-      Tasks: 9 (limit: 38240)
-     Memory: 64.2M (peak: 78.4M)
-        CPU: 18min 42.102s
-     CGroup: /system.slice/nginx.service
-             ├─21840 "nginx: master process /usr/sbin/nginx -g daemon on; master_process on;"
-             ├─21841 "nginx: worker process"
-             ├─21842 "nginx: worker process"
-             ├─21843 "nginx: worker process"
-             └─21844 "nginx: worker process"`;
-    }
-
-    if (cmd === 'nginx -t') {
-      return `nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-nginx: configuration file /etc/nginx/nginx.conf test is successful`;
-    }
-
-    if (cmd.startsWith('systemctl list-units')) {
-      return `  UNIT                         LOAD   ACTIVE SUB     DESCRIPTION
-  cron.service                 loaded active running Regular background program processing daemon
-  dbus.service                 loaded active running D-Bus System Message Bus
-  docker.service               loaded active running Docker Application Container Engine
-  nginx.service                loaded active running A high performance web server and reverse proxy
-  ssh.service                  loaded active running OpenBSD Secure Shell server
-  systemd-journald.service     loaded active running Journal Service
-  systemd-udevd.service        loaded active running Rule-based Manager for Device Events
-
-LOAD   = Reflects whether the unit definition was properly loaded.
-ACTIVE = The high-level unit activation state, i.e. generalization of SUB.`;
-    }
-
-    if (cmd.startsWith('docker ps')) {
-      return `CONTAINER ID   IMAGE                  COMMAND                  CREATED        STATUS        PORTS                                      NAMES
-c4a91e8201bf   nginx:alpine           "/docker-entrypoint.…"   2 weeks ago    Up 2 weeks    0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp   gateway-nginx-prod
-9d832a11b023   api-gateway:v2.4.1     "docker-entrypoint.s…"   2 weeks ago    Up 2 weeks    0.0.0.0:8080->8080/tcp                     api-core-router
-7b610c99a41e   redis:7.2-alpine       "docker-entrypoint.s…"   3 weeks ago    Up 3 weeks    6379/tcp                                   session-cache
-3e120f81d592   prom/node-exporter     "/bin/node_exporter"     3 weeks ago    Up 3 weeks    9100/tcp                                   node-exporter`;
-    }
-
-    if (cmd.includes('ss -tulpn') || cmd.includes('netstat')) {
-      return `Netid  State   Recv-Q  Send-Q   Local Address:Port   Peer Address:Port  Process
-tcp    LISTEN  0       511            0.0.0.0:80          0.0.0.0:*      users:(("nginx",pid=21840,fd=6))
-tcp    LISTEN  0       511            0.0.0.0:443         0.0.0.0:*      users:(("nginx",pid=21840,fd=7))
-tcp    LISTEN  0       128            0.0.0.0:22          0.0.0.0:*      users:(("sshd",pid=1024,fd=3))
-tcp    LISTEN  0       511            0.0.0.0:8080        0.0.0.0:*      users:(("node",pid=1520,fd=18))
-tcp    LISTEN  0       128            0.0.0.0:9100        0.0.0.0:*      users:(("node_exporter",pid=1640,fd=3))
-tcp    LISTEN  0       128          127.0.0.1:6379        0.0.0.0:*      users:(("redis-server",pid=1890,fd=6))`;
-    }
-
-    if (cmd.includes('ps aux')) {
-      return `USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-root       21840  0.8  0.4 142100 64200 ?        Ss   Mar05  18:42 nginx: master process /usr/sbin/nginx
-www-data   21841  1.2  0.6 154200 98400 ?        S    Mar05  26:10 nginx: worker process
-node        1520  2.4  4.8 842100 392000 ?       Sl   Mar05  54:20 node /app/dist/server.js
-root        1024  0.0  0.1  18400  8900 ?        Ss   Mar05   0:14 sshd: /usr/sbin/sshd -D [listener]
-redis       1890  0.4  0.8  68400 54100 ?        Ssl  Mar05   8:30 redis-server 127.0.0.1:6379`;
-    }
-
-    if (cmd.startsWith('who')) {
-      return `root     pts/0        ${new Date().toISOString().slice(0, 10)} 11:24 (192.168.1.104)
-admin    pts/1        ${new Date().toISOString().slice(0, 10)} 13:40 (192.168.1.55)`;
-    }
-
-    if (cmd.startsWith('last')) {
-      return `root     pts/0        192.168.1.104    ${new Date().toDateString().slice(0, 10)} 11:24   still logged in
-admin    pts/1        192.168.1.55     ${new Date().toDateString().slice(0, 10)} 13:40   still logged in
-root     pts/0        192.168.1.104    Wed Mar 18 09:12 - 17:45  (08:33)
-reboot   system boot  6.8.0-40-generic Thu Mar  5 10:14   still running
-
-wtmp begins Thu Mar  5 10:14:00 2026`;
-    }
-
-    if (cmd === 'ls' || cmd === 'ls -la' || cmd === 'll') {
-      return `total 56
-drwx------  7 root root 4096 Mar 19 14:10 .
-drwxr-xr-x 19 root root 4096 Feb 28 09:00 ..
--rw-------  1 root root 9421 Mar 19 14:02 .bash_history
--rw-r--r--  1 root root 3106 Oct 15  2023 .bashrc
--rw-r--r--  1 root root  161 Jul  9  2022 .profile
--rw-------  1 root root 1240 Mar 10 11:00 .viminfo
-drwx------  2 root root 4096 Mar  5 10:14 .ssh
-drwxr-xr-x  3 root root 4096 Mar  2 11:30 docker
--rw-r--r--  1 root root 1842 Mar 12 16:40 docker-compose.yml
-drwxr-xr-x  2 root root 4096 Mar  8 09:20 scripts`;
-    }
-
-    if (cmd === 'pwd') {
-      return '/root';
-    }
-
-    if (cmd === 'whoami') {
-      return 'root';
-    }
-
-    if (cmd === 'date') {
-      return new Date().toString();
-    }
-
-    if (cmd.startsWith('echo ')) {
-      return cmd.slice(5).replace(/^["']|["']$/g, '');
-    }
-
-    if (cmd === 'help') {
-      return `GNU bash, version 5.2.21(1)-release (x86_64-pc-linux-gnu)
-These shell commands are defined internally. Type 'help' to see this list.
-Use 'man -k' or 'info' to find out more about commands not in this list.
-
-A star (*) next to a name means that the command is disabled.
-
- job_spec [&]                       history [-c] [-d offset] [n]
- (( expression ))                   if COMMANDS; then COMMANDS; [ elif COMMANDS; then COMMANDS; ]... [ else COMMANDS; ] fi
- . filename [arguments]             kill [-s sigspec | -n signum | -sigspec] pid | jobspec ...
- :                                  let arg [arg ...]
- [ arg... ]                         local [option] name[=value] ...
- [[ expression ]]                   logout [n]
- alias [-p] [name[=value] ...]      popd [-n] [+N | -N]
- bg [job_spec ...]                  printf [-v var] format [arguments]
- bind [-lpsvPSV] [-m keymap]        pushd [-n] [+N | -N | dir]
- break [n]                          pwd [-LP]
- builtin [shell-builtin [arg ...]]  read [-ers] [-a array] [-d delim] [-i text] [-n nchars] [-N nchars] [-p prompt] [-t timeout] [-u fd] [name ...]
- caller [expr]                      readonly [-aAf] [name[=value] ...] or readonly -p
- case WORD in [PATTERN [| PATTERN   return [n]
- cd [-L|[-P [-e]] [-@]] [dir]       select NAME [in WORDS ... ;] do COMMANDS; done
- command [-pVv] command [arg ...]   set [-abefhkmnptuvxBCEHPT] [-o option-name] [--] [-A name] [arg ...]
- compgen [-abcdefgjksuv] [-o opt    shift [n]
- complete [-abcdefgjksuv] [-pr] [   shopt [-pqsu] [-o] [optname ...]
- compopt [-o|+o option] [-DE] [na   source filename [arguments]
- continue [n]                       suspend [-f]
- coproc [NAME] command [redirects   test [expr]
- declare [-aAfFgiIlnrtux] [-p] [n   time [-p] pipeline
- dirs [-clpv] [+N] [-N]             times
- disown [-h] [-ar] [jobspec ... |   trap [-lp] [[arg] signal_spec ...]
- echo [-neE] [arg ...]              true
- enable [-a] [-dnps] [-f filename   type [-afptP] name [name ...]
- eval [arg ...]                     typeset [-aAfFgiIlnrtux] [-p] name[=value] ...
- exec [-cl] [-a name] [command [a   ulimit [-SHabcdefiklmnpqrstuvxPT] [limit]
- exit [n]                           umask [-p] [-S] [mode]
- export [-fn] [name[=value] ...]    unalias [-a] name [name ...]
- false                              unset [-f] [-v] [-n] [name ...]
- fc [-e ename] [-lnr] [first] [la   until COMMANDS; do COMMANDS; done
- fg [job_spec]                      variables - Names and meanings of some shell variables
- for NAME [in WORDS ... ] ; do CO   wait [-fn] [-p var] [id ...]
- for (( exp1; exp2; exp3 )); do C   while COMMANDS; do COMMANDS; done
- function name { COMMANDS ; } or    { COMMANDS ; }`;
-    }
-
-    if (cmd === 'id') {
-      return 'uid=0(root) gid=0(root) groups=0(root),27(sudo),100(users)';
-    }
-
-    if (cmd.startsWith('cat ')) {
-      const filename = cmd.slice(4).trim();
-      return `# File: ${filename}\n# System parameters\nHOST=${serverName}\nIP=${server.ip}\nENVIRONMENT=${server.environment || 'Production'}\nSTATUS=ACTIVE\nPORT=${server.ssh_port || 22}\nLOG_LEVEL=info`;
-    }
-
-    if (cmd.startsWith('ping ')) {
-      const target = cmd.slice(5).trim();
-      return `PING ${target} (${target}) 56(84) bytes of data.
-64 bytes from ${target}: icmp_seq=1 ttl=64 time=0.341 ms
-64 bytes from ${target}: icmp_seq=2 ttl=64 time=0.298 ms
-64 bytes from ${target}: icmp_seq=3 ttl=64 time=0.312 ms
-
---- ${target} ping statistics ---
-3 packets transmitted, 3 received, 0% packet loss, time 2048ms
-rtt min/avg/max/mdev = 0.298/0.317/0.341/0.017 ms`;
-    }
-
-    if (cmd.startsWith('curl ') || cmd.startsWith('wget ')) {
-      return `HTTP/1.1 200 OK
-Server: nginx/1.24.0 (Ubuntu)
-Date: ${new Date().toUTCString()}
-Content-Type: application/json; charset=utf-8
-Content-Length: 42
-Connection: keep-alive
-
-{"status":"healthy","server":"${serverName}"}`;
-    }
-
-    if (cmd === 'history') {
-      return history.length > 0
-        ? history.map((h, i) => `  ${(i + 1).toString().padStart(4, ' ')}  ${h}`).join('\n')
-        : '     1  uname -a\n     2  uptime\n     3  ip -br a\n     4  systemctl status\n     5  docker ps';
-    }
-
-    if (cmd === 'top' || cmd === 'htop') {
-      return `top - ${new Date().toLocaleTimeString()} up ${server.uptime_str || '72 days, 14:21'},  2 users,  load average: 0.18, 0.24, 0.22
-Tasks: 138 total,   1 running, 137 sleeping,   0 stopped,   0 zombie
-%Cpu(s):  1.8 us,  0.8 sy,  0.0 ni, 97.2 id,  0.1 wa,  0.0 hi,  0.1 si
-MiB Mem :  ${(server.ram_gb || 16) * 1024}.0 total,  ${((server.ram_gb || 16) * 1024 * 0.45).toFixed(1)} free,  ${((server.ram_gb || 16) * 1024 * 0.35).toFixed(1)} used
-MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16) * 1024 * 0.6).toFixed(1)} avail Mem
-
-    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
-   1024 root      20   0  142100  64200  28100 S   1.2   0.4   0:14.20 sshd
-   2184 root      20   0  842100 392000  54100 S   2.8   4.8   8:42.10 node
-   1890 redis     20   0   68400  54100  12400 S   0.4   0.8   2:14.05 redis-server
-   2184 www-data  20   0  154200  98400  32100 S   1.0   0.6   4:10.22 nginx`;
-    }
-
-    // Default realistic command execution acknowledgment
-    return `[${serverName}: /bin/${selectedShell}] Command '${cmd}' completed (exit code: 0)`;
-  }, [server, selectedShell, history]);
-
-  // Connect to WebSocket SSH session
-  const connectSession = useCallback(() => {
-    if (!server) return;
-
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    setIsConnecting(true);
-    setIsConnected(false);
-
-    const wsUrl = getRemoteServerWebSocketUrl(server.id, selectedShell, {
-      ip: server.ip,
-      ssh_port: server.ssh_port || 22,
-      ssh_username: server.ssh_username || 'root',
-      ssh_password: sessionPassword !== undefined && sessionPassword !== null && sessionPassword !== ''
-        ? sessionPassword
-        : server.ssh_password,
-    });
-
-    setLines((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(),
-        type: 'system',
-        text: `[Connecting] Establishing ${selectedShell.toUpperCase()} SSH PTY session to ${server.name} (${server.ip}:${server.ssh_port || 22})...`,
-        timestamp: new Date().toLocaleTimeString(),
-      },
-    ]);
-
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setIsConnecting(true);
-        inputRef.current?.focus();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'data') {
-            const rawData = msg.data || '';
-            setLines((prev) => [
-              ...prev,
-              {
-                id: Math.random().toString(),
-                type: 'output',
-                text: rawData,
-                timestamp: new Date().toLocaleTimeString(),
-              },
-            ]);
-          } else if (msg.type === 'status') {
-            if (msg.status === 'connected') {
-              setIsConnected(true);
-              setIsConnecting(false);
-              setLines((prev) => [
-                ...prev,
-                {
-                  id: Math.random().toString(),
-                  type: 'system',
-                  text: msg.message || `[Connected] Live SSH channel established with ${server.ip} on /bin/${selectedShell}.`,
-                  timestamp: new Date().toLocaleTimeString(),
-                },
-              ]);
-            } else if (msg.status === 'failed' || msg.status === 'disconnected') {
-              setIsConnected(false);
-              setIsConnecting(false);
-              setLines((prev) => [
-                ...prev,
-                {
-                  id: Math.random().toString(),
-                  type: 'system',
-                  text: msg.message || `[Notice] Remote host unreachable over direct socket bridge; switched seamlessly to server command emulator runtime.`,
-                  timestamp: new Date().toLocaleTimeString(),
-                },
-              ]);
-            }
-          } else if (msg.type === 'error') {
-            setIsConnected(false);
-            setIsConnecting(false);
-            setLines((prev) => [
-              ...prev,
-              {
-                id: Math.random().toString(),
-                type: 'error',
-                text: `[Error] ${msg.error || 'Connection failure'}`,
-                timestamp: new Date().toLocaleTimeString(),
-              },
-            ]);
-          }
-        } catch {
-          // Plain text fallback from raw PTY
-          setLines((prev) => [
-            ...prev,
-            {
-              id: Math.random().toString(),
-              type: 'output',
-              text: String(event.data),
-              timestamp: new Date().toLocaleTimeString(),
-            },
-          ]);
+      // ip a / ip -br a
+      if (cmd.startsWith('ip')) {
+        if (cmd.includes('-br')) {
+          return (
+            `lo               UNKNOWN        127.0.0.1/8 ::1/128\n` +
+            `eth0             UP             ${ip}/24 fe80::216:3eff:fe45:b89/64\n` +
+            `docker0          UP             172.17.0.1/16`
+          );
         }
-      };
+        return (
+          `1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000\n` +
+          `    inet 127.0.0.1/8 scope host lo\n` +
+          `2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP group default qlen 1000\n` +
+          `    inet ${ip}/24 brd 192.168.10.255 scope global dynamic eth0\n` +
+          `3: docker0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default\n` +
+          `    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0`
+        );
+      }
 
-      ws.onclose = () => {
-        setIsConnected(false);
-        setIsConnecting(false);
-      };
+      // ss -tulpn
+      if (cmd.startsWith('ss') || cmd.startsWith('netstat')) {
+        return (
+          `Netid State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess\n` +
+          `tcp   LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:(("sshd",pid=842,fd=3))\n` +
+          `tcp   LISTEN 0      511          0.0.0.0:80         0.0.0.0:*    users:(("nginx",pid=1120,fd=6))\n` +
+          `tcp   LISTEN 0      511          0.0.0.0:443        0.0.0.0:*    users:(("nginx",pid=1120,fd=7))\n` +
+          `tcp   LISTEN 0      128        127.0.0.1:5432       0.0.0.0:*    users:(("postgres",pid=915,fd=4))\n` +
+          `tcp   LISTEN 0      128        127.0.0.1:6379       0.0.0.0:*    users:(("redis-server",pid=920,fd=6))`
+        );
+      }
 
-      ws.onerror = () => {
-        setIsConnected(false);
-        setIsConnecting(false);
-        setLines((prev) => [
-          ...prev,
-          {
-            id: Math.random().toString(),
-            type: 'system',
-            text: `[Notice] Operating in high-fidelity local interactive emulation mode (${server.ip} / ${selectedShell}).`,
-            timestamp: new Date().toLocaleTimeString(),
-          },
-        ]);
-      };
-    } catch (err: any) {
-      setIsConnecting(false);
-      setIsConnected(false);
-    }
-  }, [server, selectedShell]);
+      // ufw status
+      if (cmd.startsWith('ufw')) {
+        return (
+          `Status: active\n` +
+          `Logging: on (low)\n` +
+          `Default: deny (incoming), allow (outgoing), disabled (routed)\n` +
+          `New profiles: skip\n\n` +
+          `To                         Action      From\n` +
+          `--                         ------      ----\n` +
+          `22/tcp (OpenSSH)           ALLOW IN    Anywhere\n` +
+          `80/tcp (Nginx HTTP)        ALLOW IN    Anywhere\n` +
+          `443/tcp (Nginx HTTPS)      ALLOW IN    Anywhere\n` +
+          `22/tcp (OpenSSH (v6))      ALLOW IN    Anywhere (v6)`
+        );
+      }
 
-  // Connect on modal open or shell switch
+      // systemctl
+      if (cmd.startsWith('systemctl')) {
+        if (cmd.includes('--failed')) {
+          return `0 loaded units listed. Pass --all to see loaded but inactive units, too.\nUNIT LOAD ACTIVE SUB DESCRIPTION\n\n0 loaded units listed.`;
+        }
+        return (
+          `  UNIT                     LOAD   ACTIVE SUB     DESCRIPTION\n` +
+          `  docker.service           loaded active running Docker Application Container Engine\n` +
+          `  nginx.service            loaded active running A high performance web server and reverse proxy\n` +
+          `  postgresql.service       loaded active running PostgreSQL RDBMS Server\n` +
+          `  ssh.service              loaded active running OpenBSD Secure Shell server\n` +
+          `  systemd-journald.service loaded active running Journal Service`
+        );
+      }
+
+      // journalctl
+      if (cmd.startsWith('journalctl')) {
+        const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+        return (
+          `${now} ${host} systemd[1]: Starting Daily apt download activities...\n` +
+          `${now} ${host} systemd[1]: apt-daily.service: Deactivated successfully.\n` +
+          `${now} ${host} sshd[842]: Server listening on 0.0.0.0 port 22.\n` +
+          `${now} ${host} nginx[1120]: Configuration syntax ok, test successful.`
+        );
+      }
+
+      // docker ps
+      if (cmd.startsWith('docker')) {
+        return (
+          `CONTAINER ID   IMAGE                 COMMAND                  CREATED        STATUS        PORTS                                       NAMES\n` +
+          `4a8b1c9d2e3f   nginx:alpine          "/docker-entrypoint.…"   3 days ago     Up 3 days     0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp    web-gateway\n` +
+          `8f7e6d5c4b3a   postgres:16-alpine    "docker-entrypoint.s…"   12 days ago    Up 12 days    127.0.0.1:5432->5432/tcp                    db-primary\n` +
+          `1b2c3d4e5f6a   redis:7-alpine        "docker-entrypoint.s…"   12 days ago    Up 12 days    127.0.0.1:6379->6379/tcp                    redis-cache`
+        );
+      }
+
+      // whoami
+      if (cmd === 'whoami') {
+        return server?.ssh_username || 'root';
+      }
+
+      // ls
+      if (cmd.startsWith('ls')) {
+        return `bin   dev  home  lib64       mnt  proc  run   srv  tmp  var\nboot  etc  lib   lost+found  opt  root  sbin  sys  usr`;
+      }
+
+      // pwd
+      if (cmd === 'pwd') {
+        return (server?.ssh_username || 'root') === 'root' ? '/root' : `/home/${server?.ssh_username || 'user'}`;
+      }
+
+      // nginx -t
+      if (cmd.startsWith('nginx')) {
+        return `nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful`;
+      }
+
+      // reboot
+      if (cmd.startsWith('reboot')) {
+        return `Broadcast message from root@${host} (pts/0):\n\nThe system is going down for reboot NOW!`;
+      }
+
+      // Generic command fallback
+      return `Executed on ${host}: ${cmd}`;
+    },
+    [server]
+  );
+
+  // Connect WebSocket session for a specific pane
+  const connectPaneSession = useCallback(
+    (paneId: string, customShell?: 'bash' | 'zsh', suppliedPassword?: string) => {
+      if (!server) return;
+
+      const currentPane = panes.find((p) => p.id === paneId);
+      const targetShell = customShell || currentPane?.selectedShell || initialShell;
+      const targetPassword =
+        suppliedPassword !== undefined
+          ? suppliedPassword
+          : currentPane?.ephemeralPassword !== undefined
+          ? currentPane.ephemeralPassword
+          : sessionPassword;
+
+      // Close existing socket for this pane
+      if (wsRefs.current[paneId]) {
+        try {
+          wsRefs.current[paneId]?.close();
+        } catch {}
+        wsRefs.current[paneId] = null;
+      }
+
+      // Guard against connecting without password if prompt_password_on_connect is true
+      if (server.prompt_password_on_connect && !targetPassword) {
+        setPanes((prev) =>
+          prev.map((p) => (p.id === paneId ? { ...p, isPasswordPromptActive: true, isConnecting: false } : p))
+        );
+        return;
+      }
+
+      setPanes((prev) =>
+        prev.map((p) => {
+          if (p.id !== paneId) return p;
+          return {
+            ...p,
+            isConnecting: true,
+            isConnected: false,
+            selectedShell: targetShell,
+            isPasswordPromptActive: false,
+            lines: [
+              ...p.lines,
+              {
+                id: Math.random().toString(),
+                type: 'system',
+                text: `[Connecting] Establishing ${targetShell.toUpperCase()} SSH session to ${server.name} (${server.ip}:${server.ssh_port || 22})...`,
+                timestamp: new Date().toLocaleTimeString(),
+              },
+            ],
+          };
+        })
+      );
+
+      const wsUrl = getRemoteServerWebSocketUrl(server.id, targetShell, {
+        ip: server.ip,
+        ssh_port: server.ssh_port || 22,
+        ssh_username: server.ssh_username || 'root',
+        ssh_password: server.prompt_password_on_connect ? targetPassword || '' : targetPassword || server.ssh_password,
+      });
+
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRefs.current[paneId] = ws;
+
+        ws.onopen = () => {
+          setPanes((prev) =>
+            prev.map((p) => (p.id === paneId ? { ...p, isConnecting: true } : p))
+          );
+          inputRefs.current[paneId]?.focus();
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'data') {
+              const rawData = msg.data || '';
+              setPanes((prev) =>
+                prev.map((p) => {
+                  if (p.id !== paneId) return p;
+                  return {
+                    ...p,
+                    lines: [
+                      ...p.lines,
+                      {
+                        id: Math.random().toString(),
+                        type: 'output',
+                        text: rawData,
+                        timestamp: new Date().toLocaleTimeString(),
+                      },
+                    ],
+                  };
+                })
+              );
+            } else if (msg.type === 'status') {
+              if (msg.status === 'connected') {
+                setPanes((prev) =>
+                  prev.map((p) => {
+                    if (p.id !== paneId) return p;
+                    return {
+                      ...p,
+                      isConnected: true,
+                      isConnecting: false,
+                      lines: [
+                        ...p.lines,
+                        {
+                          id: Math.random().toString(),
+                          type: 'system',
+                          text:
+                            msg.message ||
+                            `[Connected] Live SSH channel established with ${server.ip} on /bin/${targetShell}.`,
+                          timestamp: new Date().toLocaleTimeString(),
+                        },
+                      ],
+                    };
+                  })
+                );
+              } else if (msg.status === 'failed' || msg.status === 'disconnected') {
+                setPanes((prev) =>
+                  prev.map((p) => {
+                    if (p.id !== paneId) return p;
+                    return {
+                      ...p,
+                      isConnected: false,
+                      isConnecting: false,
+                      lines: [
+                        ...p.lines,
+                        {
+                          id: Math.random().toString(),
+                          type: 'system',
+                          text:
+                            msg.message ||
+                            `[Notice] Remote host unreachable over direct socket bridge; switched seamlessly to server command emulator runtime.`,
+                          timestamp: new Date().toLocaleTimeString(),
+                        },
+                      ],
+                    };
+                  })
+                );
+              }
+            } else if (msg.type === 'error') {
+              setPanes((prev) =>
+                prev.map((p) => {
+                  if (p.id !== paneId) return p;
+                  return {
+                    ...p,
+                    isConnected: false,
+                    isConnecting: false,
+                    lines: [
+                      ...p.lines,
+                      {
+                        id: Math.random().toString(),
+                        type: 'error',
+                        text: `[Error] ${msg.error || 'Connection failure'}`,
+                        timestamp: new Date().toLocaleTimeString(),
+                      },
+                    ],
+                  };
+                })
+              );
+            }
+          } catch {
+            setPanes((prev) =>
+              prev.map((p) => {
+                if (p.id !== paneId) return p;
+                return {
+                  ...p,
+                  lines: [
+                    ...p.lines,
+                    {
+                      id: Math.random().toString(),
+                      type: 'output',
+                      text: String(event.data),
+                      timestamp: new Date().toLocaleTimeString(),
+                    },
+                  ],
+                };
+              })
+            );
+          }
+        };
+
+        ws.onclose = () => {
+          setPanes((prev) =>
+            prev.map((p) => (p.id === paneId ? { ...p, isConnected: false, isConnecting: false } : p))
+          );
+        };
+
+        ws.onerror = () => {
+          setPanes((prev) =>
+            prev.map((p) => {
+              if (p.id !== paneId) return p;
+              return {
+                ...p,
+                isConnected: false,
+                isConnecting: false,
+                lines: [
+                  ...p.lines,
+                  {
+                    id: Math.random().toString(),
+                    type: 'system',
+                    text: `[Notice] Operating in high-fidelity local interactive emulation mode (${server.ip} / ${targetShell}).`,
+                    timestamp: new Date().toLocaleTimeString(),
+                  },
+                ],
+              };
+            })
+          );
+        };
+      } catch {
+        setPanes((prev) =>
+          prev.map((p) => (p.id === paneId ? { ...p, isConnecting: false, isConnected: false } : p))
+        );
+      }
+    },
+    [server, panes, initialShell, sessionPassword]
+  );
+
+  // Connect on modal open
   useEffect(() => {
     if (isOpen && server) {
-      connectSession();
+      // Connect first pane
+      connectPaneSession('pane-1', initialShell, sessionPassword);
     } else {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      setIsConnected(false);
+      // Cleanup all sockets
+      Object.values(wsRefs.current).forEach((ws) => {
+        try {
+          ws?.close();
+        } catch {}
+      });
+      wsRefs.current = {};
     }
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      Object.values(wsRefs.current).forEach((ws) => {
+        try {
+          ws?.close();
+        } catch {}
+      });
+      wsRefs.current = {};
     };
-  }, [isOpen, server, selectedShell, connectSession]);
+  }, [isOpen, server]);
 
-  // Auto scroll to bottom
-  const scrollToBottom = useCallback(() => {
-    if (terminalScrollRef.current) {
-      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
-    }
-  }, []);
-
+  // Auto-scroll each pane to bottom
   useEffect(() => {
-    scrollToBottom();
-  }, [lines, scrollToBottom]);
-
-  // Send Command Handler
-  const executeCommand = (cmd: string) => {
-    const trimmed = cmd.trim();
-    if (!trimmed) return;
-
-    const currentPrompt = getPromptString();
-
-    // Add prompt + command line to terminal
-    setLines((prev) => [
-      ...prev,
-      {
-        id: Math.random().toString(),
-        type: 'prompt-command',
-        prompt: currentPrompt,
-        text: trimmed,
-        timestamp: new Date().toLocaleTimeString(),
-      },
-    ]);
-
-    setHistory((prev) => [...prev, trimmed]);
-    setHistoryIdx(-1);
-    setInputVal('');
-
-    // If WebSocket is active, send carriage-return formatted input
-    let handledByWs = false;
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && isConnected) {
-      try {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'input',
-            data: `${trimmed}\r`,
-          })
-        );
-        handledByWs = true;
-      } catch {
-        handledByWs = false;
+    panes.forEach((p) => {
+      const el = scrollRefs.current[p.id];
+      if (el) {
+        el.scrollTop = el.scrollHeight;
       }
-    }
+    });
+  }, [panes]);
 
-    // If not handled by live socket, run the built-in Linux emulation engine immediately!
-    if (!handledByWs) {
+  // Execute Command on target pane
+  const executeCommandOnPane = useCallback(
+    (paneId: string, cmdToRun: string) => {
+      const trimmed = cmdToRun.trim();
+      if (!trimmed) return;
+
+      const targetPane = panes.find((p) => p.id === paneId);
+      if (!targetPane) return;
+
+      const promptStr = getPromptString(targetPane.selectedShell);
+
+      setPanes((prev) =>
+        prev.map((p) => {
+          if (p.id !== paneId) return p;
+          return {
+            ...p,
+            inputVal: '',
+            historyIdx: -1,
+            history: [...p.history, trimmed],
+            lines: [
+              ...p.lines,
+              {
+                id: Math.random().toString(),
+                type: 'prompt-command',
+                prompt: promptStr,
+                text: trimmed,
+                timestamp: new Date().toLocaleTimeString(),
+              },
+            ],
+          };
+        })
+      );
+
+      // Check live websocket
+      const ws = wsRefs.current[paneId];
+      let handledByWs = false;
+      if (ws && ws.readyState === WebSocket.OPEN && targetPane.isConnected) {
+        try {
+          ws.send(
+            JSON.stringify({
+              type: 'input',
+              data: `${trimmed}\r`,
+            })
+          );
+          handledByWs = true;
+        } catch {
+          handledByWs = false;
+        }
+      }
+
+      if (!handledByWs) {
+        setTimeout(() => {
+          const response = generateEmulatedResponse(trimmed);
+          if (response === '__CLEAR__') {
+            setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, lines: [] } : p)));
+            return;
+          }
+
+          if (response) {
+            setPanes((prev) =>
+              prev.map((p) => {
+                if (p.id !== paneId) return p;
+                return {
+                  ...p,
+                  lines: [
+                    ...p.lines,
+                    {
+                      id: Math.random().toString(),
+                      type: 'output',
+                      text: response,
+                      timestamp: new Date().toLocaleTimeString(),
+                    },
+                  ],
+                };
+              })
+            );
+          }
+        }, 40);
+      }
+
       setTimeout(() => {
-        const response = generateEmulatedResponse(trimmed);
-        if (response === '__CLEAR__') {
-          setLines([]);
-          return;
-        }
-
-        if (response) {
-          setLines((prev) => [
-            ...prev,
-            {
-              id: Math.random().toString(),
-              type: 'output',
-              text: response,
-              timestamp: new Date().toLocaleTimeString(),
-            },
-          ]);
-        }
+        inputRefs.current[paneId]?.focus();
       }, 50);
+    },
+    [panes, getPromptString, generateEmulatedResponse]
+  );
+
+  // Active Pane Intellisense computation
+  const activePane = useMemo(() => {
+    return panes.find((p) => p.id === activePaneId) || panes[0];
+  }, [panes, activePaneId]);
+
+  const activeIntellisense = useMemo<IntellisenseResult>(() => {
+    if (!activePane || activePane.isPasswordPromptActive) {
+      return { ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false };
     }
+    return getIntellisense(activePane.inputVal);
+  }, [activePane]);
 
-    // Keep focus in input
-    setTimeout(() => {
-      inputRef.current?.focus();
-      scrollToBottom();
-    }, 60);
-  };
+  // Handle Tab key and command history on a pane
+  const handleKeyDownOnPane = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    paneId: string,
+    pane: TerminalPane
+  ) => {
+    // 1. Tab Key: Linux Intellisense Autocomplete
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const intellisense = getIntellisense(pane.inputVal);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      executeCommand(inputVal);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (history.length === 0) return;
-      const nextIdx = historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1);
-      setHistoryIdx(nextIdx);
-      setInputVal(history[nextIdx] || '');
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (historyIdx === -1) return;
-      const nextIdx = historyIdx + 1;
-      if (nextIdx >= history.length) {
-        setHistoryIdx(-1);
-        setInputVal('');
-      } else {
-        setHistoryIdx(nextIdx);
-        setInputVal(history[nextIdx] || '');
+      if (intellisense.candidates.length > 0) {
+        if (intellisense.exactMatch || intellisense.completedInput !== pane.inputVal) {
+          // Fill completed command directly
+          setPanes((prev) =>
+            prev.map((p) => (p.id === paneId ? { ...p, inputVal: intellisense.completedInput } : p))
+          );
+          setShowIntellisensePopup(false);
+        } else if (intellisense.candidates.length > 1) {
+          // Multiple matches: display candidate list in terminal lines (authentic Linux terminal behavior!)
+          const candidatesSummary = intellisense.candidates.map((c) => c.label).join('    ');
+          setPanes((prev) =>
+            prev.map((p) => {
+              if (p.id !== paneId) return p;
+              return {
+                ...p,
+                lines: [
+                  ...p.lines,
+                  {
+                    id: Math.random().toString(),
+                    type: 'prompt-command',
+                    prompt: getPromptString(p.selectedShell),
+                    text: p.inputVal,
+                    timestamp: new Date().toLocaleTimeString(),
+                  },
+                  {
+                    id: Math.random().toString(),
+                    type: 'info',
+                    text: candidatesSummary,
+                    timestamp: new Date().toLocaleTimeString(),
+                  },
+                ],
+              };
+            })
+          );
+          setShowIntellisensePopup(true);
+        }
       }
-    } else if (e.key === 'c' && e.ctrlKey) {
-      // Ctrl + C in terminal
+      return;
+    }
+
+    // 2. Enter Key: Run command
+    if (e.key === 'Enter') {
       e.preventDefault();
-      const currentPrompt = getPromptString();
-      setLines((prev) => [
-        ...prev,
-        {
-          id: Math.random().toString(),
-          type: 'prompt-command',
-          prompt: currentPrompt,
-          text: `${inputVal}^C`,
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
-      setInputVal('');
-    } else if (e.key === 'l' && e.ctrlKey) {
-      // Ctrl + L clear screen
+      setShowIntellisensePopup(false);
+      executeCommandOnPane(paneId, pane.inputVal);
+      return;
+    }
+
+    // 3. Arrow Up: History Back or Intellisense Popup Navigation
+    if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setLines([]);
+      if (showIntellisensePopup && activeIntellisense.candidates.length > 0) {
+        setIntellisenseIndex((prev) =>
+          prev <= 0 ? activeIntellisense.candidates.length - 1 : prev - 1
+        );
+        return;
+      }
+      if (pane.history.length === 0) return;
+      const nextIdx = pane.historyIdx === -1 ? pane.history.length - 1 : Math.max(0, pane.historyIdx - 1);
+      setPanes((prev) =>
+        prev.map((p) =>
+          p.id === paneId ? { ...p, historyIdx: nextIdx, inputVal: p.history[nextIdx] || '' } : p
+        )
+      );
+      return;
+    }
+
+    // 4. Arrow Down: History Forward or Intellisense Popup Navigation
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (showIntellisensePopup && activeIntellisense.candidates.length > 0) {
+        setIntellisenseIndex((prev) =>
+          prev >= activeIntellisense.candidates.length - 1 ? 0 : prev + 1
+        );
+        return;
+      }
+      if (pane.historyIdx === -1) return;
+      const nextIdx = pane.historyIdx + 1;
+      if (nextIdx >= pane.history.length) {
+        setPanes((prev) =>
+          prev.map((p) => (p.id === paneId ? { ...p, historyIdx: -1, inputVal: '' } : p))
+        );
+      } else {
+        setPanes((prev) =>
+          prev.map((p) =>
+            p.id === paneId ? { ...p, historyIdx: nextIdx, inputVal: p.history[nextIdx] || '' } : p
+          )
+        );
+      }
+      return;
+    }
+
+    // 5. Ctrl + C: Abort current line
+    if (e.key === 'c' && e.ctrlKey) {
+      e.preventDefault();
+      setShowIntellisensePopup(false);
+      setPanes((prev) =>
+        prev.map((p) => {
+          if (p.id !== paneId) return p;
+          return {
+            ...p,
+            inputVal: '',
+            lines: [
+              ...p.lines,
+              {
+                id: Math.random().toString(),
+                type: 'prompt-command',
+                prompt: getPromptString(p.selectedShell),
+                text: `${p.inputVal}^C`,
+                timestamp: new Date().toLocaleTimeString(),
+              },
+            ],
+          };
+        })
+      );
+      return;
+    }
+
+    // 6. Ctrl + L: Clear screen
+    if (e.key === 'l' && e.ctrlKey) {
+      e.preventDefault();
+      setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, lines: [] } : p)));
+      return;
+    }
+
+    // 7. Escape: close popup
+    if (e.key === 'Escape') {
+      setShowIntellisensePopup(false);
     }
   };
 
-  const handleClearTerminal = () => {
-    setLines([]);
-    inputRef.current?.focus();
+  // Add a new split pane
+  const handleAddSplitPane = (shellToUse: 'bash' | 'zsh' = 'bash') => {
+    if (panes.length >= 4) return;
+    const newId = `pane-${Date.now().toString(36).substring(2, 7)}`;
+    const newPane: TerminalPane = {
+      id: newId,
+      title: `Shell #${panes.length + 1}`,
+      selectedShell: shellToUse,
+      lines: [],
+      inputVal: '',
+      history: [],
+      historyIdx: -1,
+      isConnected: false,
+      isConnecting: false,
+      ephemeralPassword: sessionPassword,
+      isPasswordPromptActive: Boolean(server?.prompt_password_on_connect && !sessionPassword),
+    };
+
+    setPanes((prev) => [...prev, newPane]);
+    setActivePaneId(newId);
+
+    // Auto-adjust layout
+    if (panes.length === 1) {
+      setLayoutMode('split-cols');
+    } else if (panes.length === 2) {
+      setLayoutMode('split-cols');
+    } else {
+      setLayoutMode('grid-4');
+    }
+
+    setIsSplitMenuOpen(false);
+
+    // Connect new pane session
+    setTimeout(() => {
+      connectPaneSession(newId, shellToUse, sessionPassword);
+      inputRefs.current[newId]?.focus();
+    }, 100);
   };
 
+  // Close a specific pane
+  const handleClosePane = (paneId: string) => {
+    if (panes.length <= 1) return;
+    // Close socket
+    if (wsRefs.current[paneId]) {
+      try {
+        wsRefs.current[paneId]?.close();
+      } catch {}
+      delete wsRefs.current[paneId];
+    }
+
+    const remaining = panes.filter((p) => p.id !== paneId);
+    setPanes(remaining);
+    if (activePaneId === paneId && remaining.length > 0) {
+      setActivePaneId(remaining[0].id);
+    }
+    if (remaining.length === 1) {
+      setLayoutMode('single');
+    }
+  };
+
+  // Shell switch for specific pane
+  const handleSwitchShellOnPane = (paneId: string, newShell: 'bash' | 'zsh') => {
+    setPanes((prev) =>
+      prev.map((p) => (p.id === paneId ? { ...p, selectedShell: newShell } : p))
+    );
+    connectPaneSession(paneId, newShell);
+  };
+
+  // Clear specific pane
+  const handleClearPane = (paneId: string) => {
+    setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, lines: [] } : p)));
+    inputRefs.current[paneId]?.focus();
+  };
+
+  // Copy Snippet
   const handleCopySnippet = (cmd: string) => {
     navigator.clipboard.writeText(cmd);
     setCopiedCmd(cmd);
     setTimeout(() => setCopiedCmd(null), 1500);
   };
 
+  // Insert Snippet to active pane
   const handleInsertSnippet = (cmd: string) => {
-    setInputVal(cmd);
-    inputRef.current?.focus();
+    setPanes((prev) =>
+      prev.map((p) => (p.id === activePaneId ? { ...p, inputVal: cmd } : p))
+    );
+    inputRefs.current[activePaneId]?.focus();
+  };
+
+  // Submit Password for on-demand auth
+  const handleSubmitPasswordForPane = (paneId: string) => {
+    const pwd = passwordInputs[paneId] || '';
+    if (!pwd) return;
+
+    setPanes((prev) =>
+      prev.map((p) =>
+        p.id === paneId
+          ? { ...p, ephemeralPassword: pwd, isPasswordPromptActive: false }
+          : p
+      )
+    );
+    connectPaneSession(paneId, undefined, pwd);
   };
 
   // Filtered snippets for sidebar
@@ -946,28 +1189,35 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
 
   if (!isOpen || !server) return null;
 
+  // Grid classes according to layout mode & panes count
+  const getGridClasses = () => {
+    if (panes.length === 1 || layoutMode === 'single') return 'grid-cols-1 grid-rows-1';
+    if (layoutMode === 'split-rows') return 'grid-cols-1 grid-rows-2';
+    if (layoutMode === 'grid-4' || panes.length >= 4) return 'grid-cols-1 md:grid-cols-2 grid-rows-2';
+    // split-cols default
+    if (panes.length === 2) return 'grid-cols-1 md:grid-cols-2 grid-rows-1';
+    if (panes.length === 3) return 'grid-cols-1 md:grid-cols-3 grid-rows-1';
+    return 'grid-cols-1 md:grid-cols-2 grid-rows-2';
+  };
+
   return createPortal(
     <div
       className={`fixed z-[9999] flex flex-col items-center justify-center ${
-        isMaximized
-          ? 'top-0 left-0 right-0 bottom-8 p-0'
-          : 'inset-0 p-3 sm:p-5 bg-black/80 backdrop-blur-sm'
+        isMaximized ? 'top-0 left-0 right-0 bottom-8 p-0' : 'inset-0 p-2 sm:p-4 bg-black/80 backdrop-blur-sm'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
     >
       <div
         className={`flex flex-col overflow-hidden transition-all duration-200 shadow-2xl ${
-          isMaximized
-            ? 'w-full h-full rounded-none border-none'
-            : 'w-full max-w-6xl h-[88vh] rounded-2xl border'
+          isMaximized ? 'w-full h-full rounded-none border-none' : 'w-full max-w-7xl h-[90vh] rounded-2xl border'
         } ${
           isLightMode
             ? 'bg-slate-900 border-slate-700 text-slate-100 shadow-2xl'
             : 'bg-black border-slate-800 text-slate-100 shadow-2xl'
         }`}
       >
-        {/* Header with Universal 3-Button Controls, Reconnect & Sidebar Toggle */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 bg-slate-950 border-b border-slate-800 shrink-0 select-none">
+        {/* Main Header with Server Info, Split Controls, Fullscreen & Minimize */}
+        <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 bg-slate-950 border-b border-slate-800 shrink-0 select-none">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shrink-0">
               <Terminal className="w-5 h-5" />
@@ -978,21 +1228,14 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                   <span>{server.name}</span>
                   <span className="font-mono text-xs text-slate-400">({server.ip})</span>
                 </h3>
-                <span
-                  className={`inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                    isConnected
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                      : isConnecting
-                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
-                      : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      isConnected ? 'bg-emerald-400' : isConnecting ? 'bg-amber-400' : 'bg-cyan-400'
-                    }`}
-                  />
-                  {isConnected ? 'LIVE SSH' : isConnecting ? 'CONNECTING' : 'READY / EMULATOR'}
+                {server.prompt_password_on_connect && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    <KeyRound className="w-2.5 h-2.5" />
+                    <span>{isEn ? 'Zero-Storage Auth' : 'احراز هویت زمان اتصال'}</span>
+                  </span>
+                )}
+                <span className="text-[10px] text-slate-400 font-mono bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                  {panes.length} {panes.length === 1 ? (isEn ? 'Shell' : 'شل') : isEn ? 'Shells' : 'شل همزمان'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 truncate">
@@ -1001,37 +1244,140 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
             </div>
           </div>
 
-          {/* Center Shell Switcher: BASH vs ZSHELL */}
-          <div className="hidden sm:flex items-center bg-slate-900 p-0.5 rounded-xl border border-slate-800 gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => setSelectedShell('bash')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
-                selectedShell === 'bash'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <Terminal className="w-3.5 h-3.5" />
-              <span>Bash</span>
-            </button>
+          {/* Right Header Controls: Split Screen Dropdown + Sidebar + Fullscreen + Minimize + Close */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Split Screen Control Dropdown (Cisco Terminal Style!) */}
+            <div className="relative" ref={splitMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsSplitMenuOpen(!isSplitMenuOpen)}
+                title={isEn ? 'Split Screen / Multi-Shell Layout' : 'تقسیم صفحه و شل‌های همزمان'}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer ${
+                  panes.length > 1
+                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/20'
+                    : 'text-indigo-400 hover:text-white hover:bg-indigo-600/20 border-indigo-500/30'
+                }`}
+              >
+                <Columns className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{isEn ? 'Split' : 'تقسیم صفحه'}</span>
+                {panes.length > 1 && (
+                  <span className="text-[10px] font-bold bg-indigo-950/80 px-1.5 py-0.2 rounded text-indigo-200">
+                    {panes.length}
+                  </span>
+                )}
+                <ChevronDown className="w-3 h-3 text-indigo-300" />
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setSelectedShell('zsh')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
-                selectedShell === 'zsh'
-                  ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Zsh</span>
-            </button>
-          </div>
+              {/* Split Options Dropdown */}
+              {isSplitMenuOpen && (
+                <div
+                  className={`absolute top-full mt-1.5 ${
+                    isEn ? 'right-0' : 'left-0'
+                  } w-56 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl p-1.5 z-50 space-y-1`}
+                >
+                  <div className="px-2 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    {isEn ? 'Terminal Panes Layout' : 'چیدمان ترمینال‌های همزمان'}
+                  </div>
 
-          {/* Right Header Controls */}
-          <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (panes.length > 1) {
+                        setPanes([panes[0]]);
+                      }
+                      setLayoutMode('single');
+                      setIsSplitMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer ${
+                      panes.length === 1 && layoutMode === 'single'
+                        ? 'bg-indigo-600 text-white font-bold'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Single Shell (1 Pane)' : 'تک شل (تمام‌صفحه)'}</span>
+                    </div>
+                    {panes.length === 1 && <Check className="w-3.5 h-3.5" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (panes.length === 1) handleAddSplitPane('bash');
+                      setLayoutMode('split-cols');
+                      setIsSplitMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer ${
+                      panes.length === 2 && layoutMode === 'split-cols'
+                        ? 'bg-indigo-600 text-white font-bold'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Columns className="w-3.5 h-3.5" />
+                      <span>{isEn ? '2 Shells Side-by-Side' : '۲ شل در کنار هم (ستون)'}</span>
+                    </div>
+                    {panes.length === 2 && layoutMode === 'split-cols' && <Check className="w-3.5 h-3.5" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (panes.length === 1) handleAddSplitPane('bash');
+                      setLayoutMode('split-rows');
+                      setIsSplitMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer ${
+                      layoutMode === 'split-rows'
+                        ? 'bg-indigo-600 text-white font-bold'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Rows className="w-3.5 h-3.5" />
+                      <span>{isEn ? '2 Shells Stacked (Rows)' : '۲ شل روی هم (ردیفی)'}</span>
+                    </div>
+                    {layoutMode === 'split-rows' && <Check className="w-3.5 h-3.5" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      while (panes.length < 4) {
+                        handleAddSplitPane(panes.length % 2 === 0 ? 'bash' : 'zsh');
+                      }
+                      setLayoutMode('grid-4');
+                      setIsSplitMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer ${
+                      panes.length === 4 && layoutMode === 'grid-4'
+                        ? 'bg-indigo-600 text-white font-bold'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Grid2X2 className="w-3.5 h-3.5" />
+                      <span>{isEn ? '4 Shells (2x2 Grid)' : '۴ شل همزمان (شبکه‌ای)'}</span>
+                    </div>
+                    {panes.length === 4 && layoutMode === 'grid-4' && <Check className="w-3.5 h-3.5" />}
+                  </button>
+
+                  <div className="border-t border-slate-800 pt-1">
+                    <button
+                      type="button"
+                      disabled={panes.length >= 4}
+                      onClick={() => handleAddSplitPane('bash')}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{isEn ? '+ Add New Shell Pane' : '+ افزودن شل جدید'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Toggle Sidebar Button */}
             <button
               type="button"
@@ -1052,26 +1398,6 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
               }`}
             >
               {isSidebarOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
-            </button>
-
-            {/* Clear Screen */}
-            <button
-              type="button"
-              onClick={handleClearTerminal}
-              title={isEn ? 'Clear terminal screen (Ctrl+L)' : 'پاکسازی صفحه ترمینال (Ctrl+L)'}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-
-            {/* Reconnect Button */}
-            <button
-              type="button"
-              onClick={connectSession}
-              title={isEn ? 'Reconnect SSH' : 'اتصال مجدد SSH'}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              <RefreshCw className={`w-4 h-4 ${isConnecting ? 'animate-spin text-emerald-400' : ''}`} />
             </button>
 
             {/* Fullscreen Toggle */}
@@ -1106,90 +1432,319 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
           </div>
         </div>
 
-        {/* Main Workspace Body: Unified Terminal Screen + Collapsible Sidebar */}
-        <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
-          {/* Unified Linux Terminal Console Screen (No Separate Input Box!) */}
-          <div
-            ref={terminalScrollRef}
-            onClick={() => inputRef.current?.focus()}
-            className="flex-1 overflow-y-auto p-4 sm:p-5 font-mono bg-[#050811] text-slate-200 select-text cursor-text relative flex flex-col"
-          >
-            {/* Welcome MOTD Banner */}
-            <div className="mb-4 pb-3 border-b border-slate-800 text-xs text-slate-400 select-none">
-              <div className="text-emerald-400 font-bold">
-                Welcome to {server.os_distro || 'Ubuntu'} on {server.name} ({server.hostname || server.ip})
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">
-                * System load: 0.24, 0.31, 0.28 • Memory: {server.ram_gb || 32} GB • Cores: {server.cpu_cores || 8} • Disk: {server.disk_gb || 500} GB
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-3">
-                <span>Shell: /bin/{selectedShell}</span>
-                <span>Type directly below or run snippets from the guide sidebar</span>
-                <span className="text-emerald-500 font-bold">● SSH READY</span>
-              </div>
-            </div>
+        {/* Main Workspace Body: Split Grid Terminal Panes + Collapsible Sidebar */}
+        <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden relative">
+          {/* Multi-Pane Terminal Grid */}
+          <div className={`flex-1 grid gap-1.5 p-1.5 bg-black overflow-hidden ${getGridClasses()}`}>
+            {panes.map((pane, index) => {
+              const isActive = pane.id === activePaneId;
+              const intellisense = isActive ? activeIntellisense : getIntellisense(pane.inputVal);
+              const ghostText = intellisense.ghostSuggestion;
 
-            {/* Terminal History Lines */}
-            <div className="space-y-1 text-xs sm:text-sm">
-              {lines.map((l) => {
-                if (l.type === 'system') {
-                  return (
-                    <div key={l.id} className="text-cyan-400/90 text-xs py-0.5 flex items-baseline gap-2">
-                      <span className="text-cyan-600 shrink-0">[{l.timestamp}]</span>
-                      <span>{l.text}</span>
-                    </div>
-                  );
-                }
-                if (l.type === 'error') {
-                  return (
-                    <div key={l.id} className="text-rose-400 text-xs py-0.5 flex items-baseline gap-2">
-                      <span className="text-rose-600 shrink-0">[{l.timestamp}]</span>
-                      <span>{l.text}</span>
-                    </div>
-                  );
-                }
-                if (l.type === 'prompt-command') {
-                  return (
-                    <div key={l.id} className="text-emerald-300 font-bold py-0.5 flex items-baseline flex-wrap">
-                      <span className="text-emerald-400 select-none me-1.5">{l.prompt || getPromptString()}</span>
-                      <span className="text-white font-mono">{l.text}</span>
-                    </div>
-                  );
-                }
-                return (
-                  <pre
-                    key={l.id}
-                    className="text-slate-200 whitespace-pre-wrap font-mono leading-relaxed break-all py-0.5 text-xs sm:text-[13px]"
-                  >
-                    {l.text}
-                  </pre>
-                );
-              })}
-            </div>
+              return (
+                <div
+                  key={pane.id}
+                  onClick={() => setActivePaneId(pane.id)}
+                  className={`flex flex-col overflow-hidden rounded-xl border transition-all ${
+                    isActive
+                      ? 'border-indigo-500/80 shadow-lg shadow-indigo-950/40 ring-1 ring-indigo-500/40'
+                      : 'border-slate-800/80 opacity-95 hover:border-slate-700'
+                  } bg-[#050811]`}
+                >
+                  {/* Pane Sub-Header */}
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-slate-950/90 border-b border-slate-800/80 shrink-0 select-none text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          pane.isConnected
+                            ? 'bg-emerald-400 shadow-xs shadow-emerald-400'
+                            : pane.isConnecting
+                            ? 'bg-amber-400 animate-pulse'
+                            : 'bg-cyan-400'
+                        }`}
+                      />
+                      <span className="font-bold text-white truncate text-xs">{pane.title}</span>
 
-            {/* Authentic Unified Inline Terminal Prompt Line */}
-            <div className="flex items-center flex-wrap pt-1 mt-auto">
-              <span className="text-emerald-400 font-bold text-xs sm:text-sm select-none font-mono whitespace-nowrap me-1.5">
-                {getPromptString()}
-              </span>
-              <div className="flex-1 min-w-[200px] flex items-center">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={inputVal}
-                  onChange={(e) => setInputVal(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="w-full bg-transparent text-white font-mono text-xs sm:text-sm outline-none border-none p-0 focus:ring-0"
-                  autoFocus
-                  autoComplete="off"
-                  autoCapitalize="off"
-                  spellCheck="false"
-                />
-              </div>
-            </div>
+                      {/* Shell Selector */}
+                      <div className="flex items-center bg-slate-900 rounded-md p-0.5 border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => handleSwitchShellOnPane(pane.id, 'bash')}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition cursor-pointer ${
+                            pane.selectedShell === 'bash'
+                              ? 'bg-emerald-500 text-slate-950'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          bash
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSwitchShellOnPane(pane.id, 'zsh')}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition cursor-pointer ${
+                            pane.selectedShell === 'zsh'
+                              ? 'bg-cyan-500 text-slate-950'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          zsh
+                        </button>
+                      </div>
+
+                      {/* Connection status tag */}
+                      <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                        {pane.isConnected ? '● LIVE' : pane.isConnecting ? '● CONNECTING' : '● EMULATOR'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Clear Pane */}
+                      <button
+                        type="button"
+                        onClick={() => handleClearPane(pane.id)}
+                        title={isEn ? 'Clear screen' : 'پاکسازی'}
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+
+                      {/* Reconnect Pane */}
+                      <button
+                        type="button"
+                        onClick={() => connectPaneSession(pane.id, pane.selectedShell)}
+                        title={isEn ? 'Reconnect' : 'اتصال مجدد'}
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${pane.isConnecting ? 'animate-spin text-emerald-400' : ''}`} />
+                      </button>
+
+                      {/* Close Pane (only if > 1 pane) */}
+                      {panes.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleClosePane(pane.id)}
+                          title={isEn ? 'Close this shell' : 'بستن این شل'}
+                          className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 transition cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Pane Terminal Body */}
+                  {pane.isPasswordPromptActive ? (
+                    /* On-Demand Password Prompt Screen (Zero-Storage Auth Guard) */
+                    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none bg-slate-950/60">
+                      <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-3">
+                        <KeyRound className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-sm font-bold text-white mb-1">
+                        {isEn ? 'SSH Authentication Required' : 'احراز هویت SSH لازم است'}
+                      </h4>
+                      <p className="text-xs text-slate-400 max-w-sm mb-4">
+                        {isEn
+                          ? `This server requires interactive password authentication for ${server.ssh_username || 'root'}@${server.ip}. Your password will remain strictly ephemeral.`
+                          : `این سرور نیازمند دریافت رمز عبور در لحظه اتصال برای کاربر ${server.ssh_username || 'root'}@${server.ip} است. پسورد ذخیره نخواهد شد.`}
+                      </p>
+
+                      <div className="w-full max-w-xs space-y-3">
+                        <div className="relative">
+                          <input
+                            type={showPasswordText[pane.id] ? 'text' : 'password'}
+                            value={passwordInputs[pane.id] || ''}
+                            onChange={(e) =>
+                              setPasswordInputs((prev) => ({ ...prev, [pane.id]: e.target.value }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSubmitPasswordForPane(pane.id);
+                            }}
+                            placeholder={isEn ? 'Enter SSH password...' : 'رمز عبور سرور را وارد کنید...'}
+                            className="w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700 text-white outline-none focus:border-amber-500 font-mono"
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setShowPasswordText((prev) => ({ ...prev, [pane.id]: !prev[pane.id] }))
+                            }
+                            className={`absolute top-1/2 -translate-y-1/2 ${
+                              isEn ? 'right-2.5' : 'left-2.5'
+                            } text-slate-400 hover:text-white cursor-pointer`}
+                          >
+                            {showPasswordText[pane.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSubmitPasswordForPane(pane.id)}
+                          className="w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>{isEn ? 'Authenticate & Open Shell' : 'احراز هویت و ورود به شل'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Interactive Console */
+                    <div
+                      ref={(el) => {
+                        scrollRefs.current[pane.id] = el;
+                      }}
+                      onClick={() => inputRefs.current[pane.id]?.focus()}
+                      className="flex-1 overflow-y-auto p-3.5 font-mono text-slate-200 select-text cursor-text relative flex flex-col min-h-0"
+                    >
+                      {/* MOTD Banner */}
+                      {pane.lines.length === 0 && (
+                        <div className="mb-3 pb-2.5 border-b border-slate-800/80 text-xs text-slate-400 select-none">
+                          <div className="text-emerald-400 font-bold text-xs">
+                            Welcome to {server.os_distro || 'Linux'} on {server.name} ({server.hostname || server.ip})
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            * System load: 0.24, 0.31, 0.28 • Memory: {server.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell}
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                            <span>Tab for Intellisense autocompletion</span>
+                            <span className="text-emerald-500 font-bold">● READY</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Render Lines with Clean ANSI Color Formatter! */}
+                      <div className="space-y-0.5 text-xs sm:text-[13px]">
+                        {pane.lines.map((l) => {
+                          if (l.type === 'system') {
+                            return (
+                              <div key={l.id} className="text-cyan-400/90 text-xs py-0.5 flex items-baseline gap-2">
+                                <span className="text-cyan-600 shrink-0 select-none">[{l.timestamp}]</span>
+                                <span>{stripAnsi(l.text)}</span>
+                              </div>
+                            );
+                          }
+                          if (l.type === 'error') {
+                            return (
+                              <div key={l.id} className="text-rose-400 text-xs py-0.5 flex items-baseline gap-2">
+                                <span className="text-rose-600 shrink-0 select-none">[{l.timestamp}]</span>
+                                <span>{stripAnsi(l.text)}</span>
+                              </div>
+                            );
+                          }
+                          if (l.type === 'info') {
+                            return (
+                              <div key={l.id} className="text-slate-400 text-xs py-0.5 font-mono">
+                                <span>{l.text}</span>
+                              </div>
+                            );
+                          }
+                          if (l.type === 'prompt-command') {
+                            return (
+                              <div key={l.id} className="text-emerald-300 font-bold py-0.5 flex items-baseline flex-wrap">
+                                <span className="text-emerald-400 select-none me-1.5">
+                                  {l.prompt || getPromptString(pane.selectedShell)}
+                                </span>
+                                <span className="text-white font-mono">{l.text}</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <pre
+                              key={l.id}
+                              className="text-slate-200 whitespace-pre-wrap font-mono leading-relaxed break-all py-0.5 text-xs sm:text-[13px]"
+                            >
+                              {renderAnsiFormattedText(l.text, l.id)}
+                            </pre>
+                          );
+                        })}
+                      </div>
+
+                      {/* Interactive Prompt & Input with Ghost Autocomplete! */}
+                      <div className="flex items-center flex-wrap pt-1 mt-auto relative">
+                        <span className="text-emerald-400 font-bold text-xs sm:text-sm select-none font-mono whitespace-nowrap me-1.5">
+                          {getPromptString(pane.selectedShell)}
+                        </span>
+                        <div className="flex-1 min-w-[200px] flex items-center relative">
+                          <input
+                            ref={(el) => {
+                              inputRefs.current[pane.id] = el;
+                            }}
+                            type="text"
+                            value={pane.inputVal}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPanes((prev) =>
+                                prev.map((p) => (p.id === pane.id ? { ...p, inputVal: val } : p))
+                              );
+                              if (!showIntellisensePopup && val.trim().length > 0) {
+                                setShowIntellisensePopup(true);
+                              }
+                            }}
+                            onKeyDown={(e) => handleKeyDownOnPane(e, pane.id, pane)}
+                            className="w-full bg-transparent text-white font-mono text-xs sm:text-sm outline-none border-none p-0 focus:ring-0 z-10"
+                            autoFocus={isActive}
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            spellCheck="false"
+                          />
+
+                          {/* Inline Ghost Suggestion Text ahead of Cursor (Tab to complete!) */}
+                          {ghostText && (
+                            <span
+                              className="absolute top-0 pointer-events-none font-mono text-xs sm:text-sm text-slate-500 whitespace-pre select-none"
+                              style={{
+                                left: `${pane.inputVal.length * 7.8}px`,
+                              }}
+                            >
+                              {ghostText}
+                              <span className="text-[10px] text-slate-600 bg-slate-900 border border-slate-800 rounded px-1 ml-2">
+                                Tab ⇥
+                              </span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Floating Intellisense Candidate Dropdown */}
+                        {isActive && showIntellisensePopup && intellisense.candidates.length > 0 && (
+                          <div
+                            className="absolute bottom-full mb-1 left-0 z-30 w-full max-w-md rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl p-1.5 backdrop-blur-md max-h-48 overflow-y-auto space-y-1"
+                          >
+                            <div className="flex items-center justify-between px-2 py-0.5 text-[10px] font-bold text-slate-400 border-b border-slate-800 select-none">
+                              <span>{isEn ? 'Linux Intellisense (Press Tab to Fill)' : 'پیشنهادات هوشمند (Tab برای تکمیل)'}</span>
+                              <span className="text-indigo-400 font-mono">{intellisense.candidates.length} options</span>
+                            </div>
+
+                            {intellisense.candidates.slice(0, 8).map((cand, cIdx) => (
+                              <button
+                                key={cIdx}
+                                type="button"
+                                onClick={() => {
+                                  setPanes((prev) =>
+                                    prev.map((p) => (p.id === pane.id ? { ...p, inputVal: cand.insertText } : p))
+                                  );
+                                  setShowIntellisensePopup(false);
+                                  inputRefs.current[pane.id]?.focus();
+                                }}
+                                className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between gap-2 text-xs transition cursor-pointer ${
+                                  cIdx === intellisenseIndex ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="font-mono text-emerald-400 font-semibold">{cand.label}</span>
+                                <span className="text-[11px] text-slate-400 truncate text-right">
+                                  {isEn ? cand.detail : cand.detailFa}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
-          {/* Collapsible Sidebar (Commands Guide, Specs, History) - Cisco Style */}
+          {/* Collapsible Sidebar (Snippets Guide, Host Specs, History) */}
           {isSidebarOpen && (
             <div
               className={`w-full md:w-84 lg:w-96 border-t md:border-t-0 ${
@@ -1204,9 +1759,7 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                       type="button"
                       onClick={() => setSidebarTab('snippets')}
                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                        sidebarTab === 'snippets'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-white'
+                        sidebarTab === 'snippets' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       <HelpCircle className="w-3.5 h-3.5" />
@@ -1217,9 +1770,7 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                       type="button"
                       onClick={() => setSidebarTab('specs')}
                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                        sidebarTab === 'specs'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-white'
+                        sidebarTab === 'specs' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       <Server className="w-3.5 h-3.5" />
@@ -1230,13 +1781,11 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                       type="button"
                       onClick={() => setSidebarTab('history')}
                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                        sidebarTab === 'history'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-white'
+                        sidebarTab === 'history' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       <Command className="w-3.5 h-3.5" />
-                      <span>{isEn ? `History (${history.length})` : `تاریخچه (${history.length})`}</span>
+                      <span>{isEn ? `History (${activePane.history.length})` : `تاریخچه (${activePane.history.length})`}</span>
                     </button>
                   </div>
 
@@ -1320,7 +1869,7 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                             <button
                               type="button"
                               onClick={() => handleInsertSnippet(snip.cmd)}
-                              title={isEn ? 'Insert command into prompt' : 'قرار دادن در خط فرمان'}
+                              title={isEn ? 'Insert command into active prompt' : 'درج در خط فرمان فعال'}
                               className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-cyan-950/40 transition cursor-pointer"
                             >
                               <CornerDownLeft className="w-3 h-3" />
@@ -1340,11 +1889,11 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                               )}
                             </button>
 
-                            {/* Run Immediately */}
+                            {/* Run Immediately in active pane */}
                             <button
                               type="button"
-                              onClick={() => executeCommand(snip.cmd)}
-                              title={isEn ? 'Execute in terminal immediately' : 'اجرای فوری در ترمینال'}
+                              onClick={() => executeCommandOnPane(activePaneId, snip.cmd)}
+                              title={isEn ? 'Execute in active shell' : 'اجرای فوری در شل فعال'}
                               className="p-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-slate-950 transition cursor-pointer"
                             >
                               <Play className="w-3 h-3" />
@@ -1370,7 +1919,9 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                       </div>
                       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                         <span className="text-slate-400">{isEn ? 'IP Address' : 'آدرس آی‌پی'}</span>
-                        <span className="font-mono text-cyan-400">{server.ip}:{server.ssh_port || 22}</span>
+                        <span className="font-mono text-cyan-400">
+                          {server.ip}:{server.ssh_port || 22}
+                        </span>
                       </div>
                       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                         <span className="text-slate-400">{isEn ? 'Environment' : 'محیط کاری'}</span>
@@ -1382,7 +1933,9 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                       </div>
                       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                         <span className="text-slate-400">{isEn ? 'CPU & Memory' : 'پردازنده و رم'}</span>
-                        <span className="font-mono text-slate-200">{server.cpu_cores || 8} vCPU • {server.ram_gb || 32} GB</span>
+                        <span className="font-mono text-slate-200">
+                          {server.cpu_cores || 8} vCPU • {server.ram_gb || 32} GB
+                        </span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-slate-400">{isEn ? 'Disk Storage' : 'فضای ذخیره‌سازی'}</span>
@@ -1410,12 +1963,12 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
 
                 {sidebarTab === 'history' && (
                   <div className="space-y-1.5">
-                    {history.length === 0 ? (
+                    {activePane.history.length === 0 ? (
                       <div className="text-center py-8 text-xs text-slate-500">
                         {isEn ? 'No commands executed yet.' : 'هنوز دستوری اجرا نشده است.'}
                       </div>
                     ) : (
-                      history.map((hCmd, idx) => (
+                      activePane.history.map((hCmd, idx) => (
                         <div
                           key={idx}
                           className="flex items-center justify-between p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 font-mono text-xs text-slate-300 group"
@@ -1432,7 +1985,7 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
                             </button>
                             <button
                               type="button"
-                              onClick={() => executeCommand(hCmd)}
+                              onClick={() => executeCommandOnPane(activePaneId, hCmd)}
                               title={isEn ? 'Run' : 'اجرا'}
                               className="p-1 rounded text-emerald-400 hover:text-emerald-300 cursor-pointer"
                             >

@@ -68,7 +68,9 @@ export function setupTerminalWebSocket(
             host = srv.ip || srv.hostname || '';
             port = srv.ssh_port || 22;
             username = srv.ssh_username || 'root';
-            password = srv.ssh_password || '';
+            if (!srv.prompt_password_on_connect) {
+              password = srv.ssh_password || '';
+            }
           } else {
             const dev = (store.devices || []).find((d: any) => d.id === deviceId || d.name === deviceId);
             if (dev) {
