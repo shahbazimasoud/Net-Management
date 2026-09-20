@@ -683,6 +683,30 @@
       "details": "{\"durationSec\":5,\"protocol\":\"rdp\"}",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1789887098886-mgghd",
+      "timestamp": "2026-09-20T06:51:38.886Z",
+      "user_name": "admin",
+      "action": "REMOTE_DESKTOP_TOKEN_ISSUED",
+      "category": "remote_access",
+      "target": "Active Directory Domain Controller (DC-01) (192.168.10.10:3389)",
+      "status": "success",
+      "details": "{\"protocol\":\"rdp\",\"resolution\":\"1024x768@96dpi\",\"concurrentSessionsOnTarget\":0}",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
+    },
+    {
+      "id": "log-1789887209402-xwul8",
+      "timestamp": "2026-09-20T06:53:29.402Z",
+      "user_name": "admin",
+      "action": "REMOTE_DESKTOP_TOKEN_ISSUED",
+      "category": "remote_access",
+      "target": "Active Directory Domain Controller (DC-01) (192.168.10.10:3389)",
+      "status": "success",
+      "details": "{\"protocol\":\"rdp\",\"resolution\":\"1024x768@96dpi\",\"concurrentSessionsOnTarget\":1}",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
     }
   ],
   "ad_config": {

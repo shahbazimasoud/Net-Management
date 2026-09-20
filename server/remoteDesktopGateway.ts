@@ -125,7 +125,7 @@ function checkGuacdInstalled(): Promise<boolean> {
 /**
  * Auto-heal: Proactively attempt to start guacd daemon if it is installed but inactive
  */
-function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
+export function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
   return new Promise((resolve) => {
     checkGuacdHealth(host, port).then((running) => {
       if (running) return resolve(true);
@@ -138,6 +138,25 @@ function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): Promise
       });
     });
   });
+}
+
+/**
+ * Proactively ensure guacd is running on server boot
+ */
+export async function ensureGuacdServiceRunning(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
+  const isLive = await checkGuacdHealth(host, port);
+  if (isLive) {
+    console.log(`[RemoteDesktop] guacd daemon is active and listening on ${host}:${port}`);
+    return true;
+  }
+  console.log(`[RemoteDesktop] guacd daemon is not listening on ${host}:${port}. Attempting auto-start...`);
+  const started = await tryStartGuacd(host, port);
+  if (started) {
+    console.log(`[RemoteDesktop] guacd daemon successfully started on ${host}:${port}`);
+  } else {
+    console.warn(`[RemoteDesktop] Could not auto-start guacd on ${host}:${port}. Please ensure guacd package is installed.`);
+  }
+  return started;
 }
 
 /**
@@ -595,6 +614,9 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               'enable-wallpaper': 'false',
               'disable-auth': 'false',
               'color-depth': '24',
+              width: String(config.width || 1024),
+              height: String(config.height || 768),
+              dpi: String(config.dpi || 96),
               'initial-program': config.initialProgram || '',
             };
 
@@ -652,14 +674,24 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     guacdSocket.on('error', (err: Error) => {
       console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
       if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(encodeGuacInstruction('error', `Gateway connection error: ${err.message}`, '519'));
+        clientWs.send(encodeGuacInstruction('error', `Gateway connection error: ${err.message}`, '516'));
       }
     });
 
     guacdSocket.on('close', () => {
       if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(encodeGuacInstruction('error', 'Target server closed the remote desktop connection.', '519'));
-        clientWs.close();
+        const isEstablished = handshakeState === 'READY';
+        const errDetail = isEstablished
+          ? 'Target server closed the remote desktop connection.'
+          : `Failed to connect to ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). Server may be offline, port closed, or NLA authentication failed.`;
+        clientWs.send(encodeGuacInstruction('error', errDetail, '516'));
+        setTimeout(() => {
+          try {
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.close(4504, 'Remote session closed');
+            }
+          } catch {}
+        }, 150);
       }
       activeSessions.delete(config.id);
     });

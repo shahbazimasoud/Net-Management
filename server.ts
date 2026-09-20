@@ -38,7 +38,7 @@ dotenv.config();
 import { initDatabase } from './server/db';
 import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
-import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket } from './server/remoteDesktopGateway';
+import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 
 const app = express();
 const PORT = 3000;
@@ -116,6 +116,11 @@ async function startPythonBackend() {
 
 // Start Python
 startPythonBackend();
+
+// Ensure Apache Guacamole Daemon (guacd) is active for in-browser RDP/VNC remote desktop
+ensureGuacdServiceRunning().catch((err) => {
+  console.warn('[RemoteDesktop] Failed to check/start guacd on boot:', err);
+});
 
 // Clean up on exit
 process.on('SIGTERM', () => {

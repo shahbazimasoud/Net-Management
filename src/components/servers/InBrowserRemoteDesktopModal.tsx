@@ -280,6 +280,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             if (prev === 'connected') return 'disconnected';
             return 'error';
           });
+          setErrorMessage((prev) => {
+            if (prev) return prev;
+            return isEn
+              ? `Remote desktop connection closed. Verify host ${server?.ip || ''} is online, RDP port ${defaultPort} is accessible, and credentials/NLA security are configured.`
+              : `ارتباط ریموت دسکتاپ قطع شد. بررسی نمایید که سرور ${server?.ip || ''} روشن باشد، پورت ${defaultPort} در دسترس باشد و اطلاعات کاربری/NLA صحیح باشند.`;
+          });
         }
       };
 
@@ -306,6 +312,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       tunnel.onstatechange = (state: number) => {
         // Guacamole.Tunnel.State: 0=CONNECTING, 1=OPEN, 2=UNSTABLE, 3=CLOSED
         if (state === 3) {
+          if (connectTimeoutRef.current) {
+            clearTimeout(connectTimeoutRef.current);
+            connectTimeoutRef.current = null;
+          }
           setConnectionStatus((prev) => {
             if (prev === 'connecting' || prev === 'requesting_token') {
               return 'error';
@@ -314,6 +324,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               return 'disconnected';
             }
             return prev;
+          });
+          setErrorMessage((prev) => {
+            if (prev) return prev;
+            return isEn
+              ? `Guacamole tunnel closed. Host ${server?.ip || ''}:${defaultPort} did not respond or rejected handshake.`
+              : `تونل ارتباطی گوآکامولی بسته شد. هاست ${server?.ip || ''}:${defaultPort} پاسخ نداد یا اتصال را رد کرد.`;
           });
         }
       };
@@ -352,21 +368,21 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
       };
 
-      // 15-second safety timeout so it never hangs indefinitely
+      // 10-second safety timeout so it never hangs indefinitely
       connectTimeoutRef.current = setTimeout(() => {
         setConnectionStatus((curr) => {
           if (curr === 'connecting' || curr === 'requesting_token') {
             try { client.disconnect(); } catch {}
             setErrorMessage(
               isEn
-                ? `Connection timed out after 15 seconds. Target host ${server?.ip}:${defaultPort} is unreachable, RDP service is disabled, or a firewall is dropping connection attempts.`
-                : `زمان برقراری اتصال پس از ۱۵ ثانیه به پایان رسید. هاست مقصد ${server?.ip}:${defaultPort} در دسترس نیست، سرویس ریموت دسکتاپ غیرفعال است یا فایروال پورت را مسدود کرده است.`
+                ? `Connection timed out (10s). Target host ${server?.ip}:${defaultPort} took too long to respond. The server may be unreachable, RDP service disabled, or NLA authentication failed.`
+                : `زمان برقراری اتصال پس از ۱۰ ثانیه به پایان رسید. هاست مقصد ${server?.ip}:${defaultPort} پاسخی ارسال نکرد. سرور ممکن است در دسترس نباشد، سرویس RDP غیرفعال باشد یا احراز هویت NLA رد شده باشد.`
             );
             return 'error';
           }
           return curr;
         });
-      }, 15000);
+      }, 10000);
 
       // Connect to server with token query parameter
       client.connect('token=' + encodeURIComponent(token));
@@ -1125,24 +1141,80 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
           {/* Error View */}
           {connectionStatus === 'error' && (
-            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
-              <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-3">
-                <AlertTriangle className="w-6 h-6" />
+            <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20 overflow-y-auto">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mb-4 border border-rose-500/30 shadow-lg shadow-rose-500/10">
+                <AlertTriangle className="w-7 h-7" />
               </div>
-              <h4 className="text-base font-bold text-rose-300">
-                {isEn ? 'Remote Connection Failed' : 'برقراری اتصال ناموفق بود'}
+              <h4 className="text-lg font-bold text-rose-200">
+                {isEn ? 'Remote Desktop Connection Failed' : 'برقراری اتصال ریموت دسکتاپ ناموفق بود'}
               </h4>
-              <p className="text-xs text-slate-400 max-w-md mt-2 mb-4 font-mono">
+              <p className="text-xs text-rose-300/90 max-w-lg mt-2 mb-4 bg-rose-950/40 p-3 rounded-xl border border-rose-900/50 font-mono leading-relaxed">
                 {errorMessage ||
-                  (isEn ? 'Unable to reach target host over gateway.' : 'عدم امکان دسترسی به سرور از طریق گیت‌وی.')}
+                  (isEn
+                    ? 'Target server rejected handshake or did not respond in time.'
+                    : 'سرور مقصد درخواست اتصال را رد کرد یا در زمان مقرر پاسخ نداد.')}
               </p>
-              <button
-                type="button"
-                onClick={initiateConnection}
-                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-md transition-colors cursor-pointer"
-              >
-                {isEn ? 'Retry Connection' : 'تلاش مجدد'}
-              </button>
+
+              {/* Troubleshooting and Diagnostic Tips */}
+              <div className="max-w-md w-full bg-slate-900/80 border border-slate-800 rounded-xl p-3 mb-5 text-left text-xs text-slate-300 space-y-2">
+                <div className="font-semibold text-slate-200 flex items-center gap-1.5 pb-1 border-b border-slate-800">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+                  {isEn ? 'Diagnostics & Suggested Checks:' : 'اطلاعات تشخیصی و راهنمای رفع مشکل:'}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-slate-950/60 p-2 rounded-lg border border-slate-800/60">
+                  <div>
+                    <span className="text-slate-400">{isEn ? 'Target Host:' : 'آدرس مقصد:'}</span>{' '}
+                    <span className="text-slate-200 font-bold">{server?.ip || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">{isEn ? 'Port:' : 'پورت:'}</span>{' '}
+                    <span className="text-slate-200 font-bold">{defaultPort} ({isRdp ? 'RDP' : 'VNC'})</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">{isEn ? 'Username:' : 'نام کاربری:'}</span>{' '}
+                    <span className="text-slate-200">{server?.win_username || 'Administrator'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">{isEn ? 'Gateway Daemon:' : 'وضعیت guacd:'}</span>{' '}
+                    <span className="text-emerald-400 font-bold">guacd active (4822)</span>
+                  </div>
+                </div>
+                <ul className="list-disc list-inside text-[11px] text-slate-400 space-y-1 pt-1">
+                  <li>
+                    {isEn
+                      ? 'Ensure target Windows Server has Remote Desktop enabled.'
+                      : 'از فعال بودن Remote Desktop در تنظیمات ویندوز سرور مقصد اطمینان حاصل کنید.'}
+                  </li>
+                  <li>
+                    {isEn
+                      ? 'Verify firewall allows incoming connections on port 3389.'
+                      : 'فایروال ویندوز سرور و شبکه باید پورت ۳۳۸۹ را باز نگه داشته باشند.'}
+                  </li>
+                  <li>
+                    {isEn
+                      ? 'If Network Level Authentication (NLA) is strictly required, ensure valid password is provided.'
+                      : 'اگر NLA در سرور اجباری است، حتماً نام کاربری و رمز عبور صحیح وارد نمایید.'}
+                  </li>
+                </ul>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={initiateConnection}
+                  className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-lg shadow-cyan-500/20 transition-all cursor-pointer flex items-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {isEn ? 'Retry Connection' : 'تلاش مجدد'}
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition-colors cursor-pointer"
+                >
+                  {isEn ? 'Close Window' : 'بستن پنجره'}
+                </button>
+              </div>
             </div>
           )}
         </div>

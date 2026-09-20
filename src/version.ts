@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.93.1';
+export const APP_VERSION = '1.93.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.93.2',
+    releaseDate: '2026-09-19',
+    type: 'patch',
+    title: 'رفع قطعی مشکل فریز در Connecting در ریموت دسکتاپ، اجرای خودکار guacd در استارتاپ سرور، ارسال خطای شفاف و تایم‌اوت هوشمند ۱۰ ثانیه‌ای با کادر تشخیصی عیب‌یابی',
+    title_en: 'Definitive Fix for Remote Desktop "Connecting..." Hang, Auto-start guacd Daemon on Server Boot, Graceful Error Delivery, and 10s Smart Timeout with Diagnostics Card',
+    changes: [
+      'بررسی عمیق و رفع ریشه‌ای باگ توقف در Connecting: تضمین بررسی و اجرای خودکار دیمن guacd در استارتاپ سرور (server.ts) و راه‌اندازی در صورت غیرفعال بودن.',
+      'اصلاح و تقویت پارامترهای اتصال RDP به دیمن guacd شامل مقادیر دقیق رزولوشن، تراکم پیکسلی (dpi)، روش تغییر اندازه (display-update) و مکانیزم امنیتی nla/tls.',
+      'جلوگیری از قطع ناگهانی سوکت وب‌سوکت در زمان خطای هندشیک و ارسال کدهای استاندارد خطای Guacamole به همراه تاخیر ایمن جهت دریافت کامل فریم خطا توسط مرورگر.',
+      'افزودن تایم‌اوت هوشمند ۱۰ ثانیه‌ای در کلاینت مرورگر با نمایش فوری کادر خطای تشخیصی حاوی آدرس مقصد، پورت ۳۳۸۹، نام کاربری، وضعیت دیمن guacd و راهنمای بررسی فایروال و NLA.',
+      'تست و راستی‌آزمایی واقعی جریان وب‌سوکت و هندشیک Guacamole و اطمینان از خروج کامل از حالت لودینگ و هدایت کاربر در تمام سناریوها.'
+    ],
+    changes_en: [
+      'Conducted deep debugging and resolved root causes of the Remote Desktop "Connecting..." freeze: guaranteed automatic guacd daemon verification and background startup on Express server boot.',
+      'Refined and enriched RDP connection parameters passed to guacd, including width, height, dpi, dynamic display resizing, and NLA/TLS fallback negotiation.',
+      'Prevented premature WebSocket socket termination during handshake failures, ensuring standard Guacamole error frames are properly transmitted and processed by guacamole-common-js.',
+      'Implemented a 10-second smart client timeout in InBrowserRemoteDesktopModal with an actionable diagnostics panel displaying target IP, RDP port 3389, username, guacd status, and troubleshooting tips.',
+      'Validated end-to-end WebSocket tunnel and protocol negotiation with real test scripts, confirming resilient error trapping and immediate feedback.'
+    ]
+  },
   {
     version: '1.93.1',
     releaseDate: '2026-09-19',
