@@ -80,6 +80,94 @@ interface TerminalPane {
   isConnecting: boolean;
   ephemeralPassword?: string;
   isPasswordPromptActive: boolean;
+  cwd: string;
+  previousCwd?: string;
+}
+
+/**
+ * Resolves target directory against current directory in standard POSIX manner.
+ */
+export function resolveLinuxPath(
+  currentCwd: string,
+  target: string,
+  homeDir: string,
+  previousCwd?: string
+): { absPath: string; displayCwd: string } {
+  const normalizedHome = homeDir.endsWith('/') && homeDir.length > 1 ? homeDir.slice(0, -1) : homeDir;
+
+  // 1. Target is empty, or '~' -> go to home
+  if (!target || target === '~') {
+    return {
+      absPath: normalizedHome,
+      displayCwd: '~',
+    };
+  }
+
+  // 2. Target is '-' -> go to previous
+  if (target === '-') {
+    const prev = previousCwd || '~';
+    const abs = prev === '~' ? normalizedHome : prev.startsWith('~/') ? normalizedHome + prev.substring(1) : prev;
+    return {
+      absPath: abs,
+      displayCwd: prev,
+    };
+  }
+
+  // 3. Determine starting absolute path
+  let startAbs: string;
+  let cleanTarget = target.trim();
+
+  if (cleanTarget.startsWith('~/')) {
+    startAbs = normalizedHome;
+    cleanTarget = cleanTarget.substring(2);
+  } else if (cleanTarget.startsWith('/')) {
+    startAbs = '/';
+    cleanTarget = cleanTarget.substring(1);
+  } else {
+    // Relative to currentCwd
+    const current = currentCwd || '~';
+    if (current === '~') {
+      startAbs = normalizedHome;
+    } else if (current.startsWith('~/')) {
+      startAbs = normalizedHome + current.substring(1);
+    } else if (current.startsWith('/')) {
+      startAbs = current;
+    } else {
+      startAbs = normalizedHome + '/' + current;
+    }
+  }
+
+  // Split startAbs into segments
+  const stack: string[] = startAbs.split('/').filter(Boolean);
+
+  // Process target segments
+  const parts = cleanTarget.split('/').filter(Boolean);
+  for (const part of parts) {
+    if (part === '.') {
+      continue;
+    } else if (part === '..') {
+      if (stack.length > 0) {
+        stack.pop();
+      }
+    } else {
+      stack.push(part);
+    }
+  }
+
+  const newAbsPath = stack.length === 0 ? '/' : '/' + stack.join('/');
+
+  // Format displayCwd
+  let displayCwd = newAbsPath;
+  if (newAbsPath === normalizedHome) {
+    displayCwd = '~';
+  } else if (newAbsPath.startsWith(normalizedHome + '/')) {
+    displayCwd = '~' + newAbsPath.substring(normalizedHome.length);
+  }
+
+  return {
+    absPath: newAbsPath,
+    displayCwd,
+  };
 }
 
 interface SnippetItem {
@@ -329,6 +417,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       isConnecting: false,
       ephemeralPassword: sessionPassword,
       isPasswordPromptActive: Boolean(server?.prompt_password_on_connect && !sessionPassword),
+      cwd: '~',
+      previousCwd: '~',
     },
   ]);
   const [activePaneId, setActivePaneId] = useState<string>('pane-1');
@@ -381,20 +471,28 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Prompt Generator
   const getPromptString = useCallback(
-    (shellType: 'bash' | 'zsh') => {
+    (shellType: 'bash' | 'zsh', cwd: string = '~') => {
       const user = server?.ssh_username || 'root';
-      const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'server';
-      if (shellType === 'zsh') {
-        return `➜  ${user}@${host} ~ `;
+      const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'linux';
+      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+      let displayCwd = cwd || '~';
+      if (displayCwd === homeDir) {
+        displayCwd = '~';
+      } else if (displayCwd.startsWith(homeDir + '/')) {
+        displayCwd = '~' + displayCwd.substring(homeDir.length);
       }
-      return `${user}@${host}:~# `;
+
+      if (shellType === 'zsh') {
+        return `➜  ${user}@${host} ${displayCwd} `;
+      }
+      return `${user}@${host}:${displayCwd}${user === 'root' ? '#' : '$'} `;
     },
     [server]
   );
 
   // Emulated Command Response Generator
   const generateEmulatedResponse = useCallback(
-    (command: string): string => {
+    (command: string, cwd: string = '~'): string => {
       const cmd = command.trim();
       const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'web-prod01.internal';
       const ip = server?.ip || '192.168.10.15';
@@ -402,12 +500,65 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       const cores = server?.cpu_cores || 8;
       const ram = server?.ram_gb || 32;
       const disk = server?.disk_gb || 500;
+      const user = server?.ssh_username || 'root';
+      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
 
       if (!cmd) return '';
 
       // Clear screen
       if (cmd === 'clear' || cmd === 'cls') {
         return '__CLEAR__';
+      }
+
+      // cd command - silent in standard Linux shells when successful
+      if (cmd === 'cd' || cmd.startsWith('cd ') || cmd.startsWith('cd\t')) {
+        return '';
+      }
+
+      // pwd
+      if (cmd === 'pwd') {
+        if (!cwd || cwd === '~') return homeDir;
+        if (cwd.startsWith('~/')) return `${homeDir}${cwd.substring(1)}`;
+        return cwd.startsWith('/') ? cwd : `/${cwd}`;
+      }
+
+      // ls / dir / ll
+      if (cmd === 'ls' || cmd.startsWith('ls ') || cmd === 'll' || cmd.startsWith('ll ') || cmd === 'dir') {
+        const effectiveCwd = (!cwd || cwd === '~') ? homeDir : cwd.startsWith('~/') ? `${homeDir}${cwd.substring(1)}` : cwd;
+        if (effectiveCwd === '/') {
+          return `bin   dev  home  lib64       mnt  proc  run   srv  tmp  var\nboot  etc  lib   lost+found  opt  root  sbin  sys  usr`;
+        }
+        if (effectiveCwd === '/etc') {
+          return `apt  cron.d  group  hosts  init.d  issue  modules  network  nginx  passwd  resolv.conf  ssh  ssl  sudoers  systemd  ufw`;
+        }
+        if (effectiveCwd === '/etc/nginx') {
+          return `conf.d  fastcgi.conf  fastcgi_params  koi-utf  koi-win  mime.types  modules  nginx.conf  proxy_params  scgi_params  sites-available  sites-enabled  snippets  uwsgi_params  win-utf`;
+        }
+        if (effectiveCwd === '/var/log') {
+          return `alternatives.log  auth.log  boot.log  dpkg.log  journal  lastlog  nginx  syslog  ufw.log  wtmp`;
+        }
+        if (effectiveCwd === '/var/log/nginx') {
+          return `access.log  error.log`;
+        }
+        if (effectiveCwd === '/var') {
+          return `backups  cache  crash  lib  local  lock  log  mail  opt  run  spool  tmp  www`;
+        }
+        if (effectiveCwd === '/var/www') {
+          return `html`;
+        }
+        if (effectiveCwd === '/var/www/html') {
+          return `index.html  robots.txt  style.css`;
+        }
+        if (effectiveCwd === '/opt') {
+          return `containerd  datadog-agent  monitoring`;
+        }
+        if (effectiveCwd === '/tmp') {
+          return `systemd-private-10293  tmp.a83bfx`;
+        }
+        if (effectiveCwd === homeDir || effectiveCwd === '/root' || effectiveCwd.startsWith('/home')) {
+          return `.bash_history  .bashrc  .profile  .ssh  docker-compose.yml  projects  scripts`;
+        }
+        return `drwxr-xr-x 2 ${user} ${user} 4096 Sep 20 01:00 .\ndrwxr-xr-x 3 root root 4096 Sep 20 00:55 ..`;
       }
 
       // Help
@@ -541,16 +692,6 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         return server?.ssh_username || 'root';
       }
 
-      // ls
-      if (cmd.startsWith('ls')) {
-        return `bin   dev  home  lib64       mnt  proc  run   srv  tmp  var\nboot  etc  lib   lost+found  opt  root  sbin  sys  usr`;
-      }
-
-      // pwd
-      if (cmd === 'pwd') {
-        return (server?.ssh_username || 'root') === 'root' ? '/root' : `/home/${server?.ssh_username || 'user'}`;
-      }
-
       // nginx -t
       if (cmd.startsWith('nginx')) {
         return `nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful`;
@@ -642,11 +783,30 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
             const msg = JSON.parse(event.data);
             if (msg.type === 'data') {
               const rawData = msg.data || '';
+
+              // Detect working directory from remote prompt or OSC 7 if present
+              let detectedCwd: string | null = null;
+              const osc7Match = rawData.match(/\x1b\]7;file:\/\/[^/]+([^\x07\x1b]+)(?:\x07|\x1b\\)/);
+              if (osc7Match && osc7Match[1]) {
+                try {
+                  detectedCwd = decodeURIComponent(osc7Match[1]);
+                } catch {
+                  detectedCwd = osc7Match[1];
+                }
+              } else {
+                const clean = rawData.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+                const promptMatch = clean.match(/(?:^|[\r\n])(?:\[?[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+(?:\s+|:)([^#$\]\r\n]+)[#$\]]|➜\s+[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\s+([^ \r\n]+))\s*$/);
+                if (promptMatch) {
+                  detectedCwd = (promptMatch[1] || promptMatch[2] || '').trim();
+                }
+              }
+
               setPanes((prev) =>
                 prev.map((p) => {
                   if (p.id !== paneId) return p;
                   return {
                     ...p,
+                    cwd: detectedCwd || p.cwd,
                     lines: [
                       ...p.lines,
                       {
@@ -827,26 +987,64 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       const targetPane = panes.find((p) => p.id === paneId);
       if (!targetPane) return;
 
-      const promptStr = getPromptString(targetPane.selectedShell);
+      const currentCwd = targetPane.cwd || '~';
+      const promptStr = getPromptString(targetPane.selectedShell, currentCwd);
+
+      const user = server?.ssh_username || 'root';
+      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+
+      let newCwd = currentCwd;
+      let newPreviousCwd = targetPane.previousCwd || '~';
+      let directOutput: string | null = null;
+
+      // Detect cd command (e.g., "cd", "cd /var/log", "cd ..", "cd -", "cd ~/projects")
+      const cdMatch = trimmed.match(/^cd(?:\s+(.*?))?(?:;.*|&&.*)?$/);
+      if (cdMatch) {
+        let rawTarget = (cdMatch[1] || '').trim();
+        rawTarget = rawTarget.replace(/[;&].*$/, '').trim();
+        const cleanTarget = rawTarget.replace(/^['"](.*)['"]$/, '$1').trim();
+
+        const resolved = resolveLinuxPath(currentCwd, cleanTarget, homeDir, targetPane.previousCwd);
+        newPreviousCwd = currentCwd;
+        newCwd = resolved.displayCwd;
+
+        if (cleanTarget === '-') {
+          // Standard bash outputs new directory when cd - is run
+          directOutput = resolved.absPath;
+        }
+      }
 
       setPanes((prev) =>
         prev.map((p) => {
           if (p.id !== paneId) return p;
+          const newLines: TerminalLogLine[] = [
+            ...p.lines,
+            {
+              id: Math.random().toString(),
+              type: 'prompt-command',
+              prompt: promptStr,
+              text: trimmed,
+              timestamp: new Date().toLocaleTimeString(),
+            },
+          ];
+
+          if (directOutput) {
+            newLines.push({
+              id: Math.random().toString(),
+              type: 'output',
+              text: directOutput,
+              timestamp: new Date().toLocaleTimeString(),
+            });
+          }
+
           return {
             ...p,
+            cwd: newCwd,
+            previousCwd: newPreviousCwd,
             inputVal: '',
             historyIdx: -1,
             history: [...p.history, trimmed],
-            lines: [
-              ...p.lines,
-              {
-                id: Math.random().toString(),
-                type: 'prompt-command',
-                prompt: promptStr,
-                text: trimmed,
-                timestamp: new Date().toLocaleTimeString(),
-              },
-            ],
+            lines: newLines,
           };
         })
       );
@@ -868,9 +1066,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         }
       }
 
-      if (!handledByWs) {
+      if (!handledByWs && !directOutput) {
         setTimeout(() => {
-          const response = generateEmulatedResponse(trimmed);
+          const response = generateEmulatedResponse(trimmed, newCwd);
           if (response === '__CLEAR__') {
             setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, lines: [] } : p)));
             return;
@@ -902,7 +1100,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         inputRefs.current[paneId]?.focus();
       }, 50);
     },
-    [panes, getPromptString, generateEmulatedResponse]
+    [panes, getPromptString, generateEmulatedResponse, server]
   );
 
   // Active Pane Intellisense computation
@@ -948,7 +1146,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                   {
                     id: Math.random().toString(),
                     type: 'prompt-command',
-                    prompt: getPromptString(p.selectedShell),
+                    prompt: getPromptString(p.selectedShell, p.cwd || '~'),
                     text: p.inputVal,
                     timestamp: new Date().toLocaleTimeString(),
                   },
@@ -1035,7 +1233,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
               {
                 id: Math.random().toString(),
                 type: 'prompt-command',
-                prompt: getPromptString(p.selectedShell),
+                prompt: getPromptString(p.selectedShell, p.cwd || '~'),
                 text: `${p.inputVal}^C`,
                 timestamp: new Date().toLocaleTimeString(),
               },
@@ -1075,6 +1273,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       isConnecting: false,
       ephemeralPassword: sessionPassword,
       isPasswordPromptActive: Boolean(server?.prompt_password_on_connect && !sessionPassword),
+      cwd: '~',
+      previousCwd: '~',
     };
 
     setPanes((prev) => [...prev, newPane]);
@@ -1602,7 +1802,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                             Welcome to {server.os_distro || 'Linux'} on {server.name} ({server.hostname || server.ip})
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            * System load: 0.24, 0.31, 0.28 • Memory: {server.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell}
+                            * System load: 0.24, 0.31, 0.28 • Memory: {server.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell} • Path: {pane.cwd || '~'}
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
                             <span>Tab for Intellisense autocompletion</span>
@@ -1640,8 +1840,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                           if (l.type === 'prompt-command') {
                             return (
                               <div key={l.id} className="text-emerald-300 font-bold py-0.5 flex items-baseline flex-wrap">
-                                <span className="text-emerald-400 select-none me-1.5">
-                                  {l.prompt || getPromptString(pane.selectedShell)}
+                                <span className="text-emerald-400 select-none me-1.5 font-mono">
+                                  {l.prompt || getPromptString(pane.selectedShell, pane.cwd || '~')}
                                 </span>
                                 <span className="text-white font-mono">{l.text}</span>
                               </div>
@@ -1661,7 +1861,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       {/* Interactive Prompt & Input with Ghost Autocomplete! */}
                       <div className="flex items-center flex-wrap pt-1 mt-auto relative">
                         <span className="text-emerald-400 font-bold text-xs sm:text-sm select-none font-mono whitespace-nowrap me-1.5">
-                          {getPromptString(pane.selectedShell)}
+                          {getPromptString(pane.selectedShell, pane.cwd || '~')}
                         </span>
                         <div className="flex-1 min-w-[200px] flex items-center relative">
                           <input

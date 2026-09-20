@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.97.0';
+export const APP_VERSION = '1.97.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.97.1',
+    releaseDate: '2026-09-20',
+    type: 'patch',
+    title: 'اصلاح پرامپت ترمینال لینوکس و به‌روزرسانی زنده دایرکتوری جاری (CWD) با دستور cd و همگام‌سازی مسیر',
+    title_en: 'Fix Linux Terminal Prompt to Dynamically Reflect Current Working Directory (CWD) on cd and Session Synchronization',
+    changes: [
+      'رفع باگ ثابت ماندن پرامپت ترمینال روی root@linux:~# و پیاده‌سازی به‌روزرسانی لحظه‌ای مسیر جاری با اجرای دستورات cd، cd ..، cd /، cd - و دایرکتوری‌های تودرتو.',
+      'پیاده‌سازی الگوریتم استاندارد و امن پیمایش مسیرهای لینوکس (resolveLinuxPath) با پشتیبانی از بازگشت به والد، ریشه، پوشه خانگی کاربر و مسیر قبلی.',
+      'همگام‌سازی خروجی دستورات pwd و ls با دایرکتوری کاری فعال در شل‌های Bash و Zsh.',
+      'افزودن امکان تشخیص خودکار مسیر کاری از روی کدهای اسکیپ استاندارد OSC 7 و پرامپت‌های دریافتی از سرور واقعی لینوکس در ارتباط وب‌سوکت.',
+      'افزودن پیشنهادات دایرکتوری‌های پرکاربرد سیستم‌عامل لینوکس در سیستم تکمیل خودکار Tab برای دستور cd.'
+    ],
+    changes_en: [
+      'Resolved static root@linux:~# prompt bug by implementing real-time dynamic CWD tracking and prompt synchronization across cd, cd .., cd /, cd -, and nested directory paths.',
+      'Implemented standard POSIX path resolution engine (resolveLinuxPath) supporting root, user home (~), relative, parent (..), and previous directory (-) transitions.',
+      'Synchronized pwd and ls outputs to accurately reflect the active working directory context across both Bash and Zsh panes.',
+      'Added automatic CWD detection from incoming OSC 7 sequences and remote interactive shell prompts in live WebSocket SSH sessions.',
+      'Integrated cd directory suggestions (/etc, /var/log, /var/www, /opt, .., ~) into the Linux Tab Intellisense engine.'
+    ]
+  },
   {
     version: '1.97.0',
     releaseDate: '2026-09-20',

@@ -23,6 +23,30 @@ export interface CommandSuggestion {
 
 export const LINUX_COMMANDS_CATALOG: CommandSuggestion[] = [
   {
+    command: 'cd',
+    syntax: 'cd [directory]',
+    category: 'file',
+    descEn: 'Change the current working directory',
+    descFa: 'تغییر دایرکتوری کاری جاری',
+    subcommands: [
+      { name: '~', descEn: 'Change to user home directory', descFa: 'تغییر به پوشه خانگی کاربر' },
+      { name: '..', descEn: 'Move up one directory level', descFa: 'یک سطح به دایرکتوری والد رفتن' },
+      { name: '-', descEn: 'Switch back to the previous directory', descFa: 'بازگشت به دایرکتوری قبلی' },
+      { name: '/', descEn: 'Change to root filesystem directory', descFa: 'تغییر به ریشه سیستم‌فایل' },
+      { name: '/etc', descEn: 'Change to system configuration directory', descFa: 'پوشه تنظیمات سیستمی' },
+      { name: '/var/log', descEn: 'Change to system log directory', descFa: 'پوشه لاگ‌های سیستم' },
+      { name: '/var/www', descEn: 'Change to web root directory', descFa: 'پوشه وب‌سرور' },
+      { name: '/opt', descEn: 'Change to optional third-party software directory', descFa: 'پوشه نرم‌افزارهای اضافی' },
+    ],
+  },
+  {
+    command: 'pwd',
+    syntax: 'pwd',
+    category: 'file',
+    descEn: 'Print name of current/working directory',
+    descFa: 'نمایش مسیر کامل دایرکتوری کاری جاری',
+  },
+  {
     command: 'systemctl',
     syntax: 'systemctl [subcommand] [service_name]',
     category: 'service',
