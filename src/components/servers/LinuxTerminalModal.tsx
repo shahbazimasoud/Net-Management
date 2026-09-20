@@ -481,6 +481,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const scrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const wsRefs = useRef<Record<string, WebSocket | null>>({});
+  const lastConnectedServerIdRef = useRef<string | null>(null);
+  const prevIsOpenRef = useRef<boolean>(false);
 
   // Intellisense State for active pane
   const [intellisenseIndex, setIntellisenseIndex] = useState<number>(0);
@@ -489,26 +491,6 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   // Inline password input state when prompt_password_on_connect is active
   const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
   const [showPasswordText, setShowPasswordText] = useState<Record<string, boolean>>({});
-
-  // Sync pane 1 initial shell and password if server changes
-  useEffect(() => {
-    if (server) {
-      setPanes((prev) => {
-        if (prev.length === 0) return prev;
-        const copy = [...prev];
-        const p1 = copy[0];
-        copy[0] = {
-          ...p1,
-          server: server,
-          title: `${server.name} (${initialShell})`,
-          selectedShell: initialShell,
-          ephemeralPassword: sessionPassword,
-          isPasswordPromptActive: Boolean(server.prompt_password_on_connect && !sessionPassword),
-        };
-        return copy;
-      });
-    }
-  }, [server, initialShell, sessionPassword]);
 
   // Click outside split menu listener
   useEffect(() => {
@@ -775,16 +757,24 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       customServer?: RemoteServer
     ) => {
       const currentPane = panes.find((p) => p.id === paneId);
-      const targetServer = customServer || currentPane?.server || server;
-      if (!targetServer) return;
+      const targetServer =
+        customServer ||
+        (paneId === 'pane-1' && server?.id ? server : null) ||
+        (currentPane?.server && currentPane.server.id ? currentPane.server : null) ||
+        server;
 
-      const targetShell = customShell || currentPane?.selectedShell || initialShell;
+      if (!targetServer || !targetServer.id) {
+        console.warn('[LinuxTerminal] Target server invalid or missing ID:', targetServer);
+        return;
+      }
+
+      const targetShell = customShell || currentPane?.selectedShell || initialShell || 'bash';
       const targetPassword =
         suppliedPassword !== undefined
           ? suppliedPassword
           : currentPane?.ephemeralPassword !== undefined
           ? currentPane.ephemeralPassword
-          : targetServer.id === server?.id
+          : (targetServer.id === server?.id && sessionPassword)
           ? sessionPassword
           : targetServer.ssh_password;
 
@@ -1010,13 +1000,48 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     [server, panes, initialShell, sessionPassword]
   );
 
-  // Connect on modal open
+  // Lifecycle & Connection on modal open or server change
   useEffect(() => {
-    if (isOpen && server) {
-      // Connect first pane
-      connectPaneSession('pane-1', initialShell, sessionPassword);
-    } else {
-      // Cleanup all sockets
+    if (isOpen && server && server.id) {
+      const isNewServer = lastConnectedServerIdRef.current !== server.id;
+      const isReopeningFromClosed = !prevIsOpenRef.current && !lastConnectedServerIdRef.current;
+
+      if (isNewServer || isReopeningFromClosed) {
+        lastConnectedServerIdRef.current = server.id;
+        const freshPane: TerminalPane = {
+          id: 'pane-1',
+          server: server,
+          title: `${server.name} (${initialShell})`,
+          selectedShell: initialShell,
+          lines: [],
+          inputVal: '',
+          history: [],
+          historyIdx: -1,
+          isConnected: false,
+          isConnecting: true,
+          ephemeralPassword: sessionPassword,
+          isPasswordPromptActive: Boolean(server.prompt_password_on_connect && !sessionPassword),
+          cwd: '~',
+          previousCwd: '~',
+        };
+        setPanes([freshPane]);
+        setActivePaneId('pane-1');
+        setLayoutMode('single');
+
+        connectPaneSession('pane-1', initialShell, sessionPassword, server);
+      } else if (!prevIsOpenRef.current) {
+        // Restoring from minimize: reconnect active sockets if disconnected
+        panes.forEach((p) => {
+          const paneServer = p.server?.id ? p.server : server;
+          if (!wsRefs.current[p.id] || wsRefs.current[p.id]?.readyState !== WebSocket.OPEN) {
+            connectPaneSession(p.id, p.selectedShell, p.ephemeralPassword, paneServer);
+          }
+        });
+      }
+      prevIsOpenRef.current = true;
+    } else if (!isOpen) {
+      prevIsOpenRef.current = false;
+      // Cleanup all sockets when modal is hidden
       Object.values(wsRefs.current).forEach((ws) => {
         try {
           ws?.close();
@@ -1033,7 +1058,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       });
       wsRefs.current = {};
     };
-  }, [isOpen, server]);
+  }, [isOpen, server, initialShell, sessionPassword]);
 
   // Auto-scroll each pane to bottom
   useEffect(() => {
@@ -1485,12 +1510,20 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     }
   };
 
+  // Close handler: reset lastConnectedServerIdRef so reopening connects fresh
+  const handleCloseModal = () => {
+    lastConnectedServerIdRef.current = null;
+    onClose();
+  };
+
   // Shell switch for specific pane
   const handleSwitchShellOnPane = (paneId: string, newShell: 'bash' | 'zsh') => {
     setPanes((prev) =>
       prev.map((p) => (p.id === paneId ? { ...p, selectedShell: newShell } : p))
     );
-    connectPaneSession(paneId, newShell);
+    const targetPane = panes.find((p) => p.id === paneId);
+    const paneServer = (paneId === 'pane-1' && server?.id ? server : targetPane?.server?.id ? targetPane.server : server);
+    connectPaneSession(paneId, newShell, undefined, paneServer);
   };
 
   // Clear specific pane
@@ -1526,7 +1559,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           : p
       )
     );
-    connectPaneSession(paneId, undefined, pwd);
+    const targetPane = panes.find((p) => p.id === paneId);
+    const paneServer = (paneId === 'pane-1' && server?.id ? server : targetPane?.server?.id ? targetPane.server : server);
+    connectPaneSession(paneId, undefined, pwd, paneServer);
   };
 
   // Filtered snippets for sidebar
@@ -1851,7 +1886,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
             {/* Close Button */}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseModal}
               title={isEn ? 'Close' : 'بستن'}
               className="p-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-950/50 transition-colors cursor-pointer"
             >

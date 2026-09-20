@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.98.2';
+export const APP_VERSION = '1.98.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.98.3',
+    releaseDate: '2026-09-20',
+    type: 'patch',
+    title: 'رفع مشکل اتصال ترمینال لینوکس از لیست سرورها و پیاده‌سازی مذاکره انطباقی پروتکل SSH',
+    title_en: 'Fix Linux Terminal Connection from Server List & Implement Adaptive SSH Negotiation',
+    changes: [
+      'رفع ریشه‌ای اختلال اتصال ترمینال هنگام کلیک روی آیکون ترمینال در لیست ناوگان سرورها (Remote Servers & Automation Fleet) با تثبیت چرخه عمر مودال و همگام‌سازی استیت سرور ورودی.',
+      'حل مشکل تلاش اتصال به undefined در سشن BASH SSH با استخراج و اولویت‌بندی دقیق پارامترهای سرور در کلاینت و اندپوینت وب‌سوکت.',
+      'پیاده‌سازی سازوکار انطباقی مذاکره الگوریتم‌های SSH2 بر اساس اصل دوازدهم (Rule 12): اتصال با سایفرهای مدرن در وهله اول و فالبک خودکار به الگوریتم‌های سنتی در صورت عدم تطابق.',
+      'تضمین حفظ تاریخچه و سشن‌های فعال ترمینال هنگام بازیابی از نوار ابزار پایین (ToolsDock).'
+    ],
+    changes_en: [
+      'Resolved root cause of terminal connection hang when launching from the Remote Servers fleet list by fixing state synchronization and modal lifecycle hooks.',
+      'Eliminated undefined host/IP connection attempts by ensuring robust target server resolution in LinuxTerminalModal and query parameter sanitization in the WebSocket gateway.',
+      'Implemented Rule 12 adaptive SSH protocol negotiation: modern standard ciphers attempted first, with automatic graceful fallback to legacy compatibility ciphers upon handshake failure.',
+      'Preserved terminal pane history and session continuity when minimizing to and restoring from the ToolsDock.'
+    ]
+  },
   {
     version: '1.98.2',
     releaseDate: '2026-09-20',
