@@ -1112,8 +1112,11 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     if (!activePane || activePane.isPasswordPromptActive) {
       return { ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false };
     }
-    return getIntellisense(activePane.inputVal);
-  }, [activePane]);
+    const currentCwd = activePane.cwd || '~';
+    const user = server?.ssh_username || 'root';
+    const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+    return getIntellisense(activePane.inputVal, currentCwd, homeDir);
+  }, [activePane, server]);
 
   // Handle Tab key and command history on a pane
   const handleKeyDownOnPane = (
@@ -1124,7 +1127,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     // 1. Tab Key: Linux Intellisense Autocomplete
     if (e.key === 'Tab') {
       e.preventDefault();
-      const intellisense = getIntellisense(pane.inputVal);
+      const currentCwd = pane.cwd || '~';
+      const user = server?.ssh_username || 'root';
+      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+      const intellisense = getIntellisense(pane.inputVal, currentCwd, homeDir);
 
       if (intellisense.candidates.length > 0) {
         if (intellisense.exactMatch || intellisense.completedInput !== pane.inputVal) {
@@ -1132,10 +1138,25 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           setPanes((prev) =>
             prev.map((p) => (p.id === paneId ? { ...p, inputVal: intellisense.completedInput } : p))
           );
-          setShowIntellisensePopup(false);
+          if (intellisense.candidates.length <= 1) {
+            setShowIntellisensePopup(false);
+          } else {
+            setShowIntellisensePopup(true);
+          }
         } else if (intellisense.candidates.length > 1) {
           // Multiple matches: display candidate list in terminal lines (authentic Linux terminal behavior!)
-          const candidatesSummary = intellisense.candidates.map((c) => c.label).join('    ');
+          const candidatesFormatted = intellisense.candidates
+            .map((c) => {
+              if (c.isDir) {
+                return `\x1b[1;34m${c.label}\x1b[0m`;
+              }
+              if (c.category === 'executable' || c.label.endsWith('.sh')) {
+                return `\x1b[1;32m${c.label}\x1b[0m`;
+              }
+              return c.label;
+            })
+            .join('    ');
+
           setPanes((prev) =>
             prev.map((p) => {
               if (p.id !== paneId) return p;
@@ -1153,7 +1174,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                   {
                     id: Math.random().toString(),
                     type: 'info',
-                    text: candidatesSummary,
+                    text: candidatesFormatted,
                     timestamp: new Date().toLocaleTimeString(),
                   },
                 ],
@@ -1164,6 +1185,24 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         }
       }
       return;
+    }
+
+    // Right Arrow: Accept ghost autocompletion if cursor is at the end of input
+    if (e.key === 'ArrowRight') {
+      const inputEl = inputRefs.current[paneId];
+      if (inputEl && inputEl.selectionStart === pane.inputVal.length) {
+        const currentCwd = pane.cwd || '~';
+        const user = server?.ssh_username || 'root';
+        const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+        const intellisense = getIntellisense(pane.inputVal, currentCwd, homeDir);
+        if (intellisense.ghostSuggestion && intellisense.completedInput !== pane.inputVal) {
+          e.preventDefault();
+          setPanes((prev) =>
+            prev.map((p) => (p.id === paneId ? { ...p, inputVal: intellisense.completedInput } : p))
+          );
+          return;
+        }
+      }
     }
 
     // 2. Enter Key: Run command
@@ -1638,7 +1677,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           <div className={`flex-1 grid gap-1.5 p-1.5 bg-black overflow-hidden ${getGridClasses()}`}>
             {panes.map((pane, index) => {
               const isActive = pane.id === activePaneId;
-              const intellisense = isActive ? activeIntellisense : getIntellisense(pane.inputVal);
+              const user = server?.ssh_username || 'root';
+              const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+              const intellisense = isActive ? activeIntellisense : getIntellisense(pane.inputVal, pane.cwd || '~', homeDir);
               const ghostText = intellisense.ghostSuggestion;
 
               return (
@@ -1832,8 +1873,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                           }
                           if (l.type === 'info') {
                             return (
-                              <div key={l.id} className="text-slate-400 text-xs py-0.5 font-mono">
-                                <span>{l.text}</span>
+                              <div key={l.id} className="text-slate-300 text-xs py-0.5 font-mono leading-relaxed whitespace-pre-wrap">
+                                {renderAnsiFormattedText(l.text, l.id)}
                               </div>
                             );
                           }

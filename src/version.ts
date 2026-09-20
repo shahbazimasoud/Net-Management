@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.97.1';
+export const APP_VERSION = '1.97.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.97.2',
+    releaseDate: '2026-09-20',
+    type: 'patch',
+    title: 'تکمیل خودکار هوشمند Tab شبیه به Bash شل واقعی لینوکس برای دستورات، فایل‌ها، مسیرها، سرویس‌ها و پکیج‌ها',
+    title_en: 'Authentic Linux Bash Tab Autocompletion Engine for Commands, VFS Paths, Files, Subcommands, Services, and Packages',
+    changes: [
+      'پیاده‌سازی موتور جامع تکمیل خودکار کلید Tab مشابه با شل Bash واقعی لینوکس بر اساس دایرکتوری کاری جاری (CWD).',
+      'تجهیز سیستم به فایل‌سیستم مجازی لینوکس (VFS) با پشتیبانی کامل از پوشه‌ها و فایل‌های سیستمی (/etc/nginx، /var/log، /opt، /root، .ssh، ...) جهت تکمیل مسیرها و فایل‌ها با دستوراتی نظیر cd، ls، cat، nano، vim، tail، head، grep، rm، cp، mv، touch و mkdir.',
+      'پشتیبانی از کلید Tab دوگانه (Double Tab): در صورت وجود چند گزینه، فهرست پیشنهادات با رنگ‌بندی تفکیک‌شده ANSI (آبی برای دایرکتوری‌ها، سبز برای فایل‌های اجرایی) در خطوط ترمینال چاپ می‌شود.',
+      'افزودن قابلیت تکمیل هوشمند نام سرویس‌های systemd برای دستورات systemctl و journalctl -u و نام کانتینرهای داکر و بسته‌های apt.',
+      'پشتیبانی از دستورات چندبخشی، پایپ‌لاین‌ها (|)، عملگرهای شرطی (&&، ||)، فاصله‌ها، و پیشوند sudo.',
+      'افزودن امکان پذیرش پیشنهاد خاکستری (Ghost Text) با کلید پیکان راست (ArrowRight) در انتهای خط.'
+    ],
+    changes_en: [
+      'Implemented an authentic Linux Bash Tab autocompletion engine dynamically aware of current working directory (CWD).',
+      'Engineered a comprehensive Linux Virtual File System (VFS) with standard system paths (/etc/nginx, /var/log, /opt, /root, .ssh, etc.) enabling path and file autocompletion for cd, ls, cat, nano, vim, tail, head, grep, rm, cp, mv, touch, and mkdir.',
+      'Added standard Bash double-Tab behavior: when multiple matches exist with no further common prefix progression, matching items are displayed directly in the terminal buffer with ANSI syntax coloring (cyan for directories, green for executables).',
+      'Integrated smart service autocompletion for systemctl and journalctl -u, Docker container names for docker logs/restart/stop, and APT packages for apt install.',
+      'Supported pipeline (|) segments, logical operators (&&, ||), delimiters (;), trailing arguments, and sudo prefixes.',
+      'Added Right Arrow key (ArrowRight) support to accept inline ghost text autocompletion at end of line.'
+    ]
+  },
   {
     version: '1.97.1',
     releaseDate: '2026-09-20',
