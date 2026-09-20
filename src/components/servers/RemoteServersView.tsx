@@ -2050,6 +2050,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       <LinuxTerminalModal
         isOpen={isTerminalModalOpen}
         server={terminalServer}
+        availableServers={servers}
         initialShell={terminalShell}
         sessionPassword={ephemeralTerminalPassword}
         onClose={() => {

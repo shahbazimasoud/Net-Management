@@ -52,6 +52,7 @@ import { getIntellisense, IntellisenseResult, LINUX_COMMANDS_CATALOG } from './l
 export interface LinuxTerminalModalProps {
   isOpen: boolean;
   server: RemoteServer | null;
+  availableServers?: RemoteServer[];
   initialShell?: 'bash' | 'zsh';
   sessionPassword?: string;
   onClose: () => void;
@@ -70,6 +71,7 @@ interface TerminalLogLine {
 
 interface TerminalPane {
   id: string;
+  server: RemoteServer;
   title: string;
   selectedShell: 'bash' | 'zsh';
   lines: TerminalLogLine[];
@@ -384,6 +386,7 @@ const LINUX_COMMAND_SNIPPETS: SnippetItem[] = [
 export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   isOpen,
   server,
+  availableServers = [],
   initialShell = 'bash',
   sessionPassword,
   onClose,
@@ -403,11 +406,22 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const [isSplitMenuOpen, setIsSplitMenuOpen] = useState(false);
   const splitMenuRef = useRef<HTMLDivElement>(null);
 
+  // Server Picker Modal for Split View
+  const [isServerPickerOpen, setIsServerPickerOpen] = useState(false);
+  const [serverPickerSearch, setServerPickerSearch] = useState('');
+  const [serverPickerCategory, setServerPickerCategory] = useState('all');
+  const [selectedServerForNewPane, setSelectedServerForNewPane] = useState<RemoteServer | null>(null);
+  const [newPaneShell, setNewPaneShell] = useState<'bash' | 'zsh'>('bash');
+  const [newPanePassword, setNewPanePassword] = useState('');
+  const [showNewPanePassword, setShowNewPanePassword] = useState(false);
+  const [splitDropdownSearch, setSplitDropdownSearch] = useState('');
+
   // Panes management
   const [panes, setPanes] = useState<TerminalPane[]>(() => [
     {
       id: 'pane-1',
-      title: 'Shell #1',
+      server: (server || {}) as RemoteServer,
+      title: `${server?.name || 'Linux Server'} (${initialShell})`,
       selectedShell: initialShell,
       lines: [],
       inputVal: '',
@@ -422,6 +436,40 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     },
   ]);
   const [activePaneId, setActivePaneId] = useState<string>('pane-1');
+
+  // List of other available servers (excluding current server if desired)
+  const otherServers = useMemo(() => {
+    return (availableServers || []).filter((s) => s.id !== server?.id);
+  }, [availableServers, server?.id]);
+
+  // Filtered other servers for the quick Split dropdown
+  const filteredDropdownServers = useMemo(() => {
+    const q = splitDropdownSearch.trim().toLowerCase();
+    if (!q) return otherServers;
+    return otherServers.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.ip.includes(q) ||
+        (s.hostname && s.hostname.toLowerCase().includes(q)) ||
+        (s.tags && s.tags.some((t) => t.toLowerCase().includes(q)))
+    );
+  }, [otherServers, splitDropdownSearch]);
+
+  // Filtered servers for the full Server Picker modal
+  const filteredModalServers = useMemo(() => {
+    const q = serverPickerSearch.trim().toLowerCase();
+    return (availableServers || []).filter((s) => {
+      if (serverPickerCategory !== 'all' && s.category !== serverPickerCategory) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.ip.includes(q) ||
+        (s.hostname && s.hostname.toLowerCase().includes(q)) ||
+        (s.os_distro && s.os_distro.toLowerCase().includes(q)) ||
+        (s.tags && s.tags.some((t) => t.toLowerCase().includes(q)))
+      );
+    });
+  }, [availableServers, serverPickerSearch, serverPickerCategory]);
 
   // Input & Scroll Refs per pane
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -445,6 +493,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         const p1 = copy[0];
         copy[0] = {
           ...p1,
+          server: server,
+          title: `${server.name} (${initialShell})`,
           selectedShell: initialShell,
           ephemeralPassword: sessionPassword,
           isPasswordPromptActive: Boolean(server.prompt_password_on_connect && !sessionPassword),
@@ -471,9 +521,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Prompt Generator
   const getPromptString = useCallback(
-    (shellType: 'bash' | 'zsh', cwd: string = '~') => {
-      const user = server?.ssh_username || 'root';
-      const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'linux';
+    (shellType: 'bash' | 'zsh', cwd: string = '~', paneServer?: RemoteServer | null) => {
+      const srv = paneServer || server;
+      const user = srv?.ssh_username || 'root';
+      const host = srv?.hostname || srv?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'linux';
       const homeDir = user === 'root' ? '/root' : `/home/${user}`;
       let displayCwd = cwd || '~';
       if (displayCwd === homeDir) {
@@ -492,15 +543,16 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Emulated Command Response Generator
   const generateEmulatedResponse = useCallback(
-    (command: string, cwd: string = '~'): string => {
+    (command: string, cwd: string = '~', paneServer?: RemoteServer | null): string => {
+      const srv = paneServer || server;
       const cmd = command.trim();
-      const host = server?.hostname || server?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'web-prod01.internal';
-      const ip = server?.ip || '192.168.10.15';
-      const distro = server?.os_distro || 'Ubuntu 24.04 LTS';
-      const cores = server?.cpu_cores || 8;
-      const ram = server?.ram_gb || 32;
-      const disk = server?.disk_gb || 500;
-      const user = server?.ssh_username || 'root';
+      const host = srv?.hostname || srv?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'web-prod01.internal';
+      const ip = srv?.ip || '192.168.10.15';
+      const distro = srv?.os_distro || 'Ubuntu 24.04 LTS';
+      const cores = srv?.cpu_cores || 8;
+      const ram = srv?.ram_gb || 32;
+      const disk = srv?.disk_gb || 500;
+      const user = srv?.ssh_username || 'root';
       const homeDir = user === 'root' ? '/root' : `/home/${user}`;
 
       if (!cmd) return '';
@@ -710,17 +762,25 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Connect WebSocket session for a specific pane
   const connectPaneSession = useCallback(
-    (paneId: string, customShell?: 'bash' | 'zsh', suppliedPassword?: string) => {
-      if (!server) return;
-
+    (
+      paneId: string,
+      customShell?: 'bash' | 'zsh',
+      suppliedPassword?: string,
+      customServer?: RemoteServer
+    ) => {
       const currentPane = panes.find((p) => p.id === paneId);
+      const targetServer = customServer || currentPane?.server || server;
+      if (!targetServer) return;
+
       const targetShell = customShell || currentPane?.selectedShell || initialShell;
       const targetPassword =
         suppliedPassword !== undefined
           ? suppliedPassword
           : currentPane?.ephemeralPassword !== undefined
           ? currentPane.ephemeralPassword
-          : sessionPassword;
+          : targetServer.id === server?.id
+          ? sessionPassword
+          : targetServer.ssh_password;
 
       // Close existing socket for this pane
       if (wsRefs.current[paneId]) {
@@ -731,7 +791,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       }
 
       // Guard against connecting without password if prompt_password_on_connect is true
-      if (server.prompt_password_on_connect && !targetPassword) {
+      if (targetServer.prompt_password_on_connect && !targetPassword) {
         setPanes((prev) =>
           prev.map((p) => (p.id === paneId ? { ...p, isPasswordPromptActive: true, isConnecting: false } : p))
         );
@@ -743,6 +803,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           if (p.id !== paneId) return p;
           return {
             ...p,
+            server: targetServer,
             isConnecting: true,
             isConnected: false,
             selectedShell: targetShell,
@@ -752,7 +813,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
               {
                 id: Math.random().toString(),
                 type: 'system',
-                text: `[Connecting] Establishing ${targetShell.toUpperCase()} SSH session to ${server.name} (${server.ip}:${server.ssh_port || 22})...`,
+                text: `[Connecting] Establishing ${targetShell.toUpperCase()} SSH session to ${targetServer.name} (${targetServer.ip}:${targetServer.ssh_port || 22})...`,
                 timestamp: new Date().toLocaleTimeString(),
               },
             ],
@@ -760,11 +821,11 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         })
       );
 
-      const wsUrl = getRemoteServerWebSocketUrl(server.id, targetShell, {
-        ip: server.ip,
-        ssh_port: server.ssh_port || 22,
-        ssh_username: server.ssh_username || 'root',
-        ssh_password: server.prompt_password_on_connect ? targetPassword || '' : targetPassword || server.ssh_password,
+      const wsUrl = getRemoteServerWebSocketUrl(targetServer.id, targetShell, {
+        ip: targetServer.ip,
+        ssh_port: targetServer.ssh_port || 22,
+        ssh_username: targetServer.ssh_username || 'root',
+        ssh_password: targetServer.prompt_password_on_connect ? targetPassword || '' : targetPassword || targetServer.ssh_password,
       });
 
       try {
@@ -835,7 +896,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                           type: 'system',
                           text:
                             msg.message ||
-                            `[Connected] Live SSH channel established with ${server.ip} on /bin/${targetShell}.`,
+                            `[Connected] Live SSH channel established with ${targetServer.ip} on /bin/${targetShell}.`,
                           timestamp: new Date().toLocaleTimeString(),
                         },
                       ],
@@ -926,7 +987,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                   {
                     id: Math.random().toString(),
                     type: 'system',
-                    text: `[Notice] Operating in high-fidelity local interactive emulation mode (${server.ip} / ${targetShell}).`,
+                    text: `[Notice] Operating in high-fidelity local interactive emulation mode (${targetServer.ip} / ${targetShell}).`,
                     timestamp: new Date().toLocaleTimeString(),
                   },
                 ],
@@ -987,10 +1048,11 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       const targetPane = panes.find((p) => p.id === paneId);
       if (!targetPane) return;
 
+      const paneServer = targetPane.server || server;
       const currentCwd = targetPane.cwd || '~';
-      const promptStr = getPromptString(targetPane.selectedShell, currentCwd);
+      const promptStr = getPromptString(targetPane.selectedShell, currentCwd, paneServer);
 
-      const user = server?.ssh_username || 'root';
+      const user = paneServer?.ssh_username || 'root';
       const homeDir = user === 'root' ? '/root' : `/home/${user}`;
 
       let newCwd = currentCwd;
@@ -1068,7 +1130,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
       if (!handledByWs && !directOutput) {
         setTimeout(() => {
-          const response = generateEmulatedResponse(trimmed, newCwd);
+          const response = generateEmulatedResponse(trimmed, newCwd, paneServer);
           if (response === '__CLEAR__') {
             setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, lines: [] } : p)));
             return;
@@ -1113,7 +1175,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       return { ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false };
     }
     const currentCwd = activePane.cwd || '~';
-    const user = server?.ssh_username || 'root';
+    const srv = activePane?.server || server;
+    const user = srv?.ssh_username || 'root';
     const homeDir = user === 'root' ? '/root' : `/home/${user}`;
     return getIntellisense(activePane.inputVal, currentCwd, homeDir);
   }, [activePane, server]);
@@ -1124,12 +1187,14 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     paneId: string,
     pane: TerminalPane
   ) => {
+    const paneServer = pane.server || server;
+    const user = paneServer?.ssh_username || 'root';
+    const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+
     // 1. Tab Key: Linux Intellisense Autocomplete
     if (e.key === 'Tab') {
       e.preventDefault();
       const currentCwd = pane.cwd || '~';
-      const user = server?.ssh_username || 'root';
-      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
       const intellisense = getIntellisense(pane.inputVal, currentCwd, homeDir);
 
       if (intellisense.candidates.length > 0) {
@@ -1167,7 +1232,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                   {
                     id: Math.random().toString(),
                     type: 'prompt-command',
-                    prompt: getPromptString(p.selectedShell, p.cwd || '~'),
+                    prompt: getPromptString(p.selectedShell, p.cwd || '~', p.server),
                     text: p.inputVal,
                     timestamp: new Date().toLocaleTimeString(),
                   },
@@ -1192,8 +1257,6 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       const inputEl = inputRefs.current[paneId];
       if (inputEl && inputEl.selectionStart === pane.inputVal.length) {
         const currentCwd = pane.cwd || '~';
-        const user = server?.ssh_username || 'root';
-        const homeDir = user === 'root' ? '/root' : `/home/${user}`;
         const intellisense = getIntellisense(pane.inputVal, currentCwd, homeDir);
         if (intellisense.ghostSuggestion && intellisense.completedInput !== pane.inputVal) {
           e.preventDefault();
@@ -1250,7 +1313,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       } else {
         setPanes((prev) =>
           prev.map((p) =>
-            p.id === paneId ? { ...p, historyIdx: nextIdx, inputVal: p.history[nextIdx] || '' } : p
+            p.id === paneId ? { ...p, historyIdx: nextIdx, inputVal: pane.history[nextIdx] || '' } : p
           )
         );
       }
@@ -1272,7 +1335,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
               {
                 id: Math.random().toString(),
                 type: 'prompt-command',
-                prompt: getPromptString(p.selectedShell, p.cwd || '~'),
+                prompt: getPromptString(p.selectedShell, p.cwd || '~', p.server),
                 text: `${p.inputVal}^C`,
                 timestamp: new Date().toLocaleTimeString(),
               },
@@ -1296,13 +1359,29 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     }
   };
 
-  // Add a new split pane
-  const handleAddSplitPane = (shellToUse: 'bash' | 'zsh' = 'bash') => {
+  // Add a new split pane (for current server or a chosen different server)
+  const handleAddSplitPane = (
+    shellToUse: 'bash' | 'zsh' = 'bash',
+    targetServer?: RemoteServer,
+    targetPassword?: string
+  ) => {
     if (panes.length >= 4) return;
+    const srv = targetServer || server;
+    if (!srv) return;
+
     const newId = `pane-${Date.now().toString(36).substring(2, 7)}`;
+    const effectivePwd =
+      targetPassword !== undefined
+        ? targetPassword
+        : srv.id === server?.id
+        ? sessionPassword
+        : srv.ssh_password;
+    const needsPassword = Boolean(srv.prompt_password_on_connect && !effectivePwd);
+
     const newPane: TerminalPane = {
       id: newId,
-      title: `Shell #${panes.length + 1}`,
+      server: srv,
+      title: `${srv.name} (${shellToUse})`,
       selectedShell: shellToUse,
       lines: [],
       inputVal: '',
@@ -1310,8 +1389,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       historyIdx: -1,
       isConnected: false,
       isConnecting: false,
-      ephemeralPassword: sessionPassword,
-      isPasswordPromptActive: Boolean(server?.prompt_password_on_connect && !sessionPassword),
+      ephemeralPassword: effectivePwd,
+      isPasswordPromptActive: needsPassword,
       cwd: '~',
       previousCwd: '~',
     };
@@ -1329,10 +1408,13 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     }
 
     setIsSplitMenuOpen(false);
+    setIsServerPickerOpen(false);
+    setSelectedServerForNewPane(null);
+    setNewPanePassword('');
 
     // Connect new pane session
     setTimeout(() => {
-      connectPaneSession(newId, shellToUse, sessionPassword);
+      connectPaneSession(newId, shellToUse, effectivePwd, srv);
       inputRefs.current[newId]?.focus();
     }, 100);
   };
@@ -1602,16 +1684,78 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                     {panes.length === 4 && layoutMode === 'grid-4' && <Check className="w-3.5 h-3.5" />}
                   </button>
 
-                  <div className="border-t border-slate-800 pt-1">
+                  <div className="border-t border-slate-800 pt-1.5 space-y-1">
                     <button
                       type="button"
                       disabled={panes.length >= 4}
                       onClick={() => handleAddSplitPane('bash')}
-                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{isEn ? '+ Add New Shell Pane' : '+ افزودن شل جدید'}</span>
+                      <div className="flex items-center gap-2">
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Add Shell (Current Server)' : 'افزودن شل (سرور فعلی)'}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[80px]">
+                        {server?.name}
+                      </span>
                     </button>
+
+                    <button
+                      type="button"
+                      disabled={panes.length >= 4 || !availableServers || availableServers.length <= 1}
+                      onClick={() => {
+                        setIsSplitMenuOpen(false);
+                        setSelectedServerForNewPane(otherServers[0] || null);
+                        setNewPanePassword('');
+                        setIsServerPickerOpen(true);
+                      }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-cyan-400 hover:bg-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Server className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Choose Server from List...' : 'انتخاب سرور از لیست...'}</span>
+                      </div>
+                      {otherServers.length > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold">
+                          {otherServers.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Quick list of other servers right in dropdown */}
+                    {otherServers.length > 0 && (
+                      <div className="pt-1.5 border-t border-slate-800/80">
+                        <div className="px-2 py-1 text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                          {isEn ? 'Quick-Connect Other Servers' : 'اتصال سریع به سایر سرورها'}
+                        </div>
+                        <div className="max-h-32 overflow-y-auto space-y-0.5 pe-0.5">
+                          {otherServers.slice(0, 4).map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              disabled={panes.length >= 4}
+                              onClick={() => {
+                                handleAddSplitPane('bash', s);
+                                setIsSplitMenuOpen(false);
+                              }}
+                              className="w-full flex items-center justify-between px-2 py-1 rounded text-xs text-slate-300 hover:text-white hover:bg-slate-800/90 transition text-left cursor-pointer disabled:opacity-40"
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    s.status === 'online' ? 'bg-emerald-400' : 'bg-slate-500'
+                                  }`}
+                                />
+                                <span className="truncate">{s.name}</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-400 shrink-0 ms-2">
+                                {s.ip}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1677,7 +1821,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           <div className={`flex-1 grid gap-1.5 p-1.5 bg-black overflow-hidden ${getGridClasses()}`}>
             {panes.map((pane, index) => {
               const isActive = pane.id === activePaneId;
-              const user = server?.ssh_username || 'root';
+              const paneServer = pane.server || server;
+              const user = paneServer?.ssh_username || 'root';
               const homeDir = user === 'root' ? '/root' : `/home/${user}`;
               const intellisense = isActive ? activeIntellisense : getIntellisense(pane.inputVal, pane.cwd || '~', homeDir);
               const ghostText = intellisense.ghostSuggestion;
@@ -1704,7 +1849,13 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                             : 'bg-cyan-400'
                         }`}
                       />
-                      <span className="font-bold text-white truncate text-xs">{pane.title}</span>
+                      <span className="font-bold text-white truncate text-xs flex items-center gap-1.5">
+                        <Server className="w-3 h-3 text-indigo-400 shrink-0" />
+                        <span className="truncate">{paneServer?.name || pane.title}</span>
+                        <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
+                          ({paneServer?.ip})
+                        </span>
+                      </span>
 
                       {/* Shell Selector */}
                       <div className="flex items-center bg-slate-900 rounded-md p-0.5 border border-slate-800">
@@ -1752,7 +1903,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       {/* Reconnect Pane */}
                       <button
                         type="button"
-                        onClick={() => connectPaneSession(pane.id, pane.selectedShell)}
+                        onClick={() => connectPaneSession(pane.id, pane.selectedShell, undefined, paneServer)}
                         title={isEn ? 'Reconnect' : 'اتصال مجدد'}
                         className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
                       >
@@ -1785,8 +1936,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       </h4>
                       <p className="text-xs text-slate-400 max-w-sm mb-4">
                         {isEn
-                          ? `This server requires interactive password authentication for ${server.ssh_username || 'root'}@${server.ip}. Your password will remain strictly ephemeral.`
-                          : `این سرور نیازمند دریافت رمز عبور در لحظه اتصال برای کاربر ${server.ssh_username || 'root'}@${server.ip} است. پسورد ذخیره نخواهد شد.`}
+                          ? `This server requires interactive password authentication for ${paneServer?.ssh_username || 'root'}@${paneServer?.ip}. Your password will remain strictly ephemeral.`
+                          : `این سرور نیازمند دریافت رمز عبور در لحظه اتصال برای کاربر ${paneServer?.ssh_username || 'root'}@${paneServer?.ip} است. پسورد ذخیره نخواهد شد.`}
                       </p>
 
                       <div className="w-full max-w-xs space-y-3">
@@ -1840,10 +1991,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       {pane.lines.length === 0 && (
                         <div className="mb-3 pb-2.5 border-b border-slate-800/80 text-xs text-slate-400 select-none">
                           <div className="text-emerald-400 font-bold text-xs">
-                            Welcome to {server.os_distro || 'Linux'} on {server.name} ({server.hostname || server.ip})
+                            Welcome to {paneServer?.os_distro || 'Linux'} on {paneServer?.name} ({paneServer?.hostname || paneServer?.ip})
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            * System load: 0.24, 0.31, 0.28 • Memory: {server.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell} • Path: {pane.cwd || '~'}
+                            * System load: 0.24, 0.31, 0.28 • Memory: {paneServer?.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell} • Path: {pane.cwd || '~'}
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
                             <span>Tab for Intellisense autocompletion</span>
@@ -1882,7 +2033,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                             return (
                               <div key={l.id} className="text-emerald-300 font-bold py-0.5 flex items-baseline flex-wrap">
                                 <span className="text-emerald-400 select-none me-1.5 font-mono">
-                                  {l.prompt || getPromptString(pane.selectedShell, pane.cwd || '~')}
+                                  {l.prompt || getPromptString(pane.selectedShell, pane.cwd || '~', paneServer)}
                                 </span>
                                 <span className="text-white font-mono">{l.text}</span>
                               </div>
@@ -1902,7 +2053,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       {/* Interactive Prompt & Input with Ghost Autocomplete! */}
                       <div className="flex items-center flex-wrap pt-1 mt-auto relative">
                         <span className="text-emerald-400 font-bold text-xs sm:text-sm select-none font-mono whitespace-nowrap me-1.5">
-                          {getPromptString(pane.selectedShell, pane.cwd || '~')}
+                          {getPromptString(pane.selectedShell, pane.cwd || '~', paneServer)}
                         </span>
                         <div className="flex-1 min-w-[200px] flex items-center relative">
                           <input
@@ -2242,6 +2393,282 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
             </div>
           )}
         </div>
+        {/* Server Picker Modal Dialog for Split View */}
+        {isServerPickerOpen && (
+          <div
+            className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+            onClick={() => setIsServerPickerOpen(false)}
+          >
+            <div
+              className="w-full max-w-2xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-5 py-4 bg-slate-950 border-b border-slate-800 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                    <Server className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                      <span>{isEn ? 'Open Terminal on Another Server' : 'اتصال ترمینال به سرور دیگر'}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-normal font-mono">
+                        {filteredModalServers.length} {isEn ? 'available' : 'سرور در دسترس'}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {isEn
+                        ? 'Select an available server to add as a new split pane in the terminal grid.'
+                        : 'سرور مورد نظر را برای ایجاد یک پنجره و تب شل مجزا در ترمینال انتخاب کنید.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsServerPickerOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Search & Filter Bar */}
+              <div className="p-4 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row gap-2.5">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 left-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={serverPickerSearch}
+                    onChange={(e) => setServerPickerSearch(e.target.value)}
+                    placeholder={
+                      isEn
+                        ? 'Search by server name, IP, OS distro, or tag...'
+                        : 'جستجو بر اساس نام سرور، آی‌پی، سیستم‌عامل یا برچسب...'
+                    }
+                    className="w-full ps-9 pe-8 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                    autoFocus
+                  />
+                  {serverPickerSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setServerPickerSearch('')}
+                      className="absolute top-1/2 -translate-y-1/2 right-3 text-slate-400 hover:text-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Server List */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-48 max-h-96">
+                {filteredModalServers.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500 text-xs">
+                    {isEn ? 'No matching servers found.' : 'سروری با این مشخصات یافت نشد.'}
+                  </div>
+                ) : (
+                  filteredModalServers.map((s) => {
+                    const isSelected = selectedServerForNewPane?.id === s.id;
+                    const isCurrentServer = s.id === server?.id;
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => setSelectedServerForNewPane(s)}
+                        onDoubleClick={() => {
+                          setSelectedServerForNewPane(s);
+                          handleAddSplitPane(newPaneShell, s, newPanePassword);
+                        }}
+                        className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${
+                          isSelected
+                            ? 'bg-cyan-500/10 border-cyan-500 shadow-md shadow-cyan-950/40 ring-1 ring-cyan-500/50'
+                            : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                              isSelected
+                                ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300'
+                                : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <Server className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs sm:text-sm text-white truncate">
+                                {s.name}
+                              </span>
+                              {isCurrentServer && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                  {isEn ? 'Current Server' : 'سرور فعلی'}
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                                  s.status === 'online'
+                                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                    : 'bg-slate-700/50 text-slate-300 border-slate-600'
+                                }`}
+                              >
+                                {s.status}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5 flex-wrap">
+                              <span className="text-cyan-400">{s.ip}:{s.ssh_port || 22}</span>
+                              <span>•</span>
+                              <span>{s.ssh_username || 'root'}</span>
+                              <span>•</span>
+                              <span>{s.os_distro || 'Linux'}</span>
+                              {s.environment && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-amber-300">{s.environment}</span>
+                                </>
+                              )}
+                            </div>
+                            {s.tags && s.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {s.tags.map((t) => (
+                                  <span
+                                    key={t}
+                                    className="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono"
+                                  >
+                                    #{t}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center">
+                          <div
+                            className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
+                              isSelected
+                                ? 'border-cyan-500 bg-cyan-500 text-slate-950'
+                                : 'border-slate-700 bg-slate-900'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Bottom Config: Shell Type, Optional Ephemeral Password, & Submit Action */}
+              <div className="p-4 bg-slate-950 border-t border-slate-800 space-y-3 shrink-0">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Shell Choice */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400">{isEn ? 'Shell:' : 'محیط شل:'}</span>
+                    <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setNewPaneShell('bash')}
+                        className={`px-3 py-1 rounded text-xs font-mono font-bold transition cursor-pointer ${
+                          newPaneShell === 'bash'
+                            ? 'bg-emerald-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        bash
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewPaneShell('zsh')}
+                        className={`px-3 py-1 rounded text-xs font-mono font-bold transition cursor-pointer ${
+                          newPaneShell === 'zsh'
+                            ? 'bg-cyan-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        zsh
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Selected Server info summary */}
+                  {selectedServerForNewPane && (
+                    <div className="text-xs text-slate-300 flex items-center gap-1.5 truncate">
+                      <span className="text-slate-400">{isEn ? 'Target:' : 'مقصد:'}</span>
+                      <span className="font-bold text-cyan-300 font-mono">
+                        {selectedServerForNewPane.name} ({selectedServerForNewPane.ip})
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Password field if target server requires prompt on connect */}
+                {selectedServerForNewPane?.prompt_password_on_connect && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-amber-300 font-bold flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Ephemeral Password Required' : 'رمز عبور یکبارمصرف'}</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {isEn ? 'Not saved permanently' : 'ذخیره دائمی نمی‌شود'}
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showNewPanePassword ? 'text' : 'password'}
+                        value={newPanePassword}
+                        onChange={(e) => setNewPanePassword(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && selectedServerForNewPane) {
+                            handleAddSplitPane(newPaneShell, selectedServerForNewPane, newPanePassword);
+                          }
+                        }}
+                        placeholder={isEn ? 'Enter SSH password for this server...' : 'رمز عبور سرور را وارد کنید...'}
+                        className="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white outline-none focus:border-amber-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPanePassword(!showNewPanePassword)}
+                        className={`absolute top-1/2 -translate-y-1/2 ${
+                          isEn ? 'right-2.5' : 'left-2.5'
+                        } text-slate-400 hover:text-white cursor-pointer`}
+                      >
+                        {showNewPanePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsServerPickerOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selectedServerForNewPane || panes.length >= 4}
+                    onClick={() => {
+                      if (selectedServerForNewPane) {
+                        handleAddSplitPane(newPaneShell, selectedServerForNewPane, newPanePassword);
+                      }
+                    }}
+                    className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Plus className="w-4 h-4 stroke-[2.5]" />
+                    <span>
+                      {isEn ? 'Open Shell in Split Pane' : 'باز کردن شل در پنجره جدید'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>,
     document.body

@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.97.2';
+export const APP_VERSION = '1.98.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.98.0',
+    releaseDate: '2026-09-20',
+    type: 'minor',
+    title: 'پشتیبانی از اتصال همزمان به سرورهای مختلف در نمای چندگانه ترمینال (Multi-Server Split View)',
+    title_en: 'Multi-Server Split View: Open Multiple Shell Panes to Different Linux Servers Simultaneously',
+    changes: [
+      'افزودن امکان انتخاب و باز کردن شل ترمینال به سرورهای مختلف از لیست سرورها در نمای تفکیک‌شده (Split View).',
+      'طراحی مودال حرفه‌ای انتخاب سرور (Server Picker Modal) با فیلتر جستجوی زنده بر اساس نام، آی‌پی، توزیع سیستم‌عامل و برچسب‌ها.',
+      'امکان انتخاب محیط شل (Bash یا Zsh) و دریافت رمز عبور یکبارمصرف (Ephemeral Password) برای سرورهای مقصد با احراز هویت پسورد.',
+      'افزودن گزینه اتصال سریع (Quick-Connect) به سایر سرورها مستقیماً در منوی بازشونده Split View.',
+      'جداسازی کامل نشست‌ها، نشست‌های وب‌سوکت مستقل، وضعیت احراز هویت، تاریخچه دستورات و مسیر دایرکتوری (CWD) به ازای هر سرور در پنل‌ها.',
+      'نمایش نشانگر نام سرور، آیکون و آی‌پی در هدر هر پنجره تفکیک‌شده به منظور تشخیص آسان سرور متصل.'
+    ],
+    changes_en: [
+      'Added the ability to select and open terminal shell sessions to different remote Linux servers from the server catalog within Split View.',
+      'Engineered an interactive Server Picker modal dialog with live search filtering across server names, IP addresses, OS distros, and tags.',
+      'Supported per-pane shell selection (Bash or Zsh) and on-demand ephemeral password authentication for password-protected target servers.',
+      'Added a Quick-Connect list of other available servers directly in the Split View dropdown menu.',
+      'Isolated session states, independent WebSockets, authentication states, command histories, and current working directories (CWD) per pane/server.',
+      'Added server identity badges (name, IP, icon) in each pane sub-header for clear differentiation across multi-server layouts.'
+    ]
+  },
   {
     version: '1.97.2',
     releaseDate: '2026-09-20',
