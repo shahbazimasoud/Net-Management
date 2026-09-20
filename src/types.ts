@@ -1231,6 +1231,18 @@ export interface RemoteServerTagSummary {
   count: number;
 }
 
+export interface ServerCategory {
+  id: string;
+  name: string;
+  name_fa?: string;
+  description?: string;
+  color?: string;
+  serverCount?: number;
+  is_default?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 declare module 'guacamole-common-js';
 
 

@@ -156,6 +156,19 @@ interface FallbackStore {
   ad_config: any;
   device_sticky_notes?: any[];
   remote_servers?: RemoteServer[];
+  server_categories?: ServerCategory[];
+}
+
+export interface ServerCategory {
+  id: string;
+  name: string;
+  name_fa?: string;
+  description?: string;
+  color?: string;
+  is_default?: boolean;
+  serverCount?: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 function loadInitialDevices(): any[] {
@@ -476,6 +489,81 @@ const DEFAULT_AD_CONFIG = {
   status: 'configured'
 };
 
+export const DEFAULT_SERVER_CATEGORIES: ServerCategory[] = [
+  {
+    id: 'cat-infrastructure',
+    name: 'Infrastructure',
+    name_fa: 'زیرساخت و شبکه',
+    description: 'Core infrastructure, hypervisors, firewalls, and network appliances',
+    color: 'blue',
+    is_default: true,
+  },
+  {
+    id: 'cat-database',
+    name: 'Database',
+    name_fa: 'پایگاه داده',
+    description: 'Relational databases, SQL clusters, NoSQL datastores, and caching servers',
+    color: 'emerald',
+    is_default: true,
+  },
+  {
+    id: 'cat-kubernetes',
+    name: 'Kubernetes',
+    name_fa: 'کوبرنتیز و کلاسترها',
+    description: 'Kubernetes control plane, worker nodes, and containerized clusters',
+    color: 'cyan',
+    is_default: true,
+  },
+  {
+    id: 'cat-web-app',
+    name: 'Web / App',
+    name_fa: 'وب و اپلیکیشن',
+    description: 'Web applications, backend microservices, and reverse proxies',
+    color: 'purple',
+    is_default: true,
+  },
+  {
+    id: 'cat-monitoring',
+    name: 'Monitoring',
+    name_fa: 'مانیتورینگ و لاگ',
+    description: 'Observability, Prometheus, Grafana, logging, and APM systems',
+    color: 'amber',
+    is_default: true,
+  },
+  {
+    id: 'cat-active-directory',
+    name: 'Active Directory',
+    name_fa: 'اکتیو دایرکتوری و هویت',
+    description: 'Windows domain controllers, Kerberos, DNS, and identity servers',
+    color: 'rose',
+    is_default: true,
+  },
+  {
+    id: 'cat-devops',
+    name: 'DevOps & Automation',
+    name_fa: 'دواپس و اتوماسیون',
+    description: 'CI/CD runners, Ansible, Terraform, and automated deployment engines',
+    color: 'indigo',
+    is_default: true,
+  },
+  {
+    id: 'cat-general',
+    name: 'General',
+    name_fa: 'عمومی',
+    description: 'General purpose utility servers and multipurpose instances',
+    color: 'teal',
+    is_default: true,
+  },
+  {
+    id: 'cat-uncategorized',
+    name: 'Uncategorized',
+    name_fa: 'دسته‌بندی‌نشده',
+    description: 'System fallback category for newly added or unclassified servers',
+    color: 'slate',
+    is_default: true,
+  },
+];
+
 export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [
   {
     id: 'srv-web-prod01',
@@ -709,6 +797,9 @@ function loadFallbackStore(): FallbackStore {
   }
   if (!Array.isArray(store.remote_servers) || store.remote_servers.length === 0) {
     store.remote_servers = DEFAULT_REMOTE_SERVERS;
+  }
+  if (!Array.isArray(store.server_categories) || store.server_categories.length === 0) {
+    store.server_categories = [...DEFAULT_SERVER_CATEGORIES];
   }
   if (!Array.isArray(store.audit_logs)) {
     store.audit_logs = [
@@ -1073,6 +1164,50 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
     }
   } catch (err: any) {
     console.warn('[Database Sync Notice] Remote Servers sync notice:', err.message);
+  }
+
+  // 12. Sync Server Categories
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS server_categories (
+        id VARCHAR(100) PRIMARY KEY,
+        name VARCHAR(150) NOT NULL UNIQUE,
+        name_fa VARCHAR(150),
+        description TEXT,
+        color VARCHAR(50) DEFAULT 'indigo',
+        is_default BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    const catCountRes = await client.query('SELECT count(*) as count FROM server_categories');
+    if (parseInt(catCountRes.rows[0]?.count || '0', 10) === 0) {
+      const catsToSeed = (Array.isArray(initialData.server_categories) && initialData.server_categories.length > 0)
+        ? initialData.server_categories
+        : DEFAULT_SERVER_CATEGORIES;
+      for (const c of catsToSeed) {
+        if (!c || !c.id || !c.name) continue;
+        await client.query(
+          `INSERT INTO server_categories (
+            id, name, name_fa, description, color, is_default, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            c.id,
+            c.name,
+            c.name_fa || c.name,
+            c.description || '',
+            c.color || 'indigo',
+            Boolean(c.is_default),
+            c.created_at || new Date().toISOString(),
+            c.updated_at || new Date().toISOString()
+          ]
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Server Categories sync notice:', err.message);
   }
 }
 
@@ -3050,3 +3185,279 @@ export async function getRemoteServerTagsSummary(): Promise<{ tag: string; count
     .map(([tag, count]) => ({ tag, count }))
     .sort((a, b) => b.count - a.count);
 }
+
+// ==========================================
+// SERVER CATEGORIES CRUD & REASSIGN OPERATIONS
+// ==========================================
+
+export async function getAllServerCategories(): Promise<ServerCategory[]> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.server_categories) || store.server_categories.length === 0) {
+    store.server_categories = [...DEFAULT_SERVER_CATEGORIES];
+    saveFallbackStore(store);
+  }
+
+  // Live count calculation
+  const allServers = await getAllRemoteServers();
+  const countsByName: Record<string, number> = {};
+  for (const s of allServers) {
+    const cat = (s.category || 'Uncategorized').trim().toLowerCase();
+    countsByName[cat] = (countsByName[cat] || 0) + 1;
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM server_categories ORDER BY is_default DESC, name ASC');
+      if (res.rows && res.rows.length > 0) {
+        return res.rows.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          name_fa: r.name_fa || r.name,
+          description: r.description || '',
+          color: r.color || 'indigo',
+          is_default: Boolean(r.is_default),
+          serverCount: countsByName[r.name.trim().toLowerCase()] || 0,
+          created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+          updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+        }));
+      }
+    } catch (e) {
+      console.warn('[DB Error getAllServerCategories, falling back to local store]', e);
+    }
+  }
+
+  return store.server_categories.map((c) => ({
+    ...c,
+    serverCount: countsByName[c.name.trim().toLowerCase()] || 0,
+  }));
+}
+
+export async function getServerCategoryById(id: string): Promise<ServerCategory | null> {
+  const cleanId = (id || '').trim();
+  if (!cleanId) return null;
+
+  const cats = await getAllServerCategories();
+  return cats.find((c) => c.id === cleanId || c.name.toLowerCase() === cleanId.toLowerCase()) || null;
+}
+
+export async function createServerCategory(data: Partial<ServerCategory>): Promise<ServerCategory> {
+  const rawName = (data.name || '').trim();
+  if (!rawName) {
+    throw new Error('Category name is required');
+  }
+
+  const existing = await getAllServerCategories();
+  const duplicate = existing.find((c) => c.name.toLowerCase() === rawName.toLowerCase());
+  if (duplicate) {
+    throw new Error(`Category "${rawName}" already exists`);
+  }
+
+  const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || Date.now().toString(36);
+  const id = `cat-${slug}-${Date.now().toString(36).slice(-4)}`;
+  const now = new Date().toISOString();
+
+  const newCat: ServerCategory = {
+    id,
+    name: rawName,
+    name_fa: data.name_fa?.trim() || rawName,
+    description: data.description?.trim() || '',
+    color: data.color?.trim() || 'indigo',
+    is_default: false,
+    serverCount: 0,
+    created_at: now,
+    updated_at: now,
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.server_categories)) {
+    store.server_categories = [...DEFAULT_SERVER_CATEGORIES];
+  }
+  store.server_categories.push(newCat);
+  saveFallbackStore(store);
+
+  // PostgreSQL write
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO server_categories (id, name, name_fa, description, color, is_default, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           name_fa = EXCLUDED.name_fa,
+           description = EXCLUDED.description,
+           color = EXCLUDED.color,
+           updated_at = EXCLUDED.updated_at`,
+        [newCat.id, newCat.name, newCat.name_fa, newCat.description, newCat.color, newCat.is_default, newCat.created_at, newCat.updated_at]
+      );
+    } catch (e) {
+      console.error('[DB Error createServerCategory in PostgreSQL]', e);
+    }
+  }
+
+  return newCat;
+}
+
+export async function updateServerCategory(id: string, updates: Partial<ServerCategory>): Promise<ServerCategory | null> {
+  const cleanId = (id || '').trim();
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.server_categories)) {
+    store.server_categories = [...DEFAULT_SERVER_CATEGORIES];
+  }
+
+  const idx = store.server_categories.findIndex((c) => c.id === cleanId || c.name.toLowerCase() === cleanId.toLowerCase());
+  if (idx < 0) {
+    return null;
+  }
+
+  const current = store.server_categories[idx];
+  const oldName = current.name;
+  const newName = updates.name !== undefined ? updates.name.trim() : current.name;
+
+  if (!newName) {
+    throw new Error('Category name cannot be empty');
+  }
+
+  // If renaming, check for name collision
+  if (newName.toLowerCase() !== oldName.toLowerCase()) {
+    const duplicate = store.server_categories.find(
+      (c) => c.id !== current.id && c.name.toLowerCase() === newName.toLowerCase()
+    );
+    if (duplicate) {
+      throw new Error(`Category name "${newName}" is already in use`);
+    }
+  }
+
+  const now = new Date().toISOString();
+  const updated: ServerCategory = {
+    ...current,
+    name: newName,
+    name_fa: updates.name_fa !== undefined ? updates.name_fa.trim() : current.name_fa,
+    description: updates.description !== undefined ? updates.description.trim() : current.description,
+    color: updates.color !== undefined ? updates.color.trim() : current.color,
+    updated_at: now,
+  };
+
+  store.server_categories[idx] = updated;
+
+  // CASCADE: If the category was renamed, update all servers using the old name!
+  let serversUpdated = 0;
+  if (newName !== oldName && Array.isArray(store.remote_servers)) {
+    for (const s of store.remote_servers) {
+      if (s.category && s.category.toLowerCase() === oldName.toLowerCase()) {
+        s.category = newName;
+        s.updated_at = now;
+        serversUpdated++;
+      }
+    }
+  }
+
+  saveFallbackStore(store);
+
+  // PostgreSQL update
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `UPDATE server_categories SET
+           name = $1, name_fa = $2, description = $3, color = $4, updated_at = $5
+         WHERE id = $6`,
+        [updated.name, updated.name_fa, updated.description, updated.color, updated.updated_at, updated.id]
+      );
+      if (newName !== oldName && serversUpdated > 0) {
+        await pool.query('UPDATE remote_servers SET category = $1 WHERE LOWER(category) = LOWER($2)', [newName, oldName]);
+      }
+    } catch (e) {
+      console.error('[DB Error updateServerCategory in PostgreSQL]', e);
+    }
+  }
+
+  const count = (await getAllRemoteServers()).filter((s) => s.category?.toLowerCase() === updated.name.toLowerCase()).length;
+  return { ...updated, serverCount: count };
+}
+
+export async function deleteServerCategory(
+  id: string,
+  reassignTo?: string
+): Promise<{ success: boolean; reassignedCount: number; targetCategory: string }> {
+  const cleanId = (id || '').trim();
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.server_categories)) {
+    store.server_categories = [...DEFAULT_SERVER_CATEGORIES];
+  }
+
+  const catToDelete = store.server_categories.find(
+    (c) => c.id === cleanId || c.name.toLowerCase() === cleanId.toLowerCase()
+  );
+  if (!catToDelete) {
+    throw new Error('Category not found');
+  }
+
+  // Protection: Do not allow deleting "Uncategorized" as it's the core system fallback!
+  if (catToDelete.name.toLowerCase() === 'uncategorized') {
+    throw new Error('The default "Uncategorized" system category cannot be deleted.');
+  }
+
+  // Determine target category for reassigning any assigned servers
+  let targetCatName = (reassignTo || '').trim();
+  if (!targetCatName) {
+    targetCatName = 'Uncategorized';
+  }
+
+  // Check if target category exists, if not ensure Uncategorized is available
+  let targetCat = store.server_categories.find(
+    (c) => c.name.toLowerCase() === targetCatName.toLowerCase()
+  );
+  if (!targetCat) {
+    targetCat = store.server_categories.find((c) => c.name.toLowerCase() === 'uncategorized');
+    if (!targetCat) {
+      targetCat = {
+        id: 'cat-uncategorized',
+        name: 'Uncategorized',
+        name_fa: 'دسته‌بندی‌نشده',
+        description: 'Default fallback category',
+        color: 'slate',
+        is_default: true,
+      };
+      store.server_categories.push(targetCat);
+    }
+    targetCatName = targetCat.name;
+  }
+
+  // Reassign all servers that belonged to the deleted category
+  const now = new Date().toISOString();
+  let reassignedCount = 0;
+  if (Array.isArray(store.remote_servers)) {
+    for (const s of store.remote_servers) {
+      if (s.category && s.category.toLowerCase() === catToDelete.name.toLowerCase()) {
+        s.category = targetCatName;
+        s.updated_at = now;
+        reassignedCount++;
+      }
+    }
+  }
+
+  // Remove category from store
+  store.server_categories = store.server_categories.filter((c) => c.id !== catToDelete.id);
+  saveFallbackStore(store);
+
+  // PostgreSQL operations
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      if (reassignedCount > 0) {
+        await pool.query(
+          'UPDATE remote_servers SET category = $1 WHERE LOWER(category) = LOWER($2)',
+          [targetCatName, catToDelete.name]
+        );
+      }
+      await pool.query('DELETE FROM server_categories WHERE id = $1', [catToDelete.id]);
+    } catch (e) {
+      console.error('[DB Error deleteServerCategory in PostgreSQL]', e);
+    }
+  }
+
+  return { success: true, reassignedCount, targetCategory: targetCatName };
+}
+

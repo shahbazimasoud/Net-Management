@@ -44,6 +44,11 @@ import {
   deleteRemoteServer,
   updateRemoteServerTags,
   getRemoteServerTagsSummary,
+  getAllServerCategories,
+  getServerCategoryById,
+  createServerCategory,
+  updateServerCategory,
+  deleteServerCategory,
 } from './db';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
@@ -1110,6 +1115,90 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// SERVER CATEGORIES REST ENDPOINTS
+// ==========================================
+
+// GET /api/server-categories - List all categories with live server counts
+apiRouter.get('/server-categories', async (_req: Request, res: Response) => {
+  try {
+    const categories = await getAllServerCategories();
+    res.json({ success: true, categories });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/server-categories/:id - Get single category
+apiRouter.get('/server-categories/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const category = await getServerCategoryById(id);
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Category not found' });
+    }
+    res.json({ success: true, category });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/server-categories - Create a new category
+apiRouter.post('/server-categories', async (req: Request, res: Response) => {
+  try {
+    const { name, name_fa, description, color } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Category name is required' });
+    }
+    const created = await createServerCategory({
+      name: name.trim(),
+      name_fa: name_fa ? String(name_fa).trim() : undefined,
+      description: description ? String(description).trim() : undefined,
+      color: color ? String(color).trim() : 'indigo',
+    });
+    res.status(201).json({ success: true, category: created });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/server-categories/:id - Update existing category (cascades server fleet on rename)
+apiRouter.put('/server-categories/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, name_fa, description, color } = req.body;
+    const updated = await updateServerCategory(id, {
+      name: name ? String(name).trim() : undefined,
+      name_fa: name_fa !== undefined ? String(name_fa).trim() : undefined,
+      description: description !== undefined ? String(description).trim() : undefined,
+      color: color !== undefined ? String(color).trim() : undefined,
+    });
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Category not found' });
+    }
+    res.json({ success: true, category: updated });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/server-categories/:id - Delete category with optional reassignTo
+apiRouter.delete('/server-categories/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const reassignTo = (req.query.reassignTo as string | undefined) || req.body?.reassignTo;
+    const result = await deleteServerCategory(id, reassignTo);
+    res.json({
+      success: true,
+      reassignedCount: result.reassignedCount,
+      targetCategory: result.targetCategory,
+      message: `Category deleted. ${result.reassignedCount} server(s) moved to "${result.targetCategory}".`,
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
   }
 });
 

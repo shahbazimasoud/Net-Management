@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.94.0';
+export const APP_VERSION = '1.95.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.95.0',
+    releaseDate: '2026-09-20',
+    type: 'minor',
+    title: 'سیستم جامع مدیریت داینامیک دسته‌بندی سرورها (Server Categories CRUD)، پایگاه داده ماندگار PostgreSQL و JSON، مودال استاندارد ManageServerCategoriesModal با قابلیت انتقال امن سرورها',
+    title_en: 'Dynamic Server Categories Management (CRUD), Persistent PostgreSQL & JSON Database Storage, Full-Featured ManageServerCategoriesModal with Safe Fleet Server Reassignment',
+    changes: [
+      'پیاده‌سازی کامل سیستم مدیریت دسته‌بندی‌های سرورها با امکان ایجاد (Create)، ویرایش (Update) و حذف (Delete) کامل در پایگاه داده.',
+      'طراحی جدول استاندارد server_categories در دیتابیس PostgreSQL و انطباق کامل با فایل ذخیره‌ساز fallback JSON جهت ماندگاری دائمی پس از ری‌استارت سرویس یا بارگذاری مجدد صفحه.',
+      'ارائه API کامل RESTful در مسیر /api/server-categories شامل متدهای GET، POST، PUT و DELETE با قابلیت دریافت تعداد سرورهای متصل به هر دسته.',
+      'پیاده‌سازی مکانیزم همگام‌سازی بلادرنگ (Cascading Renaming): با تغییر نام یک دسته‌بندی، تمامی سرورهای متصل به آن در دیتابیس بدون قطعی به‌روزرسانی می‌شوند.',
+      'پیاده‌سازی روال امن انتقال سرورها در هنگام حذف (Safe Deletion with Reassignment): جلوگیری از بی‌دسته شدن سرورها، امکان انتخاب دسته مقصد (با پیش‌فرض Uncategorized)، و قفل امنیتی دسته‌بندی پیش‌فرض سیستم.',
+      'طراحی مودال استاندارد ManageServerCategoriesModal با رعایت دقیق تمامی اصول ۵گانه (دکمه‌های سه‌گانه هدر، مرزبندی دقیق بالای فوتر bottom-8 در حالت تمام‌صفحه، انطباق کامل تم‌های تیره/روشن، داک ابزارها و تولتیپ‌های سه‌گانه ایمن).',
+      'تجهیز فرم افزودن و ویرایش سرورها (AddEditServerModal) و فیلترهای نوار ابزار (RemoteServersView) به دسته‌بندی‌های پویا و دکمه دسترسی مستقیم به مدیریت دسته‌ها.'
+    ],
+    changes_en: [
+      'Implemented comprehensive Dynamic Server Category Management (CRUD) allowing users to create, modify, and delete server categories.',
+      'Added persistent server_categories PostgreSQL table schema and JSON fallback store synchronization, ensuring zero data loss across reloads and service restarts.',
+      'Built full RESTful endpoints at /api/server-categories (GET, POST, PUT, DELETE) with real-time server count aggregation.',
+      'Engineered automated cascading renaming: updating a category name instantly synchronizes all assigned servers across the fleet in the database.',
+      'Engineered safe category deletion with target server reassignment (defaulting to Uncategorized), preventing orphaned server records and protecting default system categories.',
+      'Constructed the dedicated ManageServerCategoriesModal conforming to all 5 Universal Modal Architectural Standards (tri-control buttons, bottom-8 footer clearance in fullscreen, dark/light theme fidelity, tools dock integration, and 3-part boundary-safe field tooltips).',
+      'Refactored AddEditServerModal and RemoteServersView to dynamically consume live database categories and provide instant access to the category manager.'
+    ]
+  },
   {
     version: '1.94.0',
     releaseDate: '2026-09-20',

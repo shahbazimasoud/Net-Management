@@ -1270,5 +1270,79 @@
       "created_at": "2026-09-19T18:26:04.353Z",
       "updated_at": "2026-09-19T18:26:04.353Z"
     }
+  ],
+  "server_categories": [
+    {
+      "id": "cat-infrastructure",
+      "name": "Infrastructure",
+      "name_fa": "زیرساخت و شبکه",
+      "description": "Core infrastructure, hypervisors, firewalls, and network appliances",
+      "color": "blue",
+      "is_default": true
+    },
+    {
+      "id": "cat-database",
+      "name": "Database",
+      "name_fa": "پایگاه داده",
+      "description": "Relational databases, SQL clusters, NoSQL datastores, and caching servers",
+      "color": "emerald",
+      "is_default": true
+    },
+    {
+      "id": "cat-kubernetes",
+      "name": "Kubernetes",
+      "name_fa": "کوبرنتیز و کلاسترها",
+      "description": "Kubernetes control plane, worker nodes, and containerized clusters",
+      "color": "cyan",
+      "is_default": true
+    },
+    {
+      "id": "cat-web-app",
+      "name": "Web / App",
+      "name_fa": "وب و اپلیکیشن",
+      "description": "Web applications, backend microservices, and reverse proxies",
+      "color": "purple",
+      "is_default": true
+    },
+    {
+      "id": "cat-monitoring",
+      "name": "Monitoring",
+      "name_fa": "مانیتورینگ و لاگ",
+      "description": "Observability, Prometheus, Grafana, logging, and APM systems",
+      "color": "amber",
+      "is_default": true
+    },
+    {
+      "id": "cat-active-directory",
+      "name": "Active Directory",
+      "name_fa": "اکتیو دایرکتوری و هویت",
+      "description": "Windows domain controllers, Kerberos, DNS, and identity servers",
+      "color": "rose",
+      "is_default": true
+    },
+    {
+      "id": "cat-devops",
+      "name": "DevOps & Automation",
+      "name_fa": "دواپس و اتوماسیون",
+      "description": "CI/CD runners, Ansible, Terraform, and automated deployment engines",
+      "color": "indigo",
+      "is_default": true
+    },
+    {
+      "id": "cat-general",
+      "name": "General",
+      "name_fa": "عمومی",
+      "description": "General purpose utility servers and multipurpose instances",
+      "color": "teal",
+      "is_default": true
+    },
+    {
+      "id": "cat-uncategorized",
+      "name": "Uncategorized",
+      "name_fa": "دسته‌بندی‌نشده",
+      "description": "System fallback category for newly added or unclassified servers",
+      "color": "slate",
+      "is_default": true
+    }
   ]
 }

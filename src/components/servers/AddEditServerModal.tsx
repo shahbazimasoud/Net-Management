@@ -22,9 +22,11 @@ import {
   Settings,
   Eye,
   EyeOff,
+  FolderTree,
 } from 'lucide-react';
-import { RemoteServer } from '../../types';
+import { RemoteServer, ServerCategory } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 
 export interface AddEditServerModalProps {
   isOpen: boolean;
@@ -96,6 +98,22 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [tags, setTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
 
+  // Dynamic Server Categories
+  const [dynamicCategories, setDynamicCategories] = useState<ServerCategory[]>([]);
+  const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('/api/server-categories');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.categories) && data.categories.length > 0) {
+        setDynamicCategories(data.categories);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch server categories:', e);
+    }
+  };
+
   // Password & Security storage policy
   const [promptPasswordOnConnect, setPromptPasswordOnConnect] = useState(false);
   const [showSshPassword, setShowSshPassword] = useState(false);
@@ -124,6 +142,8 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
       initializedServerIdRef.current = null;
       return;
     }
+
+    fetchCategories();
 
     const currentId = serverToEdit ? serverToEdit.id : '__new__';
     // Only re-populate form when modal opens fresh or a different server was chosen
@@ -587,9 +607,37 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
 
               {/* Category */}
               <div className="space-y-1">
-                <label className="font-semibold text-slate-300">
-                  {isEn ? 'Category / Role' : 'دسته‌بندی سرور'}
-                </label>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <label className="font-semibold text-slate-300">
+                      {isEn ? 'Category / Role' : 'دسته‌بندی سرور'}
+                    </label>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Server Category' : 'دسته‌بندی سرور'}
+                      whatIsIt={
+                        isEn
+                          ? 'Logical grouping for assigning this server to an operational fleet tier.'
+                          : 'دسته‌بندی منطقی و عملیاتی جهت تفکیک و گروه‌بندی این سرور در ناوگان.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Enables role-based filtering, quick search, and category-level policy management.'
+                          : 'امکان فیلتر سریع بر اساس نقش و دسته‌بندی و مدیریت یکپارچه سرورها را فراهم می‌کند.'
+                      }
+                      example={isEn ? 'Database, Kubernetes, Infrastructure' : 'پایگاه داده، کوبرنتیز، زیرساخت'}
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsManageCategoriesOpen(true)}
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <FolderTree className="w-3 h-3" />
+                    <span>{isEn ? 'Manage' : 'مدیریت دسته‌ها'}</span>
+                  </button>
+                </div>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
@@ -599,11 +647,17 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                       : 'bg-slate-900 border-slate-700/80 text-slate-100 focus:border-cyan-500'
                   }`}
                 >
-                  {SERVER_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
-                  ))}
+                  {dynamicCategories.length > 0
+                    ? dynamicCategories.map((cat) => (
+                        <option key={cat.id} value={cat.name}>
+                          {isEn ? cat.name : cat.name_fa || cat.name}
+                        </option>
+                      ))
+                    : SERVER_CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
                 </select>
               </div>
 
@@ -1142,6 +1196,19 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
           </div>
         </form>
       </div>
+
+      {isManageCategoriesOpen && (
+        <ManageServerCategoriesModal
+          isOpen={isManageCategoriesOpen}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          onClose={() => setIsManageCategoriesOpen(false)}
+          onMinimize={() => setIsManageCategoriesOpen(false)}
+          onCategoriesChanged={() => {
+            fetchCategories();
+          }}
+        />
+      )}
     </div>,
     document.body
   );

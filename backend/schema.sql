@@ -268,3 +268,18 @@ CREATE INDEX IF NOT EXISTS idx_remote_servers_os_type ON remote_servers(os_type)
 CREATE INDEX IF NOT EXISTS idx_remote_servers_environment ON remote_servers(environment);
 CREATE INDEX IF NOT EXISTS idx_remote_servers_category ON remote_servers(category);
 CREATE INDEX IF NOT EXISTS idx_remote_servers_ip ON remote_servers(ip);
+
+-- 14. Server Categories (Dynamic Fleet Grouping with Localization & Color Badging)
+CREATE TABLE IF NOT EXISTS server_categories (
+    id VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(150) NOT NULL UNIQUE,
+    name_fa VARCHAR(150),
+    description TEXT,
+    color VARCHAR(50) DEFAULT 'indigo',
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_server_categories_name ON server_categories(name);
+

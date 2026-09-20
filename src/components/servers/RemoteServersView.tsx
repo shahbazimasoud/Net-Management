@@ -27,8 +27,9 @@ import {
   Globe,
   AlertCircle,
   Key,
+  FolderTree,
 } from 'lucide-react';
-import { RemoteServer, RemoteServerTagSummary } from '../../types';
+import { RemoteServer, RemoteServerTagSummary, ServerCategory } from '../../types';
 import {
   fetchRemoteServers,
   fetchRemoteServerTags,
@@ -42,6 +43,7 @@ import { LinuxTerminalModal } from './LinuxTerminalModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
+import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -89,6 +91,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Modal states
   const [isAddEditModalOpen, setIsAddEditModalOpen] = useState(false);
   const [serverToEdit, setServerToEdit] = useState<RemoteServer | null>(null);
+
+  // Category Management Modal State
+  const [categories, setCategories] = useState<ServerCategory[]>([]);
+  const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
 
   // Terminal & Remote Connect Modals
   const [terminalServer, setTerminalServer] = useState<RemoteServer | null>(null);
@@ -153,8 +159,27 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     }
   };
 
+  // Load server categories
+  const loadCategories = async () => {
+    try {
+      const res = await fetch('/api/server-categories');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.categories)) {
+        setCategories(data.categories);
+      }
+    } catch (err) {
+      console.warn('Failed to load server categories:', err);
+    }
+  };
+
+  const handleCategoriesChanged = () => {
+    loadCategories();
+    loadFleet();
+  };
+
   useEffect(() => {
     loadFleet();
+    loadCategories();
   }, []);
 
   // Filtered servers calculation
@@ -537,6 +562,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     });
   };
 
+  const handleMinimizeCategories = () => {
+    setIsCategoriesModalOpen(false);
+    dockModal({
+      id: 'manage_server_categories',
+      labelEn: isEn ? 'Categories' : 'دسته‌بندی‌ها',
+      labelFa: 'دسته‌بندی‌های سرور',
+      badge: 'CATEGORIES',
+      category: 'config',
+      onRestore: () => setIsCategoriesModalOpen(true),
+      onClose: () => {
+        setIsCategoriesModalOpen(false);
+        undockModal('manage_server_categories');
+      },
+    });
+  };
+
   const handleMinimizeOnDemand = () => {
     setIsOnDemandModalOpen(false);
     if (onDemandServer) {
@@ -829,23 +870,42 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           </select>
 
           {/* Category Filter */}
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
-              isLightMode
-                ? 'bg-slate-50 border-slate-300 text-slate-700'
-                : 'bg-slate-900/70 border-white/15 text-slate-200'
-            }`}
-          >
-            <option value="all">{isEn ? 'All Categories' : 'همه دسته‌ها'}</option>
-            <option value="Infrastructure">Infrastructure</option>
-            <option value="Database">Database</option>
-            <option value="Kubernetes">Kubernetes</option>
-            <option value="Web / App">Web / App</option>
-            <option value="Monitoring">Monitoring</option>
-            <option value="Active Directory">Active Directory</option>
-          </select>
+          <div className="flex items-center gap-1.5">
+            <select
+              id="server-category-filter-select"
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className={`px-3 py-2 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 cursor-pointer ${
+                isLightMode
+                  ? 'bg-slate-50 border-slate-300 text-slate-700'
+                  : 'bg-slate-900/70 border-white/15 text-slate-200'
+              }`}
+            >
+              <option value="all">{isEn ? 'All Categories' : 'همه دسته‌ها'}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.name}>
+                  {isEn ? c.name : (c.name_fa || c.name)} ({c.serverCount || 0})
+                </option>
+              ))}
+            </select>
+
+            <button
+              id="open-manage-categories-btn"
+              onClick={() => setIsCategoriesModalOpen(true)}
+              title={isEn ? 'Manage Server Categories' : 'مدیریت دسته‌بندی‌های سرور'}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
+                isLightMode
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100 hover:border-slate-400'
+                  : 'bg-slate-900/70 border-white/15 text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <FolderTree className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">{isEn ? 'Categories' : 'دسته‌ها'}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 font-bold">
+                {categories.length}
+              </span>
+            </button>
+          </div>
 
           {/* Tags Filter */}
           <select
@@ -2049,6 +2109,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           if (onDemandServer) undockModal(`ondemand_auth_${onDemandServer.id}`);
           handleConfirmOnDemandConnect(pass);
         }}
+      />
+
+      {/* 16. Manage Server Categories Modal */}
+      <ManageServerCategoriesModal
+        isOpen={isCategoriesModalOpen}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        onClose={() => {
+          setIsCategoriesModalOpen(false);
+          undockModal('manage_server_categories');
+        }}
+        onMinimize={handleMinimizeCategories}
+        onCategoriesChanged={handleCategoriesChanged}
       />
     </div>
   );
