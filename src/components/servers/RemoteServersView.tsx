@@ -26,6 +26,7 @@ import {
   ChevronDown,
   Globe,
   AlertCircle,
+  Key,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary } from '../../types';
 import {
@@ -40,6 +41,7 @@ import { AddEditServerModal } from './AddEditServerModal';
 import { LinuxTerminalModal } from './LinuxTerminalModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
+import { OnDemandPasswordModal } from './OnDemandPasswordModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -99,6 +101,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [inBrowserRemoteServer, setInBrowserRemoteServer] = useState<RemoteServer | null>(null);
   const [inBrowserProtocol, setInBrowserProtocol] = useState<'rdp' | 'vnc'>('rdp');
   const [isInBrowserModalOpen, setIsInBrowserModalOpen] = useState(false);
+
+  // On-Demand Password Prompt State (Zero-Storage Ephemeral Auth)
+  const [isOnDemandModalOpen, setIsOnDemandModalOpen] = useState(false);
+  const [onDemandServer, setOnDemandServer] = useState<RemoteServer | null>(null);
+  const [onDemandTarget, setOnDemandTarget] = useState<'rdp' | 'vnc' | 'terminal'>('rdp');
+  const [onDemandShell, setOnDemandShell] = useState<'bash' | 'zsh'>('bash');
+  const [ephemeralRdpPassword, setEphemeralRdpPassword] = useState<string | undefined>(undefined);
+  const [ephemeralTerminalPassword, setEphemeralTerminalPassword] = useState<string | undefined>(undefined);
 
   // Quick Ping / Test status cache
   const [reachabilityCache, setReachabilityCache] = useState<
@@ -258,10 +268,18 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   // Handle Open Linux Terminal
   const handleOpenLinuxTerminal = (server: RemoteServer, shell: 'bash' | 'zsh' = 'bash') => {
+    setMenuAnchor(null);
+    if (server.prompt_password_on_connect) {
+      setOnDemandServer(server);
+      setOnDemandTarget('terminal');
+      setOnDemandShell(shell);
+      setIsOnDemandModalOpen(true);
+      return;
+    }
+    setEphemeralTerminalPassword(undefined);
     setTerminalServer(server);
     setTerminalShell(shell);
     setIsTerminalModalOpen(true);
-    setMenuAnchor(null);
     undockModal(`linux_term_${server.id}`);
   };
 
@@ -275,11 +293,38 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   // Handle Open In-Browser Remote Desktop (RDP / VNC via Guacamole Gateway)
   const handleOpenInBrowserRemote = (server: RemoteServer, protocol: 'rdp' | 'vnc' = 'rdp') => {
+    setMenuAnchor(null);
+    if (server.prompt_password_on_connect) {
+      setOnDemandServer(server);
+      setOnDemandTarget(protocol);
+      setIsOnDemandModalOpen(true);
+      return;
+    }
+    setEphemeralRdpPassword(undefined);
     setInBrowserRemoteServer(server);
     setInBrowserProtocol(protocol);
     setIsInBrowserModalOpen(true);
-    setMenuAnchor(null);
     undockModal(`inbrowser_remote_${server.id}`);
+  };
+
+  // Handle Confirm On-Demand Password Entry
+  const handleConfirmOnDemandConnect = (sessionPassword: string) => {
+    setIsOnDemandModalOpen(false);
+    if (!onDemandServer) return;
+
+    if (onDemandTarget === 'terminal') {
+      setEphemeralTerminalPassword(sessionPassword);
+      setTerminalServer(onDemandServer);
+      setTerminalShell(onDemandShell);
+      setIsTerminalModalOpen(true);
+      undockModal(`linux_term_${onDemandServer.id}`);
+    } else {
+      setEphemeralRdpPassword(sessionPassword);
+      setInBrowserRemoteServer(onDemandServer);
+      setInBrowserProtocol(onDemandTarget);
+      setIsInBrowserModalOpen(true);
+      undockModal(`inbrowser_remote_${onDemandServer.id}`);
+    }
   };
 
   // Handle Copy IP
@@ -490,6 +535,25 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         undockModal('add_edit_remote_server');
       },
     });
+  };
+
+  const handleMinimizeOnDemand = () => {
+    setIsOnDemandModalOpen(false);
+    if (onDemandServer) {
+      dockModal({
+        id: `ondemand_auth_${onDemandServer.id}`,
+        labelEn: `${onDemandServer.name} Auth`,
+        labelFa: `احراز ${onDemandServer.name}`,
+        badge: 'AUTH',
+        category: 'system',
+        onRestore: () => setIsOnDemandModalOpen(true),
+        onClose: () => {
+          setIsOnDemandModalOpen(false);
+          setOnDemandServer(null);
+          undockModal(`ondemand_auth_${onDemandServer.id}`);
+        },
+      });
+    }
   };
 
   return (
@@ -1203,6 +1267,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               </span>
                               <span className="text-[11px] text-slate-300 truncate">{server.category}</span>
                             </div>
+                            {server.prompt_password_on_connect && (
+                              <span
+                                title={isEn ? 'Zero-storage credential policy (Prompt on connect)' : 'عدم ذخیره پسورد (درخواست در زمان اتصال)'}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 w-fit"
+                              >
+                                <Key className="w-2.5 h-2.5" />
+                                <span>{isEn ? 'No-Store' : 'بدون‌ذخیره'}</span>
+                              </span>
+                            )}
                           </div>
                         </td>
 
@@ -1389,6 +1462,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           <span>{server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}</span>
                           <span>•</span>
                           <span className="font-mono">{server.category}</span>
+                          {server.prompt_password_on_connect && (
+                            <span
+                              title={isEn ? 'Zero-storage credential policy' : 'عدم ذخیره پسورد'}
+                              className="inline-flex items-center gap-1 px-1 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0"
+                            >
+                              <Key className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'No-Store' : 'بدون‌ذخیره'}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1909,8 +1991,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         isOpen={isTerminalModalOpen}
         server={terminalServer}
         initialShell={terminalShell}
+        sessionPassword={ephemeralTerminalPassword}
         onClose={() => {
           setIsTerminalModalOpen(false);
+          setEphemeralTerminalPassword(undefined);
           if (terminalServer) undockModal(`linux_term_${terminalServer.id}`);
         }}
         onMinimize={handleMinimizeLinuxTerminal}
@@ -1937,13 +2021,34 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         isOpen={isInBrowserModalOpen}
         server={inBrowserRemoteServer}
         protocol={inBrowserProtocol}
+        sessionPassword={ephemeralRdpPassword}
         onClose={() => {
           setIsInBrowserModalOpen(false);
+          setEphemeralRdpPassword(undefined);
           if (inBrowserRemoteServer) undockModal(`inbrowser_remote_${inBrowserRemoteServer.id}`);
         }}
         onMinimize={handleMinimizeInBrowserRemote}
         isLightMode={isLightMode}
         isEn={isEn}
+      />
+
+      {/* 15. On-Demand Password Prompt Modal (Zero-Storage Policy) */}
+      <OnDemandPasswordModal
+        isOpen={isOnDemandModalOpen}
+        server={onDemandServer}
+        target={onDemandTarget}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        onClose={() => {
+          setIsOnDemandModalOpen(false);
+          if (onDemandServer) undockModal(`ondemand_auth_${onDemandServer.id}`);
+          setOnDemandServer(null);
+        }}
+        onMinimize={handleMinimizeOnDemand}
+        onConfirmConnect={(pass) => {
+          if (onDemandServer) undockModal(`ondemand_auth_${onDemandServer.id}`);
+          handleConfirmOnDemandConnect(pass);
+        }}
       />
     </div>
   );

@@ -314,7 +314,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       });
     }
 
-    const { serverId, protocol = 'rdp', width = 1920, height = 1080, dpi = 96 } = req.body;
+    const { serverId, protocol = 'rdp', width = 1920, height = 1080, dpi = 96, sessionPassword } = req.body;
 
     if (!serverId) {
       return res.status(400).json({ error: 'Missing required parameter: serverId' });
@@ -345,7 +345,10 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     const chosenProtocol = isRdp ? 'rdp' : 'vnc';
     const targetPort = isRdp ? serverRecord.win_port || 3389 : serverRecord.vnc_port || 5900;
     const targetUsername = isRdp ? serverRecord.win_username || 'Administrator' : serverRecord.vnc_username || '';
-    const targetPassword = isRdp ? serverRecord.win_password || '' : serverRecord.vnc_password || '';
+    const isEphemeralAuth = typeof sessionPassword === 'string' && sessionPassword.length > 0;
+    const targetPassword = isEphemeralAuth
+      ? sessionPassword
+      : (isRdp ? serverRecord.win_password || '' : serverRecord.vnc_password || '');
     const targetDomain = isRdp ? serverRecord.win_domain || '' : '';
 
     const sessionToken = crypto.randomBytes(32).toString('hex');

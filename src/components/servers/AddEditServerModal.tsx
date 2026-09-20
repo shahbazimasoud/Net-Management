@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -20,8 +20,8 @@ import {
   Cpu,
   Globe,
   Settings,
-  Lock,
-  Unlock
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { RemoteServer } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -81,7 +81,6 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   isEn = true,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
-  const [isLocked, setIsLocked] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,62 +96,88 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [tags, setTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState('');
 
+  // Password & Security storage policy
+  const [promptPasswordOnConnect, setPromptPasswordOnConnect] = useState(false);
+  const [showSshPassword, setShowSshPassword] = useState(false);
+  const [showWinPassword, setShowWinPassword] = useState(false);
+
   // Linux-specific
-  const [sshPort, setSshPort] = useState(22);
+  const [sshPort, setSshPort] = useState<number | string>(22);
   const [sshUsername, setSshUsername] = useState('root');
   const [sshPassword, setSshPassword] = useState('');
   const [defaultShell, setDefaultShell] = useState<'bash' | 'zsh' | 'sh'>('bash');
 
   // Windows-specific
   const [winProtocol, setWinProtocol] = useState<'rdp' | 'powershell' | 'winrm' | 'ssh'>('rdp');
-  const [winPort, setWinPort] = useState(3389);
+  const [winPort, setWinPort] = useState<number | string>(3389);
   const [winDomain, setWinDomain] = useState('');
   const [winUsername, setWinUsername] = useState('Administrator');
   const [winPassword, setWinPassword] = useState('');
 
+  // Track initialization to prevent form reset while user is actively typing
+  const initializedServerIdRef = useRef<string | null>(null);
+  const wasOpenRef = useRef(false);
+
   useEffect(() => {
-    if (serverToEdit) {
-      setName(serverToEdit.name || '');
-      setHostname(serverToEdit.hostname || '');
-      setIp(serverToEdit.ip || '');
-      setOsType(serverToEdit.os_type || 'linux');
-      setOsDistro(serverToEdit.os_distro || (serverToEdit.os_type === 'windows' ? 'Windows Server 2022' : 'Ubuntu 24.04 LTS'));
-      setCategory(serverToEdit.category || 'Infrastructure');
-      setEnvironment(serverToEdit.environment || 'Production');
-      setDescription(serverToEdit.description || '');
-      setTags(Array.isArray(serverToEdit.tags) ? [...serverToEdit.tags] : []);
-      setSshPort(serverToEdit.ssh_port || 22);
-      setSshUsername(serverToEdit.ssh_username || 'root');
-      setSshPassword(serverToEdit.ssh_password || '');
-      setDefaultShell(serverToEdit.default_shell || 'bash');
-      setWinProtocol(serverToEdit.win_protocol || 'rdp');
-      setWinPort(serverToEdit.win_port || (serverToEdit.win_protocol === 'winrm' ? 5985 : 3389));
-      setWinDomain(serverToEdit.win_domain || '');
-      setWinUsername(serverToEdit.win_username || 'Administrator');
-      setWinPassword(serverToEdit.win_password || '');
-    } else {
-      // Defaults for new
-      setName('');
-      setHostname('');
-      setIp('');
-      setOsType('linux');
-      setOsDistro('Ubuntu 24.04 LTS');
-      setCategory('Infrastructure');
-      setEnvironment('Production');
-      setDescription('');
-      setTags(['prod']);
-      setSshPort(22);
-      setSshUsername('root');
-      setSshPassword('');
-      setDefaultShell('bash');
-      setWinProtocol('rdp');
-      setWinPort(3389);
-      setWinDomain('');
-      setWinUsername('Administrator');
-      setWinPassword('');
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      initializedServerIdRef.current = null;
+      return;
     }
-    setError(null);
-  }, [serverToEdit, isOpen]);
+
+    const currentId = serverToEdit ? serverToEdit.id : '__new__';
+    // Only re-populate form when modal opens fresh or a different server was chosen
+    if (!wasOpenRef.current || initializedServerIdRef.current !== currentId) {
+      wasOpenRef.current = true;
+      initializedServerIdRef.current = currentId;
+
+      if (serverToEdit) {
+        setName(serverToEdit.name || '');
+        setHostname(serverToEdit.hostname || '');
+        setIp(serverToEdit.ip || '');
+        setOsType(serverToEdit.os_type || 'linux');
+        setOsDistro(serverToEdit.os_distro || (serverToEdit.os_type === 'windows' ? 'Windows Server 2022' : 'Ubuntu 24.04 LTS'));
+        setCategory(serverToEdit.category || 'Infrastructure');
+        setEnvironment(serverToEdit.environment || 'Production');
+        setDescription(serverToEdit.description || '');
+        setTags(Array.isArray(serverToEdit.tags) ? [...serverToEdit.tags] : []);
+        setPromptPasswordOnConnect(Boolean(serverToEdit.prompt_password_on_connect));
+        setSshPort(serverToEdit.ssh_port || 22);
+        setSshUsername(serverToEdit.ssh_username || 'root');
+        setSshPassword(serverToEdit.ssh_password || '');
+        setDefaultShell(serverToEdit.default_shell || 'bash');
+        setWinProtocol(serverToEdit.win_protocol || 'rdp');
+        setWinPort(serverToEdit.win_port || (serverToEdit.win_protocol === 'winrm' ? 5985 : 3389));
+        setWinDomain(serverToEdit.win_domain || '');
+        setWinUsername(serverToEdit.win_username || 'Administrator');
+        setWinPassword(serverToEdit.win_password || '');
+      } else {
+        // Defaults for new server
+        setName('');
+        setHostname('');
+        setIp('');
+        setOsType('linux');
+        setOsDistro('Ubuntu 24.04 LTS');
+        setCategory('Infrastructure');
+        setEnvironment('Production');
+        setDescription('');
+        setTags(['prod']);
+        setPromptPasswordOnConnect(false);
+        setSshPort(22);
+        setSshUsername('root');
+        setSshPassword('');
+        setDefaultShell('bash');
+        setWinProtocol('rdp');
+        setWinPort(3389);
+        setWinDomain('');
+        setWinUsername('Administrator');
+        setWinPassword('');
+      }
+      setShowSshPassword(false);
+      setShowWinPassword(false);
+      setError(null);
+    }
+  }, [isOpen, serverToEdit?.id]);
 
   // Handle OS type switch defaults
   const handleOsChange = (type: 'linux' | 'windows') => {
@@ -208,12 +233,13 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         description: description.trim() || undefined,
         notes: description.trim() || undefined,
         tags,
+        prompt_password_on_connect: promptPasswordOnConnect,
         status: serverToEdit?.status || 'online',
         ...(osType === 'linux'
           ? {
               ssh_port: Number(sshPort) || 22,
               ssh_username: sshUsername.trim() || 'root',
-              ssh_password: sshPassword,
+              ssh_password: promptPasswordOnConnect ? '' : sshPassword,
               default_shell: defaultShell,
             }
           : {
@@ -221,7 +247,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               win_port: Number(winPort) || (winProtocol === 'winrm' ? 5985 : 3389),
               win_domain: winDomain.trim() || undefined,
               win_username: winUsername.trim() || 'Administrator',
-              win_password: winPassword,
+              win_password: promptPasswordOnConnect ? '' : winPassword,
             }),
       };
 
@@ -245,7 +271,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isLocked) {
+        if (e.target === e.currentTarget) {
           onClose();
         }
       }}
@@ -307,29 +333,19 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
             </div>
           </div>
 
-          {/* Triad Control Buttons + Lock Toggle */}
+          {/* Triad Control Buttons */}
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setIsLocked(!isLocked)}
-              title={
-                isLocked
-                  ? isEn
-                    ? 'Window locked (click to unlock background closing)'
-                    : 'پنجره قفل است (کلیک برای بازگشایی)'
-                  : isEn
-                  ? 'Lock window (prevent accidental background close)'
-                  : 'قفل پنجره (جلوگیری از بسته شدن اتفاقی)'
-              }
+              onClick={onMinimize}
+              title={isEn ? 'Minimize to Dock' : 'مینیمایز به نوار ابزار'}
               className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                isLocked
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : isLightMode
-                  ? 'border-slate-200 text-slate-500 hover:bg-slate-100'
-                  : 'border-slate-800 text-slate-400 hover:bg-slate-800/80 hover:text-slate-200'
+                isLightMode
+                  ? 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                  : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               }`}
             >
-              {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+              <Minus className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -350,18 +366,6 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               }`}
             >
               {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-            </button>
-            <button
-              type="button"
-              onClick={onMinimize}
-              title={isEn ? 'Minimize to Dock' : 'مینیمایز به نوار ابزار'}
-              className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                isLightMode
-                  ? 'border-slate-200 text-slate-600 hover:bg-slate-100'
-                  : 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-              }`}
-            >
-              <Minus className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -627,6 +631,93 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
             </div>
           </div>
 
+          {/* Zero-Storage Security Policy Toggle */}
+          <div
+            className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+              promptPasswordOnConnect
+                ? isLightMode
+                  ? 'bg-amber-50/80 border-amber-300 text-amber-950'
+                  : 'bg-amber-950/20 border-amber-500/35 text-amber-200'
+                : isLightMode
+                ? 'bg-slate-50 border-slate-200'
+                : 'bg-slate-900/40 border-slate-800'
+            }`}
+          >
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div
+                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                  promptPasswordOnConnect
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : 'bg-slate-800/60 text-slate-400 border border-slate-700/50'
+                }`}
+              >
+                <Key className="w-3.5 h-3.5" />
+              </div>
+              <div className="space-y-0.5 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs font-bold">
+                    {isEn ? 'Prompt for password at connection time' : 'عدم ذخیره رمز عبور (درخواست در زمان اتصال)'}
+                  </span>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Zero-Storage Credential Policy' : 'سیاست عدم ذخیره‌سازی گذرواژه'}
+                    whatIsIt={
+                      isEn
+                        ? 'Instructs the system to NEVER store or persist this server password in the database or filesystem.'
+                        : 'تنظیم امنیتی برای عدم ذخیره‌سازی همیشگی رمز عبور این سرور در دیتابیس یا فایل‌های سامانه.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Required for high-security environments, PCI-DSS compliance, or shared administrative workstations.'
+                        : 'جهت انطباق با الزامات امنیتی حساس، سرورهای بحرانی و جلوگیری از افشای گذرواژه‌های ممتاز.'
+                    }
+                    example={
+                      isEn
+                        ? 'A lightweight prompt asks for the password when launching RDP/VNC or SSH console, then immediately discards it after session ends.'
+                        : 'هنگام فشردن دکمه ریموت دسکتاپ، VNC یا ترمینال، کادر ورود موقت باز شده و پس از قطع ارتباط بلافاصله دور ریخته می‌شود.'
+                    }
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                  {promptPasswordOnConnect && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                      {isEn ? 'ZERO-STORAGE' : 'بدون ذخیره‌سازی'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 leading-snug">
+                  {isEn
+                    ? 'Password will not be saved. You will be prompted to authenticate interactively on each connection.'
+                    : 'رمز عبور در سامانه ذخیره نمی‌شود. در هر بار اتصال، پنجره موقت ورود رمز نمایش داده می‌شود.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Toggle switch */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={promptPasswordOnConnect}
+              onClick={() => {
+                const next = !promptPasswordOnConnect;
+                setPromptPasswordOnConnect(next);
+                if (next) {
+                  setSshPassword('');
+                  setWinPassword('');
+                }
+              }}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                promptPasswordOnConnect ? 'bg-amber-500' : 'bg-slate-700'
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  promptPasswordOnConnect ? (isEn ? 'translate-x-4' : '-translate-x-4') : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
           {/* OS-Specific Connection & Shell Credentials */}
           {osType === 'linux' ? (
             <div
@@ -645,8 +736,11 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                   <label className="font-medium text-slate-300">{isEn ? 'SSH Port' : 'پورت SSH'}</label>
                   <input
                     type="number"
-                    value={sshPort}
-                    onChange={(e) => setSshPort(Number(e.target.value) || 22)}
+                    value={sshPort === 0 ? '' : sshPort}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSshPort(val === '' ? 0 : Number(val));
+                    }}
                     className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
                       isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
                     }`}
@@ -686,18 +780,53 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
 
               {/* SSH Password / Auth Key */}
               <div className="space-y-1 text-xs">
-                <label className="font-medium text-slate-300">
-                  {isEn ? 'SSH Password / Private Key Passphrase' : 'رمز عبور SSH / کلید خصوصی'}
+                <label className="font-medium text-slate-300 flex items-center justify-between">
+                  <span>{isEn ? 'SSH Password / Private Key Passphrase' : 'رمز عبور SSH / کلید خصوصی'}</span>
+                  {promptPasswordOnConnect && (
+                    <span className="text-[10px] text-amber-400 font-normal">
+                      {isEn ? 'Disabled (On-Demand Auth)' : 'غیرفعال (احراز در لحظه)'}
+                    </span>
+                  )}
                 </label>
-                <input
-                  type="password"
-                  value={sshPassword}
-                  onChange={(e) => setSshPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
-                    isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
-                  }`}
-                />
+
+                {promptPasswordOnConnect ? (
+                  <div
+                    className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
+                      isLightMode
+                        ? 'bg-amber-50 border-amber-200 text-amber-900'
+                        : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+                    }`}
+                  >
+                    <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      {isEn
+                        ? 'Zero-storage active: Password will be requested when connecting to SSH terminal.'
+                        : 'سیاست عدم ذخیره‌سازی فعال است: رمز عبور هنگام اتصال به کنسول SSH درخواست خواهد شد.'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type={showSshPassword ? 'text' : 'password'}
+                      value={sshPassword}
+                      onChange={(e) => setSshPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      className={`w-full px-2.5 py-1.5 pr-8 rounded-lg border text-xs font-mono outline-none ${
+                        isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSshPassword(!showSshPassword)}
+                      title={showSshPassword ? (isEn ? 'Hide password' : 'مخفی‌سازی رمز') : (isEn ? 'Show password' : 'نمایش رمز')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition p-1 cursor-pointer"
+                    >
+                      {showSshPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -740,8 +869,11 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                   <label className="font-medium text-slate-300">{isEn ? 'Port' : 'پورت ریموت'}</label>
                   <input
                     type="number"
-                    value={winPort}
-                    onChange={(e) => setWinPort(Number(e.target.value) || 3389)}
+                    value={winPort === 0 ? '' : winPort}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setWinPort(val === '' ? 0 : Number(val));
+                    }}
                     className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
                       isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
                     }`}
@@ -780,16 +912,53 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
 
                 {/* Password */}
                 <div className="space-y-1">
-                  <label className="font-medium text-slate-300">{isEn ? 'Windows Password' : 'رمز عبور ویندوز'}</label>
-                  <input
-                    type="password"
-                    value={winPassword}
-                    onChange={(e) => setWinPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono outline-none ${
-                      isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
-                    }`}
-                  />
+                  <label className="font-medium text-slate-300 flex items-center justify-between">
+                    <span>{isEn ? 'Windows Password' : 'رمز عبور ویندوز'}</span>
+                    {promptPasswordOnConnect && (
+                      <span className="text-[10px] text-amber-400 font-normal">
+                        {isEn ? 'Disabled (On-Demand Auth)' : 'غیرفعال (احراز در لحظه)'}
+                      </span>
+                    )}
+                  </label>
+
+                  {promptPasswordOnConnect ? (
+                    <div
+                      className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
+                        isLightMode
+                          ? 'bg-amber-50 border-amber-200 text-amber-900'
+                          : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+                      }`}
+                    >
+                      <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>
+                        {isEn
+                          ? 'Zero-storage active: Password will be requested when connecting to Remote Desktop/VNC.'
+                          : 'سیاست عدم ذخیره‌سازی فعال است: رمز عبور هنگام اتصال به ریموت دسکتاپ/VNC درخواست خواهد شد.'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type={showWinPassword ? 'text' : 'password'}
+                        value={winPassword}
+                        onChange={(e) => setWinPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        className={`w-full px-2.5 py-1.5 pr-8 rounded-lg border text-xs font-mono outline-none ${
+                          isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowWinPassword(!showWinPassword)}
+                        title={showWinPassword ? (isEn ? 'Hide password' : 'مخفی‌سازی رمز') : (isEn ? 'Show password' : 'نمایش رمز')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition p-1 cursor-pointer"
+                      >
+                        {showWinPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

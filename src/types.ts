@@ -1215,6 +1215,7 @@ export interface RemoteServer {
   vnc_port?: number;
   vnc_username?: string;
   vnc_password?: string;
+  prompt_password_on_connect?: boolean;
   cpu_cores?: number;
   ram_gb?: number;
   disk_gb?: number;

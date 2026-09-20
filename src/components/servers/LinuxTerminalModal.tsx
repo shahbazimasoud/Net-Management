@@ -43,6 +43,7 @@ export interface LinuxTerminalModalProps {
   isOpen: boolean;
   server: RemoteServer | null;
   initialShell?: 'bash' | 'zsh';
+  sessionPassword?: string;
   onClose: () => void;
   onMinimize: () => void;
   isLightMode?: boolean;
@@ -265,6 +266,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   isOpen,
   server,
   initialShell = 'bash',
+  sessionPassword,
   onClose,
   onMinimize,
   isLightMode = false,
@@ -645,7 +647,9 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  ${((server.ram_gb || 16
       ip: server.ip,
       ssh_port: server.ssh_port || 22,
       ssh_username: server.ssh_username || 'root',
-      ssh_password: server.ssh_password,
+      ssh_password: sessionPassword !== undefined && sessionPassword !== null && sessionPassword !== ''
+        ? sessionPassword
+        : server.ssh_password,
     });
 
     setLines((prev) => [

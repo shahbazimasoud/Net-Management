@@ -122,10 +122,15 @@ export interface RemoteServer {
   ssh_password?: string;
   ssh_key_path?: string;
   default_shell?: 'bash' | 'zsh' | 'sh';
-  win_protocol?: 'rdp' | 'powershell' | 'winrm';
+  win_protocol?: 'rdp' | 'powershell' | 'winrm' | 'ssh';
   win_port?: number;
   win_username?: string;
+  win_password?: string;
   win_domain?: string;
+  vnc_port?: number;
+  vnc_username?: string;
+  vnc_password?: string;
+  prompt_password_on_connect?: boolean;
   status: 'online' | 'offline' | 'unreachable';
   cpu_cores?: number;
   ram_gb?: number;
@@ -2715,13 +2720,18 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     tags: Array.isArray(data.tags) ? data.tags.map((t) => t.trim()).filter(Boolean) : [],
     ssh_port: Number(data.ssh_port) || 22,
     ssh_username: data.ssh_username?.trim() || 'root',
-    ssh_password: data.ssh_password || '',
+    ssh_password: data.prompt_password_on_connect ? '' : (data.ssh_password || ''),
     ssh_key_path: data.ssh_key_path || '',
     default_shell: data.default_shell || 'bash',
     win_protocol: data.win_protocol || 'rdp',
     win_port: Number(data.win_port) || 3389,
     win_username: data.win_username?.trim() || 'Administrator',
+    win_password: data.prompt_password_on_connect ? '' : (data.win_password || ''),
     win_domain: data.win_domain?.trim() || 'CORP.INTERNAL',
+    vnc_port: Number(data.vnc_port) || 5900,
+    vnc_username: data.vnc_username?.trim() || '',
+    vnc_password: data.prompt_password_on_connect ? '' : (data.vnc_password || ''),
+    prompt_password_on_connect: Boolean(data.prompt_password_on_connect),
     status: data.status || 'online',
     cpu_cores: Number(data.cpu_cores) || 4,
     ram_gb: Number(data.ram_gb) || 16,
@@ -2869,13 +2879,26 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     tags: Array.isArray(updates.tags) ? updates.tags : (current.tags || []),
     ssh_port: updates.ssh_port !== undefined ? Number(updates.ssh_port) : current.ssh_port,
     ssh_username: updates.ssh_username !== undefined ? updates.ssh_username.trim() : current.ssh_username,
-    ssh_password: updates.ssh_password !== undefined ? updates.ssh_password : current.ssh_password,
+    ssh_password: updates.prompt_password_on_connect
+      ? ''
+      : (updates.ssh_password !== undefined ? updates.ssh_password : current.ssh_password),
     ssh_key_path: updates.ssh_key_path !== undefined ? updates.ssh_key_path : current.ssh_key_path,
     default_shell: updates.default_shell !== undefined ? updates.default_shell : current.default_shell,
     win_protocol: updates.win_protocol !== undefined ? updates.win_protocol : current.win_protocol,
     win_port: updates.win_port !== undefined ? Number(updates.win_port) : current.win_port,
     win_username: updates.win_username !== undefined ? updates.win_username.trim() : current.win_username,
+    win_password: updates.prompt_password_on_connect
+      ? ''
+      : (updates.win_password !== undefined ? updates.win_password : (current as any).win_password || ''),
     win_domain: updates.win_domain !== undefined ? updates.win_domain.trim() : current.win_domain,
+    vnc_port: updates.vnc_port !== undefined ? Number(updates.vnc_port) : (current as any).vnc_port,
+    vnc_username: updates.vnc_username !== undefined ? updates.vnc_username.trim() : (current as any).vnc_username,
+    vnc_password: updates.prompt_password_on_connect
+      ? ''
+      : (updates.vnc_password !== undefined ? updates.vnc_password : (current as any).vnc_password || ''),
+    prompt_password_on_connect: updates.prompt_password_on_connect !== undefined
+      ? Boolean(updates.prompt_password_on_connect)
+      : (current.prompt_password_on_connect ?? false),
     status: updates.status !== undefined ? updates.status : (current.status || 'online'),
     cpu_cores: updates.cpu_cores !== undefined ? Number(updates.cpu_cores) : current.cpu_cores,
     ram_gb: updates.ram_gb !== undefined ? Number(updates.ram_gb) : current.ram_gb,

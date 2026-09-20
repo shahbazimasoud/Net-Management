@@ -10,9 +10,33 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.93.2';
+export const APP_VERSION = '1.94.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.94.0',
+    releaseDate: '2026-09-20',
+    type: 'minor',
+    title: 'قابلیت عدم ذخیره رمز عبور (On-Demand Password Prompt) با سیاست Zero-Storage، مودال امنیتی احراز هویت در لحظه اتصال، رفع کامل باگ قفل شدن فیلدهای فرم ادیت سرور و هماهنگی کامل چندزبانه و نوار داک',
+    title_en: 'Zero-Storage On-Demand Password Prompt for Remote Servers, Interactive Ephemeral Auth Modal for RDP/VNC/Terminal, Resolution of Edit Form Input Freeze, and Full Bilingual & Dock Integration',
+    changes: [
+      'افزودن قابلیت "عدم ذخیره رمز عبور (درخواست در زمان اتصال)" (Prompt for password at connection time) با سوئیچ اختصاصی در فرم افزودن و ویرایش سرورهای لینوکسی و ویندوزی.',
+      'پیاده‌سازی سیاست سخت‌گیرانه Zero-Storage: جلوگیری قطعی از ذخیره رمز در دیتابیس، فایل‌های استور و سرور در صورت فعال بودن این گزینه و حذف آنی در صورت ویرایش.',
+      'طراحی و توسعه کامپوننت مودال استاندارد OnDemandPasswordModal جهت اخذ رمز عبور موقت در لحظه اتصال با رعایت دقیق تمامی قوانین ۵گانه مودال‌ها (دکمه‌های سه‌گانه، انطباق تم تیره/روشن، مرزبندی بالای فوتر، داک و تولتیپ سه‌گانه ایمن).',
+      'پشتیبانی کامل از احراز هویت موقت (Session-Only Ephemeral Auth) در توکن‌های گیت‌وی Guacamole برای RDP/VNC و نشست‌های SSH وب‌سوکت لینوکس و پاک‌سازی بلادرنگ رمز از حافظه مرورگر پس از بستن پنجره.',
+      'رفع ریشه‌ای باگ قفل شدن و عدم امکان تایپ در فیلدهای فرم ویرایش سرور (حذف تداخل استیت و حفظ رفرنس‌های ورودی).',
+      'نمایش نشان اختصاصی "بدون‌ذخیره / No-Store" در کارت‌ها و جدول لیست سرورها به همراه پاپ‌آپ راهنما جهت اطلاع‌رسانی شفاف وضعیت امنیتی سرور.'
+    ],
+    changes_en: [
+      'Introduced "Prompt for password at connection time" security toggle in both Linux and Windows Remote Server add/edit forms.',
+      'Implemented strict Zero-Storage credential architecture: passwords are completely bypassed and never stored in the database or persistence layer when this policy is active.',
+      'Created and integrated the full-fledged OnDemandPasswordModal for interactive runtime password prompt before launching RDP, VNC, or SSH consoles.',
+      'Enforced all Universal Modal Standards: tri-control header buttons (Close, Minimize to dock, Fullscreen with bottom-8 footer boundary), light/dark mode contrast, and safe 3-part field info tooltips.',
+      'Added ephemeral token support to Guacamole RDP/VNC gateway and Linux SSH WebSockets, with instantaneous memory purge upon session termination.',
+      'Fixed the input freeze bug in the Edit Server form, ensuring seamless typing and unblocked credential updates.',
+      'Added clean "No-Store" badges to server fleet table rows and grid cards with contextual tooltip guidance.'
+    ]
+  },
   {
     version: '1.93.2',
     releaseDate: '2026-09-19',

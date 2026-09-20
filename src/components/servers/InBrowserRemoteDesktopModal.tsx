@@ -32,6 +32,7 @@ interface InBrowserRemoteDesktopModalProps {
   isOpen: boolean;
   server: RemoteServer | null;
   protocol?: 'rdp' | 'vnc';
+  sessionPassword?: string;
   onClose: () => void;
   onMinimize: () => void;
   isLightMode?: boolean;
@@ -44,6 +45,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   isOpen,
   server,
   protocol = 'rdp',
+  sessionPassword,
   onClose,
   onMinimize,
   isLightMode = false,
@@ -240,10 +242,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           case 0x0209:
             return isEn ? `Remote host ${server?.ip || ''} is unreachable on port ${defaultPort}. Check network and firewall.` : `سرور ${server?.ip || ''} روی پورت ${defaultPort} در دسترس نیست. فایروال و شبکه را بررسی کنید.`;
           case 0x020a:
-          case 0x020A:
             return isEn ? 'Authentication failed. Check username, password, or NLA security settings.' : 'احراز هویت ناموفق بود. نام کاربری، رمز عبور یا تنظیمات NLA را بررسی کنید.';
           case 0x020b:
-          case 0x020B:
             return isEn ? 'Disconnected due to upstream inactivity.' : 'قطع ارتباط به دلیل عدم فعالیت در سرور.';
           case 0x0300:
             return isEn ? 'Invalid client parameters sent to gateway.' : 'پارامترهای ارسالی به گیت‌وی نامعتبر است.';
@@ -435,6 +435,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           width,
           height,
           dpi: 96,
+          ...(sessionPassword ? { sessionPassword } : {}),
         }),
       });
 
