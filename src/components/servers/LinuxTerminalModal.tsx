@@ -47,7 +47,13 @@ import { RemoteServer } from '../../types';
 import { getRemoteServerWebSocketUrl } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { renderAnsiFormattedText, stripAnsi } from './terminalAnsi';
-import { getIntellisense, IntellisenseResult, LINUX_COMMANDS_CATALOG } from './linuxIntellisense';
+import {
+  getIntellisense,
+  IntellisenseResult,
+  LINUX_COMMANDS_CATALOG,
+  registerVfsEntry,
+  removeVfsEntry,
+} from './linuxIntellisense';
 
 export interface LinuxTerminalModalProps {
   isOpen: boolean;
@@ -1073,6 +1079,45 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         if (cleanTarget === '-') {
           // Standard bash outputs new directory when cd - is run
           directOutput = resolved.absPath;
+        }
+      }
+
+      // Track created directories in VFS
+      const mkdirMatch = trimmed.match(/^mkdir(?:\s+-[a-zA-Z]+)*\s+([^\s;&]+)/);
+      if (mkdirMatch) {
+        const rawDir = mkdirMatch[1].trim().replace(/^['"](.*)['"]$/, '$1');
+        const resolved = resolveLinuxPath(currentCwd, rawDir, homeDir);
+        const lastSlash = resolved.absPath.lastIndexOf('/');
+        const parent = lastSlash <= 0 ? '/' : resolved.absPath.slice(0, lastSlash);
+        const dirName = resolved.absPath.slice(lastSlash + 1);
+        if (dirName) {
+          registerVfsEntry(parent, dirName, 'dir');
+        }
+      }
+
+      // Track created files in VFS
+      const touchMatch = trimmed.match(/^(?:touch|nano|vim|vi)\s+([^\s;&]+)/);
+      if (touchMatch) {
+        const rawFile = touchMatch[1].trim().replace(/^['"](.*)['"]$/, '$1');
+        const resolved = resolveLinuxPath(currentCwd, rawFile, homeDir);
+        const lastSlash = resolved.absPath.lastIndexOf('/');
+        const parent = lastSlash <= 0 ? '/' : resolved.absPath.slice(0, lastSlash);
+        const fileName = resolved.absPath.slice(lastSlash + 1);
+        if (fileName) {
+          registerVfsEntry(parent, fileName, 'file');
+        }
+      }
+
+      // Track removed files/directories in VFS
+      const rmMatch = trimmed.match(/^rm(?:\s+-[a-zA-Z]+)*\s+([^\s;&]+)/);
+      if (rmMatch) {
+        const rawTarget = rmMatch[1].trim().replace(/^['"](.*)['"]$/, '$1');
+        const resolved = resolveLinuxPath(currentCwd, rawTarget, homeDir);
+        const lastSlash = resolved.absPath.lastIndexOf('/');
+        const parent = lastSlash <= 0 ? '/' : resolved.absPath.slice(0, lastSlash);
+        const targetName = resolved.absPath.slice(lastSlash + 1);
+        if (targetName) {
+          removeVfsEntry(parent, targetName);
         }
       }
 
@@ -2110,8 +2155,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                                 key={cIdx}
                                 type="button"
                                 onClick={() => {
+                                  const chosen = cand.fullCompletedInput || cand.insertText;
                                   setPanes((prev) =>
-                                    prev.map((p) => (p.id === pane.id ? { ...p, inputVal: cand.insertText } : p))
+                                    prev.map((p) => (p.id === pane.id ? { ...p, inputVal: chosen } : p))
                                   );
                                   setShowIntellisensePopup(false);
                                   inputRefs.current[pane.id]?.focus();

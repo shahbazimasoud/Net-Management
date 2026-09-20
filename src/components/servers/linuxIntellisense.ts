@@ -29,16 +29,6 @@ export const LINUX_COMMANDS_CATALOG: CommandSuggestion[] = [
     category: 'file',
     descEn: 'Change the current working directory',
     descFa: 'تغییر دایرکتوری کاری جاری',
-    subcommands: [
-      { name: '~', descEn: 'Change to user home directory', descFa: 'تغییر به پوشه خانگی کاربر' },
-      { name: '..', descEn: 'Move up one directory level', descFa: 'یک سطح به دایرکتوری والد رفتن' },
-      { name: '-', descEn: 'Switch back to the previous directory', descFa: 'بازگشت به دایرکتوری قبلی' },
-      { name: '/', descEn: 'Change to root filesystem directory', descFa: 'تغییر به ریشه سیستم‌فایل' },
-      { name: '/etc', descEn: 'Change to system configuration directory', descFa: 'پوشه تنظیمات سیستمی' },
-      { name: '/var/log', descEn: 'Change to system log directory', descFa: 'پوشه لاگ‌های سیستم' },
-      { name: '/var/www', descEn: 'Change to web root directory', descFa: 'پوشه وب‌سرور' },
-      { name: '/opt', descEn: 'Change to optional third-party software directory', descFa: 'پوشه نرم‌افزارهای اضافی' },
-    ],
   },
   {
     command: 'pwd',
@@ -738,7 +728,12 @@ export const LINUX_VFS: Record<string, VfsEntry[]> = {
     { name: '.bashrc', type: 'file' },
     { name: '.profile', type: 'file' },
     { name: '.ssh', type: 'dir' },
+    { name: 'backups', type: 'dir' },
+    { name: 'desktop', type: 'dir' },
     { name: 'docker-compose.yml', type: 'file' },
+    { name: 'documents', type: 'dir' },
+    { name: 'downloads', type: 'dir' },
+    { name: 'logs', type: 'dir' },
     { name: 'projects', type: 'dir' },
     { name: 'README.md', type: 'file' },
     { name: 'scripts', type: 'dir' },
@@ -750,14 +745,58 @@ export const LINUX_VFS: Record<string, VfsEntry[]> = {
     { name: 'id_rsa.pub', type: 'file' },
     { name: 'known_hosts', type: 'file' },
   ],
+  '/root/documents': [
+    { name: 'configs', type: 'dir' },
+    { name: 'network-topology.json', type: 'file' },
+    { name: 'notes.md', type: 'file' },
+    { name: 'report.txt', type: 'file' },
+    { name: 'server-specs.md', type: 'file' },
+  ],
+  '/root/documents/configs': [
+    { name: 'backup.env', type: 'file' },
+    { name: 'firewall.rules', type: 'file' },
+    { name: 'nginx-ssl.conf', type: 'file' },
+  ],
+  '/root/downloads': [
+    { name: 'docker-setup.sh', type: 'executable' },
+    { name: 'installer.sh', type: 'executable' },
+    { name: 'node-v20.tar.gz', type: 'file' },
+  ],
+  '/root/desktop': [
+    { name: 'monitor.desktop', type: 'file' },
+    { name: 'terminal.desktop', type: 'file' },
+  ],
+  '/root/backups': [
+    { name: 'configs.tar.gz', type: 'file' },
+    { name: 'db-backup-2026.sql', type: 'file' },
+  ],
+  '/root/logs': [
+    { name: 'app.log', type: 'file' },
+    { name: 'deploy.log', type: 'file' },
+    { name: 'error.log', type: 'file' },
+  ],
   '/root/projects': [
     { name: 'backend', type: 'dir' },
     { name: 'frontend', type: 'dir' },
     { name: 'microservices', type: 'dir' },
   ],
+  '/root/projects/backend': [
+    { name: 'Dockerfile', type: 'file' },
+    { name: 'package.json', type: 'file' },
+    { name: 'server.ts', type: 'file' },
+    { name: 'src', type: 'dir' },
+  ],
+  '/root/projects/frontend': [
+    { name: 'package.json', type: 'file' },
+    { name: 'public', type: 'dir' },
+    { name: 'src', type: 'dir' },
+    { name: 'vite.config.ts', type: 'file' },
+  ],
   '/root/scripts': [
     { name: 'backup.sh', type: 'executable' },
+    { name: 'cleanup.sh', type: 'executable' },
     { name: 'deploy.sh', type: 'executable' },
+    { name: 'healthcheck.sh', type: 'executable' },
     { name: 'monitor.sh', type: 'executable' },
   ],
   '/home': [
@@ -769,7 +808,12 @@ export const LINUX_VFS: Record<string, VfsEntry[]> = {
     { name: '.bashrc', type: 'file' },
     { name: '.profile', type: 'file' },
     { name: '.ssh', type: 'dir' },
+    { name: 'backups', type: 'dir' },
+    { name: 'desktop', type: 'dir' },
     { name: 'docker-compose.yml', type: 'file' },
+    { name: 'documents', type: 'dir' },
+    { name: 'downloads', type: 'dir' },
+    { name: 'logs', type: 'dir' },
     { name: 'projects', type: 'dir' },
     { name: 'README.md', type: 'file' },
     { name: 'scripts', type: 'dir' },
@@ -780,6 +824,51 @@ export const LINUX_VFS: Record<string, VfsEntry[]> = {
     { name: 'id_rsa', type: 'file' },
     { name: 'id_rsa.pub', type: 'file' },
     { name: 'known_hosts', type: 'file' },
+  ],
+  '/home/user/documents': [
+    { name: 'configs', type: 'dir' },
+    { name: 'network-topology.json', type: 'file' },
+    { name: 'notes.md', type: 'file' },
+    { name: 'report.txt', type: 'file' },
+    { name: 'server-specs.md', type: 'file' },
+  ],
+  '/home/user/documents/configs': [
+    { name: 'backup.env', type: 'file' },
+    { name: 'firewall.rules', type: 'file' },
+    { name: 'nginx-ssl.conf', type: 'file' },
+  ],
+  '/home/user/downloads': [
+    { name: 'docker-setup.sh', type: 'executable' },
+    { name: 'installer.sh', type: 'executable' },
+    { name: 'node-v20.tar.gz', type: 'file' },
+  ],
+  '/home/user/desktop': [
+    { name: 'terminal.desktop', type: 'file' },
+  ],
+  '/home/user/backups': [
+    { name: 'configs.tar.gz', type: 'file' },
+    { name: 'db-backup-2026.sql', type: 'file' },
+  ],
+  '/home/user/logs': [
+    { name: 'app.log', type: 'file' },
+    { name: 'error.log', type: 'file' },
+  ],
+  '/home/user/projects': [
+    { name: 'backend', type: 'dir' },
+    { name: 'frontend', type: 'dir' },
+  ],
+  '/home/user/scripts': [
+    { name: 'backup.sh', type: 'executable' },
+    { name: 'deploy.sh', type: 'executable' },
+    { name: 'monitor.sh', type: 'executable' },
+  ],
+  '/home/deploy': [
+    { name: '.bashrc', type: 'file' },
+    { name: '.ssh', type: 'dir' },
+    { name: 'app', type: 'dir' },
+    { name: 'logs', type: 'dir' },
+    { name: 'releases', type: 'dir' },
+    { name: 'scripts', type: 'dir' },
   ],
   '/usr': [
     { name: 'bin', type: 'dir' },
@@ -824,6 +913,7 @@ export interface IntellisenseCandidate {
   insertText: string;
   category?: string;
   isDir?: boolean;
+  fullCompletedInput?: string;
 }
 
 export interface IntellisenseResult {
@@ -831,6 +921,43 @@ export interface IntellisenseResult {
   completedInput: string; // Full string if user presses Tab
   candidates: IntellisenseCandidate[];
   exactMatch: boolean;
+}
+
+/**
+ * Dynamically registers a file or directory in the Virtual File System (VFS).
+ * Useful when terminal commands like mkdir, touch, or nano create entries.
+ */
+export function registerVfsEntry(
+  dirPath: string,
+  name: string,
+  type: 'dir' | 'file' | 'executable'
+): void {
+  const norm = dirPath.length > 1 && dirPath.endsWith('/') ? dirPath.slice(0, -1) : dirPath || '/';
+  if (!LINUX_VFS[norm]) {
+    LINUX_VFS[norm] = [];
+  }
+  const existing = LINUX_VFS[norm].find((e) => e.name === name);
+  if (!existing) {
+    LINUX_VFS[norm].push({ name, type });
+  }
+  if (type === 'dir') {
+    const childPath = norm === '/' ? `/${name}` : `${norm}/${name}`;
+    if (!LINUX_VFS[childPath]) {
+      LINUX_VFS[childPath] = [];
+    }
+  }
+}
+
+/**
+ * Dynamically removes an entry from the Virtual File System (VFS).
+ */
+export function removeVfsEntry(dirPath: string, name: string): void {
+  const norm = dirPath.length > 1 && dirPath.endsWith('/') ? dirPath.slice(0, -1) : dirPath || '/';
+  if (LINUX_VFS[norm]) {
+    LINUX_VFS[norm] = LINUX_VFS[norm].filter((e) => e.name !== name);
+  }
+  const childPath = norm === '/' ? `/${name}` : `${norm}/${name}`;
+  delete LINUX_VFS[childPath];
 }
 
 /**
@@ -875,11 +1002,12 @@ function resolveVfsPath(baseCwd: string, targetPath: string, homeDir: string): s
 /**
  * Generates path and filename completions against the Virtual File System (VFS)
  */
-function getPathCompletions(
+export function getPathCompletions(
   token: string,
   cwd: string,
   homeDir: string,
-  dirsOnly: boolean
+  dirsOnly: boolean,
+  prefixStr?: string
 ): {
   candidates: IntellisenseCandidate[];
   bestToken: string;
@@ -894,19 +1022,115 @@ function getPathCompletions(
     ? cwd
     : `${normHome}/${cwd}`;
 
+  // 1. Direct parent/current navigation tokens: "..", "../..", ".", "./.", "~"
+  if (token === '..') {
+    return {
+      candidates: [
+        {
+          label: '../',
+          detail: 'Parent directory',
+          detailFa: 'دایرکتوری والد',
+          insertText: '../',
+          category: 'dir',
+          isDir: true,
+          fullCompletedInput: `${prefixStr || ''}../`,
+        },
+      ],
+      bestToken: '../',
+      exactMatch: true,
+    };
+  }
+
+  if (token.endsWith('/..')) {
+    return {
+      candidates: [
+        {
+          label: `${token}/`,
+          detail: 'Parent directory',
+          detailFa: 'دایرکتوری والد',
+          insertText: `${token}/`,
+          category: 'dir',
+          isDir: true,
+          fullCompletedInput: `${prefixStr || ''}${token}/`,
+        },
+      ],
+      bestToken: `${token}/`,
+      exactMatch: true,
+    };
+  }
+
+  if (token === '.') {
+    return {
+      candidates: [
+        {
+          label: './',
+          detail: 'Current directory',
+          detailFa: 'دایرکتوری جاری',
+          insertText: './',
+          category: 'dir',
+          isDir: true,
+          fullCompletedInput: `${prefixStr || ''}./`,
+        },
+      ],
+      bestToken: './',
+      exactMatch: true,
+    };
+  }
+
+  if (token.endsWith('/.')) {
+    return {
+      candidates: [
+        {
+          label: `${token}/`,
+          detail: 'Current directory',
+          detailFa: 'دایرکتوری جاری',
+          insertText: `${token}/`,
+          category: 'dir',
+          isDir: true,
+          fullCompletedInput: `${prefixStr || ''}${token}/`,
+        },
+      ],
+      bestToken: `${token}/`,
+      exactMatch: true,
+    };
+  }
+
+  if (token === '~') {
+    return {
+      candidates: [
+        {
+          label: '~/',
+          detail: 'User home directory',
+          detailFa: 'پوشه خانگی کاربر',
+          insertText: '~/',
+          category: 'dir',
+          isDir: true,
+          fullCompletedInput: `${prefixStr || ''}~/`,
+        },
+      ],
+      bestToken: '~/',
+      exactMatch: true,
+    };
+  }
+
   let parentPath = '';
   let namePrefix = '';
   let insertPrefix = '';
 
-  if (token === '' || token === '.') {
+  if (token === '' || token === './') {
     parentPath = effectiveCwd;
-    namePrefix = token === '.' ? '.' : '';
-    insertPrefix = token === '.' ? './' : '';
-  } else if (token === '..') {
+    namePrefix = '';
+    insertPrefix = token === './' ? './' : '';
+  } else if (token === '../') {
     parentPath = resolveVfsPath(effectiveCwd, '..', homeDir);
     namePrefix = '';
     insertPrefix = '../';
-  } else if (token === '~') {
+  } else if (token.endsWith('/../')) {
+    const parentRel = token.slice(0, token.length - 1);
+    parentPath = resolveVfsPath(effectiveCwd, parentRel, homeDir);
+    namePrefix = '';
+    insertPrefix = token;
+  } else if (token === '~/') {
     parentPath = normHome;
     namePrefix = '';
     insertPrefix = '~/';
@@ -939,7 +1163,7 @@ function getPathCompletions(
       insertPrefix = token.slice(0, lastSlash + 1);
     }
   } else {
-    // Relative path (may or may not contain slashes, like "sites-a" or "../var/l")
+    // Relative path (may or may not contain slashes, like "doc", "documents/co", "../var/l")
     const lastSlash = token.lastIndexOf('/');
     if (lastSlash === -1) {
       parentPath = effectiveCwd;
@@ -992,8 +1216,9 @@ function getPathCompletions(
       detail,
       detailFa,
       insertText,
-      category: entry.type,
+      category: isDir ? 'dir' : entry.type,
       isDir,
+      fullCompletedInput: `${prefixStr || ''}${insertText}`,
     };
   });
 
@@ -1068,16 +1293,24 @@ export function getIntellisense(
 
   // =========================================================================
   // CASE 1: Typing Root Command (single word, no trailing space)
-  // e.g. "sud", "dock", "apt", "nan", "sy", "vi"
+  // e.g. "sud", "dock", "apt", "nan", "sy", "vi", "./scr", "../run", "~/", "/etc"
   // =========================================================================
   if (parts.length === 1 && !hasTrailingSpace) {
     const word = parts[0].toLowerCase();
 
-    // If starting with ./ or ../ or /, it's an executable path!
-    if (word.startsWith('./') || word.startsWith('../') || word.startsWith('/')) {
-      const pathResult = getPathCompletions(parts[0], cwd, homeDir, false);
+    // If starting with ./ or ../ or / or ~/ or . or .. or ~, it's an executable or directory path!
+    if (
+      word.startsWith('./') ||
+      word.startsWith('../') ||
+      word.startsWith('/') ||
+      word.startsWith('~/') ||
+      word === '.' ||
+      word === '..' ||
+      word === '~'
+    ) {
+      const pathResult = getPathCompletions(parts[0], cwd, homeDir, false, fullPrefixBeforeActive);
       if (pathResult.candidates.length > 0) {
-        const ghost = pathResult.bestToken.startsWith(parts[0])
+        const ghost = pathResult.bestToken.toLowerCase().startsWith(parts[0].toLowerCase())
           ? pathResult.bestToken.slice(parts[0].length)
           : '';
         return {
@@ -1111,6 +1344,7 @@ export function getIntellisense(
         detailFa: catEntry?.descFa || 'دستور استاندارد لینوکس',
         insertText: `${cmd} `,
         category: catEntry?.category || 'general',
+        fullCompletedInput: `${fullPrefixBeforeActive}${cmd} `,
       };
     });
 
@@ -1136,12 +1370,16 @@ export function getIntellisense(
 
   // =========================================================================
   // CASE 2: Arguments, Subcommands, Services, Containers, Flags, Paths
-  // e.g. "cd /etc/ng", "cat hosts", "systemctl status ng", "docker logs we"
+  // e.g. "cd doc", "cat /etc/ng", "systemctl status ng", "docker logs we"
   // =========================================================================
   const mainCmd = parts[0].toLowerCase();
   const currentToken = hasTrailingSpace ? '' : (parts[parts.length - 1] || '');
-  const prefixParts = hasTrailingSpace ? parts : parts.slice(0, -1);
-  const prefixStr = `${fullPrefixBeforeActive}${prefixParts.join(' ')}${prefixParts.length > 0 ? ' ' : ''}`;
+
+  // Extract exact prefix before currentToken from commandLine preserving all spacing
+  const cmdPrefixBeforeToken = currentToken
+    ? commandLine.slice(0, commandLine.length - currentToken.length)
+    : commandLine;
+  const prefixStr = `${fullPrefixBeforeActive}${cmdPrefixBeforeToken}`;
 
   // 2.A: Special systemctl service autocompletion
   if (mainCmd === 'systemctl') {
@@ -1158,6 +1396,7 @@ export function getIntellisense(
           detailFa: `سرویس و واحد سیستمی ${srv}`,
           insertText: `${srv} `,
           category: 'service',
+          fullCompletedInput: `${prefixStr}${srv} `,
         }));
 
         if (matchedServices.length === 1) {
@@ -1196,6 +1435,7 @@ export function getIntellisense(
           detailFa: `لاگ‌های ژورنال سرویس ${srv}`,
           insertText: `${srv} `,
           category: 'service',
+          fullCompletedInput: `${prefixStr}${srv} `,
         }));
 
         if (matchedServices.length === 1) {
@@ -1235,6 +1475,7 @@ export function getIntellisense(
           detailFa: `کانتینر فعال داکر ${cnt}`,
           insertText: `${cnt} `,
           category: 'docker',
+          fullCompletedInput: `${prefixStr}${cnt} `,
         }));
 
         if (matchedContainers.length === 1) {
@@ -1273,6 +1514,7 @@ export function getIntellisense(
           detailFa: `بسته نرم‌افزاری اوبونتو/دبیان: ${pkg}`,
           insertText: `${pkg} `,
           category: 'package',
+          fullCompletedInput: `${prefixStr}${pkg} `,
         }));
 
         if (matchedPackages.length === 1) {
@@ -1299,27 +1541,43 @@ export function getIntellisense(
 
   // 2.E: Catalog Subcommands and Flags completion (e.g. systemctl [status|restart], docker [ps|images], ss [-tulpn])
   const catalogEntry = LINUX_COMMANDS_CATALOG.find((c) => c.command.toLowerCase() === mainCmd);
-  const availableOptions: { label: string; detail: string; detailFa: string; insertText: string }[] = [];
+  const availableOptions: IntellisenseCandidate[] = [];
 
   if (catalogEntry) {
-    if (catalogEntry.subcommands && (parts.length === 2 && !hasTrailingSpace)) {
+    // Only offer subcommands for the first argument right after command, if user hasn't typed slashes or path characters
+    // and if the command is NOT a pure filesystem command like cd or rmdir
+    if (
+      catalogEntry.subcommands &&
+      mainCmd !== 'cd' &&
+      mainCmd !== 'rmdir' &&
+      parts.length === 2 &&
+      !hasTrailingSpace &&
+      !currentToken.includes('/') &&
+      !currentToken.startsWith('~') &&
+      !currentToken.startsWith('.')
+    ) {
       for (const sub of catalogEntry.subcommands) {
         availableOptions.push({
           label: sub.name,
           detail: sub.descEn,
           detailFa: sub.descFa,
           insertText: `${sub.name} `,
+          category: 'general',
+          fullCompletedInput: `${prefixStr}${sub.name} `,
         });
       }
     }
 
-    if (catalogEntry.flags && (currentToken.startsWith('-') || parts.length >= 2)) {
+    // ONLY offer flags if the user actually started typing a flag with '-'
+    if (catalogEntry.flags && currentToken.startsWith('-')) {
       for (const fl of catalogEntry.flags) {
         availableOptions.push({
           label: fl.flag,
           detail: fl.descEn,
           detailFa: fl.descFa,
           insertText: `${fl.flag} `,
+          category: 'general',
+          fullCompletedInput: `${prefixStr}${fl.flag} `,
         });
       }
     }
@@ -1355,12 +1613,12 @@ export function getIntellisense(
     }
   }
 
-  // 2.F: VFS Path Autocompletion (cd, ls, cat, nano, vim, vi, tail, head, grep, rm, cp, mv, touch, mkdir, chmod, chown, etc.)
+  // 2.F: VFS Path & Filename Autocompletion (cd, ls, cat, nano, vim, vi, tail, head, grep, rm, cp, mv, touch, mkdir, chmod, chown, python3, bash, sh, git, etc.)
   const isCd = mainCmd === 'cd' || mainCmd === 'rmdir';
-  const pathResult = getPathCompletions(currentToken, cwd, homeDir, isCd);
+  const pathResult = getPathCompletions(currentToken, cwd, homeDir, isCd, prefixStr);
 
   if (pathResult.candidates.length > 0) {
-    const ghost = pathResult.bestToken.startsWith(currentToken)
+    const ghost = pathResult.bestToken.toLowerCase().startsWith(currentToken.toLowerCase())
       ? pathResult.bestToken.slice(currentToken.length)
       : '';
 

@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.98.0';
+export const APP_VERSION = '1.98.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.98.1',
+    releaseDate: '2026-09-20',
+    type: 'patch',
+    title: 'تکمیل خودکار جامع مسیرها، پوشه‌ها و فایل‌ها با کلید Tab مشابه شل Bash لینوکس',
+    title_en: 'Full Shell-Style Tab Autocompletion for Directory Paths, Relative/Absolute Routes, and Filenames',
+    changes: [
+      'رفع کامل باگ عدم تکمیل نام دایرکتوری‌ها و فایل‌ها بعد از دستورات ترمینال (مانند cd doc به cd documents/).',
+      'پشتیبانی دقیق از تکمیل مسیرهای نسبی (..، ../..، .، ./، ~/، مسیرهای محلی) و مسیرهای مطلق (/etc/ng به /etc/nginx/).',
+      'تطبیق هوشمند دستورات تغییر پوشه (cd و rmdir) جهت پیشنهاد انحصاری دایرکتوری‌ها و اسلش پایانی مشابه شل واقعی Bash.',
+      'پشتیبانی از دستورات کار با فایل (cat، nano، vim، ls، rm، cp، mv، grep، tail، head، chmod، chown و ...) با تکمیل همزمان فایل‌ها و پوشه‌ها.',
+      'افزودن امکان ثبت بلادرنگ و پویا در ساختار VFS در زمان اجرای دستورات ساخت پوشه و فایل (mkdir، touch، nano، vim) و حذف آن‌ها (rm).',
+      'اصلاح کامل درج مقدار کاندیداهای پیشنهادی هنگام کلیک یا انتخاب در پنجره هوشمند پیشنهادات با استفاده از fullCompletedInput.'
+    ],
+    changes_en: [
+      'Resolved the issue where Tab autocomplete only matched root commands and failed on directory paths and filenames after commands (e.g. cd doc<TAB> now seamlessly completes to cd documents/).',
+      'Implemented robust relative and absolute path resolution including .., ../.., ., ./, ~/, and system absolute paths like /etc/ng<TAB> to /etc/nginx/.',
+      'Tuned folder-specific commands (cd, rmdir) to exclusively complete directory entries with trailing slashes, matching authentic Bash shell semantics.',
+      'Enabled full path & file completion for file inspection and manipulation tools (cat, nano, vim, ls, rm, cp, mv, grep, tail, head, chmod, chown, etc.) with automatic trailing space insertion for files.',
+      'Added dynamic Virtual File System (VFS) live synchronization upon executing mkdir, touch, nano, vim, and rm commands in the terminal.',
+      'Fixed intellisense popup selection to insert the complete reconstructed command (fullCompletedInput) instead of only the isolated token.'
+    ]
+  },
   {
     version: '1.98.0',
     releaseDate: '2026-09-20',
