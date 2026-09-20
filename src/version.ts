@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.98.1';
+export const APP_VERSION = '1.98.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.98.2',
+    releaseDate: '2026-09-20',
+    type: 'patch',
+    title: 'افزودن ۷ اصل و دستورالعمل کلیدی مهندسی و کیفی به قوانین هوش مصنوعی و پروژه',
+    title_en: 'Added 7 Core Mandatory Engineering and Quality Directives to AI System Policies',
+    changes: [
+      'ثبت قانون ممنوعیت مطلق داده‌های جعلی، موک و شبیه‌سازی‌شده (No Fake/Simulated Data — Ever) برای کلیه ماژول‌های ارتباط با تجهیزات فیزیکی و مجازی.',
+      'الزام ارائه مدرک عینی و تست واقعی (لاگ، خروجی زنده) قبل از اعلام وضعیت حل مشکل (Evidence-Based Resolution).',
+      'تدوین قانون قطعی عدم رگرسیون و حفظ ۱۰۰ درصدی کلیه قابلیت‌های قبلی با بررسی اثرات تغییرات اشتراکی (Zero Regression).',
+      'الزام تفکیک کامیت‌ها و پوش‌ها به ازای هر تسک/باگ مستقل به همراه افزایش متناظر شماره نسخه در برنچ master.',
+      'پیاده‌سازی سازوکار ارتباطی انطباقی و چندنسلی (Adaptive Protocol Negotiation) با اولویت متدهای مدرن و فالبک خودکار به روش‌های سازگار قدیمی.',
+      'تأکید بر ریشه‌یابی و حل بنیادین ایرادات به جای رفع سطحی علائم یا افزودن ترای‌کچ‌های خاموش.',
+      'الزام امنیت و محرمانگی اعتبارنامه‌ها با رمزنگاری در پایگاه‌داده و منع مطلق ارسال پسوردها به فرانت‌اند یا لاگ‌ها.'
+    ],
+    changes_en: [
+      'Codified absolute prohibition on mock, synthetic, or simulated data across all network and server protocol modules (No Fake/Simulated Data — Ever).',
+      'Enforced empirical proof and real runtime verification requirement before declaring any issue as resolved (Evidence-Based Resolution).',
+      'Established strict zero-regression policy requiring comprehensive impact assessments on shared utilities across dependent features.',
+      'Mandated atomic commits and pushes per independent item accompanied by standard semantic version bumping on the master branch.',
+      'Defined adaptive, multi-generation protocol negotiation (modern standard ciphers first, automatic graceful fallback to legacy compatibility).',
+      'Required root-cause diagnostic engineering over superficial symptom suppression or silent error handling.',
+      'Mandated zero-leak credential security with at-rest encryption and server-side-only in-flight decryption without client exposure.'
+    ]
+  },
   {
     version: '1.98.1',
     releaseDate: '2026-09-20',
