@@ -23,10 +23,12 @@ import {
   Eye,
   EyeOff,
   FolderTree,
+  KeyRound,
 } from 'lucide-react';
 import { RemoteServer, ServerCategory } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
+import { VaultPasswordPickerModal } from '../vault/VaultPasswordPickerModal';
 
 export interface AddEditServerModalProps {
   isOpen: boolean;
@@ -118,6 +120,8 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [promptPasswordOnConnect, setPromptPasswordOnConnect] = useState(false);
   const [showSshPassword, setShowSshPassword] = useState(false);
   const [showWinPassword, setShowWinPassword] = useState(false);
+  const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
+  const [vaultPickerTarget, setVaultPickerTarget] = useState<'ssh' | 'windows'>('ssh');
 
   // Linux-specific
   const [sshPort, setSshPort] = useState<number | string>(22);
@@ -836,11 +840,27 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               <div className="space-y-1 text-xs">
                 <label className="font-medium text-slate-300 flex items-center justify-between">
                   <span>{isEn ? 'SSH Password / Private Key Passphrase' : 'رمز عبور SSH / کلید خصوصی'}</span>
-                  {promptPasswordOnConnect && (
-                    <span className="text-[10px] text-amber-400 font-normal">
-                      {isEn ? 'Disabled (On-Demand Auth)' : 'غیرفعال (احراز در لحظه)'}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {!promptPasswordOnConnect && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVaultPickerTarget('ssh');
+                          setIsVaultPickerOpen(true);
+                        }}
+                        className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-normal transition px-1.5 py-0.5 rounded hover:bg-cyan-500/10 cursor-pointer"
+                        title={isEn ? 'Select secret from your personal vault' : 'انتخاب رمز از ولت شخصی شما'}
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        <span>{isEn ? 'Choose from Vault' : 'انتخاب از ولت شخصی'}</span>
+                      </button>
+                    )}
+                    {promptPasswordOnConnect && (
+                      <span className="text-[10px] text-amber-400 font-normal">
+                        {isEn ? 'Disabled (On-Demand Auth)' : 'غیرفعال (احراز در لحظه)'}
+                      </span>
+                    )}
+                  </div>
                 </label>
 
                 {promptPasswordOnConnect ? (
@@ -968,11 +988,27 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                 <div className="space-y-1">
                   <label className="font-medium text-slate-300 flex items-center justify-between">
                     <span>{isEn ? 'Windows Password' : 'رمز عبور ویندوز'}</span>
-                    {promptPasswordOnConnect && (
-                      <span className="text-[10px] text-amber-400 font-normal">
-                        {isEn ? 'Disabled (On-Demand Auth)' : 'غیرفعال (احراز در لحظه)'}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {!promptPasswordOnConnect && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVaultPickerTarget('windows');
+                            setIsVaultPickerOpen(true);
+                          }}
+                          className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-normal transition px-1.5 py-0.5 rounded hover:bg-cyan-500/10 cursor-pointer"
+                          title={isEn ? 'Select secret from your personal vault' : 'انتخاب رمز از ولت شخصی شما'}
+                        >
+                          <KeyRound className="w-3 h-3" />
+                          <span>{isEn ? 'Choose from Vault' : 'انتخاب از ولت شخصی'}</span>
+                        </button>
+                      )}
+                      {promptPasswordOnConnect && (
+                        <span className="text-[10px] text-amber-400 font-normal">
+                          {isEn ? 'Disabled (On-Demand Auth)' : 'غیرفعال (احراز در لحظه)'}
+                        </span>
+                      )}
+                    </div>
                   </label>
 
                   {promptPasswordOnConnect ? (
@@ -1206,6 +1242,30 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
           onMinimize={() => setIsManageCategoriesOpen(false)}
           onCategoriesChanged={() => {
             fetchCategories();
+          }}
+        />
+      )}
+
+      {isVaultPickerOpen && (
+        <VaultPasswordPickerModal
+          isOpen={isVaultPickerOpen}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          targetHost={ip || hostname}
+          onClose={() => setIsVaultPickerOpen(false)}
+          onMinimize={() => setIsVaultPickerOpen(false)}
+          onSelectPassword={(password, username) => {
+            if (vaultPickerTarget === 'ssh') {
+              setSshPassword(password);
+              if (username && !sshUsername) {
+                setSshUsername(username);
+              }
+            } else {
+              setWinPassword(password);
+              if (username && !winUsername) {
+                setWinUsername(username);
+              }
+            }
           }}
         />
       )}

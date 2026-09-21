@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.101.0';
+export const APP_VERSION = '1.102.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.102.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن امکان انتخاب گذرواژه از ولت شخصی کاربر در مودال ثبت سرور ریموت با ایزولاسیون کامل و احراز هویت امن',
+    title_en: 'Add Secure Vault Password Picker to Remote Server Registration Modal with Strict Per-User Isolation',
+    changes: [
+      'افزودن دکمه «انتخاب از ولت شخصی» (Choose from Vault) در کنار فیلدهای رمز عبور SSH سرورهای لینوکسی و رمز عبور سرورهای ویندوزی در مودال ثبت سرور ریموت (Register Remote Server).',
+      'طراحی کامپوننت مودال اختصاصی VaultPasswordPickerModal با پشتیبانی از استانداردهای پنج‌گانه مودال‌ها: دکمه‌های کنترل سه‌گانه، انطباق کامل با تم تیره و روشن، پشتیبانی دو زبانه (فارسی و انگلیسی) و کادر راهنمای سه‌بخشی Info.',
+      'تضمین ایزولاسیون صددرصدی و تفکیک قطعی دسترسی ولت بر اساس حساب کاربری فعال (User-Scoped Isolation)، به گونه‌ای که هر کاربر منحصراً به کلمات عبور ولت شخصی خود دسترسی دارد و هیچ کاربری نمی‌تواند به ولت دیگری دسترسی پیدا کند.',
+      'پیاده‌سازی احراز هویت مجدد امن (Re-Authentication with Login Password) هنگام انتخاب و اعمال رمز عبور انتخابی از ولت جهت جلوگیری از سوءاستفاده‌های احتمالی.',
+      'پشتیبانی از جستجو و فیلتر بر اساس عنوان، کاربر، هاست و دسته‌بندی با تشخیص هوشمند تطابق هاست (Host Match) با سرور در حال ثبت.'
+    ],
+    changes_en: [
+      'Added dedicated "Choose from Vault" button adjacent to SSH and Windows password inputs within the Register / Edit Remote Server modal.',
+      'Engineered VaultPasswordPickerModal component adhering to all universal modal standards: 3 header control buttons, full dark/light theme fidelity, strict bilingual i18n, and boundary-safe 3-part Field Info tooltip.',
+      'Enforced strict per-user vault isolation ensuring only secrets owned by the currently authenticated user are accessible, preventing any cross-user vault access.',
+      'Integrated mandatory master login password re-authentication before unlocking and applying the chosen vault secret to prevent unauthorized credential usage.',
+      'Added instant search and category filtering with automatic target host matching highlights for streamlined server credential association.'
+    ]
+  },
   {
     version: '1.101.0',
     releaseDate: '2026-09-21',
