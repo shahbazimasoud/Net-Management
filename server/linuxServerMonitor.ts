@@ -362,16 +362,156 @@ export function parseLinuxTelemetry(rawOutput: string, host: string, port: numbe
   };
 }
 
+export interface LinuxSystemService {
+  name: string;
+  loadState: string;
+  activeState: string;
+  subState: string;
+  unitFileState?: string;
+  description: string;
+}
+
+const SERVICES_SHELL_SCRIPT = `export LC_ALL=C
+if command -v systemctl >/dev/null 2>&1; then
+  echo "---UNITS---"
+  systemctl list-units --type=service --all --no-pager --no-legend 2>/dev/null
+  echo "---UNIT_FILES---"
+  systemctl list-unit-files --type=service --no-pager --no-legend 2>/dev/null
+elif command -v service >/dev/null 2>&1; then
+  echo "---SERVICE_CMD---"
+  service --status-all 2>&1 || true
+else
+  echo "---INIT_D---"
+  ls -1 /etc/init.d/ 2>/dev/null || true
+fi
+`;
+
+export function parseLinuxServices(rawOutput: string): LinuxSystemService[] {
+  const servicesMap = new Map<string, LinuxSystemService>();
+  const lines = rawOutput.split(/\r?\n/);
+  let mode: 'units' | 'unit_files' | 'service_cmd' | 'init_d' | 'unknown' = 'unknown';
+
+  const unitFilesMap = new Map<string, string>();
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    if (line === '---UNITS---') {
+      mode = 'units';
+      continue;
+    }
+    if (line === '---UNIT_FILES---') {
+      mode = 'unit_files';
+      continue;
+    }
+    if (line === '---SERVICE_CMD---') {
+      mode = 'service_cmd';
+      continue;
+    }
+    if (line === '---INIT_D---') {
+      mode = 'init_d';
+      continue;
+    }
+
+    if (mode === 'unit_files') {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 2) {
+        const name = parts[0];
+        const state = parts[1];
+        unitFilesMap.set(name, state);
+        unitFilesMap.set(name.replace(/\.service$/, ''), state);
+      }
+      continue;
+    }
+
+    if (mode === 'units') {
+      const cleanLine = line.replace(/^[●*]\s*/, '');
+      const parts = cleanLine.split(/\s+/);
+      if (parts.length >= 4) {
+        const fullName = parts[0];
+        const loadState = parts[1];
+        const activeState = parts[2];
+        const subState = parts[3];
+        const description = parts.slice(4).join(' ');
+
+        if (fullName.endsWith('.service') || !fullName.includes('.')) {
+          const shortName = fullName.replace(/\.service$/, '');
+          servicesMap.set(shortName, {
+            name: shortName,
+            loadState,
+            activeState,
+            subState,
+            unitFileState: unitFilesMap.get(fullName) || unitFilesMap.get(shortName),
+            description: description || shortName,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (mode === 'service_cmd') {
+      const match = line.match(/^\[\s*([+\-?])\s*\]\s+(.+)$/);
+      if (match) {
+        const flag = match[1];
+        const name = match[2].trim();
+        const activeState = flag === '+' ? 'active' : flag === '-' ? 'inactive' : 'unknown';
+        const subState = flag === '+' ? 'running' : flag === '-' ? 'dead' : 'exited';
+        servicesMap.set(name, {
+          name,
+          loadState: 'loaded',
+          activeState,
+          subState,
+          unitFileState: undefined,
+          description: name,
+        });
+      }
+      continue;
+    }
+
+    if (mode === 'init_d') {
+      const name = line.trim();
+      if (name && !servicesMap.has(name)) {
+        servicesMap.set(name, {
+          name,
+          loadState: 'loaded',
+          activeState: 'unknown',
+          subState: 'unknown',
+          unitFileState: undefined,
+          description: name,
+        });
+      }
+    }
+  }
+
+  // Also integrate unit files not active right now
+  for (const [name, state] of unitFilesMap.entries()) {
+    if (!name.endsWith('.service')) continue;
+    const shortName = name.replace(/\.service$/, '');
+    if (!servicesMap.has(shortName)) {
+      servicesMap.set(shortName, {
+        name: shortName,
+        loadState: 'loaded',
+        activeState: state === 'enabled' ? 'active' : 'inactive',
+        subState: state === 'enabled' ? 'running' : 'dead',
+        unitFileState: state,
+        description: shortName,
+      });
+    }
+  }
+
+  return Array.from(servicesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /**
- * Connects directly to the physical/virtual remote Linux server via SSH
- * and collects live, authentic system telemetry without any mock/simulated fallback.
- * Strictly adheres to Adaptive Protocol Negotiation (modern first, legacy fallback).
+ * Adaptive SSH command runner: attempts modern first, automatically falls back to legacy ciphers.
  */
-export async function executeLinuxTelemetrySSH(
+async function runAdaptiveSshCommand(
   server: RemoteServer,
+  command: string,
   ephemeralPassword?: string,
-  timeoutMs: number = 8000
-): Promise<LinuxServerLiveMetrics> {
+  timeoutMs: number = 9000
+): Promise<string> {
   const host = (server.ip || server.hostname || '').trim();
   const port = server.ssh_port || 22;
   const username = server.ssh_username || 'root';
@@ -407,7 +547,7 @@ export async function executeLinuxTelemetrySSH(
       });
 
       client.on('ready', () => {
-        client.exec(TELEMETRY_SHELL_SCRIPT, (err, stream) => {
+        client.exec(command, (err, stream) => {
           if (err) {
             return finish(err);
           }
@@ -424,8 +564,8 @@ export async function executeLinuxTelemetrySSH(
           });
 
           stream.on('close', (code: number) => {
-            if (code !== 0 && !stdout.includes('---OS---')) {
-              finish(new Error(`Telemetry command exited with code ${code}: ${stderr.trim()}`));
+            if (code !== 0 && !stdout.trim()) {
+              finish(new Error(`Command exited with code ${code}: ${stderr.trim() || 'Command execution failed'}`));
             } else {
               finish(undefined, stdout);
             }
@@ -488,12 +628,9 @@ export async function executeLinuxTelemetrySSH(
   };
 
   try {
-    // 1. Attempt with standard modern ciphers and key exchanges
-    const rawOutput = await runAttempt(false);
-    return parseLinuxTelemetry(rawOutput, host, port);
+    return await runAttempt(false);
   } catch (modernErr: any) {
     const errMsg = (modernErr?.message || '').toLowerCase();
-    // Check if error is related to cipher or protocol mismatch
     const isCryptoMismatch =
       errMsg.includes('handshake') ||
       errMsg.includes('kex') ||
@@ -503,11 +640,132 @@ export async function executeLinuxTelemetrySSH(
       errMsg.includes('no matching');
 
     if (isCryptoMismatch) {
-      console.log(`[LinuxMonitor] Modern SSH handshake failed for ${host}:${port}, retrying with legacy-compatible algorithms...`);
-      const legacyOutput = await runAttempt(true);
-      return parseLinuxTelemetry(legacyOutput, host, port);
+      console.log(`[LinuxSSH] Modern handshake failed for ${host}:${port}, retrying with legacy-compatible algorithms...`);
+      return await runAttempt(true);
     }
-
     throw modernErr;
+  }
+}
+
+/**
+ * Connects directly to the physical/virtual remote Linux server via SSH
+ * and collects live, authentic system telemetry without any mock/simulated fallback.
+ */
+export async function executeLinuxTelemetrySSH(
+  server: RemoteServer,
+  ephemeralPassword?: string,
+  timeoutMs: number = 8000
+): Promise<LinuxServerLiveMetrics> {
+  const host = (server.ip || server.hostname || '').trim();
+  const port = server.ssh_port || 22;
+  const rawOutput = await runAdaptiveSshCommand(server, TELEMETRY_SHELL_SCRIPT, ephemeralPassword, timeoutMs);
+  return parseLinuxTelemetry(rawOutput, host, port);
+}
+
+/**
+ * Fetches real-time Linux system services (systemd / sysvinit / init.d)
+ */
+export async function fetchLinuxServicesSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string,
+  timeoutMs: number = 8000
+): Promise<LinuxSystemService[]> {
+  const rawOutput = await runAdaptiveSshCommand(server, SERVICES_SHELL_SCRIPT, ephemeralPassword, timeoutMs);
+  return parseLinuxServices(rawOutput);
+}
+
+/**
+ * Controls a Linux system service (start, stop, restart, enable, disable)
+ */
+export async function executeLinuxServiceControl(
+  server: RemoteServer,
+  serviceName: string,
+  action: 'start' | 'stop' | 'restart' | 'enable' | 'disable',
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const cleanName = serviceName.trim().replace(/[^a-zA-Z0-9_@.-]/g, '');
+  if (!cleanName) {
+    throw new Error('Invalid service name provided.');
+  }
+
+  const validActions = ['start', 'stop', 'restart', 'enable', 'disable'];
+  if (!validActions.includes(action)) {
+    throw new Error(`Invalid service action: ${action}`);
+  }
+
+  // Construct safe command with fallback to regular systemctl/service
+  const cmd = `export LC_ALL=C
+if command -v systemctl >/dev/null 2>&1; then
+  sudo systemctl ${action} ${cleanName} 2>&1 || systemctl ${action} ${cleanName} 2>&1
+elif command -v service >/dev/null 2>&1; then
+  sudo service ${cleanName} ${action} 2>&1 || service ${cleanName} ${action} 2>&1
+else
+  sudo /etc/init.d/${cleanName} ${action} 2>&1 || /etc/init.d/${cleanName} ${action} 2>&1
+fi`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 10000);
+    const lower = output.toLowerCase();
+    if (lower.includes('failed to') || lower.includes('error:') || lower.includes('access denied') || lower.includes('permission denied')) {
+      return {
+        success: false,
+        message: output.trim() || `Failed to ${action} service ${cleanName}`,
+      };
+    }
+    return {
+      success: true,
+      message: output.trim() || `Service ${cleanName} successfully executed ${action}.`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Execution error while attempting to ${action} ${cleanName}`,
+    };
+  }
+}
+
+/**
+ * Controls a Linux Process: Kill (SIGTERM 15 / SIGKILL 9) or Renice (-20 to +19)
+ */
+export async function executeLinuxProcessControl(
+  server: RemoteServer,
+  pid: number,
+  action: 'kill' | 'renice',
+  options: { signal?: number; nice?: number },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  if (!pid || pid <= 1 || isNaN(pid)) {
+    throw new Error('Invalid process PID. Cannot signal PID <= 1.');
+  }
+
+  let cmd = '';
+  if (action === 'kill') {
+    const sig = options.signal === 9 ? 9 : 15;
+    cmd = `export LC_ALL=C; sudo kill -${sig} ${pid} 2>&1 || kill -${sig} ${pid} 2>&1`;
+  } else if (action === 'renice') {
+    const niceVal = Math.max(-20, Math.min(19, options.nice !== undefined ? Number(options.nice) : 0));
+    cmd = `export LC_ALL=C; sudo renice -n ${niceVal} -p ${pid} 2>&1 || renice -n ${niceVal} -p ${pid} 2>&1`;
+  } else {
+    throw new Error(`Unsupported process action: ${action}`);
+  }
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 8000);
+    const lower = output.toLowerCase();
+    if (lower.includes('no such process') || lower.includes('operation not permitted') || lower.includes('permission denied')) {
+      return {
+        success: false,
+        message: output.trim(),
+      };
+    }
+    return {
+      success: true,
+      message: output.trim() || (action === 'kill' ? `Process ${pid} terminated.` : `Process ${pid} priority changed.`),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to perform ${action} on process ${pid}`,
+    };
   }
 }

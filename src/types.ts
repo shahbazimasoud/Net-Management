@@ -1453,6 +1453,15 @@ export interface LinuxServerLiveMetrics {
   processes: LinuxServerProcessMetric[];
 }
 
+export interface LinuxSystemService {
+  name: string;
+  loadState: string;
+  activeState: string;
+  subState: string;
+  unitFileState?: string;
+  description: string;
+}
+
 declare module 'guacamole-common-js';
 
 

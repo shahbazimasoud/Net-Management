@@ -72,7 +72,12 @@ import {
   getBulkServerJobStatus,
   cancelBulkServerJob,
 } from './bulkServerConfig';
-import { executeLinuxTelemetrySSH } from './linuxServerMonitor';
+import {
+  executeLinuxTelemetrySSH,
+  fetchLinuxServicesSSH,
+  executeLinuxServiceControl,
+  executeLinuxProcessControl,
+} from './linuxServerMonitor';
 
 export const apiRouter = Router();
 
@@ -1177,6 +1182,128 @@ const handleLinuxServerMonitor = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/monitor', handleLinuxServerMonitor);
 apiRouter.post('/remote-servers/:id/monitor', handleLinuxServerMonitor);
+
+// GET & POST /api/remote-servers/:id/services - Fetch real-time system services from remote Linux server
+const handleLinuxServerServices = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'Service management is designed for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const services = await fetchLinuxServicesSSH(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      services,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxServices API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch services from remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/services', handleLinuxServerServices);
+apiRouter.post('/remote-servers/:id/services', handleLinuxServerServices);
+
+// POST /api/remote-servers/:id/service-action - Start, Stop, Restart, Enable, Disable Linux Service
+apiRouter.post('/remote-servers/:id/service-action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { serviceName, action, password } = req.body;
+
+    if (!serviceName || !action) {
+      return res.status(400).json({ success: false, error: 'serviceName and action are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await executeLinuxServiceControl(server, serviceName, action, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Linux Service ${action.toUpperCase()}`,
+      category: 'operation',
+      target: `${server.name || server.ip} (${serviceName})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxServiceAction API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to control remote service',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/process-action - Kill or Renice Linux Process
+apiRouter.post('/remote-servers/:id/process-action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { pid, action, signal, nice, password } = req.body;
+
+    if (!pid || !action) {
+      return res.status(400).json({ success: false, error: 'pid and action are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await executeLinuxProcessControl(
+      server,
+      Number(pid),
+      action,
+      { signal: signal !== undefined ? Number(signal) : undefined, nice: nice !== undefined ? Number(nice) : undefined },
+      password
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Linux Process ${action.toUpperCase()} (PID ${pid})`,
+      category: 'operation',
+      target: `${server.name || server.ip} (PID ${pid})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxProcessAction API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to control remote process',
+    });
+  }
+});
 
 // ==========================================
 // BULK LINUX SERVER CONFIGURATION ENDPOINTS

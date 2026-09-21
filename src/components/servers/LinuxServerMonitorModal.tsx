@@ -24,10 +24,26 @@ import {
   TrendingUp,
   Layers,
   Info,
+  Play,
+  Square,
+  RotateCw,
+  Ban,
+  MoreVertical,
+  Sliders,
+  ServerCog,
+  Check,
+  Flame,
+  ShieldAlert,
 } from 'lucide-react';
-import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric } from '../../types';
-import { fetchLinuxServerLiveMetrics } from '../../services/api';
+import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService } from '../../types';
+import {
+  fetchLinuxServerLiveMetrics,
+  fetchLinuxServerServices,
+  controlLinuxServerService,
+  controlLinuxServerProcess,
+} from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { ProcessActionModals } from './ProcessActionModals';
 
 export interface LinuxServerMonitorModalProps {
   isOpen: boolean;
@@ -62,9 +78,41 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [ephemeralPassword, setEphemeralPassword] = useState('');
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(3000); // 3 seconds default
   const [history, setHistory] = useState<HistoricalDataPoint[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'disks' | 'network' | 'processes'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'network'>('overview');
   const [processSearch, setProcessSearch] = useState('');
   const [sortProcessBy, setSortProcessBy] = useState<'cpu' | 'mem'>('cpu');
+
+  // Services Management State
+  const [services, setServices] = useState<LinuxSystemService[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(false);
+  const [servicesError, setServicesError] = useState<string | null>(null);
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceStatusFilter, setServiceStatusFilter] = useState<'all' | 'active' | 'inactive' | 'failed'>('all');
+  const [serviceActionLoading, setServiceActionLoading] = useState<Record<string, string>>({});
+  
+  // Feedback notification
+  const [actionFeedback, setActionFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Timeline chart filter and hover state
+  const [timelineMetricFilter, setTimelineMetricFilter] = useState<'both' | 'cpu' | 'memory'>('both');
+  const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
+
+  // Process Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    process: LinuxServerProcessMetric | null;
+  }>({ visible: false, x: 0, y: 0, process: null });
+
+  // Renice Dialog State
+  const [reniceDialog, setReniceDialog] = useState<{
+    isOpen: boolean;
+    process: LinuxServerProcessMetric | null;
+    niceValue: number;
+  }>({ isOpen: false, process: null, niceValue: 0 });
+
+  const [processActionLoading, setProcessActionLoading] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -155,81 +203,411 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     return list;
   }, [metrics?.processes, processSearch, sortProcessBy]);
 
+  // Load Linux System Services
+  const loadServices = useCallback(async () => {
+    if (!server) return;
+    setServicesLoading(true);
+    setServicesError(null);
+    try {
+      const res = await fetchLinuxServerServices(server.id, ephemeralPassword);
+      if (res.success && res.services) {
+        setServices(res.services);
+      } else {
+        setServicesError(res.error || (isEn ? 'Failed to fetch system services' : 'خطا در واکشی سرویس‌های سیستم'));
+      }
+    } catch (err: any) {
+      setServicesError(err?.message || (isEn ? 'Network error while loading services' : 'خطای ارتباط در بارگذاری سرویس‌ها'));
+    } finally {
+      setServicesLoading(false);
+    }
+  }, [server, ephemeralPassword, isEn]);
+
+  // Handle Service Control Action
+  const handleServiceAction = async (serviceName: string, action: 'start' | 'stop' | 'restart' | 'enable' | 'disable') => {
+    if (!server) return;
+    setServiceActionLoading((prev) => ({ ...prev, [serviceName]: action }));
+    try {
+      const res = await controlLinuxServerService(server.id, serviceName, action, ephemeralPassword);
+      if (res.success) {
+        setActionFeedback({
+          message: res.message || (isEn ? `Action ${action} on ${serviceName} executed successfully` : `عملیات ${action} روی ${serviceName} با موفقیت اجرا شد`),
+          type: 'success',
+        });
+        loadServices();
+      } else {
+        setActionFeedback({
+          message: res.message || res.error || (isEn ? `Failed to execute ${action} on ${serviceName}` : `خطا در اجرای ${action} روی ${serviceName}`),
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        message: err?.message || (isEn ? 'Network failure while executing service action' : 'خطای شبکه در اجرای دستور سرویس'),
+        type: 'error',
+      });
+    } finally {
+      setServiceActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[serviceName];
+        return next;
+      });
+      setTimeout(() => setActionFeedback(null), 5000);
+    }
+  };
+
+  // Filtered Services List
+  const filteredServices = useMemo(() => {
+    let list = [...services];
+    if (serviceStatusFilter !== 'all') {
+      if (serviceStatusFilter === 'active') {
+        list = list.filter((s) => s.activeState.toLowerCase().includes('active') || s.subState.toLowerCase().includes('running'));
+      } else if (serviceStatusFilter === 'inactive') {
+        list = list.filter((s) => s.activeState.toLowerCase().includes('inactive') || s.activeState.toLowerCase().includes('dead') || s.subState.toLowerCase().includes('dead'));
+      } else if (serviceStatusFilter === 'failed') {
+        list = list.filter((s) => s.activeState.toLowerCase().includes('failed') || s.subState.toLowerCase().includes('failed'));
+      }
+    }
+    if (serviceSearch.trim()) {
+      const q = serviceSearch.toLowerCase();
+      list = list.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q));
+    }
+    return list;
+  }, [services, serviceStatusFilter, serviceSearch]);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    const handleCloseMenu = () => {
+      if (contextMenu.visible) {
+        setContextMenu({ visible: false, x: 0, y: 0, process: null });
+      }
+    };
+    window.addEventListener('click', handleCloseMenu);
+    return () => window.removeEventListener('click', handleCloseMenu);
+  }, [contextMenu.visible]);
+
+  // Context Menu Trigger
+  const handleProcessContextMenu = (e: React.MouseEvent, p: LinuxServerProcessMetric) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const menuWidth = 240;
+    const menuHeight = 220;
+    const posX = Math.min(e.clientX, window.innerWidth - menuWidth - 12);
+    const posY = Math.min(e.clientY, window.innerHeight - menuHeight - 12);
+    setContextMenu({
+      visible: true,
+      x: Math.max(12, posX),
+      y: Math.max(12, posY),
+      process: p,
+    });
+  };
+
+  // Kill Process Execution
+  const handleKillProcess = async (signal: 15 | 9) => {
+    if (!server || !contextMenu.process) return;
+    const proc = contextMenu.process;
+    setContextMenu({ visible: false, x: 0, y: 0, process: null });
+    setProcessActionLoading(true);
+    try {
+      const res = await controlLinuxServerProcess(server.id, proc.pid, 'kill', { signal }, ephemeralPassword);
+      if (res.success) {
+        setActionFeedback({
+          message: isEn
+            ? `Signal ${signal === 9 ? 'SIGKILL (Force Kill)' : 'SIGTERM (Terminate)'} sent to PID ${proc.pid} (${proc.command})`
+            : `سیگنال ${signal === 9 ? 'SIGKILL (اجباری)' : 'SIGTERM (عادی)'} به پردازش ${proc.pid} ارسال شد`,
+          type: 'success',
+        });
+        setTimeout(() => fetchMetrics(), 1200);
+      } else {
+        setActionFeedback({
+          message: res.message || res.error || (isEn ? `Failed to kill process ${proc.pid}` : `خطا در متوقف کردن پردازش ${proc.pid}`),
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        message: err?.message || (isEn ? 'Network error during process action' : 'خطای شبکه در ارسال دستور به پردازش'),
+        type: 'error',
+      });
+    } finally {
+      setProcessActionLoading(false);
+      setTimeout(() => setActionFeedback(null), 5000);
+    }
+  };
+
+  // Apply Renice Execution
+  const handleApplyRenice = async () => {
+    if (!server || !reniceDialog.process) return;
+    const proc = reniceDialog.process;
+    const niceVal = reniceDialog.niceValue;
+    setReniceDialog({ isOpen: false, process: null, niceValue: 0 });
+    setProcessActionLoading(true);
+    try {
+      const res = await controlLinuxServerProcess(server.id, proc.pid, 'renice', { nice: niceVal }, ephemeralPassword);
+      if (res.success) {
+        setActionFeedback({
+          message: isEn
+            ? `Nice priority of PID ${proc.pid} successfully set to ${niceVal}`
+            : `اولویت پردازش PID ${proc.pid} به ${niceVal} تغییر یافت`,
+          type: 'success',
+        });
+        setTimeout(() => fetchMetrics(), 1200);
+      } else {
+        setActionFeedback({
+          message: res.message || res.error || (isEn ? `Failed to renice process ${proc.pid}` : `خطا در تغییر اولویت پردازش ${proc.pid}`),
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        message: err?.message || (isEn ? 'Network error during renice' : 'خطای شبکه در تغییر اولویت پردازش'),
+        type: 'error',
+      });
+    } finally {
+      setProcessActionLoading(false);
+      setTimeout(() => setActionFeedback(null), 5000);
+    }
+  };
+
   if (!isOpen || !server) return null;
 
-  // SVG Sparkline path generator
-  const renderSparkline = (dataKey: 'cpu' | 'memory', strokeColor: string, fillColor: string) => {
+  // Real-time Stable Dual Timeline Chart (CPU & RAM)
+  const renderDualTimelineChart = () => {
     if (history.length < 2) {
       return (
-        <div className="h-28 flex items-center justify-center text-xs text-slate-400 font-mono">
-          {isEn ? 'Collecting live telemetry data...' : 'در حال دریافت داده‌های لایو...'}
+        <div className="h-32 flex flex-col items-center justify-center text-xs text-slate-400 font-mono gap-2">
+          <Activity className="w-5 h-5 text-cyan-400 animate-pulse" />
+          <span>{isEn ? 'Streaming live telemetry data...' : 'در حال دریافت داده‌های زنده و همگام‌سازی...'}</span>
         </div>
       );
     }
 
-    const width = 500;
-    const height = 90;
-    const padding = 10;
-    const maxVal = 100;
-    const minVal = 0;
+    const width = 640;
+    const height = 130;
+    const paddingX = 35;
+    const paddingY = 15;
+    const chartWidth = width - 2 * paddingX;
+    const chartHeight = height - 2 * paddingY;
 
-    const points = history.map((pt, idx) => {
-      const x = padding + (idx / (history.length - 1)) * (width - 2 * padding);
-      const val = pt[dataKey];
-      const y = height - padding - ((val - minVal) / (maxVal - minVal)) * (height - 2 * padding);
-      return { x, y, val };
+    // Use a fixed slot scale (25 points) to completely prevent horizontal jumpiness/jitter
+    const MAX_POINTS = 25;
+    const xStep = chartWidth / (MAX_POINTS - 1);
+
+    const cpuPoints = history.map((pt, idx) => {
+      const x = paddingX + idx * xStep;
+      const y = height - paddingY - (Math.min(100, Math.max(0, pt.cpu)) / 100) * chartHeight;
+      return { x, y, val: pt.cpu, time: pt.timeStr };
     });
 
-    const pathData = points.reduce((acc, p, idx) => {
-      return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
-    }, '');
+    const memPoints = history.map((pt, idx) => {
+      const x = paddingX + idx * xStep;
+      const y = height - paddingY - (Math.min(100, Math.max(0, pt.memory)) / 100) * chartHeight;
+      return { x, y, val: pt.memory, time: pt.timeStr };
+    });
 
-    const areaData = `${pathData} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
+    const buildPath = (pts: { x: number; y: number }[]) => {
+      return pts.reduce(
+        (acc, p, idx) => (idx === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : `${acc} L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`),
+        ''
+      );
+    };
+
+    const cpuPath = buildPath(cpuPoints);
+    const memPath = buildPath(memPoints);
+
+    const lastCpu = cpuPoints[cpuPoints.length - 1];
+    const lastMem = memPoints[memPoints.length - 1];
+
+    const cpuArea = `${cpuPath} L ${lastCpu.x.toFixed(1)} ${height - paddingY} L ${cpuPoints[0].x.toFixed(1)} ${height - paddingY} Z`;
+    const memArea = `${memPath} L ${lastMem.x.toFixed(1)} ${height - paddingY} L ${memPoints[0].x.toFixed(1)} ${height - paddingY} Z`;
+
+    const activePoint =
+      hoveredPointIndex !== null && history[hoveredPointIndex]
+        ? {
+            time: history[hoveredPointIndex].timeStr,
+            cpu: history[hoveredPointIndex].cpu,
+            memory: history[hoveredPointIndex].memory,
+            cpuPt: cpuPoints[hoveredPointIndex],
+            memPt: memPoints[hoveredPointIndex],
+          }
+        : null;
 
     return (
-      <div className="relative w-full overflow-hidden">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-24 overflow-visible">
-          <defs>
-            <linearGradient id={`grad-${dataKey}`} x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor={fillColor} stopOpacity="0.35" />
-              <stop offset="100%" stopColor={fillColor} stopOpacity="0.0" />
-            </linearGradient>
-          </defs>
+      <div className="relative w-full select-none">
+        {/* Filter toggles & Metric readout */}
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-[11px] text-slate-400 font-mono">{isEn ? 'Metric:' : 'متریک:'}</span>
+            <div className="inline-flex rounded-lg border border-slate-700/60 p-0.5 bg-slate-900/50 text-[11px] font-mono">
+              <button
+                type="button"
+                onClick={() => setTimelineMetricFilter('both')}
+                className={`px-2.5 py-0.5 rounded cursor-pointer transition ${
+                  timelineMetricFilter === 'both' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {isEn ? 'Dual (CPU + RAM)' : 'هردو (CPU + RAM)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimelineMetricFilter('cpu')}
+                className={`px-2 py-0.5 rounded cursor-pointer transition ${
+                  timelineMetricFilter === 'cpu' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                CPU
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimelineMetricFilter('memory')}
+                className={`px-2 py-0.5 rounded cursor-pointer transition ${
+                  timelineMetricFilter === 'memory' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                RAM
+              </button>
+            </div>
+          </div>
 
-          {/* Grid lines */}
-          <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 3" />
-          <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 3" />
-          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="currentColor" strokeOpacity="0.15" />
+          <div className="flex items-center gap-3 text-xs font-mono">
+            {activePoint ? (
+              <span className="text-slate-200 font-semibold flex items-center gap-2 bg-slate-800/90 px-2.5 py-1 rounded border border-white/10 shadow-sm">
+                <span className="text-slate-400">@{activePoint.time}:</span>
+                <span className="text-cyan-400 font-bold">CPU: {activePoint.cpu}%</span>
+                <span className="text-emerald-400 font-bold">RAM: {activePoint.memory}%</span>
+              </span>
+            ) : (
+              <>
+                {(timelineMetricFilter === 'both' || timelineMetricFilter === 'cpu') && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-sm shadow-cyan-500/50" />
+                    <span className="text-slate-300 font-bold">CPU: {lastCpu.val}%</span>
+                  </span>
+                )}
+                {(timelineMetricFilter === 'both' || timelineMetricFilter === 'memory') && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-500/50" />
+                    <span className="text-slate-300 font-bold">RAM: {lastMem.val}%</span>
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
 
-          {/* Area fill */}
-          <path d={areaData} fill={`url(#grad-${dataKey})`} />
+        {/* SVG Canvas */}
+        <div className="relative w-full rounded-xl overflow-hidden bg-slate-950/40 border border-white/5 p-1">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="w-full h-32 overflow-visible"
+            onMouseLeave={() => setHoveredPointIndex(null)}
+          >
+            <defs>
+              <linearGradient id="cpuGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.30" />
+                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+              </linearGradient>
+              <linearGradient id="memGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
+                <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+              </linearGradient>
+            </defs>
 
-          {/* Stroke Line */}
-          <path d={pathData} fill="none" stroke={strokeColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            {/* Horizontal Grid lines and percentage markers */}
+            {[0, 25, 50, 75, 100].map((pct) => {
+              const y = height - paddingY - (pct / 100) * chartHeight;
+              return (
+                <g key={pct}>
+                  <line
+                    x1={paddingX}
+                    y1={y}
+                    x2={width - paddingX}
+                    y2={y}
+                    stroke="currentColor"
+                    strokeOpacity={pct === 0 ? 0.2 : 0.08}
+                    strokeDasharray={pct === 0 ? undefined : '3 3'}
+                  />
+                  <text
+                    x={paddingX - 6}
+                    y={y + 3}
+                    textAnchor="end"
+                    fill="currentColor"
+                    fillOpacity="0.4"
+                    fontSize="9"
+                    fontFamily="monospace"
+                  >
+                    {pct}%
+                  </text>
+                </g>
+              );
+            })}
 
-          {/* Current point pulsating dot */}
-          {points.length > 0 && (
-            <circle
-              cx={points[points.length - 1].x}
-              cy={points[points.length - 1].y}
-              r="4"
-              fill={strokeColor}
-              className="animate-ping"
-            />
-          )}
-          {points.length > 0 && (
-            <circle
-              cx={points[points.length - 1].x}
-              cy={points[points.length - 1].y}
-              r="3.5"
-              fill={strokeColor}
-            />
-          )}
-        </svg>
+            {/* RAM (Memory) Area & Line */}
+            {(timelineMetricFilter === 'both' || timelineMetricFilter === 'memory') && (
+              <>
+                <path d={memArea} fill="url(#memGradient)" />
+                <path
+                  d={memPath}
+                  fill="none"
+                  stroke="#10b981"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle cx={lastMem.x} cy={lastMem.y} r="3.5" fill="#10b981" />
+              </>
+            )}
+
+            {/* CPU Area & Line */}
+            {(timelineMetricFilter === 'both' || timelineMetricFilter === 'cpu') && (
+              <>
+                <path d={cpuArea} fill="url(#cpuGradient)" />
+                <path
+                  d={cpuPath}
+                  fill="none"
+                  stroke="#06b6d4"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle cx={lastCpu.x} cy={lastCpu.y} r="3.5" fill="#06b6d4" />
+              </>
+            )}
+
+            {/* Hover overlay columns */}
+            {history.map((_, idx) => {
+              const colX = paddingX + idx * xStep - xStep / 2;
+              return (
+                <rect
+                  key={idx}
+                  x={Math.max(0, colX)}
+                  y={paddingY}
+                  width={xStep}
+                  height={chartHeight}
+                  fill="transparent"
+                  className="cursor-crosshair"
+                  onMouseEnter={() => setHoveredPointIndex(idx)}
+                />
+              );
+            })}
+
+            {/* Active hover crosshair line */}
+            {activePoint && (
+              <line
+                x1={activePoint.cpuPt.x}
+                y1={paddingY}
+                x2={activePoint.cpuPt.x}
+                y2={height - paddingY}
+                stroke="#94a3b8"
+                strokeWidth="1"
+                strokeDasharray="2 2"
+              />
+            )}
+          </svg>
+        </div>
 
         <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 mt-1 px-1">
           <span>{history[0]?.timeStr || '00:00'}</span>
-          <span>{isEn ? 'Timeline (Last 25 snapshots)' : 'روند زمانی (۲۵ نمونه اخیر)'}</span>
+          <span>{isEn ? `Live Timeline (${history.length} snapshots)` : `روند زنده (${history.length} نمونه اخیر)`}</span>
           <span className="font-bold text-slate-200">{history[history.length - 1]?.timeStr || 'Now'}</span>
         </div>
       </div>
@@ -429,6 +807,29 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
 
             <button
               type="button"
+              onClick={() => {
+                setActiveTab('services');
+                if (services.length === 0) loadServices();
+              }}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'services'
+                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <ServerCog className="w-3.5 h-3.5" />
+              <span>{isEn ? 'System Services' : 'سرویس‌های سیستم'}</span>
+              {services.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900/40 font-mono">
+                  {services.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('processes')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'processes'
@@ -488,6 +889,33 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
         {/* MODAL MAIN CONTENT */}
         {/* ======================================================== */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+          {/* Action Feedback Banner */}
+          {actionFeedback && (
+            <div
+              className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs transition-all ${
+                actionFeedback.type === 'success'
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {actionFeedback.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                )}
+                <span className="font-medium font-mono">{actionFeedback.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActionFeedback(null)}
+                className="text-slate-400 hover:text-white transition cursor-pointer p-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {/* Password Prompt (if zero-storage policy enabled) */}
           {requiresPassword && (
             <div
@@ -822,20 +1250,21 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                         <h3 className="text-xs sm:text-sm font-bold">
                           {isEn ? 'Real-time Telemetry Timeline (CPU & Memory)' : 'نمودار زنده روند بار پردازنده و حافظه رم'}
                         </h3>
-                      </div>
-                      <div className="flex items-center gap-4 text-xs font-mono">
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
-                          <span>CPU: {metrics.cpu.usagePercent}%</span>
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                          <span>RAM: {metrics.memory.usagePercent}%</span>
-                        </span>
+                        <FieldInfoTooltip
+                          fieldName={isEn ? 'Dual Telemetry Timeline' : 'نمودار زنده بار منابع'}
+                          infoWhatEn="Dual-series timeline tracking authentic processor load and physical RAM utilization across sequential time snapshots."
+                          infoWhatFa="نمودار همزمان دوگانه که بار پردازنده و مصرف فیزیکی رم سرور را در طول زمان به صورت پیوسته رصد می‌کند."
+                          infoWhyEn="Reveals sudden spikes, resource saturation, memory leaks, and historical performance trends on the Linux host."
+                          infoWhyFa="تشخیص جهش‌های ناگهانی بار، اشباع پردازشی، نشت حافظه (Memory Leak) و روند پایدار سرور."
+                          infoExampleEn="Cyan line: CPU% load; Emerald line: Memory% consumption"
+                          infoExampleFa="خط فیروزه‌ای: درصد بار CPU؛ خط سبز زمردی: درصد اشغال حافظه RAM"
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
                       </div>
                     </div>
 
-                    {renderSparkline('cpu', '#22d3ee', '#06b6d4')}
+                    {renderDualTimelineChart()}
                   </div>
 
                   {/* Summary of Primary Storage & Network Interfaces */}
@@ -1136,6 +1565,35 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                     </div>
                   </div>
 
+                  {/* Context menu instruction notice */}
+                  <div
+                    className={`px-4 py-2 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+                      isLightMode
+                        ? 'bg-cyan-50/70 border-cyan-200 text-cyan-900'
+                        : 'bg-cyan-950/20 border-cyan-500/20 text-cyan-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>
+                        {isEn
+                          ? 'Right-click any process or click the action button to Terminate (SIGTERM), Force Kill (SIGKILL), or Renice (-20 to +19).'
+                          : 'برای خاتمه (SIGTERM)، توقف اجباری (SIGKILL) یا تغییر اولویت پردازش (Renice)، روی هر سطر راست‌کلیک کرده یا از دکمه عملیات استفاده کنید.'}
+                      </span>
+                    </div>
+                    <FieldInfoTooltip
+                      fieldName={isEn ? 'Linux Process Management' : 'مدیریت پردازش‌های لینوکس'}
+                      infoWhatEn="Interactive process task manager enabling signals (SIGTERM 15, SIGKILL 9) and priority scheduling (nice value)."
+                      infoWhatFa="ابزار کنترل پردازش‌ها جهت ارسال سیگنال خاتمه نرم، نابودی اجباری یا تنظیم ضریب اولویت CPU بین -20 تا +19."
+                      infoWhyEn="Critical for stopping runaway tasks, hung workers, memory hoggers, or prioritizing mission-critical background daemons."
+                      infoWhyFa="ضروری برای متوقف‌سازی کارهای معلق، پردازش‌های مصرف‌کننده بیش از حد رم و تنظیم اولویت سرویس‌های حیاتی."
+                      infoExampleEn="Nice -10 (High priority), Nice +10 (Low background priority), Kill (SIGKILL -9)"
+                      infoExampleFa="نایس -۱۰ (اولویت بالا)، نایس +۱۰ (اولویت کم پس‌زمینه)، کیل اجباری (SIGKILL)"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+
                   {/* Processes Table */}
                   <div
                     className={`rounded-xl border overflow-hidden ${
@@ -1155,12 +1613,13 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                             <th className="p-3 w-24">CPU %</th>
                             <th className="p-3 w-24">MEM %</th>
                             <th className="p-3">{isEn ? 'Command' : 'دستور / پردازش'}</th>
+                            <th className="p-3 w-20 text-center">{isEn ? 'Action' : 'عملیات'}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5">
                           {filteredProcesses.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="p-6 text-center text-slate-400">
+                              <td colSpan={6} className="p-6 text-center text-slate-400">
                                 {isEn ? 'No matching processes found.' : 'پردازشی یافت نشد.'}
                               </td>
                             </tr>
@@ -1168,7 +1627,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                             filteredProcesses.map((p) => (
                               <tr
                                 key={p.pid}
-                                className={`transition-colors ${
+                                onContextMenu={(e) => handleProcessContextMenu(e, p)}
+                                className={`transition-colors cursor-context-menu select-none ${
                                   isLightMode ? 'hover:bg-slate-50' : 'hover:bg-white/5'
                                 }`}
                               >
@@ -1201,8 +1661,378 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                                 <td className="p-3 text-slate-200 font-sans truncate max-w-md">
                                   {p.command}
                                 </td>
+                                <td className="p-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleProcessContextMenu(e, p)}
+                                    title={isEn ? 'Manage Process' : 'مدیریت پردازش'}
+                                    className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 transition cursor-pointer"
+                                  >
+                                    <MoreVertical className="w-3.5 h-3.5 mx-auto" />
+                                  </button>
+                                </td>
                               </tr>
                             ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ======================================================== */}
+              {/* TAB: SYSTEM SERVICES (SYSTEMD UNIT CONTROLS) */}
+              {/* ======================================================== */}
+              {activeTab === 'services' && (
+                <div className="space-y-4">
+                  {/* Services Subheader & Filter Bar */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ServerCog className="w-4 h-4 text-cyan-400" />
+                        <h3 className="text-sm font-bold">
+                          {isEn ? 'Systemd Services & Daemons' : 'سرویس‌ها و دیمون‌های سیستمی لینوکس'}
+                        </h3>
+                        <FieldInfoTooltip
+                          fieldName={isEn ? 'Linux Systemd Services' : 'سرویس‌های Systemd'}
+                          infoWhatEn="Core background service daemons managed by systemctl on this Linux host."
+                          infoWhatFa="سرویس‌ها و پردازش‌های پس‌زمینه لینوکس که از طریق systemctl و Systemd مدیریت می‌شوند."
+                          infoWhyEn="Allows direct starting, stopping, restarting, or enabling/disabling auto-start at boot for servers like Nginx, SSH, Docker, Database, etc."
+                          infoWhyFa="امکان راه‌اندازی، توقف، راه‌اندازی مجدد و فعال یا غیرفعال‌سازی اجرای خودکار سرویس‌ها هنگام بوت سرور."
+                          infoExampleEn="nginx.service (web server), sshd.service (remote shell), docker.service (containers)"
+                          infoExampleFa="سرویس nginx.service (وب‌سرور)، sshd.service (دسترسی ترمینال)، docker.service (کانتینرها)"
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {isEn
+                          ? 'Real-time daemon statuses with live Start, Stop, Restart, and Boot-Enable controls.'
+                          : 'مشاهده وضعیت زنده سرویس‌ها به همراه امکان استارت، استاپ، ریستارت و فعال‌سازی در بوت.'}
+                      </p>
+                    </div>
+
+                    {/* Filter and Refresh Controls */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder={isEn ? 'Filter services (e.g. nginx, ssh)...' : 'جستجوی سرویس (مثلاً nginx)...'}
+                          value={serviceSearch}
+                          onChange={(e) => setServiceSearch(e.target.value)}
+                          className={`pl-8 pr-3 py-1 rounded-lg text-xs border focus:outline-none focus:ring-1 focus:ring-cyan-500 font-mono w-48 sm:w-56 ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-800'
+                              : 'bg-slate-900 border-slate-700 text-white'
+                          }`}
+                        />
+                      </div>
+
+                      {/* State Filter Buttons */}
+                      <div className="flex items-center border rounded-lg overflow-hidden text-xs font-mono">
+                        {(['all', 'active', 'inactive', 'failed'] as const).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => setServiceStateFilter(st)}
+                            className={`px-2 py-1 transition cursor-pointer capitalize ${
+                              serviceStateFilter === st
+                                ? 'bg-cyan-500 text-slate-950 font-bold'
+                                : isLightMode
+                                ? 'bg-white text-slate-700 hover:bg-slate-100'
+                                : 'bg-slate-900 text-slate-400 hover:bg-white/5'
+                            }`}
+                          >
+                            {st === 'all'
+                              ? isEn
+                                ? 'All'
+                                : 'همه'
+                              : st === 'active'
+                              ? isEn
+                                ? 'Active'
+                                : 'فعال'
+                              : st === 'inactive'
+                              ? isEn
+                                ? 'Inactive'
+                                : 'متوقف'
+                              : isEn
+                              ? 'Failed'
+                              : 'خطادار'}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={servicesLoading}
+                        onClick={() => loadServices()}
+                        className="px-2.5 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5 text-xs font-mono"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${servicesLoading ? 'animate-spin' : ''}`} />
+                        <span>{isEn ? 'Reload' : 'بارگذاری مجدد'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Summary Metric Counters */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div
+                      className={`p-3 rounded-xl border flex items-center justify-between ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 uppercase font-mono">
+                          {isEn ? 'Total Units' : 'کل سرویس‌ها'}
+                        </span>
+                        <p className="text-lg font-mono font-bold text-slate-200">{services.length}</p>
+                      </div>
+                      <Layers className="w-5 h-5 text-cyan-400/60" />
+                    </div>
+
+                    <div
+                      className={`p-3 rounded-xl border flex items-center justify-between ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 uppercase font-mono">
+                          {isEn ? 'Active / Running' : 'در حال اجرا'}
+                        </span>
+                        <p className="text-lg font-mono font-bold text-emerald-400">
+                          {services.filter((s) => s.activeState === 'active' || s.subState === 'running').length}
+                        </p>
+                      </div>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400/60" />
+                    </div>
+
+                    <div
+                      className={`p-3 rounded-xl border flex items-center justify-between ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 uppercase font-mono">
+                          {isEn ? 'Inactive / Dead' : 'غیرفعال و متوقف'}
+                        </span>
+                        <p className="text-lg font-mono font-bold text-slate-400">
+                          {services.filter((s) => s.activeState === 'inactive' || s.subState === 'dead').length}
+                        </p>
+                      </div>
+                      <Square className="w-5 h-5 text-slate-500" />
+                    </div>
+
+                    <div
+                      className={`p-3 rounded-xl border flex items-center justify-between ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-slate-400 uppercase font-mono">
+                          {isEn ? 'Failed Units' : 'سرویس‌های معیوب'}
+                        </span>
+                        <p className="text-lg font-mono font-bold text-rose-400">
+                          {services.filter((s) => s.activeState === 'failed' || s.subState === 'failed').length}
+                        </p>
+                      </div>
+                      <AlertTriangle className="w-5 h-5 text-rose-400/60" />
+                    </div>
+                  </div>
+
+                  {/* Services Table */}
+                  <div
+                    className={`rounded-xl border overflow-hidden ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs font-mono text-left">
+                        <thead
+                          className={`border-b text-[11px] uppercase tracking-wider ${
+                            isLightMode ? 'bg-slate-100 text-slate-600' : 'bg-slate-900 text-slate-400'
+                          }`}
+                        >
+                          <tr>
+                            <th className="p-3">{isEn ? 'Service Name' : 'نام سرویس'}</th>
+                            <th className="p-3 w-28">{isEn ? 'Status' : 'وضعیت اجرا'}</th>
+                            <th className="p-3 w-24">{isEn ? 'Boot Startup' : 'وضعیت بوت'}</th>
+                            <th className="p-3">{isEn ? 'Description' : 'توضیحات سرویس'}</th>
+                            <th className="p-3 w-64 text-center">{isEn ? 'Controls' : 'فرمان‌های کنترلی'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {servicesLoading && services.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="p-8 text-center text-slate-400">
+                                <div className="flex flex-col items-center justify-center gap-2">
+                                  <RefreshCw className="w-6 h-6 text-cyan-400 animate-spin" />
+                                  <span>{isEn ? 'Fetching live systemctl services over SSH...' : 'در حال دریافت لیست سرویس‌های زنده لینوکس...'}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : filteredServices.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="p-6 text-center text-slate-400">
+                                {isEn ? 'No services found matching filters.' : 'سرویسی با فیلترهای انتخابی یافت نشد.'}
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredServices.map((s) => {
+                              const isActive = s.activeState === 'active' || s.subState === 'running';
+                              const isFailed = s.activeState === 'failed' || s.subState === 'failed';
+                              const isEnabled = s.unitFileState === 'enabled';
+                              const currentAction = serviceActionLoading[s.name];
+
+                              return (
+                                <tr
+                                  key={s.name}
+                                  className={`transition-colors ${
+                                    isLightMode ? 'hover:bg-slate-50' : 'hover:bg-white/5'
+                                  }`}
+                                >
+                                  {/* Service Name */}
+                                  <td className="p-3 font-bold text-slate-200">
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={`w-2 h-2 rounded-full shrink-0 ${
+                                          isFailed
+                                            ? 'bg-rose-500 animate-pulse'
+                                            : isActive
+                                            ? 'bg-emerald-400'
+                                            : 'bg-slate-500'
+                                        }`}
+                                      />
+                                      <span className="truncate max-w-xs">{s.name}</span>
+                                    </div>
+                                  </td>
+
+                                  {/* Active State */}
+                                  <td className="p-3">
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-[11px] font-bold inline-flex items-center gap-1 ${
+                                        isFailed
+                                          ? 'bg-rose-500/20 text-rose-400'
+                                          : isActive
+                                          ? 'bg-emerald-500/20 text-emerald-400'
+                                          : 'bg-slate-800 text-slate-400'
+                                      }`}
+                                    >
+                                      {s.activeState || s.subState || 'unknown'}
+                                    </span>
+                                  </td>
+
+                                  {/* Boot Unit File State */}
+                                  <td className="p-3">
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                                        isEnabled
+                                          ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                                          : 'bg-slate-800/80 text-slate-400'
+                                      }`}
+                                    >
+                                      {s.unitFileState || 'static'}
+                                    </span>
+                                  </td>
+
+                                  {/* Description */}
+                                  <td className="p-3 text-slate-400 font-sans truncate max-w-sm">
+                                    {s.description || '—'}
+                                  </td>
+
+                                  {/* Control Buttons (Start, Stop, Restart, Enable/Disable) */}
+                                  <td className="p-3">
+                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                      {/* Start Button */}
+                                      {!isActive && (
+                                        <button
+                                          type="button"
+                                          disabled={!!currentAction}
+                                          onClick={() => handleServiceAction(s.name, 'start')}
+                                          title={isEn ? 'Start Service' : 'شروع سرویس'}
+                                          className="px-2 py-1 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px]"
+                                        >
+                                          {currentAction === 'start' ? (
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                          ) : (
+                                            <Play className="w-3 h-3" />
+                                          )}
+                                          <span>{isEn ? 'Start' : 'استارت'}</span>
+                                        </button>
+                                      )}
+
+                                      {/* Stop Button */}
+                                      {isActive && (
+                                        <button
+                                          type="button"
+                                          disabled={!!currentAction}
+                                          onClick={() => handleServiceAction(s.name, 'stop')}
+                                          title={isEn ? 'Stop Service' : 'توقف سرویس'}
+                                          className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px]"
+                                        >
+                                          {currentAction === 'stop' ? (
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                          ) : (
+                                            <Square className="w-3 h-3" />
+                                          )}
+                                          <span>{isEn ? 'Stop' : 'استاپ'}</span>
+                                        </button>
+                                      )}
+
+                                      {/* Restart Button */}
+                                      <button
+                                        type="button"
+                                        disabled={!!currentAction}
+                                        onClick={() => handleServiceAction(s.name, 'restart')}
+                                        title={isEn ? 'Restart Service' : 'راه‌اندازی مجدد'}
+                                        className="px-2 py-1 rounded bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-400 border border-cyan-500/30 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px]"
+                                      >
+                                        {currentAction === 'restart' ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <RotateCw className="w-3 h-3" />
+                                        )}
+                                        <span>{isEn ? 'Restart' : 'ریستارت'}</span>
+                                      </button>
+
+                                      {/* Enable / Disable Button */}
+                                      {isEnabled ? (
+                                        <button
+                                          type="button"
+                                          disabled={!!currentAction}
+                                          onClick={() => handleServiceAction(s.name, 'disable')}
+                                          title={isEn ? 'Disable Boot Auto-start' : 'غیرفعال‌سازی در بوت'}
+                                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px]"
+                                        >
+                                          {currentAction === 'disable' ? (
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                          ) : (
+                                            <Ban className="w-3 h-3 text-amber-400" />
+                                          )}
+                                          <span>{isEn ? 'Disable' : 'غیرفعال'}</span>
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={!!currentAction}
+                                          onClick={() => handleServiceAction(s.name, 'enable')}
+                                          title={isEn ? 'Enable Boot Auto-start' : 'فعال‌سازی در بوت'}
+                                          className="px-2 py-1 rounded bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px]"
+                                        >
+                                          {currentAction === 'enable' ? (
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                          ) : (
+                                            <CheckCircle2 className="w-3 h-3 text-indigo-400" />
+                                          )}
+                                          <span>{isEn ? 'Enable' : 'فعال‌سازی'}</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -1268,5 +2098,20 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     </div>
   );
 
-  return createPortal(modalNode, document.body);
+  return (
+    <>
+      {createPortal(modalNode, document.body)}
+      <ProcessActionModals
+        contextMenu={contextMenu}
+        onCloseContextMenu={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
+        onKillProcess={handleKillProcess}
+        onOpenRenice={handleOpenRenice}
+        reniceDialog={reniceDialog}
+        setReniceDialog={setReniceDialog}
+        onApplyRenice={handleApplyRenice}
+        isEn={isEn}
+        isLightMode={isLightMode}
+      />
+    </>
+  );
 };

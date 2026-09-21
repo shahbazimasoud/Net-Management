@@ -13,7 +13,8 @@ import {
   AccessPolicy,
   RemoteServer,
   RemoteServerTagSummary,
-  LinuxServerLiveMetrics
+  LinuxServerLiveMetrics,
+  LinuxSystemService
 } from '../types';
 
 const API_BASE = '/api';
@@ -1209,6 +1210,81 @@ export async function fetchLinuxServerLiveMetrics(
   const data = await res.json().catch(() => ({
     success: false,
     error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxServerServices(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  services: LinuxSystemService[];
+  error?: string;
+  requires_password?: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/services`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function controlLinuxServerService(
+  serverId: string,
+  serviceName: string,
+  action: 'start' | 'stop' | 'restart' | 'enable' | 'disable',
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serviceName, action, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function controlLinuxServerProcess(
+  serverId: string,
+  pid: number,
+  action: 'kill' | 'renice',
+  options: { signal?: number; nice?: number },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/process-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid, action, signal: options.signal, nice: options.nice, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
   }));
   if (!res.ok && !data.error) {
     data.error = `HTTP Error ${res.status}`;

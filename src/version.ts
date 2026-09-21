@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.109.0';
+export const APP_VERSION = '1.110.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.110.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'اصلاح نمودار تلمتری دوگانه زنده (CPU و RAM)، مدیریت سرویس‌های Systemd و راست‌کلیک مدیریت پردازش‌ها (Kill / Renice)',
+    title_en: 'Fixed Dual Telemetry Chart (CPU & RAM), Systemd Service Management & Process Context Menu (Kill / Renice)',
+    changes: [
+      'رفع کامل باگ لرزش و ناپایداری افقی نمودار Real-time Telemetry Timeline با ایجاد تایم‌لاین پایدار ۲۵ نقطه‌ای با محورهای ثابت درصد و اضافه شدن رندر همزمان و تفکیک‌شده بار پردازنده (فیروزه‌ای) و حافظه رم (سبز زمردی) همراه با تولتیپ تعاملی هاور مقادیر.',
+      'افزودن تب جامع مدیریت سرویس‌های سیستم (System Services) جهت مشاهده دیمون‌ها و سرویس‌های لینوکس با systemctl، فیلترهای جستجو و وضعیت، و امکان کنترل کامل: Start، Stop، Restart و Enable/Disable در بوت سرور همراه با فیدبک زنده.',
+      'تجهیز جدول پردازش‌های پرمصرف سرور به منوی راست‌کلیک تعاملی (Context Menu) و دکمه عملیات ۳-نقطه برای خاتمه نرم (SIGTERM 15)، بستن اجباری (SIGKILL 9)، تغییر اولویت زمان‌بندی پردازنده (Renice با اسلایدر و مقادیر سریع از -20 تا +19) و کپی PID/دستور.',
+      'پیاده‌سازی اندپوینت‌های امن و زنده بک‌اند بر بستر امن SSH (/api/remote-servers/:id/services و /service-action و /process-action) بدون ذخیره‌سازی رمز در کلاینت و با تاییدیه اعتبار هویت.'
+    ],
+    changes_en: [
+      'Resolved Real-time Telemetry Timeline jitter and missing RAM curve: engineered a fixed 25-point dual-series SVG chart rendering distinct CPU (Cyan) and RAM (Emerald) curves with interactive hover crosshairs and metric filtering.',
+      'Introduced full System Services management tab: lists active/inactive/failed systemd units with live Start, Stop, Restart, and boot Enable/Disable controls over SSH with instant feedback.',
+      'Equipped Top Processes table with right-click context menu and 3-dot action button for graceful termination (SIGTERM 15), force kill (SIGKILL 9), CPU scheduling priority adjustment (Renice slider & presets from -20 to +19), and PID/command copying.',
+      'Engineered secure live backend SSH endpoints (/api/remote-servers/:id/services, /service-action, and /process-action) with robust permission execution and strict Zero-Storage compliance.'
+    ]
+  },
   {
     version: '1.109.0',
     releaseDate: '2026-09-21',
