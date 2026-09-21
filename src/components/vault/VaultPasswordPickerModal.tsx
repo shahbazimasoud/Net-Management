@@ -173,13 +173,17 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
         method: 'POST',
         headers,
         body: JSON.stringify({
-          password: loginPassword,
+          loginPassword: loginPassword.trim(),
+          password: loginPassword.trim(),
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || (isEn ? 'Authentication failed' : 'احراز هویت ناموفق بود'));
+        const errorMsg = isEn
+          ? (data.error || 'Authentication failed. Please verify your login password.')
+          : (data.message || data.error || 'احراز هویت ناموفق بود. لطفاً رمز عبور ورود را بررسی نمایید.');
+        throw new Error(errorMsg);
       }
 
       if (data && typeof data.password === 'string') {

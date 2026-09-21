@@ -1473,7 +1473,8 @@ apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const { loginPassword } = req.body || {};
+    const rawPassword = req.body?.loginPassword ?? req.body?.password;
+    const loginPassword = typeof rawPassword === 'string' ? rawPassword.trim() : '';
 
     const ip = getClientIp(req);
     const rateLimitKey = `vault_reveal_${user.userId}_${ip}`;
@@ -1511,14 +1512,26 @@ apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
     }
 
     // Authenticate user's login password against their user record
-    const userRecord = (await findUserById(user.userId)) || (await findUserByUsername(user.username));
+    let userRecord = (await findUserById(user.userId)) || (await findUserByUsername(user.username));
+    if (!userRecord) {
+      try {
+        const allUsers = await getAllUsers();
+        userRecord = allUsers.find(
+          (u: any) =>
+            (u.id && u.id === user.userId) ||
+            (u.username && u.username.toLowerCase() === user.username.toLowerCase())
+        ) || null;
+      } catch (err) {
+        // ignore fallback error
+      }
+    }
     let isPasswordValid = false;
 
     if (userRecord && userRecord.password_hash && userRecord.password_salt) {
-      isPasswordValid = verifyPassword(loginPassword.trim(), userRecord.password_hash, userRecord.password_salt);
+      isPasswordValid = verifyPassword(loginPassword, userRecord.password_hash, userRecord.password_salt);
     } else if (userRecord && userRecord.user_type === 'ad') {
       // AD accounts or external auth fallback
-      isPasswordValid = loginPassword.trim().length >= 4;
+      isPasswordValid = loginPassword.length >= 4;
     }
 
     if (!isPasswordValid) {

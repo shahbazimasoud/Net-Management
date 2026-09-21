@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.103.1';
+export const APP_VERSION = '1.103.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.103.2',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'رفع خطای اعتبارسنجی رمز ورود در مودال احراز هویت والت شخصی کلمات عبور (Confirm Identity to Unlock Password)',
+    title_en: 'Fix User Login Password Verification in Personal Vault Unlock Modal (Confirm Identity to Unlock Password)',
+    changes: [
+      'رفع عدم تطابق نام پارامتر کلاینت و سرور در تابع بازگشایی گذرواژه (پذیرش همزمان loginPassword و password در اندپوینت /api/vault/:id/reveal).',
+      'برطرف‌سازی نمایش خطای نادرست User login password is required to reveal this credential به هنگام ثبت گذرواژه صحیح کاربری در مودال انتخاب رمز والت شخصی.',
+      'افزودن پیام‌های خطای دوزبانه (فارسی و انگلیسی) مناسب و ارتقای جستجوی حساب کاربری فعال در پایگاه داده جهت اعتبارسنجی دقیق هش رمز عبور.'
+    ],
+    changes_en: [
+      'Resolved client-server parameter discrepancy in credential decryption by supporting both loginPassword and password in the /api/vault/:id/reveal API endpoint.',
+      'Fixed the false-positive error "User login password is required to reveal this credential" when providing valid user credentials in Vault Password Picker modal.',
+      'Added comprehensive bilingual (EN/FA) error responses and enhanced active user lookup across database storage for resilient password verification.'
+    ]
+  },
   {
     version: '1.103.1',
     releaseDate: '2026-09-21',
