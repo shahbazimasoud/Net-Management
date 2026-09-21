@@ -1266,6 +1266,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                 setWinUsername(username);
               }
             }
+            setIsVaultPickerOpen(false);
           }}
         />
       )}

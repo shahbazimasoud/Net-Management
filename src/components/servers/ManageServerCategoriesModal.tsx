@@ -268,8 +268,8 @@ export const ManageServerCategoriesModal: React.FC<ManageServerCategoriesModalPr
       id="manage-server-categories-modal"
       className={
         isMaximized
-          ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 flex flex-col bg-black/80 backdrop-blur-md'
-          : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm'
+          ? 'fixed top-0 left-0 right-0 bottom-8 z-[10005] p-0 flex flex-col bg-black/80 backdrop-blur-md'
+          : 'fixed inset-0 z-[10005] flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm'
       }
       dir={isEn ? 'ltr' : 'rtl'}
     >

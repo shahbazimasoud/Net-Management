@@ -40,6 +40,7 @@ export interface VaultPasswordPickerModalProps {
   targetHost?: string;
   isLightMode?: boolean;
   isEn?: boolean;
+  zIndex?: number;
 }
 
 export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> = ({
@@ -50,6 +51,7 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
   targetHost = '',
   isLightMode = false,
   isEn = false,
+  zIndex = 10005,
 }) => {
   const { user, token } = useAuth();
   const [items, setItems] = useState<VaultItemSummary[]>([]);
@@ -200,10 +202,16 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
     }
   };
 
+  const subModalZIndex = (zIndex || 10005) + 15;
+
   const modalContent = (
     <div
-      className={`fixed inset-0 z-[1200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs transition-all duration-200 ${
-        isMaximized ? 'fixed top-0 left-0 right-0 bottom-8 z-[1200] p-0' : ''
+      id="vault-password-picker-modal-root"
+      style={{ zIndex }}
+      className={`fixed transition-all duration-200 ${
+        isMaximized
+          ? 'top-0 left-0 right-0 bottom-8 p-0 flex flex-col bg-black/80 backdrop-blur-md'
+          : 'inset-0 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm'
       }`}
     >
       <div
@@ -274,18 +282,16 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
           </div>
 
           <div className="flex items-center gap-1">
-            {onMinimize && (
-              <button
-                type="button"
-                onClick={onMinimize}
-                title={isEn ? 'Minimize' : 'کوچک‌سازی'}
-                className={`p-1.5 rounded-lg transition ${
-                  isLightMode ? 'hover:bg-slate-200 text-slate-600' : 'hover:bg-slate-800 text-slate-400'
-                }`}
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onMinimize || onClose}
+              title={isEn ? 'Minimize' : 'کوچک‌سازی'}
+              className={`p-1.5 rounded-lg transition ${
+                isLightMode ? 'hover:bg-slate-200 text-slate-600' : 'hover:bg-slate-800 text-slate-400'
+              }`}
+            >
+              <Minus className="w-4 h-4" />
+            </button>
             <button
               type="button"
               onClick={() => setIsMaximized(!isMaximized)}
@@ -477,7 +483,11 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
 
       {/* Re-Authentication Sub-Modal */}
       {selectedItemForAuth && (
-        <div className="fixed inset-0 z-[1300] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+        <div
+          id="vault-reauth-submodal-root"
+          style={{ zIndex: subModalZIndex }}
+          className="fixed inset-0 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+        >
           <div
             className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 ${
               isLightMode

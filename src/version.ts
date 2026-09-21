@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.103.2';
+export const APP_VERSION = '1.103.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.103.3',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'اصلاح لایه‌بندی Z-Index مودال انتخاب رمز والت شخصی و دسته‌بندی‌ها در فرم ثبت سرور (Register Remote Server)',
+    title_en: 'Fix Modal Z-Index Stacking Hierarchy for Vault Password Picker & Categories in Register Remote Server Dialog',
+    changes: [
+      'برطرف‌سازی خطای عدم نمایش مودال انتخاب رمز شخصی پس از کلیک روی دکمه Choose from Vault در فرم ثبت سرور ریموت (Register Remote Server).',
+      'ارتقای لایه z-index مودال VaultPasswordPickerModal به z-[10005] و زیرمودال احراز هویت به z-[10020] جهت قرارگیری صحیح بر فراز مودال سرور (z-[9999]).',
+      'همگام‌سازی لایه z-index مودال مدیریت دسته‌بندی‌های سرور به z-[10005] جهت پیشگیری از تداخل لایه‌بندی پورتال‌ها.',
+      'تضمین پیاده‌سازی همیشگی دکمه‌های سه‌گانه کنترلی هدر (بستن، مینیمایز، تمام‌صفحه) مطابق با بند ۱ استاندارد جامع مودال‌ها.'
+    ],
+    changes_en: [
+      'Resolved modal visibility issue where clicking "Choose from Vault" inside the "Register Remote Server" modal did not visually reveal the Vault Password Picker.',
+      'Elevated VaultPasswordPickerModal stacking context to z-[10005] and the unlock re-authentication submodal to z-[10020] to cleanly layer above the server modal (z-[9999]).',
+      'Synchronized ManageServerCategoriesModal stacking context to z-[10005] to prevent portal backdrop occlusion.',
+      'Guaranteed universal rendering of all three header control buttons (Close, Minimize, Fullscreen) in strict compliance with Section 1 of Universal Modal Guidelines.'
+    ]
+  },
   {
     version: '1.103.2',
     releaseDate: '2026-09-21',
