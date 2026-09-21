@@ -17,6 +17,29 @@ import {
 
 const API_BASE = '/api';
 
+/**
+ * Resilient fetch wrapper with automatic backoff for 503 (backend starting up) and network blips
+ */
+async function fetchWithRetry(url: string, options?: RequestInit, maxRetries = 3): Promise<Response> {
+  let lastError: any = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.status === 503 && attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, attempt * 500));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, attempt * 500));
+      }
+    }
+  }
+  throw lastError || new Error(`Network request to ${url} failed`);
+}
+
 export async function fetchHealth(): Promise<any> {
   const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) throw new Error('Health check failed');
@@ -24,7 +47,7 @@ export async function fetchHealth(): Promise<any> {
 }
 
 export async function fetchDevices(): Promise<{ devices: Device[]; total: number; online_count: number; offline_count: number }> {
-  const res = await fetch(`${API_BASE}/devices`);
+  const res = await fetchWithRetry(`${API_BASE}/devices`);
   if (!res.ok) throw new Error('Failed to fetch devices');
   return res.json();
 }
@@ -382,7 +405,7 @@ export async function writeMemory(deviceId: string): Promise<{ success: boolean;
 }
 
 export async function fetchTopology(): Promise<TopologyData> {
-  const res = await fetch(`${API_BASE}/topology`);
+  const res = await fetchWithRetry(`${API_BASE}/topology`);
   if (!res.ok) throw new Error('Failed to fetch topology');
   return res.json();
 }

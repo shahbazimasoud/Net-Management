@@ -861,6 +861,74 @@ registerCertConverterRoutes(app);
 // Mount PostgreSQL & Authentication API router
 app.use('/api', apiRouter);
 
+// Local fallbacks from network_data.json for topology and devices during Python backend cold-start
+function getLocalTopologyFallback(): any {
+  try {
+    const dataFilePath = path.join(projectRoot, 'backend', 'network_data.json');
+    if (!fs.existsSync(dataFilePath)) return null;
+    const raw = fs.readFileSync(dataFilePath, 'utf-8');
+    const data = JSON.parse(raw);
+    const nodes = (data.devices || []).map((d: any) => ({
+      ...d,
+      role: d.role || 'Network Device',
+      model: d.model || 'Cisco',
+      platform: d.platform || 'cisco_ios_xe',
+      is_online: d.is_online !== undefined ? d.is_online : true,
+      latency_ms: d.latency_ms || 1.0,
+      total_ports: d.total_ports || 24,
+    }));
+    return {
+      nodes,
+      links: data.topology_links || [],
+      buildings: Array.from(new Set((data.devices || []).map((d: any) => d.building).filter(Boolean))),
+      floors: Array.from(new Set((data.devices || []).map((d: any) => `${d.building} - ${d.floor}`).filter((f: string) => !f.startsWith('undefined')))),
+      summary: {
+        total_nodes: nodes.length,
+        total_links: (data.topology_links || []).length,
+        core_switches: nodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Core')).length,
+        access_switches: nodes.filter((d: any) => d.type === 'switch' && (d.role || '').includes('Access')).length,
+        routers: nodes.filter((d: any) => d.type === 'router').length,
+        access_points: nodes.filter((d: any) => d.type === 'access_point').length,
+      }
+    };
+  } catch (err) {
+    console.error('[Local Topology Fallback Error]', err);
+    return null;
+  }
+}
+
+function getLocalDevicesFallback(): any {
+  try {
+    const dataFilePath = path.join(projectRoot, 'backend', 'network_data.json');
+    if (!fs.existsSync(dataFilePath)) return null;
+    const raw = fs.readFileSync(dataFilePath, 'utf-8');
+    const data = JSON.parse(raw);
+    const rawDevices = data.devices || [];
+    const devices = rawDevices.map((dev: any) => {
+      const d = { ...dev };
+      if (!d.platform) d.platform = 'cisco_ios_xe';
+      if (!d.connection_mode) d.connection_mode = 'simulator';
+      const conn = { ...(d.connection || {}) };
+      delete conn.password;
+      delete conn.private_key;
+      d.connection = conn;
+      delete d.ssh_password;
+      delete d.enable_password;
+      d.ssh_connected = false;
+      return d;
+    });
+    return {
+      devices,
+      total: devices.length,
+      online_count: devices.filter((d: any) => d.is_online).length,
+      offline_count: devices.filter((d: any) => !d.is_online).length,
+    };
+  } catch (err) {
+    console.error('[Local Devices Fallback Error]', err);
+    return null;
+  }
+}
+
 // Proxy /api/* to Python HTTP server (including Python SSH lifecycle engine)
 app.use('/api', (req: Request, res: Response) => {
   const options: http.RequestOptions = {
@@ -881,11 +949,31 @@ app.use('/api', (req: Request, res: Response) => {
 
   proxyReq.on('error', (err) => {
     console.error(`[API Proxy Error] Unable to connect to Python backend: ${err.message}`);
-    res.status(503).json({
-      error: 'Python backend is starting up or temporarily unavailable',
-      details: err.message,
-      engine: 'Python 3.10 Network Topology Engine'
-    });
+    if (!res.headersSent) {
+      if (req.method === 'GET') {
+        const cleanPath = (req.path || '').replace(/\/$/, '');
+        if (cleanPath === '/topology' || cleanPath === '/api/topology' || req.originalUrl.startsWith('/api/topology')) {
+          const fallbackTopo = getLocalTopologyFallback();
+          if (fallbackTopo) {
+            console.log('[API Proxy Fallback] Served /api/topology from local network_data.json while Python backend warms up.');
+            return res.json(fallbackTopo);
+          }
+        }
+        if (cleanPath === '/devices' || cleanPath === '/api/devices' || req.originalUrl.startsWith('/api/devices')) {
+          const fallbackDevs = getLocalDevicesFallback();
+          if (fallbackDevs) {
+            console.log('[API Proxy Fallback] Served /api/devices from local network_data.json while Python backend warms up.');
+            return res.json(fallbackDevs);
+          }
+        }
+      }
+
+      res.status(503).json({
+        error: 'Python backend is starting up or temporarily unavailable',
+        details: err.message,
+        engine: 'Python 3.10 Network Topology Engine'
+      });
+    }
   });
 
   if (req.body && Object.keys(req.body).length > 0) {

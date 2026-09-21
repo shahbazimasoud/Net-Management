@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.103.0';
+export const APP_VERSION = '1.103.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.103.1',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'رفع خطای بارگذاری اولیه داده‌های توپولوژی و تجهیزات در شروع سامانه با بک‌اند فال‌بک و مکانیزم تلاش مجدد خودکار',
+    title_en: 'Fix Initial Data Loading Error for Topology & Devices with Cold-Start Local Fallbacks and Auto-Retry',
+    changes: [
+      'رفع خطای Failed to load initial data: Failed to fetch topology هنگام راه‌اندازی یا بوت اولیه سرور پایتون.',
+      'افزودن قابلیت پاسخ‌دهی فوری فال‌بک از دیتابیس لوکال network_data.json در پروکسی سرور Node جهت پیشگیری از خطای ۵۰۳ در زمان Cold-Start.',
+      'تجهیز توابع fetchTopology و fetchDevices به مکانیزم تلاش مجدد خودکار (Automatic Retry با Exponential Backoff) در صورت تاخیر موقت سرویس‌دهنده.',
+      'بهبود چرخه فراخوانی اولیه داده‌ها در App.tsx جهت بازیابی خودکار و نرم بدون ثبت خطای بحرانی در کنسول.'
+    ],
+    changes_en: [
+      'Resolved the "Failed to load initial data: Failed to fetch topology" error encountered during application cold-start while the Python backend initializes.',
+      'Implemented instant fallback response in Node Express proxy using local network_data.json dataset to eliminate transient 503 errors.',
+      'Equipped fetchTopology and fetchDevices client API functions with resilient automatic retry and backoff handling.',
+      'Enhanced initial load lifecycle in App.tsx to gracefully recover and synchronize network state without unhandled console errors.'
+    ]
+  },
   {
     version: '1.103.0',
     releaseDate: '2026-09-21',

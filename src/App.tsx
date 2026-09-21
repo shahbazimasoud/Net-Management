@@ -426,7 +426,18 @@ export default function App() {
       setDevices(devRes.devices);
       setTopology(topoRes);
     } catch (err) {
-      console.error('Failed to load initial data:', err);
+      console.warn('[Initial Load] Backend starting up, retrying initial data fetch in 800ms...', err);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        const [devRes, topoRes] = await Promise.all([
+          fetchDevices(),
+          fetchTopology(),
+        ]);
+        setDevices(devRes.devices);
+        setTopology(topoRes);
+      } catch (retryErr) {
+        console.warn('Initial data load retry deferred to background polling:', retryErr);
+      }
     } finally {
       setLoading(false);
     }
