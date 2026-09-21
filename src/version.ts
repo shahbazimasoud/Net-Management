@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.98.3';
+export const APP_VERSION = '1.99.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.99.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن تب تبدیل فرمت‌های گواهی SSL/TLS و استخراج آرشیو با دانلود مستقیم فایل‌ها',
+    title_en: 'Add SSL/TLS Certificate Format Converter & Archive Extractor with Direct Downloads',
+    changes: [
+      'افزودن تب مبدل فرمت‌های گواهی امنیتی به ابزار بازرس گواهی‌های SSL/TLS جهت تبدیل آسان گواهی‌های خریداری‌شده به تمامی استانداردهای سروری.',
+      'پشتیبانی جامع از خروجی‌های استاندارد در صورت ارائه گواهی عمومی: PEM (.crt), DER (.cer), PKCS#7 (.p7b), گزارش متنی جزئیات فنی.',
+      'پشتیبانی از پکیج‌های پیشرفته در صورت ارائه کلید خصوصی و CA Bundle: فرمت پرکاربرد ویندوز/IIS آرشیو PKCS#12 (.pfx), باندل ترکیبی سرور Nginx/Apache (Combined PEM), و کلید استاندارد PKCS#8.',
+      'پیاده‌سازی ماژول استخراج کامل (Extract PFX/P12): بازگشایی آرشیوهای رمزگذاری‌شده PFX/P12 و تفکیک خودکار گواهی عمومی، کلید خصوصی و زنجیره CA.',
+      'اعتبارسنجی رمزنگاری تطابق ماژولوس کلید خصوصی با گواهی عمومی بر اساس هش MD5 جهت اطمینان از سازگاری قبل از استقرار.',
+      'امکان دانلود مجزای هر فرمت با نام‌گذاری استاندارد یا دانلود یکجای تمام فرمت‌ها، به همراه قابلیت مشاهده پیش‌نمایش کد و کپی در کلیپ‌بورد.',
+      'رعایت کامل استانداردهای مودال (قانون ۷)، دکمه‌های کنترلی سه‌گانه، تم تاریک/روشن و چندزبانگی صددرصدی.'
+    ],
+    changes_en: [
+      'Added comprehensive Certificate Format Converter tab to the SSL/TLS Inspector tool to convert purchased certificates to all production server formats.',
+      'Full cryptographic conversion of public certificates to PEM (.crt), DER (.cer), PKCS#7 (.p7b), and structured technical report.',
+      'Supported advanced packaging with Private Key and CA Bundle into PKCS#12 (.pfx) for IIS/Azure, Combined PEM for Nginx/Apache, and PKCS#8 private keys.',
+      'Implemented PFX/P12 archive extraction module: decrypts password-protected archives and isolates public certificate, private key, and CA chain.',
+      'Cryptographic modulus integrity check verifying private key matches public certificate via MD5 hash comparison.',
+      'One-click individual or batch downloads of all generated formats with formatted file naming, code preview, and clipboard copy.',
+      'Full compliance with Universal Modal Standards (Rule 7), header controls, dark/light themes, and strict bilingual localization.'
+    ]
+  },
   {
     version: '1.98.3',
     releaseDate: '2026-09-20',

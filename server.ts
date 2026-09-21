@@ -39,6 +39,7 @@ import { initDatabase } from './server/db';
 import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
+import { registerCertConverterRoutes } from './server/certConverter';
 
 const app = express();
 const PORT = 3000;
@@ -853,6 +854,9 @@ app.get('/api/tools/check-host/nodes', async (req: Request, res: Response) => {
 
 // Mount In-Browser Remote Desktop / Remote Console API routes
 registerRemoteDesktopRoutes(app, projectRoot);
+
+// Mount SSL / TLS Certificate Converter & Formatter routes
+registerCertConverterRoutes(app);
 
 // Mount PostgreSQL & Authentication API router
 app.use('/api', apiRouter);

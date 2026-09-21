@@ -3,6 +3,8 @@ import {
   ShieldCheck,
   Minus,
   X,
+  Maximize2,
+  Minimize2,
   Play,
   Loader2,
   Copy,
@@ -12,8 +14,11 @@ import {
   AlertCircle,
   CheckCircle2,
   XCircle,
-  Tag
+  Tag,
+  Globe,
+  RefreshCw
 } from 'lucide-react';
+import { CertConverterTab } from './CertConverterTab';
 
 interface CertLookupModalProps {
   isOpen: boolean;
@@ -30,6 +35,8 @@ export const CertLookupModal: React.FC<CertLookupModalProps> = ({
   isEn,
   isLightMode
 }) => {
+  const [activeTab, setActiveTab] = useState<'inspect' | 'convert'>('inspect');
+  const [isMaximized, setIsMaximized] = useState<boolean>(false);
   const [host, setHost] = useState<string>('google.com');
   const [port, setPort] = useState<number>(443);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -69,37 +76,46 @@ export const CertLookupModal: React.FC<CertLookupModalProps> = ({
   return (
     <div
       id="cert-lookup-modal-overlay"
-      className="fixed top-0 left-0 right-0 bottom-8 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
     >
       <div
         id="cert-lookup-modal-window"
-        className={`w-full max-w-3xl max-h-[85vh] flex flex-col rounded-2xl shadow-2xl border transition-all duration-200 overflow-hidden ${
-          isLightMode
-            ? 'bg-white text-slate-900 border-slate-200 shadow-slate-400/40'
-            : 'bg-slate-950 text-slate-100 border-slate-800 shadow-[0_20px_60px_rgba(0,0,0,0.8)]'
+        className={`flex flex-col transition-all duration-200 overflow-hidden ${
+          isMaximized
+            ? `fixed top-0 left-0 right-0 bottom-8 z-50 w-full h-full max-w-none max-h-full rounded-none border-none ${
+                isLightMode ? 'bg-white text-slate-900' : 'bg-slate-950 text-slate-100'
+              }`
+            : `w-full max-w-4xl max-h-[88vh] rounded-2xl shadow-2xl border ${
+                isLightMode
+                  ? 'bg-white text-slate-900 border-slate-200 shadow-slate-400/40'
+                  : 'bg-slate-950 text-slate-100 border-slate-800 shadow-[0_20px_60px_rgba(0,0,0,0.8)]'
+              }`
         }`}
       >
         {/* Header */}
         <div
-          className={`flex items-center justify-between px-5 py-3.5 border-b shrink-0 ${
-            isLightMode ? 'border-slate-100 bg-slate-50/80' : 'border-slate-800/80 bg-slate-900/60'
-          } rounded-t-2xl`}
+          className={`flex items-center justify-between px-4 sm:px-5 py-3 border-b shrink-0 ${
+            isLightMode ? 'border-slate-100 bg-slate-50/90' : 'border-slate-800/80 bg-slate-900/80'
+          } ${isMaximized ? 'rounded-none' : 'rounded-t-2xl'}`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-md">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-md shrink-0">
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
               <h3 className="text-sm font-bold tracking-wide">
-                {isEn ? 'SSL / TLS Certificate Inspector' : 'بازرس گواهی‌های امنیتی SSL / TLS'}
+                {isEn ? 'SSL / TLS Certificate Inspector & Converter' : 'بازرس و تبدیل‌کننده گواهی‌های امنیتی SSL / TLS'}
               </h3>
               <p className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                {isEn ? 'Verify X.509 chains, expiration dates, SANs, TLS ciphers & security status' : 'بررسی زنجیره اعتماد X.509، تاریخ‌های انقضا، نام‌های مستعار SAN و الگوریتم‌های TLS'}
+                {isEn
+                  ? 'Verify X.509 chains, expiration, TLS ciphers & convert between PEM, DER, P7B, PFX formats'
+                  : 'بررسی زنجیره X.509، انقضا، الگوریتم‌های TLS و تبدیل میان فرمت‌های PEM, DER, P7B, PFX'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Minimize */}
             <button
               onClick={onMinimize}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
@@ -107,10 +123,25 @@ export const CertLookupModal: React.FC<CertLookupModalProps> = ({
                   ? 'hover:bg-slate-200 text-slate-500 hover:text-slate-800'
                   : 'hover:bg-slate-800 text-slate-400 hover:text-cyan-300'
               }`}
-              title={isEn ? 'Minimize' : 'مینیمایز به نوار پایین'}
+              title={isEn ? 'Minimize to dock' : 'مینیمایز به نوار پایین'}
             >
               <Minus className="w-4 h-4" />
             </button>
+
+            {/* Maximize / Restore */}
+            <button
+              onClick={() => setIsMaximized(!isMaximized)}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLightMode
+                  ? 'hover:bg-slate-200 text-slate-500 hover:text-slate-800'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-amber-400'
+              }`}
+              title={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+            >
+              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+
+            {/* Close */}
             <button
               onClick={onClose}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
@@ -125,24 +156,67 @@ export const CertLookupModal: React.FC<CertLookupModalProps> = ({
           </div>
         </div>
 
-        {/* Body */}
-        <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
-          {/* Controls */}
-          <div
-            className={`p-4 rounded-xl border space-y-3 ${
-              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+        {/* Tab Navigation Bar */}
+        <div
+          className={`flex items-center gap-2 px-4 sm:px-5 py-2 border-b shrink-0 ${
+            isLightMode ? 'border-slate-200 bg-slate-100/70' : 'border-slate-800/60 bg-slate-900/40'
+          }`}
+        >
+          <button
+            onClick={() => setActiveTab('inspect')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              activeTab === 'inspect'
+                ? isLightMode
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-sm'
+                : isLightMode
+                ? 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 border border-slate-700/60'
             }`}
           >
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-              <div className="sm:col-span-8">
-                <label className={`block text-xs font-semibold mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                  {isEn ? 'Target Domain / Hostname' : 'دامنه یا نام هاست مقصد'}
-                </label>
-                <input
-                  type="text"
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
-                  placeholder="example.com"
+            <Globe className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Online Host Inspection' : 'بررسی آنلاین دامنه / هاست'}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('convert')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+              activeTab === 'convert'
+                ? isLightMode
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-sm'
+                : isLightMode
+                ? 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 border border-slate-700/60'
+            }`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Certificate Format Converter' : 'تبدیل فرمت‌های گواهی SSL'}</span>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-4 sm:p-5 overflow-y-auto flex-1 custom-scrollbar">
+          {activeTab === 'convert' ? (
+            <CertConverterTab isEn={isEn} isLightMode={isLightMode} />
+          ) : (
+            <div className="space-y-4">
+              {/* Controls */}
+              <div
+                className={`p-4 rounded-xl border space-y-3 ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-8">
+                    <label className={`block text-xs font-semibold mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      {isEn ? 'Target Domain / Hostname' : 'دامنه یا نام هاست مقصد'}
+                    </label>
+                    <input
+                      type="text"
+                      value={host}
+                      onChange={(e) => setHost(e.target.value)}
+                      placeholder="example.com"
                   className={`w-full px-3 py-1.5 text-xs font-mono rounded-lg border focus:outline-none ${
                     isLightMode
                       ? 'bg-white text-slate-900 border-slate-300 focus:border-amber-500'
@@ -337,29 +411,36 @@ export const CertLookupModal: React.FC<CertLookupModalProps> = ({
               )}
             </div>
           )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
         <div
           className={`flex items-center justify-between px-5 py-3 border-t shrink-0 ${
             isLightMode ? 'border-slate-100 bg-slate-50/80' : 'border-slate-800/80 bg-slate-900/60'
-          } rounded-b-2xl`}
+          } ${isMaximized ? 'rounded-none' : 'rounded-b-2xl'}`}
         >
           <span className="text-xs text-slate-400 font-mono">
-            {isEn ? 'Direct TLS handshake inspection via standard OpenSSL / Python' : 'بررسی اتصال زنده TLS با استاندارد OpenSSL'}
+            {activeTab === 'inspect'
+              ? (isEn ? 'Direct TLS handshake inspection via standard OpenSSL / Python' : 'بررسی اتصال زنده TLS با استاندارد OpenSSL')
+              : (isEn ? 'Universal cryptographic formatting (PEM, DER, PKCS#7, PKCS#12, PKCS#8)' : 'تبدیل و خروجی استانداردهای بین‌المللی رمزنگاری (PEM, DER, P7B, PFX, PKCS#8)')
+            }
           </span>
 
-          <button
-            onClick={onMinimize}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
-              isLightMode
-                ? 'bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100'
-                : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20'
-            }`}
-          >
-            <Minus className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Minimize' : 'مینیمایز به پایین'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onMinimize}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border ${
+                isLightMode
+                  ? 'bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100'
+                  : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20'
+              }`}
+            >
+              <Minus className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Minimize' : 'مینیمایز به پایین'}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
