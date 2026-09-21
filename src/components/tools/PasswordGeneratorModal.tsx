@@ -8,7 +8,8 @@ import {
   RefreshCw,
   Shield,
   Sliders,
-  CheckCircle2
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
 
 interface PasswordGeneratorModalProps {
@@ -17,6 +18,7 @@ interface PasswordGeneratorModalProps {
   onMinimize: () => void;
   isEn: boolean;
   isLightMode: boolean;
+  onOpenVault?: (prefillPassword?: string) => void;
 }
 
 export const PasswordGeneratorModal: React.FC<PasswordGeneratorModalProps> = ({
@@ -24,7 +26,8 @@ export const PasswordGeneratorModal: React.FC<PasswordGeneratorModalProps> = ({
   onClose,
   onMinimize,
   isEn,
-  isLightMode
+  isLightMode,
+  onOpenVault
 }) => {
   const [length, setLength] = useState<number>(18);
   const [includeUpper, setIncludeUpper] = useState<boolean>(true);
@@ -276,6 +279,24 @@ export const PasswordGeneratorModal: React.FC<PasswordGeneratorModalProps> = ({
                   {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   <span>{copied ? (isEn ? 'Copied!' : 'کپی شد!') : (isEn ? 'Copy' : 'کپی')}</span>
                 </button>
+
+                {onOpenVault && (
+                  <button
+                    onClick={() => {
+                      copyPassword(password);
+                      onOpenVault(password);
+                    }}
+                    className={`px-3 py-2 rounded-lg border font-medium text-xs flex items-center gap-1.5 transition hover:scale-105 cursor-pointer ${
+                      isLightMode
+                        ? 'bg-cyan-600 text-white border-cyan-700 hover:bg-cyan-700'
+                        : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/30'
+                    }`}
+                    title={isEn ? 'Copy & Save in Password Vault' : 'کپی و ذخیره مستقیم در ولت گذرواژه‌ها'}
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>{isEn ? 'Save to Vault' : 'ذخیره در ولت'}</span>
+                  </button>
+                )}
               </div>
             </div>
 

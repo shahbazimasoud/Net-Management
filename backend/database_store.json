@@ -707,6 +707,42 @@
       "details": "{\"protocol\":\"rdp\",\"resolution\":\"1024x768@96dpi\",\"concurrentSessionsOnTarget\":1}",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1789998948837-9riws",
+      "timestamp": "2026-09-21T13:55:48.837Z",
+      "user_name": "User",
+      "action": "Password Vault Item Created",
+      "category": "security",
+      "target": "Vault / Core Switch Cisco 3850",
+      "status": "success",
+      "details": "User created encrypted vault credential for \"Core Switch Cisco 3850\" (Category: network)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1789998956528-dcwgc",
+      "timestamp": "2026-09-21T13:55:56.528Z",
+      "user_name": "User",
+      "action": "Password Vault Secret Revealed",
+      "category": "security",
+      "target": "Vault / Core Switch Cisco 3850",
+      "status": "info",
+      "details": "User decrypted and revealed secret for \"Core Switch Cisco 3850\" from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1789998967133-dnzau",
+      "timestamp": "2026-09-21T13:56:07.134Z",
+      "user_name": "User",
+      "action": "Password Vault Item Deleted",
+      "category": "security",
+      "target": "Vault / Core Switch Cisco 3850",
+      "status": "warning",
+      "details": "User permanently deleted vault credential \"Core Switch Cisco 3850\"",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
     }
   ],
   "ad_config": {
@@ -1345,5 +1381,6 @@
       "color": "slate",
       "is_default": true
     }
-  ]
+  ],
+  "user_password_vault": []
 }

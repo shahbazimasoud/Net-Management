@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.99.5';
+export const APP_VERSION = '1.100.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.100.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن ماژول ولت اختصاصی گذرواژه‌ها (Password Vault) با ایزولاسیون کامل کاربران و رمزنگاری AES-256-GCM',
+    title_en: 'Add Dedicated User Password Vault with Strict Per-User Isolation and AES-256-GCM Encryption',
+    changes: [
+      'پیاده‌سازی ماژول ولت اختصاصی گذرواژه‌ها (Password Vault) جهت نگهداری امن کلمات عبور، نام‌های کاربری و آدرس تجهیزات با تفکیک و ایزولاسیون صددرصدی هر کاربر نسبت به سایرین.',
+      'رمزنگاری سخت‌گیرانه داده‌های حساس در مبدأ با الگوریتم استاندارد AES-256-GCM و تولید کلیدهای رمزنگاری اختصاصی هر کاربر با مشتق‌سازی Scrypt و Salt پویا.',
+      'طراحی رابط کاربری مدرن منطبق با ۵ قانون الزامی مودال‌ها: دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز به داک ابزارها، و تمام‌صفحه با رعایت فاصله ۸ پیکسلی از فوتر)، انطباق با تم تاریک و روشن، دو زبانه کامل فارسی و انگلیسی، و تولتیپ‌های سه‌بخشی Info ضدخروج از صفحه.',
+      'یکپارچه‌سازی کامل در نوار بالایی (Navbar)، منوی کشویی پروفایل کاربر، لیست ابزارهای شبکه (NetworkToolsMenu)، و دکمه اتصال مستقیم در مدال تولید گذرواژه (Password Generator).',
+      'پشتیبانی از جستجوی سریع، فیلتر دسته‌بندی‌ها (تجهیزات شبکه، سرورها، فایروال، ابری، پایگاه‌داده و متفرقه)، ارزیابی بلادرنگ شاخص قدرت رمز، کپی سریع گذرواژه در کلیپ‌بورد با رمزگشایی در لحظه و ثبت وقایع در لاگ حسابرسی (Audit Logs).'
+    ],
+    changes_en: [
+      'Implemented dedicated Password Vault module providing secure, per-user isolated storage for credentials, device passwords, and accounts.',
+      'Enforced military-grade zero-leak security utilizing AES-256-GCM encryption with per-user Scrypt key derivation and dynamic cryptographic salt.',
+      'Designed compliant UI adhering to all 5 Universal Modal Architectural Rules: 3 header control buttons (close, minimize to dock, strict boundary fullscreen), dark/light mode compatibility, 100% bilingual Persian/English i18n, and boundary-safe 3-part Field Info tooltips.',
+      'Integrated seamlessly across the navigation bar, user profile dropdown, Network Tools menu, and direct "Save to Vault" workflow in the Password Generator modal.',
+      'Added instant search, category filtering (Network, Servers, Firewalls, Cloud, Databases, Other), real-time password strength meter, secure clipboard copy, on-demand decryption, and full audit log compliance.'
+    ]
+  },
   {
     version: '1.99.5',
     releaseDate: '2026-09-21',

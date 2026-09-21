@@ -1,6 +1,7 @@
 export type NetworkToolId =
   | 'ip_subnetting'
   | 'password_gen'
+  | 'password_vault'
   | 'port_scanner'
   | 'net_utils'
   | 'trace_tools'

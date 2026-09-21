@@ -49,7 +49,13 @@ import {
   createServerCategory,
   updateServerCategory,
   deleteServerCategory,
+  getUserVaultItems,
+  getUserVaultItemById,
+  saveUserVaultItem,
+  deleteUserVaultItem,
+  UserVaultItem,
 } from './db';
+import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
@@ -1199,6 +1205,293 @@ apiRouter.delete('/server-categories/:id', async (req: Request, res: Response) =
     });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// =============================================================================
+// USER PASSWORD VAULT API (PER-USER ISOLATED)
+// =============================================================================
+
+function resolveVaultUser(req: Request): { userId: string; username: string } | null {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (token) {
+    const payload = verifyToken(token);
+    if (payload && payload.userId) {
+      return { userId: payload.userId, username: payload.username };
+    }
+  }
+  const headerUserId = req.headers['x-user-id'];
+  const headerUsername = req.headers['x-username'];
+  if (typeof headerUserId === 'string' && headerUserId.trim()) {
+    return {
+      userId: headerUserId.trim(),
+      username: typeof headerUsername === 'string' ? headerUsername.trim() : 'User',
+    };
+  }
+  return null;
+}
+
+// GET /api/vault - Get all vault items for the authenticated user
+apiRouter.get('/vault', async (req: Request, res: Response) => {
+  try {
+    const user = resolveVaultUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentication required to access password vault' });
+    }
+
+    const items = await getUserVaultItems(user.userId);
+    // Sanitize output so cipher data is hidden from standard list
+    const sanitized = items.map((item) => ({
+      id: item.id,
+      userId: item.user_id,
+      name: item.name,
+      username: item.username || '',
+      category: item.category || 'general',
+      targetHost: item.target_host || '',
+      notes: item.notes || '',
+      tags: item.tags || [],
+      strength: item.strength || 'strong',
+      hasPassword: true,
+      maskedPassword: '••••••••••••',
+      createdAt: item.created_at,
+      updatedAt: item.updated_at,
+    }));
+
+    res.json({
+      success: true,
+      userId: user.userId,
+      items: sanitized,
+      count: sanitized.length,
+    });
+  } catch (err: any) {
+    console.error('[API /vault error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/vault - Save a new vault item
+apiRouter.post('/vault', async (req: Request, res: Response) => {
+  try {
+    const user = resolveVaultUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentication required to store passwords' });
+    }
+
+    const { name, password, username, category, targetHost, notes, tags, strength } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Password name/label is required' });
+    }
+    if (!password || typeof password !== 'string' || !password.trim()) {
+      return res.status(400).json({ success: false, error: 'Password value is required' });
+    }
+
+    // Encrypt password using AES-256-GCM keyed to this specific user
+    const enc = encryptVaultSecret(password.trim(), user.userId);
+
+    const saved = await saveUserVaultItem({
+      id: `vault_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      user_id: user.userId,
+      name: name.trim(),
+      username: (username || '').trim(),
+      encrypted_password: enc.ciphertext,
+      iv: enc.iv,
+      tag: enc.tag,
+      category: (category || 'general').trim(),
+      target_host: (targetHost || '').trim(),
+      notes: (notes || '').trim(),
+      tags: Array.isArray(tags) ? tags : [],
+      strength: strength || 'strong',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    await addAuditLog({
+      userName: user.username,
+      action: 'Password Vault Item Created',
+      category: 'security',
+      target: `Vault / ${saved.name}`,
+      status: 'success',
+      details: `User created encrypted vault credential for "${saved.name}" (Category: ${saved.category})`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json({
+      success: true,
+      item: {
+        id: saved.id,
+        userId: saved.user_id,
+        name: saved.name,
+        username: saved.username,
+        category: saved.category,
+        targetHost: saved.target_host,
+        notes: saved.notes,
+        tags: saved.tags,
+        strength: saved.strength,
+        hasPassword: true,
+        maskedPassword: '••••••••••••',
+        createdAt: saved.created_at,
+        updatedAt: saved.updated_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('[API POST /vault error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/vault/:id - Update an existing vault item
+apiRouter.put('/vault/:id', async (req: Request, res: Response) => {
+  try {
+    const user = resolveVaultUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { id } = req.params;
+    const existing = await getUserVaultItemById(id, user.userId);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Vault item not found or unauthorized' });
+    }
+
+    const { name, password, username, category, targetHost, notes, tags, strength } = req.body || {};
+
+    let ciphertext = existing.encrypted_password;
+    let iv = existing.iv;
+    let tag = existing.tag;
+
+    // If new password provided, re-encrypt
+    if (password && typeof password === 'string' && password.trim()) {
+      const enc = encryptVaultSecret(password.trim(), user.userId);
+      ciphertext = enc.ciphertext;
+      iv = enc.iv;
+      tag = enc.tag;
+    }
+
+    const updated = await saveUserVaultItem({
+      id: existing.id,
+      user_id: user.userId,
+      name: name !== undefined ? String(name).trim() : existing.name,
+      username: username !== undefined ? String(username).trim() : existing.username,
+      encrypted_password: ciphertext,
+      iv,
+      tag,
+      category: category !== undefined ? String(category).trim() : existing.category,
+      target_host: targetHost !== undefined ? String(targetHost).trim() : existing.target_host,
+      notes: notes !== undefined ? String(notes).trim() : existing.notes,
+      tags: Array.isArray(tags) ? tags : existing.tags,
+      strength: strength !== undefined ? String(strength) : existing.strength,
+      created_at: existing.created_at,
+      updated_at: new Date().toISOString(),
+    });
+
+    await addAuditLog({
+      userName: user.username,
+      action: 'Password Vault Item Updated',
+      category: 'security',
+      target: `Vault / ${updated.name}`,
+      status: 'success',
+      details: `User updated vault credential "${updated.name}"`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json({
+      success: true,
+      item: {
+        id: updated.id,
+        userId: updated.user_id,
+        name: updated.name,
+        username: updated.username,
+        category: updated.category,
+        targetHost: updated.target_host,
+        notes: updated.notes,
+        tags: updated.tags,
+        strength: updated.strength,
+        hasPassword: true,
+        maskedPassword: '••••••••••••',
+        createdAt: updated.created_at,
+        updatedAt: updated.updated_at,
+      },
+    });
+  } catch (err: any) {
+    console.error('[API PUT /vault/:id error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/vault/:id - Delete a vault item
+apiRouter.delete('/vault/:id', async (req: Request, res: Response) => {
+  try {
+    const user = resolveVaultUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    const { id } = req.params;
+    const existing = await getUserVaultItemById(id, user.userId);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Vault item not found or unauthorized' });
+    }
+
+    const deleted = await deleteUserVaultItem(id, user.userId);
+
+    await addAuditLog({
+      userName: user.username,
+      action: 'Password Vault Item Deleted',
+      category: 'security',
+      target: `Vault / ${existing.name}`,
+      status: 'warning',
+      details: `User permanently deleted vault credential "${existing.name}"`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json({ success: deleted });
+  } catch (err: any) {
+    console.error('[API DELETE /vault/:id error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/vault/:id/reveal - On-demand real-time decryption of a password
+apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
+  try {
+    const user = resolveVaultUser(req);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Authentication required to reveal password' });
+    }
+
+    const { id } = req.params;
+    const item = await getUserVaultItemById(id, user.userId);
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Vault item not found or unauthorized' });
+    }
+
+    const plainPassword = decryptVaultSecret(item.encrypted_password, item.iv, item.tag, user.userId);
+
+    // Audit the reveal action for security compliance
+    await addAuditLog({
+      userName: user.username,
+      action: 'Password Vault Secret Revealed',
+      category: 'security',
+      target: `Vault / ${item.name}`,
+      status: 'info',
+      details: `User decrypted and revealed secret for "${item.name}" from IP ${getClientIp(req)}`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json({
+      success: true,
+      id: item.id,
+      name: item.name,
+      password: plainPassword,
+    });
+  } catch (err: any) {
+    console.error('[API /vault/:id/reveal error]', err);
+    res.status(500).json({ success: false, error: 'Decryption failed: ' + err.message });
   }
 });
 

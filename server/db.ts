@@ -157,6 +157,24 @@ interface FallbackStore {
   device_sticky_notes?: any[];
   remote_servers?: RemoteServer[];
   server_categories?: ServerCategory[];
+  user_password_vault?: UserVaultItem[];
+}
+
+export interface UserVaultItem {
+  id: string;
+  user_id: string;
+  name: string;
+  username?: string;
+  encrypted_password: string;
+  iv: string;
+  tag: string;
+  category?: string;
+  target_host?: string;
+  notes?: string;
+  tags?: string[];
+  strength?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ServerCategory {
@@ -801,6 +819,9 @@ function loadFallbackStore(): FallbackStore {
   if (!Array.isArray(store.server_categories) || store.server_categories.length === 0) {
     store.server_categories = [...DEFAULT_SERVER_CATEGORIES];
   }
+  if (!Array.isArray(store.user_password_vault)) {
+    store.user_password_vault = [];
+  }
   if (!Array.isArray(store.audit_logs)) {
     store.audit_logs = [
       {
@@ -1208,6 +1229,58 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
     }
   } catch (err: any) {
     console.warn('[Database Sync Notice] Server Categories sync notice:', err.message);
+  }
+
+  // 13. Sync User Password Vault
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_password_vault (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        name VARCHAR(150) NOT NULL,
+        username VARCHAR(128),
+        encrypted_password TEXT NOT NULL,
+        iv VARCHAR(64) NOT NULL,
+        tag VARCHAR(64) NOT NULL,
+        category VARCHAR(64) DEFAULT 'general',
+        target_host VARCHAR(150),
+        notes TEXT,
+        tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+        strength VARCHAR(32) DEFAULT 'strong',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    if (Array.isArray(initialData.user_password_vault) && initialData.user_password_vault.length > 0) {
+      for (const v of initialData.user_password_vault) {
+        if (!v || !v.id || !v.user_id) continue;
+        await client.query(
+          `INSERT INTO user_password_vault (
+            id, user_id, name, username, encrypted_password, iv, tag, category, target_host, notes, tags, strength, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            v.id,
+            v.user_id,
+            v.name,
+            v.username || '',
+            v.encrypted_password,
+            v.iv,
+            v.tag,
+            v.category || 'general',
+            v.target_host || '',
+            v.notes || '',
+            JSON.stringify(v.tags || []),
+            v.strength || 'strong',
+            v.created_at || new Date().toISOString(),
+            v.updated_at || new Date().toISOString(),
+          ]
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] User Password Vault sync notice:', err.message);
   }
 }
 
@@ -3470,5 +3543,200 @@ export async function deleteServerCategory(
   }
 
   return { success: true, reassignedCount, targetCategory: targetCatName };
+}
+
+// =============================================================================
+// USER PASSWORD VAULT CRUD (PER-USER ISOLATED)
+// =============================================================================
+
+export async function getUserVaultItems(userId: string): Promise<UserVaultItem[]> {
+  if (!userId) return [];
+  await ensurePostgresConnection();
+
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        'SELECT * FROM user_password_vault WHERE user_id = $1 ORDER BY updated_at DESC',
+        [userId]
+      );
+      if (res && Array.isArray(res.rows)) {
+        return res.rows.map((r: any) => ({
+          id: r.id,
+          user_id: r.user_id,
+          name: r.name,
+          username: r.username || '',
+          encrypted_password: r.encrypted_password,
+          iv: r.iv,
+          tag: r.tag,
+          category: r.category || 'general',
+          target_host: r.target_host || '',
+          notes: r.notes || '',
+          tags: Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : [],
+          strength: r.strength || 'strong',
+          created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+          updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+        }));
+      }
+    } catch (e: any) {
+      console.warn('[DB Error getUserVaultItems from PostgreSQL, fallback used]:', e.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.user_password_vault) ? store.user_password_vault : [];
+  return list.filter((item) => item.user_id === userId);
+}
+
+export async function getUserVaultItemById(id: string, userId: string): Promise<UserVaultItem | null> {
+  if (!id || !userId) return null;
+  await ensurePostgresConnection();
+
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        'SELECT * FROM user_password_vault WHERE id = $1 AND user_id = $2 LIMIT 1',
+        [id, userId]
+      );
+      if (res && res.rows.length > 0) {
+        const r = res.rows[0];
+        return {
+          id: r.id,
+          user_id: r.user_id,
+          name: r.name,
+          username: r.username || '',
+          encrypted_password: r.encrypted_password,
+          iv: r.iv,
+          tag: r.tag,
+          category: r.category || 'general',
+          target_host: r.target_host || '',
+          notes: r.notes || '',
+          tags: Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : [],
+          strength: r.strength || 'strong',
+          created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+          updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+        };
+      }
+      return null;
+    } catch (e: any) {
+      console.warn('[DB Error getUserVaultItemById from PostgreSQL, fallback used]:', e.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.user_password_vault) ? store.user_password_vault : [];
+  const found = list.find((item) => item.id === id && item.user_id === userId);
+  return found || null;
+}
+
+export async function saveUserVaultItem(item: UserVaultItem): Promise<UserVaultItem> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.user_password_vault)) {
+    store.user_password_vault = [];
+  }
+
+  const now = new Date().toISOString();
+  const normalized: UserVaultItem = {
+    id: item.id || `vault_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    user_id: item.user_id,
+    name: item.name.trim(),
+    username: (item.username || '').trim(),
+    encrypted_password: item.encrypted_password,
+    iv: item.iv,
+    tag: item.tag,
+    category: item.category || 'general',
+    target_host: (item.target_host || '').trim(),
+    notes: (item.notes || '').trim(),
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    strength: item.strength || 'strong',
+    created_at: item.created_at || now,
+    updated_at: now,
+  };
+
+  const existingIdx = store.user_password_vault.findIndex(
+    (x) => x.id === normalized.id && x.user_id === normalized.user_id
+  );
+
+  if (existingIdx >= 0) {
+    store.user_password_vault[existingIdx] = normalized;
+  } else {
+    store.user_password_vault.unshift(normalized);
+  }
+
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO user_password_vault (
+          id, user_id, name, username, encrypted_password, iv, tag, category, target_host, notes, tags, strength, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          username = EXCLUDED.username,
+          encrypted_password = EXCLUDED.encrypted_password,
+          iv = EXCLUDED.iv,
+          tag = EXCLUDED.tag,
+          category = EXCLUDED.category,
+          target_host = EXCLUDED.target_host,
+          notes = EXCLUDED.notes,
+          tags = EXCLUDED.tags,
+          strength = EXCLUDED.strength,
+          updated_at = EXCLUDED.updated_at`,
+        [
+          normalized.id,
+          normalized.user_id,
+          normalized.name,
+          normalized.username,
+          normalized.encrypted_password,
+          normalized.iv,
+          normalized.tag,
+          normalized.category,
+          normalized.target_host,
+          normalized.notes,
+          JSON.stringify(normalized.tags),
+          normalized.strength,
+          normalized.created_at,
+          normalized.updated_at,
+        ]
+      );
+    } catch (e: any) {
+      console.error('[DB Error saveUserVaultItem in PostgreSQL]', e.message);
+    }
+  }
+
+  return normalized;
+}
+
+export async function deleteUserVaultItem(id: string, userId: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.user_password_vault)) {
+    store.user_password_vault = [];
+  }
+
+  const initialLen = store.user_password_vault.length;
+  store.user_password_vault = store.user_password_vault.filter(
+    (x) => !(x.id === id && x.user_id === userId)
+  );
+
+  const deletedInFallback = store.user_password_vault.length < initialLen;
+  if (deletedInFallback) {
+    saveFallbackStore(store);
+  }
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        'DELETE FROM user_password_vault WHERE id = $1 AND user_id = $2',
+        [id, userId]
+      );
+      return (res && (res.rowCount || 0) > 0) || deletedInFallback;
+    } catch (e: any) {
+      console.error('[DB Error deleteUserVaultItem in PostgreSQL]', e.message);
+    }
+  }
+
+  return deletedInFallback;
 }
 

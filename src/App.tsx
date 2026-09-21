@@ -33,6 +33,7 @@ import { CertLookupModal } from './components/tools/CertLookupModal';
 import { HeaderAnalyzerModal } from './components/tools/HeaderAnalyzerModal';
 import { UpsCalculatorModal } from './components/tools/UpsCalculatorModal';
 import { HostCheckerModal } from './components/tools/HostCheckerModal';
+import { PasswordVaultModal } from './components/vault/PasswordVaultModal';
 import { Wrench, ChevronUp } from 'lucide-react';
 import { APP_VERSION } from './version';
 import { Device, TopologyData, isMikroTikDevice } from './types';
@@ -157,7 +158,8 @@ export default function App() {
         cert_lookup: { en: 'SSL Inspector', fa: 'بررسی گواهی', badge: 'TLS' },
         header_analyzer: { en: 'Header Analyzer', fa: 'تحلیل هدرها', badge: 'HTTP' },
         ups_calculator: { en: 'UPS & Battery Sizing', fa: 'محاسبه‌گر باتری یوپی‌اس', badge: 'Power' },
-        host_checker: { en: 'Global Host Checker', fa: 'هاست چکر بین‌المللی', badge: 'Multi-Country' }
+        host_checker: { en: 'Global Host Checker', fa: 'هاست چکر بین‌المللی', badge: 'Multi-Country' },
+        password_vault: { en: 'Password Vault', fa: 'کیف امن گذرواژه', badge: 'AES-256' }
       };
       const meta = labelMap[id];
       return [
@@ -624,6 +626,7 @@ export default function App() {
           onChangeTheme={changeTheme}
           onOpenReleaseNotes={handleOpenReleaseNotes}
           onOpenSettings={() => setActiveTab('settings')}
+          onOpenPasswordVault={() => handleOpenTool('password_vault')}
         />
       )}
 
@@ -1059,6 +1062,7 @@ export default function App() {
         onMinimize={() => handleMinimizeTool('password_gen')}
         isEn={isEn}
         isLightMode={panelTheme === 'light'}
+        onOpenVault={() => handleOpenTool('password_vault')}
       />
 
       {/* 3. TCP Port Scanner Modal */}
@@ -1125,6 +1129,15 @@ export default function App() {
         isEn={isEn}
         isLightMode={panelTheme === 'light'}
         devices={devices}
+      />
+
+      {/* 10. Personal Encrypted Password Vault Modal */}
+      <PasswordVaultModal
+        isOpen={isToolOpen('password_vault')}
+        onClose={() => handleCloseTool('password_vault')}
+        onMinimize={() => handleMinimizeTool('password_vault')}
+        isEn={isEn}
+        isLightMode={panelTheme === 'light'}
       />
     </div>
   );

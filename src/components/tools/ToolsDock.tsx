@@ -29,6 +29,7 @@ import {
   Activity,
   Sliders,
   AlertCircle,
+  Lock,
 } from 'lucide-react';
 
 export type StandardModalId =
@@ -39,7 +40,8 @@ export type StandardModalId =
   | 'apply_template'
   | 'release_notes'
   | 'topology_discovery'
-  | 'bulk_device_config';
+  | 'bulk_device_config'
+  | 'password_vault';
 
 export interface MinimizedStandardModal {
   id: StandardModalId;
@@ -73,6 +75,7 @@ export interface ToolsDockProps {
 const TOOL_ICONS: Record<NetworkToolId, React.ComponentType<{ className?: string }>> = {
   ip_subnetting: Calculator,
   password_gen: KeyRound,
+  password_vault: Lock,
   port_scanner: SearchCode,
   net_utils: Globe2,
   trace_tools: Route,
@@ -91,6 +94,7 @@ const STANDARD_MODAL_ICONS: Record<StandardModalId, React.ComponentType<{ classN
   release_notes: History,
   topology_discovery: Radar,
   bulk_device_config: Sliders,
+  password_vault: Lock,
 };
 
 export interface UnifiedDockItem {

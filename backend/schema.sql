@@ -287,6 +287,27 @@ CREATE TABLE IF NOT EXISTS server_categories (
 
 CREATE INDEX IF NOT EXISTS idx_server_categories_name ON server_categories(name);
 
+-- 15. User Password Vault (Per-User Isolated Encrypted Credentials)
+CREATE TABLE IF NOT EXISTS user_password_vault (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    username VARCHAR(128),
+    encrypted_password TEXT NOT NULL,
+    iv VARCHAR(64) NOT NULL,
+    tag VARCHAR(64) NOT NULL,
+    category VARCHAR(64) DEFAULT 'general',
+    target_host VARCHAR(150),
+    notes TEXT,
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    strength VARCHAR(32) DEFAULT 'strong',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_vault_user_id ON user_password_vault(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_vault_category ON user_password_vault(category);
+
 -- Dynamic Alterations for Seamless Upgrades
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS winbox_port INT DEFAULT 8291;
 

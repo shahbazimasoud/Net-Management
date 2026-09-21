@@ -12,6 +12,7 @@ import {
   FileCode2,
   BatteryCharging,
   Radar,
+  Lock,
   X
 } from 'lucide-react';
 
@@ -57,6 +58,17 @@ const TOOL_ITEMS: ToolMenuItem[] = [
     badgeEn: 'Crypto Safe',
     badgeFa: 'امن و رمزنگاری‌شده',
     badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+  },
+  {
+    id: 'password_vault',
+    icon: Lock,
+    titleEn: 'Personal Password Vault',
+    titleFa: 'کیف امن گذرواژه‌ها (ولت شخصی)',
+    descEn: 'Hardware AES-256-GCM encrypted isolated credential vault per user',
+    descFa: 'ولت شخصی و اختصاصی نگهداری امن کلمات عبور با رمزنگاری مستقل AES-256',
+    badgeEn: 'AES-256-GCM',
+    badgeFa: 'رمزنگاری AES-256',
+    badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
   },
   {
     id: 'port_scanner',

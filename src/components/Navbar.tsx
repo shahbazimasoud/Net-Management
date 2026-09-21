@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { RefreshCw, Zap, Palette, ChevronDown, Check, Globe, User, ShieldCheck, FileText, ArrowUpCircle, Sparkles, LogOut } from 'lucide-react';
+import { RefreshCw, Zap, Palette, ChevronDown, Check, Globe, User, ShieldCheck, FileText, ArrowUpCircle, Sparkles, LogOut, Lock } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useLanguage } from '../i18n';
 import { useUpdate } from '../context/UpdateContext';
@@ -19,6 +19,7 @@ interface NavbarProps {
   onChangeTheme: (theme: ThemeType) => void;
   onOpenReleaseNotes?: () => void;
   onOpenSettings?: () => void;
+  onOpenPasswordVault?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -31,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onChangeTheme,
   onOpenReleaseNotes,
   onOpenSettings,
+  onOpenPasswordVault,
 }) => {
   const { t, language, setLanguage, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
@@ -125,6 +127,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           {t('action_demo_data')}
         </button>
+
+        {/* Personal Password Vault Button */}
+        {onOpenPasswordVault && (
+          <button
+            onClick={onOpenPasswordVault}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-slate-200 hover:text-cyan-300 font-medium text-xs shadow-xs transition active:scale-95 cursor-pointer"
+            title={isEn ? 'Personal Password Vault' : 'کیف امن گذرواژه‌ها (ولت)'}
+            id="navbar-password-vault-btn"
+          >
+            <Lock className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden md:inline">{isEn ? 'Vault' : 'ولت پسورد'}</span>
+          </button>
+        )}
 
         {/* Separator */}
         <div className="h-5 w-px bg-white/10"></div>
@@ -317,6 +332,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                     })}
                   </div>
                 </div>
+
+                {/* Section 2.4: Personal Password Vault */}
+                {onOpenPasswordVault && (
+                  <div className="mb-2">
+                    <button
+                      id="profile-dropdown-vault-btn"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        onOpenPasswordVault();
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 border border-cyan-500/30 text-cyan-200 text-xs font-semibold transition cursor-pointer shadow-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-cyan-400" />
+                        <span>{isEn ? 'My Password Vault' : 'ولت گذرواژه‌های من'}</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/30 text-cyan-100">
+                        AES-256
+                      </span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Section 2.5: Settings & RBAC Quick Nav */}
                 {onOpenSettings && (
