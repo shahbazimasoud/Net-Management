@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.99.0';
+export const APP_VERSION = '1.99.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.99.1',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'رفع خطای اعتبارسنجی سینتکس گواهی (no start line) و بهبود پردازش پکیج‌های ترکیبی و کلیدهای خصوصی',
+    title_en: 'Fix Certificate Syntax Parsing Error (no start line) and Enhance Combined Bundle & Key Processing',
+    changes: [
+      'رفع ریشه‌ای خطای "Failed to parse certificate syntax: error:0480006C:PEM routines::no start line" در مبدل گواهی‌های SSL/TLS.',
+      'پیاده‌سازی ماژول نرمال‌سازی هوشمند PEM (حذف خودکار بایت BOM، تبدیل خطوط تیره یونیکد، استانداردسازی شکست خطوط و پیرایش متون اضافی ارائه‌دهندگان SSL).',
+      'پشتیبانی خودکار از فایل‌ها و متون ترکیبی (Combined): تفکیک و استخراج هوشمند گواهی، کلید خصوصی و زنجیره میانی حتی در صورت قرارگیری هم‌زمان در یک فیلد یا یک فایل متنی.',
+      'پیاده‌سازی مکانیزم بازگشتی (Fallback) اعتبارسنجی با OpenSSL CLI در صورت عدم شناسایی هدرها توسط متد استاندارد Node.js crypto.',
+      'افزودن بنر هوشمند تشخیص پکیج ترکیبی و دکمه تفکیک آنی فیلدها در رابط کاربری جهت آسایش کاربر.',
+      'پشتیبانی جامع از مقایسه ماژولوس و هش کلید عمومی برای انواع کلیدهای RSA، EC و PKCS#8 بدون شکست فرآیند تبدیل.'
+    ],
+    changes_en: [
+      'Fixed root cause of "Failed to parse certificate syntax: error:0480006C:PEM routines::no start line" in the SSL/TLS Certificate Converter.',
+      'Implemented smart PEM normalization engine: strips UTF-8 BOM, normalizes Unicode hyphens/dashes, standardizes line breaks, and trims extraneous vendor preamble text.',
+      'Seamless support for combined bundles: automatically detects and isolates public certificate, private key, and intermediate CA chain even when pasted together in a single field or text file.',
+      'Added resilient OpenSSL CLI fallback parser to extract metadata if Node.js crypto parser encounters non-standard preamble formatting.',
+      'Added smart combined bundle detection banner and one-click field separation button in the UI for optimal user experience.',
+      'Comprehensive support for modulus and public key hash verification across RSA, EC, and PKCS#8 key structures.'
+    ]
+  },
   {
     version: '1.99.0',
     releaseDate: '2026-09-21',

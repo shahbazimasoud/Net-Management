@@ -45,10 +45,138 @@ export interface KeyMatchResult {
   messageFa?: string;
 }
 
+export interface ExtractedPemsResult {
+  certPem: string;
+  keyPem: string;
+  caBundlePem: string;
+  isCombinedFound: boolean;
+  notes: string[];
+}
+
 /**
- * Parses X.509 certificate metadata using Node.js crypto.X509Certificate and OpenSSL
+ * Normalizes PEM strings, removes Unicode dashes, strips BOM, fixes line endings,
+ * and smartly extracts certificates, private keys, and CA bundles from single or combined inputs.
  */
-function parseCertificateDetails(certPem: string): CertInfoMetadata {
+export function normalizeAndExtractPems(
+  certInput?: string,
+  keyInput?: string,
+  caInput?: string
+): ExtractedPemsResult {
+  const notes: string[] = [];
+
+  function cleanString(str: any): string {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-') // Normalize all Unicode dashes to ASCII -
+      .replace(/^\uFEFF/, '') // Strip UTF-8 BOM
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
+  }
+
+  function extractCertBlocks(str: string): string[] {
+    const certs: string[] = [];
+    if (!str) return certs;
+    const certRegex = /[- ]*BEGIN\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*/gi;
+    let match: RegExpExecArray | null;
+    while ((match = certRegex.exec(str)) !== null) {
+      const b64 = match[1].replace(/[^A-Za-z0-9+/=]/g, '');
+      if (b64.length > 40) {
+        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+        certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+      }
+    }
+    return certs;
+  }
+
+  function extractKeyBlocks(str: string): string[] {
+    const keys: string[] = [];
+    if (!str) return keys;
+    const keyRegex = /[- ]*BEGIN\s+([A-Z0-9 ]*PRIVATE\s+KEY)[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+[A-Z0-9 ]*PRIVATE\s+KEY[- ]*/gi;
+    let match: RegExpExecArray | null;
+    while ((match = keyRegex.exec(str)) !== null) {
+      let header = match[1].trim().toUpperCase();
+      if (!header.includes('KEY')) header = `${header} PRIVATE KEY`;
+      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
+      if (b64.length > 40) {
+        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+        keys.push(`-----BEGIN ${header}-----\n${chunked}\n-----END ${header}-----`);
+      }
+    }
+    return keys;
+  }
+
+  function tryParseRawDerOrBase64(str: string): string | null {
+    if (!str) return null;
+    const cleanB64 = str.replace(/[^A-Za-z0-9+/=]/g, '');
+    if (cleanB64.length > 80) {
+      try {
+        const buf = Buffer.from(cleanB64, 'base64');
+        if (buf.length > 50 && buf[0] === 0x30) {
+          const chunked = cleanB64.match(/.{1,64}/g)?.join('\n') || cleanB64;
+          return `-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  const rawCert = cleanString(certInput);
+  const rawKey = cleanString(keyInput);
+  const rawCa = cleanString(caInput);
+
+  let foundCerts = extractCertBlocks(rawCert);
+  let foundKeys = extractKeyBlocks(rawKey);
+  let isCombined = false;
+
+  // Check if rawCert actually contained private key(s)
+  const keysInCertField = extractKeyBlocks(rawCert);
+  if (keysInCertField.length > 0) {
+    isCombined = true;
+    notes.push('Found private key inside public certificate input.');
+    if (foundKeys.length === 0) {
+      foundKeys = keysInCertField;
+    }
+  }
+
+  // Check if rawKey actually contained certificate(s)
+  const certsInKeyField = extractCertBlocks(rawKey);
+  if (certsInKeyField.length > 0) {
+    notes.push('Found certificate inside private key input.');
+    if (foundCerts.length === 0) {
+      foundCerts = certsInKeyField;
+    }
+  }
+
+  // Extract from CA field as well
+  const caCerts = extractCertBlocks(rawCa);
+
+  // If no cert found with headers, try raw base64 or ASN.1 DER stream
+  if (foundCerts.length === 0) {
+    const rawParsed = tryParseRawDerOrBase64(rawCert);
+    if (rawParsed) {
+      foundCerts.push(rawParsed);
+      notes.push('Reconstructed standard PEM from raw Base64 / ASN.1 stream.');
+    }
+  }
+
+  const primaryCert = foundCerts[0] || '';
+  const remainingCerts = foundCerts.slice(1);
+  const allCaList = [...remainingCerts, ...caCerts];
+  const primaryKey = foundKeys[0] || '';
+
+  return {
+    certPem: primaryCert,
+    keyPem: primaryKey,
+    caBundlePem: allCaList.join('\n\n'),
+    isCombinedFound: isCombined,
+    notes,
+  };
+}
+
+/**
+ * Parses X.509 certificate metadata using Node.js crypto.X509Certificate with automatic OpenSSL CLI fallback
+ */
+function parseCertificateDetails(certPem: string, fallbackDir?: string): CertInfoMetadata {
   try {
     const x509 = new crypto.X509Certificate(certPem);
     const now = new Date();
@@ -100,49 +228,143 @@ function parseCertificateDetails(certPem: string): CertInfoMetadata {
       keyBits,
       sans,
     };
-  } catch (err: any) {
-    throw new Error(`Failed to parse certificate syntax: ${err.message}`);
+  } catch (nodeErr: any) {
+    // Resilient fallback using standard OpenSSL CLI
+    let tempDirCreated = false;
+    let dir = fallbackDir;
+    if (!dir) {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ssl-parse-'));
+      tempDirCreated = true;
+    }
+
+    try {
+      const certFile = path.join(dir, 'fallback_cert.pem');
+      fs.writeFileSync(certFile, certPem, 'utf8');
+
+      const subjectRaw = execSync(`openssl x509 -in "${certFile}" -noout -subject 2>/dev/null`).toString().trim();
+      const issuerRaw = execSync(`openssl x509 -in "${certFile}" -noout -issuer 2>/dev/null`).toString().trim();
+      const datesRaw = execSync(`openssl x509 -in "${certFile}" -noout -dates 2>/dev/null`).toString().trim();
+      const serialRaw = execSync(`openssl x509 -in "${certFile}" -noout -serial 2>/dev/null`).toString().trim();
+      const fp256Raw = execSync(`openssl x509 -in "${certFile}" -noout -fingerprint -sha256 2>/dev/null`).toString().trim();
+      const fp1Raw = execSync(`openssl x509 -in "${certFile}" -noout -fingerprint -sha1 2>/dev/null`).toString().trim();
+      const textRaw = execSync(`openssl x509 -in "${certFile}" -noout -text 2>/dev/null`).toString();
+
+      const subject = subjectRaw.replace(/^subject=\s*/i, '');
+      const issuer = issuerRaw.replace(/^issuer=\s*/i, '');
+      const cnMatch = subject.match(/CN\s*=\s*([^,\n/]+)/i);
+      const commonName = cnMatch ? cnMatch[1].trim() : subject;
+      const orgMatch = issuer.match(/O\s*=\s*([^,\n/]+)/i);
+      const issuerOrg = orgMatch ? orgMatch[1].trim() : issuer;
+
+      const notBeforeMatch = datesRaw.match(/notBefore=(.*)/i);
+      const notAfterMatch = datesRaw.match(/notAfter=(.*)/i);
+      const validFromDate = notBeforeMatch ? new Date(notBeforeMatch[1].trim()) : new Date();
+      const validToDate = notAfterMatch ? new Date(notAfterMatch[1].trim()) : new Date();
+
+      const now = new Date();
+      const diffMs = validToDate.getTime() - now.getTime();
+      const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      const isExpired = daysRemaining <= 0;
+
+      const serial = serialRaw.replace(/^serial=\s*/i, '');
+      const sha256 = fp256Raw.replace(/.*=\s*/i, '');
+      const sha1 = fp1Raw.replace(/.*=\s*/i, '');
+
+      // SANs from text
+      const sans: string[] = [];
+      const sanMatch = textRaw.match(/X509v3 Subject Alternative Name:[^\n]*\n\s*([^\n]+)/i);
+      if (sanMatch && sanMatch[1]) {
+        const parts = sanMatch[1].split(',').map((s) => s.trim().replace(/^(DNS:|IP Address:)/i, ''));
+        sans.push(...parts);
+      }
+
+      // Key details from text
+      let keyType = 'RSA';
+      let keyBits = 2048;
+      if (textRaw.includes('Public Key Algorithm: id-ecPublicKey')) {
+        keyType = 'EC';
+      }
+      const bitsMatch = textRaw.match(/Public-Key:\s*\((\d+)\s*bit\)/i);
+      if (bitsMatch) {
+        keyBits = parseInt(bitsMatch[1], 10);
+      }
+
+      return {
+        subject,
+        commonName,
+        issuer,
+        issuerOrg,
+        validFrom: validFromDate.toISOString().replace('T', ' ').substring(0, 19),
+        validTo: validToDate.toISOString().replace('T', ' ').substring(0, 19),
+        daysRemaining: isExpired ? 0 : daysRemaining,
+        isExpired,
+        serialNumber: serial,
+        sha256Fingerprint: sha256,
+        sha1Fingerprint: sha1,
+        keyType,
+        keyBits,
+        sans,
+      };
+    } catch (cliErr: any) {
+      throw new Error(`Failed to parse certificate syntax: ${nodeErr.message} (OpenSSL: ${cliErr.message})`);
+    } finally {
+      if (tempDirCreated && dir && fs.existsSync(dir)) {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+        } catch {}
+      }
+    }
   }
 }
 
 /**
- * Verifies if private key matches public certificate
+ * Verifies if private key matches public certificate using OpenSSL modulus and public key hashing
  */
 function verifyKeyModulusMatch(certPath: string, keyPath: string): KeyMatchResult {
   try {
-    const certMod = execSync(`openssl x509 -noout -modulus -in "${certPath}" 2>/dev/null`)
-      .toString()
-      .trim();
-    const keyMod = execSync(`openssl rsa -noout -modulus -in "${keyPath}" 2>/dev/null`)
-      .toString()
-      .trim();
+    // Attempt standard RSA modulus comparison
+    let certMod = '';
+    let keyMod = '';
+    try {
+      certMod = execSync(`openssl x509 -noout -modulus -in "${certPath}" 2>/dev/null`).toString().trim();
+      keyMod = execSync(`openssl rsa -noout -modulus -in "${keyPath}" 2>/dev/null`).toString().trim();
+    } catch {}
 
     if (!certMod || !keyMod) {
-      // Fallback for EC or other key types using public key hash
-      const certPubHash = execSync(
-        `openssl x509 -in "${certPath}" -noout -pubkey | openssl sha256 2>/dev/null`
-      )
-        .toString()
-        .trim();
-      const keyPubHash = execSync(
-        `openssl pkey -in "${keyPath}" -pubout | openssl sha256 2>/dev/null`
-      )
-        .toString()
-        .trim();
+      // Fallback for EC, Ed25519 or PKCS#8 keys using public key SHA-256 hash comparison
+      try {
+        const certPubHash = execSync(
+          `openssl x509 -in "${certPath}" -noout -pubkey | openssl sha256 2>/dev/null`
+        )
+          .toString()
+          .trim();
+        const keyPubHash = execSync(
+          `openssl pkey -in "${keyPath}" -pubout | openssl sha256 2>/dev/null`
+        )
+          .toString()
+          .trim();
 
-      const matches = certPubHash === keyPubHash && Boolean(certPubHash);
-      return {
-        checked: true,
-        matches,
-        certModulusHash: certPubHash.replace(/.*= /, ''),
-        keyModulusHash: keyPubHash.replace(/.*= /, ''),
-        messageEn: matches
-          ? 'Public certificate matches private key (Verified via Public Key Hash).'
-          : 'Warning: Private key does NOT match the public certificate!',
-        messageFa: matches
-          ? 'گواهی عمومی دقیقاً با کلید خصوصی مطابقت دارد (تأییدشده از طریق هش کلید عمومی).'
-          : 'هشدار: کلید خصوصی ارائه‌شده با این گواهی عمومی مطابقت ندارد!',
-      };
+        const matches = certPubHash === keyPubHash && Boolean(certPubHash);
+        return {
+          checked: true,
+          matches,
+          certModulusHash: certPubHash.replace(/.*= /, ''),
+          keyModulusHash: keyPubHash.replace(/.*= /, ''),
+          messageEn: matches
+            ? 'Public certificate matches private key (Verified via Public Key Hash).'
+            : 'Warning: Private key does NOT match the public certificate!',
+          messageFa: matches
+            ? 'گواهی عمومی دقیقاً با کلید خصوصی مطابقت دارد (تأییدشده از طریق هش کلید عمومی).'
+            : 'هشدار: کلید خصوصی ارائه‌شده با این گواهی عمومی مطابقت ندارد!',
+        };
+      } catch (pubErr: any) {
+        return {
+          checked: true,
+          matches: false,
+          messageEn: `Key verification check could not be completed: ${pubErr.message}`,
+          messageFa: `بررسی تطابق کلید با خطا مواجه شد: ${pubErr.message}`,
+        };
+      }
     }
 
     const certHash = crypto.createHash('md5').update(certMod).digest('hex');
@@ -178,29 +400,22 @@ export function registerCertConverterRoutes(app: Express): void {
   app.post('/api/tools/cert-convert', async (req: Request, res: Response) => {
     let tmpDir = '';
     try {
-      let { certText, keyText, caBundleText, pfxPassword, friendlyName } = req.body || {};
+      const { certText, keyText, caBundleText, pfxPassword, friendlyName } = req.body || {};
 
-      certText = (certText || '').trim();
-      keyText = (keyText || '').trim();
-      caBundleText = (caBundleText || '').trim();
-      pfxPassword = pfxPassword !== undefined ? String(pfxPassword) : '';
-      friendlyName = (friendlyName || '').trim();
+      // Normalize and extract all components seamlessly
+      const extracted = normalizeAndExtractPems(certText, keyText, caBundleText);
+      const { certPem, keyPem, caBundlePem, isCombinedFound, notes } = extracted;
 
-      if (!certText) {
+      if (!certPem) {
         return res.status(400).json({
           success: false,
-          error: 'Certificate content is required. Please paste or upload an SSL/TLS certificate.',
+          error:
+            'Could not find a valid SSL/TLS certificate. Please ensure your input contains a valid certificate text (e.g. -----BEGIN CERTIFICATE-----) or upload a valid certificate file.',
         });
       }
 
-      // If user provided a raw certificate without standard PEM headers, attempt to wrap it
-      if (!certText.includes('-----BEGIN CERTIFICATE-----')) {
-        // Check if it's base64 without headers
-        const cleaned = certText.replace(/\s+/g, '');
-        if (/^[A-Za-z0-9+/=]+$/.test(cleaned) && cleaned.length > 200) {
-          certText = `-----BEGIN CERTIFICATE-----\n${certText.trim()}\n-----END CERTIFICATE-----`;
-        }
-      }
+      const pfxPass = pfxPassword !== undefined ? String(pfxPassword) : '';
+      const safeAlias = (friendlyName || '').trim();
 
       // Create isolated temporary workspace
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ssl-conv-'));
@@ -208,25 +423,25 @@ export function registerCertConverterRoutes(app: Express): void {
       const keyPath = path.join(tmpDir, 'key.pem');
       const caPath = path.join(tmpDir, 'ca.pem');
 
-      fs.writeFileSync(certPath, certText, 'utf8');
+      fs.writeFileSync(certPath, certPem, 'utf8');
 
-      // Parse metadata
-      const certInfo = parseCertificateDetails(certText);
+      // Parse metadata with fallback to OpenSSL CLI
+      const certInfo = parseCertificateDetails(certPem, tmpDir);
       const safeCn = (certInfo.commonName || 'certificate')
         .replace(/[^a-zA-Z0-9.-]/g, '_')
         .replace(/^\*\_?/, 'wildcard_');
-      const alias = friendlyName || certInfo.commonName || 'ssl_cert';
+      const alias = safeAlias || certInfo.commonName || 'ssl_cert';
 
-      // Check if CA bundle is supplied
-      const hasCa = Boolean(caBundleText && caBundleText.includes('-----BEGIN CERTIFICATE-----'));
+      // Check if CA bundle is available
+      const hasCa = Boolean(caBundlePem && caBundlePem.includes('-----BEGIN CERTIFICATE-----'));
       if (hasCa) {
-        fs.writeFileSync(caPath, caBundleText, 'utf8');
+        fs.writeFileSync(caPath, caBundlePem, 'utf8');
       }
 
-      // Check if Private Key is supplied
-      const hasKey = Boolean(keyText && (keyText.includes('PRIVATE KEY-----') || keyText.length > 100));
+      // Check if Private Key is available
+      const hasKey = Boolean(keyPem && (keyPem.includes('KEY-----') || keyPem.length > 50));
       if (hasKey) {
-        fs.writeFileSync(keyPath, keyText, 'utf8');
+        fs.writeFileSync(keyPath, keyPem, 'utf8');
       }
 
       // Key matching validation
@@ -244,11 +459,11 @@ export function registerCertConverterRoutes(app: Express): void {
         filename: `${safeCn}.crt`,
         mimeType: 'application/x-x509-ca-cert',
         isBinary: false,
-        text: certText,
+        text: certPem,
         descriptionEn: 'Standard Base64 ASCII format with BEGIN/END headers. Default for Nginx, Apache, HAProxy, Linux servers.',
         descriptionFa: 'فرمت استاندارد متنی Base64 با هدرهای استاندارد. مناسب برای وب‌سرورهای Nginx، Apache، HAProxy و سرورهای لینوکس.',
         targetPlatforms: ['Nginx', 'Apache HTTPD', 'HAProxy', 'Linux / Unix', 'cPanel / DirectAdmin'],
-        sizeBytes: Buffer.byteLength(certText, 'utf8'),
+        sizeBytes: Buffer.byteLength(certPem, 'utf8'),
       });
 
       // 2. Binary DER Certificate (.cer / .der)
@@ -316,7 +531,7 @@ export function registerCertConverterRoutes(app: Express): void {
 
       // 5. Full Chain PEM (Certificate + CA Bundle)
       if (hasCa) {
-        const fullChainText = `${certText.trim()}\n\n${caBundleText.trim()}\n`;
+        const fullChainText = `${certPem}\n\n${caBundlePem}\n`;
         outputs.push({
           id: 'fullchain_pem',
           format: 'Full Chain PEM (.pem / .crt)',
@@ -337,11 +552,11 @@ export function registerCertConverterRoutes(app: Express): void {
           filename: `${safeCn}_ca_bundle.crt`,
           mimeType: 'application/x-x509-ca-cert',
           isBinary: false,
-          text: caBundleText.trim() + '\n',
+          text: caBundlePem + '\n',
           descriptionEn: 'Standalone intermediate and root authority certificate chain. Used for SSLCertificateChainFile in Apache and legacy systems.',
           descriptionFa: 'زنجیره مستقل مراجع میانی و ریشه. مورد نیاز برای پارامتر SSLCertificateChainFile در وب‌سرورهای قدیمی آپاچی.',
           targetPlatforms: ['Apache (SSLCertificateChainFile)', 'Postfix / Dovecot', 'Sendmail'],
-          sizeBytes: Buffer.byteLength(caBundleText, 'utf8'),
+          sizeBytes: Buffer.byteLength(caBundlePem, 'utf8'),
         });
       }
 
@@ -394,7 +609,7 @@ export function registerCertConverterRoutes(app: Express): void {
         // 7. PKCS#12 / PFX (.pfx / .p12)
         try {
           const pfxPath = path.join(tmpDir, 'output.pfx');
-          const passOpt = pfxPassword ? `-passout "pass:${pfxPassword}"` : `-passout "pass:"`;
+          const passOpt = pfxPass ? `-passout "pass:${pfxPass}"` : `-passout "pass:"`;
           const caOpt = hasCa ? `-certfile "${caPath}"` : '';
           const nameOpt = alias ? `-name "${alias}"` : '';
 
@@ -410,8 +625,8 @@ export function registerCertConverterRoutes(app: Express): void {
               mimeType: 'application/x-pkcs12',
               isBinary: true,
               base64: pfxBuffer.toString('base64'),
-              descriptionEn: `Encrypted password-protected container holding public certificate, private key, and intermediate chain. Mandatory for Microsoft IIS, Azure App Services, Windows Server, Tomcat. (Password: ${pfxPassword ? 'Custom Password Set' : 'Blank/None'})`,
-              descriptionFa: `کانتینر رمزشده حاوی گواهی عمومی، کلید خصوصی و زنجیره میانی. فرمت الزامی برای Microsoft IIS، سرویس‌های Azure و ویندوز سرور. (رمز عبور: ${pfxPassword ? 'رمز سفارشی تنظیم شده' : 'بدون رمز'})`,
+              descriptionEn: `Encrypted password-protected container holding public certificate, private key, and intermediate chain. Mandatory for Microsoft IIS, Azure App Services, Windows Server, Tomcat. (Password: ${pfxPass ? 'Custom Password Set' : 'Blank/None'})`,
+              descriptionFa: `کانتینر رمزشده حاوی گواهی عمومی، کلید خصوصی و زنجیره میانی. فرمت الزامی برای Microsoft IIS، سرویس‌های Azure و ویندوز سرور. (رمز عبور: ${pfxPass ? 'رمز سفارشی تنظیم شده' : 'بدون رمز'})`,
               targetPlatforms: ['Microsoft IIS', 'Azure App Services', 'Windows Server', 'Tomcat', 'Citrix Gateway'],
               sizeBytes: pfxBuffer.length,
             });
@@ -422,11 +637,11 @@ export function registerCertConverterRoutes(app: Express): void {
 
         // 8. Combined PEM (.pem) (Cert + CA Bundle + Private Key)
         try {
-          const combinedParts: string[] = [certText.trim()];
+          const combinedParts: string[] = [certPem];
           if (hasCa) {
-            combinedParts.push(caBundleText.trim());
+            combinedParts.push(caBundlePem);
           }
-          combinedParts.push(keyText.trim());
+          combinedParts.push(keyPem);
           const combinedText = combinedParts.join('\n\n') + '\n';
 
           outputs.push({
@@ -452,11 +667,11 @@ export function registerCertConverterRoutes(app: Express): void {
           filename: `${safeCn}.key`,
           mimeType: 'application/x-pem-file',
           isBinary: false,
-          text: keyText.trim() + '\n',
+          text: keyPem + '\n',
           descriptionEn: 'Extracted standalone private key in PEM format. Keep this secure and never share it publicly.',
           descriptionFa: 'کلید خصوصی مستقل در فرمت استاندارد PEM. این فایل را محرمانه نگه داشته و از افشای آن خودداری کنید.',
           targetPlatforms: ['Nginx (ssl_certificate_key)', 'Apache (SSLCertificateKeyFile)', 'Node.js HTTPS', 'Golang TLS'],
-          sizeBytes: Buffer.byteLength(keyText, 'utf8'),
+          sizeBytes: Buffer.byteLength(keyPem, 'utf8'),
         });
 
         // 10. PKCS#8 Unencrypted Private Key (.key)
@@ -489,6 +704,11 @@ export function registerCertConverterRoutes(app: Express): void {
         keyMatch,
         hasPrivateKey: hasKey,
         hasCaBundle: hasCa,
+        isCombinedFound,
+        extractedCertPem: certPem,
+        extractedKeyPem: keyPem,
+        extractedCaBundlePem: caBundlePem,
+        notes,
         outputs,
       });
     } catch (err: any) {
@@ -561,20 +781,19 @@ export function registerCertConverterRoutes(app: Express): void {
         ).toString();
       } catch {}
 
-      // Clean up headers and bag attributes if needed
-      const cleanCertMatch = certPem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/);
-      const cleanCert = cleanCertMatch ? cleanCertMatch[0] : certPem;
+      // Normalize extracted components
+      const extracted = normalizeAndExtractPems(certPem, privateKeyPem, caChainPem);
+      const cleanCert = extracted.certPem;
+      const cleanKey = extracted.keyPem;
+      const cleanChain = extracted.caBundlePem;
 
-      const cleanKeyMatch = privateKeyPem.match(/-----BEGIN (RSA |EC )?PRIVATE KEY-----[\s\S]+?-----END (RSA |EC )?PRIVATE KEY-----/);
-      const cleanKey = cleanKeyMatch ? cleanKeyMatch[0] : privateKeyPem;
-
-      const certInfo = parseCertificateDetails(cleanCert);
+      const certInfo = parseCertificateDetails(cleanCert, tmpDir);
 
       return res.json({
         success: true,
         certPem: cleanCert,
         privateKeyPem: cleanKey,
-        caChainPem: caChainPem.trim(),
+        caChainPem: cleanChain,
         certInfo,
       });
     } catch (err: any) {

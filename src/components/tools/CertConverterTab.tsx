@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   FileCode,
   Download,
@@ -109,15 +109,87 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
   const caFileInputRef = useRef<HTMLInputElement>(null);
   const pfxFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper to split raw text containing both certificate and private key
+  const splitCombinedText = (rawInput: string) => {
+    const raw = rawInput
+      .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
+      .replace(/^\uFEFF/, '')
+      .replace(/\r\n/g, '\n');
+
+    const certRegex = /[- ]*BEGIN\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*/gi;
+    const keyRegex = /[- ]*BEGIN\s+([A-Z0-9 ]*PRIVATE\s+KEY)[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+[A-Z0-9 ]*PRIVATE\s+KEY[- ]*/gi;
+
+    const certs: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = certRegex.exec(raw)) !== null) {
+      const b64 = match[1].replace(/[^A-Za-z0-9+/=]/g, '');
+      if (b64.length > 40) {
+        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+        certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+      }
+    }
+
+    const keys: string[] = [];
+    while ((match = keyRegex.exec(raw)) !== null) {
+      let header = match[1].trim().toUpperCase();
+      if (!header.includes('KEY')) header = `${header} PRIVATE KEY`;
+      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
+      if (b64.length > 40) {
+        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+        keys.push(`-----BEGIN ${header}-----\n${chunked}\n-----END ${header}-----`);
+      }
+    }
+
+    let changed = false;
+    if (certs.length > 0) {
+      setCertText(certs[0]);
+      changed = true;
+      if (certs.length > 1) {
+        setCaBundleText(certs.slice(1).join('\n\n'));
+        setShowCaField(true);
+      }
+    }
+    if (keys.length > 0) {
+      setKeyText(keys[0]);
+      setShowKeyField(true);
+      changed = true;
+    }
+
+    if (changed) {
+      setSuccessMessage(
+        isEn
+          ? 'Certificate and Private Key separated into dedicated fields successfully!'
+          : 'گواهی و کلید خصوصی با موفقیت در فیلدهای اختصاصی تفکیک شدند!'
+      );
+    }
+  };
+
+  const hasCombinedKeysInCert = useMemo(() => {
+    return Boolean(
+      certText &&
+        (certText.includes('PRIVATE KEY') ||
+          certText.includes('RSA PRIVATE KEY') ||
+          certText.includes('EC PRIVATE KEY'))
+    );
+  }, [certText]);
+
   // File upload helpers
   const handleCertFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Reset input value so uploading the same file again triggers onChange
+    e.target.value = '';
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result;
       if (typeof content === 'string') {
-        setCertText(content);
+        if (content.includes('PRIVATE KEY')) {
+          splitCombinedText(content);
+        } else {
+          setCertText(content);
+        }
       }
     };
     reader.readAsText(file);
@@ -233,10 +305,29 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
       setCertInfo(data.certInfo);
       setKeyMatch(data.keyMatch);
       setOutputs(data.outputs || []);
+
+      if (data.isCombinedFound) {
+        if (data.extractedKeyPem && !keyText) {
+          setKeyText(data.extractedKeyPem);
+          setShowKeyField(true);
+        }
+        if (data.extractedCaBundlePem && !caBundleText) {
+          setCaBundleText(data.extractedCaBundlePem);
+          setShowCaField(true);
+        }
+        if (data.extractedCertPem && data.extractedCertPem !== certText) {
+          setCertText(data.extractedCertPem);
+        }
+      }
+
       setSuccessMessage(
         isEn
-          ? `Successfully converted into ${data.outputs?.length || 0} production-ready formats!`
-          : `تبدیل گواهی با موفقیت به ${data.outputs?.length || 0} فرمت استاندارد انجام شد!`
+          ? `Successfully converted into ${data.outputs?.length || 0} production-ready formats!${
+              data.isCombinedFound ? ' (Extracted & matched both certificate and private key)' : ''
+            }`
+          : `تبدیل گواهی با موفقیت به ${data.outputs?.length || 0} فرمت استاندارد انجام شد!${
+              data.isCombinedFound ? ' (گواهی و کلید خصوصی با موفقیت تفکیک و تطبیق داده شدند)' : ''
+            }`
       );
     } catch (err: any) {
       setError(err.message);
@@ -497,6 +588,32 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
                 ? 'Base64 encoded X.509 certificate. If provided alone, formats such as PEM, DER, PKCS#7 (P7B), and technical reports can be generated.'
                 : 'گواهی استاندارد X.509. در صورت ارائه به تنهایی، فرمت‌های PEM، DER، PKCS#7 (P7B) و گزارش فنی استخراج می‌شوند.'}
             </p>
+
+            {hasCombinedKeysInCert && (
+              <div
+                className={`flex items-center justify-between p-2.5 rounded-lg border text-xs gap-2 ${
+                  isLightMode
+                    ? 'bg-amber-50 border-amber-300 text-amber-900'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="text-[11px] leading-relaxed">
+                    {isEn
+                      ? 'Combined bundle detected (Certificate + Private Key)! Both will be processed and matched automatically.'
+                      : 'پکیج ترکیبی شناسایی شد (گواهی + کلید خصوصی)! هر دو به صورت خودکار تفکیک، اعتبارسنجی و تبدیل خواهند شد.'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => splitCombinedText(certText)}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-amber-600 hover:bg-amber-700 text-white transition cursor-pointer shrink-0 shadow-sm"
+                >
+                  {isEn ? 'Split Fields' : 'تفکیک به فیلدها'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Optional Inputs Accordion Controls */}
