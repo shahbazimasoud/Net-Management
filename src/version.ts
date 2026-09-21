@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.102.0';
+export const APP_VERSION = '1.103.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.103.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن امکان انتخاب گذرواژه از ولت شخصی در مودال ثبت و ویرایش تجهیزات شبکه با ایزولاسیون کامل کاربری',
+    title_en: 'Integrate Personal Vault Password Picker into Network Device Registration & Edit Modals with Strict User Isolation',
+    changes: [
+      'افزودن دکمه «از ولت» (From Vault) در کنار فیلدهای رمز عبور پروتکل اتصال (SSH / Telnet) و رمز عبور Enable Secret در مودال ثبت تجهیز جدید شبکه (Register New Network Device).',
+      'افزودن قابلیت یکپارچه انتخاب گذرواژه از ولت شخصی در مودال ویرایش تجهیزات شبکه (Edit Network Device).',
+      'تضمین ایزولاسیون صددرصدی کلمات عبور ولت بر اساس کاربر لاگین‌شده (User-Scoped Isolation)؛ هیچ کاربری قادر به مشاهده یا انتخاب کلمات عبور ولت کاربر دیگری نیست.',
+      'الزام احراز هویت مجدد امن با رمز ورود به پنل هنگام انتخاب و بازگشایی گذرواژه از ولت شخصی.',
+      'تشخیص هوشمند و پیشنهاد خودکار نام کاربری (Username) ثبت‌شده در ولت در صورت خالی بودن یا پیش‌فرض بودن نام کاربری.',
+      'تطابق کامل با استاندارد پنج‌گانه مودال‌ها شامل حالت‌های تیره/روشن، پشتیبانی کامل از زبان‌های فارسی و انگلیسی و جلوگیری از خروج ابزارها از کادر صفحه.'
+    ],
+    changes_en: [
+      'Integrated dedicated "From Vault" picker button adjacent to SSH/Telnet and Enable Secret password fields in the "Register New Network Device" modal.',
+      'Enabled seamless Personal Password Vault picker support across the "Edit Network Device" modal for effortless credential updates.',
+      'Enforced strict user-scoped isolation ensuring vault secrets are retrieved exclusively for the currently authenticated user with complete cross-user protection.',
+      'Integrated secure re-authentication requiring the user\'s active panel login password before decrypting and applying the selected vault credential.',
+      'Added smart autofill for associated device usernames when selecting credentials from the user\'s personal vault.',
+      'Maintained full compliance with the 5 universal modal standards including light/dark theme fidelity and bilingual i18n support.'
+    ]
+  },
   {
     version: '1.102.0',
     releaseDate: '2026-09-21',

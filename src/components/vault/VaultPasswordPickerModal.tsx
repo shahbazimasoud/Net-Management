@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   KeyRound,
   Search,
   Check,
   Shield,
+  ShieldCheck,
   Server,
   Lock,
   Loader2,
@@ -14,6 +16,7 @@ import {
   AlertCircle,
   ExternalLink
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface VaultItemSummary {
@@ -22,9 +25,11 @@ export interface VaultItemSummary {
   username?: string;
   category?: string;
   target_host?: string;
+  targetHost?: string;
   notes?: string;
   strength?: string;
   updated_at?: string;
+  updatedAt?: string;
 }
 
 export interface VaultPasswordPickerModalProps {
@@ -46,6 +51,7 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
   isLightMode = false,
   isEn = false,
 }) => {
+  const { user, token } = useAuth();
   const [items, setItems] = useState<VaultItemSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,8 +77,28 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch('/api/vault');
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        if (user?.id) {
+          headers['x-user-id'] = user.id;
+        }
+        if (user?.username) {
+          headers['x-username'] = user.username;
+        }
+
+        const res = await fetch('/api/vault', { headers });
         if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error(
+              isEn
+                ? 'Authentication required to access your personal vault'
+                : 'جهت دسترسی به والت کلمات عبور شخصی، احراز هویت کاربری الزامی است'
+            );
+          }
           throw new Error(isEn ? 'Failed to fetch vault items' : 'خطا در دریافت اقلام ولت گذرواژه');
         }
         const data = await res.json();
@@ -89,7 +115,7 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
     };
 
     fetchItems();
-  }, [isOpen, isEn]);
+  }, [isOpen, isEn, token, user?.id, user?.username]);
 
   if (!isOpen) return null;
 
@@ -99,10 +125,11 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
     const q = searchQuery.toLowerCase().trim();
     if (!q) return matchesCategory;
 
+    const itemHost = (item.targetHost || item.target_host || '').toLowerCase();
     const matchesSearch =
       (item.name && item.name.toLowerCase().includes(q)) ||
       (item.username && item.username.toLowerCase().includes(q)) ||
-      (item.target_host && item.target_host.toLowerCase().includes(q)) ||
+      itemHost.includes(q) ||
       (item.notes && item.notes.toLowerCase().includes(q));
 
     return matchesCategory && matchesSearch;
@@ -129,11 +156,22 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
     setAuthError(null);
 
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      if (user?.id) {
+        headers['x-user-id'] = user.id;
+      }
+      if (user?.username) {
+        headers['x-username'] = user.username;
+      }
+
       const res = await fetch(`/api/vault/${selectedItemForAuth.id}/reveal`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           password: loginPassword,
         }),
@@ -158,10 +196,10 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
     }
   };
 
-  return (
+  const modalContent = (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs transition-all duration-200 ${
-        isMaximized ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0' : ''
+      className={`fixed inset-0 z-[1200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs transition-all duration-200 ${
+        isMaximized ? 'fixed top-0 left-0 right-0 bottom-8 z-[1200] p-0' : ''
       }`}
     >
       <div
@@ -190,6 +228,19 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
                 <h3 className="font-semibold text-sm">
                   {isEn ? 'Select Password from Personal Vault' : 'انتخاب گذرواژه از ولت شخصی'}
                 </h3>
+                <div
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                    isLightMode
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-emerald-950/50 text-emerald-400 border-emerald-700/50'
+                  }`}
+                  title={isEn ? 'User-scoped private vault' : 'ولت اختصاصی با تفکیک کاربر'}
+                >
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>
+                    {isEn ? `Owner: ${user?.username || 'You'}` : `مالک: ${user?.username || 'شما'}`}
+                  </span>
+                </div>
                 <FieldInfoTooltip
                   isEn={isEn}
                   isLightMode={isLightMode}
@@ -205,8 +256,8 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
                   }
                   example={
                     isEn
-                      ? 'Select an existing Linux SSH or Windows Administrator secret without re-typing or exposing plaintext.'
-                      : 'انتخاب سریع رمز عبور سرور لینوکس یا ویندوز بدون نیاز به تایپ دستی یا نمایش علنی رمز عبور.'
+                      ? 'Select an existing Linux SSH, network switch or Windows secret without re-typing or exposing plaintext.'
+                      : 'انتخاب سریع رمز عبور تجهیز شبکه، سرور لینوکس یا ویندوز بدون نیاز به تایپ دستی یا نمایش علنی رمز عبور.'
                   }
                 />
               </div>
@@ -326,7 +377,13 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
           ) : (
             <div className="space-y-2">
               {filteredItems.map((item) => {
-                const isTargetMatch = targetHost && item.target_host && item.target_host.toLowerCase().includes(targetHost.toLowerCase());
+                const itemHost = item.targetHost || item.target_host || '';
+                const isTargetMatch = Boolean(
+                  targetHost && itemHost && (
+                    itemHost.toLowerCase().includes(targetHost.toLowerCase()) ||
+                    targetHost.toLowerCase().includes(itemHost.toLowerCase())
+                  )
+                );
                 return (
                   <div
                     key={item.id}
@@ -364,9 +421,9 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
                               <strong className="font-semibold text-slate-300">{item.username}</strong>
                             </span>
                           )}
-                          {item.target_host && (
+                          {itemHost && (
                             <span className="font-mono text-slate-500 truncate">
-                              @{item.target_host}
+                              @{itemHost}
                             </span>
                           )}
                         </div>
@@ -416,7 +473,7 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
 
       {/* Re-Authentication Sub-Modal */}
       {selectedItemForAuth && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
           <div
             className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 ${
               isLightMode
@@ -524,4 +581,6 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
       )}
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

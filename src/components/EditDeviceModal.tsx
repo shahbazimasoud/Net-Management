@@ -12,6 +12,7 @@ import {
   MapPin,
   Terminal,
   Key,
+  KeyRound,
   Eye,
   EyeOff,
   CheckCircle2,
@@ -38,6 +39,7 @@ import { testDeviceConnection, pingDevice, fetchDevicePorts } from '../services/
 import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
+import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
 
 export interface EditDeviceModalProps {
   isOpen: boolean;
@@ -117,6 +119,8 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
   const [sshPassword, setSshPassword] = useState('');
   const [enablePassword, setEnablePassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
+  const [vaultPickerTarget, setVaultPickerTarget] = useState<'password' | 'enable'>('password');
 
   // States
   const [discoveredPorts, setDiscoveredPorts] = useState<SwitchPort[]>([]);
@@ -382,7 +386,9 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
     }
   };
 
-  return createPortal(
+  return (
+    <>
+      {createPortal(
     <div
       className="fixed top-0 left-0 right-0 bottom-8 z-[1100] flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur overflow-y-auto"
       data-modal-backdrop="true"
@@ -1168,18 +1174,38 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                 </div>
 
                 <div className="sm:col-span-4">
-                  <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${
-                    isLightMode ? 'text-slate-700' : 'text-slate-300'
-                  }`}>
-                    <span>{isEn ? `${connectionProtocol.toUpperCase()} Password:` : `رمز عبور ${connectionProtocol.toUpperCase()}:`}</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className={`cursor-pointer ${isLightMode ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'}`}
-                    >
-                      {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    </button>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className={`block text-[11px] font-medium ${
+                      isLightMode ? 'text-slate-700' : 'text-slate-300'
+                    }`}>
+                      {isEn ? `${connectionProtocol.toUpperCase()} Password:` : `رمز عبور ${connectionProtocol.toUpperCase()}:`}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVaultPickerTarget('password');
+                          setIsVaultPickerOpen(true);
+                        }}
+                        className={`text-[10px] flex items-center gap-1 font-medium transition cursor-pointer ${
+                          isLightMode
+                            ? 'text-cyan-700 hover:text-cyan-800'
+                            : 'text-cyan-400 hover:text-cyan-300'
+                        }`}
+                        title={isEn ? 'Select from Personal Password Vault' : 'انتخاب گذرواژه از ولت شخصی'}
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        <span>{isEn ? 'From Vault' : 'از ولت'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className={`cursor-pointer ${isLightMode ? 'text-slate-500 hover:text-slate-800' : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  </div>
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={sshPassword}
@@ -1240,9 +1266,27 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                   </div>
                 ) : platform !== 'generic_linux' ? (
                   <div className="sm:col-span-4">
-                    <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      {isEn ? 'Enable Secret Password:' : 'رمز Enable (اختیاری):'}
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className={`block text-[11px] font-medium ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {isEn ? 'Enable Secret Password:' : 'رمز Enable (اختیاری):'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVaultPickerTarget('enable');
+                          setIsVaultPickerOpen(true);
+                        }}
+                        className={`text-[10px] flex items-center gap-1 font-medium transition cursor-pointer ${
+                          isLightMode
+                            ? 'text-cyan-700 hover:text-cyan-800'
+                            : 'text-cyan-400 hover:text-cyan-300'
+                        }`}
+                        title={isEn ? 'Select Enable Secret from Personal Password Vault' : 'انتخاب رمز Enable از ولت شخصی'}
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        <span>{isEn ? 'From Vault' : 'از ولت'}</span>
+                      </button>
+                    </div>
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={enablePassword}
@@ -1803,5 +1847,26 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
       </div>
     </div>,
     document.body
+  )}
+
+      {/* Select Password from Personal Password Vault */}
+      <VaultPasswordPickerModal
+        isOpen={isVaultPickerOpen}
+        onClose={() => setIsVaultPickerOpen(false)}
+        targetHost={sshHost.trim() || ip.trim()}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        onSelectPassword={(password, username) => {
+          if (vaultPickerTarget === 'password') {
+            setSshPassword(password);
+            if (username && (!sshUsername || sshUsername === 'admin')) {
+              setSshUsername(username);
+            }
+          } else if (vaultPickerTarget === 'enable') {
+            setEnablePassword(password);
+          }
+        }}
+      />
+    </>
   );
 };
