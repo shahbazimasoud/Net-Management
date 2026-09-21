@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.103.3';
+export const APP_VERSION = '1.104.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.104.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن امکان ذخیره‌سازی خودکار رمز دستی در والت شخصی در مودال ثبت سرور (Save to Vault)',
+    title_en: 'Add Non-Intrusive Save to Personal Vault Option for Manually Entered Server Passwords',
+    changes: [
+      'پیاده‌سازی گزینه‌ای زیبا، روان و غیرآزاردهنده (Non-Intrusive) در فرم ثبت و ویرایش سرور جهت پیشنهاد ذخیره رمز در والت شخصی کاربر هنگام تایپ دستی رمز عبور.',
+      'پشتیبانی همزمان برای اتصالات لینوکسی (کنسول SSH) و سرورهای ویندوزی (RDP/PowerShell/WinRM).',
+      'ذخیره‌سازی امن و خودکار اطلاعات کاربری (نام کاربری، هاست مقصد، دسته‌بندی و برچسب‌های متناظر) در والت رمزهای عبور بدون نیاز به ورود مجدد به منوی والت.',
+      'حفظ کامل حریم امنیتی و همگام‌سازی با سیاست عدم ذخیره‌سازی محلی (Zero-Storage Policy) در صورت انتخاب آن توسط کاربر.'
+    ],
+    changes_en: [
+      'Implemented an elegant, non-intrusive "Save to Personal Vault" option in the Register/Edit Remote Server dialog whenever a password is typed manually.',
+      'Supported both Linux servers (SSH credentials) and Windows machines (RDP / PowerShell / WinRM credentials).',
+      'Securely and automatically registers username, target host, proper category, and tags into the user\'s encrypted vault upon server submission.',
+      'Strictly respects the Zero-Storage Policy when zero-storage is enabled by the user.'
+    ]
+  },
   {
     version: '1.103.3',
     releaseDate: '2026-09-21',

@@ -24,11 +24,15 @@ import {
   EyeOff,
   FolderTree,
   KeyRound,
+  Lock,
+  BookmarkPlus,
+  Check,
 } from 'lucide-react';
 import { RemoteServer, ServerCategory } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { VaultPasswordPickerModal } from '../vault/VaultPasswordPickerModal';
+import { useAuth } from '../../context/AuthContext';
 
 export interface AddEditServerModalProps {
   isOpen: boolean;
@@ -117,11 +121,17 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   };
 
   // Password & Security storage policy
+  const { token } = useAuth();
   const [promptPasswordOnConnect, setPromptPasswordOnConnect] = useState(false);
   const [showSshPassword, setShowSshPassword] = useState(false);
   const [showWinPassword, setShowWinPassword] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
   const [vaultPickerTarget, setVaultPickerTarget] = useState<'ssh' | 'windows'>('ssh');
+
+  // Vault saving state
+  const [saveSshToVault, setSaveSshToVault] = useState(false);
+  const [saveWinToVault, setSaveWinToVault] = useState(false);
+  const [vaultSaveSuccess, setVaultSaveSuccess] = useState<string | null>(null);
 
   // Linux-specific
   const [sshPort, setSshPort] = useState<number | string>(22);
@@ -199,6 +209,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
       }
       setShowSshPassword(false);
       setShowWinPassword(false);
+      setSaveSshToVault(false);
+      setSaveWinToVault(false);
+      setVaultSaveSuccess(null);
       setError(null);
     }
   }, [isOpen, serverToEdit?.id]);
@@ -276,6 +289,42 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
       };
 
       await onSave(payload);
+
+      // Save credentials to personal vault if user opted-in
+      const shouldSaveSsh = osType === 'linux' && saveSshToVault && !promptPasswordOnConnect && sshPassword.trim();
+      const shouldSaveWin = osType === 'windows' && saveWinToVault && !promptPasswordOnConnect && winPassword.trim();
+
+      if (shouldSaveSsh || shouldSaveWin) {
+        try {
+          const secretPassword = shouldSaveSsh ? sshPassword.trim() : winPassword.trim();
+          const secretUsername = shouldSaveSsh ? (sshUsername.trim() || 'root') : (winUsername.trim() || 'Administrator');
+          const targetHostVal = ip.trim() || hostname.trim() || undefined;
+          const secretCategory = osType === 'linux' ? 'ssh' : (winProtocol === 'winrm' || winProtocol === 'powershell' ? 'ssh' : 'general');
+          const secretName = `${name.trim()} (${osType === 'linux' ? 'SSH' : winProtocol.toUpperCase()})`;
+
+          await fetch('/api/vault', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              name: secretName,
+              username: secretUsername,
+              password: secretPassword,
+              category: secretCategory,
+              targetHost: targetHostVal,
+              notes: isEn
+                ? `Auto-saved from Server Registration: ${name.trim()} [${targetHostVal || ''}]`
+                : `ذخیره‌سازی خودکار از فرم ثبت سرور: ${name.trim()} [${targetHostVal || ''}]`,
+              tags: ['server', osType, ...(tags.length > 0 ? tags : [])],
+            }),
+          });
+        } catch (vaultErr) {
+          console.warn('Could not auto-save password to vault:', vaultErr);
+        }
+      }
+
       onClose();
     } catch (err: any) {
       setError(err.message || (isEn ? 'Failed to save server.' : 'خطا در ذخیره سرور.'));
@@ -901,6 +950,36 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                     </button>
                   </div>
                 )}
+
+                {/* Non-intrusive Save to Vault prompt when password manually entered */}
+                {!promptPasswordOnConnect && sshPassword.trim().length > 0 && (
+                  <div className="pt-0.5">
+                    <label
+                      className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] cursor-pointer select-none transition-all ${
+                        saveSshToVault
+                          ? isLightMode
+                            ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-sm'
+                            : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                          : isLightMode
+                          ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                          : 'bg-slate-900/40 hover:bg-slate-850 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={saveSshToVault}
+                        onChange={(e) => setSaveSshToVault(e.target.checked)}
+                        className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                      />
+                      <BookmarkPlus className={`w-3.5 h-3.5 ${saveSshToVault ? 'text-amber-500' : 'text-slate-400'}`} />
+                      <span>
+                        {isEn
+                          ? 'Save this password to your Personal Vault?'
+                          : 'آیا مایلید این رمز در والت شخصی شما ذخیره شود؟'}
+                      </span>
+                    </label>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -1047,6 +1126,36 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                       >
                         {showWinPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
+                    </div>
+                  )}
+
+                  {/* Non-intrusive Save to Vault prompt when password manually entered */}
+                  {!promptPasswordOnConnect && winPassword.trim().length > 0 && (
+                    <div className="pt-0.5">
+                      <label
+                        className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] cursor-pointer select-none transition-all ${
+                          saveWinToVault
+                            ? isLightMode
+                              ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-sm'
+                              : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                            : isLightMode
+                            ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                            : 'bg-slate-900/40 hover:bg-slate-850 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={saveWinToVault}
+                          onChange={(e) => setSaveWinToVault(e.target.checked)}
+                          className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                        />
+                        <BookmarkPlus className={`w-3.5 h-3.5 ${saveWinToVault ? 'text-amber-500' : 'text-slate-400'}`} />
+                        <span>
+                          {isEn
+                            ? 'Save this password to your Personal Vault?'
+                            : 'آیا مایلید این رمز در والت شخصی شما ذخیره شود؟'}
+                        </span>
+                      </label>
                     </div>
                   )}
                 </div>
