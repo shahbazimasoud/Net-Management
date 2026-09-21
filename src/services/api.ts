@@ -14,7 +14,12 @@ import {
   RemoteServer,
   RemoteServerTagSummary,
   LinuxServerLiveMetrics,
-  LinuxSystemService
+  LinuxSystemService,
+  LinuxSystemUser,
+  LinuxLoggedInUser,
+  LinuxNetworkInterfaceDetail,
+  LinuxSystemDetailedInfo,
+  LinuxProxyConfig
 } from '../types';
 
 const API_BASE = '/api';
@@ -1281,6 +1286,187 @@ export async function controlLinuxServerProcess(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pid, action, signal: options.signal, nice: options.nice, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxServerUsers(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  loggedInUsers: LinuxLoggedInUser[];
+  systemUsers: LinuxSystemUser[];
+  error?: string;
+  requires_password?: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function sendLinuxServerUserMessage(
+  serverId: string,
+  target: string,
+  message: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, message, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxServerSysConfig(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  sysInfo: LinuxSystemDetailedInfo;
+  interfaces: LinuxNetworkInterfaceDetail[];
+  error?: string;
+  requires_password?: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/sysconfig`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function configureLinuxServerNetwork(
+  serverId: string,
+  interfaceName: string,
+  config: {
+    state?: 'UP' | 'DOWN';
+    ipv4?: string;
+    cidr?: number;
+    gateway?: string;
+    mtu?: number;
+  },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/network-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ interfaceName, config, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function configureLinuxServerProxy(
+  serverId: string,
+  proxyConfig: LinuxProxyConfig,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/proxy-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proxyConfig, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function testLinuxServerProxy(
+  serverId: string,
+  proxyUrl: string,
+  testTarget?: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  statusCode?: number;
+  latencyMs?: number;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/proxy-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proxyUrl, testTarget, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function changeLinuxServerSshPort(
+  serverId: string,
+  newPort: number,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/ssh-port`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newPort, password: ephemeralPassword }),
   });
   const data = await res.json().catch(() => ({
     success: false,

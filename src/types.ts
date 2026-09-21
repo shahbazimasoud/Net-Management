@@ -1462,6 +1462,69 @@ export interface LinuxSystemService {
   description: string;
 }
 
+export interface LinuxSystemUser {
+  username: string;
+  uid: number;
+  gid: number;
+  comment: string;
+  homeDir: string;
+  shell: string;
+  isSystem: boolean;
+}
+
+export interface LinuxLoggedInUser {
+  user: string;
+  tty: string;
+  from: string;
+  loginTime: string;
+  idleTime: string;
+  what: string;
+}
+
+export interface LinuxNetworkInterfaceDetail {
+  name: string;
+  state: 'UP' | 'DOWN' | 'UNKNOWN';
+  mac: string;
+  ipv4: string;
+  netmask: string;
+  cidr: number;
+  ipv6: string;
+  gateway: string;
+  mtu: number;
+  speed?: string;
+  rxBytes: number;
+  txBytes: number;
+}
+
+export interface LinuxSystemDetailedInfo {
+  distro: string;
+  distroVersion: string;
+  distroId: string;
+  kernelRelease: string;
+  kernelVersion: string;
+  arch: string;
+  hostname: string;
+  fqdn: string;
+  bootTime: string;
+  uptime: string;
+  currentSshPort: number;
+  proxy: {
+    httpProxy: string;
+    httpsProxy: string;
+    ftpProxy: string;
+    noProxy: string;
+    enabled: boolean;
+  };
+}
+
+export interface LinuxProxyConfig {
+  httpProxy: string;
+  httpsProxy: string;
+  ftpProxy: string;
+  noProxy: string;
+  enabled: boolean;
+}
+
 declare module 'guacamole-common-js';
 
 

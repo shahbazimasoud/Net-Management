@@ -1,6 +1,13 @@
 import { Client, ConnectConfig } from 'ssh2';
-import { getRemoteServerById } from './db';
-import { RemoteServer } from '../src/types';
+import { getRemoteServerById, updateRemoteServer } from './db';
+import {
+  RemoteServer,
+  LinuxSystemUser,
+  LinuxLoggedInUser,
+  LinuxNetworkInterfaceDetail,
+  LinuxSystemDetailedInfo,
+  LinuxProxyConfig,
+} from '../src/types';
 
 export interface LinuxServerDiskMetric {
   filesystem: string;
@@ -766,6 +773,743 @@ export async function executeLinuxProcessControl(
     return {
       success: false,
       message: err?.message || `Failed to perform ${action} on process ${pid}`,
+    };
+  }
+}
+
+/**
+ * Shell script to fetch logged-in users and all system users
+ */
+const USERS_SCRIPT = `export LC_ALL=C
+echo "---LOGGED_IN---"
+w -h 2>/dev/null || who -u 2>/dev/null || who 2>/dev/null
+echo "---USERS---"
+getent passwd 2>/dev/null || cat /etc/passwd 2>/dev/null
+echo "---END---"`;
+
+/**
+ * Fetch list of all system users and currently logged in users with login duration
+ */
+export async function fetchLinuxUsersAndSessionsSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<{ loggedInUsers: LinuxLoggedInUser[]; systemUsers: LinuxSystemUser[] }> {
+  const rawOutput = await runAdaptiveSshCommand(server, USERS_SCRIPT, ephemeralPassword, 8000);
+  
+  const sections: Record<string, string[]> = {};
+  let currentSec = '';
+  for (const line of rawOutput.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('---') && trimmed.endsWith('---')) {
+      currentSec = trimmed.replace(/---/g, '').trim();
+      sections[currentSec] = [];
+    } else if (currentSec) {
+      sections[currentSec].push(line);
+    }
+  }
+
+  // Parse logged in users
+  const loggedInLines = sections['LOGGED_IN'] || [];
+  const loggedInUsers: LinuxLoggedInUser[] = [];
+  for (const rawLine of loggedInLines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('USER') || line.startsWith('---')) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length >= 2) {
+      const user = parts[0];
+      const tty = parts[1];
+      let from = '-';
+      let loginTime = '-';
+      let idleTime = '-';
+      let what = '-';
+
+      // Standard w -h format: USER TTY FROM LOGIN@ IDLE JCPU PCPU WHAT...
+      if (parts.length >= 5) {
+        from = parts[2] || '-';
+        loginTime = parts[3] || '-';
+        idleTime = parts[4] || '-';
+        what = parts.slice(7).join(' ') || parts.slice(5).join(' ') || '-';
+      } else {
+        from = parts[2] || '-';
+        loginTime = parts.slice(3).join(' ') || '-';
+      }
+
+      loggedInUsers.push({
+        user,
+        tty,
+        from: from.replace(/[()]/g, ''),
+        loginTime,
+        idleTime,
+        what,
+      });
+    }
+  }
+
+  // Parse all system users from /etc/passwd
+  const userLines = sections['USERS'] || [];
+  const systemUsers: LinuxSystemUser[] = [];
+  for (const rawLine of userLines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(':');
+    if (parts.length >= 7) {
+      const username = parts[0];
+      const uid = parseInt(parts[2], 10) || 0;
+      const gid = parseInt(parts[3], 10) || 0;
+      const comment = parts[4] || '';
+      const homeDir = parts[5] || '';
+      const shell = parts[6] || '';
+      const isSystem = (uid < 1000 && uid !== 0) || shell.includes('nologin') || shell.includes('false');
+
+      systemUsers.push({
+        username,
+        uid,
+        gid,
+        comment,
+        homeDir,
+        shell,
+        isSystem,
+      });
+    }
+  }
+
+  // Sort system users: root first, then regular users, then system accounts
+  systemUsers.sort((a, b) => {
+    if (a.uid === 0) return -1;
+    if (b.uid === 0) return 1;
+    if (!a.isSystem && b.isSystem) return -1;
+    if (a.isSystem && !b.isSystem) return 1;
+    return a.username.localeCompare(b.username);
+  });
+
+  return { loggedInUsers, systemUsers };
+}
+
+/**
+ * Send a message to a specific logged-in user session (write) or broadcast to all users (wall)
+ */
+export async function sendLinuxUserMessageSSH(
+  server: RemoteServer,
+  target: string,
+  message: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const cleanTarget = target.trim();
+  const cleanMessage = message.replace(/'/g, "'\\''").trim();
+
+  if (!cleanMessage) {
+    throw new Error('Message cannot be empty.');
+  }
+
+  let cmd = '';
+  if (cleanTarget === 'all' || cleanTarget === 'wall' || !cleanTarget) {
+    cmd = `export LC_ALL=C; printf '%s\\n' '${cleanMessage}' | sudo wall 2>&1 || printf '%s\\n' '${cleanMessage}' | wall 2>&1`;
+  } else {
+    // If target is a terminal device or user
+    const devPath = cleanTarget.startsWith('/') ? cleanTarget : `/dev/${cleanTarget}`;
+    cmd = `export LC_ALL=C
+if [ -w "${devPath}" ] || sudo test -e "${devPath}"; then
+  printf '\\n*** Broadcast from Admin: ***\\n%s\\n\\n' '${cleanMessage}' | sudo tee "${devPath}" >/dev/null 2>&1
+else
+  printf '%s\\n' '${cleanMessage}' | sudo write '${cleanTarget}' 2>&1 || printf '%s\\n' '${cleanMessage}' | write '${cleanTarget}' 2>&1
+fi`;
+  }
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 8000);
+    const lower = output.toLowerCase();
+    if (lower.includes('permission denied') || lower.includes('not logged in') || lower.includes('no such file')) {
+      return {
+        success: false,
+        message: output.trim() || `Failed to send message to ${cleanTarget}`,
+      };
+    }
+    return {
+      success: true,
+      message: cleanTarget === 'all'
+        ? 'Broadcast message sent to all active terminal sessions.'
+        : `Message successfully delivered to ${cleanTarget}.`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to deliver message to ${cleanTarget}`,
+    };
+  }
+}
+
+/**
+ * Shell script to fetch detailed OS, Kernel, SSH port, persistent proxy and network interfaces
+ */
+const SYSCONFIG_SCRIPT = `export LC_ALL=C
+echo "---OS_INFO---"
+cat /etc/os-release 2>/dev/null
+echo "---KERNEL---"
+uname -r 2>/dev/null
+uname -v 2>/dev/null
+uname -m 2>/dev/null
+echo "---HOST---"
+hostname 2>/dev/null
+hostname -f 2>/dev/null || hostname 2>/dev/null
+echo "---BOOT---"
+who -b 2>/dev/null || uptime -s 2>/dev/null || cat /proc/uptime 2>/dev/null
+echo "---SSH_PORT---"
+ss -tlnp 2>/dev/null | grep -E 'sshd|ssh' || netstat -tlnp 2>/dev/null | grep -E 'sshd|ssh' || grep -E '^[ \\t]*Port[ \\t]+[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || echo "22"
+echo "---PROXY---"
+cat /etc/environment 2>/dev/null | grep -iE 'proxy' || true
+cat /etc/profile.d/proxy.sh 2>/dev/null | grep -iE 'proxy' || true
+echo "---INTERFACES---"
+ip -o addr show 2>/dev/null
+echo "---ROUTES---"
+ip route show default 2>/dev/null || route -n 2>/dev/null
+echo "---LINKS---"
+ip -o link show 2>/dev/null
+echo "---END---"`;
+
+/**
+ * Fetch detailed system telemetry, kernel, persistent proxy, and network interface cards
+ */
+export async function fetchLinuxDetailedSysInfoSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<{ sysInfo: LinuxSystemDetailedInfo; interfaces: LinuxNetworkInterfaceDetail[] }> {
+  const rawOutput = await runAdaptiveSshCommand(server, SYSCONFIG_SCRIPT, ephemeralPassword, 9000);
+
+  const sections: Record<string, string[]> = {};
+  let currentSec = '';
+  for (const line of rawOutput.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('---') && trimmed.endsWith('---')) {
+      currentSec = trimmed.replace(/---/g, '').trim();
+      sections[currentSec] = [];
+    } else if (currentSec) {
+      sections[currentSec].push(line);
+    }
+  }
+
+  // Parse OS info
+  const osLines = sections['OS_INFO'] || [];
+  let distro = 'Linux';
+  let distroVersion = '';
+  let distroId = 'linux';
+  for (const l of osLines) {
+    const trimmed = l.trim();
+    if (trimmed.startsWith('PRETTY_NAME=')) {
+      distro = trimmed.replace(/^PRETTY_NAME=["']?/, '').replace(/["']?$/, '');
+    } else if (trimmed.startsWith('VERSION=')) {
+      distroVersion = trimmed.replace(/^VERSION=["']?/, '').replace(/["']?$/, '');
+    } else if (trimmed.startsWith('ID=')) {
+      distroId = trimmed.replace(/^ID=["']?/, '').replace(/["']?$/, '');
+    }
+  }
+
+  // Kernel
+  const kernelLines = sections['KERNEL'] || [];
+  const kernelRelease = kernelLines[0]?.trim() || 'unknown';
+  const kernelVersion = kernelLines[1]?.trim() || '';
+  const arch = kernelLines[2]?.trim() || 'x86_64';
+
+  // Host
+  const hostLines = sections['HOST'] || [];
+  const hostname = hostLines[0]?.trim() || (server.ip || 'linux-server');
+  const fqdn = hostLines[1]?.trim() || hostname;
+
+  // Boot
+  const bootLines = sections['BOOT'] || [];
+  const bootTime = bootLines[0]?.trim() || 'N/A';
+
+  // SSH Port detection
+  const sshLines = sections['SSH_PORT'] || [];
+  let currentSshPort = server.ssh_port || 22;
+  for (const sLine of sshLines) {
+    const portMatch = sLine.match(/:(\d+)\s+/) || sLine.match(/Port\s+(\d+)/i);
+    if (portMatch) {
+      const p = parseInt(portMatch[1], 10);
+      if (p > 0 && p <= 65535) {
+        currentSshPort = p;
+        break;
+      }
+    }
+  }
+
+  // Proxy detection
+  const proxyLines = sections['PROXY'] || [];
+  let httpProxy = '';
+  let httpsProxy = '';
+  let ftpProxy = '';
+  let noProxy = '';
+  for (const pLine of proxyLines) {
+    const clean = pLine.trim().replace(/^export\s+/, '');
+    const eqIdx = clean.indexOf('=');
+    if (eqIdx > 0) {
+      const k = clean.slice(0, eqIdx).toLowerCase();
+      const v = clean.slice(eqIdx + 1).replace(/^["']|["']$/g, '');
+      if (k === 'http_proxy') httpProxy = v;
+      else if (k === 'https_proxy') httpsProxy = v;
+      else if (k === 'ftp_proxy') ftpProxy = v;
+      else if (k === 'no_proxy') noProxy = v;
+    }
+  }
+  const proxyEnabled = !!(httpProxy || httpsProxy || ftpProxy);
+
+  // Parse Default Gateway
+  const routeLines = sections['ROUTES'] || [];
+  let defaultGateway = '';
+  let defaultIface = '';
+  for (const rLine of routeLines) {
+    const gwMatch = rLine.match(/default via ([0-9a-fA-F:.]+) dev ([a-zA-Z0-9_.-]+)/);
+    if (gwMatch) {
+      defaultGateway = gwMatch[1];
+      defaultIface = gwMatch[2];
+      break;
+    }
+  }
+
+  // Parse Link Details (MAC, MTU, State)
+  const linkLines = sections['LINKS'] || [];
+  const linkDetails = new Map<string, { mac: string; mtu: number; state: 'UP' | 'DOWN' | 'UNKNOWN' }>();
+  for (const lLine of linkLines) {
+    const m = lLine.match(/^\d+:\s+([^:@\s]+).*?mtu\s+(\d+).*?state\s+([A-Z]+)/i);
+    if (m) {
+      const ifName = m[1];
+      const mtu = parseInt(m[2], 10) || 1500;
+      const rawState = m[3].toUpperCase();
+      const state = rawState === 'UP' ? 'UP' : rawState === 'DOWN' ? 'DOWN' : 'UNKNOWN';
+      const macMatch = lLine.match(/link\/ether\s+([0-9a-fA-F:]{17})/);
+      const mac = macMatch ? macMatch[1] : '';
+      linkDetails.set(ifName, { mac, mtu, state });
+    }
+  }
+
+  // Parse Interfaces and IP Addresses
+  const ifaceMap = new Map<string, LinuxNetworkInterfaceDetail>();
+  const addrLines = sections['INTERFACES'] || [];
+  for (const aLine of addrLines) {
+    const parts = aLine.trim().split(/\s+/);
+    if (parts.length >= 4) {
+      const ifName = parts[1];
+      const family = parts[2]; // inet or inet6
+      const cidrStr = parts[3]; // e.g. 192.168.1.100/24
+
+      let iface = ifaceMap.get(ifName);
+      if (!iface) {
+        const link = linkDetails.get(ifName) || { mac: '', mtu: 1500, state: 'UNKNOWN' as const };
+        iface = {
+          name: ifName,
+          state: link.state,
+          mac: link.mac,
+          ipv4: '',
+          netmask: '',
+          cidr: 24,
+          ipv6: '',
+          gateway: ifName === defaultIface ? defaultGateway : '',
+          mtu: link.mtu,
+          rxBytes: 0,
+          txBytes: 0,
+        };
+        ifaceMap.set(ifName, iface);
+      }
+
+      if (family === 'inet') {
+        const [ip, cidr] = cidrStr.split('/');
+        iface.ipv4 = ip || '';
+        iface.cidr = parseInt(cidr || '24', 10);
+      } else if (family === 'inet6') {
+        if (!iface.ipv6) {
+          iface.ipv6 = cidrStr.split('/')[0];
+        }
+      }
+    }
+  }
+
+  // If some links didn't have IP addresses (e.g. unconfigured or down interfaces)
+  for (const [ifName, link] of linkDetails.entries()) {
+    if (!ifaceMap.has(ifName)) {
+      ifaceMap.set(ifName, {
+        name: ifName,
+        state: link.state,
+        mac: link.mac,
+        ipv4: '',
+        netmask: '',
+        cidr: 24,
+        ipv6: '',
+        gateway: '',
+        mtu: link.mtu,
+        rxBytes: 0,
+        txBytes: 0,
+      });
+    }
+  }
+
+  const interfaces = Array.from(ifaceMap.values()).sort((a, b) => {
+    if (a.name === 'lo') return 1;
+    if (b.name === 'lo') return -1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    sysInfo: {
+      distro,
+      distroVersion,
+      distroId,
+      kernelRelease,
+      kernelVersion,
+      arch,
+      hostname,
+      fqdn,
+      bootTime,
+      uptime: '',
+      currentSshPort,
+      proxy: {
+        httpProxy,
+        httpsProxy,
+        ftpProxy,
+        noProxy,
+        enabled: proxyEnabled,
+      },
+    },
+    interfaces,
+  };
+}
+
+/**
+ * Configure Linux Network Interface: IP address, CIDR, Gateway, MTU, or UP/DOWN state
+ */
+export async function configureLinuxNetworkInterfaceSSH(
+  server: RemoteServer,
+  interfaceName: string,
+  config: {
+    state?: 'UP' | 'DOWN';
+    ipv4?: string;
+    cidr?: number;
+    gateway?: string;
+    mtu?: number;
+  },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const iface = interfaceName.trim().replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (!iface) {
+    throw new Error('Invalid network interface name.');
+  }
+
+  const commands: string[] = ['export LC_ALL=C'];
+
+  if (config.mtu && config.mtu >= 68 && config.mtu <= 9000) {
+    commands.push(`sudo ip link set dev ${iface} mtu ${config.mtu} 2>&1`);
+  }
+
+  if (config.state) {
+    const s = config.state.toLowerCase();
+    commands.push(`sudo ip link set dev ${iface} ${s} 2>&1`);
+  }
+
+  if (config.ipv4) {
+    const cleanIp = config.ipv4.trim();
+    const cidr = config.cidr || 24;
+    // Replace address or add if none
+    commands.push(`sudo ip addr replace ${cleanIp}/${cidr} dev ${iface} 2>&1`);
+  }
+
+  if (config.gateway) {
+    const cleanGw = config.gateway.trim();
+    commands.push(`sudo ip route replace default via ${cleanGw} dev ${iface} 2>&1`);
+  }
+
+  const fullCmd = commands.join(' && ');
+
+  try {
+    const output = await runAdaptiveSshCommand(server, fullCmd, ephemeralPassword, 10000);
+    const lower = output.toLowerCase();
+    if (lower.includes('error') || lower.includes('cannot find device') || lower.includes('rtnetlink answers: file exists')) {
+      return {
+        success: false,
+        message: output.trim() || `Failed to configure interface ${iface}`,
+      };
+    }
+    return {
+      success: true,
+      message: `Network interface ${iface} successfully updated.`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to update interface ${iface}`,
+    };
+  }
+}
+
+/**
+ * Configure Persistent System Proxy that persists across server reboots
+ * Writes to /etc/environment, /etc/profile.d/proxy.sh, and /etc/apt/apt.conf.d/95proxies
+ */
+export async function configureLinuxPersistentProxySSH(
+  server: RemoteServer,
+  proxyConfig: {
+    enabled: boolean;
+    httpProxy?: string;
+    httpsProxy?: string;
+    ftpProxy?: string;
+    noProxy?: string;
+  },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  let script = 'export LC_ALL=C\n';
+
+  if (!proxyConfig.enabled) {
+    // Clear proxy settings everywhere
+    script += `
+sudo sed -i '/[hH][tT][tT][pP]_[pP][rR][oO][xX][yY]/d' /etc/environment 2>/dev/null || true
+sudo sed -i '/[fF][tT][pP]_[pP][rR][oO][xX][yY]/d' /etc/environment 2>/dev/null || true
+sudo sed -i '/[nN][oO]_[pP][rR][oO][xX][yY]/d' /etc/environment 2>/dev/null || true
+sudo rm -f /etc/profile.d/proxy.sh 2>/dev/null || true
+sudo rm -f /etc/apt/apt.conf.d/95proxies 2>/dev/null || true
+echo "PROXY_CLEARED"
+`;
+  } else {
+    const http = (proxyConfig.httpProxy || '').trim();
+    const https = (proxyConfig.httpsProxy || http).trim();
+    const ftp = (proxyConfig.ftpProxy || '').trim();
+    const no = (proxyConfig.noProxy || 'localhost,127.0.0.1,localaddress,.localdomain.com').trim();
+
+    if (!http && !https) {
+      throw new Error('At least one of HTTP or HTTPS proxy must be provided.');
+    }
+
+    script += `
+# 1. Clean existing proxy entries from /etc/environment
+sudo sed -i '/[hH][tT][tT][pP]_[pP][rR][oO][xX][yY]/d' /etc/environment 2>/dev/null || true
+sudo sed -i '/[fF][tT][pP]_[pP][rR][oO][xX][yY]/d' /etc/environment 2>/dev/null || true
+sudo sed -i '/[nN][oO]_[pP][rR][oO][xX][yY]/d' /etc/environment 2>/dev/null || true
+
+# 2. Append persistent proxy variables to /etc/environment
+sudo tee -a /etc/environment >/dev/null << 'EOF'
+http_proxy="${http}"
+https_proxy="${https}"
+ftp_proxy="${ftp}"
+no_proxy="${no}"
+HTTP_PROXY="${http}"
+HTTPS_PROXY="${https}"
+FTP_PROXY="${ftp}"
+NO_PROXY="${no}"
+EOF
+
+# 3. Write persistent profile script in /etc/profile.d/proxy.sh
+sudo tee /etc/profile.d/proxy.sh >/dev/null << 'EOF'
+export http_proxy="${http}"
+export https_proxy="${https}"
+export ftp_proxy="${ftp}"
+export no_proxy="${no}"
+export HTTP_PROXY="${http}"
+export HTTPS_PROXY="${https}"
+export FTP_PROXY="${ftp}"
+export NO_PROXY="${no}"
+EOF
+sudo chmod +x /etc/profile.d/proxy.sh 2>/dev/null || true
+
+# 4. If APT is present, configure APT package manager proxy
+if [ -d /etc/apt/apt.conf.d ]; then
+  sudo tee /etc/apt/apt.conf.d/95proxies >/dev/null << 'EOF'
+Acquire::http::proxy "${http}";
+Acquire::https::proxy "${https}";
+EOF
+fi
+
+echo "PROXY_APPLIED"
+`;
+  }
+
+  try {
+    const output = await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    const lower = output.toLowerCase();
+    if (lower.includes('permission denied') || lower.includes('cannot create')) {
+      return {
+        success: false,
+        message: output.trim() || 'Failed to save persistent proxy settings (root permissions required).',
+      };
+    }
+    return {
+      success: true,
+      message: proxyConfig.enabled
+        ? 'Persistent system proxy configured across /etc/environment, /etc/profile.d, and APT. Settings will persist across all reboots.'
+        : 'Persistent system proxy removed from all configuration files.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Failed to configure persistent proxy.',
+    };
+  }
+}
+
+/**
+ * Test connectivity through a specified proxy server
+ */
+export async function testLinuxProxySSH(
+  server: RemoteServer,
+  proxyUrl: string,
+  testTarget?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; statusCode?: number; latencyMs?: number; message: string }> {
+  const target = testTarget || 'https://www.google.com';
+  const cleanProxy = proxyUrl.trim();
+
+  if (!cleanProxy) {
+    throw new Error('Proxy URL cannot be empty.');
+  }
+
+  const startTime = Date.now();
+  const cmd = `export LC_ALL=C; curl -s -I -o /dev/null -w "%{http_code}" --connect-timeout 6 -x '${cleanProxy}' '${target}' 2>&1`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 10000);
+    const latencyMs = Date.now() - startTime;
+    const code = parseInt(output.trim(), 10);
+
+    if (code >= 200 && code < 400) {
+      return {
+        success: true,
+        statusCode: code,
+        latencyMs,
+        message: `Proxy test succeeded with HTTP ${code} (${latencyMs}ms)`,
+      };
+    } else if (code > 0) {
+      return {
+        success: true,
+        statusCode: code,
+        latencyMs,
+        message: `Proxy reached target with HTTP ${code}`,
+      };
+    } else {
+      return {
+        success: false,
+        message: output.trim() || 'Connection through proxy timed out or failed.',
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Proxy connectivity test failed.',
+    };
+  }
+}
+
+/**
+ * Safely change SSH listening port on remote Linux server:
+ * 1. Validates port range (1-65535, != 80, 443, etc.)
+ * 2. Checks sshd syntax beforehand (sshd -t)
+ * 3. Safely edits sshd_config or creates custom drop-in
+ * 4. Verifies sshd syntax again - REVERTS immediately if test fails
+ * 5. Updates UFW or Firewalld rules
+ * 6. Restarts SSH daemon
+ * 7. Updates RemoteServer record in database with new port
+ */
+export async function changeLinuxSshPortSSH(
+  server: RemoteServer,
+  newPort: number,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const targetPort = Math.floor(newPort);
+  if (isNaN(targetPort) || targetPort < 1 || targetPort > 65535) {
+    throw new Error('Invalid SSH port. Must be an integer between 1 and 65535.');
+  }
+
+  const reservedPorts = [80, 443, 53, 25, 110, 143, 3306, 5432, 6379, 27017];
+  if (reservedPorts.includes(targetPort)) {
+    throw new Error(`Port ${targetPort} is typically reserved for other services. Please choose an administrative port (e.g. 2222, 22022).`);
+  }
+
+  const script = `export LC_ALL=C
+# Step 1: Verify current sshd configuration
+if command -v sshd >/dev/null 2>&1; then
+  sudo sshd -t || { echo "PRECHECK_FAILED"; exit 1; }
+fi
+
+# Step 2: Backup existing config
+sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%s) 2>/dev/null || true
+
+# Step 3: Configure new port
+if [ -d /etc/ssh/sshd_config.d ]; then
+  # Modern OpenSSH drop-in
+  sudo tee /etc/ssh/sshd_config.d/00-custom-port.conf >/dev/null << 'EOF'
+Port ${targetPort}
+EOF
+else
+  # Update /etc/ssh/sshd_config directly
+  if grep -qE '^[ #]*Port ' /etc/ssh/sshd_config; then
+    sudo sed -i 's/^[ #]*Port .*/Port ${targetPort}/' /etc/ssh/sshd_config
+  else
+    echo "Port ${targetPort}" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+  fi
+fi
+
+# Step 4: Validate syntax with sshd -t
+if command -v sshd >/dev/null 2>&1; then
+  if ! sudo sshd -t; then
+    echo "SYNTAX_CHECK_FAILED_REVERTING"
+    sudo rm -f /etc/ssh/sshd_config.d/00-custom-port.conf 2>/dev/null || true
+    if [ -f /etc/ssh/sshd_config.bak.* ]; then
+      LATEST_BAK=$(ls -t /etc/ssh/sshd_config.bak.* 2>/dev/null | head -n 1)
+      [ -n "$LATEST_BAK" ] && sudo cp "$LATEST_BAK" /etc/ssh/sshd_config
+    fi
+    exit 2
+  fi
+fi
+
+# Step 5: Update firewall if active
+if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q "Status: active"; then
+  sudo ufw allow ${targetPort}/tcp 2>&1 || true
+fi
+if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then
+  sudo firewall-cmd --permanent --add-port=${targetPort}/tcp >/dev/null 2>&1 || true
+  sudo firewall-cmd --reload >/dev/null 2>&1 || true
+fi
+if command -v semanage >/dev/null 2>&1; then
+  sudo semanage port -a -t ssh_port_t -p tcp ${targetPort} >/dev/null 2>&1 || true
+fi
+
+# Step 6: Restart SSH daemon
+if command -v systemctl >/dev/null 2>&1; then
+  sudo systemctl restart sshd 2>&1 || sudo systemctl restart ssh 2>&1
+elif command -v service >/dev/null 2>&1; then
+  sudo service sshd restart 2>&1 || sudo service ssh restart 2>&1
+else
+  sudo /etc/init.d/sshd restart 2>&1 || sudo /etc/init.d/ssh restart 2>&1
+fi
+
+echo "SSH_PORT_SUCCESS"
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, script, ephemeralPassword, 12000);
+    const lower = output.toLowerCase();
+
+    if (lower.includes('syntax_check_failed') || lower.includes('precheck_failed')) {
+      return {
+        success: false,
+        message: 'SSH configuration validation failed. Reverted changes to protect SSH connectivity.',
+      };
+    }
+
+    if (lower.includes('permission denied')) {
+      return {
+        success: false,
+        message: 'Permission denied: Sudo privileges required to update SSH port.',
+      };
+    }
+
+    // Step 7: Update RemoteServer record in application database
+    await updateRemoteServer(server.id, { ssh_port: targetPort }).catch((dbErr) => {
+      console.warn(`[LinuxSSHPort] Updated server SSH port to ${targetPort} on device, but failed to update local DB:`, dbErr?.message);
+    });
+
+    return {
+      success: true,
+      message: `SSH port successfully changed to ${targetPort} and local fleet config updated.`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to change SSH port to ${targetPort}`,
     };
   }
 }

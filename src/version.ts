@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.110.0';
+export const APP_VERSION = '1.111.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.111.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'توسعه جامع مانیتورینگ لینوکس: مدیریت یوزرها و سشن‌های فعال، ارسال پیام به کاربران، مشخصات توزیع و کرنل، تغییر کارت شبکه، پروکسی ماندگار و تغییر پورت SSH',
+    title_en: 'Linux Server Suite Expansion: Users & Active Sessions, User Messaging, Distro & Kernel Detection, NIC Configuration, Persistent System Proxy & SSH Port Modification',
+    changes: [
+      'افزودن تب کاربران و نشست‌ها (Users & Sessions): نمایش فهرست کامل کاربران سیستم‌عامل با تفکیک کاربران استاندارد، سیستمی و روت، شناسه UID/GID، دایرکتوری خانگی و شل ورود.',
+      'رهگیری زنده نشست‌های فعال (Who / W): نمایش کاربرانی که در حال حاضر متصل هستند به همراه TTY/PTS، آدرس IP متصل شونده، زمان ورود، مدت زمان Idle و دستور در حال اجرا.',
+      'امکان ارسال پیام و اعلان بلادرنگ به کاربران متصل از طریق دستورات wall و write روی TTY اختصاصی یا عمومی.',
+      'افزودن تب مشخصات سیستم، پروکسی و پورت SSH (System & Proxy / SSH): نمایش مشخصات توزیع لینوکس، نگارش سیستم‌عامل، نگارش و نسخه کرنل (uname -r)، معماری پردازنده، نام هاست و آپ‌تایم دقیق.',
+      'امکان پیکربندی و تغییر کارت شبکه (NIC Configuration): مودال اختصاصی تغییر آدرس IP، ساب‌نت CIDR، گیت‌وی پیش‌فرض، مقدار MTU و فعال/غیرفعال کردن اینترفیس (UP/DOWN).',
+      'امکان ثبت و فعال‌سازی پروکسی سیستمی ماندگار (Persistent Reboot-Proof Proxy): ذخیره‌سازی در فایل‌های /etc/environment و /etc/profile.d/proxy.sh و تنظیمات APT با ابزار تست زنده اتصال به اینترنت از طریق پروکسی.',
+      'امکان تغییر امن پورت سرور SSH با اعتبارسنجی خودکار ساختار فایل sshd_config از طریق sshd -t جهت جلوگیری از هرگونه قطعی یا قفل شدن دسترسی و اعمال روی فایروال سرور.'
+    ],
+    changes_en: [
+      'Added Users & Sessions tab: lists all Linux system users categorized by standard, system, and root, showing UID/GID, home directory, and login shell.',
+      'Live active sessions monitoring: displays currently logged-in users with TTY/PTS, remote IP, login time, idle duration, and active command.',
+      'Instant user messaging: send broadcast notifications (wall) or targeted messages (write) to specific user TTYs directly over SSH.',
+      'Added System, Proxy & SSH tab: shows detailed distribution info, release version, kernel release (uname -r), CPU architecture, hostname, and uptime.',
+      'Network Interface Configuration modal: modify IP address, CIDR prefix, default gateway, MTU, and administrative state (UP/DOWN) per network card.',
+      'Persistent system proxy management: configure HTTP, HTTPS, and No-Proxy settings surviving reboots across /etc/environment, /etc/profile.d, and APT, with live connection testing.',
+      'Safe SSH port modification: updates sshd_config with automated sshd -t syntax verification and firewall rule adjustments to prevent accidental lockouts.'
+    ],
+  },
   {
     version: '1.110.0',
     releaseDate: '2026-09-21',

@@ -5,11 +5,18 @@ import { useLanguage } from '../../i18n/LanguageContext';
 
 export interface FieldInfoTooltipProps {
   title?: string;
-  whatIsIt: string;
+  fieldName?: string;
+  whatIsIt?: string;
   whyNeeded?: string;
   whyIsItNeeded?: string;
   example?: string;
   practicalExample?: string;
+  infoWhatEn?: string;
+  infoWhatFa?: string;
+  infoWhyEn?: string;
+  infoWhyFa?: string;
+  infoExampleEn?: string;
+  infoExampleFa?: string;
   isEn?: boolean;
   isLightMode?: boolean;
 }
@@ -24,18 +31,28 @@ interface Coords {
 
 export const FieldInfoTooltip: React.FC<FieldInfoTooltipProps> = ({
   title,
+  fieldName,
   whatIsIt,
   whyNeeded,
   whyIsItNeeded,
   example,
   practicalExample,
+  infoWhatEn,
+  infoWhatFa,
+  infoWhyEn,
+  infoWhyFa,
+  infoExampleEn,
+  infoExampleFa,
   isEn: propIsEn,
   isLightMode = false,
 }) => {
-  const actualWhyNeeded = whyIsItNeeded || whyNeeded || '';
-  const actualExample = practicalExample || example;
   const { isEn: contextIsEn } = useLanguage();
   const isEn = propIsEn !== undefined ? propIsEn : contextIsEn;
+
+  const resolvedTitle = title || fieldName;
+  const resolvedWhatIsIt = (isEn ? infoWhatEn : infoWhatFa) || whatIsIt || '';
+  const actualWhyNeeded = (isEn ? infoWhyEn : infoWhyFa) || whyIsItNeeded || whyNeeded || '';
+  const actualExample = (isEn ? infoExampleEn : infoExampleFa) || practicalExample || example;
 
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -182,7 +199,7 @@ export const FieldInfoTooltip: React.FC<FieldInfoTooltipProps> = ({
               <span className="font-semibold text-cyan-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wide">
                 <Info className="w-3 h-3 text-cyan-400 shrink-0" />
                 <span className="truncate">
-                  {title || (isEn ? 'Field Guide & Engineering Purpose' : 'راهنمای فیلد و کاربرد مهندسی')}
+                  {resolvedTitle || (isEn ? 'Field Guide & Engineering Purpose' : 'راهنمای فیلد و کاربرد مهندسی')}
                 </span>
               </span>
               <button
@@ -201,7 +218,7 @@ export const FieldInfoTooltip: React.FC<FieldInfoTooltipProps> = ({
                   {isEn ? 'What is this parameter?' : 'این پارامتر چیست؟'}
                 </span>
                 <p className={`leading-relaxed text-[11px] ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                  {whatIsIt}
+                  {resolvedWhatIsIt}
                 </p>
               </div>
 

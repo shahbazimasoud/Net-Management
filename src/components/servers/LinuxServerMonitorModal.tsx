@@ -34,8 +34,12 @@ import {
   Check,
   Flame,
   ShieldAlert,
+  Users,
+  Globe,
+  Edit3,
+  Settings,
 } from 'lucide-react';
-import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService } from '../../types';
+import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService, LinuxNetworkInterfaceDetail } from '../../types';
 import {
   fetchLinuxServerLiveMetrics,
   fetchLinuxServerServices,
@@ -44,10 +48,14 @@ import {
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ProcessActionModals } from './ProcessActionModals';
+import { LinuxUsersTab } from './LinuxUsersTab';
+import { LinuxSysConfigTab } from './LinuxSysConfigTab';
+import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 
 export interface LinuxServerMonitorModalProps {
   isOpen: boolean;
   server: RemoteServer | null;
+  sessionPassword?: string;
   onClose: () => void;
   onMinimize: () => void;
   onOpenTerminal?: (server: RemoteServer) => void;
@@ -64,6 +72,7 @@ interface HistoricalDataPoint {
 export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = ({
   isOpen,
   server,
+  sessionPassword,
   onClose,
   onMinimize,
   onOpenTerminal,
@@ -75,12 +84,15 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requiresPassword, setRequiresPassword] = useState(false);
-  const [ephemeralPassword, setEphemeralPassword] = useState('');
+  const [ephemeralPassword, setEphemeralPassword] = useState(sessionPassword || '');
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(3000); // 3 seconds default
   const [history, setHistory] = useState<HistoricalDataPoint[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'network'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'network' | 'users' | 'sysconfig'>('overview');
   const [processSearch, setProcessSearch] = useState('');
   const [sortProcessBy, setSortProcessBy] = useState<'cpu' | 'mem'>('cpu');
+
+  // Network Interface Configuration Modal State
+  const [selectedInterfaceForConfig, setSelectedInterfaceForConfig] = useState<LinuxNetworkInterfaceDetail | null>(null);
 
   // Services Management State
   const [services, setServices] = useState<LinuxSystemService[]>([]);
@@ -110,7 +122,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     isOpen: boolean;
     process: LinuxServerProcessMetric | null;
     niceValue: number;
-  }>({ isOpen: false, process: null, niceValue: 0 });
+    loading: boolean;
+  }>({ isOpen: false, process: null, niceValue: 0, loading: false });
 
   const [processActionLoading, setProcessActionLoading] = useState(false);
 
@@ -334,12 +347,22 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     }
   };
 
+  const handleOpenRenice = (proc: LinuxServerProcessMetric) => {
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+    setReniceDialog({
+      isOpen: true,
+      process: proc,
+      niceValue: 0,
+      loading: false,
+    });
+  };
+
   // Apply Renice Execution
   const handleApplyRenice = async () => {
     if (!server || !reniceDialog.process) return;
     const proc = reniceDialog.process;
     const niceVal = reniceDialog.niceValue;
-    setReniceDialog({ isOpen: false, process: null, niceValue: 0 });
+    setReniceDialog({ isOpen: false, process: null, niceValue: 0, loading: false });
     setProcessActionLoading(true);
     try {
       const res = await controlLinuxServerProcess(server.id, proc.pid, 'renice', { nice: niceVal }, ephemeralPassword);
@@ -846,6 +869,36 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                   {metrics.processes.length}
                 </span>
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('users')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'users'
+                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Users & Sessions' : 'کاربران و نشست‌ها'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('sysconfig')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'sysconfig'
+                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>{isEn ? 'System & Proxy / SSH' : 'سیستم، پروکسی و SSH'}</span>
             </button>
           </div>
 
@@ -1468,9 +1521,33 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                               </span>
                             </div>
                           </div>
-                          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                            UP
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              UP
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedInterfaceForConfig({
+                                  name: net.interface,
+                                  state: 'UP',
+                                  mac: '',
+                                  ipv4: '',
+                                  netmask: '',
+                                  cidr: 24,
+                                  ipv6: '',
+                                  gateway: '',
+                                  mtu: 1500,
+                                  rxBytes: net.rxBytes,
+                                  txBytes: net.txBytes,
+                                });
+                              }}
+                              className="px-2 py-0.5 rounded bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-400 border border-cyan-500/30 text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>{isEn ? 'Configure' : 'تغییر'}</span>
+                            </button>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 font-mono text-xs pt-1">
@@ -1736,9 +1813,9 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                           <button
                             key={st}
                             type="button"
-                            onClick={() => setServiceStateFilter(st)}
+                            onClick={() => setServiceStatusFilter(st)}
                             className={`px-2 py-1 transition cursor-pointer capitalize ${
-                              serviceStateFilter === st
+                              serviceStatusFilter === st
                                 ? 'bg-cyan-500 text-slate-950 font-bold'
                                 : isLightMode
                                 ? 'bg-white text-slate-700 hover:bg-slate-100'
@@ -2040,7 +2117,52 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                   </div>
                 </div>
               )}
+
+              {/* TAB 5: USERS & SESSIONS */}
+              {activeTab === 'users' && (
+                <LinuxUsersTab
+                  server={server}
+                  ephemeralPassword={ephemeralPassword}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              )}
+
+              {/* TAB 6: SYSTEM & PROXY / SSH CONFIG */}
+              {activeTab === 'sysconfig' && (
+                <LinuxSysConfigTab
+                  server={server}
+                  ephemeralPassword={ephemeralPassword}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                  onSshPortChanged={(newPort) => {
+                    if (server) server.ssh_port = newPort;
+                  }}
+                />
+              )}
             </>
+          )}
+
+          {/* Render Users or SysConfig tabs even if metrics are not loaded yet */}
+          {!metrics && activeTab === 'users' && (
+            <LinuxUsersTab
+              server={server}
+              ephemeralPassword={ephemeralPassword}
+              isLightMode={isLightMode}
+              isEn={isEn}
+            />
+          )}
+
+          {!metrics && activeTab === 'sysconfig' && (
+            <LinuxSysConfigTab
+              server={server}
+              ephemeralPassword={ephemeralPassword}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              onSshPortChanged={(newPort) => {
+                if (server) server.ssh_port = newPort;
+              }}
+            />
           )}
         </div>
 
@@ -2101,6 +2223,21 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   return (
     <>
       {createPortal(modalNode, document.body)}
+      {selectedInterfaceForConfig && (
+        <LinuxNetworkConfigModal
+          isOpen={true}
+          server={server}
+          iface={selectedInterfaceForConfig}
+          ephemeralPassword={ephemeralPassword}
+          onClose={() => setSelectedInterfaceForConfig(null)}
+          onSuccess={() => {
+            setSelectedInterfaceForConfig(null);
+            fetchMetrics();
+          }}
+          isLightMode={isLightMode}
+          isEn={isEn}
+        />
+      )}
       <ProcessActionModals
         contextMenu={contextMenu}
         onCloseContextMenu={() => setContextMenu((prev) => ({ ...prev, visible: false }))}

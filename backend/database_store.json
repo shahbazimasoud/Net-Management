@@ -15,7 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-09-18T10:59:33.710Z"
+      "last_login": "2026-09-21T22:59:38.067Z"
     },
     {
       "id": "user-helpdesk",
@@ -743,6 +743,18 @@
       "details": "User permanently deleted vault credential \"Core Switch Cisco 3850\"",
       "ip_address": "127.0.0.1",
       "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790031578285-ous6n",
+      "timestamp": "2026-09-21T22:59:38.285Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 206.222.8.60",
+      "ip_address": "206.222.8.60",
+      "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 OPR/136.0.0.0"
     }
   ],
   "ad_config": {

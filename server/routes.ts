@@ -77,6 +77,13 @@ import {
   fetchLinuxServicesSSH,
   executeLinuxServiceControl,
   executeLinuxProcessControl,
+  fetchLinuxUsersAndSessionsSSH,
+  sendLinuxUserMessageSSH,
+  fetchLinuxDetailedSysInfoSSH,
+  configureLinuxNetworkInterfaceSSH,
+  configureLinuxPersistentProxySSH,
+  testLinuxProxySSH,
+  changeLinuxSshPortSSH,
 } from './linuxServerMonitor';
 
 export const apiRouter = Router();
@@ -1301,6 +1308,263 @@ apiRouter.post('/remote-servers/:id/process-action', async (req: Request, res: R
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to control remote process',
+    });
+  }
+});
+
+// GET & POST /api/remote-servers/:id/users - Fetch logged in users and all system users
+const handleLinuxServerUsers = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'User management is designed for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const data = await fetchLinuxUsersAndSessionsSSH(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      ...data,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxUsers API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch users from remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/users', handleLinuxServerUsers);
+apiRouter.post('/remote-servers/:id/users', handleLinuxServerUsers);
+
+// POST /api/remote-servers/:id/send-message - Send message to logged-in user or broadcast
+apiRouter.post('/remote-servers/:id/send-message', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { target, message, password } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ success: false, error: 'Message is required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await sendLinuxUserMessageSSH(server, target || 'all', message, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Send Terminal Message (${target || 'all'})`,
+      category: 'operation',
+      target: `${server.name || server.ip}`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxSendMessage API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to send message to user',
+    });
+  }
+});
+
+// GET & POST /api/remote-servers/:id/sysconfig - Fetch OS, Kernel, Proxy, and Interfaces
+const handleLinuxServerSysConfig = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'System configuration is designed for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const data = await fetchLinuxDetailedSysInfoSSH(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      ...data,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxSysConfig API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch system configuration from remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/sysconfig', handleLinuxServerSysConfig);
+apiRouter.post('/remote-servers/:id/sysconfig', handleLinuxServerSysConfig);
+
+// POST /api/remote-servers/:id/network-action - Configure Linux network interface
+apiRouter.post('/remote-servers/:id/network-action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { interfaceName, config, password } = req.body;
+
+    if (!interfaceName) {
+      return res.status(400).json({ success: false, error: 'interfaceName is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await configureLinuxNetworkInterfaceSSH(server, interfaceName, config || {}, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Configure Network Interface (${interfaceName})`,
+      category: 'configuration',
+      target: `${server.name || server.ip} (${interfaceName})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxNetworkAction API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to configure network interface',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/proxy-action - Configure or clear persistent system proxy
+apiRouter.post('/remote-servers/:id/proxy-action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { proxyConfig, password } = req.body;
+
+    if (!proxyConfig || typeof proxyConfig.enabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Valid proxyConfig object with enabled boolean is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await configureLinuxPersistentProxySSH(server, proxyConfig, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: proxyConfig.enabled ? 'Set Persistent Proxy' : 'Clear Persistent Proxy',
+      category: 'configuration',
+      target: `${server.name || server.ip}`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxProxyAction API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to configure persistent proxy',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/proxy-test - Test proxy connectivity via curl
+apiRouter.post('/remote-servers/:id/proxy-test', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { proxyUrl, testTarget, password } = req.body;
+
+    if (!proxyUrl) {
+      return res.status(400).json({ success: false, error: 'proxyUrl is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await testLinuxProxySSH(server, proxyUrl, testTarget, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxProxyTest API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to test proxy connectivity',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/ssh-port - Change SSH Port on remote Linux server
+apiRouter.post('/remote-servers/:id/ssh-port', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { newPort, password } = req.body;
+
+    const parsedPort = Number(newPort);
+    if (!parsedPort || isNaN(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+      return res.status(400).json({ success: false, error: 'Valid newPort between 1 and 65535 is required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await changeLinuxSshPortSSH(server, parsedPort, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Change SSH Port (${parsedPort})`,
+      category: 'security',
+      target: `${server.name || server.ip} (Port ${parsedPort})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxSshPort API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to change SSH port',
     });
   }
 });

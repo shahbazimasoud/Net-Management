@@ -9,28 +9,28 @@ import {
   CheckCircle2,
   RefreshCw,
 } from 'lucide-react';
-import { LinuxProcessMetric } from '../../types/remoteServer';
+import { LinuxServerProcessMetric } from '../../types';
 
 interface ProcessActionModalsProps {
   contextMenu: {
     visible: boolean;
     x: number;
     y: number;
-    process: LinuxProcessMetric | null;
+    process: LinuxServerProcessMetric | null;
   };
   onCloseContextMenu: () => void;
   onKillProcess: (pid: number, signal: 'SIGTERM' | 'SIGKILL', command: string) => void;
-  onOpenRenice: (proc: LinuxProcessMetric) => void;
+  onOpenRenice: (proc: LinuxServerProcessMetric) => void;
   reniceDialog: {
     isOpen: boolean;
-    process: LinuxProcessMetric | null;
+    process: LinuxServerProcessMetric | null;
     niceValue: number;
     loading: boolean;
   };
   setReniceDialog: React.Dispatch<
     React.SetStateAction<{
       isOpen: boolean;
-      process: LinuxProcessMetric | null;
+      process: LinuxServerProcessMetric | null;
       niceValue: number;
       loading: boolean;
     }>
