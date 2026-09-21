@@ -1213,7 +1213,7 @@ export interface BulkServerParameter {
 
 export interface BulkServerTemplate {
   id: string;
-  category: 'maintenance' | 'security' | 'network' | 'users' | 'services' | 'custom' | string;
+  category: 'maintenance' | 'security' | 'network' | 'users' | 'cron' | 'storage' | 'firewall' | 'services' | 'docker' | 'custom' | string;
   title: string;
   title_en: string;
   description: string;

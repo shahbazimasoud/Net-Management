@@ -31,6 +31,7 @@ import {
   ChevronDown,
   ChevronUp,
   Layers,
+  HardDrive,
   Sparkles,
   HelpCircle,
   AlertCircle
@@ -387,6 +388,10 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
         return <Activity className={className} />;
       case 'Users':
         return <Users className={className} />;
+      case 'HardDrive':
+        return <HardDrive className={className} />;
+      case 'Layers':
+        return <Layers className={className} />;
       case 'Terminal':
       default:
         return <Terminal className={className} />;
@@ -567,11 +572,15 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
                 <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
                   {[
                     { id: 'all', labelEn: 'All Templates', labelFa: 'همه قالب‌ها' },
-                    { id: 'maintenance', labelEn: 'Maintenance & OS', labelFa: 'نگهداری و سیستم‌عامل' },
+                    { id: 'users', labelEn: 'Users & Groups', labelFa: 'کاربران و دسترسی' },
+                    { id: 'cron', labelEn: 'Cron Jobs & Schedules', labelFa: 'کرون‌جاب و زمان‌بندی' },
+                    { id: 'storage', labelEn: 'Mount & Storage', labelFa: 'مانت و دیسک' },
+                    { id: 'firewall', labelEn: 'Firewall & Ports', labelFa: 'فایروال و پورت‌ها' },
+                    { id: 'docker', labelEn: 'Docker Fleet', labelFa: 'کانتینرهای داکر' },
                     { id: 'security', labelEn: 'Security & SSH', labelFa: 'امنیت و SSH' },
-                    { id: 'network', labelEn: 'Network & DNS', labelFa: 'شبکه و DNS' },
+                    { id: 'network', labelEn: 'Network & Routing', labelFa: 'شبکه و مسیریابی' },
+                    { id: 'maintenance', labelEn: 'Maintenance & OS', labelFa: 'نگهداری و سیستم‌عامل' },
                     { id: 'services', labelEn: 'Services & Systemd', labelFa: 'سرویس‌ها' },
-                    { id: 'users', labelEn: 'Users & Sudo', labelFa: 'کاربران و دسترسی' },
                     { id: 'custom', labelEn: 'Ad-hoc Bash', labelFa: 'اسکریپت سفارشی' }
                   ].map((cat) => (
                     <button

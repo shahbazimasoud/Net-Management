@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.106.0';
+export const APP_VERSION = '1.107.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.107.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'توسعه پیشرفته گزینه‌های اتوماسیون ناوگان سرورهای لینوکس: مدیریت کامل کاربران، زمان‌بندی کرون‌جاب، مانت استوریج و فایروال هوشمند',
+    title_en: 'Advanced Bulk Linux Automation Suite: User Lifecycle & Groups, Simplified Cron Scheduling, Storage Mount & Adaptive Firewall',
+    changes: [
+      'توسعه همه‌جانبه ماژول مدیریت کاربران: افزودن کاربر به گروه‌های ثانویه یا حذف از گروه‌ها (مانند docker, sudo)، قفل و بازگشایی حساب، انقضای فوری رمز عبور یا تنظیم تاریخ انقضای حساب کاربری، حذف حساب کاربری با پاک‌سازی دایرکتوری خانگی و خاتمه پردازش‌ها، و تغییر شل ورودی (bash, zsh, nologin).',
+      'پیاده‌سازی سیستم زمان‌بندی وظایف (Cron Jobs) با دوره‌های آماده و بسیار قابل‌فهم (هر دقیقه، ۵ دقیقه، ساعتی، نیمه‌شب، هفتگی، اول ماه، هنگام بوت @reboot یا عبارت ۵ فیلدی سفارشی)، حذف وظایف بر اساس شناسه و ممیزی جامع کرون‌های فعال در سطح ناوگان.',
+      'افزودن امکان مانت فضای ذخیره‌سازی، دیسک‌های ابری و اشتراک‌های شبکه (ext4, xfs, btrfs, nfs, cifs) با ساخت خودکار پوشه و ثبت پایدار در /etc/fstab جهت بقا پس از ریبوت، آن‌مانت ایمن (با پشتیبانی از force و lazy) و ممیزی حجم و Inode دیسک‌ها.',
+      'مدیریت هوشمند فایروال و پورت‌ها: بستن، باز کردن یا حذف قوانین پورت با تشخیص خودکار فایروال فعال (UFW، Firewalld یا Iptables)، پشتیبانی از فیلتر IP/CIDR مبدا و استعلام بی‌درنگ قوانین فایروال.',
+      'افزودن اتوماسیون کانتینرهای داکر (مشاهده، ری‌استارت، پاک‌سازی عمیق حافظه با prune، و اسنپ‌شات مصرف منابع)، ممیزی پردازش‌های پرمصرف CPU و RAM، تنظیم روت‌های استاتیک کرنل و ممیزی انقضای گواهینامه‌های SSL/TLS.',
+      'تجهیز نوار فیلتر به دسته‌بندی‌های جدید (Users & Groups, Cron Jobs, Mount & Storage, Firewall & Ports, Docker Fleet) با آیکون‌های متناسب و حفظ کامل استانداردهای مودال و دوزبانگی.'
+    ],
+    changes_en: [
+      'Comprehensive User Lifecycle & Group Automation: secondary group assignment/revocation (docker, sudo), account lock/unlock, password expiration and account expiry scheduling, safe user deletion with home directory purge, and login shell customization (bash, zsh, nologin).',
+      'Intuitive Cron Job Scheduling Engine: human-readable schedule presets (every minute, 5 min, hourly, daily midnight, weekly, monthly, @reboot, or custom 5-field expression), tag-based job removal, and fleet-wide crontab auditing.',
+      'Block Device, Storage & Network Share Mounting: automated directory creation, filesystem support (ext4, xfs, btrfs, nfs, cifs), persistent /etc/fstab writing with backup, safe unmounting (with force and lazy flags), and disk/inode capacity audits.',
+      'Adaptive Firewall & Port Management: allow, block, or delete port rules with auto-detection of active host firewall (UFW, Firewalld, or Iptables), optional source CIDR isolation, and real-time firewall policy auditing.',
+      'Docker Fleet & System Diagnostics: container status, targeted container restart, deep cache prune, live stats snapshots, top CPU/RAM consuming process inspection, static routing (ip route), and local SSL/TLS certificate expiry audits.',
+      'Enhanced UI Category Tabs: added dedicated filters for Users & Groups, Cron Jobs, Mount & Storage, Firewall & Ports, and Docker Fleet with tailored iconography and strict bilingual adherence.'
+    ]
+  },
   {
     version: '1.106.0',
     releaseDate: '2026-09-21',
