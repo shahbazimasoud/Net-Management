@@ -19,10 +19,46 @@ export interface EncryptedPayload {
   ciphertext: string;
   iv: string;
   tag: string;
+  hash?: string;
+  salt?: string;
 }
 
 /**
- * Encrypts a plain-text password using AES-256-GCM with authenticated tag.
+ * Computes a high-iteration PBKDF2-SHA512 hash of a password secret with a cryptographic salt.
+ * Ensures an irreversible cryptographic hash of the secret is persisted alongside ciphertext in the database.
+ */
+export function hashVaultSecret(
+  plainText: string,
+  customSalt?: string
+): { hash: string; salt: string } {
+  const salt = customSalt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(plainText, salt, 100000, 64, 'sha512').toString('hex');
+  return { hash, salt };
+}
+
+/**
+ * Timing-safe verification of a vault secret's cryptographic hash.
+ */
+export function verifyVaultSecretHash(
+  plainText: string,
+  storedHash: string,
+  salt: string
+): boolean {
+  if (!plainText || !storedHash || !salt) return false;
+  try {
+    const { hash } = hashVaultSecret(plainText, salt);
+    const bufA = Buffer.from(hash, 'hex');
+    const bufB = Buffer.from(storedHash, 'hex');
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Encrypts a plain-text password using AES-256-GCM with authenticated tag,
+ * and generates a PBKDF2-SHA512 hash and salt for database persistence.
  */
 export function encryptVaultSecret(plainText: string, userId: string): EncryptedPayload {
   const key = deriveUserKey(userId);
@@ -33,10 +69,14 @@ export function encryptVaultSecret(plainText: string, userId: string): Encrypted
   encrypted += cipher.final('hex');
   const tag = cipher.getAuthTag().toString('hex');
 
+  const { hash, salt } = hashVaultSecret(plainText);
+
   return {
     ciphertext: encrypted,
     iv: iv.toString('hex'),
     tag,
+    hash,
+    salt,
   };
 }
 

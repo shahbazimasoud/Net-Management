@@ -134,6 +134,14 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
   const [formShowPassword, setFormShowPassword] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Re-authentication states for secret reveal & copy
+  const [authPromptItem, setAuthPromptItem] = useState<VaultItem | null>(null);
+  const [authPromptAction, setAuthPromptAction] = useState<'reveal' | 'copy'>('reveal');
+  const [authPasswordInput, setAuthPasswordInput] = useState('');
+  const [authPasswordShow, setAuthPasswordShow] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isVerifyingAuth, setIsVerifyingAuth] = useState(false);
+
   // Delete confirm
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -192,11 +200,14 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
       setRevealedPasswords({});
       setIsFormOpen(false);
       setEditingItem(null);
+      setAuthPromptItem(null);
+      setAuthPasswordInput('');
+      setAuthError(null);
     }
   }, [isOpen, fetchVaultItems]);
 
-  // Reveal password on-demand
-  const handleToggleReveal = async (item: VaultItem) => {
+  // Reveal password on-demand (prompts user for login password)
+  const handleToggleReveal = (item: VaultItem) => {
     if (revealedPasswords[item.id]) {
       // Hide
       setRevealedPasswords((prev) => {
@@ -207,49 +218,82 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
       return;
     }
 
-    setRevealingIds((prev) => ({ ...prev, [item.id]: true }));
-    try {
-      const res = await fetch(`/api/vault/${item.id}/reveal`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-      });
-      const data = await res.json();
-      if (data.success && data.password !== undefined) {
-        setRevealedPasswords((prev) => ({ ...prev, [item.id]: data.password }));
-      } else {
-        alert(isEn ? 'Failed to decrypt password: ' + (data.error || 'Unknown') : 'رمزگشایی پسورد با خطا مواجه شد.');
-      }
-    } catch (err: any) {
-      console.error('Reveal error:', err);
-      alert(isEn ? 'Network error during decryption' : 'خطای ارتباطی حین رمزگشایی گذرواژه');
-    } finally {
-      setRevealingIds((prev) => ({ ...prev, [item.id]: false }));
-    }
+    // Prompt user for account login password
+    setAuthPromptItem(item);
+    setAuthPromptAction('reveal');
+    setAuthPasswordInput('');
+    setAuthPasswordShow(false);
+    setAuthError(null);
   };
 
   // Copy password (reveals if not revealed yet or directly copies)
   const handleCopyPassword = async (item: VaultItem) => {
-    try {
-      let pass = revealedPasswords[item.id];
-      if (!pass) {
-        const res = await fetch(`/api/vault/${item.id}/reveal`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-        });
-        const data = await res.json();
-        if (data.success && data.password) {
-          pass = data.password;
-          setRevealedPasswords((prev) => ({ ...prev, [item.id]: data.password }));
-        }
-      }
+    const pass = revealedPasswords[item.id];
+    if (pass) {
+      await navigator.clipboard.writeText(pass);
+      setCopiedId(item.id);
+      setTimeout(() => setCopiedId(null), 2500);
+      return;
+    }
 
-      if (pass) {
-        await navigator.clipboard.writeText(pass);
-        setCopiedId(item.id);
-        setTimeout(() => setCopiedId(null), 2500);
+    // Prompt user for account login password to decrypt and copy
+    setAuthPromptItem(item);
+    setAuthPromptAction('copy');
+    setAuthPasswordInput('');
+    setAuthPasswordShow(false);
+    setAuthError(null);
+  };
+
+  // Confirm user's master login password and decrypt
+  const handleConfirmAuth = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!authPromptItem || !authPasswordInput.trim() || isVerifyingAuth) return;
+
+    setIsVerifyingAuth(true);
+    setAuthError(null);
+
+    try {
+      const res = await fetch(`/api/vault/${authPromptItem.id}/reveal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          loginPassword: authPasswordInput.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success && data.password !== undefined) {
+        setRevealedPasswords((prev) => ({ ...prev, [authPromptItem.id]: data.password }));
+
+        if (authPromptAction === 'copy') {
+          try {
+            await navigator.clipboard.writeText(data.password);
+            setCopiedId(authPromptItem.id);
+            setTimeout(() => setCopiedId(null), 2500);
+          } catch (clipErr) {
+            console.error('Clipboard copy error:', clipErr);
+          }
+        }
+
+        // Close auth modal
+        setAuthPromptItem(null);
+        setAuthPasswordInput('');
+        setAuthError(null);
+      } else {
+        const errMsg = isEn
+          ? (data.error || 'Authentication failed. Please verify your login password.')
+          : (data.message || data.error || 'رمز عبور حساب کاربری نامعتبر است.');
+        setAuthError(errMsg);
       }
-    } catch (err) {
-      console.error('Copy error:', err);
+    } catch (err: any) {
+      console.error('Auth reveal error:', err);
+      setAuthError(isEn ? 'Network error during password verification.' : 'خطای ارتباطی حین احراز هویت گذرواژه.');
+    } finally {
+      setIsVerifyingAuth(false);
     }
   };
 
@@ -1387,6 +1431,173 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
         )}
 
         {/* =====================================================================
+            RE-AUTHENTICATION MODAL (MASTER PASSWORD VERIFICATION)
+            ===================================================================== */}
+        {authPromptItem && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div
+              id="vault-reauth-modal"
+              className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden transition-all ${
+                isLightMode ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-800 text-slate-100'
+              }`}
+            >
+              {/* Header */}
+              <div
+                className={`px-5 py-4 border-b flex items-center justify-between ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold">
+                      {isEn ? 'Master Password Verification' : 'تأیید هویت و رمز عبور اصلی'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {isEn ? 'Security Re-Authentication Required' : 'احراز هویت مجدد جهت دسترسی به گذرواژه'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthPromptItem(null);
+                    setAuthPasswordInput('');
+                    setAuthError(null);
+                  }}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    isLightMode ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Form Body */}
+              <form onSubmit={handleConfirmAuth} className="p-5 space-y-4">
+                <div
+                  className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                    isLightMode
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-amber-950/30 border-amber-800/40 text-amber-200'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium mb-1">
+                        {isEn ? (
+                          <>
+                            To {authPromptAction === 'copy' ? 'copy' : 'reveal'} the secret for{' '}
+                            <strong className="font-bold">{authPromptItem.name}</strong>, please enter your user login password.
+                          </>
+                        ) : (
+                          <>
+                            جهت {authPromptAction === 'copy' ? 'کپی' : 'مشاهده'} گذرواژه برای{' '}
+                            <strong className="font-bold">«{authPromptItem.name}»</strong>، لطفاً رمز عبور ورود به سیستم خود را وارد نمایید.
+                          </>
+                        )}
+                      </p>
+                      <p className="text-[10px] opacity-80">
+                        {isEn
+                          ? 'Zero-knowledge decryption: secrets are decrypted on-demand after validating credentials.'
+                          : 'رمزگشایی برخط: اطلاعات محرمانه فقط پس از احراز هویت موفقیت‌آمیز در سمت سرور رمزگشایی می‌شوند.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {authError && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs font-medium">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5">
+                    {isEn ? 'Your Login Password' : 'رمز عبور حساب کاربری شما'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={authPasswordShow ? 'text' : 'password'}
+                      autoFocus
+                      value={authPasswordInput}
+                      onChange={(e) => {
+                        setAuthPasswordInput(e.target.value);
+                        if (authError) setAuthError(null);
+                      }}
+                      placeholder={isEn ? 'Enter current login password' : 'رمز عبور ورود به سامانه را وارد کنید'}
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-mono border transition-all ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white focus:border-cyan-500'
+                          : 'bg-slate-950 border-slate-700 text-slate-100 focus:border-cyan-400'
+                      } outline-none`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setAuthPasswordShow(!authPasswordShow)}
+                      tabIndex={-1}
+                      className={`absolute top-1/2 -translate-y-1/2 ${
+                        isEn ? 'right-3' : 'left-3'
+                      } p-1 text-slate-400 hover:text-slate-200`}
+                    >
+                      {authPasswordShow ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthPromptItem(null);
+                      setAuthPasswordInput('');
+                      setAuthError(null);
+                    }}
+                    disabled={isVerifyingAuth}
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                      isLightMode
+                        ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                        : 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isVerifyingAuth || !authPasswordInput.trim()}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                      isLightMode
+                        ? 'bg-cyan-600 hover:bg-cyan-700 text-white shadow-cyan-600/20'
+                        : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/20'
+                    } disabled:opacity-50`}
+                  >
+                    {isVerifyingAuth ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {isVerifyingAuth
+                        ? isEn
+                          ? 'Verifying...'
+                          : 'در حال بررسی...'
+                        : isEn
+                        ? 'Verify & Decrypt'
+                        : 'تأیید و رمزگشایی'}
+                    </span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================================
             FOOTER STATUS BAR
             ===================================================================== */}
         <div
@@ -1399,15 +1610,15 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
             <span>
               {isEn
-                ? 'AES-256-GCM Hardware-Grade Vault Active'
-                : 'سیستم رمزنگاری سخت‌افزاری AES-256-GCM فعال است'}
+                ? 'AES-256-GCM Encrypted & Salted PBKDF2 Hashed Storage Active'
+                : 'رمزنگاری AES-256-GCM و ذخیره‌سازی هش نمک‌دار PBKDF2 فعال است'}
             </span>
           </div>
           <div>
             <span>
               {isEn
-                ? 'Each account has a physically isolated cryptographic derivation key.'
-                : 'هر کاربر دارای کلید رمزنگاری مستقل و ایزوله در سطح حافظه و دیتابیس می‌باشد.'}
+                ? 'User Login Password verification enforced on reveal.'
+                : 'مشاهده گذرواژه مستلزم ورود رمز عبور حساب کاربری است.'}
             </span>
           </div>
         </div>

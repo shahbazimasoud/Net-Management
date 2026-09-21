@@ -296,6 +296,8 @@ CREATE TABLE IF NOT EXISTS user_password_vault (
     encrypted_password TEXT NOT NULL,
     iv VARCHAR(64) NOT NULL,
     tag VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(128),
+    password_salt VARCHAR(64),
     category VARCHAR(64) DEFAULT 'general',
     target_host VARCHAR(150),
     notes TEXT,
@@ -307,6 +309,14 @@ CREATE TABLE IF NOT EXISTS user_password_vault (
 
 CREATE INDEX IF NOT EXISTS idx_user_vault_user_id ON user_password_vault(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_vault_category ON user_password_vault(category);
+
+-- Ensure migration for user_password_vault hash columns
+DO $$ BEGIN
+    ALTER TABLE user_password_vault ADD COLUMN IF NOT EXISTS password_hash VARCHAR(128);
+    ALTER TABLE user_password_vault ADD COLUMN IF NOT EXISTS password_salt VARCHAR(64);
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
 
 -- Dynamic Alterations for Seamless Upgrades
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS winbox_port INT DEFAULT 8291;

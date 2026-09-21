@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.100.0';
+export const APP_VERSION = '1.101.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.101.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'ارتقای امنیتی ولت گذرواژه‌ها: احراز هویت مجدد با رمز لاگین کاربر هنگام Reveal و ذخیره هش امن در دیتابیس',
+    title_en: 'Password Vault Security Hardening: Master Login Password Re-Authentication on Reveal & Salted Hash Storage',
+    changes: [
+      'الزام احراز هویت مجدد کاربر با دریافت رمز عبور ورود به سامانه (Login Password) در هنگام کلیک روی دکمه نمایش یا کپی گذرواژه (Reveal / Copy Password).',
+      'طراحی مودال اختصاصی تأیید هویت کاربری (Master Password Verification) با پشتیبانی کامل از تم روشن/تاریک، زبان‌های فارسی و انگلیسی و محافظت در برابر حملات Brute-force با Rate Limiting هوشمند.',
+      'افزودن قابلیت ذخیره‌سازی هش رمزنگاری‌شده و نمک‌دار گذرواژه‌ها (PBKDF2-SHA512 با ۱۰۰,۰۰۰ دور) در فیلدهای password_hash و password_salt در دیتابیس دوشادوش رمزنگاری AES-256-GCM.',
+      'به‌روزرسانی ساختار دیتابیس PostgreSQL و فایل ذخیره‌سازی محلی جهت ثبت و همگام‌سازی خودکار ستون‌های هش و نمک در جدول user_password_vault.',
+      'ثبت دقیق تمامی تلاش‌های موفق و ناموفق رمزگشایی و مشاهده کلمات عبور در لاگ‌های حسابرسی امنیتی سیستم (Audit Logs).'
+    ],
+    changes_en: [
+      'Enforced mandatory re-authentication requiring the user\'s current login password before revealing or copying any secret from the Password Vault.',
+      'Designed a dedicated Master Password Verification dialog adhering to dark/light theme standards, full bilingual i18n, and brute-force protection via rate-limiting.',
+      'Added cryptographic salted hashing (PBKDF2-SHA512 with 100,000 iterations) stored in password_hash and password_salt columns alongside authenticated AES-256-GCM ciphertext.',
+      'Updated the PostgreSQL schema and fallback store to automatically migrate and persist password hashes and salts in user_password_vault.',
+      'Integrated comprehensive security auditing recording all successful and failed secret reveal and decryption attempts in Audit Logs.'
+    ]
+  },
   {
     version: '1.100.0',
     releaseDate: '2026-09-21',

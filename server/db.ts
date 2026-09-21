@@ -168,6 +168,8 @@ export interface UserVaultItem {
   encrypted_password: string;
   iv: string;
   tag: string;
+  password_hash?: string;
+  password_salt?: string;
   category?: string;
   target_host?: string;
   notes?: string;
@@ -1242,6 +1244,8 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         encrypted_password TEXT NOT NULL,
         iv VARCHAR(64) NOT NULL,
         tag VARCHAR(64) NOT NULL,
+        password_hash VARCHAR(128),
+        password_salt VARCHAR(64),
         category VARCHAR(64) DEFAULT 'general',
         target_host VARCHAR(150),
         notes TEXT,
@@ -1251,14 +1255,25 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Ensure columns exist on existing table
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE user_password_vault ADD COLUMN IF NOT EXISTS password_hash VARCHAR(128);
+        ALTER TABLE user_password_vault ADD COLUMN IF NOT EXISTS password_salt VARCHAR(64);
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END $$;
+    `);
+
     if (Array.isArray(initialData.user_password_vault) && initialData.user_password_vault.length > 0) {
       for (const v of initialData.user_password_vault) {
         if (!v || !v.id || !v.user_id) continue;
         await client.query(
           `INSERT INTO user_password_vault (
-            id, user_id, name, username, encrypted_password, iv, tag, category, target_host, notes, tags, strength, created_at, updated_at
+            id, user_id, name, username, encrypted_password, iv, tag, password_hash, password_salt, category, target_host, notes, tags, strength, created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
            ON CONFLICT (id) DO NOTHING`,
           [
             v.id,
@@ -1268,6 +1283,8 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             v.encrypted_password,
             v.iv,
             v.tag,
+            v.password_hash || '',
+            v.password_salt || '',
             v.category || 'general',
             v.target_host || '',
             v.notes || '',
@@ -1437,6 +1454,28 @@ export async function findUserByUsername(username: string): Promise<any | null> 
   return (
     store.users.find(
       (u) => u && typeof u.username === 'string' && u.username.toLowerCase() === cleanUser
+    ) || null
+  );
+}
+
+export async function findUserById(id: string): Promise<any | null> {
+  const cleanId = (id || '').trim();
+  if (!cleanId) return null;
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM users WHERE id = $1 LIMIT 1', [cleanId]);
+      if (res.rows.length > 0) return res.rows[0];
+    } catch (e) {
+      console.error('[DB Query Error in findUserById]', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  return (
+    store.users.find(
+      (u) => u && typeof u.id === 'string' && u.id === cleanId
     ) || null
   );
 }
@@ -3568,6 +3607,8 @@ export async function getUserVaultItems(userId: string): Promise<UserVaultItem[]
           encrypted_password: r.encrypted_password,
           iv: r.iv,
           tag: r.tag,
+          password_hash: r.password_hash || undefined,
+          password_salt: r.password_salt || undefined,
           category: r.category || 'general',
           target_host: r.target_host || '',
           notes: r.notes || '',
@@ -3607,6 +3648,8 @@ export async function getUserVaultItemById(id: string, userId: string): Promise<
           encrypted_password: r.encrypted_password,
           iv: r.iv,
           tag: r.tag,
+          password_hash: r.password_hash || undefined,
+          password_salt: r.password_salt || undefined,
           category: r.category || 'general',
           target_host: r.target_host || '',
           notes: r.notes || '',
@@ -3643,6 +3686,8 @@ export async function saveUserVaultItem(item: UserVaultItem): Promise<UserVaultI
     encrypted_password: item.encrypted_password,
     iv: item.iv,
     tag: item.tag,
+    password_hash: item.password_hash || undefined,
+    password_salt: item.password_salt || undefined,
     category: item.category || 'general',
     target_host: (item.target_host || '').trim(),
     notes: (item.notes || '').trim(),
@@ -3669,14 +3714,16 @@ export async function saveUserVaultItem(item: UserVaultItem): Promise<UserVaultI
     try {
       await pool.query(
         `INSERT INTO user_password_vault (
-          id, user_id, name, username, encrypted_password, iv, tag, category, target_host, notes, tags, strength, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          id, user_id, name, username, encrypted_password, iv, tag, password_hash, password_salt, category, target_host, notes, tags, strength, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           username = EXCLUDED.username,
           encrypted_password = EXCLUDED.encrypted_password,
           iv = EXCLUDED.iv,
           tag = EXCLUDED.tag,
+          password_hash = EXCLUDED.password_hash,
+          password_salt = EXCLUDED.password_salt,
           category = EXCLUDED.category,
           target_host = EXCLUDED.target_host,
           notes = EXCLUDED.notes,
@@ -3691,6 +3738,8 @@ export async function saveUserVaultItem(item: UserVaultItem): Promise<UserVaultI
           normalized.encrypted_password,
           normalized.iv,
           normalized.tag,
+          normalized.password_hash || '',
+          normalized.password_salt || '',
           normalized.category,
           normalized.target_host,
           normalized.notes,

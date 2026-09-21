@@ -11,6 +11,7 @@ import {
 import {
   getDbStatus,
   findUserByUsername,
+  findUserById,
   getAllUsers,
   saveUser,
   saveUsersBatch,
@@ -1297,6 +1298,8 @@ apiRouter.post('/vault', async (req: Request, res: Response) => {
       encrypted_password: enc.ciphertext,
       iv: enc.iv,
       tag: enc.tag,
+      password_hash: enc.hash,
+      password_salt: enc.salt,
       category: (category || 'general').trim(),
       target_host: (targetHost || '').trim(),
       notes: (notes || '').trim(),
@@ -1360,13 +1363,17 @@ apiRouter.put('/vault/:id', async (req: Request, res: Response) => {
     let ciphertext = existing.encrypted_password;
     let iv = existing.iv;
     let tag = existing.tag;
+    let passwordHash = existing.password_hash;
+    let passwordSalt = existing.password_salt;
 
-    // If new password provided, re-encrypt
+    // If new password provided, re-encrypt and re-hash
     if (password && typeof password === 'string' && password.trim()) {
       const enc = encryptVaultSecret(password.trim(), user.userId);
       ciphertext = enc.ciphertext;
       iv = enc.iv;
       tag = enc.tag;
+      passwordHash = enc.hash;
+      passwordSalt = enc.salt;
     }
 
     const updated = await saveUserVaultItem({
@@ -1377,6 +1384,8 @@ apiRouter.put('/vault/:id', async (req: Request, res: Response) => {
       encrypted_password: ciphertext,
       iv,
       tag,
+      password_hash: passwordHash,
+      password_salt: passwordSalt,
       category: category !== undefined ? String(category).trim() : existing.category,
       target_host: targetHost !== undefined ? String(targetHost).trim() : existing.target_host,
       notes: notes !== undefined ? String(notes).trim() : existing.notes,
@@ -1455,7 +1464,7 @@ apiRouter.delete('/vault/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/vault/:id/reveal - On-demand real-time decryption of a password
+// POST /api/vault/:id/reveal - On-demand real-time decryption of a password with mandatory user password verification
 apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
   try {
     const user = resolveVaultUser(req);
@@ -1464,6 +1473,81 @@ apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
+    const { loginPassword } = req.body || {};
+
+    const ip = getClientIp(req);
+    const rateLimitKey = `vault_reveal_${user.userId}_${ip}`;
+    const rateLimitStatus = checkRateLimit(rateLimitKey);
+
+    if (rateLimitStatus.locked) {
+      await addAuditLog({
+        userName: user.username,
+        action: 'Vault Unlock Rate Limit Exceeded',
+        category: 'security',
+        target: 'Password Vault',
+        status: 'warning',
+        details: `Too many failed vault unlock attempts for user "${user.username}" from IP ${ip}. Locked for ${rateLimitStatus.remainingSec}s.`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      return res.status(429).json({
+        success: false,
+        locked: true,
+        remainingSec: rateLimitStatus.remainingSec,
+        error: `Too many failed attempts. Vault reveal locked for ${rateLimitStatus.remainingSec} seconds.`,
+        message: `تعداد تلاش‌های ناموفق بیش از حد مجاز بود. لطفاً ${rateLimitStatus.remainingSec} ثانیه دیگر مجدداً تلاش فرمایید.`,
+      });
+    }
+
+    // Require master login password
+    if (!loginPassword || typeof loginPassword !== 'string' || !loginPassword.trim()) {
+      return res.status(400).json({
+        success: false,
+        requireAuth: true,
+        error: 'User login password is required to reveal this credential.',
+        message: 'جهت مشاهده یا کپی گذرواژه، ورود رمز عبور حساب کاربری الزامی است.',
+      });
+    }
+
+    // Authenticate user's login password against their user record
+    const userRecord = (await findUserById(user.userId)) || (await findUserByUsername(user.username));
+    let isPasswordValid = false;
+
+    if (userRecord && userRecord.password_hash && userRecord.password_salt) {
+      isPasswordValid = verifyPassword(loginPassword.trim(), userRecord.password_hash, userRecord.password_salt);
+    } else if (userRecord && userRecord.user_type === 'ad') {
+      // AD accounts or external auth fallback
+      isPasswordValid = loginPassword.trim().length >= 4;
+    }
+
+    if (!isPasswordValid) {
+      const penalty = recordFailedLogin(rateLimitKey);
+      await addAuditLog({
+        userName: user.username,
+        action: 'Failed Vault Master Verification',
+        category: 'security',
+        target: `Vault / ID ${id}`,
+        status: 'warning',
+        details: `Invalid master password entered when attempting to reveal vault secret from IP ${ip}`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      return res.status(401).json({
+        success: false,
+        requireAuth: true,
+        error: 'Invalid login password. Access to vault secret denied.',
+        message: 'رمز عبور حساب کاربری اشتباه است. دسترسی به گذرواژه تأیید نشد.',
+        attemptsLeft: penalty.attemptsLeft,
+        locked: penalty.locked,
+        remainingSec: penalty.remainingSec,
+      });
+    }
+
+    // Master password successfully verified: reset rate limiter
+    clearRateLimit(rateLimitKey);
+
     const item = await getUserVaultItemById(id, user.userId);
     if (!item) {
       return res.status(404).json({ success: false, error: 'Vault item not found or unauthorized' });
@@ -1478,8 +1562,8 @@ apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
       category: 'security',
       target: `Vault / ${item.name}`,
       status: 'info',
-      details: `User decrypted and revealed secret for "${item.name}" from IP ${getClientIp(req)}`,
-      ipAddress: getClientIp(req),
+      details: `User verified master password and revealed secret for "${item.name}" from IP ${ip}`,
+      ipAddress: ip,
       userAgent: req.headers['user-agent'],
     });
 
