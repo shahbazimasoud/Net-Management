@@ -44,6 +44,7 @@ import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
+import { BulkServerConfigModal } from './BulkServerConfigModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -123,6 +124,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
   const [isPingingAll, setIsPingingAll] = useState(false);
   const [serverToDelete, setServerToDelete] = useState<RemoteServer | null>(null);
+
+  // Bulk Linux Server Configuration Modal State
+  const [isBulkConfigOpen, setIsBulkConfigOpen] = useState(false);
 
   // Close floating action menu on scroll or window resize
   useEffect(() => {
@@ -597,6 +601,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     }
   };
 
+  const handleMinimizeBulkConfig = () => {
+    setIsBulkConfigOpen(false);
+    dockModal({
+      id: 'bulk_server_config_modal',
+      labelEn: isEn ? 'Bulk Linux Config' : 'پیکربندی گروهی لینوکس',
+      labelFa: 'پیکربندی گروهی سرورهای لینوکس',
+      badge: 'BULK',
+      category: 'tools',
+      onRestore: () => setIsBulkConfigOpen(true),
+      onClose: () => {
+        setIsBulkConfigOpen(false);
+        undockModal('bulk_server_config_modal');
+      },
+    });
+  };
+
   return (
     <div
       className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto transition-colors duration-200 ${
@@ -696,6 +716,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isPingingAll || loading ? 'animate-spin text-cyan-400' : ''}`} />
               <span>{isEn ? 'Ping All Fleet' : 'تست پینگ همه'}</span>
+            </button>
+
+            {/* Bulk Server Config Button */}
+            <button
+              id="btn-bulk-server-config"
+              type="button"
+              onClick={() => setIsBulkConfigOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+                isLightMode
+                  ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                  : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-xs'
+              }`}
+              title={isEn ? 'Bulk configure remote Linux servers' : 'پیکربندی گروهی سرورهای لینوکس'}
+            >
+              <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{isEn ? 'Bulk Server Config' : 'پیکربندی گروهی'}</span>
             </button>
 
             {/* Add Server Button */}
@@ -1057,6 +1093,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             >
               <Zap className="w-3.5 h-3.5" />
               <span>{isEn ? 'Test Reachability' : 'تست وضعیت پینگ'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsBulkConfigOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold shadow-md shadow-indigo-500/20 cursor-pointer active:scale-95 transition"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Bulk Linux Config' : 'پیکربندی گروهی لینوکس'}</span>
             </button>
           </div>
         </div>
@@ -2124,6 +2169,21 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         }}
         onMinimize={handleMinimizeCategories}
         onCategoriesChanged={handleCategoriesChanged}
+      />
+
+      {/* 17. Bulk Linux Server Configuration Modal */}
+      <BulkServerConfigModal
+        isOpen={isBulkConfigOpen}
+        onClose={() => {
+          setIsBulkConfigOpen(false);
+          undockModal('bulk_server_config_modal');
+        }}
+        onMinimize={handleMinimizeBulkConfig}
+        isLightMode={isLightMode}
+        isEn={isEn}
+        allServers={servers}
+        initialSelectedServers={servers.filter((s) => selectedServerIds.has(s.id))}
+        onServersUpdated={loadFleet}
       />
     </div>
   );

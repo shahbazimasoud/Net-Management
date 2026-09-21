@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.105.0';
+export const APP_VERSION = '1.106.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.106.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن سیستم جامع پیکربندی گروهی ناوگان سرورهای لینوکس (Bulk Linux Server Configuration & Fleet Automation)',
+    title_en: 'Add Comprehensive Bulk Linux Server Configuration & Fleet Automation Suite',
+    changes: [
+      'پیاده‌سازی ماژول پیکربندی گروهی و اتوماسیون ناوگان سرورهای لینوکسی دقیقاً مشابه Bulk Device Configuration در بخش تجهیزات شبکه.',
+      'افزودن مجموعه قالب‌های استاندارد و کاربردی سرور لینوکس: به‌روزرسانی‌های امنیتی، پاک‌سازی دیسک و لاگ‌ها، امن‌سازی SSH، همگام‌سازی زمان و NTP، پیکربندی DNS Resolver، ایجاد کاربران مدیر با دسترسی Sudo، مدیریت سرویس‌های Systemd و اجرای اسکریپت شل آزاد.',
+      'تولید هوشمند و خودکار دستورات شل بر اساس توزیع سیستم‌عامل هر سرور (Debian/Ubuntu با APT، RHEL/CentOS/Rocky با DNF/YUM، Arch با Pacman، Alpine با APK و Generic POSIX).',
+      'پیش‌نمایش زنده دستورات ترجمه‌شده به ازای هر سرور قبل از شروع اجرا و تدابیر حفاظتی برای عملیات حساس (Confirmation Keyword).',
+      'موتور اجرای موازی و ترتیبی با بازخورد زنده، ثبت لاگ‌های بی‌درنگ، امکان لغو (Cancel)، نمایش تفکیک‌شده stdout/stderr و زمان پاسخگویی به میلی‌ثانیه.',
+      'پشتیبانی کامل از استانداردهای پنج‌گانه مودال: دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز در نوار ابزار پایین با حفظ استیت، تمام‌صفحه با رعایت حریم فوتر)، هماهنگی با تم روشن و تاریک، دوزبانگی کامل (فارسی و انگلیسی) و راهنماهای سه‌بخشی Info.'
+    ],
+    changes_en: [
+      'Implemented a comprehensive Bulk Linux Server Configuration & Fleet Automation suite in Remote Servers & Automation Fleet, mirroring the network equipment bulk configuration engine.',
+      'Added practical Linux server templates: OS Security Updates, Disk & Journal Cleanup, SSH Server Hardening, NTP & Timezone Sync, DNS Resolvers, Administrative User & Sudo Setup, Systemd Services Management, and Custom Ad-hoc Shell Scripting.',
+      'Intelligent distro-aware command generation tailored per node (Debian/Ubuntu with APT, RHEL/Rocky with DNF/YUM, Arch with Pacman, Alpine with APK, and Generic POSIX).',
+      'Live per-server command preview before execution with confirmation safeguards for dangerous operations.',
+      'Asynchronous fleet execution engine with live telemetry, real-time log streaming, job cancellation, per-node stdout/stderr drawer inspection, and runtime latency metrics in milliseconds.',
+      'Full compliance with 5-part universal modal guidelines: header 3-button controls (close, minimize to dock with state retention, fullscreen with strict footer boundary), dark/light mode adaptability, strict bilingual localization, and boundary-safe 3-part field info tooltips.'
+    ]
+  },
   {
     version: '1.105.0',
     releaseDate: '2026-09-21',

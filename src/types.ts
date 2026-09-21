@@ -1191,6 +1191,138 @@ export interface BulkJobStatus {
   logs: BulkJobLog[];
 }
 
+// -------------------------------------------------------------
+// Bulk Linux Server Configuration Interfaces
+// -------------------------------------------------------------
+export interface BulkServerParameter {
+  name: string;
+  labelFa: string;
+  labelEn: string;
+  type: 'string' | 'number' | 'password' | 'select' | 'textarea' | 'boolean';
+  required: boolean;
+  placeholder?: string;
+  default?: any;
+  options?: Array<{ value: string; labelFa: string; labelEn: string }>;
+  info_what_fa?: string;
+  info_what_en?: string;
+  info_why_fa?: string;
+  info_why_en?: string;
+  info_example_fa?: string;
+  info_example_en?: string;
+}
+
+export interface BulkServerTemplate {
+  id: string;
+  category: 'maintenance' | 'security' | 'network' | 'users' | 'services' | 'custom' | string;
+  title: string;
+  title_en: string;
+  description: string;
+  description_en: string;
+  icon: string;
+  parameters: BulkServerParameter[];
+  is_dangerous: boolean;
+  confirmation_keyword: string;
+  default_timeout_sec: number;
+  info_what_fa?: string;
+  info_what_en?: string;
+  info_why_fa?: string;
+  info_why_en?: string;
+  info_example_fa?: string;
+  info_example_en?: string;
+}
+
+export interface BulkServerPreviewStep {
+  name: string;
+  command: string;
+  descriptionFa: string;
+  descriptionEn: string;
+  distro: string;
+}
+
+export interface BulkServerPreviewItem {
+  serverId: string;
+  serverName: string;
+  serverIp: string;
+  osType: string;
+  osDistro: string;
+  distroFamily: string;
+  steps: BulkServerPreviewStep[];
+  isDangerous: boolean;
+  confirmationKeyword: string;
+  estimatedTimeoutSec: number;
+}
+
+export interface BulkServerStepDetail {
+  stepIndex: number;
+  stepName: string;
+  command: string;
+  descriptionFa: string;
+  descriptionEn: string;
+  status: 'running' | 'success' | 'failed' | 'skipped';
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  durationMs?: number;
+  errorMessageFa?: string;
+  errorMessageEn?: string;
+}
+
+export interface BulkServerExecutionResult {
+  serverId: string;
+  serverName: string;
+  serverIp: string;
+  osType: string;
+  osDistro: string;
+  distroFamily: string;
+  status: 'success' | 'failed' | 'partial' | 'skipped';
+  stepsTotal: number;
+  stepsCompleted: number;
+  stepsDetail: BulkServerStepDetail[];
+  rawOutput?: string;
+  durationMs: number;
+  executedAt: number;
+  errorType?: string;
+  errorMessageFa?: string;
+  errorMessageEn?: string;
+}
+
+export interface BulkServerJobLog {
+  timestamp: number;
+  timeStr: string;
+  level: 'info' | 'warning' | 'error' | 'success';
+  messageFa: string;
+  messageEn: string;
+  serverId?: string;
+}
+
+export interface BulkServerJobStatus {
+  jobId: string;
+  templateId: string;
+  templateTitle: string;
+  templateTitleEn: string;
+  parameters: Record<string, any>;
+  status: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
+  createdAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  totalServers: number;
+  completedServers: number;
+  percentage: number;
+  currentServerIndex: number;
+  currentServerName: string;
+  currentStepName: string;
+  successCount: number;
+  failedCount: number;
+  skippedCount: number;
+  options: {
+    timeoutSec: number;
+    delayMs: number;
+    dangerConfirmation?: string;
+  };
+  results: Record<string, BulkServerExecutionResult>;
+  logs: BulkServerJobLog[];
+}
+
 export interface RemoteServer {
   id: string;
   name: string;

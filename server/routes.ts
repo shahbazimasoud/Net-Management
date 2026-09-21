@@ -65,6 +65,13 @@ import {
   cancelDiscoveryJob,
   applyDiscoveryResultsToMap,
 } from './cdpLldpDiscovery';
+import {
+  getBulkServerTemplates,
+  generateBulkServerPreview,
+  startBulkServerJob,
+  getBulkServerJobStatus,
+  cancelBulkServerJob,
+} from './bulkServerConfig';
 
 export const apiRouter = Router();
 
@@ -1120,6 +1127,90 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
         message: `Connection timed out after 3500ms to ${targetHost}:${targetPort}`
       });
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// BULK LINUX SERVER CONFIGURATION ENDPOINTS
+// ==========================================
+
+// GET /api/bulk-server-config/templates - Get all Linux server configuration templates
+apiRouter.get('/bulk-server-config/templates', (_req: Request, res: Response) => {
+  try {
+    const templates = getBulkServerTemplates();
+    res.json({ success: true, templates });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/bulk-server-config/preview - Generate distribution-aware commands preview
+apiRouter.post('/bulk-server-config/preview', async (req: Request, res: Response) => {
+  try {
+    const { templateId, parameters, serverIds } = req.body;
+    if (!templateId || !Array.isArray(serverIds) || serverIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'templateId and non-empty serverIds array are required'
+      });
+    }
+
+    const preview = await generateBulkServerPreview(templateId, parameters || {}, serverIds);
+    res.json({ success: true, preview });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/bulk-server-config/jobs - Initiate fleet execution job
+apiRouter.post('/bulk-server-config/jobs', async (req: Request, res: Response) => {
+  try {
+    const { templateId, parameters, serverIds, timeoutSec, delayMs, dangerConfirmation, ephemeralPassword } = req.body;
+    if (!templateId || !Array.isArray(serverIds) || serverIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'templateId and non-empty serverIds array are required'
+      });
+    }
+
+    const result = await startBulkServerJob({
+      templateId,
+      parameters: parameters || {},
+      serverIds,
+      timeoutSec: Number(timeoutSec) || undefined,
+      delayMs: Number(delayMs) || 500,
+      dangerConfirmation,
+      ephemeralPassword
+    });
+
+    res.json({ success: true, jobId: result.jobId });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/bulk-server-config/jobs/:jobId - Poll job status, progress, logs & per-server stdout/stderr
+apiRouter.get('/bulk-server-config/jobs/:jobId', (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const job = getBulkServerJobStatus(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, error: 'Job not found' });
+    }
+    res.json({ success: true, job });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/bulk-server-config/jobs/:jobId/cancel - Cancel active job
+apiRouter.post('/bulk-server-config/jobs/:jobId/cancel', (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const cancelled = cancelBulkServerJob(jobId);
+    res.json({ success: true, cancelled });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
