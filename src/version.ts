@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.99.3';
+export const APP_VERSION = '1.99.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.99.4',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'رفع خطای دیکود Base64 در تبدیل گواهی SSL، حذف دکمه Load Sample و خروجی پکیج ZIP جامع',
+    title_en: 'Fix SSL Certificate Base64 Decoding Error, Remove Load Sample Button, and Add Full ZIP Package Download',
+    changes: [
+      'حذف دکمه Load Sample از تب تبدیل گواهی (Convertor) طبق درخواست کاربر.',
+      'رفع ریشه‌ای خطای Failed to parse certificate syntax: bad base64 decode ناشی از وجود خطوط متادیتا (مانند Bag Attributes، subject= و issuer=) در گواهی‌های ورودی و نرمال‌سازی دقیق Base64 و ساختار DER.',
+      'پیاده‌سازی ماژول ساخت پکیج فشرده ZIP شامل تمامی فرمت‌های تبدیل‌شده (PEM .crt، DER .cer، PKCS#7 .p7b/.p7c، PKCS#12 .pfx، Combined PEM .pem، Private Key .key و گزارش فنی) به همراه فایل راهنمای استقرار README.',
+      'افزودن کارت دانلود پکیج ZIP و دکمه دانلود جامع یکپارچه در بالای لیست خروجی‌های تبدیل جهت دریافت تمام فرمت‌ها با یک کلیک.'
+    ],
+    changes_en: [
+      'Removed the "Load Sample" button from the Certificate Converter tab as requested.',
+      'Fixed the root cause of "Failed to parse certificate syntax: bad base64 decode" error caused by metadata headers (Bag Attributes, subject=, issuer=) in pasted certificates through robust PEM filtering and DER boundary slicing.',
+      'Implemented automated multi-format batch conversion and bundled ZIP archive generation containing all output formats (PEM .crt, DER .cer, PKCS#7 .p7b/.p7c, PKCS#12 .pfx, Combined PEM .pem, Private Key .key, and technical report) along with a deployment README.',
+      'Added a dedicated ZIP Suite Download card and prominent Download All button to retrieve the entire certificate package in a single click.'
+    ]
+  },
   {
     version: '1.99.3',
     releaseDate: '2026-09-21',

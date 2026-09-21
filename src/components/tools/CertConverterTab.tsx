@@ -100,6 +100,12 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
   const [certInfo, setCertInfo] = useState<CertInfo | null>(null);
   const [keyMatch, setKeyMatch] = useState<KeyMatch | null>(null);
   const [outputs, setOutputs] = useState<ConvertedOutput[]>([]);
+  const [zipData, setZipData] = useState<{
+    filename: string;
+    base64: string;
+    sizeBytes: number;
+    fileCount: number;
+  } | null>(null);
   const [previewItem, setPreviewItem] = useState<ConvertedOutput | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -131,17 +137,47 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
     while ((match = keyRegex.exec(raw)) !== null) {
       let header = match[1].trim().toUpperCase();
       if (!header.includes('KEY')) header = `${header} PRIVATE KEY`;
-      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
-      if (b64.length > 40) {
-        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
-        keys.push(`-----BEGIN ${header}-----\n${chunked}\n-----END ${header}-----`);
+      const body = match[2];
+      const lines = body.split(/[\r\n]+/);
+      const validLines = lines.filter((l) => {
+        const t = l.trim();
+        if (!t || t.startsWith('Bag Attributes') || t.startsWith('subject=')) return false;
+        if (t.startsWith('Proc-Type:') || t.startsWith('DEK-Info:')) return true;
+        if (t.includes(' ') || t.includes(':')) return false;
+        return /^[A-Za-z0-9+/=]+$/.test(t);
+      });
+      let content = validLines.join('\n');
+      if (!content) {
+        const rawFiltered = body.replace(/[^A-Za-z0-9+/=]/g, '');
+        content = rawFiltered.match(/.{1,64}/g)?.join('\n') || rawFiltered;
+      }
+      if (content) {
+        keys.push(`-----BEGIN ${header}-----\n${content}\n-----END ${header}-----`);
       }
     }
 
     const certs: string[] = [];
     while ((match = certRegex.exec(raw)) !== null) {
       const tag = match[1].trim().toUpperCase();
-      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
+      const body = match[2];
+      const lines = body.split(/[\r\n]+/);
+      const validB64Lines = lines.filter((l) => {
+        const t = l.trim();
+        if (
+          !t ||
+          t.includes(' ') ||
+          t.includes(':') ||
+          t.startsWith('Bag Attributes') ||
+          t.startsWith('subject=') ||
+          t.startsWith('issuer=')
+        ) {
+          return false;
+        }
+        return /^[A-Za-z0-9+/=]+$/.test(t);
+      });
+      let b64 = validB64Lines.join('');
+      if (!b64) b64 = body.replace(/[^A-Za-z0-9+/=]/g, '');
+      if (b64.length % 4 !== 0) b64 += '='.repeat((4 - (b64.length % 4)) % 4);
       if (b64.length > 40) {
         const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
         const isPkcs7 = tag.includes('PKCS');
@@ -164,7 +200,9 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
       const miiRegex = /(MII[A-Za-z0-9+/=]{80,})/g;
       let m: RegExpExecArray | null;
       while ((m = miiRegex.exec(cleanB64)) !== null) {
-        const chunked = m[1].match(/.{1,64}/g)?.join('\n') || m[1];
+        let cand = m[1];
+        if (cand.length % 4 !== 0) cand += '='.repeat((4 - (cand.length % 4)) % 4);
+        const chunked = cand.match(/.{1,64}/g)?.join('\n') || cand;
         certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
       }
 
@@ -219,14 +257,57 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
     // Reset input value so uploading the same file again triggers onChange
     e.target.value = '';
 
+    // If user uploaded a PFX/P12 file, switch to Extract tab automatically
+    if (file.name.toLowerCase().endsWith('.pfx') || file.name.toLowerCase().endsWith('.p12')) {
+      setActiveSubTab('extract');
+      setExtractFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const arrayBuffer = event.target?.result as ArrayBuffer;
+        if (arrayBuffer) {
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          setExtractPfxBase64(btoa(binary));
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
-      const content = event.target?.result;
-      if (typeof content === 'string') {
-        splitCombinedText(content);
+      const result = event.target?.result;
+      if (result instanceof ArrayBuffer) {
+        const bytes = new Uint8Array(result);
+        const isDerBinary =
+          bytes.length > 50 &&
+          bytes[0] === 0x30 &&
+          (bytes[1] === 0x82 || bytes[1] === 0x81 || bytes[1] === 0x80);
+        if (isDerBinary) {
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const b64 = btoa(binary);
+          const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+          setCertText(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+          setSuccessMessage(
+            isEn
+              ? 'Binary DER certificate converted to PEM successfully!'
+              : 'گواهی باینری DER با موفقیت شناسایی و به PEM تبدیل شد!'
+          );
+        } else {
+          const text = new TextDecoder('utf-8').decode(bytes);
+          splitCombinedText(text);
+        }
+      } else if (typeof result === 'string') {
+        splitCombinedText(result);
       }
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleKeyFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -282,36 +363,6 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
     reader.readAsArrayBuffer(file);
   };
 
-  // Sample data loader for demonstration & quick testing
-  const loadSampleData = () => {
-    // Standard RFC-compliant self-signed certificate and RSA key for testing
-    const sampleCert = `-----BEGIN CERTIFICATE-----
-MIIDaTCCAlGgAwIBAgIUQo7d9T5Xy0XW8r8qU7A3vF5B4qcwDQYJKoZIhvcNAQEL
-BQAwNDEYMBYGA1UEAwwPYXBpLmV4YW1wbGUuY29tMRgwFgYDVQQKDA9OZXQgTWFu
-YWdlbWVudDAeFw0yNjA5MjEwOTA5MTNaFw0yNzA5MjEwOTA5MTNaMDQxGDAWBgNV
-BAMMD2FwaS5leGFtcGxlLmNvbTEYMBYGA1UECgwPTmV0IE1hbmFnZW1lbnQwggEi
-MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDBr3OGgLfSvr2TR48Z/w71pD38
-JqB0Qy48G7V+yM2P0d4l7k+qK4U5m8t4q1F2K7L3x0K1A2p9v4y6M8n8q4c5D2K6
-A9p8l2m7A6X9v2p8A1m9C4v5q3L8v6A9l8m3A6X9v2p8A1m9C4v5q3L8v6A9l8m3
-A6X9v2p8A1m9C4v5q3L8v6A9l8m3A6X9v2p8A1m9C4v5q3L8v6A9l8m3A6X9v2p8
-A1m9C4v5q3L8v6A9l8m3A6X9v2p8A1m9C4v5q3L8v6A9l8m3A6X9v2p8A1m9C4v5
-q3L8v6A9l8m3A6X9v2p8A1m9C4v5q3L8v6A9l8m3A6X9v2p8A1m9C4v5q3L8v6A9
-l8m3AgMBAAGjRjBEMB4GA1UdEQQXMBWCD2FwaS5leGFtcGxlLmNvbYIJbG9jYWxo
-b3N0MA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMA0GCSqGSIb3DQEB
-CwUAA4IBAQCOp8/1r7K2L8e0x1u5q7l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2
-v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
-e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9
-A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2
-v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
------END CERTIFICATE-----`;
-
-    setCertText(sampleCert);
-    setShowKeyField(true);
-    setPfxPassword('NetMan@2026');
-    setFriendlyName('api.example.com');
-    setSuccessMessage(isEn ? 'Sample certificate loaded. Click Convert to test all formats!' : 'گواهی نمونه بارگذاری شد. برای مشاهده فرمت‌ها دکمه تبدیل را بزنید!');
-  };
-
   // Convert Action
   const handleConvert = async () => {
     if (!certText.trim() && !keyText.trim()) {
@@ -349,6 +400,17 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
       setKeyMatch(data.keyMatch);
       setOutputs(data.outputs || []);
 
+      if (data.zipBase64 && data.zipFilename) {
+        setZipData({
+          filename: data.zipFilename,
+          base64: data.zipBase64,
+          sizeBytes: data.zipSizeBytes || 0,
+          fileCount: data.zipFileCount || data.outputs?.length || 0,
+        });
+      } else {
+        setZipData(null);
+      }
+
       if (data.isCombinedFound || !keyText.trim() || !certText.trim()) {
         if (data.extractedKeyPem) {
           setKeyText(data.extractedKeyPem);
@@ -365,10 +427,10 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
 
       setSuccessMessage(
         isEn
-          ? `Successfully converted into ${data.outputs?.length || 0} production-ready formats!${
+          ? `Successfully converted into ${data.outputs?.length || 0} production-ready formats and prepared unified ZIP package!${
               data.isCombinedFound ? ' (Extracted & matched both certificate and private key)' : ''
             }`
-          : `تبدیل گواهی با موفقیت به ${data.outputs?.length || 0} فرمت استاندارد انجام شد!${
+          : `تبدیل گواهی با موفقیت به ${data.outputs?.length || 0} فرمت استاندارد انجام شد و بسته زیپ آماده گردید!${
               data.isCombinedFound ? ' (گواهی و کلید خصوصی با موفقیت تفکیک و تطبیق داده شدند)' : ''
             }`
       );
@@ -428,6 +490,30 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
     }
   };
 
+  // Download ZIP archive directly
+  const handleDownloadZip = () => {
+    if (!zipData || !zipData.base64) return;
+    try {
+      const byteCharacters = atob(zipData.base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = zipData.filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('ZIP download error:', err);
+    }
+  };
+
   // Download individual file
   const handleDownloadItem = (item: ConvertedOutput) => {
     try {
@@ -457,8 +543,12 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
     }
   };
 
-  // Download all files
+  // Download all files - prefers single ZIP download
   const handleDownloadAll = () => {
+    if (zipData && zipData.base64) {
+      handleDownloadZip();
+      return;
+    }
     if (!outputs.length) return;
     outputs.forEach((item, index) => {
       setTimeout(() => {
@@ -486,6 +576,7 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
     setExtractFileName('');
     setExtractPassword('');
     setOutputs([]);
+    setZipData(null);
     setCertInfo(null);
     setKeyMatch(null);
     setError(null);
@@ -531,19 +622,6 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={loadSampleData}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer border ${
-              isLightMode
-                ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                : 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
-            }`}
-            title={isEn ? 'Load sample certificate to test format generation' : 'بارگذاری گواهی نمونه برای تست تبدیل فرمت‌ها'}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>{isEn ? 'Load Sample' : 'نمونه آزمایشی'}</span>
-          </button>
-
           {(certText || outputs.length > 0) && (
             <button
               onClick={handleClearAll}
@@ -1071,6 +1149,50 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
             </div>
           )}
 
+          {/* Complete ZIP Suite Download Card */}
+          {zipData && (
+            <div
+              className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md ${
+                isLightMode
+                  ? 'bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-amber-50/90 border-amber-300'
+                  : 'bg-gradient-to-r from-amber-950/40 via-orange-950/30 to-amber-950/40 border-amber-500/40'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                  <FolderArchive className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs font-bold font-mono ${isLightMode ? 'text-slate-900' : 'text-slate-100'}`}>
+                      {zipData.filename}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      {zipData.fileCount} {isEn ? 'Files' : 'فایل'} • {Math.round(zipData.sizeBytes / 1024) || 1} KB
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {isEn
+                      ? 'Single unified ZIP package containing all converted formats (.crt, .key, .pfx, .p7b, .cer, chains) + deployment guide README.'
+                      : 'بسته فشرده یکپارچه شامل تمام فرمت‌های تبدیل‌شده (CRT، کلید خصوصی، PFX، P7B، زنجیره کامل) به همراه راهنمای نصب.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleDownloadZip}
+                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow shrink-0 ${
+                  isLightMode
+                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white'
+                    : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:opacity-95 text-white'
+                }`}
+              >
+                <Download className="w-4 h-4" />
+                <span>{isEn ? 'Download ZIP Package' : 'دانلود فایل زیپ یکپارچه'}</span>
+              </button>
+            </div>
+          )}
+
           {/* Formats Header & Download All */}
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h4 className="text-xs font-bold flex items-center gap-1.5 text-slate-300">
@@ -1091,7 +1213,7 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
               }`}
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Download All Files' : 'دانلود تمام فایل‌ها'}</span>
+              <span>{isEn ? 'Download All (.ZIP)' : 'دانلود تمامی فایل‌ها (.ZIP)'}</span>
             </button>
           </div>
 

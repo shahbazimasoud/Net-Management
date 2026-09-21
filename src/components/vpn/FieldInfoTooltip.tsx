@@ -6,8 +6,10 @@ import { useLanguage } from '../../i18n/LanguageContext';
 export interface FieldInfoTooltipProps {
   title?: string;
   whatIsIt: string;
-  whyNeeded: string;
+  whyNeeded?: string;
+  whyIsItNeeded?: string;
   example?: string;
+  practicalExample?: string;
   isEn?: boolean;
   isLightMode?: boolean;
 }
@@ -24,10 +26,14 @@ export const FieldInfoTooltip: React.FC<FieldInfoTooltipProps> = ({
   title,
   whatIsIt,
   whyNeeded,
+  whyIsItNeeded,
   example,
+  practicalExample,
   isEn: propIsEn,
   isLightMode = false,
 }) => {
+  const actualWhyNeeded = whyIsItNeeded || whyNeeded || '';
+  const actualExample = practicalExample || example;
   const { isEn: contextIsEn } = useLanguage();
   const isEn = propIsEn !== undefined ? propIsEn : contextIsEn;
 
@@ -204,17 +210,17 @@ export const FieldInfoTooltip: React.FC<FieldInfoTooltipProps> = ({
                   {isEn ? 'Why is it needed?' : 'چرا و در چه شرایطی لازم است؟'}
                 </span>
                 <p className={`leading-relaxed text-[11px] ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                  {whyNeeded}
+                  {actualWhyNeeded}
                 </p>
               </div>
 
-              {example && (
+              {actualExample && (
                 <div className={`pt-2 border-t ${isLightMode ? 'border-slate-200' : 'border-slate-800/80'}`}>
                   <span className={`font-bold text-[11px] block mb-0.5 ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`}>
                     {isEn ? 'Example & Practical Usage:' : 'مثال و نحوه استفاده کاربردی:'}
                   </span>
                   <p className={`leading-relaxed text-[11px] font-mono ${isLightMode ? 'text-emerald-900 bg-emerald-50/80 p-1.5 rounded border border-emerald-200' : 'text-emerald-300/90 bg-emerald-950/30 p-1.5 rounded border border-emerald-500/20'}`}>
-                    {example}
+                    {actualExample}
                   </p>
                 </div>
               )}

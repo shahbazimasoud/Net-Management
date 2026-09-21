@@ -53,6 +53,268 @@ export interface ExtractedPemsResult {
   notes: string[];
 }
 
+function cleanString(str: any): string {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-') // Normalize all Unicode dashes to ASCII -
+    .replace(/^\uFEFF/, '') // Strip UTF-8 BOM
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
+function extractCertBlocks(str: string, notes?: string[]): string[] {
+  const certs: string[] = [];
+  if (!str) return certs;
+
+  // Matches any certificate block variation: CERTIFICATE, SERVER CERTIFICATE, SSL CERTIFICATE,
+  // X509 CERTIFICATE, X.509 CERTIFICATE, TRUSTED CERTIFICATE, PKCS7, etc.
+  // Handles arbitrary dashes, tildes, spaces, and does not mandate newlines before/after headers.
+  const certRegex = /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509))[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509)[-~=_\s]*/gi;
+  let match: RegExpExecArray | null;
+  while ((match = certRegex.exec(str)) !== null) {
+    const tag = match[1].trim().toUpperCase();
+    const body = match[2];
+
+    // If it is a PKCS#7 / P7B bundle, unpack individual certificates inside it using OpenSSL CLI
+    if (tag.includes('PKCS')) {
+      try {
+        const tmpFile = path.join(os.tmpdir(), `ssl-p7-${Date.now()}-${Math.random().toString(36).slice(2)}.p7b`);
+        fs.writeFileSync(tmpFile, match[0], 'utf8');
+        const p7out = execSync(`openssl pkcs7 -print_certs -in "${tmpFile}" 2>/dev/null`).toString();
+        try { fs.unlinkSync(tmpFile); } catch {}
+        const unpacked = extractCertBlocks(p7out, notes);
+        if (unpacked.length > 0) {
+          certs.push(...unpacked);
+          if (notes) notes.push(`Unpacked ${unpacked.length} certificate(s) from PKCS#7 bundle.`);
+          continue;
+        }
+      } catch {}
+    }
+
+    // Robust Base64 extraction: Filter out attribute lines (Bag Attributes, subject=, issuer=, colons, etc.)
+    const rawLines = body.split(/[\r\n]+/);
+    const validBase64Lines: string[] = [];
+    for (const line of rawLines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Skip metadata headers and comments
+      if (
+        trimmed.includes(' ') ||
+        trimmed.includes('\t') ||
+        trimmed.includes(':') ||
+        trimmed.startsWith('Bag Attributes') ||
+        trimmed.startsWith('subject=') ||
+        trimmed.startsWith('issuer=') ||
+        trimmed.startsWith('-----')
+      ) {
+        continue;
+      }
+      if (/^[A-Za-z0-9+/=]+$/.test(trimmed)) {
+        validBase64Lines.push(trimmed);
+      }
+    }
+
+    let b64 = validBase64Lines.join('');
+    if (!b64) {
+      // Fallback: strip non-base64 characters
+      const rawFiltered = body.replace(/[^A-Za-z0-9+/=]/g, '');
+      if (rawFiltered.length > 50) {
+        b64 = rawFiltered;
+      }
+    }
+
+    // Ensure valid Base64 padding
+    if (b64.length % 4 !== 0) {
+      b64 += '='.repeat((4 - (b64.length % 4)) % 4);
+    }
+
+    if (b64.length > 40) {
+      // If it decodes to ASN.1 Sequence (0x30), extract the exact valid DER slice to eliminate corrupt trailing bytes
+      try {
+        const buf = Buffer.from(b64, 'base64');
+        if (buf.length > 50 && buf[0] === 0x30) {
+          let derLen = buf.length;
+          if (buf[1] === 0x82 && buf.length >= 4) {
+            derLen = 4 + ((buf[2] << 8) | buf[3]);
+          } else if (buf[1] === 0x81 && buf.length >= 3) {
+            derLen = 3 + buf[2];
+          } else if (buf[1] < 0x80) {
+            derLen = 2 + buf[1];
+          }
+          if (buf.length >= derLen) {
+            b64 = buf.slice(0, derLen).toString('base64');
+          }
+        }
+      } catch {}
+
+      const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+      certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+    }
+  }
+  return certs;
+}
+
+function extractKeyBlocks(str: string): string[] {
+  const keys: string[] = [];
+  if (!str) return keys;
+  // Matches any private key block: RSA PRIVATE KEY, EC PRIVATE KEY, OPENSSH PRIVATE KEY, ENCRYPTED, etc.
+  const keyRegex = /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*PRIVATE\s+KEY)[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi;
+  let match: RegExpExecArray | null;
+  while ((match = keyRegex.exec(str)) !== null) {
+    let header = match[1].trim().toUpperCase();
+    if (!header.includes('KEY')) header = `${header} PRIVATE KEY`;
+    const body = match[2];
+
+    // Extract valid base64 lines, preserving encrypted key headers (Proc-Type, DEK-Info) if present
+    const rawLines = body.split(/[\r\n]+/);
+    const validLines: string[] = [];
+    for (const line of rawLines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith('Proc-Type:') || trimmed.startsWith('DEK-Info:')) {
+        validLines.push(trimmed);
+        continue;
+      }
+      if (
+        trimmed.includes(' ') ||
+        trimmed.includes('\t') ||
+        trimmed.startsWith('Bag Attributes') ||
+        trimmed.startsWith('subject=') ||
+        trimmed.startsWith('issuer=') ||
+        trimmed.startsWith('-----')
+      ) {
+        continue;
+      }
+      if (/^[A-Za-z0-9+/=]+$/.test(trimmed)) {
+        validLines.push(trimmed);
+      }
+    }
+
+    let content = validLines.join('\n');
+    if (!content) {
+      const rawFiltered = body.replace(/[^A-Za-z0-9+/=]/g, '');
+      if (rawFiltered.length > 40) {
+        content = rawFiltered.match(/.{1,64}/g)?.join('\n') || rawFiltered;
+      }
+    }
+
+    if (content) {
+      keys.push(`-----BEGIN ${header}-----\n${content}\n-----END ${header}-----`);
+    }
+  }
+  return keys;
+}
+
+function tryParseRawDerOrBase64(str: string): string[] {
+  if (!str) return [];
+  const certs: string[] = [];
+
+  // Strip private keys so their base64 doesn't interfere
+  const textWithoutKeys = str.replace(/[-~=_\s]*BEGIN\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[\s\S]*?END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi, '');
+
+  // Look for MII-prefixed base64 streams (all X.509 ASN.1 sequences > 256 bytes encode to MII in base64)
+  const strippedWhitespace = textWithoutKeys.replace(/[\r\n\s]/g, '');
+  const miiRegex = /(MII[A-Za-z0-9+/=]{80,})/g;
+  let m: RegExpExecArray | null;
+  while ((m = miiRegex.exec(strippedWhitespace)) !== null) {
+    let candidate = m[1];
+    if (candidate.length % 4 !== 0) {
+      candidate += '='.repeat((4 - (candidate.length % 4)) % 4);
+    }
+    try {
+      const buf = Buffer.from(candidate, 'base64');
+      if (buf.length > 80 && buf[0] === 0x30) {
+        let derLen = buf.length;
+        if (buf[1] === 0x82 && buf.length >= 4) {
+          derLen = 4 + ((buf[2] << 8) | buf[3]);
+        } else if (buf[1] === 0x81 && buf.length >= 3) {
+          derLen = 3 + buf[2];
+        }
+        const cleanDer = buf.slice(0, derLen);
+        const cleanB64 = cleanDer.toString('base64');
+        const chunked = cleanB64.match(/.{1,64}/g)?.join('\n') || cleanB64;
+        certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+      }
+    } catch {}
+  }
+
+  if (certs.length > 0) return certs;
+
+  // Filter out standard metadata lines (Bag Attributes, subject=, etc.) and inspect raw base64
+  const lines = textWithoutKeys.split(/[\r\n]+/);
+  const filtered = lines.filter((l) => {
+    const trimmed = l.trim();
+    if (!trimmed) return false;
+    if (
+      trimmed.includes(' ') ||
+      trimmed.includes('\t') ||
+      trimmed.includes(':') ||
+      trimmed.startsWith('Bag Attributes') ||
+      trimmed.startsWith('subject=') ||
+      trimmed.startsWith('issuer=') ||
+      trimmed.startsWith('Certificate:') ||
+      trimmed.startsWith('Data:') ||
+      /^[-~=_ ]*(BEGIN|END)[-~=_ ]*/i.test(trimmed)
+    ) {
+      return false;
+    }
+    return /^[A-Za-z0-9+/=]+$/.test(trimmed);
+  });
+
+  let cleanB64 = filtered.join('');
+  if (cleanB64.length > 80) {
+    if (cleanB64.length % 4 !== 0) {
+      cleanB64 += '='.repeat((4 - (cleanB64.length % 4)) % 4);
+    }
+    try {
+      const buf = Buffer.from(cleanB64, 'base64');
+      if (buf.length > 50 && buf[0] === 0x30) {
+        let derLen = buf.length;
+        if (buf[1] === 0x82 && buf.length >= 4) {
+          derLen = 4 + ((buf[2] << 8) | buf[3]);
+        } else if (buf[1] === 0x81 && buf.length >= 3) {
+          derLen = 3 + buf[2];
+        }
+        const cleanDer = buf.slice(0, derLen);
+        const cleanB64Final = cleanDer.toString('base64');
+        const chunked = cleanB64Final.match(/.{1,64}/g)?.join('\n') || cleanB64Final;
+        certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+      }
+    } catch {}
+  }
+
+  return certs;
+}
+
+function extractWithOpenSslCli(rawText: string): string[] {
+  if (!rawText || rawText.length < 50) return [];
+  try {
+    const tmpFile = path.join(os.tmpdir(), `ssl-detect-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+    fs.writeFileSync(tmpFile, rawText, 'utf8');
+    try {
+      // 1. Try x509 direct load
+      const out = execSync(`openssl x509 -in "${tmpFile}" 2>/dev/null`).toString();
+      if (out && out.includes('BEGIN CERTIFICATE')) {
+        fs.unlinkSync(tmpFile);
+        return [out.trim()];
+      }
+    } catch {}
+
+    try {
+      // 2. Try pkcs7 unpack
+      const p7out = execSync(`openssl pkcs7 -print_certs -in "${tmpFile}" 2>/dev/null`).toString();
+      const matches = p7out.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
+      if (matches && matches.length > 0) {
+        fs.unlinkSync(tmpFile);
+        return matches;
+      }
+    } catch {}
+
+    try { fs.unlinkSync(tmpFile); } catch {}
+  } catch {}
+  return [];
+}
+
 /**
  * Normalizes PEM strings, removes Unicode dashes, strips BOM, fixes line endings,
  * and smartly extracts certificates, private keys, and CA bundles from single or combined inputs.
@@ -64,159 +326,11 @@ export function normalizeAndExtractPems(
 ): ExtractedPemsResult {
   const notes: string[] = [];
 
-  function cleanString(str: any): string {
-    if (!str || typeof str !== 'string') return '';
-    return str
-      .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-') // Normalize all Unicode dashes to ASCII -
-      .replace(/^\uFEFF/, '') // Strip UTF-8 BOM
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n');
-  }
-
-  function extractCertBlocks(str: string): string[] {
-    const certs: string[] = [];
-    if (!str) return certs;
-
-    // Matches any certificate block variation: CERTIFICATE, SERVER CERTIFICATE, SSL CERTIFICATE,
-    // X509 CERTIFICATE, X.509 CERTIFICATE, TRUSTED CERTIFICATE, PKCS7, etc.
-    // Handles arbitrary dashes, tildes, spaces, and does not mandate newlines before/after headers.
-    const certRegex = /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509))[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509)[-~=_\s]*/gi;
-    let match: RegExpExecArray | null;
-    while ((match = certRegex.exec(str)) !== null) {
-      const tag = match[1].trim().toUpperCase();
-      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
-      if (b64.length > 40) {
-        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
-
-        // If it is a PKCS#7 / P7B bundle, unpack individual certificates inside it
-        if (tag.includes('PKCS')) {
-          try {
-            const tmpFile = path.join(os.tmpdir(), `ssl-p7-${Date.now()}-${Math.random().toString(36).slice(2)}.pem`);
-            fs.writeFileSync(tmpFile, `-----BEGIN PKCS7-----\n${chunked}\n-----END PKCS7-----`, 'utf8');
-            const p7out = execSync(`openssl pkcs7 -print_certs -in "${tmpFile}" 2>/dev/null`).toString();
-            try { fs.unlinkSync(tmpFile); } catch {}
-            const unpacked = extractCertBlocks(p7out);
-            if (unpacked.length > 0) {
-              certs.push(...unpacked);
-              notes.push(`Unpacked ${unpacked.length} certificate(s) from PKCS#7 bundle.`);
-              continue;
-            }
-          } catch {}
-        }
-
-        certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
-      }
-    }
-    return certs;
-  }
-
-  function extractKeyBlocks(str: string): string[] {
-    const keys: string[] = [];
-    if (!str) return keys;
-    // Matches any private key block: RSA PRIVATE KEY, EC PRIVATE KEY, OPENSSH PRIVATE KEY, ENCRYPTED, etc.
-    const keyRegex = /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*PRIVATE\s+KEY)[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi;
-    let match: RegExpExecArray | null;
-    while ((match = keyRegex.exec(str)) !== null) {
-      let header = match[1].trim().toUpperCase();
-      if (!header.includes('KEY')) header = `${header} PRIVATE KEY`;
-      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
-      if (b64.length > 40) {
-        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
-        keys.push(`-----BEGIN ${header}-----\n${chunked}\n-----END ${header}-----`);
-      }
-    }
-    return keys;
-  }
-
-  function tryParseRawDerOrBase64(str: string): string[] {
-    if (!str) return [];
-    const certs: string[] = [];
-
-    // Strip private keys so their base64 doesn't interfere
-    const textWithoutKeys = str.replace(/[-~=_\s]*BEGIN\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[\s\S]*?END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi, '');
-
-    // Look for MII-prefixed base64 streams (all X.509 ASN.1 sequences > 256 bytes encode to MII in base64)
-    const strippedWhitespace = textWithoutKeys.replace(/[\r\n\s]/g, '');
-    const miiRegex = /(MII[A-Za-z0-9+/=]{80,})/g;
-    let m: RegExpExecArray | null;
-    while ((m = miiRegex.exec(strippedWhitespace)) !== null) {
-      const candidate = m[1];
-      try {
-        const buf = Buffer.from(candidate, 'base64');
-        if (buf.length > 80 && buf[0] === 0x30) {
-          const chunked = candidate.match(/.{1,64}/g)?.join('\n') || candidate;
-          certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
-        }
-      } catch {}
-    }
-
-    if (certs.length > 0) return certs;
-
-    // Filter out standard metadata lines (Bag Attributes, subject=, etc.) and inspect raw base64
-    const lines = textWithoutKeys.split('\n');
-    const filtered = lines.filter((l) => {
-      const trimmed = l.trim();
-      if (!trimmed) return false;
-      if (
-        trimmed.startsWith('Bag Attributes') ||
-        trimmed.startsWith('subject=') ||
-        trimmed.startsWith('issuer=') ||
-        trimmed.startsWith('Certificate:') ||
-        trimmed.startsWith('Data:')
-      )
-        return false;
-      if (/^[-~=_ ]*(BEGIN|END)[-~=_ ]*/i.test(trimmed)) return false;
-      return true;
-    });
-
-    const cleanB64 = filtered.join('').replace(/[^A-Za-z0-9+/=]/g, '');
-    if (cleanB64.length > 80) {
-      try {
-        const buf = Buffer.from(cleanB64, 'base64');
-        if (buf.length > 50 && buf[0] === 0x30) {
-          const chunked = cleanB64.match(/.{1,64}/g)?.join('\n') || cleanB64;
-          certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
-        }
-      } catch {}
-    }
-
-    return certs;
-  }
-
-  function extractWithOpenSslCli(rawText: string): string[] {
-    if (!rawText || rawText.length < 50) return [];
-    try {
-      const tmpFile = path.join(os.tmpdir(), `ssl-detect-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
-      fs.writeFileSync(tmpFile, rawText, 'utf8');
-      try {
-        // 1. Try x509 direct load
-        const out = execSync(`openssl x509 -in "${tmpFile}" 2>/dev/null`).toString();
-        if (out && out.includes('BEGIN CERTIFICATE')) {
-          fs.unlinkSync(tmpFile);
-          return [out.trim()];
-        }
-      } catch {}
-
-      try {
-        // 2. Try pkcs7 unpack
-        const p7out = execSync(`openssl pkcs7 -print_certs -in "${tmpFile}" 2>/dev/null`).toString();
-        const matches = p7out.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
-        if (matches && matches.length > 0) {
-          fs.unlinkSync(tmpFile);
-          return matches;
-        }
-      } catch {}
-
-      try { fs.unlinkSync(tmpFile); } catch {}
-    } catch {}
-    return [];
-  }
-
   const rawCert = cleanString(certInput);
   const rawKey = cleanString(keyInput);
   const rawCa = cleanString(caInput);
 
-  let foundCerts = extractCertBlocks(rawCert);
+  let foundCerts = extractCertBlocks(rawCert, notes);
   let foundKeys = extractKeyBlocks(rawKey);
   let isCombined = false;
 
@@ -286,8 +400,20 @@ export function normalizeAndExtractPems(
  * Parses X.509 certificate metadata using Node.js crypto.X509Certificate with automatic OpenSSL CLI fallback
  */
 function parseCertificateDetails(certPem: string, fallbackDir?: string): CertInfoMetadata {
+  // First ensure we have clean PEM syntax
+  let cleanPem = certPem.trim();
+  const certBlocks = extractCertBlocks(cleanPem);
+  if (certBlocks.length > 0) {
+    cleanPem = certBlocks[0];
+  } else {
+    const rawBlocks = tryParseRawDerOrBase64(cleanPem);
+    if (rawBlocks.length > 0) {
+      cleanPem = rawBlocks[0];
+    }
+  }
+
   try {
-    const x509 = new crypto.X509Certificate(certPem);
+    const x509 = new crypto.X509Certificate(cleanPem);
     const now = new Date();
     const validToDate = new Date(x509.validTo);
     const validFromDate = new Date(x509.validFrom);
@@ -348,15 +474,43 @@ function parseCertificateDetails(certPem: string, fallbackDir?: string): CertInf
 
     try {
       const certFile = path.join(dir, 'fallback_cert.pem');
-      fs.writeFileSync(certFile, certPem, 'utf8');
+      fs.writeFileSync(certFile, cleanPem, 'utf8');
 
-      const subjectRaw = execSync(`openssl x509 -in "${certFile}" -noout -subject 2>/dev/null`).toString().trim();
-      const issuerRaw = execSync(`openssl x509 -in "${certFile}" -noout -issuer 2>/dev/null`).toString().trim();
-      const datesRaw = execSync(`openssl x509 -in "${certFile}" -noout -dates 2>/dev/null`).toString().trim();
-      const serialRaw = execSync(`openssl x509 -in "${certFile}" -noout -serial 2>/dev/null`).toString().trim();
-      const fp256Raw = execSync(`openssl x509 -in "${certFile}" -noout -fingerprint -sha256 2>/dev/null`).toString().trim();
-      const fp1Raw = execSync(`openssl x509 -in "${certFile}" -noout -fingerprint -sha1 2>/dev/null`).toString().trim();
-      const textRaw = execSync(`openssl x509 -in "${certFile}" -noout -text 2>/dev/null`).toString();
+      // Test whether standard openssl x509 works on this file
+      let useDer = false;
+      let textRaw = '';
+      try {
+        textRaw = execSync(`openssl x509 -in "${certFile}" -noout -text 2>/dev/null`).toString();
+      } catch {
+        // If x509 fails, check if it's PKCS#7 bundle
+        try {
+          const p7print = execSync(`openssl pkcs7 -print_certs -in "${certFile}" 2>/dev/null`).toString();
+          const p7blocks = extractCertBlocks(p7print);
+          if (p7blocks.length > 0) {
+            cleanPem = p7blocks[0];
+            fs.writeFileSync(certFile, cleanPem, 'utf8');
+            textRaw = execSync(`openssl x509 -in "${certFile}" -noout -text 2>/dev/null`).toString();
+          }
+        } catch {
+          // If still fails, check if it's binary DER
+          try {
+            textRaw = execSync(`openssl x509 -in "${certFile}" -inform DER -noout -text 2>/dev/null`).toString();
+            useDer = true;
+          } catch {}
+        }
+      }
+
+      if (!textRaw) {
+        throw new Error('Please ensure certificate contains valid PEM base64 or DER structure.');
+      }
+
+      const informFlag = useDer ? '-inform DER' : '';
+      const subjectRaw = execSync(`openssl x509 -in "${certFile}" ${informFlag} -noout -subject 2>/dev/null`).toString().trim();
+      const issuerRaw = execSync(`openssl x509 -in "${certFile}" ${informFlag} -noout -issuer 2>/dev/null`).toString().trim();
+      const datesRaw = execSync(`openssl x509 -in "${certFile}" ${informFlag} -noout -dates 2>/dev/null`).toString().trim();
+      const serialRaw = execSync(`openssl x509 -in "${certFile}" ${informFlag} -noout -serial 2>/dev/null`).toString().trim();
+      const fp256Raw = execSync(`openssl x509 -in "${certFile}" ${informFlag} -noout -fingerprint -sha256 2>/dev/null`).toString().trim();
+      const fp1Raw = execSync(`openssl x509 -in "${certFile}" ${informFlag} -noout -fingerprint -sha1 2>/dev/null`).toString().trim();
 
       const subject = subjectRaw.replace(/^subject=\s*/i, '');
       const issuer = issuerRaw.replace(/^issuer=\s*/i, '');
@@ -415,7 +569,7 @@ function parseCertificateDetails(certPem: string, fallbackDir?: string): CertInf
         sans,
       };
     } catch (cliErr: any) {
-      throw new Error(`Failed to parse certificate syntax: ${nodeErr.message} (OpenSSL: ${cliErr.message})`);
+      throw new Error(`Failed to parse certificate syntax: ${cliErr.message || nodeErr.message}`);
     } finally {
       if (tempDirCreated && dir && fs.existsSync(dir)) {
         try {
@@ -509,10 +663,14 @@ export function registerCertConverterRoutes(app: Express): void {
   app.post('/api/tools/cert-convert', async (req: Request, res: Response) => {
     let tmpDir = '';
     try {
-      const { certText, keyText, caBundleText, pfxPassword, friendlyName } = req.body || {};
+      const certRaw = req.body?.certText || req.body?.certPem || req.body?.certificate || req.body?.cert;
+      const keyRaw = req.body?.keyText || req.body?.keyPem || req.body?.privateKey || req.body?.key;
+      const caRaw = req.body?.caBundleText || req.body?.caBundlePem || req.body?.caText || req.body?.ca;
+      const pfxPassword = req.body?.pfxPassword ?? req.body?.password;
+      const friendlyName = req.body?.friendlyName ?? req.body?.alias;
 
       // Normalize and extract all components seamlessly
-      const extracted = normalizeAndExtractPems(certText, keyText, caBundleText);
+      const extracted = normalizeAndExtractPems(certRaw, keyRaw, caRaw);
       const { certPem, keyPem, caBundlePem, isCombinedFound, notes } = extracted;
 
       if (!certPem) {
@@ -807,6 +965,102 @@ export function registerCertConverterRoutes(app: Express): void {
         }
       }
 
+      // Generate comprehensive ZIP suite containing all converted files
+      let zipBase64 = '';
+      const zipFilename = `${safeCn}_ssl_suite.zip`;
+      let zipSizeBytes = 0;
+      let zipFileCount = 0;
+
+      try {
+        const bundleDir = path.join(tmpDir, 'bundle');
+        fs.mkdirSync(bundleDir, { recursive: true });
+
+        // Save every generated output into the bundle directory
+        for (const out of outputs) {
+          const filePath = path.join(bundleDir, out.filename);
+          if (out.isBinary && out.base64) {
+            fs.writeFileSync(filePath, Buffer.from(out.base64, 'base64'));
+          } else if (out.text) {
+            fs.writeFileSync(filePath, out.text, 'utf8');
+          }
+          zipFileCount++;
+        }
+
+        // Add deployment guide README
+        const readmeContent = `===================================================================
+SSL / TLS CERTIFICATE DEPLOYMENT BUNDLE - ${certInfo?.commonName || safeCn}
+===================================================================
+Generated: ${new Date().toISOString()}
+Domain (Common Name): ${certInfo?.commonName || safeCn}
+Issuer: ${certInfo?.issuerOrg || certInfo?.issuer || 'N/A'}
+Valid Until: ${certInfo?.validTo || 'N/A'}
+Days Remaining: ${certInfo?.daysRemaining ?? 'N/A'}
+Key Type: ${certInfo?.keyType || 'RSA'} ${certInfo?.keyBits || 2048} bits
+
+FILES INCLUDED IN THIS ARCHIVE:
+-------------------------------------------------------------------
+1. ${safeCn}.crt (or .cer, .pem)
+   - Standard X.509 Certificate in PEM format (Base64 ASCII).
+   - Suitable for Nginx, Apache, HAProxy, AWS ALB, Node.js, Python, etc.
+
+2. ${safeCn}_fullchain.crt
+   - Full Certificate Chain (Server Certificate + Intermediate CA + Root CA).
+   - Recommended for Nginx (ssl_certificate), Traefik, Caddy, Envoy.
+
+3. ${safeCn}_ca_chain.crt
+   - Intermediate and Root CA certificates bundle.
+   - Use for Apache (SSLCACertificateFile / SSLCertificateChainFile).
+
+4. ${safeCn}.key
+   - Standalone private key in PEM format.
+   - Required by web servers and proxies for SSL handshakes.
+
+5. ${safeCn}.pfx / .p12
+   - PKCS#12 Archive (Certificate + Private Key + Intermediate Chain).
+   - Required by Microsoft IIS, Azure App Service, Windows Server, Tomcat.
+
+6. ${safeCn}.p7b
+   - PKCS#7 / P7B Certificate Bundle.
+   - Used by Java Keystores, Windows MMC, Exchange Server, Tomcat.
+
+7. ${safeCn}_der.cer
+   - Binary DER-encoded X.509 certificate.
+   - Used by Windows MMC, Cisco ASA/IOS, FortiGate, F5 BIG-IP, embedded appliances.
+
+8. ${safeCn}_spec_report.txt
+   - Technical cryptographic audit and inspection report.
+
+-------------------------------------------------------------------
+QUICK CONFIGURATION EXAMPLES:
+
+* NGINX:
+  ssl_certificate /etc/ssl/certs/${safeCn}_fullchain.crt;
+  ssl_certificate_key /etc/ssl/private/${safeCn}.key;
+
+* APACHE:
+  SSLEngine on
+  SSLCertificateFile /etc/ssl/certs/${safeCn}.crt
+  SSLCertificateKeyFile /etc/ssl/private/${safeCn}.key
+  SSLCACertificateFile /etc/ssl/certs/${safeCn}_ca_chain.crt
+
+* MICROSOFT IIS:
+  Import ${safeCn}.pfx directly into IIS Server Certificates via Windows MMC.
+===================================================================
+`;
+        fs.writeFileSync(path.join(bundleDir, 'README_DEPLOYMENT.txt'), readmeContent, 'utf8');
+        zipFileCount++;
+
+        const zipPath = path.join(tmpDir, zipFilename);
+        execSync(`python3 -m zipfile -c "${zipPath}" *`, { cwd: bundleDir });
+        if (fs.existsSync(zipPath)) {
+          const zipBuf = fs.readFileSync(zipPath);
+          zipSizeBytes = zipBuf.length;
+          zipBase64 = zipBuf.toString('base64');
+        }
+      } catch (zipErr: any) {
+        console.warn('[CertConverter] Failed to generate ZIP archive:', zipErr.message);
+      }
+
       return res.json({
         success: true,
         certInfo,
@@ -819,6 +1073,10 @@ export function registerCertConverterRoutes(app: Express): void {
         extractedCaBundlePem: caBundlePem,
         notes,
         outputs,
+        zipFilename,
+        zipBase64,
+        zipSizeBytes,
+        zipFileCount,
       });
     } catch (err: any) {
       console.error('[CertConverter Error]', err);
