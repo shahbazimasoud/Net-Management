@@ -484,6 +484,11 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const lastConnectedServerIdRef = useRef<string | null>(null);
   const prevIsOpenRef = useRef<boolean>(false);
 
+  const panesRef = useRef<TerminalPane[]>(panes);
+  panesRef.current = panes;
+  const serverRef = useRef<RemoteServer | null>(server);
+  serverRef.current = server;
+
   // Intellisense State for active pane
   const [intellisenseIndex, setIntellisenseIndex] = useState<number>(0);
   const [showIntellisensePopup, setShowIntellisensePopup] = useState<boolean>(false);
@@ -756,12 +761,12 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       suppliedPassword?: string,
       customServer?: RemoteServer
     ) => {
-      const currentPane = panes.find((p) => p.id === paneId);
+      const currentPane = panesRef.current.find((p) => p.id === paneId);
       const targetServer =
-        customServer ||
+        (customServer && customServer.id ? customServer : null) ||
         (paneId === 'pane-1' && server?.id ? server : null) ||
         (currentPane?.server && currentPane.server.id ? currentPane.server : null) ||
-        server;
+        (serverRef.current && serverRef.current.id ? serverRef.current : null);
 
       if (!targetServer || !targetServer.id) {
         console.warn('[LinuxTerminal] Target server invalid or missing ID:', targetServer);
@@ -997,17 +1002,45 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         );
       }
     },
-    [server, panes, initialShell, sessionPassword]
+    [server, initialShell, sessionPassword]
   );
+
+  // Close sockets when modal is closed or unmounted
+  useEffect(() => {
+    if (!isOpen) {
+      lastConnectedServerIdRef.current = null;
+      prevIsOpenRef.current = false;
+      Object.values(wsRefs.current).forEach((ws) => {
+        try {
+          ws?.close();
+        } catch {}
+      });
+      wsRefs.current = {};
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    return () => {
+      // Unmount cleanup
+      Object.values(wsRefs.current).forEach((ws) => {
+        try {
+          ws?.close();
+        } catch {}
+      });
+      wsRefs.current = {};
+    };
+  }, []);
 
   // Lifecycle & Connection on modal open or server change
   useEffect(() => {
     if (isOpen && server && server.id) {
       const isNewServer = lastConnectedServerIdRef.current !== server.id;
-      const isReopeningFromClosed = !prevIsOpenRef.current && !lastConnectedServerIdRef.current;
+      const isReopeningFromClosed = !prevIsOpenRef.current || !lastConnectedServerIdRef.current;
 
       if (isNewServer || isReopeningFromClosed) {
         lastConnectedServerIdRef.current = server.id;
+        prevIsOpenRef.current = true;
+
         const freshPane: TerminalPane = {
           id: 'pane-1',
           server: server,
@@ -1028,8 +1061,17 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         setActivePaneId('pane-1');
         setLayoutMode('single');
 
-        connectPaneSession('pane-1', initialShell, sessionPassword, server);
+        // Connect after state settles, exactly like handleAddSplitPane
+        const timer = setTimeout(() => {
+          connectPaneSession('pane-1', initialShell, sessionPassword, server);
+          inputRefs.current['pane-1']?.focus();
+        }, 100);
+
+        return () => {
+          clearTimeout(timer);
+        };
       } else if (!prevIsOpenRef.current) {
+        prevIsOpenRef.current = true;
         // Restoring from minimize: reconnect active sockets if disconnected
         panes.forEach((p) => {
           const paneServer = p.server?.id ? p.server : server;
@@ -1038,27 +1080,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           }
         });
       }
-      prevIsOpenRef.current = true;
-    } else if (!isOpen) {
-      prevIsOpenRef.current = false;
-      // Cleanup all sockets when modal is hidden
-      Object.values(wsRefs.current).forEach((ws) => {
-        try {
-          ws?.close();
-        } catch {}
-      });
-      wsRefs.current = {};
     }
-
-    return () => {
-      Object.values(wsRefs.current).forEach((ws) => {
-        try {
-          ws?.close();
-        } catch {}
-      });
-      wsRefs.current = {};
-    };
-  }, [isOpen, server, initialShell, sessionPassword]);
+  }, [isOpen, server?.id, initialShell, sessionPassword, connectPaneSession]);
 
   // Auto-scroll each pane to bottom
   useEffect(() => {
@@ -1513,6 +1536,13 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   // Close handler: reset lastConnectedServerIdRef so reopening connects fresh
   const handleCloseModal = () => {
     lastConnectedServerIdRef.current = null;
+    prevIsOpenRef.current = false;
+    Object.values(wsRefs.current).forEach((ws) => {
+      try {
+        ws?.close();
+      } catch {}
+    });
+    wsRefs.current = {};
     onClose();
   };
 

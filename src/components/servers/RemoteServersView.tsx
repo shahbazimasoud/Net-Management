@@ -2057,6 +2057,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           setIsTerminalModalOpen(false);
           setEphemeralTerminalPassword(undefined);
           if (terminalServer) undockModal(`linux_term_${terminalServer.id}`);
+          setTerminalServer(null);
         }}
         onMinimize={handleMinimizeLinuxTerminal}
         isLightMode={isLightMode}

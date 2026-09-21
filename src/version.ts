@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.99.1';
+export const APP_VERSION = '1.99.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.99.2',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'رفع مشکل اتصال ترمینال لینوکس از لیست سرورهای ریموت و همگام‌سازی چرخه اتصال',
+    title_en: 'Fix Direct Linux Terminal Connection from Remote Servers Fleet and Sync Lifecycle',
+    changes: [
+      'رفع ریشه‌ای مشکل معلق ماندن اتصال ترمینال هنگام کلیک روی دکمه ترمینال در لیست Remote Servers & Automation Fleet.',
+      'هماهنگ‌سازی کامل منطق اتصال با عملکرد مودال Split Pane و اطمینان از زمان‌بندی دقیق اتصال پس از مقداردهی استیت‌ها.',
+      'استفاده از مراجع پایدار (panesRef و serverRef) جهت جلوگیری از بازآفرینی غیرضروری سوکت و تضمین ارسال صحیح مشخصات سرور، پورت و نام کاربری به وب‌سوکت SSH.',
+      'پاکسازی و ریست خودکار وضعیت اتصال و ارجاعات در هنگام بستن مودال ترمینال جهت اتصال سریع و بی‌نقص در دفعات بعدی.'
+    ],
+    changes_en: [
+      'Resolved root cause of terminal connection hanging when clicking the Terminal button directly in the Remote Servers & Automation Fleet list.',
+      'Fully synchronized connection initiation with split-pane lifecycle patterns, ensuring reliable post-mount connection scheduling.',
+      'Stabilized pane and server references (panesRef, serverRef) to prevent redundant reconnects and guarantee accurate transmission of host, port, and credentials to the SSH WebSocket.',
+      'Added clean reset of connection states and references upon closing the terminal modal to guarantee fresh, immediate reconnection on subsequent opens.'
+    ]
+  },
   {
     version: '1.99.1',
     releaseDate: '2026-09-21',
