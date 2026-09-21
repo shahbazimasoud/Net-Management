@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.99.4';
+export const APP_VERSION = '1.99.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.99.5',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'رفع عدم تطابق Hostname سرور و مسیر دایرکتوری جاری (CWD) در خط فرمان ترمینال لینوکس',
+    title_en: 'Fix Server Hostname and Current Working Directory (CWD) Path Desync in Linux Terminal Prompt',
+    changes: [
+      'رفع ریشه‌ای عدم تطابق نام میزبان (Hostname) در خط فرمان ترمینال Remote Servers با نام هاست و آدرس IP سرور انتخاب‌شده از طریق متمرکزسازی واکشی اطلاعات سرور معتبر (resolveValidServer و getServerHostName).',
+      'همگام‌سازی صددرصدی مسیر جاری خط فرمان (CWD) با دایرکتوری واقعی، تشخیص دقیق دایرکتوری خانگی کاربر (root/ و home/<user>/) و به‌روزرسانی بلادرنگ پرامپت در دستورات تغییر دایرکتوری (cd).',
+      'اصلاح خروجی دستورات شبیه‌ساز شامل whoami و hostname متناسب با اطلاعات اختصاصی هر سرور لینوکسی متصل‌شده.',
+      'به‌روزرسانی هدر بنر پیام روز (MOTD)، وضعیت پنجره‌های تقسیم‌شده (Split Panes) و پرامپت‌های تاریخچه و کلیدهای ترکیبی بر اساس هاست‌نیم و مسیر واقعی سرور.'
+    ],
+    changes_en: [
+      'Fixed the root cause of hostname mismatch in the Remote Servers Linux terminal prompt by centralizing valid server identification and fallback resolution (resolveValidServer and getServerHostName).',
+      'Achieved 100% synchronization of current working directory (CWD) in the command prompt with real directories, accurate user home detection (/root and /home/<user>), and real-time prompt updates upon cd commands.',
+      'Corrected emulator command responses including whoami and hostname to accurately reflect the target Linux server user and host identity.',
+      'Updated the MOTD welcome banner, split pane initialization, command execution prompts, and abort histories to display genuine server hostname and actual working directories.'
+    ]
+  },
   {
     version: '1.99.4',
     releaseDate: '2026-09-21',

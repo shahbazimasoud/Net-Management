@@ -93,6 +93,74 @@ interface TerminalPane {
 }
 
 /**
+ * Resolves a reliable, non-empty RemoteServer object from pane or modal props.
+ */
+export function resolveValidServer(
+  pServer?: RemoteServer | null,
+  fallbackServer?: RemoteServer | null
+): RemoteServer {
+  if (pServer && (pServer.id || pServer.hostname || pServer.ip || (pServer.name && pServer.name !== 'Linux Server'))) {
+    return pServer;
+  }
+  if (fallbackServer && (fallbackServer.id || fallbackServer.hostname || fallbackServer.ip || fallbackServer.name)) {
+    return fallbackServer;
+  }
+  return (
+    pServer ||
+    fallbackServer ||
+    ({
+      id: 'srv-default',
+      name: 'Linux Server',
+      hostname: 'linux',
+      ip: '127.0.0.1',
+      os_type: 'linux',
+      os_distro: 'Ubuntu 24.04 LTS',
+      environment: 'Production',
+      category: 'Server',
+      role: 'Server',
+      tags: [],
+      ssh_port: 22,
+      ssh_username: 'root',
+      ssh_password: '',
+      default_shell: 'bash',
+      status: 'online',
+      cpu_cores: 8,
+      ram_gb: 32,
+      disk_gb: 500,
+      uptime_str: '1 day',
+      location: 'Datacenter',
+      notes: '',
+      created_at: '',
+      updated_at: '',
+    } as RemoteServer)
+  );
+}
+
+/**
+ * Returns the exact hostname configured for the server (or its primary IP/name as fallback).
+ */
+export function getServerHostName(srv: RemoteServer): string {
+  if (srv.hostname && srv.hostname.trim()) {
+    return srv.hostname.trim();
+  }
+  if (srv.ip && srv.ip.trim()) {
+    return srv.ip.trim();
+  }
+  if (srv.name && srv.name.trim()) {
+    return srv.name.trim().toLowerCase().replace(/[\s&()]+/g, '-');
+  }
+  return 'linux';
+}
+
+/**
+ * Returns the absolute home directory for the server's user.
+ */
+export function getServerHomeDir(srv: RemoteServer): string {
+  const user = (srv.ssh_username || 'root').trim();
+  return user === 'root' ? '/root' : `/home/${user}`;
+}
+
+/**
  * Resolves target directory against current directory in standard POSIX manner.
  */
 export function resolveLinuxPath(
@@ -107,17 +175,17 @@ export function resolveLinuxPath(
   if (!target || target === '~') {
     return {
       absPath: normalizedHome,
-      displayCwd: '~',
+      displayCwd: normalizedHome,
     };
   }
 
   // 2. Target is '-' -> go to previous
   if (target === '-') {
-    const prev = previousCwd || '~';
+    const prev = previousCwd || normalizedHome;
     const abs = prev === '~' ? normalizedHome : prev.startsWith('~/') ? normalizedHome + prev.substring(1) : prev;
     return {
       absPath: abs,
-      displayCwd: prev,
+      displayCwd: abs,
     };
   }
 
@@ -133,7 +201,7 @@ export function resolveLinuxPath(
     cleanTarget = cleanTarget.substring(1);
   } else {
     // Relative to currentCwd
-    const current = currentCwd || '~';
+    const current = currentCwd || normalizedHome;
     if (current === '~') {
       startAbs = normalizedHome;
     } else if (current.startsWith('~/')) {
@@ -164,17 +232,9 @@ export function resolveLinuxPath(
 
   const newAbsPath = stack.length === 0 ? '/' : '/' + stack.join('/');
 
-  // Format displayCwd
-  let displayCwd = newAbsPath;
-  if (newAbsPath === normalizedHome) {
-    displayCwd = '~';
-  } else if (newAbsPath.startsWith(normalizedHome + '/')) {
-    displayCwd = '~' + newAbsPath.substring(normalizedHome.length);
-  }
-
   return {
     absPath: newAbsPath,
-    displayCwd,
+    displayCwd: newAbsPath,
   };
 }
 
@@ -423,24 +483,28 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const [splitDropdownSearch, setSplitDropdownSearch] = useState('');
 
   // Panes management
-  const [panes, setPanes] = useState<TerminalPane[]>(() => [
-    {
-      id: 'pane-1',
-      server: (server || {}) as RemoteServer,
-      title: `${server?.name || 'Linux Server'} (${initialShell})`,
-      selectedShell: initialShell,
-      lines: [],
-      inputVal: '',
-      history: [],
-      historyIdx: -1,
-      isConnected: false,
-      isConnecting: false,
-      ephemeralPassword: sessionPassword,
-      isPasswordPromptActive: Boolean(server?.prompt_password_on_connect && !sessionPassword),
-      cwd: '~',
-      previousCwd: '~',
-    },
-  ]);
+  const [panes, setPanes] = useState<TerminalPane[]>(() => {
+    const srv = resolveValidServer(server, null);
+    const initialHome = getServerHomeDir(srv);
+    return [
+      {
+        id: 'pane-1',
+        server: srv,
+        title: `${srv.name} (${initialShell})`,
+        selectedShell: initialShell,
+        lines: [],
+        inputVal: '',
+        history: [],
+        historyIdx: -1,
+        isConnected: false,
+        isConnecting: false,
+        ephemeralPassword: sessionPassword,
+        isPasswordPromptActive: Boolean(srv.prompt_password_on_connect && !sessionPassword),
+        cwd: initialHome,
+        previousCwd: initialHome,
+      },
+    ];
+  });
   const [activePaneId, setActivePaneId] = useState<string>('pane-1');
 
   // List of other available servers (excluding current server if desired)
@@ -514,16 +578,17 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Prompt Generator
   const getPromptString = useCallback(
-    (shellType: 'bash' | 'zsh', cwd: string = '~', paneServer?: RemoteServer | null) => {
-      const srv = paneServer || server;
-      const user = srv?.ssh_username || 'root';
-      const host = srv?.hostname || srv?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'linux';
-      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
-      let displayCwd = cwd || '~';
-      if (displayCwd === homeDir) {
-        displayCwd = '~';
-      } else if (displayCwd.startsWith(homeDir + '/')) {
-        displayCwd = '~' + displayCwd.substring(homeDir.length);
+    (shellType: 'bash' | 'zsh', cwd: string = '', paneServer?: RemoteServer | null) => {
+      const srv = resolveValidServer(paneServer, server);
+      const user = (srv.ssh_username || 'root').trim();
+      const host = getServerHostName(srv);
+      const homeDir = getServerHomeDir(srv);
+
+      let displayCwd = (cwd || homeDir).trim();
+      if (displayCwd === '~') {
+        displayCwd = homeDir;
+      } else if (displayCwd.startsWith('~/')) {
+        displayCwd = `${homeDir}${displayCwd.substring(1)}`;
       }
 
       if (shellType === 'zsh') {
@@ -536,17 +601,17 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Emulated Command Response Generator
   const generateEmulatedResponse = useCallback(
-    (command: string, cwd: string = '~', paneServer?: RemoteServer | null): string => {
-      const srv = paneServer || server;
+    (command: string, cwd: string = '', paneServer?: RemoteServer | null): string => {
+      const srv = resolveValidServer(paneServer, server);
       const cmd = command.trim();
-      const host = srv?.hostname || srv?.name?.toLowerCase().replace(/[\s&()]+/g, '-') || 'web-prod01.internal';
-      const ip = srv?.ip || '192.168.10.15';
-      const distro = srv?.os_distro || 'Ubuntu 24.04 LTS';
-      const cores = srv?.cpu_cores || 8;
-      const ram = srv?.ram_gb || 32;
-      const disk = srv?.disk_gb || 500;
-      const user = srv?.ssh_username || 'root';
-      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+      const host = getServerHostName(srv);
+      const ip = srv.ip || '192.168.10.15';
+      const distro = srv.os_distro || 'Ubuntu 24.04 LTS';
+      const cores = srv.cpu_cores || 8;
+      const ram = srv.ram_gb || 32;
+      const disk = srv.disk_gb || 500;
+      const user = (srv.ssh_username || 'root').trim();
+      const homeDir = getServerHomeDir(srv);
 
       if (!cmd) return '';
 
@@ -565,6 +630,14 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         if (!cwd || cwd === '~') return homeDir;
         if (cwd.startsWith('~/')) return `${homeDir}${cwd.substring(1)}`;
         return cwd.startsWith('/') ? cwd : `/${cwd}`;
+      }
+
+      // hostname
+      if (cmd === 'hostname' || cmd === 'hostname -f' || cmd === 'hostname -s') {
+        if (cmd === 'hostname -s' && host.includes('.')) {
+          return host.split('.')[0];
+        }
+        return host;
       }
 
       // ls / dir / ll
@@ -734,7 +807,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
       // whoami
       if (cmd === 'whoami') {
-        return server?.ssh_username || 'root';
+        return user;
       }
 
       // nginx -t
@@ -1041,10 +1114,13 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         lastConnectedServerIdRef.current = server.id;
         prevIsOpenRef.current = true;
 
+        const effectiveSrv = resolveValidServer(server, null);
+        const serverHome = getServerHomeDir(effectiveSrv);
+
         const freshPane: TerminalPane = {
           id: 'pane-1',
-          server: server,
-          title: `${server.name} (${initialShell})`,
+          server: effectiveSrv,
+          title: `${effectiveSrv.name} (${initialShell})`,
           selectedShell: initialShell,
           lines: [],
           inputVal: '',
@@ -1053,9 +1129,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           isConnected: false,
           isConnecting: true,
           ephemeralPassword: sessionPassword,
-          isPasswordPromptActive: Boolean(server.prompt_password_on_connect && !sessionPassword),
-          cwd: '~',
-          previousCwd: '~',
+          isPasswordPromptActive: Boolean(effectiveSrv.prompt_password_on_connect && !sessionPassword),
+          cwd: serverHome,
+          previousCwd: serverHome,
         };
         setPanes([freshPane]);
         setActivePaneId('pane-1');
@@ -1063,7 +1139,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
         // Connect after state settles, exactly like handleAddSplitPane
         const timer = setTimeout(() => {
-          connectPaneSession('pane-1', initialShell, sessionPassword, server);
+          connectPaneSession('pane-1', initialShell, sessionPassword, effectiveSrv);
           inputRefs.current['pane-1']?.focus();
         }, 100);
 
@@ -1074,7 +1150,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         prevIsOpenRef.current = true;
         // Restoring from minimize: reconnect active sockets if disconnected
         panes.forEach((p) => {
-          const paneServer = p.server?.id ? p.server : server;
+          const paneServer = resolveValidServer(p.server, server);
           if (!wsRefs.current[p.id] || wsRefs.current[p.id]?.readyState !== WebSocket.OPEN) {
             connectPaneSession(p.id, p.selectedShell, p.ephemeralPassword, paneServer);
           }
@@ -1102,15 +1178,13 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       const targetPane = panes.find((p) => p.id === paneId);
       if (!targetPane) return;
 
-      const paneServer = targetPane.server || server;
-      const currentCwd = targetPane.cwd || '~';
+      const paneServer = resolveValidServer(targetPane.server, server);
+      const homeDir = getServerHomeDir(paneServer);
+      const currentCwd = targetPane.cwd || homeDir;
       const promptStr = getPromptString(targetPane.selectedShell, currentCwd, paneServer);
 
-      const user = paneServer?.ssh_username || 'root';
-      const homeDir = user === 'root' ? '/root' : `/home/${user}`;
-
       let newCwd = currentCwd;
-      let newPreviousCwd = targetPane.previousCwd || '~';
+      let newPreviousCwd = targetPane.previousCwd || homeDir;
       let directOutput: string | null = null;
 
       // Detect cd command (e.g., "cd", "cd /var/log", "cd ..", "cd -", "cd ~/projects")
@@ -1267,10 +1341,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     if (!activePane || activePane.isPasswordPromptActive) {
       return { ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false };
     }
-    const currentCwd = activePane.cwd || '~';
-    const srv = activePane?.server || server;
-    const user = srv?.ssh_username || 'root';
-    const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+    const srv = resolveValidServer(activePane?.server, server);
+    const homeDir = getServerHomeDir(srv);
+    const currentCwd = activePane.cwd || homeDir;
     return getIntellisense(activePane.inputVal, currentCwd, homeDir);
   }, [activePane, server]);
 
@@ -1280,9 +1353,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     paneId: string,
     pane: TerminalPane
   ) => {
-    const paneServer = pane.server || server;
-    const user = paneServer?.ssh_username || 'root';
-    const homeDir = user === 'root' ? '/root' : `/home/${user}`;
+    const paneServer = resolveValidServer(pane.server, server);
+    const homeDir = getServerHomeDir(paneServer);
 
     // 1. Tab Key: Linux Intellisense Autocomplete
     if (e.key === 'Tab') {
@@ -1325,7 +1397,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                   {
                     id: Math.random().toString(),
                     type: 'prompt-command',
-                    prompt: getPromptString(p.selectedShell, p.cwd || '~', p.server),
+                    prompt: getPromptString(p.selectedShell, p.cwd || homeDir, paneServer),
                     text: p.inputVal,
                     timestamp: new Date().toLocaleTimeString(),
                   },
@@ -1428,7 +1500,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
               {
                 id: Math.random().toString(),
                 type: 'prompt-command',
-                prompt: getPromptString(p.selectedShell, p.cwd || '~', p.server),
+                prompt: getPromptString(p.selectedShell, p.cwd || homeDir, paneServer),
                 text: `${p.inputVal}^C`,
                 timestamp: new Date().toLocaleTimeString(),
               },
@@ -1459,22 +1531,23 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     targetPassword?: string
   ) => {
     if (panes.length >= 4) return;
-    const srv = targetServer || server;
-    if (!srv) return;
+    const validSrv = resolveValidServer(targetServer, server);
+    if (!validSrv) return;
 
     const newId = `pane-${Date.now().toString(36).substring(2, 7)}`;
     const effectivePwd =
       targetPassword !== undefined
         ? targetPassword
-        : srv.id === server?.id
+        : validSrv.id === server?.id
         ? sessionPassword
-        : srv.ssh_password;
-    const needsPassword = Boolean(srv.prompt_password_on_connect && !effectivePwd);
+        : validSrv.ssh_password;
+    const needsPassword = Boolean(validSrv.prompt_password_on_connect && !effectivePwd);
+    const splitHome = getServerHomeDir(validSrv);
 
     const newPane: TerminalPane = {
       id: newId,
-      server: srv,
-      title: `${srv.name} (${shellToUse})`,
+      server: validSrv,
+      title: `${validSrv.name} (${shellToUse})`,
       selectedShell: shellToUse,
       lines: [],
       inputVal: '',
@@ -1484,8 +1557,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       isConnecting: false,
       ephemeralPassword: effectivePwd,
       isPasswordPromptActive: needsPassword,
-      cwd: '~',
-      previousCwd: '~',
+      cwd: splitHome,
+      previousCwd: splitHome,
     };
 
     setPanes((prev) => [...prev, newPane]);
@@ -1507,7 +1580,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
     // Connect new pane session
     setTimeout(() => {
-      connectPaneSession(newId, shellToUse, effectivePwd, srv);
+      connectPaneSession(newId, shellToUse, effectivePwd, validSrv);
       inputRefs.current[newId]?.focus();
     }, 100);
   };
@@ -1931,10 +2004,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           <div className={`flex-1 grid gap-1.5 p-1.5 bg-black overflow-hidden ${getGridClasses()}`}>
             {panes.map((pane, index) => {
               const isActive = pane.id === activePaneId;
-              const paneServer = pane.server || server;
-              const user = paneServer?.ssh_username || 'root';
-              const homeDir = user === 'root' ? '/root' : `/home/${user}`;
-              const intellisense = isActive ? activeIntellisense : getIntellisense(pane.inputVal, pane.cwd || '~', homeDir);
+              const paneServer = resolveValidServer(pane.server, server);
+              const homeDir = getServerHomeDir(paneServer);
+              const currentPaneCwd = pane.cwd || homeDir;
+              const intellisense = isActive ? activeIntellisense : getIntellisense(pane.inputVal, currentPaneCwd, homeDir);
               const ghostText = intellisense.ghostSuggestion;
 
               return (
@@ -2101,10 +2174,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       {pane.lines.length === 0 && (
                         <div className="mb-3 pb-2.5 border-b border-slate-800/80 text-xs text-slate-400 select-none">
                           <div className="text-emerald-400 font-bold text-xs">
-                            Welcome to {paneServer?.os_distro || 'Linux'} on {paneServer?.name} ({paneServer?.hostname || paneServer?.ip})
+                            Welcome to {paneServer?.os_distro || 'Linux'} on {paneServer?.name} ({getServerHostName(paneServer)})
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            * System load: 0.24, 0.31, 0.28 • Memory: {paneServer?.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell} • Path: {pane.cwd || '~'}
+                            * System load: 0.24, 0.31, 0.28 • Memory: {paneServer?.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell} • Path: {currentPaneCwd}
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
                             <span>Tab for Intellisense autocompletion</span>
@@ -2143,7 +2216,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                             return (
                               <div key={l.id} className="text-emerald-300 font-bold py-0.5 flex items-baseline flex-wrap">
                                 <span className="text-emerald-400 select-none me-1.5 font-mono">
-                                  {l.prompt || getPromptString(pane.selectedShell, pane.cwd || '~', paneServer)}
+                                  {l.prompt || getPromptString(pane.selectedShell, currentPaneCwd, paneServer)}
                                 </span>
                                 <span className="text-white font-mono">{l.text}</span>
                               </div>
@@ -2163,7 +2236,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       {/* Interactive Prompt & Input with Ghost Autocomplete! */}
                       <div className="flex items-center flex-wrap pt-1 mt-auto relative">
                         <span className="text-emerald-400 font-bold text-xs sm:text-sm select-none font-mono whitespace-nowrap me-1.5">
-                          {getPromptString(pane.selectedShell, pane.cwd || '~', paneServer)}
+                          {getPromptString(pane.selectedShell, currentPaneCwd, paneServer)}
                         </span>
                         <div className="flex-1 min-w-[200px] flex items-center relative">
                           <input
