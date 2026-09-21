@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.107.0';
+export const APP_VERSION = '1.108.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.108.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'همگام‌سازی کامل دیزاین و ساختار Bulk Linux Server Configuration با Bulk Device Config و اصلاح لایه‌بندی فول‌اسکرین و هدر',
+    title_en: 'Bulk Linux Server Configuration Modal Layout Synchronization with Bulk Device Config & Fullscreen Fix',
+    changes: [
+      'بازنویسی کامل ساختار مودال پیکربندی گروهی سرورهای لینوکس (Bulk Linux Server Configuration) بر اساس معماری و ظاهر یکپارچه Bulk Device Configuration در بخش تجهیزات شبکه.',
+      'حل قطعی مشکل افتادن بالای مودال زیر هدر برنامه: استفاده از پورتال React (createPortal به document.body) با لایه z-[9999] و قرارگیری دقیق روی کل لایه‌های صفحه.',
+      'اصلاح رفتار حالت تمام‌صفحه (Fullscreen): امتداد تا لبه بالایی نوار ابزار پایین با حریم bottom-8 جهت ممانعت از همپوشانی با داک ابزارها و حفظ دسترسی همیشگی به دکمه‌های کنترلی هدر (بستن، مینیمایز، خروج از تمام‌صفحه).',
+      'یکپارچه‌سازی نوار ناوبری سه‌مرحله‌ای (قالب و متغیرها -> پیش‌نمایش و دستورات شل -> اجرا و مانیتورینگ) همراه با آمار توزیع‌های فعال ناوگان لینوکس.',
+      'تجهیز تمام گزینه‌های جدید (مدیریت کاربران و گروه‌ها، کرون‌جاب، مانت استوریج، فایروال، داکر) به پاپ‌آپ‌های راهنمای آموزشی ۳ بخشی (این چیست؟ چرا لازم است؟ مثال کاربردی).',
+      'انطباق صددرصدی با هر دو تم تاریک و روشن و حفظ هماهنگی کامل متون در دو زبان فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Complete architectural and visual redesign of Bulk Linux Server Configuration modal to match the exact UX and layout of Bulk Device Configuration.',
+      'Resolved modal header collision: mounted via React Portal (createPortal to document.body) with z-[9999] to ensure the modal header always stays above the app navbar and never drops underneath.',
+      'Refined fullscreen behavior: perfectly aligns with bottom-8 footer clearance preserving ToolsDock space and providing uninterrupted access to header controls (close, minimize, fullscreen toggle).',
+      'Integrated unified 3-step navigation workflow (Template & Parameters -> Preview & Shell Commands -> Execution & Monitoring) with live fleet distribution statistics.',
+      'Equipped all newly added automation options (user lifecycle/groups, cron jobs, storage mounting, firewall rules, docker fleet) with boundary-safe 3-part educational guides (What, Why, Example).',
+      'Full dark/light theme adaptability and strict bilingual localization without unlocalized text.'
+    ]
+  },
   {
     version: '1.107.0',
     releaseDate: '2026-09-21',

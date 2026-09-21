@@ -1,11 +1,7 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  Server,
   Sliders,
-  X,
-  Minus,
-  Maximize2,
-  Minimize2,
   Play,
   CheckCircle2,
   AlertTriangle,
@@ -24,15 +20,14 @@ import {
   Copy,
   Check,
   Search,
-  ArrowRight,
-  ArrowLeft,
   Download,
-  RotateCcw,
-  ChevronDown,
-  ChevronUp,
   Layers,
   HardDrive,
-  Sparkles,
+  Eye,
+  EyeOff,
+  Ban,
+  ChevronRight,
+  Database,
   HelpCircle,
   AlertCircle
 } from 'lucide-react';
@@ -51,8 +46,13 @@ import {
   cancelBulkServerJob
 } from '../../services/bulkServerConfigService';
 import { InfoTooltipPopover } from '../bulk-config/InfoTooltipPopover';
+import { ModalHeaderControls } from '../common/ModalHeaderControls';
+import {
+  getServerTemplateGuide,
+  getServerParameterGuide
+} from './serverTemplateInfoGuide';
 
-interface BulkServerConfigModalProps {
+export interface BulkServerConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMinimize?: () => void;
@@ -62,6 +62,8 @@ interface BulkServerConfigModalProps {
   allServers: RemoteServer[];
   onServersUpdated?: () => void;
 }
+
+type ActiveStep = 'configure' | 'preview' | 'execution';
 
 export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
   isOpen,
@@ -74,8 +76,8 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
   onServersUpdated
 }) => {
   // Modal State
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [activeStep, setActiveStep] = useState<ActiveStep>('configure');
 
   // Templates
   const [templates, setTemplates] = useState<BulkServerTemplate[]>([]);
@@ -83,11 +85,12 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('linux_security_updates');
   const [templateSearch, setTemplateSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [showTemplateGuideDetails, setShowTemplateGuideDetails] = useState(false);
 
   // Parameters
   const [parameters, setParameters] = useState<Record<string, any>>({});
 
-  // Target Servers Selection
+  // Target Linux Servers Selection
   const [selectedServerIds, setSelectedServerIds] = useState<Set<string>>(new Set());
   const [serverSearch, setServerSearch] = useState('');
   const [distroFilter, setDistroFilter] = useState<string>('all');
@@ -96,10 +99,14 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
   const [previewItems, setPreviewItems] = useState<BulkServerPreviewItem[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Execution & Safety State
   const [dangerConfirmation, setDangerConfirmation] = useState('');
   const [timeoutSec, setTimeoutSec] = useState<number>(60);
   const [delayMs, setDelayMs] = useState<number>(500);
+  const [runWithSudo, setRunWithSudo] = useState<boolean>(true);
   const [ephemeralPassword, setEphemeralPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Execution Job State
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -107,10 +114,12 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
   const [isExecuting, setIsExecuting] = useState(false);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [activeTabServerId, setActiveTabServerId] = useState<string | null>(null);
-  const [expandedPreviewServerId, setExpandedPreviewServerId] = useState<string | null>(null);
+  const [logFilter, setLogFilter] = useState<'all' | 'error' | 'warning' | 'info' | 'success'>('all');
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
-  // Filter only Linux servers for Phase 1
+  const logsEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Filter only Linux servers
   const linuxServers = useMemo(() => {
     return allServers.filter((s) => s.os_type === 'linux');
   }, [allServers]);
@@ -152,21 +161,21 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
         .map((s) => s.id);
       setSelectedServerIds(new Set(validLinuxIds));
     } else if (isOpen && selectedServerIds.size === 0 && linuxServers.length > 0) {
-      // Default select all linux servers if none selected
+      // Default select all linux servers if none pre-selected
       setSelectedServerIds(new Set(linuxServers.map((s) => s.id)));
     }
   }, [isOpen, initialSelectedServers, linuxServers]);
 
   // Selected template object
-  const currentTemplate = useMemo(() => {
+  const activeTemplate = useMemo(() => {
     return templates.find((t) => t.id === selectedTemplateId) || templates[0];
   }, [templates, selectedTemplateId]);
 
   // Initialize default parameter values when template changes
   useEffect(() => {
-    if (currentTemplate) {
+    if (activeTemplate) {
       const initialVals: Record<string, any> = {};
-      currentTemplate.parameters.forEach((param) => {
+      activeTemplate.parameters.forEach((param) => {
         if (param.default !== undefined) {
           initialVals[param.name] = param.default;
         } else if (param.type === 'boolean') {
@@ -178,15 +187,28 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
         }
       });
       setParameters(initialVals);
-      setTimeoutSec(currentTemplate.default_timeout_sec || 60);
+      setTimeoutSec(activeTemplate.default_timeout_sec || 60);
       setDangerConfirmation('');
+      setShowTemplateGuideDetails(false);
     }
-  }, [currentTemplate]);
+  }, [activeTemplate]);
 
-  // Handle template selection
-  const handleSelectTemplate = (tplId: string) => {
-    setSelectedTemplateId(tplId);
-  };
+  // Categories list
+  const categories = useMemo(() => {
+    return [
+      { id: 'all', labelFa: 'همه الگوها', labelEn: 'All Templates' },
+      { id: 'users', labelFa: 'کاربران و دسترسی', labelEn: 'Users & Groups' },
+      { id: 'cron', labelFa: 'کرون‌جاب و زمان‌بندی', labelEn: 'Cron Jobs' },
+      { id: 'storage', labelFa: 'مانت و استوریج', labelEn: 'Mount & Storage' },
+      { id: 'firewall', labelFa: 'فایروال و پورت‌ها', labelEn: 'Firewall & Ports' },
+      { id: 'docker', labelFa: 'کانتینرهای داکر', labelEn: 'Docker Fleet' },
+      { id: 'security', labelFa: 'امنیت و SSH', labelEn: 'Security & SSH' },
+      { id: 'network', labelFa: 'شبکه و DNS', labelEn: 'Network & DNS' },
+      { id: 'maintenance', labelFa: 'نگهداری و آپدیت', labelEn: 'Maintenance' },
+      { id: 'services', labelFa: 'سرویس‌ها و کرنل', labelEn: 'Services & Kernel' },
+      { id: 'custom', labelFa: 'اسکریپت سفارشی', labelEn: 'Custom Bash' }
+    ];
+  }, []);
 
   // Filtered templates
   const filteredTemplates = useMemo(() => {
@@ -203,7 +225,7 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
     });
   }, [templates, categoryFilter, templateSearch]);
 
-  // Filtered servers in Step 2
+  // Filtered servers in Step 1
   const filteredServers = useMemo(() => {
     return linuxServers.filter((srv) => {
       const matchesDistro = distroFilter === 'all' || srv.os_distro === distroFilter;
@@ -217,6 +239,29 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
       return matchesDistro && matchesSearch;
     });
   }, [linuxServers, distroFilter, serverSearch]);
+
+  // Form validity
+  const isFormValid = useMemo(() => {
+    if (!activeTemplate) return false;
+    if (selectedServerIds.size === 0) return false;
+
+    // Check required parameters
+    for (const param of activeTemplate.parameters) {
+      if (param.required) {
+        const val = parameters[param.name];
+        if (val === undefined || val === null || val === '') return false;
+      }
+    }
+
+    // Check danger confirmation
+    if (activeTemplate.is_dangerous && activeTemplate.confirmation_keyword) {
+      if (dangerConfirmation.trim().toUpperCase() !== activeTemplate.confirmation_keyword.toUpperCase()) {
+        return false;
+      }
+    }
+
+    return true;
+  }, [activeTemplate, parameters, selectedServerIds, dangerConfirmation]);
 
   // Server selection helpers
   const handleToggleServer = (id: string) => {
@@ -236,58 +281,40 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
     });
   };
 
-  const handleDeselectAllFiltered = () => {
-    setSelectedServerIds((prev) => {
-      const next = new Set(prev);
-      filteredServers.forEach((s) => next.delete(s.id));
-      return next;
-    });
+  const handleClearServerSelection = () => {
+    setSelectedServerIds(new Set());
   };
 
-  // Move to Step 3: Generate Preview
-  const handleProceedToPreview = async () => {
-    if (!currentTemplate || selectedServerIds.size === 0) return;
+  // Generate Preview (Step 2)
+  const handleGeneratePreview = async () => {
+    if (!activeTemplate || selectedServerIds.size === 0) return;
     setLoadingPreview(true);
     setPreviewError(null);
     try {
       const items = await generateBulkServerPreview(
-        currentTemplate.id,
+        activeTemplate.id,
         parameters,
         Array.from(selectedServerIds)
       );
       setPreviewItems(items);
-      if (items.length > 0) {
-        setExpandedPreviewServerId(items[0].serverId);
-      }
-      setCurrentStep(3);
+      setActiveStep('preview');
     } catch (err: any) {
-      setPreviewError(err.message || 'Failed to generate preview');
+      setPreviewError(err.message || (isEn ? 'Failed to generate preview' : 'خطا در تولید پیش‌نمایش دستورات'));
     } finally {
       setLoadingPreview(false);
     }
   };
 
-  // Start Fleet Execution
+  // Start Fleet Execution (Step 3)
   const handleStartExecution = async () => {
-    if (!currentTemplate) return;
-
-    if (currentTemplate.is_dangerous && currentTemplate.confirmation_keyword) {
-      if (dangerConfirmation.trim().toUpperCase() !== currentTemplate.confirmation_keyword.toUpperCase()) {
-        alert(
-          isEn
-            ? `Please type "${currentTemplate.confirmation_keyword}" to confirm dangerous operation.`
-            : `لطفاً جهت تایید عبارت «${currentTemplate.confirmation_keyword}» را دقیقاً وارد نمایید.`
-        );
-        return;
-      }
-    }
+    if (!activeTemplate || !isFormValid) return;
 
     setIsExecuting(true);
-    setCurrentStep(4);
+    setActiveStep('execution');
 
     try {
       const { jobId } = await startBulkServerJob({
-        templateId: currentTemplate.id,
+        templateId: activeTemplate.id,
         parameters,
         serverIds: Array.from(selectedServerIds),
         timeoutSec,
@@ -320,7 +347,7 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
       setPollInterval(interval);
     } catch (err: any) {
       setIsExecuting(false);
-      alert(err.message || 'Failed to start execution');
+      alert(err.message || (isEn ? 'Failed to start execution' : 'خطا در شروع عملیات اتوماسیون'));
     }
   };
 
@@ -345,7 +372,7 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
     }
   };
 
-  // Copy to clipboard helper
+  // Copy helper
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedText(id);
@@ -365,8 +392,8 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Render Template Icon
-  const renderTemplateIcon = (iconName: string, className = 'w-5 h-5') => {
+  // Render Template Category Icon
+  const renderTemplateIcon = (iconName: string, className = 'w-4 h-4') => {
     switch (iconName) {
       case 'RefreshCw':
         return <RefreshCw className={className} />;
@@ -398,59 +425,106 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
     }
   };
 
+  // Distro badge helper
+  const getDistroBadge = (distro?: string) => {
+    const d = (distro || '').toLowerCase();
+    if (d.includes('ubuntu') || d.includes('debian')) {
+      return {
+        name: distro || 'Debian/Ubuntu',
+        className: 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+      };
+    }
+    if (d.includes('rhel') || d.includes('rocky') || d.includes('alma') || d.includes('centos') || d.includes('fedora')) {
+      return {
+        name: distro || 'RHEL/Rocky',
+        className: 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+      };
+    }
+    if (d.includes('alpine')) {
+      return {
+        name: distro || 'Alpine',
+        className: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+      };
+    }
+    if (d.includes('arch')) {
+      return {
+        name: distro || 'Arch',
+        className: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+      };
+    }
+    return {
+      name: distro || 'Linux',
+      className: 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
+    };
+  };
+
+  // Quick Distro counts
+  const distroCounts = useMemo(() => {
+    let debianUbuntu = 0;
+    let rhelRocky = 0;
+    let other = 0;
+
+    linuxServers.forEach((s) => {
+      const d = (s.os_distro || '').toLowerCase();
+      if (d.includes('ubuntu') || d.includes('debian')) debianUbuntu++;
+      else if (d.includes('rhel') || d.includes('rocky') || d.includes('alma') || d.includes('centos')) rhelRocky++;
+      else other++;
+    });
+
+    return { debianUbuntu, rhelRocky, other };
+  }, [linuxServers]);
+
   if (!isOpen) return null;
 
-  return (
+  const isRtl = !isEn;
+
+  // Render via createPortal to root document.body with z-[9999]
+  // This guarantees it is never obscured by the application navbar
+  return createPortal(
     <div
-      className={
-        isMaximized
-          ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 flex flex-col'
-          : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm pb-10'
-      }
+      className={`fixed z-[9999] flex flex-col items-center justify-center transition-all duration-200 ${
+        isFullscreen
+          ? 'top-0 left-0 right-0 bottom-8 p-0'
+          : 'inset-0 p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md pb-10'
+      }`}
+      dir={isRtl ? 'rtl' : 'ltr'}
     >
       <div
-        className={`flex flex-col overflow-hidden transition-all duration-200 ${
-          isMaximized
-            ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
-            : 'w-full max-w-6xl max-h-[92vh] rounded-2xl border shadow-2xl'
-        } ${
+        className={`relative w-full ${
+          isFullscreen
+            ? 'h-full max-h-full rounded-none border-none'
+            : 'max-w-6xl max-h-[92vh] rounded-2xl border'
+        } flex flex-col shadow-2xl ${
           isLightMode
-            ? 'bg-white border-slate-200 text-slate-800'
-            : 'bg-slate-950 border-slate-800 text-slate-100'
-        }`}
+            ? 'bg-slate-50 border-slate-300 text-slate-900'
+            : 'bg-slate-900/95 border-cyan-500/30 text-slate-100'
+        } overflow-hidden backdrop-blur-xl transition-all duration-200`}
       >
         {/* ========================================================= */}
-        {/* MODAL HEADER WITH 3 CONTROL BUTTONS (Rule 7 Standard)     */}
+        {/* MODAL HEADER (Exact design of BulkDeviceConfigModal)      */}
         {/* ========================================================= */}
         <div
-          className={`flex items-center justify-between px-5 py-3.5 border-b shrink-0 ${
-            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+          className={`flex items-center justify-between px-5 py-4 border-b shrink-0 ${
+            isLightMode ? 'border-slate-200 bg-slate-100/80' : 'border-white/10 bg-slate-950/60'
           }`}
         >
           <div className="flex items-center gap-3">
-            <div
-              className={`p-2 rounded-xl flex items-center justify-center ${
-                isLightMode ? 'bg-cyan-100 text-cyan-700' : 'bg-cyan-950/80 text-cyan-400 border border-cyan-800/40'
-              }`}
-            >
+            <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500/20 to-teal-500/20 border border-cyan-500/40 text-cyan-300 shadow-md">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold tracking-tight">
+                <h3 className={`font-bold text-base sm:text-lg font-mono tracking-tight ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                   {isEn ? 'Bulk Linux Server Configuration' : 'پیکربندی گروهی ناوگان سرورهای لینوکس'}
-                </h2>
-                <span
-                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                    isLightMode
-                      ? 'bg-cyan-100 text-cyan-800 border border-cyan-200'
-                      : 'bg-cyan-950 text-cyan-300 border border-cyan-800/50'
-                  }`}
-                >
-                  {isEn ? 'Linux Fleet Automation' : 'اتوماسیون ناوگان لینوکس'}
+                </h3>
+                <span className="px-2 py-0.5 text-[11px] font-mono font-semibold rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  {isEn ? `${selectedServerIds.size} Servers` : `${selectedServerIds.size} سرور`}
+                </span>
+                <span className="px-2 py-0.5 text-[10px] font-mono rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {isEn ? 'Real SSH Engine' : 'اتصال واقعی SSH'}
                 </span>
               </div>
-              <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                 {isEn
                   ? 'Multi-node idempotent configuration with adaptive distro command generation (APT / DNF / Pacman / APK)'
                   : 'پیکربندی همزمان چندین سرور با تولید خودکار دستورات بر اساس توزیع سیستم‌عامل (اوبونتو، ردهت، راکی، آلپاین)'}
@@ -458,602 +532,262 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
             </div>
           </div>
 
-          {/* Stepper Wizard Indicator */}
-          <div className="hidden md:flex items-center gap-2">
-            {[
-              { num: 1, labelEn: 'Template', labelFa: 'انتخاب قالب' },
-              { num: 2, labelEn: 'Servers', labelFa: 'انتخاب سرورها' },
-              { num: 3, labelEn: 'Preview', labelFa: 'پیش‌نمایش دستورات' },
-              { num: 4, labelEn: 'Execute', labelFa: 'اجرا و لاگ‌ها' }
-            ].map((st, idx) => (
-              <React.Fragment key={st.num}>
-                {idx > 0 && (
-                  <div
-                    className={`w-6 h-0.5 ${
-                      currentStep >= st.num
-                        ? isLightMode
-                          ? 'bg-cyan-500'
-                          : 'bg-cyan-400'
-                        : isLightMode
-                        ? 'bg-slate-200'
-                        : 'bg-slate-800'
-                    }`}
-                  />
-                )}
-                <div
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                    currentStep === st.num
-                      ? isLightMode
-                        ? 'bg-cyan-600 text-white shadow-sm'
-                        : 'bg-cyan-500 text-slate-950 shadow-sm font-bold'
-                      : currentStep > st.num
-                      ? isLightMode
-                        ? 'bg-cyan-100 text-cyan-800'
-                        : 'bg-cyan-950 text-cyan-300'
-                      : isLightMode
-                      ? 'bg-slate-100 text-slate-400'
-                      : 'bg-slate-900 text-slate-500'
-                  }`}
-                >
-                  <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] border border-current">
-                    {st.num}
-                  </span>
-                  <span>{isEn ? st.labelEn : st.labelFa}</span>
-                </div>
-              </React.Fragment>
-            ))}
+          <ModalHeaderControls
+            onMinimize={onMinimize}
+            onClose={onClose}
+            onMaximizeToggle={() => setIsFullscreen((prev) => !prev)}
+            isMaximized={isFullscreen}
+            isLightMode={isLightMode}
+            isEn={isEn}
+            minimizeTooltip={isEn ? 'Minimize to bottom dock' : 'مینیمایز به نوار داک'}
+            closeTooltip={isEn ? 'Close modal' : 'بستن پنجره'}
+          />
+        </div>
+
+        {/* ========================================================= */}
+        {/* MULTI-STEP NAVIGATION BAR (Configure -> Preview -> Exec)   */}
+        {/* ========================================================= */}
+        <div
+          className={`flex items-center justify-between px-6 py-2.5 border-b text-xs font-mono shrink-0 ${
+            isLightMode ? 'bg-slate-200/50 border-slate-300' : 'bg-slate-950/40 border-white/5'
+          }`}
+        >
+          <div className="flex items-center gap-2 sm:gap-4">
+            <button
+              onClick={() => setActiveStep('configure')}
+              disabled={activeStep === 'execution' && isExecuting}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                activeStep === 'configure'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+              }`}
+            >
+              <span className="w-5 h-5 rounded-full flex items-center justify-center bg-cyan-500/30 text-cyan-300 text-[10px]">
+                1
+              </span>
+              <span>{isEn ? 'Template & Parameters' : 'قالب دستور و متغیرها'}</span>
+            </button>
+
+            <ChevronRight className={`w-3.5 h-3.5 text-slate-600 ${isRtl ? 'rotate-180' : ''}`} />
+
+            <button
+              onClick={() => {
+                if (previewItems.length > 0) setActiveStep('preview');
+                else handleGeneratePreview();
+              }}
+              disabled={selectedServerIds.size === 0 || (activeStep === 'execution' && isExecuting)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                activeStep === 'preview'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold shadow-sm'
+                  : selectedServerIds.size > 0
+                  ? 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  : 'text-slate-600 cursor-not-allowed opacity-50'
+              }`}
+            >
+              <span className="w-5 h-5 rounded-full flex items-center justify-center bg-white/10 text-[10px]">
+                2
+              </span>
+              <span>{isEn ? 'Preview & Dry Run' : 'پیش‌نمایش و دستورات Shell'}</span>
+            </button>
+
+            <ChevronRight className={`w-3.5 h-3.5 text-slate-600 ${isRtl ? 'rotate-180' : ''}`} />
+
+            <button
+              onClick={() => {
+                if (activeJobId) setActiveStep('execution');
+              }}
+              disabled={!activeJobId}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                activeStep === 'execution'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold shadow-sm'
+                  : activeJobId
+                  ? 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                  : 'text-slate-600 cursor-not-allowed opacity-50'
+              }`}
+            >
+              <span className="w-5 h-5 rounded-full flex items-center justify-center bg-white/10 text-[10px]">
+                3
+              </span>
+              <span>{isEn ? 'Execution & Monitoring' : 'اجرا و مانیتورینگ'}</span>
+            </button>
           </div>
 
-          {/* Header 3 Control Buttons (Standard Rule 7) */}
-          <div className="flex items-center gap-1">
-            {/* Minimize button */}
-            {onMinimize && (
-              <button
-                type="button"
-                onClick={onMinimize}
-                title={isEn ? 'Minimize to bottom dock' : 'مینیمایز به نوار ابزار پایین'}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                  isLightMode
-                    ? 'hover:bg-slate-200 text-slate-600'
-                    : 'hover:bg-slate-800 text-slate-400 hover:text-cyan-300'
-                }`}
-              >
-                <Minus className="w-4 h-4" />
-              </button>
+          {/* Quick Distro Breakdown Summary */}
+          <div className="hidden md:flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-orange-400" />
+              <span>
+                Ubuntu/Debian:{' '}
+                <strong className={isLightMode ? 'text-slate-800' : 'text-slate-200'}>
+                  {distroCounts.debianUbuntu}
+                </strong>
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-400" />
+              <span>
+                RHEL/Rocky:{' '}
+                <strong className={isLightMode ? 'text-slate-800' : 'text-slate-200'}>
+                  {distroCounts.rhelRocky}
+                </strong>
+              </span>
+            </span>
+            {distroCounts.other > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span>
+                  Other:{' '}
+                  <strong className={isLightMode ? 'text-slate-800' : 'text-slate-200'}>
+                    {distroCounts.other}
+                  </strong>
+                </span>
+              </span>
             )}
-
-            {/* Fullscreen / Maximize button */}
-            <button
-              type="button"
-              onClick={() => setIsMaximized((prev) => !prev)}
-              title={
-                isMaximized
-                  ? isEn
-                    ? 'Exit Fullscreen'
-                    : 'خروج از حالت تمام صفحه'
-                  : isEn
-                  ? 'Fullscreen'
-                  : 'تمام صفحه'
-              }
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLightMode
-                  ? 'hover:bg-slate-200 text-slate-600'
-                  : 'hover:bg-slate-800 text-slate-400 hover:text-cyan-300'
-              }`}
-            >
-              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
-
-            {/* Close button */}
-            <button
-              type="button"
-              onClick={onClose}
-              title={isEn ? 'Close' : 'بستن'}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLightMode
-                  ? 'hover:bg-rose-100 text-slate-600 hover:text-rose-700'
-                  : 'hover:bg-rose-950/50 text-slate-400 hover:text-rose-400'
-              }`}
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
         </div>
 
         {/* ========================================================= */}
-        {/* MODAL BODY (STEP VIEWS)                                   */}
+        {/* MAIN BODY AREA (SCROLLABLE)                               */}
         {/* ========================================================= */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-          {/* STEP 1: TEMPLATE & PARAMETERS SELECTION */}
-          {currentStep === 1 && (
-            <div className="space-y-6">
-              {/* Category Filter & Search Bar */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-                  {[
-                    { id: 'all', labelEn: 'All Templates', labelFa: 'همه قالب‌ها' },
-                    { id: 'users', labelEn: 'Users & Groups', labelFa: 'کاربران و دسترسی' },
-                    { id: 'cron', labelEn: 'Cron Jobs & Schedules', labelFa: 'کرون‌جاب و زمان‌بندی' },
-                    { id: 'storage', labelEn: 'Mount & Storage', labelFa: 'مانت و دیسک' },
-                    { id: 'firewall', labelEn: 'Firewall & Ports', labelFa: 'فایروال و پورت‌ها' },
-                    { id: 'docker', labelEn: 'Docker Fleet', labelFa: 'کانتینرهای داکر' },
-                    { id: 'security', labelEn: 'Security & SSH', labelFa: 'امنیت و SSH' },
-                    { id: 'network', labelEn: 'Network & Routing', labelFa: 'شبکه و مسیریابی' },
-                    { id: 'maintenance', labelEn: 'Maintenance & OS', labelFa: 'نگهداری و سیستم‌عامل' },
-                    { id: 'services', labelEn: 'Services & Systemd', labelFa: 'سرویس‌ها' },
-                    { id: 'custom', labelEn: 'Ad-hoc Bash', labelFa: 'اسکریپت سفارشی' }
-                  ].map((cat) => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setCategoryFilter(cat.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
-                        categoryFilter === cat.id
-                          ? isLightMode
-                            ? 'bg-cyan-600 text-white shadow-sm'
-                            : 'bg-cyan-500 text-slate-950 font-bold shadow-sm'
-                          : isLightMode
-                          ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {isEn ? cat.labelEn : cat.labelFa}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="relative w-full sm:w-72">
-                  <Search
-                    className={`w-4 h-4 absolute top-2.5 ${
-                      isEn ? 'left-3' : 'right-3'
-                    } ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}
-                  />
-                  <input
-                    type="text"
-                    value={templateSearch}
-                    onChange={(e) => setTemplateSearch(e.target.value)}
-                    placeholder={isEn ? 'Search templates...' : 'جستجوی قالب‌ها...'}
-                    className={`w-full text-xs rounded-xl py-2 ${
-                      isEn ? 'pl-9 pr-3' : 'pr-9 pl-3'
-                    } border outline-none transition-colors ${
-                      isLightMode
-                        ? 'bg-slate-50 border-slate-200 text-slate-900 focus:border-cyan-500'
-                        : 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-500'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              {/* Template Cards Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                {filteredTemplates.map((tpl) => {
-                  const isSelected = tpl.id === selectedTemplateId;
-                  return (
-                    <div
-                      key={tpl.id}
-                      onClick={() => handleSelectTemplate(tpl.id)}
-                      className={`p-4 rounded-xl border text-start cursor-pointer transition-all relative flex flex-col justify-between ${
-                        isSelected
-                          ? isLightMode
-                            ? 'bg-cyan-50/80 border-cyan-500 ring-2 ring-cyan-500/20 shadow-md'
-                            : 'bg-cyan-950/30 border-cyan-500 ring-2 ring-cyan-500/20 shadow-lg'
-                          : isLightMode
-                          ? 'bg-white hover:bg-slate-50 border-slate-200'
-                          : 'bg-slate-900/60 hover:bg-slate-900 border-slate-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <div
-                            className={`p-2 rounded-lg flex items-center justify-center ${
-                              isSelected
-                                ? isLightMode
-                                  ? 'bg-cyan-600 text-white'
-                                  : 'bg-cyan-500 text-slate-950'
-                                : isLightMode
-                                ? 'bg-slate-100 text-slate-700'
-                                : 'bg-slate-800 text-cyan-400'
-                            }`}
-                          >
-                            {renderTemplateIcon(tpl.icon, 'w-4 h-4')}
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            {tpl.is_dangerous && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/10 text-rose-500 border border-rose-500/30">
-                                {isEn ? 'Dangerous' : 'عملیات حساس'}
-                              </span>
-                            )}
-                            {/* Standard 3-Part Field Info Tooltip (Rule 7) */}
-                            <InfoTooltipPopover
-                              title={isEn ? tpl.title_en : tpl.title}
-                              what={isEn ? tpl.info_what_en : tpl.info_what_fa}
-                              why={isEn ? tpl.info_why_en : tpl.info_why_fa}
-                              example={isEn ? tpl.info_example_en : tpl.info_example_fa}
-                              isEn={isEn}
-                            />
-                          </div>
-                        </div>
-
-                        <h3 className="text-sm font-bold mb-1 leading-snug">
-                          {isEn ? tpl.title_en : tpl.title}
-                        </h3>
-                        <p
-                          className={`text-xs line-clamp-2 leading-relaxed ${
-                            isLightMode ? 'text-slate-600' : 'text-slate-400'
-                          }`}
-                        >
-                          {isEn ? tpl.description_en : tpl.description}
-                        </p>
-                      </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-dashed flex items-center justify-between text-[11px] border-inherit">
-                        <span className={isLightMode ? 'text-slate-500' : 'text-slate-500'}>
-                          {isEn
-                            ? `${tpl.parameters.length} parameter${tpl.parameters.length === 1 ? '' : 's'}`
-                            : `${tpl.parameters.length} پارامتر تنظیماتی`}
-                        </span>
-                        <span className="font-mono text-cyan-500 text-[10px]">
-                          ~{tpl.default_timeout_sec}s timeout
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Template Parameters Configuration Form */}
-              {currentTemplate && (
-                <div
-                  className={`p-5 rounded-xl border ${
-                    isLightMode
-                      ? 'bg-slate-50/80 border-slate-200'
-                      : 'bg-slate-900/50 border-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-inherit">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-cyan-500" />
-                      <h4 className="text-sm font-bold">
-                        {isEn
-                          ? `Parameters for: ${currentTemplate.title_en}`
-                          : `تنظیم مقادیر و پارامترهای قالب: ${currentTemplate.title}`}
-                      </h4>
-                    </div>
-
-                    <span className="text-xs text-cyan-500 font-mono">
-                      ID: {currentTemplate.id}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          {/* STEP 1: CONFIGURE (TEMPLATES, PARAMS, SERVERS) */}
+          {activeStep === 'configure' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Column: Template Catalog & Categories (5 cols) */}
+              <div className="lg:col-span-5 space-y-3">
+                {/* Catalog Header & Search */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold font-mono uppercase tracking-wider flex items-center gap-1.5 text-cyan-400">
+                      <Layers className="w-4 h-4" />
+                      <span>{isEn ? 'Select Command Template' : 'انتخاب الگوی پیکربندی'}</span>
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {filteredTemplates.length} {isEn ? 'templates' : 'الگو'}
                     </span>
                   </div>
 
-                  {currentTemplate.parameters.length === 0 ? (
-                    <div className="py-4 text-center text-xs text-slate-500">
-                      {isEn
-                        ? 'This template requires no additional parameters. It executes standard distro-specific commands automatically.'
-                        : 'این قالب نیاز به پارامتر ورودی ندارد و دستورات استاندارد ممیزی سیستم را اجرا خواهد کرد.'}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {currentTemplate.parameters.map((param) => {
-                        const val = parameters[param.name];
-                        return (
-                          <div
-                            key={param.name}
-                            className={`space-y-1.5 ${
-                              param.type === 'textarea' ? 'md:col-span-2' : ''
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-semibold flex items-center gap-1.5">
-                                <span>{isEn ? param.labelEn : param.labelFa}</span>
-                                {param.required && <span className="text-rose-500 font-bold">*</span>}
-                              </label>
-
-                              {/* 3-Part Field Info Tooltip (Rule 7) */}
-                              {(param.info_what_fa || param.info_what_en) && (
-                                <InfoTooltipPopover
-                                  title={isEn ? param.labelEn : param.labelFa}
-                                  what={isEn ? param.info_what_en || '' : param.info_what_fa || ''}
-                                  why={isEn ? param.info_why_en || '' : param.info_why_fa || ''}
-                                  example={isEn ? param.info_example_en || '' : param.info_example_fa || ''}
-                                  isEn={isEn}
-                                />
-                              )}
-                            </div>
-
-                            {/* Render Parameter Input Types */}
-                            {param.type === 'boolean' ? (
-                              <label className="flex items-center gap-2 text-xs cursor-pointer py-1.5">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(val)}
-                                  onChange={(e) =>
-                                    setParameters((prev) => ({
-                                      ...prev,
-                                      [param.name]: e.target.checked
-                                    }))
-                                  }
-                                  className="w-4 h-4 rounded text-cyan-600 focus:ring-cyan-500 border-slate-300"
-                                />
-                                <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
-                                  {isEn ? 'Enable / Active' : 'فعال‌سازی این گزینه'}
-                                </span>
-                              </label>
-                            ) : param.type === 'select' ? (
-                              <select
-                                value={val || ''}
-                                onChange={(e) =>
-                                  setParameters((prev) => ({
-                                    ...prev,
-                                    [param.name]: e.target.value
-                                  }))
-                                }
-                                className={`w-full text-xs rounded-xl px-3 py-2 border outline-none ${
-                                  isLightMode
-                                    ? 'bg-white border-slate-300 text-slate-800'
-                                    : 'bg-slate-950 border-slate-800 text-slate-100'
-                                }`}
-                              >
-                                {param.options?.map((opt) => (
-                                  <option key={opt.value} value={opt.value}>
-                                    {isEn ? opt.labelEn : opt.labelFa}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : param.type === 'textarea' ? (
-                              <textarea
-                                rows={3}
-                                value={val || ''}
-                                onChange={(e) =>
-                                  setParameters((prev) => ({
-                                    ...prev,
-                                    [param.name]: e.target.value
-                                  }))
-                                }
-                                placeholder={param.placeholder}
-                                className={`w-full text-xs rounded-xl p-3 border outline-none font-mono ${
-                                  isLightMode
-                                    ? 'bg-white border-slate-300 text-slate-800'
-                                    : 'bg-slate-950 border-slate-800 text-slate-100'
-                                }`}
-                              />
-                            ) : (
-                              <input
-                                type={param.type === 'number' ? 'number' : 'text'}
-                                value={val !== undefined ? val : ''}
-                                onChange={(e) =>
-                                  setParameters((prev) => ({
-                                    ...prev,
-                                    [param.name]:
-                                      param.type === 'number' ? Number(e.target.value) : e.target.value
-                                  }))
-                                }
-                                placeholder={param.placeholder}
-                                className={`w-full text-xs rounded-xl px-3 py-2 border outline-none ${
-                                  isLightMode
-                                    ? 'bg-white border-slate-300 text-slate-800'
-                                    : 'bg-slate-950 border-slate-800 text-slate-100'
-                                }`}
-                              />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* STEP 2: TARGET LINUX SERVERS SELECTION */}
-          {currentStep === 2 && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-bold">
-                    {isEn ? 'Select Target Linux Servers' : 'انتخاب سرورهای لینوکس هدف'}
-                  </h3>
-                  <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {isEn
-                      ? `Select which Linux servers should receive this configuration (${selectedServerIds.size} of ${linuxServers.length} selected)`
-                      : `سرورهایی که این پیکربندی باید روی آنها اجرا شود را انتخاب کنید (${selectedServerIds.size} از ${linuxServers.length} سرور انتخاب شده)`}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={handleSelectAllFiltered}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium cursor-pointer ${
-                      isLightMode
-                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
-                        : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-                    }`}
-                  >
-                    {isEn ? 'Select All' : 'انتخاب همه'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeselectAllFiltered}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium cursor-pointer ${
-                      isLightMode
-                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
-                        : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-                    }`}
-                  >
-                    {isEn ? 'Deselect All' : 'لغو انتخاب'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Distro Filters & Search */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-                  <button
-                    type="button"
-                    onClick={() => setDistroFilter('all')}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer ${
-                      distroFilter === 'all'
-                        ? 'bg-cyan-600 text-white'
-                        : isLightMode
-                        ? 'bg-slate-100 text-slate-700'
-                        : 'bg-slate-900 text-slate-400'
-                    }`}
-                  >
-                    {isEn ? 'All Distros' : 'همه توزیع‌ها'}
-                  </button>
-                  {availableDistros.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setDistroFilter(d)}
-                      className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer whitespace-nowrap ${
-                        distroFilter === d
-                          ? 'bg-cyan-600 text-white'
-                          : isLightMode
-                          ? 'bg-slate-100 text-slate-700'
-                          : 'bg-slate-900 text-slate-400'
-                      }`}
-                    >
-                      {d}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="relative w-full sm:w-64">
-                  <Search
-                    className={`w-3.5 h-3.5 absolute top-2.5 ${
-                      isEn ? 'left-3' : 'right-3'
-                    } text-slate-400`}
-                  />
-                  <input
-                    type="text"
-                    value={serverSearch}
-                    onChange={(e) => setServerSearch(e.target.value)}
-                    placeholder={isEn ? 'Filter servers...' : 'فیلتر سرورها...'}
-                    className={`w-full text-xs rounded-xl py-1.5 ${
-                      isEn ? 'pl-8 pr-3' : 'pr-8 pl-3'
-                    } border outline-none ${
-                      isLightMode
-                        ? 'bg-white border-slate-200 text-slate-900'
-                        : 'bg-slate-900 border-slate-800 text-slate-100'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              {/* Server Table / List */}
-              <div
-                className={`rounded-xl border overflow-hidden ${
-                  isLightMode ? 'border-slate-200' : 'border-slate-800'
-                }`}
-              >
-                <div
-                  className={`grid grid-cols-12 px-4 py-2.5 text-xs font-bold border-b ${
-                    isLightMode ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div className="col-span-1 flex items-center">
+                  <div className="relative">
+                    <Search className={`w-3.5 h-3.5 absolute ${isRtl ? 'right-3' : 'left-3'} top-2.5 text-slate-400`} />
                     <input
-                      type="checkbox"
-                      checked={
-                        filteredServers.length > 0 &&
-                        filteredServers.every((s) => selectedServerIds.has(s.id))
-                      }
-                      onChange={(e) => {
-                        if (e.target.checked) handleSelectAllFiltered();
-                        else handleDeselectAllFiltered();
-                      }}
-                      className="w-4 h-4 rounded text-cyan-600"
+                      type="text"
+                      value={templateSearch}
+                      onChange={(e) => setTemplateSearch(e.target.value)}
+                      placeholder={isEn ? 'Search templates (users, cron, mount, firewall, docker)...' : 'جستجوی الگو (کاربران، کرون، مانت، فایروال، داکر)...'}
+                      className={`w-full ${isRtl ? 'pr-8 pl-3' : 'pl-8 pr-3'} py-1.5 text-xs rounded-xl border focus:outline-none transition ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900 focus:border-cyan-600'
+                          : 'bg-slate-950/80 border-white/10 text-slate-200 focus:border-cyan-500'
+                      }`}
                     />
                   </div>
-                  <div className="col-span-4">{isEn ? 'Server Name & Hostname' : 'نام سرور و هاست‌نیم'}</div>
-                  <div className="col-span-3">{isEn ? 'IP & SSH Port' : 'آدرس IP و پورت SSH'}</div>
-                  <div className="col-span-2">{isEn ? 'Distribution' : 'توزیع لینوکس'}</div>
-                  <div className="col-span-2 text-end">{isEn ? 'Status' : 'وضعیت'}</div>
+
+                  {/* Category Filter Tabs */}
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {categories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setCategoryFilter(cat.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition cursor-pointer ${
+                          categoryFilter === cat.id
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
+                            : isLightMode
+                            ? 'bg-slate-200/80 text-slate-600 hover:bg-slate-300'
+                            : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200 border border-white/5'
+                        }`}
+                      >
+                        {isEn ? cat.labelEn : cat.labelFa}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="divide-y divide-inherit max-h-80 overflow-y-auto">
-                  {filteredServers.length === 0 ? (
-                    <div className="p-6 text-center text-xs text-slate-500">
-                      {isEn ? 'No Linux servers match your filter.' : 'هیچ سرور لینوکسی مطابق فیلتر یافت نشد.'}
+                {/* Template Cards List */}
+                <div className="space-y-2 max-h-[580px] overflow-y-auto pr-1">
+                  {loadingTemplates ? (
+                    <div className="p-8 text-center text-slate-400 flex flex-col items-center gap-2">
+                      <RefreshCw className="w-5 h-5 animate-spin text-cyan-400" />
+                      <span className="text-xs font-mono">{isEn ? 'Loading templates...' : 'در حال بارگذاری الگوها...'}</span>
+                    </div>
+                  ) : filteredTemplates.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 border border-dashed border-white/10 rounded-xl text-xs">
+                      {isEn ? 'No templates matched your query' : 'الگویی با این مشخصات یافت نشد'}
                     </div>
                   ) : (
-                    filteredServers.map((srv) => {
-                      const isSelected = selectedServerIds.has(srv.id);
+                    filteredTemplates.map((tpl) => {
+                      const isSelected = activeTemplate?.id === tpl.id;
+                      const guide = getServerTemplateGuide(tpl.id, isEn, tpl);
+
                       return (
                         <div
-                          key={srv.id}
-                          onClick={() => handleToggleServer(srv.id)}
-                          className={`grid grid-cols-12 px-4 py-3 text-xs items-center cursor-pointer transition-colors ${
+                          key={tpl.id}
+                          onClick={() => setSelectedTemplateId(tpl.id)}
+                          className={`p-3.5 rounded-xl border transition-all text-xs cursor-pointer ${
                             isSelected
-                              ? isLightMode
-                                ? 'bg-cyan-50/50 hover:bg-cyan-50'
-                                : 'bg-cyan-950/20 hover:bg-cyan-950/30'
+                              ? 'bg-gradient-to-r from-cyan-500/15 to-teal-500/10 border-cyan-500/50 shadow-md shadow-cyan-500/5'
                               : isLightMode
-                              ? 'hover:bg-slate-50'
-                              : 'hover:bg-slate-900/50'
+                              ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-800'
+                              : 'bg-slate-950/60 hover:bg-white/5 border-white/5 text-slate-300'
                           }`}
                         >
-                          <div className="col-span-1 flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {}}
-                              className="w-4 h-4 rounded text-cyan-600 cursor-pointer"
-                            />
-                          </div>
-
-                          <div className="col-span-4 flex items-center gap-2">
-                            <Server className="w-4 h-4 text-cyan-500 shrink-0" />
-                            <div>
-                              <div className="font-semibold">{srv.name}</div>
-                              {srv.hostname && (
-                                <div className="text-[11px] text-slate-500 font-mono">
-                                  {srv.hostname}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <div
+                                className={`p-2 rounded-lg ${
+                                  isSelected
+                                    ? 'bg-cyan-500/20 text-cyan-300'
+                                    : 'bg-white/5 text-slate-400'
+                                }`}
+                              >
+                                {renderTemplateIcon(tpl.icon, 'w-4 h-4')}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold font-mono text-[13px] text-white">
+                                    {isEn ? tpl.title_en : tpl.title}
+                                  </span>
+                                  {tpl.is_dangerous && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                      {isEn ? 'CRITICAL' : 'حساس'}
+                                    </span>
+                                  )}
                                 </div>
-                              )}
+                                <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
+                                  {isEn ? tpl.description_en : tpl.description}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* 3-part educational popover */}
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <InfoTooltipPopover
+                                title={isEn ? tpl.title_en : tpl.title}
+                                what={guide.what}
+                                why={guide.why}
+                                example={guide.example}
+                                isEn={isEn}
+                                size="sm"
+                              />
                             </div>
                           </div>
 
-                          <div className="col-span-3 font-mono text-[11px]">
-                            <span>{srv.ip}</span>
-                            <span className="text-slate-400">:{srv.ssh_port || 22}</span>
-                          </div>
-
-                          <div className="col-span-2">
-                            <span
-                              className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                                (srv.os_distro || '').toLowerCase().includes('ubuntu')
-                                  ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30'
-                                  : (srv.os_distro || '').toLowerCase().includes('debian')
-                                  ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
-                                  : (srv.os_distro || '').toLowerCase().includes('rocky') ||
-                                    (srv.os_distro || '').toLowerCase().includes('rhel')
-                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                                  : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
-                              }`}
-                            >
-                              {srv.os_distro || 'Generic Linux'}
+                          <div className="mt-2.5 flex items-center justify-between text-[10px] text-slate-400 font-mono pt-2 border-t border-white/5">
+                            <span className="text-cyan-400/80">
+                              {tpl.supported_distros?.join(' / ') || 'Multi-Distro'}
                             </span>
-                          </div>
-
-                          <div className="col-span-2 text-end">
-                            <span
-                              className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                                srv.status === 'online'
-                                  ? 'bg-emerald-500/10 text-emerald-400'
-                                  : 'bg-amber-500/10 text-amber-400'
-                              }`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  srv.status === 'online' ? 'bg-emerald-400' : 'bg-amber-400'
-                                }`}
-                              />
-                              {srv.status || 'unknown'}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {tpl.idempotent && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  {isEn ? 'Idempotent' : 'تکرارپذیر'}
+                                </span>
+                              )}
+                              {tpl.requires_sudo && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                  {isEn ? 'Sudo' : 'سودو'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1061,532 +795,1017 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Right Column: Parameters, Policies & Server Selection (7 cols) */}
+              <div className="lg:col-span-7 space-y-4">
+                {activeTemplate ? (
+                  <>
+                    {/* Active Template Header Card */}
+                    <div className="p-4 rounded-xl bg-slate-950/60 border border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-sm text-white font-mono flex items-center gap-2">
+                            {renderTemplateIcon(activeTemplate.icon, 'w-4 h-4 text-cyan-400')}
+                            <span>{isEn ? activeTemplate.title_en : activeTemplate.title}</span>
+                          </h4>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/5 text-slate-400 border border-white/10">
+                            {activeTemplate.id}
+                          </span>
+                        </div>
+
+                        {/* Guide & Example toggle */}
+                        <button
+                          type="button"
+                          onClick={() => setShowTemplateGuideDetails((prev) => !prev)}
+                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition cursor-pointer"
+                        >
+                          <HelpCircle className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Guide & Example' : 'توضیحات و مثال'}</span>
+                        </button>
+                      </div>
+
+                      {/* 3-Part Expanded Educational Card */}
+                      {showTemplateGuideDetails && (
+                        <div className="p-3.5 rounded-xl bg-gradient-to-br from-cyan-950/40 to-slate-950 border border-cyan-500/30 space-y-2.5 animate-in fade-in text-xs font-mono">
+                          {(() => {
+                            const guide = getServerTemplateGuide(activeTemplate.id, isEn, activeTemplate);
+                            return (
+                              <>
+                                <div>
+                                  <div className="text-[11px] font-bold text-cyan-300 mb-0.5 flex items-center gap-1.5">
+                                    <span>💡</span>
+                                    <span>{isEn ? 'What is this?' : 'این چیست؟'}</span>
+                                  </div>
+                                  <p className="text-slate-300 text-[11px] leading-relaxed">{guide.what}</p>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] font-bold text-emerald-300 mb-0.5 flex items-center gap-1.5">
+                                    <span>🎯</span>
+                                    <span>{isEn ? 'Why is it needed?' : 'چرا لازم است؟'}</span>
+                                  </div>
+                                  <p className="text-slate-300 text-[11px] leading-relaxed">{guide.why}</p>
+                                </div>
+                                <div>
+                                  <div className="text-[11px] font-bold text-amber-300 mb-0.5 flex items-center gap-1.5">
+                                    <span>✅</span>
+                                    <span>{isEn ? 'Practical Example / Value:' : 'مثال کاربردی / مقدار نمونه:'}</span>
+                                  </div>
+                                  <p className="text-slate-300 text-[11px] leading-relaxed bg-black/40 p-2 rounded-lg border border-white/5 font-mono">
+                                    {guide.example}
+                                  </p>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
+
+                      {/* Dangerous Warning Banner */}
+                      {activeTemplate.is_dangerous && (
+                        <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-xs text-rose-300 flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold">
+                              {isEn ? 'Critical Operation Safeguard:' : 'عملیات حساس و بااهمیت:'}
+                            </span>{' '}
+                            <span>
+                              {isEn
+                                ? `This action may affect fleet availability. You must confirm by typing "${activeTemplate.confirmation_keyword}" below.`
+                                : `این عملیات ممکن است در دسترس‌پذیری سرورها اثر بگذارد. تایید این عملیات نیازمند درج عبارت «${activeTemplate.confirmation_keyword}» است.`}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-400">
+                        {isEn ? activeTemplate.description_en : activeTemplate.description}
+                      </p>
+                    </div>
+
+                    {/* Parameters Form Card */}
+                    {activeTemplate.parameters.length > 0 && (
+                      <div className="p-4 rounded-xl bg-slate-950/60 border border-white/10 space-y-3.5">
+                        <div className="text-xs font-bold text-slate-300 font-mono flex items-center gap-2">
+                          <Terminal className="w-4 h-4 text-cyan-400" />
+                          <span>{isEn ? 'Command Parameters' : 'متغیرهای تنظیمی الگو'}</span>
+                        </div>
+
+                        <div className="space-y-3">
+                          {activeTemplate.parameters.map((param) => {
+                            const paramGuide = getServerParameterGuide(activeTemplate.id, param, isEn);
+
+                            return (
+                              <div key={param.name} className="space-y-1">
+                                <div className="flex items-center justify-between text-xs text-slate-300">
+                                  <label className="font-mono flex items-center gap-1.5">
+                                    <span>{isEn ? param.labelEn : param.labelFa}</span>
+                                    {param.required && <span className="text-rose-400">*</span>}
+                                  </label>
+
+                                  <InfoTooltipPopover
+                                    title={isEn ? param.labelEn : param.labelFa}
+                                    what={paramGuide.what}
+                                    why={paramGuide.why}
+                                    example={paramGuide.example}
+                                    isEn={isEn}
+                                    size="sm"
+                                  />
+                                </div>
+
+                                {/* Param Input Controls */}
+                                {param.type === 'boolean' ? (
+                                  <label className="flex items-center gap-2 p-2 rounded-lg bg-black/40 border border-white/5 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!parameters[param.name]}
+                                      onChange={(e) =>
+                                        setParameters((prev) => ({ ...prev, [param.name]: e.target.checked }))
+                                      }
+                                      className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 accent-cyan-500 shrink-0"
+                                    />
+                                    <span className="text-xs font-mono text-slate-300">
+                                      {parameters[param.name] ? (isEn ? 'Enabled' : 'فعال') : (isEn ? 'Disabled' : 'غیرفعال')}
+                                    </span>
+                                  </label>
+                                ) : param.type === 'select' ? (
+                                  <select
+                                    value={parameters[param.name] ?? ''}
+                                    onChange={(e) =>
+                                      setParameters((prev) => ({ ...prev, [param.name]: e.target.value }))
+                                    }
+                                    className="w-full px-3 py-2 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500"
+                                  >
+                                    {param.options?.map((opt) => (
+                                      <option key={opt.value} value={opt.value} className="bg-slate-900 text-slate-200">
+                                        {isEn ? opt.labelEn : opt.labelFa} ({opt.value})
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : param.type === 'textarea' ? (
+                                  <textarea
+                                    rows={3}
+                                    value={parameters[param.name] ?? ''}
+                                    onChange={(e) =>
+                                      setParameters((prev) => ({ ...prev, [param.name]: e.target.value }))
+                                    }
+                                    placeholder={param.placeholder || ''}
+                                    className="w-full px-3 py-2 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500"
+                                  />
+                                ) : param.type === 'password' ? (
+                                  <input
+                                    type="password"
+                                    value={parameters[param.name] ?? ''}
+                                    onChange={(e) =>
+                                      setParameters((prev) => ({ ...prev, [param.name]: e.target.value }))
+                                    }
+                                    placeholder={param.placeholder || ''}
+                                    className="w-full px-3 py-1.5 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500"
+                                  />
+                                ) : (
+                                  <input
+                                    type={param.type === 'number' ? 'number' : 'text'}
+                                    value={parameters[param.name] ?? ''}
+                                    onChange={(e) =>
+                                      setParameters((prev) => ({
+                                        ...prev,
+                                        [param.name]: param.type === 'number' ? Number(e.target.value) : e.target.value
+                                      }))
+                                    }
+                                    placeholder={param.placeholder || ''}
+                                    className="w-full px-3 py-1.5 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500"
+                                  />
+                                )}
+
+                                {/* Quick Presets for Cron */}
+                                {activeTemplate.id === 'linux_cron_add_job' && param.name === 'schedule_preset' && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono">
+                                    <span className="text-slate-400">{isEn ? 'Presets:' : 'آماده:'}</span>
+                                    {[
+                                      { id: 'every_minute', label: '* * * * * (1m)' },
+                                      { id: 'every_5_minutes', label: '*/5 * * * * (5m)' },
+                                      { id: 'hourly', label: '0 * * * * (1h)' },
+                                      { id: 'daily', label: '0 0 * * * (daily)' },
+                                      { id: 'weekly', label: '0 0 * * 0 (weekly)' },
+                                      { id: 'reboot', label: '@reboot' }
+                                    ].map((preset) => (
+                                      <button
+                                        key={preset.id}
+                                        type="button"
+                                        onClick={() => setParameters((prev) => ({ ...prev, schedule_preset: preset.id }))}
+                                        className="px-2 py-0.5 rounded bg-white/5 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-white/5 cursor-pointer transition"
+                                      >
+                                        {preset.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Quick Presets for Mount Filesystem */}
+                                {activeTemplate.id === 'linux_mount_storage' && param.name === 'fstype' && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono">
+                                    <span className="text-slate-400">{isEn ? 'Filesystems:' : 'فرمت‌ها:'}</span>
+                                    {['ext4', 'xfs', 'btrfs', 'nfs', 'cifs'].map((fs) => (
+                                      <button
+                                        key={fs}
+                                        type="button"
+                                        onClick={() => setParameters((prev) => ({ ...prev, fstype: fs }))}
+                                        className="px-2 py-0.5 rounded bg-white/5 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-white/5 cursor-pointer transition"
+                                      >
+                                        {fs}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Quick Presets for Firewall Port */}
+                                {activeTemplate.id === 'linux_firewall_rule' && param.name === 'port' && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono">
+                                    <span className="text-slate-400">{isEn ? 'Common Ports:' : 'پورت‌ها:'}</span>
+                                    {[
+                                      { port: '22', name: 'SSH' },
+                                      { port: '80', name: 'HTTP' },
+                                      { port: '443', name: 'HTTPS' },
+                                      { port: '53', name: 'DNS' },
+                                      { port: '3306', name: 'MySQL' },
+                                      { port: '5432', name: 'Postgres' }
+                                    ].map((item) => (
+                                      <button
+                                        key={item.port}
+                                        type="button"
+                                        onClick={() => setParameters((prev) => ({ ...prev, port: item.port }))}
+                                        className="px-2 py-0.5 rounded bg-white/5 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-white/5 cursor-pointer transition"
+                                      >
+                                        {item.name} ({item.port})
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dangerous Operation Confirmation Keyword */}
+                    {activeTemplate.is_dangerous && activeTemplate.confirmation_keyword && (
+                      <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 space-y-2">
+                        <label className="block text-xs font-mono font-bold text-rose-300">
+                          {isEn
+                            ? `Type "${activeTemplate.confirmation_keyword}" to confirm execution:`
+                            : `جهت تایید، عبارت «${activeTemplate.confirmation_keyword}» را وارد کنید:`}
+                        </label>
+                        <input
+                          type="text"
+                          value={dangerConfirmation}
+                          onChange={(e) => setDangerConfirmation(e.target.value)}
+                          placeholder={activeTemplate.confirmation_keyword}
+                          className="w-full px-3 py-1.5 text-xs font-mono bg-black/60 border border-rose-500/40 rounded-lg text-rose-200 uppercase focus:outline-none focus:border-rose-400"
+                        />
+                      </div>
+                    )}
+
+                    {/* Execution Policies & Safety Card */}
+                    <div className="p-4 rounded-xl bg-slate-950/60 border border-white/10 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-300 font-mono flex items-center gap-1.5">
+                          <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{isEn ? 'Execution Policies & Safety' : 'سیاست‌های اجرایی و ایمنی'}</span>
+                        </span>
+                      </div>
+
+                      {/* Sudo check */}
+                      <label className="flex items-center justify-between p-2 rounded-lg bg-black/40 border border-white/5 text-xs cursor-pointer">
+                        <div>
+                          <div className="font-mono text-slate-200">
+                            {isEn ? 'Superuser Elevation (sudo)' : 'اجرا با اختیارات ریشه (sudo)'}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {isEn ? 'Applies commands with root privileges when required' : 'اجرای دستورات تحت کاربری root'}
+                          </div>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={runWithSudo}
+                          onChange={(e) => setRunWithSudo(e.target.checked)}
+                          className="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 accent-cyan-500 shrink-0"
+                        />
+                      </label>
+
+                      {/* Timeout & Delay */}
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                            <label>{isEn ? 'Per-Server Timeout (s)' : 'مهلت زمانی سرور (ثانیه)'}</label>
+                            <InfoTooltipPopover
+                              title={isEn ? 'Timeout' : 'مهلت زمانی'}
+                              what={isEn ? 'Maximum wait time for SSH command execution per server.' : 'حداکثر زمان انتظار برای دریافت پاسخ از هر سرور.'}
+                              why={isEn ? 'Prevents unresponsive or slow servers from freezing the batch.' : 'جلوگیری از قفل شدن فرآیند توسط سرورهای کند.'}
+                              example="60s"
+                              isEn={isEn}
+                              size="sm"
+                            />
+                          </div>
+                          <input
+                            type="number"
+                            min={10}
+                            max={300}
+                            value={timeoutSec}
+                            onChange={(e) => setTimeoutSec(Number(e.target.value))}
+                            className="w-full px-3 py-1.5 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                            <label>{isEn ? 'Delay Between Servers (ms)' : 'وقفه بین سرورها (میلی‌ثانیه)'}</label>
+                            <InfoTooltipPopover
+                              title={isEn ? 'Inter-Server Delay' : 'تاخیر بین سرورها'}
+                              what={isEn ? 'Cooldown pause between sequential server commands.' : 'مکث کوتاه پیش از اتصال به سرور بعدی.'}
+                              why={isEn ? 'Mitigates network traffic spikes and concurrent connection limits.' : 'کنترل بار ترافیکی و جلوگیری از فشار همزمان.'}
+                              example="500ms"
+                              isEn={isEn}
+                              size="sm"
+                            />
+                          </div>
+                          <input
+                            type="number"
+                            min={0}
+                            max={5000}
+                            step={250}
+                            value={delayMs}
+                            onChange={(e) => setDelayMs(Number(e.target.value))}
+                            className="w-full px-3 py-1.5 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Ephemeral Sudo Password (optional) */}
+                      <div>
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                          <label>{isEn ? 'Ephemeral Sudo Password (optional)' : 'رمز عبور موقت سودو (اختیاری)'}</label>
+                          <InfoTooltipPopover
+                            title={isEn ? 'Sudo Password' : 'رمز عبور sudo'}
+                            what={isEn ? 'Memory-only password for servers requiring sudo password authentication.' : 'رمز عبور در حافظه برای سرورهایی که sudo بدون پسورد ندارند.'}
+                            why={isEn ? 'Never persisted to disk or database; purged immediately after job completion.' : 'به صورت امن و فقط در حافظه رم نگهداری و پس از پایان کار پاک می‌شود.'}
+                            example="••••••••"
+                            isEn={isEn}
+                            size="sm"
+                          />
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            value={ephemeralPassword}
+                            onChange={(e) => setEphemeralPassword(e.target.value)}
+                            placeholder={isEn ? 'Leave empty if passwordless sudo or root is configured' : 'در صورت وجود sudo بدون رمز خالی بگذارید'}
+                            className="w-full px-3 py-1.5 pr-8 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-200 cursor-pointer"
+                          >
+                            {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Target Linux Servers Selection (In Step 1, exactly like BulkDeviceConfigModal) */}
+                    <div className="p-4 rounded-xl bg-slate-950/60 border border-white/10 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-300 font-mono">
+                          {isEn ? 'Target Linux Servers Selection' : 'فهرست سرورهای لینوکس هدف'} (
+                          {selectedServerIds.size} / {linuxServers.length})
+                        </span>
+                        <div className="flex items-center gap-2 text-[11px] font-mono">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllFiltered}
+                            className="text-cyan-400 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Select All' : 'انتخاب همه'}
+                          </button>
+                          <span>|</span>
+                          <button
+                            type="button"
+                            onClick={handleClearServerSelection}
+                            className="text-slate-400 hover:underline cursor-pointer"
+                          >
+                            {isEn ? 'Clear' : 'پاک کردن'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Distro quick filter chips */}
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setDistroFilter('all')}
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition ${
+                            distroFilter === 'all'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                              : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                          }`}
+                        >
+                          {isEn ? 'All Distros' : 'همه توزیع‌ها'}
+                        </button>
+                        {availableDistros.map((distro) => (
+                          <button
+                            key={distro}
+                            type="button"
+                            onClick={() => setDistroFilter(distro)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition ${
+                              distroFilter === distro
+                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                            }`}
+                          >
+                            {distro}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Servers list */}
+                      <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                        {filteredServers.length === 0 ? (
+                          <div className="p-4 text-center text-slate-500 text-xs font-mono">
+                            {isEn ? 'No Linux servers found matching filter' : 'سرور لینوکسی مطابق فیلتر یافت نشد'}
+                          </div>
+                        ) : (
+                          filteredServers.map((srv) => {
+                            const isSelected = selectedServerIds.has(srv.id);
+                            const badge = getDistroBadge(srv.os_distro);
+
+                            return (
+                              <div
+                                key={srv.id}
+                                onClick={() => handleToggleServer(srv.id)}
+                                className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition ${
+                                  isSelected
+                                    ? 'bg-white/5 border-white/15 text-slate-200'
+                                    : 'bg-black/20 border-white/5 text-slate-500 opacity-60'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}}
+                                    className="w-3.5 h-3.5 rounded text-cyan-500 accent-cyan-500 cursor-pointer"
+                                  />
+                                  <span className="font-bold font-mono">{srv.name}</span>
+                                  <span className="text-[11px] font-mono text-slate-400">({srv.ip})</span>
+                                </div>
+
+                                <div className="flex items-center gap-2 text-[10px] font-mono">
+                                  <span className={`px-1.5 py-0.5 rounded ${badge.className}`}>
+                                    {badge.name}
+                                  </span>
+                                  {srv.hostname && <span className="text-slate-500">{srv.hostname}</span>}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-12 text-center text-slate-500 border border-dashed border-white/10 rounded-2xl">
+                    {isEn ? 'Select a command template on the left to configure parameters' : 'لطفاً یک الگو را از ستون سمت چپ انتخاب کنید'}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* STEP 3: DISTRIBUTION-AWARE LIVE COMMAND PREVIEW */}
-          {currentStep === 3 && (
-            <div className="space-y-5">
-              <div className="flex items-center justify-between">
+          {/* STEP 2: PREVIEW & DRY-RUN */}
+          {activeStep === 'preview' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-slate-950/60 border border-white/10">
                 <div>
-                  <h3 className="text-sm font-bold">
-                    {isEn ? 'Distribution-Aware Command Preview' : 'پیش‌نمایش دستورات بر اساس توزیع سیستم‌عامل'}
-                  </h3>
-                  <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <h4 className="text-sm font-bold text-white font-mono flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-cyan-400" />
+                    <span>{isEn ? 'Configuration Preview & Shell Command Translation' : 'پیش‌نمایش فرامین Bash و ترجمه به تفکیک توزیع لینوکس'}</span>
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-1">
                     {isEn
-                      ? 'Review the exact commands that will execute on each remote server based on its Linux flavor.'
-                      : 'دستورات دقیقی که متناسب با توزیع لینوکس روی هر سرور اجرا خواهد شد را بررسی کنید.'}
+                      ? 'Review the exact shell commands generated for each server distribution before initiating changes.'
+                      : 'فرامین ترجمه‌شده بر اساس پکیج منیجر و توزیع هر سرور را پیش از اعمال قطعی بررسی کنید.'}
                   </p>
                 </div>
 
-                <div className="text-xs font-mono px-3 py-1 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  {previewItems.length} {isEn ? 'Servers Ready' : 'سرور آماده اجرا'}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleGeneratePreview}
+                    disabled={loadingPreview}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-mono transition cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingPreview ? 'animate-spin text-cyan-400' : ''}`} />
+                    <span>{isEn ? 'Regenerate Preview' : 'بروزرسانی پیش‌نمایش'}</span>
+                  </button>
                 </div>
               </div>
 
               {previewError && (
-                <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
+                <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/40 text-xs text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
                   <span>{previewError}</span>
                 </div>
               )}
 
-              {/* Per-Server Accordion List */}
-              <div className="space-y-3">
-                {previewItems.map((item) => {
-                  const isExpanded = expandedPreviewServerId === item.serverId;
-                  return (
-                    <div
-                      key={item.serverId}
-                      className={`rounded-xl border transition-all ${
-                        isLightMode
-                          ? 'bg-slate-50/70 border-slate-200'
-                          : 'bg-slate-900/60 border-slate-800'
-                      }`}
-                    >
-                      <div
-                        onClick={() =>
-                          setExpandedPreviewServerId((prev) =>
-                            prev === item.serverId ? null : item.serverId
-                          )
-                        }
-                        className="flex items-center justify-between p-4 cursor-pointer select-none"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Server className="w-4 h-4 text-cyan-500" />
-                          <div>
-                            <div className="text-xs font-bold">{item.serverName}</div>
-                            <div className="text-[11px] text-slate-500 font-mono">
-                              {item.serverIp} • {item.osDistro} ({item.distroFamily})
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="text-[11px] text-cyan-500">
-                            {item.steps.length} {isEn ? 'Step(s)' : 'گام اجرایی'}
-                          </span>
-                          {isExpanded ? (
-                            <ChevronUp className="w-4 h-4 text-slate-400" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4 text-slate-400" />
-                          )}
-                        </div>
-                      </div>
-
-                      {isExpanded && (
-                        <div className="px-4 pb-4 pt-1 space-y-2 border-t border-inherit">
-                          {item.steps.map((st, sIdx) => (
-                            <div
-                              key={sIdx}
-                              className={`p-3 rounded-lg border text-xs font-mono space-y-1.5 ${
-                                isLightMode
-                                  ? 'bg-white border-slate-200'
-                                  : 'bg-slate-950 border-slate-800'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                                <span>
-                                  {isEn ? st.descriptionEn : st.descriptionFa}
-                                </span>
-                                <span className="text-cyan-500 font-sans text-[10px]">
-                                  {st.distro}
-                                </span>
-                              </div>
-                              <div className="text-cyan-400 select-all font-mono break-all">
-                                $ {st.command}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Execution Options & Safeguards */}
-              <div
-                className={`p-4 rounded-xl border space-y-4 ${
-                  isLightMode
-                    ? 'bg-slate-100/70 border-slate-200'
-                    : 'bg-slate-900/40 border-slate-800'
-                }`}
-              >
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold block mb-1">
-                      {isEn ? 'Per-Node Timeout (Sec)' : 'تایم‌اوت هر سرور (ثانیه)'}
-                    </label>
-                    <input
-                      type="number"
-                      value={timeoutSec}
-                      onChange={(e) => setTimeoutSec(Number(e.target.value))}
-                      className={`w-full text-xs rounded-xl px-3 py-2 border outline-none ${
-                        isLightMode
-                          ? 'bg-white border-slate-300'
-                          : 'bg-slate-950 border-slate-800'
-                      }`}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold block mb-1">
-                      {isEn ? 'Inter-Server Delay (ms)' : 'مکث بین سرورها (میلی‌ثانیه)'}
-                    </label>
-                    <input
-                      type="number"
-                      value={delayMs}
-                      onChange={(e) => setDelayMs(Number(e.target.value))}
-                      className={`w-full text-xs rounded-xl px-3 py-2 border outline-none ${
-                        isLightMode
-                          ? 'bg-white border-slate-300'
-                          : 'bg-slate-950 border-slate-800'
-                      }`}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold block mb-1">
-                      {isEn ? 'Ephemeral SSH Password (Optional)' : 'گذرواژه موقت SSH (اختیاری)'}
-                    </label>
-                    <input
-                      type="password"
-                      value={ephemeralPassword}
-                      onChange={(e) => setEphemeralPassword(e.target.value)}
-                      placeholder={isEn ? 'If prompt required' : 'در صورت نیاز به رمز عبور'}
-                      className={`w-full text-xs rounded-xl px-3 py-2 border outline-none ${
-                        isLightMode
-                          ? 'bg-white border-slate-300'
-                          : 'bg-slate-950 border-slate-800'
-                      }`}
-                    />
-                  </div>
+              {loadingPreview ? (
+                <div className="p-16 text-center text-slate-400 flex flex-col items-center gap-3">
+                  <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
+                  <span className="text-xs font-mono">{isEn ? 'Translating shell commands across server distros...' : 'در حال تولید فرامین متناسب با توزیع هر سرور...'}</span>
                 </div>
-
-                {/* Dangerous Confirmation */}
-                {currentTemplate?.is_dangerous && (
-                  <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-2">
-                    <div className="flex items-center gap-2 text-rose-500 font-bold text-xs">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      <span>
-                        {isEn
-                          ? 'Dangerous Fleet Action: Confirmation Required'
-                          : 'عملیات حساس در سطح ناوگان: تایید صریح الزامی است'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-rose-400">
-                      {isEn
-                        ? `Please type "${currentTemplate.confirmation_keyword}" below to enable execution.`
-                        : `جهت فعال‌سازی دکمه اجرا، عبارت «${currentTemplate.confirmation_keyword}» را در کادر زیر تایپ نمایید.`}
-                    </p>
-                    <input
-                      type="text"
-                      value={dangerConfirmation}
-                      onChange={(e) => setDangerConfirmation(e.target.value)}
-                      placeholder={currentTemplate.confirmation_keyword}
-                      className="w-full text-xs rounded-lg px-3 py-2 border border-rose-500/40 bg-slate-950 text-white font-mono uppercase"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* STEP 4: FLEET EXECUTION & LIVE TELEMETRY */}
-          {currentStep === 4 && (
-            <div className="space-y-5">
-              {/* Progress Bar & KPI Cards */}
-              <div
-                className={`p-4 rounded-xl border ${
-                  isLightMode
-                    ? 'bg-slate-50 border-slate-200'
-                    : 'bg-slate-900/60 border-slate-800'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 text-xs font-bold">
-                    {isExecuting ? (
-                      <RefreshCw className="w-4 h-4 text-cyan-500 animate-spin" />
-                    ) : jobStatus?.status === 'completed' ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-amber-400" />
-                    )}
-                    <span>
-                      {isExecuting
-                        ? isEn
-                          ? `Executing: ${jobStatus?.currentStepName || 'Running...'}`
-                          : `در حال اجرا: ${jobStatus?.currentStepName || 'در صف...'}`
-                        : isEn
-                        ? `Execution ${jobStatus?.status || 'Finished'}`
-                        : `وضعیت عملیات: ${jobStatus?.status || 'پایان یافته'}`}
-                    </span>
-                  </div>
-
-                  <span className="text-xs font-mono font-bold text-cyan-500">
-                    {jobStatus?.percentage || 0}%
-                  </span>
+              ) : previewItems.length === 0 ? (
+                <div className="p-12 text-center text-slate-500 border border-dashed border-white/10 rounded-xl text-xs">
+                  {isEn ? 'No preview generated yet. Click Regenerate Preview.' : 'پیش‌نمایشی ایجاد نشده است. دکمه بروزرسانی را بزنید.'}
                 </div>
+              ) : (
+                <div className="space-y-3">
+                  {previewItems.map((item) => {
+                    const badge = getDistroBadge(item.osDistro);
 
-                {/* Progress bar */}
-                <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden mb-4">
-                  <div
-                    className="h-full bg-cyan-500 transition-all duration-300"
-                    style={{ width: `${jobStatus?.percentage || 0}%` }}
-                  />
-                </div>
-
-                {/* Summary counters */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-                  <div
-                    className={`p-2 rounded-lg border ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950 border-slate-800'
-                    }`}
-                  >
-                    <div className="text-slate-400 text-[10px]">{isEn ? 'Total' : 'کل'}</div>
-                    <div className="font-bold text-sm">{jobStatus?.totalServers || selectedServerIds.size}</div>
-                  </div>
-                  <div
-                    className={`p-2 rounded-lg border ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950 border-slate-800'
-                    }`}
-                  >
-                    <div className="text-emerald-400 text-[10px]">{isEn ? 'Success' : 'موفق'}</div>
-                    <div className="font-bold text-sm text-emerald-400">{jobStatus?.successCount || 0}</div>
-                  </div>
-                  <div
-                    className={`p-2 rounded-lg border ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950 border-slate-800'
-                    }`}
-                  >
-                    <div className="text-rose-400 text-[10px]">{isEn ? 'Failed' : 'ناموفق'}</div>
-                    <div className="font-bold text-sm text-rose-400">{jobStatus?.failedCount || 0}</div>
-                  </div>
-                  <div
-                    className={`p-2 rounded-lg border ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950 border-slate-800'
-                    }`}
-                  >
-                    <div className="text-cyan-400 text-[10px]">{isEn ? 'Completed' : 'تکمیل‌شده'}</div>
-                    <div className="font-bold text-sm text-cyan-400">{jobStatus?.completedServers || 0}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Server Results & Terminal Output Inspector */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                {/* Server Tabs Sidebar */}
-                <div className="lg:col-span-4 space-y-1.5 max-h-96 overflow-y-auto pr-1">
-                  {Object.values(jobStatus?.results || {}).map((res) => {
-                    const isTabActive = activeTabServerId === res.serverId;
                     return (
                       <div
-                        key={res.serverId}
-                        onClick={() => setActiveTabServerId(res.serverId)}
-                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-colors flex items-center justify-between ${
-                          isTabActive
-                            ? isLightMode
-                              ? 'bg-cyan-50 border-cyan-500'
-                              : 'bg-cyan-950/40 border-cyan-500'
-                            : isLightMode
-                            ? 'bg-white hover:bg-slate-50 border-slate-200'
-                            : 'bg-slate-900/50 hover:bg-slate-900 border-slate-800'
-                        }`}
+                        key={item.serverId}
+                        className="rounded-xl border border-white/10 bg-slate-950/60 overflow-hidden shadow-md"
                       >
-                        <div className="flex items-center gap-2">
-                          {res.status === 'success' ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                          ) : res.status === 'failed' ? (
-                            <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                          ) : (
-                            <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
-                          )}
-                          <div>
-                            <div className="font-bold">{res.serverName}</div>
-                            <div className="text-[10px] text-slate-500 font-mono">
-                              {res.serverIp}
-                            </div>
+                        {/* Server Header */}
+                        <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-slate-900/80 border-b border-white/5 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white font-mono">{item.serverName}</span>
+                            <span className="text-slate-400 font-mono">({item.serverIp})</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${badge.className}`}>
+                              {badge.name}
+                            </span>
+                            {item.distroMapperName && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/5 text-slate-400">
+                                {item.distroMapperName}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+                            <span>{item.steps.length} {isEn ? 'command steps' : 'مرحله دستور'}</span>
+                            <span>•</span>
+                            <span>~{item.estimatedTimeoutSec}s {isEn ? 'est.' : 'تخمینی'}</span>
                           </div>
                         </div>
 
-                        <span className="text-[10px] font-mono text-slate-400">
-                          {res.durationMs ? `${res.durationMs}ms` : ''}
-                        </span>
+                        {/* Commands Details */}
+                        <div className="p-4 space-y-3 text-xs font-mono">
+                          {/* Idempotency Pre-Check */}
+                          {item.idempotencyCheck && (
+                            <div>
+                              <div className="text-[11px] text-cyan-400 font-semibold mb-1 flex items-center gap-1.5">
+                                <Check className="w-3.5 h-3.5" />
+                                <span>{isEn ? 'Step 0: Idempotency Check (Read-Only)' : 'مرحله صفر: بررسی تکراری نبودن (فقط‌خواندنی)'}</span>
+                              </div>
+                              <pre className="p-2.5 rounded-lg bg-black/60 border border-cyan-500/20 text-cyan-300 text-[11px] overflow-x-auto">
+                                <code>{item.idempotencyCheck}</code>
+                              </pre>
+                            </div>
+                          )}
+
+                          {/* Execution Steps */}
+                          <div>
+                            <div className="text-[11px] text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
+                              <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>{isEn ? 'Execution Steps' : 'فرامین اجرایی'}</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {item.steps.map((step, idx) => (
+                                <div key={idx} className="p-2.5 rounded-lg bg-black/70 border border-white/10">
+                                  <div className="text-[10px] text-slate-400 mb-1 flex items-center justify-between">
+                                    <span>
+                                      Step {idx + 1}: {isEn ? step.descriptionEn : step.descriptionFa}
+                                    </span>
+                                    <span className="text-slate-500 font-mono">
+                                      {step.requiresSudo ? '[SUDO]' : '[USER]'}
+                                    </span>
+                                  </div>
+                                  <pre className="text-slate-100 text-[11px] overflow-x-auto font-mono">
+                                    <code>{step.command}</code>
+                                  </pre>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Rollback / Verification Command */}
+                          {item.rollbackCommand && (
+                            <div>
+                              <div className="text-[11px] text-amber-400 font-semibold mb-1 flex items-center gap-1.5">
+                                <Lock className="w-3.5 h-3.5" />
+                                <span>{isEn ? 'Safety Rollback / Verification' : 'دستور بازگردانی و راستی‌آزمایی'}</span>
+                              </div>
+                              <pre className="p-2.5 rounded-lg bg-black/60 border border-amber-500/20 text-amber-300 text-[11px] overflow-x-auto">
+                                <code>{item.rollbackCommand}</code>
+                              </pre>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
+              )}
+            </div>
+          )}
 
-                {/* Active Server Terminal / Logs View */}
-                <div className="lg:col-span-8 flex flex-col">
-                  {(() => {
-                    const activeResult = activeTabServerId
-                      ? jobStatus?.results[activeTabServerId]
-                      : null;
-
-                    return (
-                      <div
-                        className={`flex-1 rounded-xl border flex flex-col overflow-hidden min-h-[320px] ${
-                          isLightMode
-                            ? 'bg-slate-950 border-slate-800 text-slate-100'
-                            : 'bg-slate-950 border-slate-800 text-slate-100'
-                        }`}
-                      >
-                        {/* Terminal Window Header */}
-                        <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/80 text-xs">
-                          <div className="flex items-center gap-2 font-mono">
-                            <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-                            <span>
-                              {activeResult
-                                ? `${activeResult.serverName} (${activeResult.serverIp})`
-                                : isEn
-                                ? 'Live Log Stream'
-                                : 'جریان لاگ‌های زنده'}
-                            </span>
-                          </div>
-
-                          {activeResult?.rawOutput && (
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(activeResult.rawOutput || '', activeResult.serverId)}
-                              className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 cursor-pointer"
-                            >
-                              {copiedText === activeResult.serverId ? (
-                                <>
-                                  <Check className="w-3 h-3 text-emerald-400" />
-                                  <span>{isEn ? 'Copied' : 'کپی شد'}</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3" />
-                                  <span>{isEn ? 'Copy' : 'کپی'}</span>
-                                </>
-                              )}
-                            </button>
-                          )}
+          {/* STEP 3: EXECUTION & REAL-TIME MONITORING */}
+          {activeStep === 'execution' && (
+            <div className="space-y-4">
+              {jobStatus ? (
+                <>
+                  {/* Job Overview Status Banner */}
+                  <div className="p-4 rounded-xl bg-slate-950/60 border border-white/10 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-bold text-white font-mono">
+                            {isEn ? jobStatus.templateTitleEn : jobStatus.templateTitle}
+                          </h4>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                              jobStatus.status === 'running'
+                                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse'
+                                : jobStatus.status === 'completed'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : jobStatus.status === 'failed'
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                : 'bg-slate-500/20 text-slate-300 border border-slate-500/40'
+                            }`}
+                          >
+                            {jobStatus.status === 'running'
+                              ? isEn ? 'Executing...' : 'در حال اجرا...'
+                              : jobStatus.status === 'completed'
+                              ? isEn ? 'Completed' : 'تکمیل شد'
+                              : jobStatus.status === 'failed'
+                              ? isEn ? 'Failed' : 'خطا در اجرا'
+                              : jobStatus.status}
+                          </span>
                         </div>
-
-                        {/* Terminal Body */}
-                        <div className="p-4 font-mono text-xs overflow-y-auto max-h-80 space-y-2 select-text">
-                          {activeResult?.rawOutput ? (
-                            <pre className="whitespace-pre-wrap break-all text-slate-300 font-mono text-[11px] leading-relaxed">
-                              {activeResult.rawOutput}
-                            </pre>
-                          ) : (
-                            <div className="space-y-1.5 text-[11px]">
-                              {jobStatus?.logs.map((lg, lIdx) => (
-                                <div key={lIdx} className="flex items-start gap-2">
-                                  <span className="text-slate-500 shrink-0">[{lg.timeStr}]</span>
-                                  <span
-                                    className={
-                                      lg.level === 'error'
-                                        ? 'text-rose-400'
-                                        : lg.level === 'success'
-                                        ? 'text-emerald-400'
-                                        : lg.level === 'warning'
-                                        ? 'text-amber-400'
-                                        : 'text-cyan-300'
-                                    }
-                                  >
-                                    {isEn ? lg.messageEn : lg.messageFa}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                        <div className="text-xs text-slate-400 font-mono mt-1">
+                          Job ID: {jobStatus.jobId} • {isEn ? 'Started' : 'شروع'}: {new Date(jobStatus.createdAt * 1000).toLocaleTimeString()}
                         </div>
                       </div>
-                    );
-                  })()}
+
+                      {/* Actions during execution */}
+                      <div className="flex items-center gap-2">
+                        {jobStatus.status === 'running' && (
+                          <button
+                            onClick={handleCancelJob}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-mono transition cursor-pointer"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Stop Job' : 'توقف عملیات'}</span>
+                          </button>
+                        )}
+
+                        {(jobStatus.status === 'completed' || jobStatus.status === 'failed' || jobStatus.status === 'cancelled') && (
+                          <button
+                            onClick={handleExportSummary}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-mono transition cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Export JSON' : 'خروجی گزارش'}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Progress Bar & Counters */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-slate-300">
+                          {jobStatus.status === 'running' && jobStatus.currentServerName ? (
+                            <span className="flex items-center gap-1.5 text-cyan-300">
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              <span>
+                                {isEn ? 'Processing' : 'پردازش'}: {jobStatus.currentServerName} ({jobStatus.currentStepName || 'Executing...'})
+                              </span>
+                            </span>
+                          ) : (
+                            <span>{isEn ? 'Overall Progress' : 'پیشرفت کلی عملیات'}</span>
+                          )}
+                        </span>
+                        <span className="font-bold text-white">{jobStatus.percentage}%</span>
+                      </div>
+
+                      {/* Bar */}
+                      <div className="w-full h-2.5 bg-black/60 rounded-full overflow-hidden border border-white/10 p-0.5">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all duration-300"
+                          style={{ width: `${jobStatus.percentage}%` }}
+                        />
+                      </div>
+
+                      {/* Stat pills */}
+                      <div className="flex items-center gap-4 text-xs font-mono pt-1 text-slate-400">
+                        <span className="flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{isEn ? 'Success' : 'موفق'}: <strong className="text-white">{jobStatus.successCount}</strong></span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{isEn ? 'Partial' : 'ناقص'}: <strong className="text-white">{jobStatus.partialCount ?? jobStatus.skippedCount ?? 0}</strong></span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                          <span>{isEn ? 'Failed' : 'ناموفق'}: <strong className="text-white">{jobStatus.failedCount}</strong></span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{isEn ? 'Total' : 'کل'}: <strong className="text-white">{jobStatus.totalServers}</strong></span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Server-by-Server Execution Results Table */}
+                  <div className="rounded-xl border border-white/10 bg-slate-950/60 overflow-hidden shadow-md">
+                    <div className="px-4 py-2.5 bg-slate-900/80 border-b border-white/5 flex items-center justify-between text-xs">
+                      <span className="font-bold text-slate-300 font-mono">
+                        {isEn ? 'Server Execution Status' : 'وضعیت اجرای هر سرور'}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {jobStatus.completedServers} / {jobStatus.totalServers} {isEn ? 'completed' : 'انجام شد'}
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left divide-y divide-white/5" dir={isRtl ? 'rtl' : 'ltr'}>
+                        <thead className="bg-slate-950/80 text-slate-400 text-[11px] font-mono uppercase">
+                          <tr>
+                            <th className="p-3">{isEn ? 'Server' : 'سرور'}</th>
+                            <th className="p-3">{isEn ? 'Distro' : 'توزیع'}</th>
+                            <th className="p-3">{isEn ? 'Status' : 'وضعیت'}</th>
+                            <th className="p-3">{isEn ? 'Steps' : 'مراحل'}</th>
+                            <th className="p-3">{isEn ? 'Duration' : 'زمان'}</th>
+                            <th className="p-3 text-center">{isEn ? 'Logs' : 'مشاهده لاگ'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 font-mono">
+                          {Object.values(jobStatus.results).map((res) => {
+                            const isRunning =
+                              jobStatus.status === 'running' && jobStatus.currentServerName === res.serverName;
+
+                            return (
+                              <tr key={res.serverId} className="hover:bg-white/5 transition">
+                                <td className="p-3">
+                                  <div className="font-bold text-white">{res.serverName}</div>
+                                  <div className="text-[10px] text-slate-400">{res.serverIp}</div>
+                                </td>
+                                <td className="p-3">
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-slate-300">
+                                    {res.osDistro || 'Linux'}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  {isRunning ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">
+                                      <RefreshCw className="w-3 h-3 animate-spin" />
+                                      <span>{isEn ? 'Running' : 'در حال اجرا'}</span>
+                                    </span>
+                                  ) : res.status === 'success' ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>{isEn ? 'Success' : 'موفق'}</span>
+                                    </span>
+                                  ) : res.status === 'failed' ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                      <XCircle className="w-3 h-3" />
+                                      <span>{isEn ? 'Failed' : 'خطا'}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-slate-500/20 text-slate-300 border border-slate-500/40">
+                                      <Clock className="w-3 h-3" />
+                                      <span>{isEn ? 'Pending' : 'در انتظار'}</span>
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-slate-400">
+                                  {res.stepsCompleted} / {res.stepsTotal}
+                                </td>
+                                <td className="p-3 text-slate-400">
+                                  {res.durationMs ? `${(res.durationMs / 1000).toFixed(1)}s` : '-'}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveTabServerId(res.serverId)}
+                                    className={`px-2 py-1 rounded text-[10px] font-mono transition cursor-pointer ${
+                                      activeTabServerId === res.serverId
+                                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                        : 'bg-white/5 text-slate-400 hover:text-white'
+                                    }`}
+                                  >
+                                    {isEn ? 'View Output' : 'خروجی'}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Live Execution Logs Terminal */}
+                  <div className="rounded-xl border border-white/10 bg-slate-950/80 overflow-hidden shadow-md">
+                    <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-white/5 text-xs font-mono">
+                      <div className="flex items-center gap-2">
+                        <Terminal className="w-4 h-4 text-cyan-400" />
+                        <span className="font-bold text-slate-200">
+                          {isEn ? 'Live Execution Logs' : 'لاگ‌های لحظه‌ای اجرا'}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          ({jobStatus.logs.length} {isEn ? 'events' : 'رویداد'})
+                        </span>
+                      </div>
+
+                      {/* Log Filters & Actions */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 text-[10px]">
+                          {(['all', 'error', 'warning', 'info', 'success'] as const).map((lvl) => (
+                            <button
+                              key={lvl}
+                              type="button"
+                              onClick={() => setLogFilter(lvl)}
+                              className={`px-2 py-0.5 rounded cursor-pointer transition ${
+                                logFilter === lvl
+                                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
+                                  : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                              }`}
+                            >
+                              {lvl.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const text = jobStatus.logs.map((l) => `[${l.timeStr}] [${l.level.toUpperCase()}] ${isEn ? l.messageEn : l.messageFa}`).join('\n');
+                            handleCopy(text, 'all_logs');
+                          }}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] cursor-pointer"
+                        >
+                          {copiedText === 'all_logs' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{isEn ? 'Copy' : 'کپی'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 max-h-64 overflow-y-auto font-mono text-[11px] space-y-1 bg-black/80">
+                      {jobStatus.logs.length === 0 ? (
+                        <div className="text-slate-600 text-center py-6">
+                          {isEn ? 'No logs yet...' : 'هنوز لاگی ثبت نشده است...'}
+                        </div>
+                      ) : (
+                        jobStatus.logs
+                          .filter((l) => logFilter === 'all' || l.level === logFilter)
+                          .map((log, idx) => (
+                            <div
+                              key={idx}
+                              className={`flex items-start gap-2 ${
+                                log.level === 'error'
+                                  ? 'text-rose-300'
+                                  : log.level === 'warning'
+                                  ? 'text-amber-300'
+                                  : log.level === 'success'
+                                  ? 'text-emerald-300'
+                                  : 'text-slate-300'
+                              }`}
+                            >
+                              <span className="text-slate-600 shrink-0">[{log.timeStr}]</span>
+                              <span className="shrink-0 font-bold uppercase text-[9px] px-1 rounded bg-white/5">
+                                {log.level}
+                              </span>
+                              <span>{isEn ? log.messageEn : log.messageFa}</span>
+                            </div>
+                          ))
+                      )}
+                      <div ref={logsEndRef} />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="p-16 text-center text-slate-500 flex flex-col items-center gap-3">
+                  <RefreshCw className="w-6 h-6 animate-spin text-cyan-400" />
+                  <span className="text-xs font-mono">{isEn ? 'Connecting to job engine...' : 'در حال اتصال به موتور پردازش...'}</span>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
 
         {/* ========================================================= */}
-        {/* MODAL FOOTER WITH NAVIGATION BUTTONS                      */}
+        {/* MODAL FOOTER (Exact structure of BulkDeviceConfigModal)   */}
         {/* ========================================================= */}
         <div
-          className={`flex items-center justify-between px-6 py-3.5 border-t shrink-0 ${
-            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+          className={`flex items-center justify-between px-5 py-3.5 border-t shrink-0 ${
+            isLightMode ? 'border-slate-200 bg-slate-100/90' : 'border-white/10 bg-slate-950/80'
           }`}
         >
-          <div>
-            {currentStep > 1 && currentStep < 4 && (
-              <button
-                type="button"
-                onClick={() => setCurrentStep((prev) => (prev > 1 ? ((prev - 1) as any) : 1))}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
-                  isLightMode
-                    ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
-                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-                }`}
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>{isEn ? 'Back' : 'بازگشت'}</span>
-              </button>
+          <div className="text-xs text-slate-400 font-mono">
+            {activeStep === 'configure' && (
+              <span>
+                {isEn ? 'Targeting:' : 'سرورهای هدف:'}{' '}
+                <strong className={isLightMode ? 'text-slate-900' : 'text-white'}>{selectedServerIds.size}</strong>{' '}
+                {isEn ? 'active Linux servers' : 'سرور فعال'}
+              </span>
             )}
-
-            {currentStep === 4 && jobStatus?.status === 'completed' && (
-              <button
-                type="button"
-                onClick={handleExportSummary}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
-                  isLightMode
-                    ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
-                    : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-                }`}
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isEn ? 'Export JSON Report' : 'دریافت خروجی گزارش'}</span>
-              </button>
+            {activeStep === 'preview' && (
+              <span>
+                {isEn ? 'Reviewing:' : 'تعداد سرورهای آماده:'}{' '}
+                <strong className={isLightMode ? 'text-slate-900' : 'text-white'}>{previewItems.length}</strong>{' '}
+                {isEn ? 'nodes ready for execution' : 'سرور آماده اجرا'}
+              </span>
+            )}
+            {activeStep === 'execution' && (
+              <span>
+                {isEn ? 'Status:' : 'وضعیت:'}{' '}
+                <strong className="text-cyan-300">{jobStatus?.status || (isEn ? 'Active' : 'فعال')}</strong>
+              </span>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            {currentStep === 1 && (
+            {activeStep === 'preview' && (
               <button
                 type="button"
-                onClick={() => setCurrentStep(2)}
-                disabled={!selectedTemplateId}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white transition-colors cursor-pointer disabled:opacity-50"
+                onClick={() => setActiveStep('configure')}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-mono transition cursor-pointer"
               >
-                <span>{isEn ? 'Next: Target Servers' : 'گام بعد: انتخاب سرورها'}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                {isEn ? 'Back to Config' : 'بازگشت به تنظیمات'}
               </button>
             )}
 
-            {currentStep === 2 && (
+            {activeStep === 'configure' && (
               <button
                 type="button"
-                onClick={handleProceedToPreview}
-                disabled={selectedServerIds.size === 0 || loadingPreview}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white transition-colors cursor-pointer disabled:opacity-50"
+                onClick={handleGeneratePreview}
+                disabled={!isFormValid || loadingPreview}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold font-mono transition active:scale-95 cursor-pointer ${
+                  isFormValid && !loadingPreview
+                    ? 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-lg shadow-cyan-500/20'
+                    : 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed'
+                }`}
               >
-                {loadingPreview ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <>
-                    <span>{isEn ? 'Next: Preview Commands' : 'گام بعد: پیش‌نمایش دستورات'}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </>
-                )}
+                <Eye className="w-4 h-4" />
+                <span>{loadingPreview ? (isEn ? 'Generating...' : 'در حال پردازش...') : (isEn ? 'Preview & Dry-Run' : 'پیش‌نمایش دستورات')}</span>
               </button>
             )}
 
-            {currentStep === 3 && (
+            {(activeStep === 'preview' || activeStep === 'configure') && (
               <button
                 type="button"
                 onClick={handleStartExecution}
-                disabled={
-                  previewItems.length === 0 ||
-                  (currentTemplate?.is_dangerous &&
-                    dangerConfirmation.trim().toUpperCase() !==
-                      currentTemplate.confirmation_keyword.toUpperCase())
-                }
-                className={`flex items-center gap-1.5 px-6 py-2.5 rounded-xl text-xs font-bold text-white transition-colors cursor-pointer disabled:opacity-50 ${
-                  currentTemplate?.is_dangerous
-                    ? 'bg-rose-600 hover:bg-rose-500'
-                    : 'bg-cyan-600 hover:bg-cyan-500'
+                disabled={!isFormValid || isExecuting}
+                className={`flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold font-mono transition active:scale-95 cursor-pointer ${
+                  isFormValid && !isExecuting
+                    ? activeTemplate?.is_dangerous
+                      ? 'bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white shadow-lg shadow-rose-500/25'
+                      : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-500/25'
+                    : 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed'
                 }`}
               >
-                <Play className="w-3.5 h-3.5" />
+                <Play className="w-4 h-4" />
                 <span>
-                  {isEn
-                    ? `Execute on ${previewItems.length} Server(s)`
-                    : `اجرای پیکربندی روی ${previewItems.length} سرور`}
+                  {isExecuting
+                    ? (isEn ? 'Executing...' : 'در حال اجرا...')
+                    : (isEn ? 'Execute Fleet Automation' : 'اجرای اتوماسیون ناوگان')}
                 </span>
               </button>
             )}
 
-            {currentStep === 4 && (
-              <>
-                {isExecuting ? (
-                  <button
-                    type="button"
-                    onClick={handleCancelJob}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Cancel Execution' : 'لغو عملیات'}</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 text-white transition-colors cursor-pointer"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Finish & Close' : 'تکمیل و بستن'}</span>
-                  </button>
-                )}
-              </>
+            {activeStep === 'execution' && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isExecuting) onClose();
+                }}
+                disabled={isExecuting}
+                className={`px-5 py-2 rounded-xl text-xs font-bold font-mono transition ${
+                  !isExecuting
+                    ? 'bg-white/10 hover:bg-white/15 text-white cursor-pointer'
+                    : 'bg-white/5 text-slate-500 cursor-not-allowed'
+                }`}
+              >
+                {isEn ? 'Close' : 'بستن'}
+              </button>
             )}
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

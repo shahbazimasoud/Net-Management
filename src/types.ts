@@ -1223,6 +1223,9 @@ export interface BulkServerTemplate {
   is_dangerous: boolean;
   confirmation_keyword: string;
   default_timeout_sec: number;
+  supported_distros?: string[];
+  idempotent?: boolean;
+  requires_sudo?: boolean;
   info_what_fa?: string;
   info_what_en?: string;
   info_why_fa?: string;
@@ -1237,6 +1240,7 @@ export interface BulkServerPreviewStep {
   descriptionFa: string;
   descriptionEn: string;
   distro: string;
+  requiresSudo?: boolean;
 }
 
 export interface BulkServerPreviewItem {
@@ -1250,6 +1254,9 @@ export interface BulkServerPreviewItem {
   isDangerous: boolean;
   confirmationKeyword: string;
   estimatedTimeoutSec: number;
+  distroMapperName?: string;
+  idempotencyCheck?: string;
+  rollbackCommand?: string;
 }
 
 export interface BulkServerStepDetail {
@@ -1314,6 +1321,7 @@ export interface BulkServerJobStatus {
   successCount: number;
   failedCount: number;
   skippedCount: number;
+  partialCount?: number;
   options: {
     timeoutSec: number;
     delayMs: number;
