@@ -111,25 +111,23 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
 
   // Helper to split raw text containing both certificate and private key
   const splitCombinedText = (rawInput: string) => {
-    const raw = rawInput
+    const raw = (rawInput || '')
       .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
       .replace(/^\uFEFF/, '')
-      .replace(/\r\n/g, '\n');
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n');
 
-    const certRegex = /[- ]*BEGIN\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*/gi;
-    const keyRegex = /[- ]*BEGIN\s+([A-Z0-9 ]*PRIVATE\s+KEY)[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+[A-Z0-9 ]*PRIVATE\s+KEY[- ]*/gi;
+    // Matches any private key block: RSA PRIVATE KEY, EC PRIVATE KEY, OPENSSH, ENCRYPTED, etc.
+    const keyRegex =
+      /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*PRIVATE\s+KEY)[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi;
 
-    const certs: string[] = [];
-    let match: RegExpExecArray | null;
-    while ((match = certRegex.exec(raw)) !== null) {
-      const b64 = match[1].replace(/[^A-Za-z0-9+/=]/g, '');
-      if (b64.length > 40) {
-        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
-        certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
-      }
-    }
+    // Matches any certificate block variation: CERTIFICATE, SERVER CERTIFICATE, SSL CERTIFICATE,
+    // X509, TRUSTED, PKCS7, etc. with arbitrary dashes, spaces, and linebreaks.
+    const certRegex =
+      /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509))[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509)[-~=_\s]*/gi;
 
     const keys: string[] = [];
+    let match: RegExpExecArray | null;
     while ((match = keyRegex.exec(raw)) !== null) {
       let header = match[1].trim().toUpperCase();
       if (!header.includes('KEY')) header = `${header} PRIVATE KEY`;
@@ -137,6 +135,42 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
       if (b64.length > 40) {
         const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
         keys.push(`-----BEGIN ${header}-----\n${chunked}\n-----END ${header}-----`);
+      }
+    }
+
+    const certs: string[] = [];
+    while ((match = certRegex.exec(raw)) !== null) {
+      const tag = match[1].trim().toUpperCase();
+      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
+      if (b64.length > 40) {
+        const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+        const isPkcs7 = tag.includes('PKCS');
+        const header = isPkcs7 ? 'PKCS7' : 'CERTIFICATE';
+        certs.push(`-----BEGIN ${header}-----\n${chunked}\n-----END ${header}-----`);
+      }
+    }
+
+    // If no certificates found with standard regex, check leftover text after removing keys
+    const textWithoutKeys = raw
+      .replace(
+        /[-~=_\s]*BEGIN\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[\s\S]*?END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi,
+        ''
+      )
+      .trim();
+
+    if (certs.length === 0 && textWithoutKeys) {
+      // Look for MII-prefixed base64 streams (standard for all X.509 certificates)
+      const cleanB64 = textWithoutKeys.replace(/[\r\n\s]/g, '');
+      const miiRegex = /(MII[A-Za-z0-9+/=]{80,})/g;
+      let m: RegExpExecArray | null;
+      while ((m = miiRegex.exec(cleanB64)) !== null) {
+        const chunked = m[1].match(/.{1,64}/g)?.join('\n') || m[1];
+        certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+      }
+
+      // If still empty but text has content, retain it so the server can inspect/parse it
+      if (certs.length === 0 && textWithoutKeys.length > 20) {
+        certs.push(textWithoutKeys);
       }
     }
 
@@ -148,7 +182,11 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
         setCaBundleText(certs.slice(1).join('\n\n'));
         setShowCaField(true);
       }
+    } else if (textWithoutKeys) {
+      setCertText(textWithoutKeys);
+      changed = true;
     }
+
     if (keys.length > 0) {
       setKeyText(keys[0]);
       setShowKeyField(true);
@@ -158,8 +196,8 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
     if (changed) {
       setSuccessMessage(
         isEn
-          ? 'Certificate and Private Key separated into dedicated fields successfully!'
-          : 'گواهی و کلید خصوصی با موفقیت در فیلدهای اختصاصی تفکیک شدند!'
+          ? 'Certificate and Private Key parsed and populated into dedicated fields successfully!'
+          : 'گواهی و کلید خصوصی با موفقیت تفکیک و در فیلدهای اختصاصی جای‌گذاری شدند!'
       );
     }
   };
@@ -168,8 +206,8 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
     return Boolean(
       certText &&
         (certText.includes('PRIVATE KEY') ||
-          certText.includes('RSA PRIVATE KEY') ||
-          certText.includes('EC PRIVATE KEY'))
+          certText.includes('KEY-----') ||
+          /BEGIN\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY/i.test(certText))
     );
   }, [certText]);
 
@@ -185,11 +223,7 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
     reader.onload = (event) => {
       const content = event.target?.result;
       if (typeof content === 'string') {
-        if (content.includes('PRIVATE KEY')) {
-          splitCombinedText(content);
-        } else {
-          setCertText(content);
-        }
+        splitCombinedText(content);
       }
     };
     reader.readAsText(file);
@@ -198,12 +232,17 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
   const handleKeyFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result;
       if (typeof content === 'string') {
-        setKeyText(content);
-        setShowKeyField(true);
+        if (content.includes('CERTIFICATE') || content.includes('PKCS')) {
+          splitCombinedText(content);
+        } else {
+          setKeyText(content);
+          setShowKeyField(true);
+        }
       }
     };
     reader.readAsText(file);
@@ -275,8 +314,12 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
 
   // Convert Action
   const handleConvert = async () => {
-    if (!certText.trim()) {
-      setError(isEn ? 'Please paste or upload an SSL/TLS certificate first.' : 'لطفاً ابتدا گواهی امنیتی SSL/TLS را وارد یا آپلود کنید.');
+    if (!certText.trim() && !keyText.trim()) {
+      setError(
+        isEn
+          ? 'Please paste or upload an SSL/TLS certificate or key text first.'
+          : 'لطفاً ابتدا متن گواهی SSL/TLS یا کلید را وارد یا آپلود کنید.'
+      );
       return;
     }
 
@@ -306,16 +349,16 @@ v3l8e4p9A0X2v3l8e4p9A0X2v3l8e4p9A0X2v3l8
       setKeyMatch(data.keyMatch);
       setOutputs(data.outputs || []);
 
-      if (data.isCombinedFound) {
-        if (data.extractedKeyPem && !keyText) {
+      if (data.isCombinedFound || !keyText.trim() || !certText.trim()) {
+        if (data.extractedKeyPem) {
           setKeyText(data.extractedKeyPem);
           setShowKeyField(true);
         }
-        if (data.extractedCaBundlePem && !caBundleText) {
+        if (data.extractedCaBundlePem) {
           setCaBundleText(data.extractedCaBundlePem);
           setShowCaField(true);
         }
-        if (data.extractedCertPem && data.extractedCertPem !== certText) {
+        if (data.extractedCertPem) {
           setCertText(data.extractedCertPem);
         }
       }

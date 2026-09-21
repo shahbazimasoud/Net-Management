@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.99.2';
+export const APP_VERSION = '1.99.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.99.3',
+    releaseDate: '2026-09-21',
+    type: 'patch',
+    title: 'ارتقای جامع ماژول تفکیک و تبدیل گواهی SSL/TLS، کلید خصوصی و باندل‌های ترکیبی در فایل‌های متنی',
+    title_en: 'Universal SSL/TLS Certificate, Private Key, and Combined Bundle Parser & Converter Enhancements',
+    changes: [
+      'رفع کامل مشکل عدم تکمیل خودکار فیلد گواهی عمومی (Public Certificate) هنگام آپلود فایل‌های ترکیبی (.txt) حاوی کلید و گواهی.',
+      'بهبود اساسی رجکس‌ها و الگوریتم‌های تفکیک در فرانت‌اند و بک‌اند جهت استخراج قطعی انواع هدرهای گواهی (CERTIFICATE، SERVER CERTIFICATE، PKCS7، X509 و...) بدون وابستگی به فاصله‌ها یا خطوط تیره.',
+      'افزودن قابلیت استخراج هوشمند گواهی از جریان‌های خام Base64 و ASN.1 (پیشوند MII) حتی در صورت مفقودی یا ناقص بودن هدرها و برچسب‌های متنی.',
+      'رفع خطای "Could not find a valid SSL/TLS certificate" هنگام ورود دستی یا کپی پیست متن‌های ترکیبی و همگام‌سازی کامل فیلدهای ورودی پس از تبدیل.',
+      'تجهیز ماژول به موتور پشتیبان OpenSSL CLI در سرور برای اعتبارسنجی قطعی و استخراج تمامی ساختارهای رمزنگاری بدون خطا.'
+    ],
+    changes_en: [
+      'Resolved issue where uploading combined .txt files populated the Private Key field but failed to populate the Public Certificate field.',
+      'Comprehensive regex and parsing engine overhaul in both frontend and backend to reliably capture all certificate header variants (CERTIFICATE, SERVER CERTIFICATE, PKCS7, X509, etc.) regardless of spacing or dash formatting.',
+      'Added resilient fallback extraction for raw Base64 and ASN.1 DER streams (MII prefix) even when standard header tags are omitted or damaged.',
+      'Fixed the "Could not find a valid SSL/TLS certificate" error when manually pasting or uploading dirty/combined inputs, ensuring automatic field synchronization upon conversion.',
+      'Integrated authoritative OpenSSL CLI fallback on the backend to guarantee seamless parsing and validation across all cryptographic bundle formats.'
+    ]
+  },
   {
     version: '1.99.2',
     releaseDate: '2026-09-21',

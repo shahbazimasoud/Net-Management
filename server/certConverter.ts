@@ -76,12 +76,34 @@ export function normalizeAndExtractPems(
   function extractCertBlocks(str: string): string[] {
     const certs: string[] = [];
     if (!str) return certs;
-    const certRegex = /[- ]*BEGIN\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+(?:X509\s+|TRUSTED\s+)?CERTIFICATE[- ]*/gi;
+
+    // Matches any certificate block variation: CERTIFICATE, SERVER CERTIFICATE, SSL CERTIFICATE,
+    // X509 CERTIFICATE, X.509 CERTIFICATE, TRUSTED CERTIFICATE, PKCS7, etc.
+    // Handles arbitrary dashes, tildes, spaces, and does not mandate newlines before/after headers.
+    const certRegex = /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509))[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*(?:CERTIFICATE|PKCS\s*#?\s*7|PKCS7|X509)[-~=_\s]*/gi;
     let match: RegExpExecArray | null;
     while ((match = certRegex.exec(str)) !== null) {
-      const b64 = match[1].replace(/[^A-Za-z0-9+/=]/g, '');
+      const tag = match[1].trim().toUpperCase();
+      const b64 = match[2].replace(/[^A-Za-z0-9+/=]/g, '');
       if (b64.length > 40) {
         const chunked = b64.match(/.{1,64}/g)?.join('\n') || b64;
+
+        // If it is a PKCS#7 / P7B bundle, unpack individual certificates inside it
+        if (tag.includes('PKCS')) {
+          try {
+            const tmpFile = path.join(os.tmpdir(), `ssl-p7-${Date.now()}-${Math.random().toString(36).slice(2)}.pem`);
+            fs.writeFileSync(tmpFile, `-----BEGIN PKCS7-----\n${chunked}\n-----END PKCS7-----`, 'utf8');
+            const p7out = execSync(`openssl pkcs7 -print_certs -in "${tmpFile}" 2>/dev/null`).toString();
+            try { fs.unlinkSync(tmpFile); } catch {}
+            const unpacked = extractCertBlocks(p7out);
+            if (unpacked.length > 0) {
+              certs.push(...unpacked);
+              notes.push(`Unpacked ${unpacked.length} certificate(s) from PKCS#7 bundle.`);
+              continue;
+            }
+          } catch {}
+        }
+
         certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
       }
     }
@@ -91,7 +113,8 @@ export function normalizeAndExtractPems(
   function extractKeyBlocks(str: string): string[] {
     const keys: string[] = [];
     if (!str) return keys;
-    const keyRegex = /[- ]*BEGIN\s+([A-Z0-9 ]*PRIVATE\s+KEY)[- ]*[\r\n]+([\s\S]*?)[\r\n]+[- ]*END\s+[A-Z0-9 ]*PRIVATE\s+KEY[- ]*/gi;
+    // Matches any private key block: RSA PRIVATE KEY, EC PRIVATE KEY, OPENSSH PRIVATE KEY, ENCRYPTED, etc.
+    const keyRegex = /[-~=_\s]*BEGIN\s+([A-Za-z0-9 ._/#-]*PRIVATE\s+KEY)[-~=_\s]*[\r\n\s]*([\s\S]*?)[\r\n\s]*[-~=_\s]*END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi;
     let match: RegExpExecArray | null;
     while ((match = keyRegex.exec(str)) !== null) {
       let header = match[1].trim().toUpperCase();
@@ -105,19 +128,88 @@ export function normalizeAndExtractPems(
     return keys;
   }
 
-  function tryParseRawDerOrBase64(str: string): string | null {
-    if (!str) return null;
-    const cleanB64 = str.replace(/[^A-Za-z0-9+/=]/g, '');
+  function tryParseRawDerOrBase64(str: string): string[] {
+    if (!str) return [];
+    const certs: string[] = [];
+
+    // Strip private keys so their base64 doesn't interfere
+    const textWithoutKeys = str.replace(/[-~=_\s]*BEGIN\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[\s\S]*?END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi, '');
+
+    // Look for MII-prefixed base64 streams (all X.509 ASN.1 sequences > 256 bytes encode to MII in base64)
+    const strippedWhitespace = textWithoutKeys.replace(/[\r\n\s]/g, '');
+    const miiRegex = /(MII[A-Za-z0-9+/=]{80,})/g;
+    let m: RegExpExecArray | null;
+    while ((m = miiRegex.exec(strippedWhitespace)) !== null) {
+      const candidate = m[1];
+      try {
+        const buf = Buffer.from(candidate, 'base64');
+        if (buf.length > 80 && buf[0] === 0x30) {
+          const chunked = candidate.match(/.{1,64}/g)?.join('\n') || candidate;
+          certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
+        }
+      } catch {}
+    }
+
+    if (certs.length > 0) return certs;
+
+    // Filter out standard metadata lines (Bag Attributes, subject=, etc.) and inspect raw base64
+    const lines = textWithoutKeys.split('\n');
+    const filtered = lines.filter((l) => {
+      const trimmed = l.trim();
+      if (!trimmed) return false;
+      if (
+        trimmed.startsWith('Bag Attributes') ||
+        trimmed.startsWith('subject=') ||
+        trimmed.startsWith('issuer=') ||
+        trimmed.startsWith('Certificate:') ||
+        trimmed.startsWith('Data:')
+      )
+        return false;
+      if (/^[-~=_ ]*(BEGIN|END)[-~=_ ]*/i.test(trimmed)) return false;
+      return true;
+    });
+
+    const cleanB64 = filtered.join('').replace(/[^A-Za-z0-9+/=]/g, '');
     if (cleanB64.length > 80) {
       try {
         const buf = Buffer.from(cleanB64, 'base64');
         if (buf.length > 50 && buf[0] === 0x30) {
           const chunked = cleanB64.match(/.{1,64}/g)?.join('\n') || cleanB64;
-          return `-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`;
+          certs.push(`-----BEGIN CERTIFICATE-----\n${chunked}\n-----END CERTIFICATE-----`);
         }
       } catch {}
     }
-    return null;
+
+    return certs;
+  }
+
+  function extractWithOpenSslCli(rawText: string): string[] {
+    if (!rawText || rawText.length < 50) return [];
+    try {
+      const tmpFile = path.join(os.tmpdir(), `ssl-detect-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+      fs.writeFileSync(tmpFile, rawText, 'utf8');
+      try {
+        // 1. Try x509 direct load
+        const out = execSync(`openssl x509 -in "${tmpFile}" 2>/dev/null`).toString();
+        if (out && out.includes('BEGIN CERTIFICATE')) {
+          fs.unlinkSync(tmpFile);
+          return [out.trim()];
+        }
+      } catch {}
+
+      try {
+        // 2. Try pkcs7 unpack
+        const p7out = execSync(`openssl pkcs7 -print_certs -in "${tmpFile}" 2>/dev/null`).toString();
+        const matches = p7out.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g);
+        if (matches && matches.length > 0) {
+          fs.unlinkSync(tmpFile);
+          return matches;
+        }
+      } catch {}
+
+      try { fs.unlinkSync(tmpFile); } catch {}
+    } catch {}
+    return [];
   }
 
   const rawCert = cleanString(certInput);
@@ -136,6 +228,14 @@ export function normalizeAndExtractPems(
     if (foundKeys.length === 0) {
       foundKeys = keysInCertField;
     }
+    // Also remove the keys and retry finding certs in leftover text if foundCerts is empty
+    if (foundCerts.length === 0) {
+      const textNoKeys = rawCert.replace(
+        /[-~=_\s]*BEGIN\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[\s\S]*?END\s+[A-Za-z0-9 ._/#-]*PRIVATE\s+KEY[-~=_\s]*/gi,
+        ''
+      );
+      foundCerts = extractCertBlocks(textNoKeys);
+    }
   }
 
   // Check if rawKey actually contained certificate(s)
@@ -150,12 +250,21 @@ export function normalizeAndExtractPems(
   // Extract from CA field as well
   const caCerts = extractCertBlocks(rawCa);
 
-  // If no cert found with headers, try raw base64 or ASN.1 DER stream
+  // If no cert found with standard regex headers, try raw base64 or ASN.1 DER stream
   if (foundCerts.length === 0) {
     const rawParsed = tryParseRawDerOrBase64(rawCert);
-    if (rawParsed) {
-      foundCerts.push(rawParsed);
+    if (rawParsed.length > 0) {
+      foundCerts.push(...rawParsed);
       notes.push('Reconstructed standard PEM from raw Base64 / ASN.1 stream.');
+    }
+  }
+
+  // If still no cert found, invoke OpenSSL CLI as authoritative fallback
+  if (foundCerts.length === 0) {
+    const openSslCerts = extractWithOpenSslCli(rawCert);
+    if (openSslCerts.length > 0) {
+      foundCerts.push(...openSslCerts);
+      notes.push('Extracted certificate via OpenSSL CLI engine.');
     }
   }
 
