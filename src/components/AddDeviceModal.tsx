@@ -30,6 +30,7 @@ import {
   Globe,
   ExternalLink,
   Trash2,
+  BookmarkPlus,
 } from 'lucide-react';
 import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig, isMikroTikDevice } from '../types';
 import { fetchTemplates, testDeviceConnection, pingHost, fetchDevices } from '../services/api';
@@ -101,6 +102,8 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   const [sshPassword, setSshPassword] = useState('');
   const [enablePassword, setEnablePassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [saveSshToVault, setSaveSshToVault] = useState(false);
+  const [saveEnableToVault, setSaveEnableToVault] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
   const [vaultPickerTarget, setVaultPickerTarget] = useState<'password' | 'enable'>('password');
 
@@ -251,6 +254,8 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
     setSshPassword('');
     setEnablePassword('');
     setShowPassword(false);
+    setSaveSshToVault(false);
+    setSaveEnableToVault(false);
     setDiscoveredPorts([]);
     setIsLockedByDiscovery(false);
     setIsPortsExpanded(false);
@@ -731,6 +736,68 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
       };
 
       const created = await onAdd(devicePayload);
+
+      // Save credentials to personal vault if user opted-in
+      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
+      const targetHostVal = sshHost.trim() || ip.trim() || undefined;
+
+      if (saveSshToVault && sshPassword.trim().length > 0) {
+        try {
+          const secretCategory = connectionProtocol === 'telnet' ? 'general' : 'ssh';
+          const protoLabel = connectionProtocol.toUpperCase();
+          const devTitle = name.trim() || targetHostVal || 'Device';
+          const secretName = `${devTitle} (${protoLabel})`;
+
+          await fetch('/api/vault', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              name: secretName,
+              username: sshUsername.trim() || 'admin',
+              password: sshPassword.trim(),
+              category: secretCategory,
+              targetHost: targetHostVal,
+              notes: isEn
+                ? `Auto-saved from Device Registration: ${devTitle} [${targetHostVal || ''}] (${protoLabel})`
+                : `ذخیره‌سازی خودکار از فرم ثبت تجهیز شبکه: ${devTitle} [${targetHostVal || ''}] (${protoLabel})`,
+              tags: ['network-device', platform, type, ...(role ? [role] : [])],
+            }),
+          });
+        } catch (vaultErr) {
+          console.warn('Could not auto-save device password to vault:', vaultErr);
+        }
+      }
+
+      if (saveEnableToVault && enablePassword.trim().length > 0) {
+        try {
+          const devTitle = name.trim() || targetHostVal || 'Device';
+          const secretName = `${devTitle} (Enable Secret)`;
+
+          await fetch('/api/vault', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              name: secretName,
+              username: sshUsername.trim() || 'admin',
+              password: enablePassword.trim(),
+              category: 'ssh',
+              targetHost: targetHostVal,
+              notes: isEn
+                ? `Auto-saved Enable Secret from Device Registration: ${devTitle} [${targetHostVal || ''}]`
+                : `ذخیره‌سازی خودکار رمز Enable از فرم ثبت تجهیز شبکه: ${devTitle} [${targetHostVal || ''}]`,
+              tags: ['network-device', 'enable-secret', platform, type],
+            }),
+          });
+        } catch (vaultErr) {
+          console.warn('Could not auto-save enable secret to vault:', vaultErr);
+        }
+      }
 
       // Persist any new building, floor, unit, or rack to localStorage hierarchy
       try {
@@ -1712,6 +1779,36 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                     }`}
                     dir="ltr"
                   />
+
+                  {/* Non-intrusive Save to Vault prompt when password manually entered */}
+                  {sshPassword.trim().length > 0 && (
+                    <div className="pt-1.5">
+                      <label
+                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] cursor-pointer select-none transition-all ${
+                          saveSshToVault
+                            ? isLightMode
+                              ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-xs'
+                              : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                            : isLightMode
+                            ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                            : 'bg-slate-900/40 hover:bg-slate-800 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={saveSshToVault}
+                          onChange={(e) => setSaveSshToVault(e.target.checked)}
+                          className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                        />
+                        <BookmarkPlus className={`w-3 h-3 ${saveSshToVault ? 'text-amber-500' : 'text-slate-400'}`} />
+                        <span>
+                          {isEn
+                            ? 'Save to Personal Vault?'
+                            : 'ذخیره در والت شخصی؟'}
+                        </span>
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 {platform === 'mikrotik_routeros' || (model && model.toLowerCase().includes('mikrotik')) ? (
@@ -1793,6 +1890,36 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       }`}
                       dir="ltr"
                     />
+
+                    {/* Non-intrusive Save to Vault prompt when Enable Secret manually entered */}
+                    {enablePassword.trim().length > 0 && (
+                      <div className="pt-1.5">
+                        <label
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] cursor-pointer select-none transition-all ${
+                            saveEnableToVault
+                              ? isLightMode
+                                ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-xs'
+                                : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                              : isLightMode
+                              ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                              : 'bg-slate-900/40 hover:bg-slate-800 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={saveEnableToVault}
+                            onChange={(e) => setSaveEnableToVault(e.target.checked)}
+                            className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                          />
+                          <BookmarkPlus className={`w-3 h-3 ${saveEnableToVault ? 'text-amber-500' : 'text-slate-400'}`} />
+                          <span>
+                            {isEn
+                              ? 'Save Enable Secret to Vault?'
+                              : 'ذخیره رمز Enable در والت شخصی؟'}
+                          </span>
+                        </label>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="sm:col-span-4 flex items-center">

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.104.0';
+export const APP_VERSION = '1.105.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.105.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن امکان ذخیره‌سازی خودکار رمز عبور و رمز Enable در والت شخصی در مودال ثبت تجهیز شبکه (Save to Vault)',
+    title_en: 'Add Non-Intrusive Save to Personal Vault Option in Register New Network Device Modal',
+    changes: [
+      'پیاده‌سازی گزینه غیراِشغالی و ارگونومیک (Non-Intrusive) در مودال ثبت تجهیز جدید شبکه (Register New Network Device) جهت ذخیره رمز عبور SSH/Telnet در والت شخصی هنگام تایپ دستی.',
+      'پشتیبانی همزمان از ذخیره‌سازی گذرواژه سطح مدیریت و دسترسی بالا (Cisco Enable Secret) در والت با برچسب اختصاصی.',
+      'ثبت خودکار و رمزنگاری‌شده اطلاعات کاربری، نام تجهیز، آدرس IP و هاست هدف، پلتفرم و نوع تجهیز در والت بدون نیاز به باز کردن مجدد ماژول والت.',
+      'هماهنگی کامل با حالت‌های روشن و تاریک و پشتیبانی دقیق از زبان‌های فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Implemented an elegant, non-intrusive "Save to Personal Vault" option in the Register New Network Device modal for manually typed SSH/Telnet credentials.',
+      'Supported direct one-click saving of the privileged Cisco Enable Secret password into the personal vault with dedicated tags.',
+      'Automatically registers device name, target IP/host, platform, role, and category into the encrypted personal vault upon device registration.',
+      'Fully harmonized across light and dark themes with strict bilingual localization (English and Persian).'
+    ]
+  },
   {
     version: '1.104.0',
     releaseDate: '2026-09-21',
