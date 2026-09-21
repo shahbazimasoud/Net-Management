@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.111.0';
+export const APP_VERSION = '1.112.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.112.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'انتقال مشخصات سیستم و کرنل به بالای تب Overview، اصلاح فیلترهای سرویس‌های Systemd و فعال‌سازی دکمه پیکربندی کارت‌های شبکه',
+    title_en: 'Move OS & Kernel Details to Top of Overview, Fix Systemd Service Filters & Fix Network Interface Configuration Button',
+    changes: [
+      'انتقال کارت جامع مشخصات توزیع، نسخه کرنل، معماری و آپ‌تایم سیستم‌عامل (Operating System & Kernel Details) به بالاترین بخش تب نمای کلی (Overview) جهت دسترسی و مشاهده سریع.',
+      'اصلاح کامل فیلترهای وضعیت سرویس‌های لینوکس در تب Systemd Services & Daemons: تفکیک دقیق سرویس‌های فعال (Active/Running)، غیرفعال و متوقف (Inactive/Dead) و معیوب (Failed) بر اساس وضعیت واقعی systemctl و اصلاح نمایش شمارنده‌ها.',
+      'رفع مشکل و فعال‌سازی دکمه پیکربندی (Configure) در کارت‌های شبکه بخش Network Interfaces & Throughput: رندر مودال در لایه پورتال مجزا، همگام‌سازی استیت اینترفیس انتخابی و پشتیبانی از استانداردهای پنج‌گانه مودال شامل تمام‌صفحه و مینیمایز.'
+    ],
+    changes_en: [
+      'Moved Operating System & Kernel Details card to the very top of the Overview tab for immediate visibility and rapid system inspection.',
+      'Completely fixed status filtering in Systemd Services & Daemons: strict and accurate classification for Active/Running, Inactive/Dead, and Failed services based on genuine systemctl output, along with matching summary counters.',
+      'Fixed and enabled the Configure button for network interfaces in Network Interfaces & Throughput: rendered configuration modal in a dedicated portal layer, synchronized interface states, and adhered to 5-point universal modal standards.'
+    ],
+  },
   {
     version: '1.111.0',
     releaseDate: '2026-09-21',

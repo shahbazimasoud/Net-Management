@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Minus,
@@ -51,6 +52,17 @@ export const LinuxNetworkConfigModal: React.FC<LinuxNetworkConfigModalProps> = (
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  useEffect(() => {
+    if (iface) {
+      setState(iface.state === 'DOWN' ? 'DOWN' : 'UP');
+      setIpv4(iface.ipv4 || '');
+      setCidr(iface.cidr || 24);
+      setGateway(iface.gateway || '');
+      setMtu(iface.mtu || 1500);
+      setFeedback(null);
+    }
+  }, [iface]);
+
   if (!isOpen || !iface) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -97,13 +109,14 @@ export const LinuxNetworkConfigModal: React.FC<LinuxNetworkConfigModalProps> = (
     }
   };
 
-  return (
+  const modalContent = (
     <div
-      className={`fixed z-50 flex flex-col transition-all duration-300 ${
+      className={`fixed z-[70] flex flex-col transition-all duration-300 ${
         isMaximized
           ? 'top-0 left-0 right-0 bottom-8 p-0 w-full h-auto rounded-none border-none'
           : 'inset-0 items-center justify-center p-4 bg-black/60 backdrop-blur-sm'
       }`}
+      dir={isEn ? 'ltr' : 'rtl'}
     >
       <div
         className={`flex flex-col border shadow-2xl overflow-hidden ${
@@ -147,16 +160,14 @@ export const LinuxNetworkConfigModal: React.FC<LinuxNetworkConfigModalProps> = (
 
           {/* Triad Header Buttons: Minimize, Maximize, Close */}
           <div className="flex items-center gap-1">
-            {onMinimize && (
-              <button
-                type="button"
-                onClick={onMinimize}
-                title={isEn ? 'Minimize' : 'کوچک‌نمایی'}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onMinimize || onClose}
+              title={isEn ? 'Minimize' : 'کوچک‌نمایی'}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
 
             <button
               type="button"
@@ -330,4 +341,6 @@ export const LinuxNetworkConfigModal: React.FC<LinuxNetworkConfigModalProps> = (
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 };

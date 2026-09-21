@@ -39,12 +39,13 @@ import {
   Edit3,
   Settings,
 } from 'lucide-react';
-import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService, LinuxNetworkInterfaceDetail } from '../../types';
+import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService, LinuxNetworkInterfaceDetail, LinuxSystemDetailedInfo } from '../../types';
 import {
   fetchLinuxServerLiveMetrics,
   fetchLinuxServerServices,
   controlLinuxServerService,
   controlLinuxServerProcess,
+  fetchLinuxServerSysConfig,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ProcessActionModals } from './ProcessActionModals';
@@ -91,8 +92,10 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [processSearch, setProcessSearch] = useState('');
   const [sortProcessBy, setSortProcessBy] = useState<'cpu' | 'mem'>('cpu');
 
-  // Network Interface Configuration Modal State
+  // Network Interface Configuration Modal State & SysInfo
   const [selectedInterfaceForConfig, setSelectedInterfaceForConfig] = useState<LinuxNetworkInterfaceDetail | null>(null);
+  const [detailedInterfaces, setDetailedInterfaces] = useState<LinuxNetworkInterfaceDetail[]>([]);
+  const [sysInfo, setSysInfo] = useState<LinuxSystemDetailedInfo | null>(null);
 
   // Services Management State
   const [services, setServices] = useState<LinuxSystemService[]>([]);
@@ -170,16 +173,34 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     }
   }, [server, ephemeralPassword, isEn]);
 
+  // Fetch detailed sys info & interfaces
+  const loadSysConfig = useCallback(async (customPassword?: string) => {
+    if (!server) return;
+    const pwdToUse = customPassword !== undefined ? customPassword : ephemeralPassword;
+    try {
+      const res = await fetchLinuxServerSysConfig(server.id, pwdToUse);
+      if (res && res.success) {
+        if (res.sysInfo) setSysInfo(res.sysInfo);
+        if (res.interfaces) setDetailedInterfaces(res.interfaces);
+      }
+    } catch {
+      // Ignore background sysinfo error
+    }
+  }, [server, ephemeralPassword]);
+
   // Initial load and periodic polling
   useEffect(() => {
     if (isOpen && server) {
       fetchMetrics();
+      loadSysConfig();
     } else {
       setMetrics(null);
       setError(null);
       setHistory([]);
+      setSysInfo(null);
+      setDetailedInterfaces([]);
     }
-  }, [isOpen, server?.id]);
+  }, [isOpen, server?.id, fetchMetrics, loadSysConfig]);
 
   useEffect(() => {
     if (!isOpen || autoRefreshInterval <= 0 || requiresPassword || error) {
@@ -268,20 +289,39 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     }
   };
 
+  // Service state helper classifiers (Strict & Accurate)
+  const isServiceActive = (s: LinuxSystemService) => {
+    const act = (s.activeState || '').toLowerCase().trim();
+    const sub = (s.subState || '').toLowerCase().trim();
+    if (act === 'failed' || sub === 'failed') return false;
+    if (act === 'inactive' || sub === 'dead') return false;
+    return act === 'active' || act === 'activating' || sub === 'running';
+  };
+
+  const isServiceFailed = (s: LinuxSystemService) => {
+    const act = (s.activeState || '').toLowerCase().trim();
+    const sub = (s.subState || '').toLowerCase().trim();
+    return act === 'failed' || sub === 'failed';
+  };
+
+  const isServiceInactive = (s: LinuxSystemService) => {
+    return !isServiceActive(s) && !isServiceFailed(s);
+  };
+
   // Filtered Services List
   const filteredServices = useMemo(() => {
     let list = [...services];
     if (serviceStatusFilter !== 'all') {
       if (serviceStatusFilter === 'active') {
-        list = list.filter((s) => s.activeState.toLowerCase().includes('active') || s.subState.toLowerCase().includes('running'));
+        list = list.filter(isServiceActive);
       } else if (serviceStatusFilter === 'inactive') {
-        list = list.filter((s) => s.activeState.toLowerCase().includes('inactive') || s.activeState.toLowerCase().includes('dead') || s.subState.toLowerCase().includes('dead'));
+        list = list.filter(isServiceInactive);
       } else if (serviceStatusFilter === 'failed') {
-        list = list.filter((s) => s.activeState.toLowerCase().includes('failed') || s.subState.toLowerCase().includes('failed'));
+        list = list.filter(isServiceFailed);
       }
     }
     if (serviceSearch.trim()) {
-      const q = serviceSearch.toLowerCase();
+      const q = serviceSearch.toLowerCase().trim();
       list = list.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q));
     }
     return list;
@@ -1072,6 +1112,107 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               {/* TAB 1: OVERVIEW & GAUGES */}
               {activeTab === 'overview' && (
                 <div className="space-y-6">
+                  {/* Operating System, Distribution & Kernel Details */}
+                  <div
+                    className={`p-5 rounded-2xl border space-y-4 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-400">
+                          <Layers className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs sm:text-sm font-bold">
+                              {isEn ? 'Operating System & Kernel Details' : 'مشخصات توزیع لینوکس و نسخه کرنل'}
+                            </h4>
+                            <FieldInfoTooltip
+                              fieldName={isEn ? 'Operating System & Kernel' : 'سیستم‌عامل و کرنل لینوکس'}
+                              infoWhatEn="Detailed distribution metadata, kernel release version, architecture, and system hostname."
+                              infoWhatFa="اطلاعات تکمیلی توزیع، نسخه انتشار کرنل، معماری پردازنده و نام هاست سرور لینوکس."
+                              infoWhyEn="Essential for verifying kernel security patch levels, distribution lifecycles, and architecture compatibility for installed software."
+                              infoWhyFa="ضروری برای بررسی وصله‌های امنیتی کرنل، چرخه پشتیبانی توزیع و سازگاری معماری برای نصب نرم‌افزارها."
+                              infoExampleEn="Ubuntu 22.04.4 LTS on Linux 5.15.0-105-generic (x86_64)"
+                              infoExampleFa="اوبونتو ۲۲.۰۴ روی کرنل ۵.۱۵ به همراه معماری ۶۴ بیتی"
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {sysInfo?.distro || metrics.os?.distro || server.os_distro || (isEn ? 'Detecting via /etc/os-release...' : 'در حال شناسایی از /etc/os-release...')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                        {sysInfo?.arch || metrics.os?.arch || 'x86_64'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {/* Distribution */}
+                      <div
+                        className={`p-3 rounded-xl border ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-white/5'
+                        }`}
+                      >
+                        <span className="text-[10px] text-slate-400 block font-medium">
+                          {isEn ? 'Linux Distribution' : 'توزیع لینوکس'}
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-cyan-400 block mt-1 font-mono">
+                          {sysInfo?.distro || metrics.os?.distro || server.os_distro || 'Linux'}
+                        </span>
+                      </div>
+
+                      {/* OS Version */}
+                      <div
+                        className={`p-3 rounded-xl border ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-white/5'
+                        }`}
+                      >
+                        <span className="text-[10px] text-slate-400 block font-medium">
+                          {isEn ? 'OS Release / Version' : 'نگارش سیستم‌عامل'}
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-slate-200 block mt-1 font-mono">
+                          {sysInfo?.distroVersion || metrics.os?.system || 'Linux'}
+                        </span>
+                      </div>
+
+                      {/* Kernel Release */}
+                      <div
+                        className={`p-3 rounded-xl border ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-white/5'
+                        }`}
+                      >
+                        <span className="text-[10px] text-slate-400 block font-medium">
+                          {isEn ? 'Linux Kernel (uname -r)' : 'نسخه کرنل (uname -r)'}
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-emerald-400 block mt-1 font-mono truncate" title={sysInfo?.kernelRelease || metrics.os?.kernel}>
+                          {sysInfo?.kernelRelease || metrics.os?.kernel || 'Linux'}
+                        </span>
+                      </div>
+
+                      {/* Hostname & Uptime */}
+                      <div
+                        className={`p-3 rounded-xl border ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-white/5'
+                        }`}
+                      >
+                        <span className="text-[10px] text-slate-400 block font-medium">
+                          {isEn ? 'Hostname / Uptime' : 'نام هاست و آپ‌تایم'}
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-slate-200 block mt-1 font-mono truncate" title={metrics.hostname || sysInfo?.hostname || server.hostname || server.ip}>
+                          {metrics.hostname || sysInfo?.hostname || server.hostname || server.ip}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block mt-0.5 font-mono">
+                          {metrics.uptimeFormatted || sysInfo?.uptime || '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* High-Level Metric Gauges (CPU, Memory, Load, Uptime) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     {/* CPU Card */}
@@ -1528,24 +1669,27 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                             <button
                               type="button"
                               onClick={() => {
-                                setSelectedInterfaceForConfig({
-                                  name: net.interface,
-                                  state: 'UP',
-                                  mac: '',
-                                  ipv4: '',
-                                  netmask: '',
-                                  cidr: 24,
-                                  ipv6: '',
-                                  gateway: '',
-                                  mtu: 1500,
-                                  rxBytes: net.rxBytes,
-                                  txBytes: net.txBytes,
-                                });
+                                const detailed = detailedInterfaces.find((i) => i.name === net.interface);
+                                setSelectedInterfaceForConfig(
+                                  detailed || {
+                                    name: net.interface,
+                                    state: 'UP',
+                                    mac: '',
+                                    ipv4: '',
+                                    netmask: '',
+                                    cidr: 24,
+                                    ipv6: '',
+                                    gateway: '',
+                                    mtu: 1500,
+                                    rxBytes: net.rxBytes,
+                                    txBytes: net.txBytes,
+                                  }
+                                );
                               }}
                               className="px-2 py-0.5 rounded bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-400 border border-cyan-500/30 text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
                             >
                               <Edit3 className="w-3 h-3" />
-                              <span>{isEn ? 'Configure' : 'تغییر'}</span>
+                              <span>{isEn ? 'Configure' : 'پیکربندی'}</span>
                             </button>
                           </div>
                         </div>
@@ -1879,7 +2023,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                           {isEn ? 'Active / Running' : 'در حال اجرا'}
                         </span>
                         <p className="text-lg font-mono font-bold text-emerald-400">
-                          {services.filter((s) => s.activeState === 'active' || s.subState === 'running').length}
+                          {services.filter(isServiceActive).length}
                         </p>
                       </div>
                       <CheckCircle2 className="w-5 h-5 text-emerald-400/60" />
@@ -1895,7 +2039,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                           {isEn ? 'Inactive / Dead' : 'غیرفعال و متوقف'}
                         </span>
                         <p className="text-lg font-mono font-bold text-slate-400">
-                          {services.filter((s) => s.activeState === 'inactive' || s.subState === 'dead').length}
+                          {services.filter(isServiceInactive).length}
                         </p>
                       </div>
                       <Square className="w-5 h-5 text-slate-500" />
@@ -1911,7 +2055,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                           {isEn ? 'Failed Units' : 'سرویس‌های معیوب'}
                         </span>
                         <p className="text-lg font-mono font-bold text-rose-400">
-                          {services.filter((s) => s.activeState === 'failed' || s.subState === 'failed').length}
+                          {services.filter(isServiceFailed).length}
                         </p>
                       </div>
                       <AlertTriangle className="w-5 h-5 text-rose-400/60" />
@@ -1957,8 +2101,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                             </tr>
                           ) : (
                             filteredServices.map((s) => {
-                              const isActive = s.activeState === 'active' || s.subState === 'running';
-                              const isFailed = s.activeState === 'failed' || s.subState === 'failed';
+                              const isActive = isServiceActive(s);
+                              const isFailed = isServiceFailed(s);
                               const isEnabled = s.unitFileState === 'enabled';
                               const currentAction = serviceActionLoading[s.name];
 
@@ -2225,14 +2369,17 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
       {createPortal(modalNode, document.body)}
       {selectedInterfaceForConfig && (
         <LinuxNetworkConfigModal
+          key={selectedInterfaceForConfig.name}
           isOpen={true}
           server={server}
           iface={selectedInterfaceForConfig}
           ephemeralPassword={ephemeralPassword}
           onClose={() => setSelectedInterfaceForConfig(null)}
+          onMinimize={() => setSelectedInterfaceForConfig(null)}
           onSuccess={() => {
             setSelectedInterfaceForConfig(null);
             fetchMetrics();
+            loadSysConfig();
           }}
           isLightMode={isLightMode}
           isEn={isEn}
