@@ -1384,6 +1384,75 @@ export interface ServerCategory {
   updated_at?: string;
 }
 
+export interface LinuxServerDiskMetric {
+  filesystem: string;
+  mount: string;
+  sizeBytes: number;
+  usedBytes: number;
+  availBytes: number;
+  usagePercent: number;
+  sizeHuman: string;
+  usedHuman: string;
+  availHuman: string;
+}
+
+export interface LinuxServerNetMetric {
+  interface: string;
+  rxBytes: number;
+  txBytes: number;
+  rxPackets: number;
+  txPackets: number;
+  rxHuman: string;
+  txHuman: string;
+}
+
+export interface LinuxServerProcessMetric {
+  pid: number;
+  user: string;
+  cpuPercent: number;
+  memPercent: number;
+  command: string;
+}
+
+export interface LinuxServerLiveMetrics {
+  timestamp: number;
+  host: string;
+  port: number;
+  hostname: string;
+  uptimeSeconds: number;
+  uptimeFormatted: string;
+  os: {
+    system: string;
+    kernel: string;
+    arch: string;
+    distro: string;
+  };
+  cpu: {
+    usagePercent: number;
+    cores: number;
+    model: string;
+    loadAvg: [number, number, number];
+  };
+  memory: {
+    totalBytes: number;
+    usedBytes: number;
+    freeBytes: number;
+    availableBytes: number;
+    usagePercent: number;
+    totalHuman: string;
+    usedHuman: string;
+    freeHuman: string;
+    swapTotalBytes: number;
+    swapUsedBytes: number;
+    swapUsagePercent: number;
+    swapTotalHuman: string;
+    swapUsedHuman: string;
+  };
+  disks: LinuxServerDiskMetric[];
+  networks: LinuxServerNetMetric[];
+  processes: LinuxServerProcessMetric[];
+}
+
 declare module 'guacamole-common-js';
 
 

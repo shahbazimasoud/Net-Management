@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.108.0';
+export const APP_VERSION = '1.109.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.109.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن دکمه مانیتور و مودال مانیتورینگ زنده منابع سرورهای لینوکس (CPU, RAM, Disk, Net, Processes)',
+    title_en: 'Linux Server Live Resource & Telemetry Monitoring Suite with Real-time Graphical Charts',
+    changes: [
+      'افزودن دکمه اختصاصی "مانیتور" (Monitor) در لیست سرورهای لینوکس صفحه Remote Servers & Automation Fleet (در نمای جدول اصلی، کارت‌های گرید، جدول فشرده و منوی ۳-نقطه).',
+      'طراحی و پیاده‌سازی مودال پیشرفته مانیتورینگ زنده (LinuxServerMonitorModal) بر اساس استاندارد ۵گانه مودال‌ها (دکمه‌های سه‌گانه هدر، حریم فوتر bottom-8 در تمام‌صفحه، انطباق کامل تم تیره/روشن، دوزبانگی و پاپ‌آپ‌های راهنما).',
+      'نمایش گرافیکی و لایو وضعیت منابع با نمودارهای خطی و اسپارک‌لاین SVG برای روند بار پردازنده (CPU Usage / Load Average) و مصرف رم (RAM & Swap).',
+      'تفکیک تب‌های هوشمند: نمای کلی (Overview)، مانیتورینگ فضای دیسک و پارتیشن‌ها (Storage & Mounts)، وضعیت کارت‌های شبکه و پهنای باند RX/TX، و لیست پردازش‌های پرمصرف سرور (Top Processes).',
+      'موتور بک‌اند دریافت تلمتری واقعی از سرور لینوکس با اتصال SSH و اجرای بهینه‌شده اسکریپت با مذاکره تطبیقی الگوریتم‌ها (Modern First با Fallback خودکار به الگوریتم‌های Legacy) بدون دیتای ساختگی یا فیک.',
+      'پشتیبانی از پولینگ زنده و خودکار با قابلیت تنظیم فواصل زمانی و اعمال سیاست امنیت احراز هویت On-Demand (Zero-Storage).'
+    ],
+    changes_en: [
+      'Added dedicated "Monitor" action button to Linux servers in the Remote Servers & Automation Fleet page across all views (Table, Grid cards, Compact list, and 3-dot action menu).',
+      'Engineered advanced real-time LinuxServerMonitorModal adhering strictly to the 5 universal modal standards (3-button header controls, bottom-8 footer boundary in fullscreen, dark/light theme fidelity, full bilingual support, and field guides).',
+      'Visualized live resource telemetry with interactive SVG sparklines and trend charts for CPU load, memory utilization, and swap dynamics.',
+      'Tabbed analytical diagnostics: Overview dashboard, storage partition allocations, network interface RX/TX throughput, and real-time top resource-consuming processes.',
+      'Engineered backend SSH live telemetry engine (/api/remote-servers/:id/monitor) with adaptive multi-generation SSH cipher negotiation (modern first, graceful legacy fallback) collecting 100% genuine live metrics without fake data.',
+      'Integrated auto-polling with configurable refresh intervals and full compliance with Zero-Storage on-demand credentials.'
+    ]
+  },
   {
     version: '1.108.0',
     releaseDate: '2026-09-21',

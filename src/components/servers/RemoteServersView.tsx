@@ -40,6 +40,7 @@ import {
 } from '../../services/api';
 import { AddEditServerModal } from './AddEditServerModal';
 import { LinuxTerminalModal } from './LinuxTerminalModal';
+import { LinuxServerMonitorModal } from './LinuxServerMonitorModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
@@ -101,6 +102,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [terminalServer, setTerminalServer] = useState<RemoteServer | null>(null);
   const [terminalShell, setTerminalShell] = useState<'bash' | 'zsh'>('bash');
   const [isTerminalModalOpen, setIsTerminalModalOpen] = useState(false);
+
+  // Linux Resource & Telemetry Monitoring Modal
+  const [monitorServer, setMonitorServer] = useState<RemoteServer | null>(null);
+  const [isMonitorModalOpen, setIsMonitorModalOpen] = useState(false);
 
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
@@ -312,6 +317,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     undockModal(`linux_term_${server.id}`);
   };
 
+  // Handle Open Linux Live Telemetry & Resource Monitor
+  const handleOpenLinuxMonitor = (server: RemoteServer) => {
+    setMenuAnchor(null);
+    setMonitorServer(server);
+    setIsMonitorModalOpen(true);
+    undockModal(`linux_mon_${server.id}`);
+  };
+
   // Handle Open Windows Remote
   const handleOpenWindowsRemote = (server: RemoteServer) => {
     setWindowsModalServer(server);
@@ -510,6 +523,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onClose: () => {
           setIsTerminalModalOpen(false);
           undockModal(`linux_term_${terminalServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizeMonitor = () => {
+    setIsMonitorModalOpen(false);
+    if (monitorServer) {
+      dockModal({
+        id: `linux_mon_${monitorServer.id}`,
+        labelEn: `${monitorServer.name} Monitor`,
+        labelFa: `مانیتور ${monitorServer.name}`,
+        badge: 'LIVE',
+        category: 'tools',
+        onRestore: () => setIsMonitorModalOpen(true),
+        onClose: () => {
+          setIsMonitorModalOpen(false);
+          undockModal(`linux_mon_${monitorServer.id}`);
         },
       });
     }
@@ -1477,16 +1508,27 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           <div className="flex items-center justify-center gap-1.5">
                             {/* Primary Action Button */}
                             {isLinux ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')
-                                }
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-sm transition active:scale-95 cursor-pointer"
-                              >
-                                <Terminal className="w-3.5 h-3.5" />
-                                <span>{isEn ? 'Terminal' : 'ترمینال'}</span>
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLinuxMonitor(server)}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 shadow-sm transition active:scale-95 cursor-pointer"
+                                  title={isEn ? 'Open real-time Resource & Telemetry Monitor' : 'مشاهده مانیتورینگ زنده منابع سرور'}
+                                >
+                                  <Activity className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Monitor' : 'مانیتور'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')
+                                  }
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-sm transition active:scale-95 cursor-pointer"
+                                >
+                                  <Terminal className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'Terminal' : 'ترمینال'}</span>
+                                </button>
+                              </>
                             ) : (
                               <button
                                 type="button"
@@ -1668,14 +1710,25 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   </div>
 
                   {isLinux ? (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md transition-all cursor-pointer"
-                    >
-                      <Terminal className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Terminal' : 'ترمینال'}</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenLinuxMonitor(server)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 shadow-md transition-all cursor-pointer"
+                        title={isEn ? 'Open Live Resource & Telemetry Monitor' : 'مشاهده مانیتورینگ زنده منابع سرور'}
+                      >
+                        <Activity className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Monitor' : 'مانیتور'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md transition-all cursor-pointer"
+                      >
+                        <Terminal className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Terminal' : 'ترمینال'}</span>
+                      </button>
+                    </div>
                   ) : (
                     <button
                       type="button"
@@ -1776,15 +1829,25 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {isLinux ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')
-                              }
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
-                            >
-                              Terminal
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenLinuxMonitor(server)}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-400 text-slate-950 hover:bg-cyan-300 cursor-pointer shadow-sm"
+                                title={isEn ? 'Open Live Resource & Telemetry Monitor' : 'مشاهده مانیتورینگ زنده منابع سرور'}
+                              >
+                                {isEn ? 'Monitor' : 'مانیتور'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')
+                                }
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
+                              >
+                                {isEn ? 'Terminal' : 'ترمینال'}
+                              </button>
+                            </>
                           ) : (
                             <button
                               type="button"
@@ -1890,6 +1953,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                 {/* Linux Specific Remote Options */}
                 {menuAnchor.server.os_type === 'linux' && (
                   <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const s = menuAnchor.server;
+                        handleOpenLinuxMonitor(s);
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-cyan-300 transition cursor-pointer ${
+                        isEn ? 'text-left' : 'text-right'
+                      } ${isLightMode ? 'hover:bg-cyan-50' : 'hover:bg-cyan-500/15'}`}
+                    >
+                      <Activity className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div className="flex flex-col">
+                        <span>{isEn ? 'Live Resource Monitor' : 'مانیتورینگ زنده منابع'}</span>
+                        <span className="text-[10px] text-cyan-400/80 font-mono">CPU, RAM, Disk & Network</span>
+                      </div>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => {
@@ -2105,6 +2185,21 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           setTerminalServer(null);
         }}
         onMinimize={handleMinimizeLinuxTerminal}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 12.5 Linux Live Resource & Telemetry Monitoring Modal */}
+      <LinuxServerMonitorModal
+        isOpen={isMonitorModalOpen}
+        server={monitorServer}
+        sessionPassword={ephemeralTerminalPassword}
+        onClose={() => {
+          setIsMonitorModalOpen(false);
+          if (monitorServer) undockModal(`linux_mon_${monitorServer.id}`);
+          setMonitorServer(null);
+        }}
+        onMinimize={handleMinimizeMonitor}
         isLightMode={isLightMode}
         isEn={isEn}
       />

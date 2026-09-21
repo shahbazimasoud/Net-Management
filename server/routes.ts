@@ -72,6 +72,7 @@ import {
   getBulkServerJobStatus,
   cancelBulkServerJob,
 } from './bulkServerConfig';
+import { executeLinuxTelemetrySSH } from './linuxServerMonitor';
 
 export const apiRouter = Router();
 
@@ -1131,6 +1132,51 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// GET & POST /api/remote-servers/:id/monitor - Real-time Linux Server Resource & Telemetry Monitoring
+const handleLinuxServerMonitor = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'Live metrics are currently designed for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+
+    // Check if password is required but missing
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const metrics = await executeLinuxTelemetrySSH(server, ephemeralPassword);
+    
+    // Automatically update server status to online
+    updateRemoteServer(server.id, { status: 'online' }).catch(() => {});
+
+    return res.json({
+      success: true,
+      metrics,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxMonitor API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to connect or collect live telemetry from remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/monitor', handleLinuxServerMonitor);
+apiRouter.post('/remote-servers/:id/monitor', handleLinuxServerMonitor);
 
 // ==========================================
 // BULK LINUX SERVER CONFIGURATION ENDPOINTS

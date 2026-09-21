@@ -12,7 +12,8 @@ import {
   ActiveDirectoryConfig,
   AccessPolicy,
   RemoteServer,
-  RemoteServerTagSummary
+  RemoteServerTagSummary,
+  LinuxServerLiveMetrics
 } from '../types';
 
 const API_BASE = '/api';
@@ -1190,6 +1191,31 @@ export function getRemoteServerWebSocketUrl(
   }
   return `${wsProto}//${loc.host}/ws/ssh/${encodeURIComponent(serverId)}?${query.toString()}`;
 }
+
+export async function fetchLinuxServerLiveMetrics(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  metrics: LinuxServerLiveMetrics;
+  error?: string;
+  requires_password?: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/monitor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 
 
 
