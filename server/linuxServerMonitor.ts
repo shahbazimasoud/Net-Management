@@ -1431,55 +1431,79 @@ if command -v sshd >/dev/null 2>&1; then
 fi
 
 # Step 2: Backup existing config
-sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%s) 2>/dev/null || true
+BACKUP_FILE="/etc/ssh/sshd_config.bak.$(date +%s)"
+sudo cp -p /etc/ssh/sshd_config "$BACKUP_FILE" 2>/dev/null || true
 
-# Step 3: Configure new port
+# Step 3: Configure new port directly in /etc/ssh/sshd_config (uncomment & set)
+if grep -qiE '^[ \\t]*#?[ \\t]*Port([ \\t]+.*|$)' /etc/ssh/sshd_config; then
+  sudo sed -i -E "0,/^[ \\t]*#?[ \\t]*Port([ \\t]+.*|$)/s/^[ \\t]*#?[ \\t]*Port([ \\t]+.*|$)/Port ${targetPort}/" /etc/ssh/sshd_config 2>/dev/null || \
+  sudo sed -i -E "s/^[ \\t]*#?[ \\t]*Port([ \\t]+.*|$)/Port ${targetPort}/" /etc/ssh/sshd_config 2>/dev/null || true
+else
+  echo "Port ${targetPort}" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+fi
+
+# Step 4: Synchronize drop-in directory if present (/etc/ssh/sshd_config.d)
 if [ -d /etc/ssh/sshd_config.d ]; then
-  # Modern OpenSSH drop-in
+  if ! grep -qE '^[ #]*Include /etc/ssh/sshd_config\\.d/\\*\\.conf' /etc/ssh/sshd_config; then
+    echo "Include /etc/ssh/sshd_config.d/*.conf" | sudo tee -a /etc/ssh/sshd_config >/dev/null
+  fi
   sudo tee /etc/ssh/sshd_config.d/00-custom-port.conf >/dev/null << 'EOF'
 Port ${targetPort}
 EOF
-else
-  # Update /etc/ssh/sshd_config directly
-  if grep -qE '^[ #]*Port ' /etc/ssh/sshd_config; then
-    sudo sed -i 's/^[ #]*Port .*/Port ${targetPort}/' /etc/ssh/sshd_config
-  else
-    echo "Port ${targetPort}" | sudo tee -a /etc/ssh/sshd_config >/dev/null
-  fi
 fi
 
-# Step 4: Validate syntax with sshd -t
+# Step 5: Validate syntax with sshd -t
 if command -v sshd >/dev/null 2>&1; then
   if ! sudo sshd -t; then
     echo "SYNTAX_CHECK_FAILED_REVERTING"
     sudo rm -f /etc/ssh/sshd_config.d/00-custom-port.conf 2>/dev/null || true
-    if [ -f /etc/ssh/sshd_config.bak.* ]; then
-      LATEST_BAK=$(ls -t /etc/ssh/sshd_config.bak.* 2>/dev/null | head -n 1)
-      [ -n "$LATEST_BAK" ] && sudo cp "$LATEST_BAK" /etc/ssh/sshd_config
+    if [ -f "$BACKUP_FILE" ]; then
+      sudo cp -p "$BACKUP_FILE" /etc/ssh/sshd_config 2>/dev/null || true
     fi
     exit 2
   fi
 fi
 
-# Step 5: Update firewall if active
-if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q "Status: active"; then
-  sudo ufw allow ${targetPort}/tcp 2>&1 || true
+# Step 6: Update firewall if active
+if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+  sudo ufw allow ${targetPort}/tcp comment "Administrative SSH Port" 2>&1 || true
+  sudo ufw reload 2>/dev/null || true
 fi
 if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active firewalld >/dev/null 2>&1; then
   sudo firewall-cmd --permanent --add-port=${targetPort}/tcp >/dev/null 2>&1 || true
   sudo firewall-cmd --reload >/dev/null 2>&1 || true
 fi
 if command -v semanage >/dev/null 2>&1; then
-  sudo semanage port -a -t ssh_port_t -p tcp ${targetPort} >/dev/null 2>&1 || true
+  sudo semanage port -a -t ssh_port_t -p tcp ${targetPort} 2>/dev/null || \
+  sudo semanage port -m -t ssh_port_t -p tcp ${targetPort} 2>/dev/null || true
 fi
 
-# Step 6: Restart SSH daemon
-if command -v systemctl >/dev/null 2>&1; then
-  sudo systemctl restart sshd 2>&1 || sudo systemctl restart ssh 2>&1
-elif command -v service >/dev/null 2>&1; then
-  sudo service sshd restart 2>&1 || sudo service ssh restart 2>&1
-else
-  sudo /etc/init.d/sshd restart 2>&1 || sudo /etc/init.d/ssh restart 2>&1
+# Step 7: Handle systemd socket activation (Ubuntu 22.10, 23+, 24.04+)
+if systemctl is-active --quiet ssh.socket 2>/dev/null || systemctl is-enabled --quiet ssh.socket 2>/dev/null; then
+  sudo mkdir -p /etc/systemd/system/ssh.socket.d
+  sudo tee /etc/systemd/system/ssh.socket.d/listen.conf >/dev/null << 'EOFSOCK'
+[Socket]
+ListenStream=
+ListenStream=${targetPort}
+EOFSOCK
+  sudo systemctl daemon-reload 2>/dev/null || true
+  sudo systemctl restart ssh.socket 2>/dev/null || true
+fi
+
+# Step 8: Safe daemon RESTART
+sudo systemctl restart sshd.service 2>/dev/null || \
+sudo systemctl restart ssh.service 2>/dev/null || \
+sudo systemctl restart sshd 2>/dev/null || \
+sudo systemctl restart ssh 2>/dev/null || \
+sudo service sshd restart 2>/dev/null || \
+sudo service ssh restart 2>/dev/null || \
+sudo /etc/init.d/sshd restart 2>/dev/null || \
+sudo /etc/init.d/ssh restart 2>/dev/null || true
+
+# Step 9: Verify port is listening
+sleep 1
+if ss -tlnp 2>/dev/null | grep -qE ":${targetPort}\\b" || netstat -tlnp 2>/dev/null | grep -qE ":${targetPort}\\b"; then
+  echo "SSHD_LISTENING_VERIFIED"
 fi
 
 echo "SSH_PORT_SUCCESS"

@@ -12,6 +12,7 @@ import { updateRemoteServer } from './db';
  * Reads SSH configuration from the target server by querying sshd runtime (sshd -T)
  * and reading /etc/ssh/sshd_config plus any drop-in files under /etc/ssh/sshd_config.d/
  */
+
 export async function fetchLinuxSshConfigSSH(
   server: RemoteServer,
   ephemeralPassword?: string
@@ -34,6 +35,10 @@ echo "===UFW_STATUS==="
 if command -v ufw >/dev/null 2>&1; then
   sudo ufw status numbered 2>/dev/null || true
 fi
+echo "===FIREWALLD_RICH==="
+if command -v firewall-cmd >/dev/null 2>&1; then
+  sudo firewall-cmd --list-rich-rules 2>/dev/null || true
+fi
 `;
 
   const output = await runAdaptiveSshCommand(server, script, ephemeralPassword, 12000);
@@ -50,7 +55,8 @@ fi
   const effectiveSection = output.split('===EFFECTIVE_SSHD===')[1]?.split('===SSHD_CONFIG_FILE===')[0] || '';
   const configFileSection = output.split('===SSHD_CONFIG_FILE===')[1]?.split('===SSHD_DROPIN_FILES===')[0] || '';
   const dropinSection = output.split('===SSHD_DROPIN_FILES===')[1]?.split('===UFW_STATUS===')[0] || '';
-  const ufwSection = output.split('===UFW_STATUS===')[1] || '';
+  const ufwSection = output.split('===UFW_STATUS===')[1]?.split('===FIREWALLD_RICH===')[0] || '';
+  const firewalldSection = output.split('===FIREWALLD_RICH===')[1] || '';
 
   // 1. Try parsing from sshd -T (authoritative active runtime configuration)
   if (effectiveSection.trim()) {
@@ -111,7 +117,7 @@ fi
     if (x11Match) x11Forwarding = x11Match[1].toLowerCase() as any;
   }
 
-  // 3. Parse Allowed IPs from UFW or hosts.allow if available
+  // 3. Parse Allowed IPs from UFW, Firewalld rich rules, or managed comments
   if (ufwSection.trim()) {
     const ufwLines = ufwSection.split('\n');
     for (const line of ufwLines) {
@@ -124,6 +130,27 @@ fi
             allowedIps.push(ipCandidate);
           }
         }
+      }
+    }
+  }
+
+  if (firewalldSection.trim()) {
+    const richLines = firewalldSection.split('\n');
+    for (const rLine of richLines) {
+      const match = rLine.match(/source\s+address=["']?([^"'\s]+)["']?/i);
+      if (match && match[1] && !allowedIps.includes(match[1])) {
+        allowedIps.push(match[1]);
+      }
+    }
+  }
+
+  // Also check if NetTopology managed comment tag is present in sshd_config
+  const managedComment = allConfigs.match(/^[ \t]*#[ \t]*NetTopology-Allowed-IPs:[ \t]*(.+)$/im);
+  if (managedComment && managedComment[1]) {
+    const ips = managedComment[1].split(/[ \t,]+/).map((s) => s.trim()).filter(Boolean);
+    for (const ip of ips) {
+      if (!allowedIps.includes(ip)) {
+        allowedIps.push(ip);
       }
     }
   }
@@ -146,8 +173,8 @@ fi
 }
 
 /**
- * Updates SSH configuration in sshd_config or sshd_config.d, verifies syntax,
- * reloads daemon, and synchronizes the port in the local database.
+ * Updates SSH configuration in sshd_config and sshd_config.d, verifies syntax,
+ * handles systemd socket activation and reliable daemon restart, and synchronizes the port in the local database.
  */
 export async function updateLinuxSshConfigSSH(
   server: RemoteServer,
@@ -172,6 +199,48 @@ export async function updateLinuxSshConfigSSH(
   const x11 = config.x11Forwarding || 'no';
   const allowedIps = (config.allowedIps || []).map((ip) => ip.trim()).filter(Boolean);
 
+  let allowedIpsScript = '';
+  if (allowedIps.length > 0) {
+    const ufwCommands = allowedIps
+      .map((ip) => `sudo ufw allow from "${ip}" to any port ${targetPort} proto tcp comment "Allowed SSH Client IP" 2>/dev/null || true`)
+      .join('\n');
+    const firewalldCommands = allowedIps
+      .map((ip) => `sudo firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='${ip}' port port='${targetPort}' protocol='tcp' accept" 2>/dev/null || true`)
+      .join('\n');
+
+    allowedIpsScript = `
+# Apply IP Restrictions to Firewall
+if command -v ufw >/dev/null 2>&1; then
+  sudo ufw delete allow ${targetPort}/tcp 2>/dev/null || true
+  sudo ufw delete allow ${targetPort} 2>/dev/null || true
+${ufwCommands}
+  sudo ufw reload 2>/dev/null || true
+fi
+
+if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active --quiet firewalld 2>/dev/null; then
+  sudo firewall-cmd --permanent --remove-port=${targetPort}/tcp 2>/dev/null || true
+${firewalldCommands}
+  sudo firewall-cmd --reload 2>/dev/null || true
+fi
+`;
+  } else {
+    allowedIpsScript = `
+# Unrestricted Access (Allow from anywhere)
+if command -v ufw >/dev/null 2>&1; then
+  UFW_ACTIVE=$(sudo ufw status 2>/dev/null | grep -i "Status: active" || true)
+  if [ -n "$UFW_ACTIVE" ]; then
+    sudo ufw allow ${targetPort}/tcp comment "Administrative SSH Port" 2>/dev/null || true
+    sudo ufw reload 2>/dev/null || true
+  fi
+fi
+
+if command -v firewall-cmd >/dev/null 2>&1 && sudo systemctl is-active --quiet firewalld 2>/dev/null; then
+  sudo firewall-cmd --permanent --add-port=${targetPort}/tcp 2>/dev/null || true
+  sudo firewall-cmd --reload 2>/dev/null || true
+fi
+`;
+  }
+
   const script = `export LC_ALL=C
 # Step 1: Pre-check existing sshd syntax
 if command -v sshd >/dev/null 2>&1; then
@@ -180,12 +249,89 @@ fi
 
 # Step 2: Backup existing config
 BACKUP_FILE="/etc/ssh/sshd_config.bak.$(date +%s)"
-sudo cp /etc/ssh/sshd_config "$BACKUP_FILE" 2>/dev/null || true
+sudo cp -p /etc/ssh/sshd_config "$BACKUP_FILE" 2>/dev/null || true
 
-# Step 3: Write configuration
+# Step 3: Direct modification of /etc/ssh/sshd_config (uncomment & set directives directly)
+# Preferred: Python mutator for precise line matching and duplicate removal
+if command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
+  PY_BIN=$(command -v python3 || command -v python)
+  sudo "$PY_BIN" - << 'PYEOF'
+import re, sys
+
+path = '/etc/ssh/sshd_config'
+try:
+    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
+except Exception as e:
+    sys.exit(1)
+
+settings = {
+    'Port': '${targetPort}',
+    'PermitRootLogin': '${permitRoot}',
+    'PasswordAuthentication': '${passAuth}',
+    'MaxAuthTries': '${maxTries}',
+    'ClientAliveInterval': '${keepalive}',
+    'ClientAliveCountMax': '${countMax}',
+    'X11Forwarding': '${x11}'
+}
+
+lines = content.splitlines(keepends=True)
+found = set()
+new_lines = []
+
+for line in lines:
+    matched_key = None
+    for k in settings.keys():
+        if re.match(r'^[ \\t]*#?[ \\t]*' + re.escape(k) + r'([ \\t]+.*|$)', line, re.IGNORECASE):
+            matched_key = k
+            break
+    if matched_key:
+        if matched_key not in found:
+            new_lines.append(f"{matched_key} {settings[matched_key]}\\n")
+            found.add(matched_key)
+        # Duplicate or commented occurrences are omitted
+    else:
+        # Check and strip old managed IP comment if exists
+        if not re.match(r'^[ \\t]*#[ \\t]*NetTopology-Allowed-IPs:', line, re.IGNORECASE):
+            new_lines.append(line)
+
+# Ensure any settings that were completely absent from the file are appended
+for k, v in settings.items():
+    if k not in found:
+        new_lines.append(f"\\n{k} {v}\\n")
+
+${allowedIps.length > 0 ? `new_lines.append("\\n# NetTopology-Allowed-IPs: ${allowedIps.join(' ')}\\n")` : ''}
+
+with open(path, 'w', encoding='utf-8') as f:
+    f.writelines(new_lines)
+PYEOF
+fi
+
+# Sed verification & fallback to guarantee /etc/ssh/sshd_config has all parameters uncommented
+set_sshd_param() {
+  local k="$1"
+  local v="$2"
+  local f="/etc/ssh/sshd_config"
+  if grep -qiE "^[ \\t]*#?[ \\t]*\${k}([ \\t]+.*|$)" "$f"; then
+    sudo sed -i -E "0,/^[ \\t]*#?[ \\t]*\${k}([ \\t]+.*|$)/s/^[ \\t]*#?[ \\t]*\${k}([ \\t]+.*|$)/\${k} \${v}/" "$f" 2>/dev/null || \\
+    sudo sed -i -E "s/^[ \\t]*#?[ \\t]*\${k}([ \\t]+.*|$)/\${k} \${v}/" "$f" 2>/dev/null || true
+  else
+    echo "\${k} \${v}" | sudo tee -a "$f" >/dev/null
+  fi
+}
+
+set_sshd_param "Port" "${targetPort}"
+set_sshd_param "PermitRootLogin" "${permitRoot}"
+set_sshd_param "PasswordAuthentication" "${passAuth}"
+set_sshd_param "MaxAuthTries" "${maxTries}"
+set_sshd_param "ClientAliveInterval" "${keepalive}"
+set_sshd_param "ClientAliveCountMax" "${countMax}"
+set_sshd_param "X11Forwarding" "${x11}"
+
+# Step 4: Synchronize drop-in directory if present (/etc/ssh/sshd_config.d)
 if [ -d /etc/ssh/sshd_config.d ]; then
   # Ensure sshd_config includes drop-in directory
-  if ! grep -qE '^[ #]*Include /etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config; then
+  if ! grep -qE '^[ #]*Include /etc/ssh/sshd_config\\.d/\\*\\.conf' /etc/ssh/sshd_config; then
     echo "Include /etc/ssh/sshd_config.d/*.conf" | sudo tee -a /etc/ssh/sshd_config >/dev/null
   fi
 
@@ -201,62 +347,56 @@ ClientAliveInterval ${keepalive}
 ClientAliveCountMax ${countMax}
 X11Forwarding ${x11}
 EOF
-else
-  # Apply directly to /etc/ssh/sshd_config
-  apply_setting() {
-    KEY="$1"
-    VAL="$2"
-    if grep -qE "^[ #]*\${KEY} " /etc/ssh/sshd_config; then
-      sudo sed -i "s/^[ #]*\${KEY} .*/\${KEY} \${VAL}/" /etc/ssh/sshd_config
-    else
-      echo "\${KEY} \${VAL}" | sudo tee -a /etc/ssh/sshd_config >/dev/null
-    fi
-  }
-
-  apply_setting "Port" "${targetPort}"
-  apply_setting "PermitRootLogin" "${permitRoot}"
-  apply_setting "PasswordAuthentication" "${passAuth}"
-  apply_setting "MaxAuthTries" "${maxTries}"
-  apply_setting "ClientAliveInterval" "${keepalive}"
-  apply_setting "ClientAliveCountMax" "${countMax}"
-  apply_setting "X11Forwarding" "${x11}"
 fi
 
-# Step 4: Validate syntax with sshd -t
+# Step 5: Validate syntax with sshd -t BEFORE firewall or restart
 if command -v sshd >/dev/null 2>&1; then
   if ! sudo sshd -t; then
     echo "SYNTAX_CHECK_FAILED"
     sudo rm -f /etc/ssh/sshd_config.d/00-custom-port.conf /etc/ssh/sshd_config.d/01-security-hardening.conf 2>/dev/null || true
     if [ -f "$BACKUP_FILE" ]; then
-      sudo cp "$BACKUP_FILE" /etc/ssh/sshd_config
+      sudo cp -p "$BACKUP_FILE" /etc/ssh/sshd_config 2>/dev/null || true
     fi
     exit 2
   fi
 fi
 
-# Step 5: Adjust Firewall to prevent lockout
-# UFW
-if command -v ufw >/dev/null 2>&1; then
-  UFW_ACTIVE=$(sudo ufw status 2>/dev/null | grep -i "Status: active" || true)
-  if [ -n "$UFW_ACTIVE" ]; then
-    sudo ufw allow ${targetPort}/tcp comment "Administrative SSH Port" 2>/dev/null || true
-  fi
-fi
-# Firewalld
-if command -v firewall-cmd >/dev/null 2>&1; then
-  if sudo systemctl is-active --quiet firewalld 2>/dev/null; then
-    sudo firewall-cmd --add-port=${targetPort}/tcp --permanent 2>/dev/null || true
-    sudo firewall-cmd --reload 2>/dev/null || true
-  fi
+# Step 6: Adjust Firewall to prevent lockout & apply Allowed Client IPs
+${allowedIpsScript}
+
+# Step 7: SELinux port allowance (RHEL/CentOS/Rocky/Alma/Fedora)
+if command -v semanage >/dev/null 2>&1; then
+  sudo semanage port -a -t ssh_port_t -p tcp ${targetPort} 2>/dev/null || \\
+  sudo semanage port -m -t ssh_port_t -p tcp ${targetPort} 2>/dev/null || true
 fi
 
-# Step 6: Safe daemon reload/restart
-sudo systemctl try-reload-or-restart ssh.service 2>/dev/null || \\
-sudo systemctl try-reload-or-restart sshd.service 2>/dev/null || \\
-sudo systemctl restart ssh 2>/dev/null || \\
+# Step 8: Handle systemd socket activation (Ubuntu 22.10, 23+, 24.04+)
+if systemctl is-active --quiet ssh.socket 2>/dev/null || systemctl is-enabled --quiet ssh.socket 2>/dev/null; then
+  sudo mkdir -p /etc/systemd/system/ssh.socket.d
+  sudo tee /etc/systemd/system/ssh.socket.d/listen.conf >/dev/null << 'EOFSOCK'
+[Socket]
+ListenStream=
+ListenStream=${targetPort}
+EOFSOCK
+  sudo systemctl daemon-reload 2>/dev/null || true
+  sudo systemctl restart ssh.socket 2>/dev/null || true
+fi
+
+# Step 9: Safe daemon RESTART (NOT reload, since reloads cannot change listening port)
+sudo systemctl restart sshd.service 2>/dev/null || \\
+sudo systemctl restart ssh.service 2>/dev/null || \\
 sudo systemctl restart sshd 2>/dev/null || \\
+sudo systemctl restart ssh 2>/dev/null || \\
+sudo service sshd restart 2>/dev/null || \\
 sudo service ssh restart 2>/dev/null || \\
+sudo /etc/init.d/sshd restart 2>/dev/null || \\
 sudo /etc/init.d/ssh restart 2>/dev/null || true
+
+# Step 10: Verify port is listening
+sleep 1
+if ss -tlnp 2>/dev/null | grep -qE ":${targetPort}\\b" || netstat -tlnp 2>/dev/null | grep -qE ":${targetPort}\\b"; then
+  echo "SSHD_LISTENING_VERIFIED"
+fi
 
 echo "SSHD_APPLY_SUCCESS"
 `;

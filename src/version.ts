@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.117.0';
+export const APP_VERSION = '1.117.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.117.1',
+    releaseDate: '2026-09-22',
+    type: 'patch',
+    title: 'اصلاح اعمال مستقیم تنظیمات در /etc/ssh/sshd_config، خروج از کامنت، مدیریت پورت و ریستارت قطعی سرویس SSH',
+    title_en: 'Direct /etc/ssh/sshd_config Mutation, Directive Uncommenting, Port Rebinding & Reliable SSH Service Restart',
+    changes: [
+      'اصلاح اعمال مستقیم تنظیمات پورت و پارامترهای امنیتی درون فایل اصلی /etc/ssh/sshd_config و خارج کردن دستورات کامنت‌شده (#Port, #PermitRootLogin و...) از کامنت به جای اکتفا به فایل‌های دراپ‌این.',
+      'همگام‌سازی کامل فایل اصلی sshd_config با دایرکتوری دراپ‌این /etc/ssh/sshd_config.d و هماهنگی صددرصدی میان تنظیمات.',
+      'اعمال واقعی و پویا لیست IPهای مجاز اتصال (Allowed Client IPs) در فایروال‌های UFW و Firewalld سرور.',
+      'اصلاح فرآیند راه‌اندازی مجدد با restart قطعی به جای try-reload (به دلیل عدم توانایی reload در تغییر پورت باز) و پشتیبانی کامل از ssh.socket در اوبونتو ۲۲ به بعد.',
+      'تست گرامر با sshd -t قبل از اعمال و رول‌بک خودکار در صورت خطا جهت حفظ کامل اتصال ادمین به سرور.'
+    ],
+    changes_en: [
+      'Directly mutate and uncomment configuration directives (#Port, #PermitRootLogin, etc.) inside the primary /etc/ssh/sshd_config file instead of bypassing it.',
+      'Maintained complete synchronization between /etc/ssh/sshd_config and /etc/ssh/sshd_config.d drop-in configurations.',
+      'Implemented authentic dynamic firewall enforcement for Allowed Client IPs across both UFW and Firewalld.',
+      'Replaced try-reload with authoritative daemon restart and added systemd ssh.socket activation handling (Ubuntu 22.10/24.04+), ensuring the new listening port reliably binds.',
+      'Strict syntax validation via sshd -t before restarting with automatic atomic backup rollback to prevent admin lockout.'
+    ],
+  },
   {
     version: '1.117.0',
     releaseDate: '2026-09-22',
