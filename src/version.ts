@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.114.0';
+export const APP_VERSION = '1.114.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.114.1',
+    releaseDate: '2026-09-22',
+    type: 'patch',
+    title: 'بهینه‌سازی رابط کاربری ناوگان سرورها: حذف دکمه‌های مستقیم ترمینال و مانیتور از ردیف‌های حالت لیست ویو و یکپارچه‌سازی در منوی ۳-نقطه',
+    title_en: 'Remote Servers Fleet UI Cleanup: Removed Direct Terminal and Monitor Buttons from List View Rows and Consolidated into 3-Dot Menu',
+    changes: [
+      'حذف دکمه‌های تکراری مانیتور و ترمینال از ردیف‌های جدول در حالت نمایش لیستی (List View) صفحه Remote Servers & Automation Fleet جهت ایجاد ظاهری تمیز، خلوت و یکپارچه با صفحه لیست تجهیزات.',
+      'تثبیت دسترسی به تمامی قابلیت‌های مانیتورینگ منابع، ترمینال‌های Bash/Zsh، کنسول VNC، ریموت دسکتاپ، ویرایش و حذف از طریق منوی سه‌نقطه (3-dot contextual menu).'
+    ],
+    changes_en: [
+      'Removed redundant Monitor and Terminal direct action buttons from table rows in List View mode within Remote Servers & Automation Fleet, decluttering the view and establishing visual parity with the Network Equipment table.',
+      'Consolidated full access to live telemetry monitoring, Bash/Zsh terminals, VNC graphic console, remote desktop, server property edits, and deletion under the 3-dot contextual action menu.'
+    ],
+  },
   {
     version: '1.114.0',
     releaseDate: '2026-09-22',

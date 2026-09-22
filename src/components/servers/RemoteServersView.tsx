@@ -1503,44 +1503,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           </div>
                         </td>
 
-                        {/* Actions (Primary button + 3-dot trigger) */}
+                        {/* Actions (3-Dot Options Trigger) */}
                         <td className="p-3.5 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            {/* Primary Action Button */}
-                            {isLinux ? (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenLinuxMonitor(server)}
-                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 shadow-sm transition active:scale-95 cursor-pointer"
-                                  title={isEn ? 'Open real-time Resource & Telemetry Monitor' : 'مشاهده مانیتورینگ زنده منابع سرور'}
-                                >
-                                  <Activity className="w-3.5 h-3.5" />
-                                  <span>{isEn ? 'Monitor' : 'مانیتور'}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')
-                                  }
-                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-sm transition active:scale-95 cursor-pointer"
-                                >
-                                  <Terminal className="w-3.5 h-3.5" />
-                                  <span>{isEn ? 'Terminal' : 'ترمینال'}</span>
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
-                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-sm transition active:scale-95 cursor-pointer"
-                                title={isEn ? 'Open in-browser RDP session' : 'اتصال ریموت دسکتاپ در مرورگر'}
-                              >
-                                <Monitor className="w-3.5 h-3.5" />
-                                <span>{isEn ? 'In-Browser RDP' : 'ریموت'}</span>
-                              </button>
-                            )}
-
+                          <div className="flex items-center justify-center">
                             {/* 3-Dot Options Trigger */}
                             <button
                               type="button"
