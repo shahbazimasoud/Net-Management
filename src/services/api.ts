@@ -31,6 +31,8 @@ import {
   LinuxTimeInfo,
   LinuxTcpWrapperRule,
   LinuxTcpWrappersData,
+  LinuxLogCategory,
+  LinuxSystemLogsResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1951,6 +1953,60 @@ export async function updateLinuxTime(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ datetime, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function fetchLinuxServerLogs(
+  serverId: string,
+  options: {
+    category?: LinuxLogCategory;
+    lines?: number;
+    grepFilter?: string;
+    customPath?: string;
+    priority?: string;
+    unit?: string;
+    since?: string;
+  } = {},
+  ephemeralPassword?: string
+): Promise<LinuxSystemLogsResponse> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/logs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      category: options.category || 'journal',
+      lines: options.lines || 200,
+      grepFilter: options.grepFilter || '',
+      customPath: options.customPath || '',
+      priority: options.priority || '',
+      unit: options.unit || '',
+      since: options.since || '',
+      password: ephemeralPassword,
+    }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    category: options.category || 'journal',
+    filePath: '',
+    logs: [],
+    rawText: '',
+    lineCount: 0,
+    errorCount: 0,
+    warnCount: 0,
+    error: 'Failed to parse logs response from server',
+  }));
+  return data;
+}
+
+export async function truncateLinuxServerLog(
+  serverId: string,
+  filePath: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/logs/truncate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, password: ephemeralPassword }),
   });
   return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
 }

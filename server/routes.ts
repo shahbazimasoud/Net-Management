@@ -117,6 +117,10 @@ import {
   createLinuxGroupSSH,
   deleteLinuxUserSSH,
 } from './linuxUserManager';
+import {
+  fetchLinuxSystemLogsSSH,
+  truncateLinuxLogSSH,
+} from './linuxLogManager';
 
 export const apiRouter = Router();
 
@@ -1771,6 +1775,95 @@ apiRouter.post('/remote-servers/:id/users/delete', async (req: Request, res: Res
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to delete user',
+    });
+  }
+});
+
+// ==========================================
+// LINUX SYSTEM LOGS & JOURNAL ENDPOINTS
+// ==========================================
+
+const handleFetchLinuxLogs = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'System logs inspection is only available for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const category = (req.body?.category || req.query?.category || 'journal') as any;
+    const lines = Number(req.body?.lines || req.query?.lines || 200);
+    const grepFilter = (req.body?.grepFilter || req.query?.grepFilter || '') as string;
+    const customPath = (req.body?.customPath || req.query?.customPath || '') as string;
+    const priority = (req.body?.priority || req.query?.priority || '') as string;
+    const unit = (req.body?.unit || req.query?.unit || '') as string;
+    const since = (req.body?.since || req.query?.since || '') as string;
+
+    const result = await fetchLinuxSystemLogsSSH(
+      server,
+      { category, lines, grepFilter, customPath, priority, unit, since },
+      ephemeralPassword
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLogs API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch Linux system logs',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/logs', handleFetchLinuxLogs);
+apiRouter.post('/remote-servers/:id/logs', handleFetchLinuxLogs);
+
+// POST /api/remote-servers/:id/logs/truncate - Safely clear/truncate a specific log file
+apiRouter.post('/remote-servers/:id/logs/truncate', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, password } = req.body;
+
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({ success: false, error: 'filePath is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await truncateLinuxLogSSH(server, filePath, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Truncate Log File (${filePath})`,
+      category: 'operation',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Truncated log file ${filePath}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxTruncateLog API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to truncate log file',
     });
   }
 });

@@ -1638,5 +1638,67 @@ export interface LinuxTcpWrappersData {
   rawDeny: string;
 }
 
+export type LinuxLogCategory =
+  | 'journal'
+  | 'auth'
+  | 'syslog'
+  | 'dmesg'
+  | 'nginx'
+  | 'apache'
+  | 'dpkg'
+  | 'cron'
+  | 'fail2ban'
+  | 'boot'
+  | 'custom';
+
+export interface LinuxLogEntry {
+  id: string;
+  raw: string;
+  timestamp?: string;
+  hostname?: string;
+  service?: string;
+  level?: 'emergency' | 'alert' | 'critical' | 'error' | 'warning' | 'notice' | 'info' | 'debug';
+  message: string;
+}
+
+export interface LinuxLogFileMetadata {
+  path: string;
+  exists: boolean;
+  sizeHuman?: string;
+  sizeBytes?: number;
+  lastModified?: string;
+  lineCount?: number;
+}
+
+export interface LinuxSystemLogsResponse {
+  success: boolean;
+  category: LinuxLogCategory;
+  filePath: string;
+  logs: LinuxLogEntry[];
+  rawText: string;
+  lineCount: number;
+  errorCount: number;
+  warnCount: number;
+  fileMetadata?: LinuxLogFileMetadata;
+  availableLogFiles?: LinuxLogFileMetadata[];
+  error?: string;
+}
+
+export interface LinuxLogCategoryDetail {
+  id: LinuxLogCategory;
+  name: string;
+  name_en: string;
+  shortDesc: string;
+  shortDesc_en: string;
+  defaultPaths: string[];
+  whatSitsHere: string;
+  whatSitsHere_en: string;
+  whyNeeded: string;
+  whyNeeded_en: string;
+  practicalExamples: string[];
+  practicalExamples_en: string[];
+  commandsUsed: string[];
+}
+
 
 

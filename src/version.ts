@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.116.0';
+export const APP_VERSION = '1.117.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.117.0',
+    releaseDate: '2026-09-22',
+    type: 'minor',
+    title: 'افزودن زبانه اختصاصی پایش لاگ‌های سیستم لینوکس (Linux System Logs) با تفکیک دسته‌بندی‌ها، کارت اطلاعات جامع، فیلترگذاری بلادرنگ و نمایش کنسول زنده',
+    title_en: 'Dedicated Linux System Logs Suite: Multi-Category Log Streamer, Comprehensive Event Info Cards, Real-Time Grep/Severity Filtering, and Dual View Modes',
+    changes: [
+      'پیاده‌سازی زبانه اختصاصی لاگ‌های سیستم (System Logs) در پنجره مدیریت سرورهای لینوکس با اتصال زنده از طریق SSH به پایگاه ژورنال systemd و دایرکتوری /var/log/.',
+      'تفکیک دسته‌بندی‌های استاندارد لینوکس شامل: ژورنال سیستم (journalctl)، امنیت و احراز هویت (auth.log / secure)، وقایع کلی سیستم‌عامل (syslog / messages)، بافر حلقوی هسته (dmesg)، وب‌سرورهای Nginx و Apache، تاریخچه بسته‌ها (dpkg/apt)، کارهای زمان‌بندی‌شده (cron)، ضدنفوذ (fail2ban)، توالی بوت (boot) و مسیر دلخواه لاگ (custom path).',
+      'تجهیز هر دسته‌بندی به کارت اطلاعات جامع (Category Info Card) و تولتیپ سه‌گانه که مشخص می‌کند دقیقاً چه لاگ‌هایی در این بخش ثبت می‌شود، چرا مانیتورینگ آن ضروری است، منابع پیش‌فرض کجاست و نمونه خطوط واقعی لاگ به چه صورت است.',
+      'پشتیبانی از دو حالت نمایش: جدول ساختاریافته (جدول با برچسب‌های رنگی سطح خطا، زمان، سرویس و قابلیت باز کردن جزئیات خط) و ترمینال خام کنسول لینوکسی با هایلایت رنگی کلمات کلیدی.',
+      'افزودن کنترل‌های قدرتمند شامل فیلتر بلادرنگ متن/Grep، فیلتر سطوح بحرانی (Errors/Warnings)، فیلتر اولویت ژورنال، انتخاب تعداد خطوط (۵۰ تا ۱۰۰۰ خط)، بازخوانی خودکار (۳ تا ۳۰ ثانیه)، کپی کردن لاگ‌ها و دانلود با فرمت .log.',
+      'افزودن دراور فایل‌های لاگ شناسایی‌شده روی سرور (Detected Files) با امکان سوییچ سریع به هر فایل دلخواه در /var/log/ به همراه قابلیت پاکسازی ایمن فایل لاگ (Truncate to 0 bytes) با گارد امنیتی جلوگیری از حذف لاگ‌های امنیتی auth.log.'
+    ],
+    changes_en: [
+      'Implemented a dedicated "System Logs" tab in the Linux Server Monitor Modal with direct live SSH querying of systemd-journald and the /var/log/ hierarchy.',
+      'Categorized standard Linux log streams: Systemd Journal (journalctl), Security & Authentication (auth.log / secure), System Events (syslog / messages), Kernel Ring Buffer (dmesg), Nginx & Apache web servers, Package Manager history (dpkg / apt), Scheduled tasks (cron), Intrusion defense (fail2ban), Boot sequence (boot), and custom log path inspection.',
+      'Equipped each log category with an in-depth Info Card and 3-part tooltip specifying exactly what logs and events sit in that section, why they are needed for network engineering, their default file paths, and realistic log examples.',
+      'Supported dual display modes: Structured Table (color-coded severity badges for error/warning/info, timestamp, service, and expandable raw detail) and Raw Monospace Terminal view with syntax highlighting.',
+      'Integrated real-time text/grep search, severity level filters (Errors, Warnings, All), journal priority selector, customizable line count (50-1000 lines), auto-refresh intervals (3s-30s), one-click clipboard copying, and .log file export.',
+      'Added a detected files drawer listing all available log files under /var/log/ with their sizes, along with a safe log truncation modal guarded against clearing sensitive security audit logs.'
+    ],
+  },
   {
     version: '1.116.0',
     releaseDate: '2026-09-22',
