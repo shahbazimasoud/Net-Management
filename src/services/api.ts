@@ -22,6 +22,12 @@ import {
   LinuxProxyConfig,
   LinuxBlockDevice,
   LinuxMountPayload,
+  LinuxDnsConfig,
+  LinuxFail2banStatus,
+  LinuxHostEntry,
+  LinuxHostnameInfo,
+  LinuxSshConfig,
+  LinuxTimeInfo,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1550,6 +1556,214 @@ export async function unmountLinuxFilesystem(
     data.error = `HTTP Error ${res.status}`;
   }
   return data;
+}
+
+// ----------------------------------------------------
+// Linux Sysconfig API (DNS, Fail2ban, Hostname, SSH, Time)
+// ----------------------------------------------------
+
+export async function fetchLinuxDnsConfig(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; config?: LinuxDnsConfig; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/dns`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function updateLinuxDnsConfig(
+  serverId: string,
+  config: LinuxDnsConfig,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string; testResult?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/dns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...config, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function fetchLinuxFail2ban(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; status?: LinuxFail2banStatus; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fail2ban`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function controlLinuxFail2ban(
+  serverId: string,
+  action: 'start' | 'stop' | 'restart' | 'reload' | 'enable',
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fail2ban/control`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function ipActionLinuxFail2ban(
+  serverId: string,
+  action: 'ban' | 'unban' | string,
+  ip: string,
+  jail?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fail2ban/ip`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ip, jail, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function installLinuxFail2ban(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fail2ban/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function fetchLinuxHostname(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; info?: LinuxHostnameInfo; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/hostname`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function updateLinuxHostname(
+  serverId: string,
+  hostname: string,
+  updateHostsOrPassword?: boolean | string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const updateHosts = typeof updateHostsOrPassword === 'boolean' ? updateHostsOrPassword : false;
+  const password = typeof updateHostsOrPassword === 'string' ? updateHostsOrPassword : ephemeralPassword;
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/hostname`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hostname, updateHosts, password }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function fetchLinuxHostsFile(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; entries?: LinuxHostEntry[]; rawContent?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/hosts`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function updateLinuxHostsFile(
+  serverId: string,
+  entries: any,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/hosts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entries, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function fetchLinuxSshConfig(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; config?: LinuxSshConfig; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/ssh-config`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function updateLinuxSshConfig(
+  serverId: string,
+  config: LinuxSshConfig,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/ssh-config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...config, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function fetchLinuxTimeInfo(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; timeInfo?: LinuxTimeInfo; info?: LinuxTimeInfo; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/time`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+  });
+  const data = await res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+  if (data && data.timeInfo && !data.info) {
+    data.info = data.timeInfo;
+  }
+  return data;
+}
+
+export async function updateLinuxTimezone(
+  serverId: string,
+  timezone: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/time/timezone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function updateLinuxNtp(
+  serverId: string,
+  enabled: boolean,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/time/ntp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function updateLinuxTime(
+  serverId: string,
+  datetime: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/time/set`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ datetime, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
 }
 
 

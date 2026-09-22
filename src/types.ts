@@ -1543,7 +1543,74 @@ export interface LinuxMountPayload {
   createDirectory?: boolean;
 }
 
-declare module 'guacamole-common-js';
+export interface LinuxSshConfig {
+  port: number;
+  permitRootLogin: 'yes' | 'no' | 'prohibit-password' | 'without-password';
+  passwordAuthentication: 'yes' | 'no';
+  maxAuthTries: number;
+  clientAliveInterval: number;
+  clientAliveCountMax: number;
+  x11Forwarding: 'yes' | 'no';
+  allowedIps: string[];
+}
+
+export interface LinuxDnsConfig {
+  nameservers: string[];
+  searchDomains?: string[];
+  source?: string;
+  status?: string;
+}
+
+export interface LinuxFail2banJailInfo {
+  name: string;
+  currentlyBanned?: number;
+  totalBanned?: number;
+  currentlyFailed?: number;
+  bannedIps?: string[];
+}
+
+export interface LinuxFail2banStatus {
+  installed: boolean;
+  running: boolean;
+  active?: boolean;
+  version?: string;
+  jails: LinuxFail2banJailInfo[];
+  bannedIps?: { jail: string; ip: string; timestamp?: string }[];
+  totalBanned?: number;
+}
+
+export interface LinuxHostEntry {
+  ip: string;
+  hostname?: string;
+  hostnames?: string[];
+  aliases?: string[];
+  comment?: string;
+  id?: string;
+}
+
+export interface LinuxHostnameInfo {
+  currentHostname: string;
+  staticHostname?: string;
+  transientHostname?: string;
+  fqdn?: string;
+  prettyHostname?: string;
+  iconName?: string;
+  chassis?: string;
+  deployment?: string;
+}
+
+export interface LinuxTimeInfo {
+  localTime: string;
+  utcTime: string;
+  universalTime?: string;
+  timezone: string;
+  tzIdentifier?: string;
+  timeZone?: string;
+  ntpActive: boolean;
+  ntpSynchronized: boolean;
+  ntpEnabled?: boolean;
+  rtcTime?: string;
+}
 
 
 

@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.113.0';
+export const APP_VERSION = '1.114.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.114.0',
+    releaseDate: '2026-09-22',
+    type: 'minor',
+    title: 'معماری ماژولار تنظیمات لینوکس: مدیریت هاست‌نیم و /etc/hosts، سرورهای DNS، ضد نفوذ Fail2ban، ساعت و تایم‌زون و امنیت پیشرفته SSH با محدودسازی IP',
+    title_en: 'Modular Linux SysConfig Suite: Hostname & /etc/hosts, DNS Servers, Fail2ban IPS, Time & Timezone, and Advanced SSH Security with IP Whitelisting',
+    changes: [
+      'تفکیک کامل و ماژولارسازی تب تنظیمات سیستم (LinuxSysConfigTab) به زیربخش‌های اختصاصی و حرفه‌ای در دایرکتوری sysconfig.',
+      'افزودن ماژول مدیریت هاست‌نیم و نگاشت فایل /etc/hosts (LinuxHostnameSection): تغییر نام هاست با hostnamectl و مدیریت رکوردهای IP و دامنه در /etc/hosts با اعتبارسنجی فرمت.',
+      'افزودن ماژول سرورهای نام و DNS (LinuxDnsSection): پیکربندی سرورهای DNS اولیه، ثانویه و ثالث با پریست‌های سریع (گوگل، کلودفلر، شکن، ۴۰۳) و تست زنده پینگ.',
+      'افزودن ماژول امنیتی و ضد نفوذ Fail2ban (LinuxFail2banSection): مانیتورینگ جیل‌ها، وضعیت سرویس، آمار حملات و امکان مسدودسازی (Ban) و رفع مسدودی (Unban) آی‌پی‌ها.',
+      'افزودن ماژول تنظیم ساعت، تاریخ و منطقه زمانی (LinuxTimeSection): انتخاب مناطق زمانی استاندارد (از جمله تهران)، هماهنگ‌سازی با سرورهای NTP و تنظیم دستی زمان.',
+      'افزودن ماژول امنیت و پورت SSH (LinuxSshSection): تغییر پورت گوش‌به‌زنگ، محدودسازی IPهای مجاز برای اتصال به SSH (IP Whitelisting)، تنظیم سیاست‌های ورود روت، احراز هویت پسورد و سقف خطای ورود.',
+      'حذف بخش تکراری Operating System & Kernel Details از تب تنظیمات سیستم جهت جلوگیری از تکرار اطلاعات موجود در تب Overview.',
+      'پایبندی به استانداردهای پنج‌گانه مودال و تجهیز تمامی آیتم‌ها به راهنمای FieldInfoTooltip با ساختار سه‌گانه و مهار ۴ جهته.'
+    ],
+    changes_en: [
+      'Modularized the Linux System Configuration tab (LinuxSysConfigTab) into dedicated, maintainable sub-sections under sysconfig directory.',
+      'Added Hostname & /etc/hosts Management module (LinuxHostnameSection): change system hostname via hostnamectl and manage IP/domain mapping records with syntax validation.',
+      'Added DNS & Name Resolution module (LinuxDnsSection): configure primary, secondary, and tertiary DNS servers with quick presets (Google, Cloudflare, Shecan, 403) and live ping tests.',
+      'Added Fail2ban Intrusion Prevention module (LinuxFail2banSection): monitor active jails, attack statistics, and manage manual IP ban/unban actions.',
+      'Added Time & Timezone Configuration module (LinuxTimeSection): select worldwide timezones (including Tehran), manage NTP time synchronization, and manually adjust system clock.',
+      'Added Advanced SSH Security & Port module (LinuxSshSection): change SSH listener port, configure IP whitelisting for SSH access, manage root login policies, password authentication, and authentication failure limits.',
+      'Removed redundant Operating System & Kernel Details section from SysConfig tab to avoid duplication with the Overview tab.',
+      'Enforced 5-point universal modal standards and equipped all controls with boundary-safe 3-part FieldInfoTooltip popovers.'
+    ],
+  },
   {
     version: '1.113.0',
     releaseDate: '2026-09-21',
