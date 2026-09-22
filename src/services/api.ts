@@ -1220,19 +1220,27 @@ export async function fetchLinuxServerLiveMetrics(
   error?: string;
   requires_password?: boolean;
 }> {
-  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/monitor`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: ephemeralPassword }),
-  });
-  const data = await res.json().catch(() => ({
-    success: false,
-    error: 'Failed to parse response from server',
-  }));
-  if (!res.ok && !data.error) {
-    data.error = `HTTP Error ${res.status}`;
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/monitor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword }),
+    });
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse response from server',
+    }));
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      metrics: null as any,
+      error: err?.message || 'Network connection failed or aborted',
+    };
   }
-  return data;
 }
 
 export async function fetchLinuxServerServices(
@@ -1883,11 +1891,19 @@ export async function fetchLinuxSshConfig(
   serverId: string,
   ephemeralPassword?: string
 ): Promise<{ success: boolean; config?: LinuxSshConfig; error?: string }> {
-  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/ssh-config`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
-  });
-  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/ssh-config`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+    });
+    const data = await res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network request failed or aborted' };
+  }
 }
 
 export async function updateLinuxSshConfig(
@@ -1895,12 +1911,20 @@ export async function updateLinuxSshConfig(
   config: LinuxSshConfig,
   ephemeralPassword?: string
 ): Promise<{ success: boolean; message?: string; error?: string }> {
-  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/ssh-config`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...config, password: ephemeralPassword }),
-  });
-  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/ssh-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...config, password: ephemeralPassword }),
+    });
+    const data = await res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network request failed or aborted' };
+  }
 }
 
 export async function fetchLinuxTimeInfo(

@@ -142,11 +142,15 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const isTelemetryTab = activeTab === 'overview' || activeTab === 'disks' || activeTab === 'network' || activeTab === 'processes';
+
   // Fetch telemetry from physical or virtual device
-  const fetchMetrics = useCallback(async (customPassword?: string) => {
+  const fetchMetrics = useCallback(async (customPassword?: string, isBackground = false) => {
     if (!server) return;
-    setLoading(true);
-    setError(null);
+    if (!isBackground) {
+      setLoading(true);
+      setError(null);
+    }
 
     const pwdToUse = customPassword !== undefined ? customPassword : ephemeralPassword;
 
@@ -155,6 +159,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
       if (res.success && res.metrics) {
         setMetrics(res.metrics);
         setRequiresPassword(false);
+        setError(null);
 
         // Append to history
         const now = new Date();
@@ -174,12 +179,18 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
         if (res.requires_password) {
           setRequiresPassword(true);
         }
-        setError(res.error || (isEn ? 'Failed to fetch telemetry metrics' : 'واکشی متریک‌های سیستم ناموفق بود'));
+        if (!isBackground) {
+          setError(res.error || (isEn ? 'Failed to fetch telemetry metrics' : 'واکشی متریک‌های سیستم ناموفق بود'));
+        }
       }
     } catch (err: any) {
-      setError(err?.message || (isEn ? 'Network connection error while contacting server' : 'خطای اتصال به سرور'));
+      if (!isBackground) {
+        setError(err?.message || (isEn ? 'Network connection error while contacting server' : 'خطای اتصال به سرور'));
+      }
     } finally {
-      setLoading(false);
+      if (!isBackground) {
+        setLoading(false);
+      }
     }
   }, [server, ephemeralPassword, isEn]);
 
@@ -213,19 +224,20 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   }, [isOpen, server?.id, fetchMetrics, loadSysConfig]);
 
   useEffect(() => {
-    if (!isOpen || autoRefreshInterval <= 0 || requiresPassword || error) {
+    // Only poll automatically if on telemetry tabs to avoid disrupting configuration tabs (SysConfig, Users, Logs)
+    if (!isOpen || autoRefreshInterval <= 0 || requiresPassword || error || !isTelemetryTab) {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
 
     timerRef.current = setInterval(() => {
-      fetchMetrics();
+      fetchMetrics(undefined, true);
     }, autoRefreshInterval);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isOpen, autoRefreshInterval, fetchMetrics, requiresPassword, !!error]);
+  }, [isOpen, autoRefreshInterval, fetchMetrics, requiresPassword, !!error, isTelemetryTab]);
 
   // Filtered and sorted processes
   const filteredProcesses = useMemo(() => {
@@ -1132,8 +1144,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
             </div>
           )}
 
-          {/* Genuine Error Display (Zero Fake Data Guarantee) */}
-          {error && !requiresPassword && (
+          {/* Genuine Error Display (Zero Fake Data Guarantee) - Shown only on telemetry tabs to avoid disrupting config tabs */}
+          {isTelemetryTab && error && !requiresPassword && (
             <div
               className={`p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
                 isLightMode
@@ -1163,8 +1175,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
             </div>
           )}
 
-          {/* Loading Initial State */}
-          {loading && !metrics && !error && (
+          {/* Loading Initial State - Shown only on telemetry tabs */}
+          {isTelemetryTab && loading && !metrics && !error && (
             <div className="py-20 flex flex-col items-center justify-center gap-3 text-center">
               <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin" />
               <p className="text-sm font-bold text-slate-200">
@@ -1176,11 +1188,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
             </div>
           )}
 
-          {/* Metrics Content Render */}
-          {metrics && (
-            <>
-              {/* TAB 1: OVERVIEW & GAUGES */}
-              {activeTab === 'overview' && (
+          {/* TAB 1: OVERVIEW & GAUGES */}
+          {activeTab === 'overview' && metrics && (
                 <div className="space-y-6">
                   {/* Operating System, Distribution & Kernel Details */}
                   <div
@@ -1623,7 +1632,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               )}
 
               {/* TAB 2: STORAGE & DISKS */}
-              {activeTab === 'disks' && (
+              {activeTab === 'disks' && metrics && (
                 <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
@@ -1731,7 +1740,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               )}
 
               {/* TAB 3: NETWORK INTERFACES */}
-              {activeTab === 'network' && (
+              {activeTab === 'network' && metrics && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1831,7 +1840,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               )}
 
               {/* TAB 4: PROCESSES */}
-              {activeTab === 'processes' && (
+              {activeTab === 'processes' && metrics && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
@@ -2414,39 +2423,6 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                   isEn={isEn}
                 />
               )}
-            </>
-          )}
-
-          {/* Render Users, SysConfig, or Logs tabs even if metrics are not loaded yet */}
-          {!metrics && activeTab === 'users' && (
-            <LinuxUsersTab
-              server={server}
-              ephemeralPassword={ephemeralPassword}
-              isLightMode={isLightMode}
-              isEn={isEn}
-            />
-          )}
-
-          {!metrics && activeTab === 'sysconfig' && (
-            <LinuxSysConfigTab
-              server={server}
-              ephemeralPassword={ephemeralPassword}
-              isLightMode={isLightMode}
-              isEn={isEn}
-              onSshPortChanged={(newPort) => {
-                if (server) server.ssh_port = newPort;
-              }}
-            />
-          )}
-
-          {!metrics && activeTab === 'logs' && (
-            <LinuxLogsTab
-              server={server}
-              ephemeralPassword={ephemeralPassword}
-              isLightMode={isLightMode}
-              isEn={isEn}
-            />
-          )}
         </div>
 
         {/* ======================================================== */}

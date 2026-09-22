@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.117.1';
+export const APP_VERSION = '1.117.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.117.2',
+    releaseDate: '2026-09-22',
+    type: 'patch',
+    title: 'رفع خطاهای ۵۰۰ مانیتورینگ و برطرف‌سازی قفل شدن فیلدهای ورودی در زبانه‌های تنظیمات سرور لینوکس',
+    title_en: 'Fix Monitor 500 Network Storms & Resolve Text Input Lockups Across Linux Server Configuration Tabs',
+    changes: [
+      'توقف کامل پولینگ مانیتورینگ پس‌زمینه در زبانه‌های پیکربندی (SysConfig، کاربران و لاگ‌ها) جهت جلوگیری از اشباع پردازنده و تداخل نشست‌های SSH.',
+      'افزودن فلگ isBackground به واکشی متریک‌ها برای جلوگیری از تریگر وضعیت لودینگ و رندر مجدد ناخواسته در حین تایپ کاربر در فیلدهای متنی.',
+      'ایزوله‌سازی پیام‌های خطا و وضعیت لودینگ تله‌متری به زبانه‌های نظارتی زنده تا مانع از دسترسی یا محو شدن فرم‌های متنی در سایر زبانه‌ها نشود.',
+      'افزودن محافظت try/catch کامل و مدیریت اتصال‌های سقط‌شده در تمامی توابع واکشی API سمت کلاینت.',
+      'حذف رندرهای تکراری کامپوننت‌های زبانه و ارتقای ثبات و پاسخ‌دهی رابط کاربری در زمان ورود مقادیر پورت و آی‌پی.'
+    ],
+    changes_en: [
+      'Completely halted background monitor polling while active on configuration tabs (SysConfig, Users, Logs) to prevent SSH session contention and request storms.',
+      'Introduced isBackground flag to metrics fetching to avoid triggering loading spinners and accidental re-renders while the user is typing in text inputs.',
+      'Isolated telemetry error states and initial loaders strictly to telemetry tabs so they never unmount or disrupt configuration forms.',
+      'Hardened client API fetch callers with robust try/catch blocks to gracefully handle network disconnects and connection aborts without console crashes.',
+      'Cleaned up duplicate tab DOM trees and streamlined UI responsiveness during port, username, and IP address input.'
+    ],
+  },
   {
     version: '1.117.1',
     releaseDate: '2026-09-22',
