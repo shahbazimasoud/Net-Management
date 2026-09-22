@@ -48,7 +48,8 @@ export const LinuxHostnameSection: React.FC<LinuxHostnameSectionProps> = ({
 
       if (hRes.success && hRes.info) {
         setHostnameInfo(hRes.info);
-        setNewHostname(hRes.info.staticHostname || '');
+        const liveName = hRes.info.currentHostname || hRes.info.staticHostname || server.hostname || server.name || '';
+        setNewHostname(liveName);
       }
       if (fRes.success && fRes.entries) {
         setHostsEntries(fRes.entries);
@@ -234,8 +235,11 @@ export const LinuxHostnameSection: React.FC<LinuxHostnameSectionProps> = ({
               />
             </div>
             <span className="text-[10px] text-slate-400 font-mono">
-              {isEn ? 'Current Static Hostname:' : 'نام هاست فعال فعلی:'}{' '}
-              <strong className="text-blue-400">{hostnameInfo?.staticHostname || server.name || '-'}</strong>
+              {isEn ? 'Current Hostname:' : 'نام هاست فعال فعلی:'}{' '}
+              <strong className="text-blue-400">{hostnameInfo?.currentHostname || hostnameInfo?.staticHostname || server.hostname || server.name || '-'}</strong>
+              {hostnameInfo?.fqdn && hostnameInfo.fqdn !== (hostnameInfo.currentHostname || hostnameInfo.staticHostname) && (
+                <span className="ml-2 text-slate-500">({hostnameInfo.fqdn})</span>
+              )}
             </span>
           </div>
         </div>

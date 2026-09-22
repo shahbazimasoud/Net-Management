@@ -88,6 +88,24 @@ import {
   executeLinuxMountFilesystem,
   executeLinuxUnmountFilesystem,
 } from './linuxServerMonitor';
+import {
+  fetchLinuxSshConfigSSH,
+  updateLinuxSshConfigSSH,
+  fetchLinuxHostnameSSH,
+  updateLinuxHostnameSSH,
+  fetchLinuxHostsFileSSH,
+  updateLinuxHostsFileSSH,
+  fetchLinuxDnsConfigSSH,
+  updateLinuxDnsConfigSSH,
+  fetchLinuxFail2banSSH,
+  controlLinuxFail2banSSH,
+  ipActionLinuxFail2banSSH,
+  installLinuxFail2banSSH,
+  fetchLinuxTimeInfoSSH,
+  updateLinuxTimezoneSSH,
+  updateLinuxNtpSSH,
+  updateLinuxTimeSSH,
+} from './linuxSysConfig';
 
 export const apiRouter = Router();
 
@@ -1688,6 +1706,266 @@ apiRouter.post('/remote-servers/:id/unmount-action', async (req: Request, res: R
       success: false,
       error: err.message || 'Failed to unmount remote filesystem',
     });
+  }
+});
+
+// ==========================================
+// LINUX SYSTEM CONFIGURATION SUITE ENDPOINTS
+// ==========================================
+
+// Helper to authenticate and validate server access
+async function getValidatedServer(id: string, ephemeralPassword?: string) {
+  const server = await getRemoteServerById(id);
+  if (!server) {
+    return { error: 'Server not found', status: 404 };
+  }
+  if (server.os_type !== 'linux') {
+    return { error: 'Endpoint is only available for Linux remote servers.', status: 400 };
+  }
+  if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+    return { error: 'Password required for this server (Zero-storage policy enabled).', status: 401, requires_password: true };
+  }
+  return { server };
+}
+
+// 1. SSH Configuration & Port Management
+apiRouter.all('/remote-servers/:id/ssh-config', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = req.body?.password || (req.query?.password as string);
+    const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    // If POST and contains config fields -> update
+    if (req.method === 'POST' && (req.body?.port || req.body?.permitRootLogin || req.body?.allowedIps)) {
+      const result = await updateLinuxSshConfigSSH(server, req.body, ephemeralPassword);
+      await addAuditLog({
+        userName: 'Administrator',
+        action: `Update SSH Configuration (Port ${req.body?.port})`,
+        category: 'security',
+        target: `${server.name || server.ip}`,
+        status: result.success ? 'success' : 'error',
+        details: result.message,
+        ipAddress: getClientIp(req),
+      }).catch(() => {});
+      return res.json(result);
+    }
+
+    // Otherwise, fetch active SSH config
+    const config = await fetchLinuxSshConfigSSH(server, ephemeralPassword);
+    return res.json({ success: true, config });
+  } catch (err: any) {
+    console.error(`[LinuxSshConfig API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to process SSH configuration' });
+  }
+});
+
+// 2. Hostname Management
+apiRouter.all('/remote-servers/:id/hostname', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = req.body?.password || (req.query?.password as string);
+    const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    // Update if hostname provided in POST
+    if (req.method === 'POST' && req.body?.hostname) {
+      const updateHosts = req.body.updateHosts !== false;
+      const result = await updateLinuxHostnameSSH(server, req.body.hostname, updateHosts, ephemeralPassword);
+      await addAuditLog({
+        userName: 'Administrator',
+        action: `Change Hostname (${req.body.hostname})`,
+        category: 'configuration',
+        target: `${server.name || server.ip} -> ${req.body.hostname}`,
+        status: result.success ? 'success' : 'error',
+        details: result.message,
+        ipAddress: getClientIp(req),
+      }).catch(() => {});
+      return res.json(result);
+    }
+
+    // Otherwise, fetch current live hostname info
+    const info = await fetchLinuxHostnameSSH(server, ephemeralPassword);
+    return res.json({ success: true, info });
+  } catch (err: any) {
+    console.error(`[LinuxHostname API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to process hostname' });
+  }
+});
+
+// 3. /etc/hosts Management
+apiRouter.all('/remote-servers/:id/hosts', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = req.body?.password || (req.query?.password as string);
+    const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    if (req.method === 'POST' && (req.body?.entries || req.body?.action)) {
+      const result = await updateLinuxHostsFileSSH(server, req.body, ephemeralPassword);
+      await addAuditLog({
+        userName: 'Administrator',
+        action: 'Update /etc/hosts',
+        category: 'configuration',
+        target: `${server.name || server.ip}`,
+        status: result.success ? 'success' : 'error',
+        details: result.message,
+        ipAddress: getClientIp(req),
+      }).catch(() => {});
+      return res.json(result);
+    }
+
+    const { entries, rawContent } = await fetchLinuxHostsFileSSH(server, ephemeralPassword);
+    return res.json({ success: true, entries, rawContent });
+  } catch (err: any) {
+    console.error(`[LinuxHosts API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to process /etc/hosts' });
+  }
+});
+
+// 4. DNS Configuration
+apiRouter.all('/remote-servers/:id/dns', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = req.body?.password || (req.query?.password as string);
+    const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    if (req.method === 'POST' && req.body?.nameservers) {
+      const result = await updateLinuxDnsConfigSSH(server, req.body, ephemeralPassword);
+      await addAuditLog({
+        userName: 'Administrator',
+        action: 'Update DNS Servers',
+        category: 'configuration',
+        target: `${server.name || server.ip}`,
+        status: result.success ? 'success' : 'error',
+        details: result.message,
+        ipAddress: getClientIp(req),
+      }).catch(() => {});
+      return res.json(result);
+    }
+
+    const config = await fetchLinuxDnsConfigSSH(server, ephemeralPassword);
+    return res.json({ success: true, config });
+  } catch (err: any) {
+    console.error(`[LinuxDns API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to process DNS configuration' });
+  }
+});
+
+// 5. Fail2ban IPS
+apiRouter.all('/remote-servers/:id/fail2ban', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = req.body?.password || (req.query?.password as string);
+    const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const f2bStatus = await fetchLinuxFail2banSSH(server, ephemeralPassword);
+    return res.json({ success: true, status: f2bStatus });
+  } catch (err: any) {
+    console.error(`[LinuxFail2ban API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch Fail2ban status' });
+  }
+});
+
+apiRouter.post('/remote-servers/:id/fail2ban/control', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { action, password } = req.body;
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await controlLinuxFail2banSSH(server, action, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to control Fail2ban' });
+  }
+});
+
+apiRouter.post('/remote-servers/:id/fail2ban/ip', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { action, ip, jail, password } = req.body;
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await ipActionLinuxFail2banSSH(server, action, ip, jail, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to perform IP action in Fail2ban' });
+  }
+});
+
+apiRouter.post('/remote-servers/:id/fail2ban/install', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await installLinuxFail2banSSH(server, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to install Fail2ban' });
+  }
+});
+
+// 6. Time & Timezone Management
+apiRouter.all('/remote-servers/:id/time', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = req.body?.password || (req.query?.password as string);
+    const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const timeInfo = await fetchLinuxTimeInfoSSH(server, ephemeralPassword);
+    return res.json({ success: true, timeInfo, info: timeInfo });
+  } catch (err: any) {
+    console.error(`[LinuxTime API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch time info' });
+  }
+});
+
+apiRouter.post('/remote-servers/:id/time/timezone', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { timezone, password } = req.body;
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await updateLinuxTimezoneSSH(server, timezone, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to update timezone' });
+  }
+});
+
+apiRouter.post('/remote-servers/:id/time/ntp', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { enabled, password } = req.body;
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await updateLinuxNtpSSH(server, enabled, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to update NTP' });
+  }
+});
+
+apiRouter.post('/remote-servers/:id/time/set', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { datetime, password } = req.body;
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await updateLinuxTimeSSH(server, datetime, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to set system time' });
   }
 });
 

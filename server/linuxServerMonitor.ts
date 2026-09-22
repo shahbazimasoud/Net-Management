@@ -519,7 +519,7 @@ export function parseLinuxServices(rawOutput: string): LinuxSystemService[] {
 /**
  * Adaptive SSH command runner: attempts modern first, automatically falls back to legacy ciphers.
  */
-async function runAdaptiveSshCommand(
+export async function runAdaptiveSshCommand(
   server: RemoteServer,
   command: string,
   ephemeralPassword?: string,

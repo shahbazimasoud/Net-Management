@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.114.1';
+export const APP_VERSION = '1.114.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.114.2',
+    releaseDate: '2026-09-22',
+    type: 'patch',
+    title: 'رفع خطای Endpoint Not Found و پیاده‌سازی بک‌اند زنده برای امنیت SSH، تغییر پورت در sshd_config، هاست‌نیم و نگاشت /etc/hosts',
+    title_en: 'Resolved Endpoint Not Found & Implemented Live Backend Handlers for SSH Security, sshd_config Port Mutation, Hostname & /etc/hosts Sync',
+    changes: [
+      'رفع کامل خطای ۴۰۴ Endpoint not found در ماژول‌های تنظیمات سرور لینوکس با ایجاد روت‌ها و هندلرهای جامع در /server/routes.ts و ماژول تخصصی /server/linuxSysConfig.ts.',
+      'پیاده‌سازی همگام‌سازی واقعی فایل sshd_config در سرور مقصد: خواندن تنظیمات زنده، تغییر پورت، اعمال سیاست‌های ورود روت، تست با sshd -t، ری‌استارت امن سرویس و به‌روزرسانی پورت سرور در دیتابیس پنل.',
+      'پیاده‌سازی ماژول دریافت و تغییر نام هاست (Hostname): استخراج نام هاست زنده جاری و FQDN سرور مقصد، تغییر از طریق hostnamectl و به‌روزرسانی خودکار نگاشت ۱۲۷.۰.۱.۱ در فایل /etc/hosts.',
+      'افزودن هندلرهای کامل بک‌اند برای خواندن و ذخیره فایل /etc/hosts، تنظیم سرورهای DNS در /etc/resolv.conf، مدیریت فایروال نفوذ Fail2ban و همگام‌سازی ساعت و تایم‌زون با اجرای فرمان‌های ایمن SSH.'
+    ],
+    changes_en: [
+      'Completely resolved 404 Endpoint not found errors across Linux system configuration tabs by implementing full-featured routes in /server/routes.ts and a dedicated execution engine in /server/linuxSysConfig.ts.',
+      'Implemented authentic remote sshd_config synchronization: parses active directives, safely updates SSH port, configures root login policies, validates syntax via sshd -t, restarts the daemon, and updates stored server port in the database.',
+      'Implemented live Hostname extraction and modification: retrieves current static/live hostname and FQDN from target servers, updates system hostname via hostnamectl, and automatically synchronizes /etc/hosts mappings.',
+      'Delivered robust backend handlers for /etc/hosts entries manipulation, DNS nameserver resolution in /etc/resolv.conf, Fail2ban IPS jail management, and NTP/Timezone system clock synchronization via adaptive SSH commands.'
+    ],
+  },
   {
     version: '1.114.1',
     releaseDate: '2026-09-22',
