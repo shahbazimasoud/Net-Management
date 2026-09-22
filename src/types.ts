@@ -1462,6 +1462,12 @@ export interface LinuxSystemService {
   description: string;
 }
 
+export interface LinuxSystemGroup {
+  name: string;
+  gid: number;
+  members: string[];
+}
+
 export interface LinuxSystemUser {
   username: string;
   uid: number;
@@ -1470,6 +1476,9 @@ export interface LinuxSystemUser {
   homeDir: string;
   shell: string;
   isSystem: boolean;
+  primaryGroup?: string;
+  groups?: string[];
+  isLocked?: boolean;
 }
 
 export interface LinuxLoggedInUser {

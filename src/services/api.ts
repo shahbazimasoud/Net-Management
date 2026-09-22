@@ -16,6 +16,7 @@ import {
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
+  LinuxSystemGroup,
   LinuxLoggedInUser,
   LinuxNetworkInterfaceDetail,
   LinuxSystemDetailedInfo,
@@ -1314,6 +1315,7 @@ export async function fetchLinuxServerUsers(
   success: boolean;
   loggedInUsers: LinuxLoggedInUser[];
   systemUsers: LinuxSystemUser[];
+  systemGroups: LinuxSystemGroup[];
   error?: string;
   requires_password?: boolean;
 }> {
@@ -1321,6 +1323,138 @@ export async function fetchLinuxServerUsers(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function createLinuxUser(
+  serverId: string,
+  params: {
+    username: string;
+    password?: string;
+    comment?: string;
+    homeDir?: string;
+    shell?: string;
+    groups?: string[];
+    createHome?: boolean;
+  },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...params, ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function updateLinuxUserPassword(
+  serverId: string,
+  username: string,
+  password: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function toggleLinuxUserLock(
+  serverId: string,
+  username: string,
+  lock: boolean,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/toggle-lock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, lock, ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function updateLinuxUserGroups(
+  serverId: string,
+  username: string,
+  groups: string[],
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, groups, ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function createLinuxGroup(
+  serverId: string,
+  name: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/groups/create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function deleteLinuxUser(
+  serverId: string,
+  username: string,
+  removeHome: boolean,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, removeHome, ephemeralPassword }),
   });
   const data = await res.json().catch(() => ({
     success: false,

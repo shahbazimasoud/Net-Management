@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.115.0';
+export const APP_VERSION = '1.116.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.116.0',
+    releaseDate: '2026-09-22',
+    type: 'minor',
+    title: 'پیاده‌سازی پنل جامع مدیریت کاربران و گروه‌ها در لینوکس: ساخت کاربر، تغییر رمز عبور، قفل/فعال‌سازی و انتساب مستقیم به گروه‌های سیستم',
+    title_en: 'Comprehensive Linux User & Group Management Suite: User Provisioning, Password Rotation, Account Locking, and Real Group Access Control',
+    changes: [
+      'پیاده‌سازی ماژول کامل مدیریت کاربران لینوکس در تب «Users & Active Sessions» با اتصال مستقیم به سرورهای فیزیکی و مجازی از طریق SSH.',
+      'افزودن مدال ساخت کاربر جدید با امکان تنظیم نام کاربری، رمز عبور، توضیحات حساب، ساخت خودکار دایرکتوری خانگی (-m)، شل لاگین و اعطای بلادرنگ گروه‌ها و دسترسی sudo.',
+      'پیاده‌سازی امکان تغییر رمز عبور کاربران (chpasswd) با رعایت استانداردهای امنیتی بدون ذخیره یا ثبت در لاگ‌های سیستمی.',
+      'افزودن قابلیت قفل/غیرفعال‌سازی (usermod -L) و فعال‌سازی مجدد حساب‌های کاربری با محافظت از اکانت روت و نمایش برچسب‌های وضعیت پویا.',
+      'پیاده‌سازی پنل تخصصی تخصیص گروه‌ها (usermod -G) بر اساس استخراج زنده گروه‌های فعال سرور از /etc/group، تشخیص گروه‌های دسترسی ادمین (sudo/wheel/docker) و امکان ساخت درجا گروه جدید.',
+      'افزودن زبانه اختصاصی دایرکتوری گروه‌ها (Groups Directory) جهت مشاهده لیست کامل گروه‌ها، شناسه‌های GID و کاربران عضو به همراه مدال حذف ایمن کاربر با امکان پاکسازی پوشه خانگی (-r).'
+    ],
+    changes_en: [
+      'Implemented a comprehensive Linux user and group management suite within the "Users & Active Sessions" tab with live SSH execution against remote target servers.',
+      'Added a dedicated Create User modal supporting username validation, password provisioning, account comment/full name, automated home directory creation (-m), login shell selection, and instant group/sudo privilege assignment.',
+      'Implemented in-place user password rotation via PAM/chpasswd without plaintext terminal echoing or persistence, adhering to zero-leak credential standards.',
+      'Added one-click user account locking (usermod -L) and unlocking with root protection and live status badges across the user directory table.',
+      'Delivered a specialized group assignment modal (usermod -G) dynamically populated with real system groups from /etc/group, highlighting administrative roles (sudo, wheel, docker) and supporting on-the-fly group creation.',
+      'Added a Groups Directory sub-view displaying all system groups, GIDs, and user memberships, along with a safe user deletion modal featuring optional home directory purging (-r).'
+    ],
+  },
   {
     version: '1.115.0',
     releaseDate: '2026-09-22',

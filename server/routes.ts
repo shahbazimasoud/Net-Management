@@ -108,6 +108,15 @@ import {
   updateLinuxNtpSSH,
   updateLinuxTimeSSH,
 } from './linuxSysConfig';
+import {
+  fetchLinuxUsersAndGroupsSSH,
+  createLinuxUserSSH,
+  updateLinuxUserPasswordSSH,
+  toggleLinuxUserLockSSH,
+  updateLinuxUserGroupsSSH,
+  createLinuxGroupSSH,
+  deleteLinuxUserSSH,
+} from './linuxUserManager';
 
 export const apiRouter = Router();
 
@@ -1357,7 +1366,7 @@ const handleLinuxServerUsers = async (req: Request, res: Response) => {
       });
     }
 
-    const data = await fetchLinuxUsersAndSessionsSSH(server, ephemeralPassword);
+    const data = await fetchLinuxUsersAndGroupsSSH(server, ephemeralPassword);
     return res.json({
       success: true,
       ...data,
@@ -1373,6 +1382,398 @@ const handleLinuxServerUsers = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/users', handleLinuxServerUsers);
 apiRouter.post('/remote-servers/:id/users', handleLinuxServerUsers);
+
+// POST /api/remote-servers/:id/users/create - Create user account
+apiRouter.post('/api/remote-servers/:id/users/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, password, comment, homeDir, shell, groups, createHome, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createLinuxUserSSH(
+      server,
+      { username, password, comment, homeDir, shell, groups, createHome },
+      ephemeralPassword
+    );
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Create Linux User (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Created user ${username} with shell ${shell || '/bin/bash'}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxCreateUser API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create user',
+    });
+  }
+});
+apiRouter.post('/remote-servers/:id/users/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, password, comment, homeDir, shell, groups, createHome, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createLinuxUserSSH(
+      server,
+      { username, password, comment, homeDir, shell, groups, createHome },
+      ephemeralPassword
+    );
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Create Linux User (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Created user ${username} with shell ${shell || '/bin/bash'}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxCreateUser API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create user',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/users/password - Update user password
+apiRouter.post('/api/remote-servers/:id/users/password', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, password, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await updateLinuxUserPasswordSSH(server, username, password, ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Update Password (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Updated password for user ${username}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxPasswd API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update user password',
+    });
+  }
+});
+apiRouter.post('/remote-servers/:id/users/password', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, password, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await updateLinuxUserPasswordSSH(server, username, password, ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Update Password (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Updated password for user ${username}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxPasswd API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update user password',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/users/toggle-lock - Lock or unlock user account
+apiRouter.post('/api/remote-servers/:id/users/toggle-lock', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, lock, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await toggleLinuxUserLockSSH(server, username, Boolean(lock), ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: lock ? `Lock User (${username})` : `Unlock User (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `${lock ? 'Locked' : 'Unlocked'} account ${username}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLockUser API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update user lock status',
+    });
+  }
+});
+apiRouter.post('/remote-servers/:id/users/toggle-lock', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, lock, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await toggleLinuxUserLockSSH(server, username, Boolean(lock), ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: lock ? `Lock User (${username})` : `Unlock User (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `${lock ? 'Locked' : 'Unlocked'} account ${username}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLockUser API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update user lock status',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/users/groups - Update user groups
+apiRouter.post('/api/remote-servers/:id/users/groups', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, groups, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await updateLinuxUserGroupsSSH(server, username, groups || [], ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Update Groups (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Updated groups for user ${username}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxUserGroups API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update user groups',
+    });
+  }
+});
+apiRouter.post('/remote-servers/:id/users/groups', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, groups, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await updateLinuxUserGroupsSSH(server, username, groups || [], ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Update Groups (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Updated groups for user ${username}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxUserGroups API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update user groups',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/groups/create - Create new group
+apiRouter.post('/api/remote-servers/:id/groups/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createLinuxGroupSSH(server, name, ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Create Group (${name})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Created new Linux group ${name}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxCreateGroup API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create group',
+    });
+  }
+});
+apiRouter.post('/remote-servers/:id/groups/create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createLinuxGroupSSH(server, name, ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Create Group (${name})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Created new Linux group ${name}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxCreateGroup API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create group',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/users/delete - Delete user account
+apiRouter.post('/api/remote-servers/:id/users/delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, removeHome, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deleteLinuxUserSSH(server, username, Boolean(removeHome), ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Delete User (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Deleted user ${username} (remove home: ${Boolean(removeHome)})`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxDeleteUser API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete user',
+    });
+  }
+});
+apiRouter.post('/remote-servers/:id/users/delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, removeHome, ephemeralPassword } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deleteLinuxUserSSH(server, username, Boolean(removeHome), ephemeralPassword);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Delete User (${username})`,
+      category: 'security',
+      target: `${server.name || server.ip}`,
+      status: 'success',
+      details: `Deleted user ${username} (remove home: ${Boolean(removeHome)})`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxDeleteUser API Error]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete user',
+    });
+  }
+});
 
 // POST /api/remote-servers/:id/send-message - Send message to logged-in user or broadcast
 apiRouter.post('/remote-servers/:id/send-message', async (req: Request, res: Response) => {
