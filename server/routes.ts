@@ -95,6 +95,8 @@ import {
   updateLinuxHostnameSSH,
   fetchLinuxHostsFileSSH,
   updateLinuxHostsFileSSH,
+  fetchLinuxTcpWrappersSSH,
+  updateLinuxTcpWrappersSSH,
   fetchLinuxDnsConfigSSH,
   updateLinuxDnsConfigSSH,
   fetchLinuxFail2banSSH,
@@ -1801,7 +1803,15 @@ apiRouter.all('/remote-servers/:id/hosts', async (req: Request, res: Response) =
     const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
     if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
 
-    if (req.method === 'POST' && (req.body?.entries || req.body?.action)) {
+    const hasHostPayload =
+      req.method === 'POST' &&
+      (req.body?.entries !== undefined ||
+        req.body?.action !== undefined ||
+        req.body?.rawContent !== undefined ||
+        req.body?.deleteIp !== undefined ||
+        req.body?.entry !== undefined);
+
+    if (hasHostPayload) {
       const result = await updateLinuxHostsFileSSH(server, req.body, ephemeralPassword);
       await addAuditLog({
         userName: 'Administrator',
@@ -1820,6 +1830,37 @@ apiRouter.all('/remote-servers/:id/hosts', async (req: Request, res: Response) =
   } catch (err: any) {
     console.error(`[LinuxHosts API Error for ${req.params.id}]:`, err?.message || err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to process /etc/hosts' });
+  }
+});
+
+// 3.1 TCP Wrappers (/etc/hosts.allow and /etc/hosts.deny)
+apiRouter.all('/remote-servers/:id/tcp-wrappers', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = req.body?.password || (req.query?.password as string);
+    const { server, error, status, requires_password } = await getValidatedServer(id, ephemeralPassword);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const hasAction = req.method === 'POST' && (req.body?.action || req.body?.target);
+    if (hasAction) {
+      const result = await updateLinuxTcpWrappersSSH(server, req.body, ephemeralPassword);
+      await addAuditLog({
+        userName: 'Administrator',
+        action: `Update TCP Wrappers (/etc/hosts.${req.body.target || 'allow'})`,
+        category: 'security',
+        target: `${server.name || server.ip}`,
+        status: result.success ? 'success' : 'error',
+        details: result.message,
+        ipAddress: getClientIp(req),
+      }).catch(() => {});
+      return res.json(result);
+    }
+
+    const data = await fetchLinuxTcpWrappersSSH(server, ephemeralPassword);
+    return res.json({ success: true, ...data });
+  } catch (err: any) {
+    console.error(`[LinuxTcpWrappers API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to process TCP Wrappers' });
   }
 });
 

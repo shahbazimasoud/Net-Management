@@ -28,6 +28,8 @@ import {
   LinuxHostnameInfo,
   LinuxSshConfig,
   LinuxTimeInfo,
+  LinuxTcpWrapperRule,
+  LinuxTcpWrappersData,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1677,13 +1679,66 @@ export async function fetchLinuxHostsFile(
 
 export async function updateLinuxHostsFile(
   serverId: string,
-  entries: any,
+  payload: any,
   ephemeralPassword?: string
-): Promise<{ success: boolean; message?: string; error?: string }> {
+): Promise<{ success: boolean; message?: string; error?: string; entries?: LinuxHostEntry[]; rawContent?: string }> {
+  const body =
+    typeof payload === 'object' && payload !== null
+      ? { ...payload, password: ephemeralPassword }
+      : { entries: payload, password: ephemeralPassword };
+
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/hosts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entries, password: ephemeralPassword }),
+    body: JSON.stringify(body),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function fetchLinuxTcpWrappers(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  allowRules?: LinuxTcpWrapperRule[];
+  denyRules?: LinuxTcpWrapperRule[];
+  rawAllow?: string;
+  rawDeny?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/tcp-wrappers`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...(ephemeralPassword ? { method: 'POST', body: JSON.stringify({ password: ephemeralPassword }) } : {}),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function updateLinuxTcpWrappers(
+  serverId: string,
+  payload: {
+    target: 'allow' | 'deny';
+    action: 'add' | 'edit' | 'delete' | 'save-raw';
+    rule?: Partial<LinuxTcpWrapperRule>;
+    ruleId?: string;
+    oldRuleId?: string;
+    ruleIndex?: number;
+    rawContent?: string;
+    raw?: string;
+  },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+  allowRules?: LinuxTcpWrapperRule[];
+  denyRules?: LinuxTcpWrapperRule[];
+  rawAllow?: string;
+  rawDeny?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/tcp-wrappers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
   });
   return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
 }

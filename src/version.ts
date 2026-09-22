@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.114.2';
+export const APP_VERSION = '1.115.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.115.0',
+    releaseDate: '2026-09-22',
+    type: 'minor',
+    title: 'پشتیبانی کامل از امنیت TCP Wrappers در لینوکس (/etc/hosts.allow و /etc/hosts.deny) و ارتقای مدیریت جامع فایل /etc/hosts',
+    title_en: 'Full Linux TCP Wrappers Security (/etc/hosts.allow & /etc/hosts.deny) and Comprehensive /etc/hosts Management Suite',
+    changes: [
+      'پیاده‌سازی کامل مدیریت لایه امنیتی TCP Wrappers در تب تنظیمات سرور لینوکس شامل تفکیک زبانه اختصاصی برای فایل‌های /etc/hosts.allow و /etc/hosts.deny.',
+      'افزودن امکان مشاهده جدولی و ویرایشگر فایل خام (Raw Editor) برای هر دو فایل hosts.allow و hosts.deny با قابلیت ثبت، ویرایش، حذف قوانین و پشتیبان‌گیری خودکار قبل از بازنویسی.',
+      'تجهیز قوانین TCP Wrappers به تنظیم دیمون‌ها (sshd, vsftpd, ALL)، الگوهای کلاینت (IP، رنج ساب‌نت، نام‌ها)، گزینه‌ها (: ALLOW / : DENY) و فیلد توضیحات.',
+      'ارتقای مدیریت جدول نگاشت /etc/hosts با پشتیبانی از ویرایش درجا، حذف رکوردها، ویرایشگر مستقیم فایل خام و نگهداری خودکار نسخه‌های پشتیبان.',
+      'افزودن راهنماهای سه‌گانه FieldInfoTooltip و بنرهای آموزشی اولویت ارزیابی قوانین TCP Wrappers در سرورهای لینوکسی.'
+    ],
+    changes_en: [
+      'Implemented a complete Linux TCP Wrappers security management suite within the Linux SysConfig tab, introducing dedicated tabs for /etc/hosts.allow and /etc/hosts.deny.',
+      'Added both structured tabular view and raw file editor modes for hosts.allow and hosts.deny with full support for adding, editing, deleting rules, and creating automatic backups before writing.',
+      'Equipped TCP Wrappers rules with daemon selection (sshd, vsftpd, ALL), client patterns (IPs, CIDR subnets, hostnames), action options (: ALLOW / : DENY), and descriptive comment fields.',
+      'Enhanced /etc/hosts static lookup management with in-place entry editing, deletion, direct raw file editing, and automated backup handling.',
+      'Integrated boundary-safe 3-part FieldInfoTooltips and contextual guidance explaining TCP Wrappers evaluation priority hierarchy on Linux systems.'
+    ],
+  },
   {
     version: '1.114.2',
     releaseDate: '2026-09-22',

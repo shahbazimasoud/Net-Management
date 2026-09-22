@@ -1,4 +1,4 @@
-import { RemoteServer, LinuxSshConfig, LinuxHostnameInfo, LinuxHostEntry, LinuxDnsConfig, LinuxFail2banStatus, LinuxFail2banJailInfo, LinuxTimeInfo } from '../src/types';
+import { RemoteServer, LinuxSshConfig, LinuxHostnameInfo, LinuxHostEntry, LinuxTcpWrapperRule, LinuxTcpWrappersData, LinuxDnsConfig, LinuxFail2banStatus, LinuxFail2banJailInfo, LinuxTimeInfo } from '../src/types';
 import { runAdaptiveSshCommand } from './linuxServerMonitor';
 import { updateRemoteServer } from './db';
 
@@ -451,7 +451,7 @@ cat /etc/hosts 2>/dev/null || true
     const rawLine = lines[i].trim();
     if (!rawLine || rawLine.startsWith('#')) continue;
 
-    // Line format: IP host1 host2 # comment
+    // Line format: IP host1 host2 ... # comment
     const [beforeComment, ...commentParts] = rawLine.split('#');
     const comment = commentParts.join('#').trim();
     const parts = beforeComment.trim().split(/\s+/);
@@ -472,67 +472,368 @@ cat /etc/hosts 2>/dev/null || true
 }
 
 /**
- * Updates or adds host entry in /etc/hosts
+ * Updates, edits, adds, or deletes host entries in /etc/hosts, or replaces with rawContent
  */
 export async function updateLinuxHostsFileSSH(
   server: RemoteServer,
   payload: any,
   ephemeralPassword?: string
-): Promise<{ success: boolean; message: string }> {
-  const action = payload.action || 'replace';
-  const entry = payload.entry;
+): Promise<{ success: boolean; message: string; entries?: LinuxHostEntry[]; rawContent?: string }> {
+  // Support payload wrapping (e.g. { entries: { action: ... } } or direct payload)
+  const actualPayload = payload?.entries && typeof payload.entries === 'object' && !Array.isArray(payload.entries)
+    ? payload.entries
+    : payload;
 
-  if (action === 'add' && entry) {
-    const ip = (entry.ip || '').trim();
-    const hostnames = Array.isArray(entry.hostnames)
-      ? entry.hostnames.join(' ')
-      : (entry.hostname || '').trim();
-    const comment = (entry.comment || '').trim();
-    const oldIp = entry.oldIp;
+  const action = actualPayload?.action || (actualPayload?.rawContent !== undefined ? 'save-raw' : 'replace');
+  const entry = actualPayload?.entry;
+  const targetIp = (actualPayload?.deleteIp || actualPayload?.ip || '').trim();
 
-    if (!ip || !hostnames) {
-      throw new Error('Valid IP address and at least one hostname are required.');
+  // 1. Direct rawContent write
+  if (action === 'save-raw' || (action === 'replace' && typeof actualPayload?.rawContent === 'string')) {
+    const rawContent = actualPayload.rawContent;
+    if (typeof rawContent !== 'string') {
+      throw new Error('rawContent must be provided as a string.');
     }
-
-    const newLine = `${ip}\t${hostnames}${comment ? ` # ${comment}` : ''}`;
-
+    const b64 = Buffer.from(rawContent, 'utf-8').toString('base64');
     const script = `export LC_ALL=C
 sudo cp /etc/hosts /etc/hosts.bak.$(date +%s) 2>/dev/null || true
-
-# If updating existing IP
-if [ -n "${oldIp || ''}" ]; then
-  sudo sed -i "/^[ \t]*${oldIp}[ \t]/d" /etc/hosts
-fi
-
-# Remove duplicate if exists and append
-sudo sed -i "/^[ \t]*${ip}[ \t]/d" /etc/hosts
-echo "${newLine}" | sudo tee -a /etc/hosts >/dev/null
-echo "HOSTS_UPDATE_SUCCESS"
+echo "${b64}" | base64 -d | sudo tee /etc/hosts >/dev/null
+echo "HOSTS_WRITE_SUCCESS"
 `;
-
-    const output = await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    const fresh = await fetchLinuxHostsFileSSH(server, ephemeralPassword);
     return {
       success: true,
-      message: `Entry for ${ip} saved to /etc/hosts successfully.`,
+      message: '/etc/hosts file updated successfully.',
+      entries: fresh.entries,
+      rawContent: fresh.rawContent,
     };
   }
 
-  if (action === 'delete' && payload.ip) {
-    const targetIp = payload.ip.trim();
+  // 2. Add or Edit entry
+  if (action === 'add' || action === 'edit') {
+    if (!entry) throw new Error('Host entry data is required.');
+    const ip = (entry.ip || '').trim();
+    const hostnames = Array.isArray(entry.hostnames)
+      ? entry.hostnames.filter(Boolean)
+      : (entry.hostname || '').trim().split(/[\s,]+/).filter(Boolean);
+    const comment = (entry.comment || '').trim();
+    const oldIp = (entry.oldIp || actualPayload.oldIp || '').trim();
+
+    if (!ip || hostnames.length === 0) {
+      throw new Error('Valid IP address and at least one hostname are required.');
+    }
+
+    // Read current rawContent
+    const current = await fetchLinuxHostsFileSSH(server, ephemeralPassword);
+    const currentLines = current.rawContent.split('\n');
+    const newEntryLine = `${ip}\t${hostnames.join(' ')}${comment ? ` # ${comment}` : ''}`;
+
+    let lineReplaced = false;
+    const updatedLines: string[] = [];
+
+    for (const line of currentLines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        updatedLines.push(line);
+        continue;
+      }
+      const parts = trimmed.split(/\s+/);
+      const lineIp = parts[0];
+
+      // If this line matched oldIp or target ip
+      if ((oldIp && lineIp === oldIp) || lineIp === ip) {
+        if (!lineReplaced) {
+          updatedLines.push(newEntryLine);
+          lineReplaced = true;
+        }
+        // else skip duplicate
+      } else {
+        updatedLines.push(line);
+      }
+    }
+
+    if (!lineReplaced) {
+      // Append if not existed
+      updatedLines.push(newEntryLine);
+    }
+
+    const finalRaw = updatedLines.join('\n');
+    const b64 = Buffer.from(finalRaw, 'utf-8').toString('base64');
     const script = `export LC_ALL=C
 sudo cp /etc/hosts /etc/hosts.bak.$(date +%s) 2>/dev/null || true
-sudo sed -i "/^[ \t]*${targetIp}[ \t]/d" /etc/hosts
-echo "HOSTS_DELETE_SUCCESS"
+echo "${b64}" | base64 -d | sudo tee /etc/hosts >/dev/null
+echo "HOSTS_WRITE_SUCCESS"
 `;
-    await runAdaptiveSshCommand(server, script, ephemeralPassword, 8000);
+    await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    const fresh = await fetchLinuxHostsFileSSH(server, ephemeralPassword);
     return {
       success: true,
-      message: `Removed entry for ${targetIp} from /etc/hosts.`,
+      message: `Entry for ${ip} saved to /etc/hosts.`,
+      entries: fresh.entries,
+      rawContent: fresh.rawContent,
+    };
+  }
+
+  // 3. Delete entry
+  if (action === 'delete') {
+    if (!targetIp) throw new Error('Target IP to delete is required.');
+    const current = await fetchLinuxHostsFileSSH(server, ephemeralPassword);
+    const currentLines = current.rawContent.split('\n');
+
+    const updatedLines = currentLines.filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return true;
+      const parts = trimmed.split(/\s+/);
+      return parts[0] !== targetIp;
+    });
+
+    const finalRaw = updatedLines.join('\n');
+    const b64 = Buffer.from(finalRaw, 'utf-8').toString('base64');
+    const script = `export LC_ALL=C
+sudo cp /etc/hosts /etc/hosts.bak.$(date +%s) 2>/dev/null || true
+echo "${b64}" | base64 -d | sudo tee /etc/hosts >/dev/null
+echo "HOSTS_DELETE_SUCCESS"
+`;
+    await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    const fresh = await fetchLinuxHostsFileSSH(server, ephemeralPassword);
+    return {
+      success: true,
+      message: `Removed ${targetIp} from /etc/hosts.`,
+      entries: fresh.entries,
+      rawContent: fresh.rawContent,
     };
   }
 
   throw new Error('Unsupported hosts file action.');
 }
+
+/**
+ * =========================================================================
+ * TCP WRAPPERS SECURITY (/ETC/HOSTS.ALLOW & /ETC/HOSTS.DENY)
+ * =========================================================================
+ */
+
+function parseTcpWrapperRules(raw: string, prefix: string): LinuxTcpWrapperRule[] {
+  const lines = raw.split('\n');
+  const rules: LinuxTcpWrapperRule[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i].trim();
+    if (!rawLine || rawLine.startsWith('#')) continue;
+
+    // Line format: daemon_list : client_list [: option ...] [# comment]
+    const [beforeComment, ...commentParts] = rawLine.split('#');
+    const comment = commentParts.join('#').trim();
+    const parts = beforeComment.split(':').map((s) => s.trim());
+
+    if (parts.length >= 2) {
+      const daemon = parts[0];
+      const clientsStr = parts[1];
+      const clients = clientsStr.split(/[\s,]+/).map((c) => c.trim()).filter(Boolean);
+      const options = parts.slice(2).join(' : ').trim();
+
+      rules.push({
+        id: `${prefix}-${i}`,
+        daemon,
+        clients,
+        options: options || undefined,
+        comment: comment || undefined,
+        raw: rawLine,
+        lineIndex: i,
+      });
+    }
+  }
+
+  return rules;
+}
+
+export async function fetchLinuxTcpWrappersSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<LinuxTcpWrappersData> {
+  const script = `export LC_ALL=C
+echo "===HOSTS_ALLOW==="
+cat /etc/hosts.allow 2>/dev/null || true
+echo "===HOSTS_DENY==="
+cat /etc/hosts.deny 2>/dev/null || true
+`;
+
+  const output = await runAdaptiveSshCommand(server, script, ephemeralPassword, 8000);
+  const rawAllow = output.split('===HOSTS_ALLOW===')[1]?.split('===HOSTS_DENY===')[0] || '';
+  const rawDeny = output.split('===HOSTS_DENY===')[1] || '';
+
+  const allowRules = parseTcpWrapperRules(rawAllow, 'allow');
+  const denyRules = parseTcpWrapperRules(rawDeny, 'deny');
+
+  return {
+    allowRules,
+    denyRules,
+    rawAllow,
+    rawDeny,
+  };
+}
+
+export async function updateLinuxTcpWrappersSSH(
+  server: RemoteServer,
+  payload: any,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  allowRules?: LinuxTcpWrapperRule[];
+  denyRules?: LinuxTcpWrapperRule[];
+  rawAllow?: string;
+  rawDeny?: string;
+}> {
+  const target = payload.target === 'deny' ? 'deny' : 'allow';
+  const filePath = target === 'deny' ? '/etc/hosts.deny' : '/etc/hosts.allow';
+  const action = payload.action || 'save-raw';
+
+  // 1. Raw file content save
+  if (action === 'save-raw' && typeof payload.rawContent === 'string') {
+    const b64 = Buffer.from(payload.rawContent, 'utf-8').toString('base64');
+    const script = `export LC_ALL=C
+sudo cp ${filePath} ${filePath}.bak.$(date +%s) 2>/dev/null || true
+echo "${b64}" | base64 -d | sudo tee ${filePath} >/dev/null
+echo "TCP_WRAPPERS_WRITE_SUCCESS"
+`;
+    await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    const fresh = await fetchLinuxTcpWrappersSSH(server, ephemeralPassword);
+    return {
+      success: true,
+      message: `${filePath} updated successfully.`,
+      ...fresh,
+    };
+  }
+
+  // 2. Add or Edit rule
+  if (action === 'add' || action === 'edit') {
+    const rule = payload.rule;
+    if (!rule || !rule.daemon || !rule.clients || rule.clients.length === 0) {
+      throw new Error('Daemon service and at least one client/IP are required.');
+    }
+
+    const daemon = rule.daemon.trim();
+    const clients = Array.isArray(rule.clients)
+      ? rule.clients.join(', ')
+      : String(rule.clients).trim();
+    const options = (rule.options || '').trim();
+    const comment = (rule.comment || '').trim();
+
+    let ruleLine = `${daemon} : ${clients}`;
+    if (options) {
+      ruleLine += ` : ${options}`;
+    }
+    if (comment) {
+      ruleLine += ` # ${comment}`;
+    }
+
+    const current = await fetchLinuxTcpWrappersSSH(server, ephemeralPassword);
+    const rawTarget = target === 'deny' ? current.rawDeny : current.rawAllow;
+    const lines = rawTarget.split('\n');
+
+    let replaced = false;
+    const updatedLines: string[] = [];
+
+    // If edit and ruleIndex is provided
+    if (action === 'edit' && typeof payload.ruleIndex === 'number' && payload.ruleIndex >= 0) {
+      for (let i = 0; i < lines.length; i++) {
+        if (i === payload.ruleIndex) {
+          updatedLines.push(ruleLine);
+          replaced = true;
+        } else {
+          updatedLines.push(lines[i]);
+        }
+      }
+    } else if (action === 'edit' && payload.oldRuleId) {
+      const targetRule = (target === 'deny' ? current.denyRules : current.allowRules).find(
+        (r) => r.id === payload.oldRuleId
+      );
+      const targetIndex = targetRule?.lineIndex;
+      if (typeof targetIndex === 'number') {
+        for (let i = 0; i < lines.length; i++) {
+          if (i === targetIndex) {
+            updatedLines.push(ruleLine);
+            replaced = true;
+          } else {
+            updatedLines.push(lines[i]);
+          }
+        }
+      }
+    }
+
+    if (!replaced) {
+      // Append new rule
+      updatedLines.push(...lines);
+      // Ensure newline before appending if needed
+      if (updatedLines.length > 0 && updatedLines[updatedLines.length - 1].trim() !== '') {
+        updatedLines.push('');
+      }
+      updatedLines.push(ruleLine);
+    }
+
+    const finalRaw = updatedLines.join('\n');
+    const b64 = Buffer.from(finalRaw, 'utf-8').toString('base64');
+    const script = `export LC_ALL=C
+sudo cp ${filePath} ${filePath}.bak.$(date +%s) 2>/dev/null || true
+echo "${b64}" | base64 -d | sudo tee ${filePath} >/dev/null
+echo "TCP_WRAPPERS_WRITE_SUCCESS"
+`;
+    await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    const fresh = await fetchLinuxTcpWrappersSSH(server, ephemeralPassword);
+    return {
+      success: true,
+      message: `Rule saved to ${filePath}.`,
+      ...fresh,
+    };
+  }
+
+  // 3. Delete rule
+  if (action === 'delete') {
+    const current = await fetchLinuxTcpWrappersSSH(server, ephemeralPassword);
+    const rawTarget = target === 'deny' ? current.rawDeny : current.rawAllow;
+    const lines = rawTarget.split('\n');
+
+    let deleteIndex = typeof payload.ruleIndex === 'number' ? payload.ruleIndex : -1;
+    if (deleteIndex < 0 && payload.ruleId) {
+      const targetRule = (target === 'deny' ? current.denyRules : current.allowRules).find(
+        (r) => r.id === payload.ruleId
+      );
+      if (typeof targetRule?.lineIndex === 'number') {
+        deleteIndex = targetRule.lineIndex;
+      }
+    }
+
+    if (deleteIndex < 0 && payload.raw) {
+      deleteIndex = lines.findIndex((l) => l.trim() === payload.raw.trim());
+    }
+
+    if (deleteIndex >= 0) {
+      lines.splice(deleteIndex, 1);
+    } else {
+      throw new Error('Target rule to delete was not found.');
+    }
+
+    const finalRaw = lines.join('\n');
+    const b64 = Buffer.from(finalRaw, 'utf-8').toString('base64');
+    const script = `export LC_ALL=C
+sudo cp ${filePath} ${filePath}.bak.$(date +%s) 2>/dev/null || true
+echo "${b64}" | base64 -d | sudo tee ${filePath} >/dev/null
+echo "TCP_WRAPPERS_DELETE_SUCCESS"
+`;
+    await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
+    const fresh = await fetchLinuxTcpWrappersSSH(server, ephemeralPassword);
+    return {
+      success: true,
+      message: `Rule deleted from ${filePath}.`,
+      ...fresh,
+    };
+  }
+
+  throw new Error('Unsupported TCP Wrappers action.');
+}
+
 
 /**
  * =========================================================================

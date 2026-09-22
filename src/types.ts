@@ -1612,5 +1612,22 @@ export interface LinuxTimeInfo {
   rtcTime?: string;
 }
 
+export interface LinuxTcpWrapperRule {
+  id: string;
+  daemon: string;
+  clients: string[];
+  options?: string;
+  comment?: string;
+  raw?: string;
+  lineIndex?: number;
+}
+
+export interface LinuxTcpWrappersData {
+  allowRules: LinuxTcpWrapperRule[];
+  denyRules: LinuxTcpWrapperRule[];
+  rawAllow: string;
+  rawDeny: string;
+}
+
 
 
