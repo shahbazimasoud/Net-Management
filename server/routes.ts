@@ -84,6 +84,9 @@ import {
   configureLinuxPersistentProxySSH,
   testLinuxProxySSH,
   changeLinuxSshPortSSH,
+  fetchLinuxBlockDevicesSSH,
+  executeLinuxMountFilesystem,
+  executeLinuxUnmountFilesystem,
 } from './linuxServerMonitor';
 
 export const apiRouter = Router();
@@ -1565,6 +1568,125 @@ apiRouter.post('/remote-servers/:id/ssh-port', async (req: Request, res: Respons
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to change SSH port',
+    });
+  }
+});
+
+// GET & POST /api/remote-servers/:id/block-devices - Fetch block devices and unmounted disks
+const handleLinuxBlockDevices = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'Block device inspection is designed for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const devices = await fetchLinuxBlockDevicesSSH(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      devices,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxBlockDevices API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch block devices from remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/block-devices', handleLinuxBlockDevices);
+apiRouter.post('/remote-servers/:id/block-devices', handleLinuxBlockDevices);
+
+// POST /api/remote-servers/:id/mount-action - Mount partition or disk to target directory
+apiRouter.post('/remote-servers/:id/mount-action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { device, mountPoint, fsType, options, persistInFstab, createDirectory, password } = req.body;
+
+    if (!device || !mountPoint) {
+      return res.status(400).json({ success: false, error: 'device and mountPoint are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await executeLinuxMountFilesystem(
+      server,
+      { device, mountPoint, fsType, options, persistInFstab: !!persistInFstab, createDirectory: !!createDirectory },
+      password
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Mount Filesystem (${device} -> ${mountPoint})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (${mountPoint})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxMountAction API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to mount remote filesystem',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/unmount-action - Unmount a mounted filesystem
+apiRouter.post('/remote-servers/:id/unmount-action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { mountPoint, force, password } = req.body;
+
+    if (!mountPoint) {
+      return res.status(400).json({ success: false, error: 'mountPoint is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await executeLinuxUnmountFilesystem(server, mountPoint, !!force, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Unmount Filesystem (${mountPoint})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (${mountPoint})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxUnmountAction API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to unmount remote filesystem',
     });
   }
 });

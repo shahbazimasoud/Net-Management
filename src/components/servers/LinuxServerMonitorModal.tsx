@@ -38,6 +38,8 @@ import {
   Globe,
   Edit3,
   Settings,
+  Plus,
+  FolderMinus,
 } from 'lucide-react';
 import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService, LinuxNetworkInterfaceDetail, LinuxSystemDetailedInfo } from '../../types';
 import {
@@ -46,12 +48,14 @@ import {
   controlLinuxServerService,
   controlLinuxServerProcess,
   fetchLinuxServerSysConfig,
+  unmountLinuxFilesystem,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ProcessActionModals } from './ProcessActionModals';
 import { LinuxUsersTab } from './LinuxUsersTab';
 import { LinuxSysConfigTab } from './LinuxSysConfigTab';
 import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
+import { LinuxMountModal } from './LinuxMountModal';
 
 export interface LinuxServerMonitorModalProps {
   isOpen: boolean;
@@ -129,6 +133,10 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   }>({ isOpen: false, process: null, niceValue: 0, loading: false });
 
   const [processActionLoading, setProcessActionLoading] = useState(false);
+
+  // Storage & Mount State
+  const [showMountModal, setShowMountModal] = useState(false);
+  const [unmountingMount, setUnmountingMount] = useState<string | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -285,6 +293,51 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
         delete next[serviceName];
         return next;
       });
+      setTimeout(() => setActionFeedback(null), 5000);
+    }
+  };
+
+  // Handle unmounting a filesystem
+  const handleUnmount = async (mountPath: string) => {
+    if (!server) return;
+    if (['/', '/boot', '/proc', '/sys', '/dev', '/run', '/etc', '/var', '/usr'].includes(mountPath)) {
+      setActionFeedback({
+        message: isEn
+          ? `Protected system path "${mountPath}" cannot be unmounted`
+          : `مسیر محافظت‌شده سیستم "${mountPath}" قابل آن‌مانت نیست`,
+        type: 'error',
+      });
+      return;
+    }
+    const confirmed = window.confirm(
+      isEn
+        ? `Are you sure you want to unmount "${mountPath}"?`
+        : `آیا از آن‌مانت کردن مسیر "${mountPath}" اطمینان دارید؟`
+    );
+    if (!confirmed) return;
+
+    setUnmountingMount(mountPath);
+    try {
+      const res = await unmountLinuxFilesystem(server.id, mountPath, false, ephemeralPassword);
+      if (res.success) {
+        setActionFeedback({
+          message: res.message || (isEn ? `Successfully unmounted ${mountPath}` : `مسیر ${mountPath} با موفقیت آن‌مانت شد`),
+          type: 'success',
+        });
+        fetchMetrics();
+      } else {
+        setActionFeedback({
+          message: res.message || res.error || (isEn ? `Failed to unmount ${mountPath}` : `خطا در آن‌مانت ${mountPath}`),
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        message: err?.message || (isEn ? 'Failed to unmount filesystem' : 'خطا در ارتباط جهت آن‌مانت'),
+        type: 'error',
+      });
+    } finally {
+      setUnmountingMount(null);
       setTimeout(() => setActionFeedback(null), 5000);
     }
   };
@@ -1555,7 +1608,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               {/* TAB 2: STORAGE & DISKS */}
               {activeTab === 'disks' && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <h3 className="text-sm font-bold">{isEn ? 'Mounted Filesystems' : 'فایل‌سیستم‌های مانت‌شده'}</h3>
                       <p className="text-xs text-slate-400 mt-0.5">
@@ -1564,63 +1617,98 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                           : 'ظرفیت زنده پارتیشن‌ها، فضای آزاد و مسیرهای مانت از دستور df.'}
                       </p>
                     </div>
-                    <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-                      {metrics.disks.length} {isEn ? 'Partitions' : 'پارتیشن'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowMountModal(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition-colors shadow-sm cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Mount Filesystem' : 'مانت فایل‌سیستم'}</span>
+                      </button>
+                      <span className="text-xs font-mono px-2.5 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                        {metrics.disks.length} {isEn ? 'Partitions' : 'پارتیشن'}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {metrics.disks.map((d) => (
-                      <div
-                        key={d.mount}
-                        className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
-                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                        }`}
-                      >
-                        <div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-cyan-400 font-mono truncate max-w-[180px]">
-                              {d.mount}
+                    {metrics.disks.map((d) => {
+                      const isSystemProtected = ['/', '/boot', '/proc', '/sys', '/dev', '/run', '/etc', '/var', '/usr'].includes(d.mount);
+                      return (
+                        <div
+                          key={d.mount}
+                          className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
+                            isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-cyan-400 font-mono truncate max-w-[180px]">
+                                {d.mount}
+                              </span>
+                              <span
+                                className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
+                                  d.usagePercent > 90
+                                    ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                    : d.usagePercent > 75
+                                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                    : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                }`}
+                              >
+                                {d.usagePercent}%
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono truncate block mt-0.5">
+                              Device: {d.filesystem}
                             </span>
-                            <span
-                              className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
-                                d.usagePercent > 90
-                                  ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                                  : d.usagePercent > 75
-                                  ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                                  : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                              }`}
-                            >
-                              {d.usagePercent}%
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-slate-400 font-mono truncate block mt-0.5">
-                            Device: {d.filesystem}
-                          </span>
-                        </div>
-
-                        <div>
-                          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
-                            <div
-                              className={`h-full transition-all duration-300 ${
-                                d.usagePercent > 90
-                                  ? 'bg-rose-500'
-                                  : d.usagePercent > 75
-                                  ? 'bg-amber-400'
-                                  : 'bg-cyan-500'
-                              }`}
-                              style={{ width: `${Math.min(100, d.usagePercent)}%` }}
-                            />
                           </div>
 
-                          <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
-                            <span>Used: {d.usedHuman}</span>
-                            <span>Free: {d.availHuman}</span>
-                            <span>Total: {d.sizeHuman}</span>
+                          <div>
+                            <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
+                              <div
+                                className={`h-full transition-all duration-300 ${
+                                  d.usagePercent > 90
+                                    ? 'bg-rose-500'
+                                    : d.usagePercent > 75
+                                    ? 'bg-amber-400'
+                                    : 'bg-cyan-500'
+                                }`}
+                                style={{ width: `${Math.min(100, d.usagePercent)}%` }}
+                              />
+                            </div>
+
+                            <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
+                              <span>Used: {d.usedHuman}</span>
+                              <span>Free: {d.availHuman}</span>
+                              <span>Total: {d.sizeHuman}</span>
+                            </div>
+
+                            {/* Unmount Action */}
+                            {!isSystemProtected && (
+                              <button
+                                type="button"
+                                onClick={() => handleUnmount(d.mount)}
+                                disabled={unmountingMount === d.mount}
+                                className={`mt-3 w-full py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
+                                  isLightMode
+                                    ? 'border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100'
+                                    : 'border-rose-900/60 text-rose-400 bg-rose-950/20 hover:bg-rose-950/50'
+                                }`}
+                                title={isEn ? `Unmount ${d.mount}` : `آن‌مانت کردن ${d.mount}`}
+                              >
+                                {unmountingMount === d.mount ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <FolderMinus className="w-3.5 h-3.5" />
+                                )}
+                                <span>{isEn ? 'Unmount' : 'آن‌مانت'}</span>
+                              </button>
+                            )}
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2217,38 +2305,53 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                                         <span>{isEn ? 'Restart' : 'ریستارت'}</span>
                                       </button>
 
-                                      {/* Enable / Disable Button */}
-                                      {isEnabled ? (
-                                        <button
-                                          type="button"
-                                          disabled={!!currentAction}
-                                          onClick={() => handleServiceAction(s.name, 'disable')}
-                                          title={isEn ? 'Disable Boot Auto-start' : 'غیرفعال‌سازی در بوت'}
-                                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px]"
-                                        >
-                                          {currentAction === 'disable' ? (
-                                            <RefreshCw className="w-3 h-3 animate-spin" />
-                                          ) : (
-                                            <Ban className="w-3 h-3 text-amber-400" />
-                                          )}
-                                          <span>{isEn ? 'Disable' : 'غیرفعال'}</span>
-                                        </button>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          disabled={!!currentAction}
-                                          onClick={() => handleServiceAction(s.name, 'enable')}
-                                          title={isEn ? 'Enable Boot Auto-start' : 'فعال‌سازی در بوت'}
-                                          className="px-2 py-1 rounded bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition cursor-pointer disabled:opacity-50 flex items-center gap-1 text-[11px]"
-                                        >
-                                          {currentAction === 'enable' ? (
-                                            <RefreshCw className="w-3 h-3 animate-spin" />
-                                          ) : (
-                                            <CheckCircle2 className="w-3 h-3 text-indigo-400" />
-                                          )}
-                                          <span>{isEn ? 'Enable' : 'فعال‌سازی'}</span>
-                                        </button>
-                                      )}
+                                      {/* Enable Button */}
+                                      <button
+                                        type="button"
+                                        disabled={!!currentAction || isEnabled}
+                                        onClick={() => handleServiceAction(s.name, 'enable')}
+                                        title={
+                                          isEnabled
+                                            ? (isEn ? 'Already enabled at boot' : 'در بوت فعال است')
+                                            : (isEn ? 'Enable Boot Auto-start' : 'فعال‌سازی در بوت')
+                                        }
+                                        className={`px-2 py-1 rounded transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] ${
+                                          isEnabled
+                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                            : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30'
+                                        }`}
+                                      >
+                                        {currentAction === 'enable' ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <CheckCircle2 className="w-3 h-3 text-indigo-400" />
+                                        )}
+                                        <span>{isEn ? 'Enable' : 'فعال‌سازی'}</span>
+                                      </button>
+
+                                      {/* Disable Button */}
+                                      <button
+                                        type="button"
+                                        disabled={!!currentAction || (!isEnabled && s.unitFileState === 'disabled')}
+                                        onClick={() => handleServiceAction(s.name, 'disable')}
+                                        title={
+                                          s.unitFileState === 'disabled'
+                                            ? (isEn ? 'Already disabled at boot' : 'در بوت غیرفعال است')
+                                            : (isEn ? 'Disable Boot Auto-start' : 'غیرفعال‌سازی در بوت')
+                                        }
+                                        className={`px-2 py-1 rounded transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 text-[11px] ${
+                                          s.unitFileState === 'disabled'
+                                            ? 'bg-slate-800 text-slate-500 border border-slate-700'
+                                            : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30'
+                                        }`}
+                                      >
+                                        {currentAction === 'disable' ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Ban className="w-3 h-3 text-rose-400" />
+                                        )}
+                                        <span>{isEn ? 'Disable' : 'غیرفعال‌سازی'}</span>
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -2380,6 +2483,21 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
             setSelectedInterfaceForConfig(null);
             fetchMetrics();
             loadSysConfig();
+          }}
+          isLightMode={isLightMode}
+          isEn={isEn}
+        />
+      )}
+      {showMountModal && (
+        <LinuxMountModal
+          isOpen={true}
+          server={server}
+          ephemeralPassword={ephemeralPassword}
+          onClose={() => setShowMountModal(false)}
+          onMinimize={() => setShowMountModal(false)}
+          onSuccess={() => {
+            setShowMountModal(false);
+            fetchMetrics();
           }}
           isLightMode={isLightMode}
           isEn={isEn}

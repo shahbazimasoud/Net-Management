@@ -19,7 +19,9 @@ import {
   LinuxLoggedInUser,
   LinuxNetworkInterfaceDetail,
   LinuxSystemDetailedInfo,
-  LinuxProxyConfig
+  LinuxProxyConfig,
+  LinuxBlockDevice,
+  LinuxMountPayload,
 } from '../types';
 
 const API_BASE = '/api';
@@ -1467,6 +1469,78 @@ export async function changeLinuxServerSshPort(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ newPort, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxBlockDevices(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  devices?: LinuxBlockDevice[];
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/block-devices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function mountLinuxFilesystem(
+  serverId: string,
+  payload: LinuxMountPayload,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/mount-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function unmountLinuxFilesystem(
+  serverId: string,
+  mountPoint: string,
+  force?: boolean,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/unmount-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mountPoint, force, password: ephemeralPassword }),
   });
   const data = await res.json().catch(() => ({
     success: false,

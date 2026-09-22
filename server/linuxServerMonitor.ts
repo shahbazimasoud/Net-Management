@@ -7,6 +7,8 @@ import {
   LinuxNetworkInterfaceDetail,
   LinuxSystemDetailedInfo,
   LinuxProxyConfig,
+  LinuxBlockDevice,
+  LinuxMountPayload,
 } from '../src/types';
 
 export interface LinuxServerDiskMetric {
@@ -380,10 +382,10 @@ export interface LinuxSystemService {
 
 const SERVICES_SHELL_SCRIPT = `export LC_ALL=C
 if command -v systemctl >/dev/null 2>&1; then
-  echo "---UNITS---"
-  systemctl list-units --type=service --all --no-pager --no-legend 2>/dev/null
   echo "---UNIT_FILES---"
   systemctl list-unit-files --type=service --no-pager --no-legend 2>/dev/null
+  echo "---UNITS---"
+  systemctl list-units --type=service --all --no-pager --no-legend 2>/dev/null
 elif command -v service >/dev/null 2>&1; then
   echo "---SERVICE_CMD---"
   service --status-all 2>&1 || true
@@ -404,12 +406,12 @@ export function parseLinuxServices(rawOutput: string): LinuxSystemService[] {
     const line = rawLine.trim();
     if (!line) continue;
 
-    if (line === '---UNITS---') {
-      mode = 'units';
-      continue;
-    }
     if (line === '---UNIT_FILES---') {
       mode = 'unit_files';
+      continue;
+    }
+    if (line === '---UNITS---') {
+      mode = 'units';
       continue;
     }
     if (line === '---SERVICE_CMD---') {
@@ -491,18 +493,22 @@ export function parseLinuxServices(rawOutput: string): LinuxSystemService[] {
     }
   }
 
-  // Also integrate unit files not active right now
+  // Update unitFileState for all existing units, and add any inactive unit files
   for (const [name, state] of unitFilesMap.entries()) {
-    if (!name.endsWith('.service')) continue;
-    const shortName = name.replace(/\.service$/, '');
-    if (!servicesMap.has(shortName)) {
-      servicesMap.set(shortName, {
-        name: shortName,
+    const cleanName = name.replace(/\.service$/, '');
+    const existing = servicesMap.get(cleanName) || servicesMap.get(name);
+    if (existing) {
+      if (!existing.unitFileState || existing.unitFileState === 'static') {
+        existing.unitFileState = state;
+      }
+    } else if (name.endsWith('.service')) {
+      servicesMap.set(cleanName, {
+        name: cleanName,
         loadState: 'loaded',
         activeState: state === 'enabled' ? 'active' : 'inactive',
         subState: state === 'enabled' ? 'running' : 'dead',
         unitFileState: state,
-        description: shortName,
+        description: cleanName,
       });
     }
   }
@@ -1510,6 +1516,262 @@ echo "SSH_PORT_SUCCESS"
     return {
       success: false,
       message: err?.message || `Failed to change SSH port to ${targetPort}`,
+    };
+  }
+}
+
+/**
+ * Fetches real block devices and unmounted partitions from the Linux server
+ */
+export async function fetchLinuxBlockDevicesSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string,
+  timeoutMs: number = 8000
+): Promise<LinuxBlockDevice[]> {
+  const script = `export LC_ALL=C
+if command -v lsblk >/dev/null 2>&1; then
+  lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,LABEL 2>/dev/null || lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,LABEL -r 2>/dev/null
+else
+  cat /proc/partitions 2>/dev/null || true
+fi`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+    const devices: LinuxBlockDevice[] = [];
+
+    // Try parsing JSON first
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('{') && trimmed.includes('"blockdevices"')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const flatten = (items: any[]) => {
+          for (const item of items) {
+            const name = item.name.startsWith('/') ? item.name : `/dev/${item.name}`;
+            devices.push({
+              name,
+              size: item.size || '-',
+              type: item.type || 'part',
+              mountpoint: item.mountpoint || null,
+              fstype: item.fstype || null,
+              label: item.label || null,
+            });
+            if (Array.isArray(item.children)) {
+              flatten(item.children);
+            }
+          }
+        };
+        if (Array.isArray(parsed.blockdevices)) {
+          flatten(parsed.blockdevices);
+        }
+        return devices;
+      } catch {
+        // Fallback to line parser
+      }
+    }
+
+    // Fallback line parsing
+    const lines = trimmed.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line || line.startsWith('NAME') || line.startsWith('major')) continue;
+      const parts = line.split(/\s+/);
+      if (parts.length >= 2) {
+        const devName = parts[0].startsWith('/') ? parts[0] : `/dev/${parts[0]}`;
+        devices.push({
+          name: devName,
+          size: parts[1] || '-',
+          type: parts[2] || 'disk',
+          mountpoint: parts[3] && parts[3] !== '-' ? parts[3] : null,
+          fstype: parts[4] && parts[4] !== '-' ? parts[4] : null,
+          label: parts[5] || null,
+        });
+      }
+    }
+    return devices;
+  } catch (err: any) {
+    console.error(`[fetchLinuxBlockDevicesSSH] error:`, err?.message);
+    return [];
+  }
+}
+
+/**
+ * Mounts a block device, partition, or network storage to a target mount point on the Linux server
+ */
+export async function executeLinuxMountFilesystem(
+  server: RemoteServer,
+  payload: LinuxMountPayload,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const { device, mountPoint, fsType, options, persistInFstab, createDirectory } = payload;
+
+  const cleanDevice = (device || '').trim();
+  const cleanMount = (mountPoint || '').trim();
+
+  if (!cleanDevice) {
+    throw new Error('Device or source filesystem path is required.');
+  }
+  if (!cleanMount || !cleanMount.startsWith('/')) {
+    throw new Error('Target mount point must be an absolute path starting with /.');
+  }
+
+  // Prevent dangerous mount locations
+  const forbiddenMounts = ['/', '/boot', '/proc', '/sys', '/dev', '/etc', '/bin', '/sbin', '/lib', '/usr'];
+  if (forbiddenMounts.includes(cleanMount)) {
+    throw new Error(`Mounting directly to system path "${cleanMount}" is restricted for system safety.`);
+  }
+
+  const cleanFsType = (fsType || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+  const cleanOptions = (options || '').trim().replace(/[^a-zA-Z0-9_,=\-]/g, '');
+
+  let mountArgs = '';
+  if (cleanFsType && cleanFsType !== 'auto') {
+    mountArgs += ` -t ${cleanFsType}`;
+  }
+  if (cleanOptions) {
+    mountArgs += ` -o "${cleanOptions}"`;
+  }
+
+  const script = `export LC_ALL=C
+set -e
+# 1. Create target mount directory if requested or doesn't exist
+if [ "${createDirectory ? '1' : '0'}" = "1" ] || [ ! -d "${cleanMount}" ]; then
+  sudo mkdir -p "${cleanMount}" || mkdir -p "${cleanMount}"
+fi
+
+# 2. Check if already mounted
+if mountpoint -q "${cleanMount}" 2>/dev/null; then
+  echo "ALREADY_MOUNTED"
+  exit 0
+fi
+
+# 3. Perform Mount
+sudo mount${mountArgs} "${cleanDevice}" "${cleanMount}" 2>&1 || mount${mountArgs} "${cleanDevice}" "${cleanMount}" 2>&1
+
+# 4. Optional /etc/fstab persistence
+if [ "${persistInFstab ? '1' : '0'}" = "1" ]; then
+  FSTAB_LINE="${cleanDevice} ${cleanMount} ${cleanFsType || 'auto'} ${cleanOptions || 'defaults'} 0 2"
+  if ! grep -qs "${cleanMount}" /etc/fstab; then
+    echo "$FSTAB_LINE" | sudo tee -a /etc/fstab >/dev/null || echo "$FSTAB_LINE" >> /etc/fstab
+  fi
+fi
+
+echo "MOUNT_SUCCESS"
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, script, ephemeralPassword, 15000);
+    const lower = output.toLowerCase();
+
+    if (output.includes('ALREADY_MOUNTED')) {
+      return {
+        success: true,
+        message: `Mount point "${cleanMount}" is already mounted.`,
+      };
+    }
+
+    if (lower.includes('permission denied') || lower.includes('must be superuser')) {
+      return {
+        success: false,
+        message: 'Permission denied: Sudo or root privileges required to mount filesystems.',
+      };
+    }
+
+    if (lower.includes('wrong fs type') || lower.includes('bad superblock') || lower.includes('mount: ')) {
+      const firstLine = output.split('\n').filter(l => l.trim()).join(' ') || output;
+      return {
+        success: false,
+        message: firstLine.trim(),
+      };
+    }
+
+    if (output.includes('MOUNT_SUCCESS') || !output.trim()) {
+      return {
+        success: true,
+        message: `Successfully mounted "${cleanDevice}" to "${cleanMount}"${persistInFstab ? ' (persisted in /etc/fstab)' : ''}.`,
+      };
+    }
+
+    return {
+      success: true,
+      message: output.trim() || `Mounted "${cleanDevice}" to "${cleanMount}".`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to mount "${cleanDevice}" to "${cleanMount}".`,
+    };
+  }
+}
+
+/**
+ * Unmounts a mounted filesystem path
+ */
+export async function executeLinuxUnmountFilesystem(
+  server: RemoteServer,
+  mountPoint: string,
+  force: boolean = false,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const cleanMount = (mountPoint || '').trim();
+  if (!cleanMount || !cleanMount.startsWith('/')) {
+    throw new Error('Valid target mount point is required.');
+  }
+
+  // Strictly prevent unmounting root or vital directories
+  const protectedMounts = ['/', '/boot', '/proc', '/sys', '/dev', '/run', '/etc', '/var', '/usr'];
+  if (protectedMounts.includes(cleanMount)) {
+    throw new Error(`Unmounting protected system mount point "${cleanMount}" is strictly forbidden.`);
+  }
+
+  const script = `export LC_ALL=C
+if ! mountpoint -q "${cleanMount}" 2>/dev/null && ! grep -qs " ${cleanMount} " /proc/mounts; then
+  echo "NOT_MOUNTED"
+  exit 0
+fi
+
+sudo umount ${force ? '-f' : ''} "${cleanMount}" 2>&1 || umount ${force ? '-f' : ''} "${cleanMount}" 2>&1
+echo "UMOUNT_SUCCESS"
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, script, ephemeralPassword, 12000);
+    const lower = output.toLowerCase();
+
+    if (output.includes('NOT_MOUNTED')) {
+      return {
+        success: true,
+        message: `Path "${cleanMount}" is not currently mounted.`,
+      };
+    }
+
+    if (lower.includes('target is busy') || lower.includes('device is busy')) {
+      return {
+        success: false,
+        message: `Cannot unmount "${cleanMount}": Target is busy (files or active processes are in use).`,
+      };
+    }
+
+    if (lower.includes('permission denied')) {
+      return {
+        success: false,
+        message: 'Permission denied: Sudo privileges required to unmount filesystems.',
+      };
+    }
+
+    if (output.includes('UMOUNT_SUCCESS') || !output.trim()) {
+      return {
+        success: true,
+        message: `Successfully unmounted "${cleanMount}".`,
+      };
+    }
+
+    return {
+      success: true,
+      message: output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to unmount "${cleanMount}".`,
     };
   }
 }

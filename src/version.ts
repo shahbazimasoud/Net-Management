@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.112.0';
+export const APP_VERSION = '1.113.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.113.0',
+    releaseDate: '2026-09-21',
+    type: 'minor',
+    title: 'افزودن قابلیت مانت و آن‌مانت فایل‌سیستم‌ها و تفکیک دکمه‌های فعال‌سازی و غیرفعال‌سازی سرویس‌های Systemd',
+    title_en: 'Add Filesystem Mount/Unmount Suite & Separate Enable/Disable Systemd Service Actions',
+    changes: [
+      'افزودن مودال جامع و استاندارد مانت فایل‌سیستم (LinuxMountModal): اسکن دیسک‌ها و بلاک‌دیوایس‌های متصل با lsblk و blkid، انتخاب مسیر مانت هدف، تعیین نوع فایل‌سیستم (auto, ext4, ext3, xfs, btrfs, ntfs-3g, vfat, nfs, cifs)، آپشن‌های مانت (defaults, noatime, ro و غیره) و گزینه ثبت دائمی در /etc/fstab با بکاپ‌گیری ایمن.',
+      'امکان آن‌مانت (Unmount) امن پارتیشن‌ها با بررسی مسیرهای محافظت‌شده سیستمی (جلوگیری از آن‌مانت تصادفی روت و بوت) با هشدار تایید و بازخوانی بلادرنگ متریک‌ها.',
+      'اصلاح منطق سرویس‌های Systemd: اصلاح خواندن unitFileState و تفکیک دکمه‌های فعال‌سازی (Enable) و غیرفعال‌سازی (Disable) برای هر سرویس در جدول، به‌طوری که امکان غیرفعال‌سازی خودکار در بوت به‌صورت مستقیم و شفاف در دسترس کاربر قرار دارد.'
+    ],
+    changes_en: [
+      'Added full-featured Linux Filesystem Mount Modal (LinuxMountModal): live detection of unmounted and mounted block devices via lsblk & blkid, target mount point configuration with auto-creation, filesystem type selection (auto, ext4, xfs, btrfs, ntfs-3g, nfs, cifs), mount options (defaults, noatime, ro, etc.), and persistent /etc/fstab entry with automated fstab backup.',
+      'Added safe partition unmounting capability with system path protection (guarding /, /boot, /sys, /proc against accidental unmounting), confirmation prompt, and live telemetry refresh.',
+      'Refactored Systemd services management: fixed unitFileState resolution and provided explicit, side-by-side Enable and Disable buttons for each service, making disabling services at boot directly and reliably accessible.'
+    ],
+  },
   {
     version: '1.112.0',
     releaseDate: '2026-09-21',

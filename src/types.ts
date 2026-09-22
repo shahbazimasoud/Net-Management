@@ -1525,6 +1525,24 @@ export interface LinuxProxyConfig {
   enabled: boolean;
 }
 
+export interface LinuxBlockDevice {
+  name: string;
+  size: string;
+  type: string;
+  mountpoint: string | null;
+  fstype: string | null;
+  label?: string | null;
+}
+
+export interface LinuxMountPayload {
+  device: string;
+  mountPoint: string;
+  fsType?: string;
+  options?: string;
+  persistInFstab?: boolean;
+  createDirectory?: boolean;
+}
+
 declare module 'guacamole-common-js';
 
 
