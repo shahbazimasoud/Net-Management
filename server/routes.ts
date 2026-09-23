@@ -108,6 +108,7 @@ import {
   addDiskToLinuxVgSSH,
   createLinuxPvSSH,
   createLinuxVolumeGroupSSH,
+  executeServerRestartSSH,
 } from './linuxServerMonitor';
 import {
   fetchLinuxSshConfigSSH,
@@ -2343,6 +2344,62 @@ apiRouter.post('/remote-servers/:id/logout-user', async (req: Request, res: Resp
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to logout user session',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/restart - Execute immediate or scheduled reboot for Linux/Windows servers
+apiRouter.post('/remote-servers/:id/restart', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { delayMinutes, notifyUsers, message, force, cancelPending, password } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const ephemeralPassword = password;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password && !server.win_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const isWindows = server.os_type === 'windows';
+    const result = await executeServerRestartSSH(
+      server,
+      {
+        delayMinutes: Number(delayMinutes) || 0,
+        notifyUsers: Boolean(notifyUsers),
+        message: typeof message === 'string' ? message : undefined,
+        force: force !== undefined ? Boolean(force) : true,
+        cancelPending: Boolean(cancelPending),
+      },
+      ephemeralPassword
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: cancelPending
+        ? `Cancel Scheduled Restart (${isWindows ? 'Windows' : 'Linux'})`
+        : `Server Restart (${isWindows ? 'Windows' : 'Linux'}, Delay: ${delayMinutes || 0}m)`,
+      category: 'operation',
+      target: `${server.name || server.ip}`,
+      status: result.success ? 'success' : 'error',
+      details: `${result.message} [Command: ${result.command}]`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ServerRestart API Error for ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute restart on remote server',
     });
   }
 });

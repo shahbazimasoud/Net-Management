@@ -1834,6 +1834,39 @@ export async function logoutLinuxServerUserSession(
   return data;
 }
 
+export async function restartRemoteServer(
+  serverId: string,
+  params: {
+    delayMinutes?: number;
+    notifyUsers?: boolean;
+    message?: string;
+    force?: boolean;
+    cancelPending?: boolean;
+  },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  command?: string;
+  output?: string;
+  error?: string;
+  requires_password?: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/restart`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...params, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = data.message || `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchLinuxServerSysConfig(
   serverId: string,
   ephemeralPassword?: string

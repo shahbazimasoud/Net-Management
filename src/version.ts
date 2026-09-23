@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.130.3';
+export const APP_VERSION = '1.131.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.131.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'افزودن قابلیت راه‌اندازی مجدد هوشمند (Restart) سرورهای لینوکسی و ویندوزی همراه با مودال تایید، زمان‌بندی و ارسال پیام هشدار به کاربران آنلاین',
+    title_en: 'Added Smart Server Restart Capability for Linux and Windows Servers with Confirmation, Scheduling & User Broadcast Modal',
+    changes: [
+      'افزودن گزینه راه‌اندازی مجدد (Restart Server) به منوی ۳ نقطه در لیست سرورهای Remote Servers.',
+      'تشخیص هوشمند نوع سیستم‌عامل سرور و صدور دستورات استاندارد (reboot / shutdown -r برای لینوکس و shutdown /r /t /f برای ویندوز).',
+      'ایجاد مودال تایید جامع RestartServerModal با امکان تنظیم تاخیر (فوری، ۱، ۳، ۵، ۱۰، ۱۵ دقیقه یا مقدار دلخواه).',
+      'امکان ارسال پیام اخطار و هشدار به کاربران لاگین داخل سرور از طریق دستور wall در لینوکس و msg.exe / /c در ویندوز سرور با قالب‌های پیام آماده (تعمیرات، به‌روزرسانی امنیتی، اعلان فوری).',
+      'گزینه بستن اجباری برنامه‌ها (Force) جهت جلوگیری از قفل شدن یا توقف فرآیند ری‌استارت توسط پردازش‌های پس‌زمینه.',
+      'امکان لغو ری‌استارت‌های زمان‌بندی‌شده قبلی (Abort Scheduled Restart) با اجرای shutdown -c در لینوکس و shutdown /a در ویندوز.',
+      'پشتیبانی از پروتکل‌های احراز هویت بدون ذخیره‌سازی گذرواژه (Zero-Storage Policy) و ثبت کامل لاگ حسابرسی (Audit Log).',
+      'پیروی کامل از استانداردهای پنج‌گانه مودال‌ها (دکمه‌های سه‌گانه، سازگاری با ToolsDock، مرز دقیق تمام‌صفحه و تم‌های تیره و روشن).',
+    ],
+    changes_en: [
+      'Added "Restart Server" action item to the 3-dot dropdown menu in Remote Servers fleet.',
+      'Intelligent OS detection issuing native reboot instructions (Linux: shutdown -r / reboot; Windows: shutdown /r /t /f).',
+      'Comprehensive confirmation and scheduling modal (RestartServerModal) supporting immediate reboot or preset/custom delay periods (1m, 3m, 5m, 10m, 15m, custom).',
+      'Option to broadcast real-time warning notices to logged-in users via Linux wall command and Windows msg.exe / shutdown comments with quick templates (maintenance, security updates, urgent notice).',
+      'Force termination option to prevent hanging processes from stalling the system restart sequence.',
+      'Dedicated button to abort and cancel previously scheduled pending restarts (shutdown -c on Linux, shutdown /a on Windows).',
+      'Full integration with Zero-Storage password prompt policies and comprehensive audit logging.',
+      'Strict adherence to universal modal specifications (triad controls, ToolsDock minimization, fullscreen boundary clearance, and dark/light modes).',
+    ],
+  },
   {
     version: '1.130.3',
     releaseDate: '2026-09-23',

@@ -29,6 +29,8 @@ import {
   AlertCircle,
   Key,
   FolderTree,
+  RotateCcw,
+  X,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory } from '../../types';
 import {
@@ -47,6 +49,7 @@ import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { BulkServerConfigModal } from './BulkServerConfigModal';
+import { RestartServerModal } from './RestartServerModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -214,6 +217,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
   const [isPingingAll, setIsPingingAll] = useState(false);
   const [serverToDelete, setServerToDelete] = useState<RemoteServer | null>(null);
+  const [serverToRestart, setServerToRestart] = useState<RemoteServer | null>(null);
+  const [successNotification, setSuccessNotification] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!successNotification) return;
+    const timer = setTimeout(() => setSuccessNotification(null), 5000);
+    return () => clearTimeout(timer);
+  }, [successNotification]);
 
   // Bulk Linux Server Configuration Modal State
   const [isBulkConfigOpen, setIsBulkConfigOpen] = useState(false);
@@ -2290,6 +2301,27 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
                 <div className={`my-1 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
 
+                {/* Restart Server */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const s = menuAnchor.server;
+                    setMenuAnchor(null);
+                    setServerToRestart(s);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-400 hover:text-amber-300 transition cursor-pointer ${
+                    isEn ? 'text-left' : 'text-right'
+                  } ${isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/15'}`}
+                >
+                  <RotateCcw className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div className="flex flex-col">
+                    <span>{isEn ? 'Restart Server' : 'راه‌اندازی مجدد (ری‌استارت)'}</span>
+                    <span className="text-[10px] text-amber-400/80 font-mono">
+                      {menuAnchor.server.os_type === 'linux' ? 'Linux (reboot / shutdown -r)' : 'Windows (shutdown /r /t)'}
+                    </span>
+                  </div>
+                </button>
+
                 {/* Edit Server Properties */}
                 <button
                   type="button"
@@ -2506,6 +2538,37 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         initialSelectedServers={servers.filter((s) => selectedServerIds.has(s.id))}
         onServersUpdated={loadFleet}
       />
+
+      {/* 18. Server Restart Confirmation & Scheduling Modal */}
+      {serverToRestart && (
+        <RestartServerModal
+          server={serverToRestart}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          onClose={() => setServerToRestart(null)}
+          onSuccess={(msg) => {
+            setSuccessNotification(msg);
+            loadFleet();
+          }}
+        />
+      )}
+
+      {/* Floating Success Notification Toast */}
+      {successNotification &&
+        createPortal(
+          <div className="fixed bottom-12 right-6 z-[999999] max-w-md p-4 rounded-2xl bg-emerald-950/95 border border-emerald-500/40 text-emerald-100 shadow-2xl backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-5">
+            <Check className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div className="text-xs font-medium leading-relaxed">{successNotification}</div>
+            <button
+              type="button"
+              onClick={() => setSuccessNotification(null)}
+              className="p-1 rounded-lg hover:bg-white/10 text-emerald-300 ml-auto cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

@@ -545,10 +545,11 @@ export async function runAdaptiveSshCommand(
   ephemeralPassword?: string,
   timeoutMs: number = 9000
 ): Promise<string> {
+  const isWindows = server.os_type === 'windows';
   const host = (server.ip || server.hostname || '').trim();
-  const port = server.ssh_port || 22;
-  const username = server.ssh_username || 'root';
-  const password = ephemeralPassword || server.ssh_password || '';
+  const port = isWindows ? (server.ssh_port || server.win_port || 22) : (server.ssh_port || 22);
+  const username = (isWindows ? (server.win_username || server.ssh_username) : (server.ssh_username || server.win_username)) || (isWindows ? 'Administrator' : 'root');
+  const password = ephemeralPassword || (isWindows ? (server.win_password || server.ssh_password) : (server.ssh_password || server.win_password)) || '';
 
   if (!host) {
     throw new Error('Server target IP or Hostname is not configured.');
@@ -677,6 +678,103 @@ export async function runAdaptiveSshCommand(
       return await runAttempt(true);
     }
     throw modernErr;
+  }
+}
+
+/**
+ * Executes immediate or delayed reboot/restart on physical or virtual Linux / Windows servers.
+ * Supports broadcast warnings to interactive logged-in users and cancellation of pending reboots.
+ */
+export async function executeServerRestartSSH(
+  server: RemoteServer,
+  params: {
+    delayMinutes: number;
+    notifyUsers: boolean;
+    message?: string;
+    force?: boolean;
+    cancelPending?: boolean;
+  },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  command: string;
+  output?: string;
+}> {
+  const isWindows = server.os_type === 'windows';
+  let command = '';
+  let actionDesc = '';
+
+  if (isWindows) {
+    if (params.cancelPending) {
+      command = 'shutdown /a';
+      actionDesc = 'Cancelled scheduled Windows restart';
+    } else {
+      const delaySec = Math.max(0, Math.floor(params.delayMinutes * 60));
+      const forceFlag = params.force !== false ? '/f' : '';
+      const safeMsg = (params.message || '').replace(/["\r\n]/g, ' ').trim();
+
+      if (params.notifyUsers && safeMsg) {
+        command = `msg * "${safeMsg}" & shutdown /r /t ${delaySec} ${forceFlag} /c "${safeMsg}"`;
+      } else {
+        command = `shutdown /r /t ${delaySec} ${forceFlag}`;
+      }
+      actionDesc = delaySec > 0
+        ? `Scheduled Windows restart in ${params.delayMinutes} minute(s)`
+        : `Initiated immediate Windows restart`;
+    }
+  } else {
+    // Linux
+    if (params.cancelPending) {
+      command = 'sudo shutdown -c "Cancelled by administrator" 2>&1 || shutdown -c 2>&1';
+      actionDesc = 'Cancelled scheduled Linux reboot';
+    } else {
+      const delayMin = Math.max(0, Math.floor(params.delayMinutes));
+      const safeMsg = (params.message || '').replace(/["\\`$]/g, '\\$&').trim();
+
+      if (delayMin === 0) {
+        if (params.notifyUsers && safeMsg) {
+          command = `wall "${safeMsg}" 2>/dev/null ; (sleep 1 && (sudo shutdown -r now || sudo reboot || reboot)) &`;
+        } else {
+          command = `(sleep 1 && (sudo shutdown -r now || sudo reboot || reboot)) &`;
+        }
+        actionDesc = 'Initiated immediate Linux system reboot';
+      } else {
+        if (params.notifyUsers && safeMsg) {
+          command = `wall "${safeMsg}" 2>/dev/null ; (sudo shutdown -r +${delayMin} "${safeMsg}" || sudo shutdown -r +${delayMin} || shutdown -r +${delayMin})`;
+        } else {
+          command = `sudo shutdown -r +${delayMin} || shutdown -r +${delayMin}`;
+        }
+        actionDesc = `Scheduled Linux system reboot in ${delayMin} minute(s)`;
+      }
+    }
+  }
+
+  try {
+    const output = await runAdaptiveSshCommand(server, command, ephemeralPassword, 12000);
+    return {
+      success: true,
+      message: `${actionDesc} successfully.`,
+      command,
+      output: (output || '').trim(),
+    };
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    if (
+      errMsg.includes('Connection reset by peer') ||
+      errMsg.includes('socket hung up') ||
+      errMsg.includes('ended by other party') ||
+      errMsg.includes('Channel open failure') ||
+      errMsg.includes('closed')
+    ) {
+      return {
+        success: true,
+        message: `${actionDesc} (SSH connection terminated as target server initiated reboot sequence).`,
+        command,
+        output: errMsg,
+      };
+    }
+    throw err;
   }
 }
 
