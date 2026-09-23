@@ -477,7 +477,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const [serverPickerSearch, setServerPickerSearch] = useState('');
   const [serverPickerCategory, setServerPickerCategory] = useState('all');
   const [selectedServerForNewPane, setSelectedServerForNewPane] = useState<RemoteServer | null>(null);
-  const [newPaneShell, setNewPaneShell] = useState<'bash' | 'zsh'>('bash');
+  const newPaneShell = 'bash';
   const [newPanePassword, setNewPanePassword] = useState('');
   const [showNewPanePassword, setShowNewPanePassword] = useState(false);
   const [splitDropdownSearch, setSplitDropdownSearch] = useState('');
@@ -1849,7 +1849,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                     type="button"
                     onClick={() => {
                       while (panes.length < 4) {
-                        handleAddSplitPane(panes.length % 2 === 0 ? 'bash' : 'zsh');
+                        handleAddSplitPane('bash');
                       }
                       setLayoutMode('grid-4');
                       setIsSplitMenuOpen(false);
@@ -2040,31 +2040,10 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                         </span>
                       </span>
 
-                      {/* Shell Selector */}
-                      <div className="flex items-center bg-slate-900 rounded-md p-0.5 border border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() => handleSwitchShellOnPane(pane.id, 'bash')}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition cursor-pointer ${
-                            pane.selectedShell === 'bash'
-                              ? 'bg-emerald-500 text-slate-950'
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          bash
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSwitchShellOnPane(pane.id, 'zsh')}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition cursor-pointer ${
-                            pane.selectedShell === 'zsh'
-                              ? 'bg-cyan-500 text-slate-950'
-                              : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          zsh
-                        </button>
-                      </div>
+                      {/* Shell Badge */}
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        bash
+                      </span>
 
                       {/* Connection status tag */}
                       <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
@@ -2746,33 +2725,12 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
               {/* Bottom Config: Shell Type, Optional Ephemeral Password, & Submit Action */}
               <div className="p-4 bg-slate-950 border-t border-slate-800 space-y-3 shrink-0">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  {/* Shell Choice */}
+                  {/* Shell Badge */}
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-400">{isEn ? 'Shell:' : 'محیط شل:'}</span>
-                    <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setNewPaneShell('bash')}
-                        className={`px-3 py-1 rounded text-xs font-mono font-bold transition cursor-pointer ${
-                          newPaneShell === 'bash'
-                            ? 'bg-emerald-500 text-slate-950'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        bash
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewPaneShell('zsh')}
-                        className={`px-3 py-1 rounded text-xs font-mono font-bold transition cursor-pointer ${
-                          newPaneShell === 'zsh'
-                            ? 'bg-cyan-500 text-slate-950'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        zsh
-                      </button>
-                    </div>
+                    <span className="px-2.5 py-1 rounded text-xs font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      /bin/bash
+                    </span>
                   </div>
 
                   {/* Selected Server info summary */}

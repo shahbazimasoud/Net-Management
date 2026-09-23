@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.131.1';
+export const APP_VERSION = '1.131.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.131.2',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'حذف گزینه و شل zsh از ترمینال لینوکس و منوی سه‌نقطه لیست سرورها و استانداردسازی ارتباط روی شل پایدار Bash',
+    title_en: 'Removed Zsh Shell Option from Linux Server Terminal & 3-Dot Action Menu in Favor of Standard Bash',
+    changes: [
+      'حذف کامل گزینه راه‌اندازی شل zsh از منوی سه‌نقطه (Action Menu) سرورهای لینوکسی در بخش Remote Servers.',
+      'حذف دکمه تغییر وضعیت شل به zsh از نوار عنوان پنل‌های ترمینال لینوکس و جایگزینی آن با نشان پایدار bash.',
+      'حذف سلکتور شل zsh در بخش ایجاد پنجره‌های تقسیم‌شده (Split Pane) ترمینال.',
+      'استانداردسازی تمامی دکمه‌ها و توابع بازگشایی ترمینال به شل استاندارد و مطمئن /bin/bash.',
+    ],
+    changes_en: [
+      'Completely removed the Zsh shell launch action from the 3-dot server menu in Remote Servers.',
+      'Removed the shell toggle button to Zsh from the Linux terminal pane header, standardizing on a clean bash indicator badge.',
+      'Removed the Zsh shell selection option in the split-pane configuration drawer.',
+      'Standardized all terminal launcher handlers to strictly spawn /bin/bash sessions.',
+    ],
+  },
   {
     version: '1.131.1',
     releaseDate: '2026-09-23',
