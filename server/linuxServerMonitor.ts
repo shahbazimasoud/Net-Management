@@ -4005,3 +4005,123 @@ fi
   }
 }
 
+/**
+ * Initializes a raw block device or disk as an LVM Physical Volume (pvcreate).
+ * Prepares the storage layer so it can subsequently be used to create a new Volume Group or extend an existing VG.
+ */
+export async function createLinuxPvSSH(
+  server: RemoteServer,
+  payload: { diskPath: string; force?: boolean },
+  ephemeralPassword?: string,
+  timeoutMs: number = 25000
+): Promise<{ success: boolean; message: string; pvName?: string; pvSize?: string }> {
+  const { diskPath, force } = payload;
+  const cleanDisk = (diskPath || '').trim().replace(/[^a-zA-Z0-9_\-/]/g, '');
+
+  if (!cleanDisk) throw new Error('Target disk or partition path is required.');
+
+  const script = `export LC_ALL=C
+
+# 1. Validate block device existence
+if [ ! -b "${cleanDisk}" ]; then
+  if [ -e "${cleanDisk}" ]; then
+    echo "ERR:NOT_A_BLOCK_DEVICE: Device ${cleanDisk} exists but is not a block device."
+    exit 1
+  else
+    echo "ERR:DISK_NOT_FOUND: Block device ${cleanDisk} does not exist. Please run Online Rescan Disks first."
+    exit 1
+  fi
+fi
+
+# 2. Check if already part of a Volume Group
+EXISTING_VG=$(sudo pvs --noheadings -o vg_name "${cleanDisk}" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$EXISTING_VG" ]; then
+  EXISTING_VG=$(pvs --noheadings -o vg_name "${cleanDisk}" 2>/dev/null | tr -d '[:space:]')
+fi
+
+if [ -n "$EXISTING_VG" ] && [ "$EXISTING_VG" != "none" ] && [ "$EXISTING_VG" != "-" ]; then
+  echo "ERR:DISK_IN_VG: Device ${cleanDisk} is already an active member of Volume Group '$EXISTING_VG'. Cannot re-initialize without removing from VG first."
+  exit 1
+fi
+
+# 3. Check if already a valid standalone Physical Volume
+if sudo pvs "${cleanDisk}" >/dev/null 2>&1 || pvs "${cleanDisk}" >/dev/null 2>&1; then
+  PV_SIZE=$(sudo pvs --noheadings --units g -o pv_size "${cleanDisk}" 2>/dev/null | tr -d '[:space:]')
+  echo "ALREADY_PV: Device ${cleanDisk} is already initialized as a Physical Volume (PV Size: $PV_SIZE)."
+  exit 0
+fi
+
+# 4. Execute pvcreate
+FORCE_FLAG="${force !== false ? '-ff' : ''}"
+PV_OUT=$(sudo pvcreate -y $FORCE_FLAG "${cleanDisk}" 2>&1 || pvcreate -y $FORCE_FLAG "${cleanDisk}" 2>&1 || sudo pvcreate -y "${cleanDisk}" 2>&1)
+PV_STATUS=$?
+
+if [ $PV_STATUS -eq 0 ] || sudo pvs "${cleanDisk}" >/dev/null 2>&1 || echo "$PV_OUT" | grep -qi "successfully created"; then
+  PV_SIZE=$(sudo pvs --noheadings --units g -o pv_size "${cleanDisk}" 2>/dev/null | tr -d '[:space:]')
+  echo "PVCREATE_SUCCESS: Device ${cleanDisk} successfully initialized as Physical Volume (Size: $PV_SIZE)."
+  echo "$PV_OUT"
+  exit 0
+else
+  echo "ERR:PVCREATE_FAILED: pvcreate failed on ${cleanDisk}: $PV_OUT"
+  exit 1
+fi
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+
+    if (raw.includes('PVCREATE_SUCCESS') || raw.includes('successfully created') || raw.includes('ALREADY_PV')) {
+      const sizeMatch = raw.match(/Size:\s*([^\)\r\n]+)/) || raw.match(/PV Size:\s*([^\)\r\n]+)/);
+      const pvSize = sizeMatch ? sizeMatch[1].trim() : undefined;
+      const isAlready = raw.includes('ALREADY_PV');
+
+      return {
+        success: true,
+        pvName: cleanDisk,
+        pvSize,
+        message: isAlready
+          ? `Disk "${cleanDisk}" is already a valid Physical Volume (PV)${pvSize ? ` (${pvSize})` : ''} and is ready to be added to a Volume Group.`
+          : `Physical Volume (PV) successfully initialized on "${cleanDisk}"${pvSize ? ` (${pvSize})` : ''}! You can now join it to a Volume Group or extend an existing VG.`,
+      };
+    }
+
+    if (raw.includes('ERR:DISK_NOT_FOUND')) {
+      return {
+        success: false,
+        message: `Device "${cleanDisk}" not found on server. Please run "Online Rescan Disks" first.`,
+      };
+    }
+    if (raw.includes('ERR:NOT_A_BLOCK_DEVICE')) {
+      return {
+        success: false,
+        message: `Target "${cleanDisk}" is not a valid block device.`,
+      };
+    }
+    if (raw.includes('ERR:DISK_IN_VG')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:DISK_IN_VG')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:DISK_IN_VG:\s*/, '').trim(),
+      };
+    }
+    if (raw.includes('ERR:PVCREATE_FAILED')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:PVCREATE_FAILED')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:PVCREATE_FAILED:\s*/, '').trim(),
+      };
+    }
+
+    return {
+      success: false,
+      message: raw.trim() || `Failed to initialize Physical Volume on "${cleanDisk}".`,
+    };
+  } catch (err: any) {
+    console.error(`[createLinuxPvSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Failed to initialize Physical Volume: ${err?.message || err}`,
+    };
+  }
+}
+

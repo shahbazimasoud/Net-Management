@@ -104,6 +104,7 @@ import {
   createLinuxLvmVolumeSSH,
   shrinkLinuxLvSSH,
   addDiskToLinuxVgSSH,
+  createLinuxPvSSH,
 } from './linuxServerMonitor';
 import {
   fetchLinuxSshConfigSSH,
@@ -2889,6 +2890,44 @@ apiRouter.post('/remote-servers/:id/lvm-add-disk-to-vg', async (req: Request, re
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to add disk to Volume Group',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/lvm-create-pv - Initialize raw disk/partition as an LVM Physical Volume (pvcreate)
+apiRouter.post('/remote-servers/:id/lvm-create-pv', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { diskPath, force, password } = req.body;
+
+    if (!diskPath) {
+      return res.status(400).json({ success: false, error: 'diskPath is required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createLinuxPvSSH(server, { diskPath, force }, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Initialize Physical Volume (${diskPath})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (PV: ${diskPath})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLvmCreatePv API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to initialize Physical Volume',
     });
   }
 });

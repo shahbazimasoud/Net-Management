@@ -2189,6 +2189,35 @@ export async function addDiskToLinuxVg(
   return data;
 }
 
+/**
+ * Initializes a raw block device or disk as an LVM Physical Volume (pvcreate)
+ */
+export async function initializeLinuxPv(
+  serverId: string,
+  payload: { diskPath: string; force?: boolean },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  pvName?: string;
+  pvSize?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-create-pv`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 // ----------------------------------------------------
 // Linux Sysconfig API (DNS, Fail2ban, Hostname, SSH, Time)
 // ----------------------------------------------------

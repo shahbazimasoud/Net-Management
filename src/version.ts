@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.125.0';
+export const APP_VERSION = '1.126.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.126.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'گردش کار صریح مقداردهی فیزیکال ولوم (pvcreate) پیش از پیوست به گروه حجم و تفکیک سلسله‌مراتبی لایه‌های LVM',
+    title_en: 'Explicit Physical Volume (PV) Initialization Workflow (pvcreate) and Enhanced LVM Architectural Hierarchy',
+    changes: [
+      'افزودن قابلیت و مودال اختصاصی مقداردهی اولیه فیزیکال ولوم (LinuxInitPvModal) جهت اجرای صریح و مستقل دستور pvcreate روی دیسک‌های خام لینوکس.',
+      'طراحی معماری سه‌مرحله‌ای شفاف و استاندارد LVM در رابط کاربری: دیسک فیزیکی -> مقداردهی فیزیکال ولوم (PV) -> استخر گروه حجم (VG) -> افزایش یا ساخت ولوم منطقی (LV).',
+      'تجهیز دیسک‌های خام شناسایی‌شده در بخش Physical Disks به ۳ دکمه عملیاتی مجزا: مقداردهی PV (Init PV)، پیوست مستقیم به گروه (+ Add to VG)، و ایجاد فضای نو (Create).',
+      'تشخیص خودکار و برجسته‌سازی فیزیکال ولوم‌های آزاد (Unassigned PVs) در فهرست PVها به همراه دکمه اختصاصی + Add to VG جهت تسریع الصاق به استخر حجم.',
+      'ایجاد متد SSH بک‌اند createLinuxPvSSH و اندپوینت جدید /api/remote-servers/:id/lvm-create-pv با اعتبارسنجی بلوک دیوایس، جلوگیری از مقداردهی تکراری و پشتیبانی از فلگ force.',
+      'پشتیبانی کامل از استاندارد پنج‌گانه Universal Modal در مودال جدید مقداردهی PV شامل دکمه‌های بستن، مینیمایز در نوار داک (ToolsDock)، تمام‌صفحه با حفظ حریم فوتر (bottom-8)، دو تم تیره/روشن و کادر Info.',
+    ],
+    changes_en: [
+      'Added dedicated Physical Volume (PV) initialization modal (LinuxInitPvModal) to execute authentic, isolated pvcreate operations on raw Linux block devices.',
+      'Enforced clear standard 3-tier LVM architectural hierarchy across the UI: Physical Disk -> Physical Volume (PV) -> Volume Group (VG) -> Logical Volume (LV).',
+      'Equipped unassigned raw disks with 3 explicit action buttons: "Init PV" (pvcreate), "+ Add to VG" (join volume group), and "Create" (standalone volume).',
+      'Added automatic detection and highlighted badging of Unassigned PVs in the Physical Volumes inventory with a one-click "+ Add to VG" action button.',
+      'Implemented backend createLinuxPvSSH method and POST /api/remote-servers/:id/lvm-create-pv endpoint with block device validation, duplicate prevention, and force flag support.',
+      'Fully implemented Universal Modal Architectural Standards for the new PV modal including minimize-to-dock, strict fullscreen footer clearance (bottom-8), dark/light theme styling, and boundary-safe 3-part Info tooltips.',
+    ],
+  },
   {
     version: '1.125.0',
     releaseDate: '2026-09-23',
