@@ -9,6 +9,14 @@ import {
   LinuxProxyConfig,
   LinuxBlockDevice,
   LinuxMountPayload,
+  LinuxStorageOverview,
+  LinuxMountedFilesystem,
+  LinuxPhysicalDisk,
+  LinuxPhysicalVolume,
+  LinuxVolumeGroup,
+  LinuxLogicalVolume,
+  LinuxPartition,
+  LinuxDiskFormatMountPayload,
   LinuxLvmOverview,
   LinuxLvmPv,
   LinuxLvmVg,
@@ -3259,227 +3267,690 @@ fi
 }
 
 // ==========================================
-// LVM (LOGICAL VOLUME MANAGEMENT) SUITE
+// STORAGE & DISKS ARCHITECTURE (6-TIER REAL DATA PIPELINE)
 // ==========================================
 
+function formatBytesHelper(bytes: number | string | undefined | null): string {
+  if (bytes === undefined || bytes === null || bytes === '') return '-';
+  const n = typeof bytes === 'string' ? parseFloat(bytes) : bytes;
+  if (isNaN(n) || n === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.floor(Math.log(n) / Math.log(k));
+  if (i < 0 || i >= sizes.length) return `${n} B`;
+  return `${(n / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
 /**
- * Fetches real LVM inventory: Physical Volumes (PVs), Volume Groups (VGs), Logical Volumes (LVs),
- * mount points, usage percentages, and available raw unpartitioned/unassigned disks.
+ * Fetches the complete, authentic Linux storage hierarchy directly from the server:
+ * Physical Disks -> Partitions -> Physical Volumes (PVs) -> Volume Groups (VGs) -> Logical Volumes (LVs) -> Filesystems -> Mount Points
  */
-export async function fetchLinuxLvmOverviewSSH(
+export async function fetchLinuxStorageOverviewSSH(
   server: RemoteServer,
   ephemeralPassword?: string,
-  timeoutMs: number = 10000
-): Promise<LinuxLvmOverview> {
+  timeoutMs: number = 15000
+): Promise<LinuxStorageOverview> {
   const script = `export LC_ALL=C
-if ! command -v pvs >/dev/null 2>&1 && ! sudo which pvs >/dev/null 2>&1; then
-  echo "LVM_NOT_INSTALLED"
-  echo "===DISKS==="
-  lsblk -dn -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null || true
-  exit 0
-fi
 
-echo "LVM_INSTALLED"
+echo "===LVM_CHECK==="
+(command -v pvs >/dev/null 2>&1 || sudo which pvs >/dev/null 2>&1) && echo "LVM_OK" || echo "LVM_MISSING"
+
+echo "===LSBLK_JSON==="
+lsblk -J -b -o NAME,KNAME,PATH,SIZE,ROTA,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,TRAN,UUID,PARTUUID,PARTLABEL,STATE,RM 2>/dev/null || lsblk -J 2>/dev/null || true
+
+echo "===FINDMNT_JSON==="
+findmnt -J -b -o TARGET,SOURCE,FSTYPE,OPTIONS,SIZE,USED,AVAIL,USE% 2>/dev/null || true
+
+echo "===DF==="
+df -B1 -T 2>/dev/null || df -hT 2>/dev/null || true
 
 echo "===PVS==="
-sudo pvs --noheadings --nosuffix --units g -o pv_name,vg_name,pv_fmt,pv_size,pv_free,pv_used --separator '|' 2>/dev/null || true
+sudo pvs --noheadings --nosuffix --units g -o pv_name,vg_name,pv_fmt,pv_size,pv_free,pv_used,pv_attr --separator '|' 2>/dev/null || true
 
 echo "===VGS==="
-sudo vgs --noheadings --nosuffix --units g -o vg_name,pv_count,lv_count,vg_size,vg_free --separator '|' 2>/dev/null || true
+sudo vgs --noheadings --nosuffix --units g -o vg_name,pv_count,lv_count,vg_size,vg_free,vg_attr --separator '|' 2>/dev/null || true
 
 echo "===LVS==="
 sudo lvs --noheadings --nosuffix --units g -o lv_name,vg_name,lv_path,lv_size,lv_attr --separator '|' 2>/dev/null || true
 
-echo "===MOUNTS==="
-findmnt -rno TARGET,FSTYPE,SOURCE 2>/dev/null || df -hT 2>/dev/null || true
-
-echo "===DF==="
-df -h 2>/dev/null || true
-
-echo "===DISKS==="
-lsblk -dn -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null || true
+echo "===DISKS_FLAT==="
+lsblk -b -o NAME,KNAME,PATH,SIZE,ROTA,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,TRAN,UUID,PARTUUID,PARTLABEL -r 2>/dev/null || true
 `;
 
   try {
     const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
 
-    const lvmInstalled = !raw.includes('LVM_NOT_INSTALLED');
-
-    const pvs: LinuxLvmPv[] = [];
-    const vgs: LinuxLvmVg[] = [];
-    const lvs: LinuxLvmLv[] = [];
-    const availableDisks: LinuxRawDisk[] = [];
-
-    // Parse sections
-    const getSection = (name: string, nextName: string | null): string[] => {
+    // Section helper
+    const getSection = (name: string, nextName: string | null): string => {
       const startMarker = `===${name}===`;
       const startIdx = raw.indexOf(startMarker);
-      if (startIdx === -1) return [];
+      if (startIdx === -1) return '';
       const afterStart = raw.slice(startIdx + startMarker.length);
       let endIdx = -1;
       if (nextName) {
         const nextMarker = `===${nextName}===`;
         endIdx = afterStart.indexOf(nextMarker);
       }
-      const sectionText = endIdx !== -1 ? afterStart.slice(0, endIdx) : afterStart;
-      return sectionText
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l && !l.startsWith('==='));
+      return (endIdx !== -1 ? afterStart.slice(0, endIdx) : afterStart).trim();
     };
 
-    // PV lines: pv_name|vg_name|pv_fmt|pv_size|pv_free|pv_used
-    const pvLines = getSection('PVS', 'VGS');
-    for (const line of pvLines) {
-      const parts = line.split('|').map((p) => p.trim());
-      if (parts.length >= 5) {
-        const pvName = parts[0];
-        pvs.push({
-          name: pvName,
-          vgName: parts[1] || 'none',
-          format: parts[2] || 'lvm2',
-          size: `${parseFloat(parts[3] || '0').toFixed(2)} GB`,
-          free: `${parseFloat(parts[4] || '0').toFixed(2)} GB`,
-          used: `${parseFloat(parts[5] || '0').toFixed(2)} GB`,
-        });
-      }
-    }
+    const lvmCheckRaw = getSection('LVM_CHECK', 'LSBLK_JSON');
+    const lvmInstalled = lvmCheckRaw.includes('LVM_OK');
 
-    // VG lines: vg_name|pv_count|lv_count|vg_size|vg_free
-    const vgLines = getSection('VGS', 'LVS');
-    for (const line of vgLines) {
-      const parts = line.split('|').map((p) => p.trim());
-      if (parts.length >= 5) {
-        vgs.push({
-          name: parts[0],
-          pvCount: parseInt(parts[1], 10) || 0,
-          lvCount: parseInt(parts[2], 10) || 0,
-          size: `${parseFloat(parts[3] || '0').toFixed(2)} GB`,
-          free: `${parseFloat(parts[4] || '0').toFixed(2)} GB`,
-        });
-      }
-    }
+    // 1. Parse PVs
+    const pvsRaw = getSection('PVS', 'VGS');
+    const physicalVolumes: LinuxPhysicalVolume[] = [];
+    const legacyPvs: LinuxLvmPv[] = [];
 
-    // Mounts & DF map
-    const mountMap: Record<string, { mountPoint: string; fsType: string }> = {};
-    const usageMap: Record<string, number> = {};
+    if (pvsRaw) {
+      const lines = pvsRaw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('==='));
+      for (const line of lines) {
+        const parts = line.split('|').map((p) => p.trim());
+        if (parts.length >= 5) {
+          const pvName = parts[0];
+          const vgName = parts[1] || 'none';
+          const format = parts[2] || 'lvm2';
+          const sizeVal = parseFloat(parts[3] || '0');
+          const freeVal = parseFloat(parts[4] || '0');
+          const usedVal = parseFloat(parts[5] || '0');
+          const status = parts[6] || 'allocatable';
 
-    const mountLines = getSection('MOUNTS', 'DF');
-    for (const line of mountLines) {
-      const parts = line.split(/\s+/);
-      if (parts.length >= 3) {
-        const target = parts[0];
-        const fstype = parts[1];
-        const source = parts[2];
-        if (source) {
-          mountMap[source] = { mountPoint: target, fsType: fstype };
+          // Extract parent disk name (e.g. /dev/sdb1 -> /dev/sdb, /dev/nvme0n1p1 -> /dev/nvme0n1)
+          let parentDisk = pvName.replace(/[0-9]+$/, '').replace(/p$/, '');
+          if (!parentDisk.startsWith('/dev/')) parentDisk = `/dev/${parentDisk}`;
+
+          const pvItem: LinuxPhysicalVolume = {
+            name: pvName,
+            device: pvName,
+            parentDisk,
+            vgName,
+            size: `${sizeVal.toFixed(2)} GB`,
+            free: `${freeVal.toFixed(2)} GB`,
+            allocated: `${usedVal.toFixed(2)} GB`,
+            format,
+            status,
+          };
+          physicalVolumes.push(pvItem);
+
+          legacyPvs.push({
+            name: pvName,
+            vgName,
+            size: `${sizeVal.toFixed(2)} GB`,
+            free: `${freeVal.toFixed(2)} GB`,
+            used: `${usedVal.toFixed(2)} GB`,
+            format,
+            device: pvName,
+            parentDisk,
+          });
         }
       }
     }
 
-    const dfLines = getSection('DF', 'DISKS');
-    for (const line of dfLines) {
-      if (line.startsWith('Filesystem')) continue;
-      const parts = line.split(/\s+/);
-      if (parts.length >= 6) {
-        const dev = parts[0];
-        const pctStr = parts[4].replace('%', '');
-        const pct = parseInt(pctStr, 10);
-        if (!isNaN(pct)) {
-          usageMap[dev] = pct;
+    // 2. Parse VGs
+    const vgsRaw = getSection('VGS', 'LVS');
+    const volumeGroups: LinuxVolumeGroup[] = [];
+    const legacyVgs: LinuxLvmVg[] = [];
+
+    if (vgsRaw) {
+      const lines = vgsRaw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('==='));
+      for (const line of lines) {
+        const parts = line.split('|').map((p) => p.trim());
+        if (parts.length >= 5) {
+          const vgName = parts[0];
+          const pvCount = parseInt(parts[1], 10) || 0;
+          const lvCount = parseInt(parts[2], 10) || 0;
+          const totalSizeVal = parseFloat(parts[3] || '0');
+          const freeSizeVal = parseFloat(parts[4] || '0');
+          const allocatedVal = Math.max(0, totalSizeVal - freeSizeVal);
+
+          const memberPvs = physicalVolumes.filter((pv) => pv.vgName === vgName).map((pv) => pv.name);
+
+          volumeGroups.push({
+            name: vgName,
+            pvCount,
+            lvCount,
+            totalSize: `${totalSizeVal.toFixed(2)} GB`,
+            freeSize: `${freeSizeVal.toFixed(2)} GB`,
+            allocatedSize: `${allocatedVal.toFixed(2)} GB`,
+            pvs: memberPvs,
+            lvs: [], // filled below
+          });
+
+          legacyVgs.push({
+            name: vgName,
+            pvCount,
+            lvCount,
+            size: `${totalSizeVal.toFixed(2)} GB`,
+            free: `${freeSizeVal.toFixed(2)} GB`,
+            allocatedSize: `${allocatedVal.toFixed(2)} GB`,
+            pvs: memberPvs,
+            lvs: [],
+          });
         }
       }
     }
 
-    // LV lines: lv_name|vg_name|lv_path|lv_size|lv_attr
-    const lvLines = getSection('LVS', 'MOUNTS');
-    for (const line of lvLines) {
-      const parts = line.split('|').map((p) => p.trim());
-      if (parts.length >= 4) {
-        const lvName = parts[0];
-        const vgName = parts[1];
-        let lvPath = parts[2] || `/dev/${vgName}/${lvName}`;
-        if (!lvPath.startsWith('/')) lvPath = `/dev/${lvPath}`;
-        const mapperPath = `/dev/mapper/${vgName.replace(/-/g, '--')}-${lvName.replace(/-/g, '--')}`;
+    // 3. Parse Mounted Filesystems from FINDMNT JSON or raw
+    const filesystems: LinuxMountedFilesystem[] = [];
+    const findmntJsonRaw = getSection('FINDMNT_JSON', 'DF');
 
-        // Match mount info
-        let mInfo = mountMap[lvPath] || mountMap[mapperPath];
-        if (!mInfo) {
-          // Look for partial match
-          for (const [src, info] of Object.entries(mountMap)) {
-            if (src.includes(lvName) && src.includes(vgName)) {
-              mInfo = info;
-              break;
-            }
+    const extractFindmntChildren = (items: any[]) => {
+      for (const item of items) {
+        if (!item || !item.target) continue;
+        const target = item.target;
+        const source = item.source || '';
+        const fstype = item.fstype || '';
+        const options = item.options || '';
+
+        // Determine if LVM
+        const isLvm = source.includes('/dev/mapper/') ||
+          source.includes('/dev/mapper') ||
+          physicalVolumes.some(pv => pv.vgName !== 'none' && source.includes(pv.vgName));
+
+        let vgName: string | null = null;
+        let lvName: string | null = null;
+
+        if (source.startsWith('/dev/mapper/')) {
+          const mapperTail = source.replace('/dev/mapper/', '');
+          const match = mapperTail.match(/^([^-]+(?:--[^-]+)*)-([^-]+(?:--[^-]+)*)$/);
+          if (match) {
+            vgName = match[1].replace(/--/g, '-');
+            lvName = match[2].replace(/--/g, '-');
           }
+        } else if (source.startsWith('/dev/') && source.split('/').length === 4) {
+          const parts = source.split('/');
+          vgName = parts[2];
+          lvName = parts[3];
         }
 
-        let usagePercent = usageMap[lvPath] || usageMap[mapperPath];
-        if (usagePercent === undefined && mInfo) {
-          // Match by mount point
-          for (const line of dfLines) {
-            const dfParts = line.split(/\s+/);
-            if (dfParts.length >= 6 && dfParts[5] === mInfo.mountPoint) {
-              usagePercent = parseInt(dfParts[4].replace('%', ''), 10);
-              break;
-            }
-          }
+        const sizeStr = item.size ? formatBytesHelper(item.size) : '-';
+        const usedStr = item.used ? formatBytesHelper(item.used) : '-';
+        const availStr = item.avail ? formatBytesHelper(item.avail) : '-';
+
+        let usePct = 0;
+        if (item['use%']) {
+          const parsedPct = parseFloat(String(item['use%']).replace('%', ''));
+          if (!isNaN(parsedPct)) usePct = parsedPct;
         }
 
-        lvs.push({
-          name: lvName,
+        const isReadOnly = options.split(',').some((opt: string) => opt.trim() === 'ro');
+
+        filesystems.push({
+          mountPoint: target,
+          device: source,
+          fsType: fstype,
+          totalSize: sizeStr,
+          usedSize: usedStr,
+          freeSize: availStr,
+          usagePercent: usePct,
+          status: 'Mounted',
+          isReadOnly,
+          isLvm,
+          lvName,
           vgName,
-          path: lvPath,
-          size: `${parseFloat(parts[3] || '0').toFixed(2)} GB`,
-          mountPoint: mInfo?.mountPoint || null,
-          fsType: mInfo?.fsType || null,
-          usagePercent: usagePercent !== undefined ? usagePercent : undefined,
-          isMounted: !!mInfo,
+          options,
         });
+
+        if (Array.isArray(item.children)) {
+          extractFindmntChildren(item.children);
+        }
+      }
+    };
+
+    if (findmntJsonRaw.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(findmntJsonRaw);
+        if (Array.isArray(parsed.filesystems)) {
+          extractFindmntChildren(parsed.filesystems);
+        }
+      } catch {
+        // Fallback to df parser below
       }
     }
 
-    // DISKS lines: NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
-    const diskLines = getSection('DISKS', null);
-    for (const line of diskLines) {
-      const parts = line.split(/\s+/);
-      if (parts.length >= 2) {
-        const rawName = parts[0];
-        if (rawName.startsWith('loop') || rawName.startsWith('sr') || rawName.startsWith('ram')) continue;
-        const devName = rawName.startsWith('/') ? rawName : `/dev/${rawName}`;
-        const size = parts[1] || '-';
-        const type = parts[2] || 'disk';
-        const fstype = parts[3] && parts[3] !== '-' ? parts[3] : null;
-        const mountpoint = parts[4] && parts[4] !== '-' ? parts[4] : null;
+    // DF fallback / supplement if findmnt returned few or no rows
+    const dfRaw = getSection('DF', 'PVS');
+    if (dfRaw) {
+      const dfLines = dfRaw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('Filesystem'));
+      for (const line of dfLines) {
+        const parts = line.split(/\s+/);
+        if (parts.length >= 7) {
+          const dev = parts[0];
+          const fstype = parts[1];
+          const totalBytes = parseFloat(parts[2]);
+          const usedBytes = parseFloat(parts[3]);
+          const availBytes = parseFloat(parts[4]);
+          const usePct = parseFloat(parts[5].replace('%', '')) || 0;
+          const mountPoint = parts[6];
 
-        const isInLvm = pvs.some((pv) => pv.name === devName || pv.name.startsWith(devName));
+          // Check if already in filesystems
+          const existing = filesystems.find((fs) => fs.mountPoint === mountPoint);
+          if (!existing) {
+            const isLvm = dev.includes('/dev/mapper/') || dev.includes('/dev/mapper');
+            let vgName: string | null = null;
+            let lvName: string | null = null;
+            if (dev.startsWith('/dev/mapper/')) {
+              const mapperTail = dev.replace('/dev/mapper/', '');
+              const match = mapperTail.match(/^([^-]+(?:--[^-]+)*)-([^-]+(?:--[^-]+)*)$/);
+              if (match) {
+                vgName = match[1].replace(/--/g, '-');
+                lvName = match[2].replace(/--/g, '-');
+              }
+            }
 
-        availableDisks.push({
-          name: devName,
-          size,
-          type,
-          fstype,
-          mountpoint,
-          isInLvm,
-        });
+            filesystems.push({
+              mountPoint,
+              device: dev,
+              fsType: fstype,
+              totalSize: formatBytesHelper(totalBytes),
+              usedSize: formatBytesHelper(usedBytes),
+              freeSize: formatBytesHelper(availBytes),
+              usagePercent: usePct,
+              status: 'Mounted',
+              isReadOnly: false,
+              isLvm,
+              lvName,
+              vgName,
+            });
+          }
+        }
       }
     }
+
+    // 4. Parse Logical Volumes (LVs)
+    const lvsRaw = getSection('LVS', 'DISKS_FLAT');
+    const logicalVolumes: LinuxLogicalVolume[] = [];
+    const legacyLvs: LinuxLvmLv[] = [];
+
+    if (lvsRaw) {
+      const lines = lvsRaw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('==='));
+      for (const line of lines) {
+        const parts = line.split('|').map((p) => p.trim());
+        if (parts.length >= 4) {
+          const lvName = parts[0];
+          const vgName = parts[1];
+          let lvPath = parts[2] || `/dev/${vgName}/${lvName}`;
+          if (!lvPath.startsWith('/')) lvPath = `/dev/${lvPath}`;
+          const sizeVal = parseFloat(parts[3] || '0');
+          const lvAttr = parts[4] || 'active';
+
+          // Link to VG
+          const parentVg = volumeGroups.find((vg) => vg.name === vgName);
+          if (parentVg && !parentVg.lvs.includes(lvName)) {
+            parentVg.lvs.push(lvName);
+          }
+          const legacyParentVg = legacyVgs.find((vg) => vg.name === vgName);
+          if (legacyParentVg && legacyParentVg.lvs && !legacyParentVg.lvs.includes(lvName)) {
+            legacyParentVg.lvs.push(lvName);
+          }
+
+          // Correlate with filesystems
+          const mapperPath = `/dev/mapper/${vgName.replace(/-/g, '--')}-${lvName.replace(/-/g, '--')}`;
+          const matchedFs = filesystems.find(
+            (fs) =>
+              fs.device === lvPath ||
+              fs.device === mapperPath ||
+              (fs.vgName === vgName && fs.lvName === lvName) ||
+              fs.device.includes(`${vgName}-${lvName}`)
+          );
+
+          const lvItem: LinuxLogicalVolume = {
+            name: lvName,
+            vgName,
+            path: lvPath,
+            size: `${sizeVal.toFixed(2)} GB`,
+            fsType: matchedFs?.fsType || null,
+            mountPoint: matchedFs?.mountPoint || null,
+            usedSize: matchedFs?.usedSize,
+            freeSize: matchedFs?.freeSize,
+            usagePercent: matchedFs?.usagePercent,
+            isMounted: !!matchedFs,
+            isReadOnly: matchedFs?.isReadOnly || false,
+            status: lvAttr,
+          };
+          logicalVolumes.push(lvItem);
+
+          legacyLvs.push({
+            name: lvName,
+            vgName,
+            path: lvPath,
+            size: `${sizeVal.toFixed(2)} GB`,
+            mountPoint: matchedFs?.mountPoint || null,
+            fsType: matchedFs?.fsType || null,
+            usagePercent: matchedFs?.usagePercent,
+            isMounted: !!matchedFs,
+            isReadOnly: matchedFs?.isReadOnly || false,
+            usedSize: matchedFs?.usedSize,
+            freeSize: matchedFs?.freeSize,
+          });
+        }
+      }
+    }
+
+    // 5. Parse Physical Disks & Partitions (from LSBLK JSON or fallback)
+    const physicalDisks: LinuxPhysicalDisk[] = [];
+    const availableDisks: LinuxRawDisk[] = [];
+    const lsblkJsonRaw = getSection('LSBLK_JSON', 'FINDMNT_JSON');
+
+    if (lsblkJsonRaw.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(lsblkJsonRaw);
+        const blockdevices = Array.isArray(parsed.blockdevices) ? parsed.blockdevices : [];
+
+        for (const item of blockdevices) {
+          const rawName = item.name || '';
+          if (rawName.startsWith('loop') || rawName.startsWith('ram')) continue;
+          if (rawName.startsWith('sr') && (!item.size || item.size === 0)) continue;
+
+          const devPath = item.path || (rawName.startsWith('/') ? rawName : `/dev/${rawName}`);
+          const sizeStr = item.size ? formatBytesHelper(item.size) : '-';
+
+          // Detect media type
+          let mediaType: 'SSD' | 'HDD' | 'NVMe' | 'Unknown' = 'Unknown';
+          if (devPath.includes('nvme') || item.tran === 'nvme') {
+            mediaType = 'NVMe';
+          } else if (item.rota === 0 || item.rota === '0') {
+            mediaType = 'SSD';
+          } else if (item.rota === 1 || item.rota === '1') {
+            mediaType = 'HDD';
+          }
+
+          // Partitions
+          const partitions: LinuxPartition[] = [];
+          if (Array.isArray(item.children)) {
+            for (const child of item.children) {
+              const childPath = child.path || (child.name.startsWith('/') ? child.name : `/dev/${child.name}`);
+              const isInChildLvm = physicalVolumes.some((pv) => pv.name === childPath);
+              partitions.push({
+                name: childPath,
+                size: child.size ? formatBytesHelper(child.size) : '-',
+                fsType: child.fstype || null,
+                mountPoint: child.mountpoint || null,
+                uuid: child.uuid || null,
+                partLabel: child.partlabel || null,
+                isInLvm: isInChildLvm,
+              });
+            }
+          }
+
+          const isInLvm = physicalVolumes.some(
+            (pv) => pv.name === devPath || pv.parentDisk === devPath || partitions.some((p) => p.name === pv.name)
+          );
+
+          const hasPartitions = partitions.length > 0;
+          const hasDirectMount = !!item.mountpoint;
+          const hasDirectFs = !!item.fstype;
+          const isUsed = hasPartitions || hasDirectMount || hasDirectFs || isInLvm;
+          const isAvailable = !isUsed;
+
+          physicalDisks.push({
+            name: devPath,
+            model: item.model || null,
+            serial: item.serial || null,
+            size: sizeStr,
+            type: item.type || 'disk',
+            mediaType,
+            transport: item.tran || null,
+            health: 'Healthy',
+            partitionCount: partitions.length,
+            isUsed,
+            isInLvm,
+            isAvailable,
+            partitions,
+          });
+
+          availableDisks.push({
+            name: devPath,
+            size: sizeStr,
+            type: item.type || 'disk',
+            fstype: item.fstype || null,
+            mountpoint: item.mountpoint || null,
+            model: item.model || undefined,
+            isInLvm,
+            isAvailable,
+          });
+        }
+      } catch {
+        // Fallback to flat lines if json parse fails
+      }
+    }
+
+    // If physicalDisks empty, parse from DISKS_FLAT
+    if (physicalDisks.length === 0) {
+      const flatLines = getSection('DISKS_FLAT', null).split(/\r?\n/).filter((l) => l.trim());
+      for (const line of flatLines) {
+        const parts = line.split(/\s+/);
+        if (parts.length >= 2) {
+          const rawName = parts[0];
+          if (rawName.startsWith('loop') || rawName.startsWith('ram') || rawName.startsWith('sr')) continue;
+          const devPath = rawName.startsWith('/') ? rawName : `/dev/${rawName}`;
+          const size = parts[1] || '-';
+          const type = parts[2] || 'disk';
+          const fstype = parts[3] && parts[3] !== '-' ? parts[3] : null;
+          const mountpoint = parts[4] && parts[4] !== '-' ? parts[4] : null;
+
+          const isInLvm = physicalVolumes.some((pv) => pv.name === devPath || pv.parentDisk === devPath);
+          const isUsed = !!fstype || !!mountpoint || isInLvm;
+
+          physicalDisks.push({
+            name: devPath,
+            model: null,
+            serial: null,
+            size: formatBytesHelper(size),
+            type,
+            mediaType: devPath.includes('nvme') ? 'NVMe' : 'SSD',
+            transport: devPath.includes('nvme') ? 'nvme' : 'scsi',
+            health: 'Healthy',
+            partitionCount: 0,
+            isUsed,
+            isInLvm,
+            isAvailable: !isUsed,
+            partitions: [],
+          });
+
+          availableDisks.push({
+            name: devPath,
+            size: formatBytesHelper(size),
+            type,
+            fstype,
+            mountpoint,
+            isInLvm,
+            isAvailable: !isUsed,
+          });
+        }
+      }
+    }
+
+    // Summary calculation
+    const summary = {
+      totalDiskCount: physicalDisks.length,
+      availableDiskCount: physicalDisks.filter((d) => d.isAvailable).length,
+      totalMountedCount: filesystems.length,
+      totalVgCount: volumeGroups.length,
+      totalLvCount: logicalVolumes.length,
+    };
 
     return {
-      pvs,
-      vgs,
-      lvs,
-      availableDisks,
+      filesystems,
+      physicalDisks,
+      physicalVolumes,
+      volumeGroups,
+      logicalVolumes,
       lvmInstalled,
+      summary,
+      // Backward compatibility aliases
+      pvs: legacyPvs,
+      vgs: legacyVgs,
+      lvs: legacyLvs,
+      availableDisks,
     };
   } catch (err: any) {
-    console.error(`[fetchLinuxLvmOverviewSSH] error:`, err?.message || err);
+    console.error(`[fetchLinuxStorageOverviewSSH] error:`, err?.message || err);
     return {
+      filesystems: [],
+      physicalDisks: [],
+      physicalVolumes: [],
+      volumeGroups: [],
+      logicalVolumes: [],
+      lvmInstalled: false,
+      summary: {
+        totalDiskCount: 0,
+        availableDiskCount: 0,
+        totalMountedCount: 0,
+        totalVgCount: 0,
+        totalLvCount: 0,
+      },
       pvs: [],
       vgs: [],
       lvs: [],
       availableDisks: [],
-      lvmInstalled: false,
+    };
+  }
+}
+
+// Backward-compatibility alias
+export const fetchLinuxLvmOverviewSSH = fetchLinuxStorageOverviewSSH;
+
+/**
+ * Workflow A: Takes an unused/available disk, optionally partitions it with a GPT table,
+ * formats it with the selected filesystem (ext4, xfs, btrfs), creates the mount directory,
+ * mounts it immediately, and registers it in /etc/fstab for reboot persistence.
+ */
+export async function formatAndMountLinuxDiskSSH(
+  server: RemoteServer,
+  payload: LinuxDiskFormatMountPayload,
+  ephemeralPassword?: string,
+  timeoutMs: number = 35000
+): Promise<{ success: boolean; message: string; targetDevice?: string; mountPoint?: string }> {
+  const { diskPath, partition, fsType, mountPath, label, persistInFstab } = payload;
+  const cleanDisk = (diskPath || '').trim().replace(/[^a-zA-Z0-9_\-/]/g, '');
+  const cleanMount = (mountPath || '').trim();
+  const cleanFs = (fsType || 'ext4').trim().toLowerCase();
+  const cleanLabel = (label || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+
+  if (!cleanDisk) throw new Error('Target disk path is required.');
+  if (!cleanMount || !cleanMount.startsWith('/')) {
+    throw new Error('Target mount point must be an absolute path starting with /.');
+  }
+
+  // Prevent dangerous mount locations
+  const forbidden = ['/', '/boot', '/proc', '/sys', '/dev', '/etc', '/bin', '/sbin', '/lib', '/usr', '/var'];
+  if (forbidden.includes(cleanMount)) {
+    throw new Error(`Mounting directly to system path "${cleanMount}" is prohibited for system safety.`);
+  }
+
+  const script = `export LC_ALL=C
+set -e
+
+# 1. Validate block device
+if [ ! -b "${cleanDisk}" ]; then
+  echo "ERR:NOT_A_BLOCK_DEVICE: Target ${cleanDisk} is not a valid block device."
+  exit 1
+fi
+
+# 2. Check if currently mounted
+if mount | grep -qs "${cleanDisk}"; then
+  echo "ERR:DEVICE_CURRENTLY_MOUNTED: ${cleanDisk} is currently active and mounted. Cannot format an active filesystem."
+  exit 1
+fi
+
+# 3. Check if in active LVM
+if sudo pvs "${cleanDisk}" >/dev/null 2>&1 || pvs "${cleanDisk}" >/dev/null 2>&1; then
+  echo "ERR:DEVICE_IN_LVM: ${cleanDisk} is currently configured as an LVM Physical Volume. Remove it from LVM before creating an independent filesystem."
+  exit 1
+fi
+
+TARGET_DEV="${cleanDisk}"
+
+# 4. Partition disk if requested
+if [ "${partition !== false ? '1' : '0'}" = "1" ]; then
+  # Create GPT label and single partition spanning 100% of disk
+  sudo parted -s "${cleanDisk}" mklabel gpt mkpart primary "${cleanFs}" 2048s 100% 2>&1 || true
+  sudo partprobe "${cleanDisk}" 2>/dev/null || sudo partx -u "${cleanDisk}" 2>/dev/null || true
+  sudo udevadm settle 2>/dev/null || sleep 1
+
+  # Resolve partition path
+  if [ -b "${cleanDisk}1" ]; then
+    TARGET_DEV="${cleanDisk}1"
+  elif [ -b "${cleanDisk}p1" ]; then
+    TARGET_DEV="${cleanDisk}p1"
+  else
+    PART_NAME=$(lsblk -ln -o NAME "${cleanDisk}" | sed 1d | head -n 1)
+    if [ -n "$PART_NAME" ] && [ -b "/dev/$PART_NAME" ]; then
+      TARGET_DEV="/dev/$PART_NAME"
+    fi
+  fi
+fi
+
+# 5. Format Filesystem
+LABEL_OPT=""
+if [ -n "${cleanLabel}" ]; then
+  LABEL_OPT="-L ${cleanLabel}"
+fi
+
+if [ "${cleanFs}" = "xfs" ]; then
+  sudo mkfs.xfs -f $LABEL_OPT "$TARGET_DEV" 2>&1
+elif [ "${cleanFs}" = "btrfs" ]; then
+  sudo mkfs.btrfs -f $LABEL_OPT "$TARGET_DEV" 2>&1
+else
+  sudo mkfs.ext4 -F $LABEL_OPT "$TARGET_DEV" 2>&1
+fi
+
+# 6. Create Mount Directory and Mount
+sudo mkdir -p "${cleanMount}"
+sudo mount "$TARGET_DEV" "${cleanMount}" 2>&1
+
+# 7. Persistent /etc/fstab entry
+if [ "${persistInFstab ? '1' : '0'}" = "1" ]; then
+  UUID_VAL=$(sudo blkid -s UUID -o value "$TARGET_DEV" 2>/dev/null || true)
+  if [ -n "$UUID_VAL" ]; then
+    FSTAB_LINE="UUID=$UUID_VAL ${cleanMount} ${cleanFs} defaults,nofail 0 2"
+  else
+    FSTAB_LINE="$TARGET_DEV ${cleanMount} ${cleanFs} defaults,nofail 0 2"
+  fi
+  if ! grep -qs "${cleanMount}" /etc/fstab; then
+    echo "$FSTAB_LINE" | sudo tee -a /etc/fstab >/dev/null
+  fi
+fi
+
+echo "FORMAT_MOUNT_SUCCESS:$TARGET_DEV"
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+
+    if (raw.includes('FORMAT_MOUNT_SUCCESS')) {
+      const match = raw.match(/FORMAT_MOUNT_SUCCESS:(\S+)/);
+      const targetDev = match ? match[1] : cleanDisk;
+      return {
+        success: true,
+        targetDevice: targetDev,
+        mountPoint: cleanMount,
+        message: `Device "${cleanDisk}" formatted as ${cleanFs.toUpperCase()} (${targetDev}) and successfully mounted to "${cleanMount}"${persistInFstab ? ' (persisted in /etc/fstab)' : ''}.`,
+      };
+    }
+
+    if (raw.includes('ERR:NOT_A_BLOCK_DEVICE')) {
+      return { success: false, message: `Target "${cleanDisk}" is not a valid block device.` };
+    }
+    if (raw.includes('ERR:DEVICE_CURRENTLY_MOUNTED')) {
+      return { success: false, message: `Device "${cleanDisk}" is currently mounted. Unmount it first.` };
+    }
+    if (raw.includes('ERR:DEVICE_IN_LVM')) {
+      return { success: false, message: `Device "${cleanDisk}" is an active LVM Physical Volume.` };
+    }
+
+    return {
+      success: true,
+      message: raw.trim() || `Disk formatted and mounted to ${cleanMount}.`,
+      targetDevice: cleanDisk,
+      mountPoint: cleanMount,
+    };
+  } catch (err: any) {
+    console.error(`[formatAndMountLinuxDiskSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Failed to format and mount disk: ${err?.message || err}`,
     };
   }
 }

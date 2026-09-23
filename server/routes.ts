@@ -98,8 +98,10 @@ import {
   deleteLinuxDirectoryPolicySSH,
   runLinuxDirectoryPolicyNowSSH,
   fetchLinuxDirectoryPolicyLogsSSH,
+  fetchLinuxStorageOverviewSSH,
   fetchLinuxLvmOverviewSSH,
   rescanLinuxStorageSSH,
+  formatAndMountLinuxDiskSSH,
   extendLinuxLvSSH,
   createLinuxLvmVolumeSSH,
   shrinkLinuxLvSSH,
@@ -2684,9 +2686,63 @@ const handleLinuxLvmOverview = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/lvm-overview', handleLinuxLvmOverview);
 apiRouter.post('/remote-servers/:id/lvm-overview', handleLinuxLvmOverview);
+apiRouter.get('/remote-servers/:id/storage-overview', handleLinuxLvmOverview);
+apiRouter.post('/remote-servers/:id/storage-overview', handleLinuxLvmOverview);
 
-// POST /api/remote-servers/:id/lvm-rescan - Online SCSI & Block Device Rescan without reboot
-apiRouter.post('/remote-servers/:id/lvm-rescan', async (req: Request, res: Response) => {
+// POST /api/remote-servers/:id/disk-format-mount - Workflow A: Format raw disk/partition & Mount (ext4/xfs/btrfs)
+apiRouter.post('/remote-servers/:id/disk-format-mount', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { diskPath, partition, fsType, mountPath, label, persistInFstab, password } = req.body;
+
+    if (!diskPath || !mountPath) {
+      return res.status(400).json({ success: false, error: 'diskPath and mountPath are required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'Disk management is only supported on Linux servers.' });
+    }
+
+    const result = await formatAndMountLinuxDiskSSH(
+      server,
+      {
+        diskPath,
+        partition: partition !== false,
+        fsType: fsType || 'ext4',
+        mountPath,
+        label,
+        persistInFstab: persistInFstab !== false,
+      },
+      password
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Format & Mount Disk (${diskPath} -> ${mountPath})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (${diskPath})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxDiskFormatMount API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to format and mount disk',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/lvm-rescan & /storage-rescan - Online SCSI & Block Device Rescan without reboot
+const handleLinuxStorageRescan = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { password } = req.body;
@@ -2719,7 +2775,10 @@ apiRouter.post('/remote-servers/:id/lvm-rescan', async (req: Request, res: Respo
       error: err.message || 'Failed to rescan storage devices',
     });
   }
-});
+};
+
+apiRouter.post('/remote-servers/:id/lvm-rescan', handleLinuxStorageRescan);
+apiRouter.post('/remote-servers/:id/storage-rescan', handleLinuxStorageRescan);
 
 // POST /api/remote-servers/:id/lvm-extend - Extend Logical Volume & dynamic filesystem grow
 apiRouter.post('/remote-servers/:id/lvm-extend', async (req: Request, res: Response) => {

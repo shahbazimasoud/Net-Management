@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.127.1';
+export const APP_VERSION = '1.128.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.128.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'بازنویسی کامل و از صفر تب Storage & Disks مانیتورینگ سرور لینوکس با معماری واقعی سلسله‌مراتبی و بدون داده‌های شبیه‌سازی‌شده',
+    title_en: 'Complete Ground-Up Rebuild of Linux Storage & Disks Interface: Authentic Hierarchy (Disk → Partition → PV → VG → LV → FS → Mount), Zero Mock Data & Real Hardware Discovery',
+    changes: [
+      'حذف کامل پیاده‌سازی قدیمی و غیراستاندارد Storage & Disks و جایگزینی با ماژول کاملاً استاندارد LinuxStorageManager.',
+      'پیاده‌سازی دقیق سلسله‌مراتب ۶ لایه‌ای ذخیره‌سازی لینوکس: دیسک فیزیکی ➔ پارتیشن ➔ حجم فیزیکی (PV) ➔ گروه حجمی (VG) ➔ حجم منطقی (LV) ➔ فایل‌سیستم ➔ نقطه مانت.',
+      'پشتیبانی هم‌زمان از سناریوهای سنتی بدون LVM (دیسک مستقیم به مانت، یا دیسک ➔ پارتیشن ➔ مانت) و سناریوهای پیشرفته LVM.',
+      'پیاده‌سازی اکشن زنده و واقعی Scan for Disks با اسکن کنترلرهای SCSI هسته لینوکس و رفرش آنلاین بلاک دیوایس‌ها بدون نیاز به ریبوت.',
+      'پیاده‌سازی سناریوی مدیریت دیسک آزاد (Workflow A - ایجاد فایل‌سیستم مستقل با GPT، انتخاب نوع ext4/xfs/btrfs، ثبت در /etc/fstab و مانت زنده).',
+      'پیاده‌سازی سناریوی الحاق دیسک به LVM (Workflow B - اجرای pvcreate و vgextend جهت افزایش فضای آزاد Volume Group).',
+      'پیاده‌سازی گسترش آنلاین حجم‌های منطقی (Extend LV) و بزرگ‌سازی فوری فایل‌سیستم (Online Filesystem Grow با resize2fs و xfs_growfs).',
+      'تجهیز تمامی مودال‌ها به کنترل‌های سه‌گانه هدر (بستن، مینیمایز، تمام‌صفحه با رعایت حریم فوتر)، رعایت دو زبانه کامل و تولتیپ‌های استاندارد راهنما.',
+    ],
+    changes_en: [
+      'Completely removed obsolete, unreliable Storage & Disks implementation and rebuilt clean LinuxStorageManager from scratch.',
+      'Faithfully implemented authentic 6-tier Linux storage hierarchy: Physical Disk → Partition → PV → VG → LV → Filesystem → Mount Point with zero simulated data.',
+      'Full architectural support for both non-LVM direct disk/partition mounts and enterprise LVM multi-disk storage pools.',
+      'Engineered real live "Scan for Disks" action triggering kernel SCSI bus rescan and block device rediscovery dynamically.',
+      'Implemented Workflow A: Create New Filesystem (GPT partitioning, ext4/xfs/btrfs selection, /etc/fstab boot persistence, and live mounting).',
+      'Implemented Workflow B: Add Disk to Existing LVM (pvcreate block device initialization and vgextend expansion of target Volume Group).',
+      'Implemented seamless Logical Volume extension (lvextend) followed by automatic online filesystem resizing (resize2fs / xfs_growfs).',
+      'Equipped all storage modals with universal 3-button headers (Close, Minimize, Fullscreen with footer boundary clearance), strict bilingual i18n, and boundary-safe 3-part info tooltips.',
+    ],
+  },
   {
     version: '1.127.1',
     releaseDate: '2026-09-23',

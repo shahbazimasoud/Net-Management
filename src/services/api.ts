@@ -23,6 +23,8 @@ import {
   LinuxProxyConfig,
   LinuxBlockDevice,
   LinuxMountPayload,
+  LinuxStorageOverview,
+  LinuxDiskFormatMountPayload,
   LinuxLvmOverview,
   LinuxLvmExtendPayload,
   LinuxLvmCreatePayload,
@@ -2035,8 +2037,67 @@ export async function unmountLinuxFilesystem(
 }
 
 // ----------------------------------------------------
-// Linux LVM (Logical Volume Management) API
+// Linux Storage & LVM Management API
 // ----------------------------------------------------
+
+export async function fetchLinuxStorageOverview(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  filesystems?: LinuxStorageOverview['filesystems'];
+  physicalDisks?: LinuxStorageOverview['physicalDisks'];
+  physicalVolumes?: LinuxStorageOverview['physicalVolumes'];
+  volumeGroups?: LinuxStorageOverview['volumeGroups'];
+  logicalVolumes?: LinuxStorageOverview['logicalVolumes'];
+  summary?: LinuxStorageOverview['summary'];
+  pvs?: LinuxStorageOverview['pvs'];
+  vgs?: LinuxStorageOverview['vgs'];
+  lvs?: LinuxStorageOverview['lvs'];
+  availableDisks?: LinuxStorageOverview['availableDisks'];
+  lvmInstalled?: boolean;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/storage-overview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function formatAndMountLinuxDisk(
+  serverId: string,
+  payload: LinuxDiskFormatMountPayload,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  targetDevice?: string;
+  mountPoint?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/disk-format-mount`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
 
 export async function fetchLinuxLvmOverview(
   serverId: string,

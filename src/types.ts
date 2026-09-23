@@ -1603,6 +1603,111 @@ export interface LinuxBlockDevice {
   label?: string | null;
 }
 
+export interface LinuxMountedFilesystem {
+  mountPoint: string;
+  device: string;
+  fsType: string;
+  totalSize: string;
+  usedSize: string;
+  freeSize: string;
+  usagePercent: number;
+  status: 'Mounted' | 'Unmounted';
+  isReadOnly: boolean;
+  isLvm: boolean;
+  lvName: string | null;
+  vgName: string | null;
+  options?: string;
+}
+
+export interface LinuxPartition {
+  name: string;
+  size: string;
+  fsType: string | null;
+  mountPoint: string | null;
+  uuid: string | null;
+  partLabel: string | null;
+  isInLvm: boolean;
+}
+
+export interface LinuxPhysicalDisk {
+  name: string;
+  model: string | null;
+  serial: string | null;
+  size: string;
+  type: string; // 'disk'
+  mediaType: 'SSD' | 'HDD' | 'NVMe' | 'Unknown';
+  transport: string | null; // 'sata' | 'nvme' | 'scsi' | 'virtio' | 'usb'
+  health: string | null;
+  partitionCount: number;
+  isUsed: boolean;
+  isInLvm: boolean;
+  isAvailable: boolean; // "New / Available" (no partitions, no mounts, not in LVM)
+  partitions: LinuxPartition[];
+}
+
+export interface LinuxPhysicalVolume {
+  name: string;
+  device: string;
+  parentDisk: string;
+  size: string;
+  allocated: string;
+  free: string;
+  vgName: string;
+  format?: string;
+  status: string;
+}
+
+export interface LinuxVolumeGroup {
+  name: string;
+  totalSize: string;
+  allocatedSize: string;
+  freeSize: string;
+  pvCount: number;
+  lvCount: number;
+  pvs: string[];
+  lvs: string[];
+}
+
+export interface LinuxLogicalVolume {
+  name: string;
+  vgName: string;
+  path: string;
+  size: string;
+  fsType: string | null;
+  mountPoint: string | null;
+  usedSize?: string;
+  freeSize?: string;
+  usagePercent?: number;
+  isMounted: boolean;
+  isReadOnly?: boolean;
+  status: string;
+}
+
+export interface LinuxStorageSummary {
+  totalDiskCount: number;
+  availableDiskCount: number;
+  totalMountedCount: number;
+  totalVgCount: number;
+  totalLvCount: number;
+  totalStorageHuman?: string;
+  usedStorageHuman?: string;
+}
+
+export interface LinuxStorageOverview {
+  filesystems: LinuxMountedFilesystem[];
+  physicalDisks: LinuxPhysicalDisk[];
+  physicalVolumes: LinuxPhysicalVolume[];
+  volumeGroups: LinuxVolumeGroup[];
+  logicalVolumes: LinuxLogicalVolume[];
+  lvmInstalled: boolean;
+  summary: LinuxStorageSummary;
+  // Backward compatibility fields
+  pvs: LinuxLvmPv[];
+  vgs: LinuxLvmVg[];
+  lvs: LinuxLvmLv[];
+  availableDisks: LinuxRawDisk[];
+}
+
 export interface LinuxLvmPv {
   name: string;
   vgName: string;
@@ -1610,6 +1715,8 @@ export interface LinuxLvmPv {
   free: string;
   used: string;
   format?: string;
+  device?: string;
+  parentDisk?: string;
 }
 
 export interface LinuxLvmVg {
@@ -1618,6 +1725,9 @@ export interface LinuxLvmVg {
   lvCount: number;
   size: string;
   free: string;
+  allocatedSize?: string;
+  pvs?: string[];
+  lvs?: string[];
 }
 
 export interface LinuxLvmLv {
@@ -1629,6 +1739,9 @@ export interface LinuxLvmLv {
   fsType?: string | null;
   usagePercent?: number;
   isMounted?: boolean;
+  isReadOnly?: boolean;
+  usedSize?: string;
+  freeSize?: string;
 }
 
 export interface LinuxRawDisk {
@@ -1639,14 +1752,18 @@ export interface LinuxRawDisk {
   mountpoint?: string | null;
   model?: string;
   isInLvm?: boolean;
+  isAvailable?: boolean;
 }
 
-export interface LinuxLvmOverview {
-  pvs: LinuxLvmPv[];
-  vgs: LinuxLvmVg[];
-  lvs: LinuxLvmLv[];
-  availableDisks: LinuxRawDisk[];
-  lvmInstalled: boolean;
+export type LinuxLvmOverview = LinuxStorageOverview;
+
+export interface LinuxDiskFormatMountPayload {
+  diskPath: string; // e.g. "/dev/sdb"
+  partition?: boolean; // true to create GPT partition
+  fsType: 'ext4' | 'xfs' | 'btrfs';
+  mountPath: string; // e.g. "/data" or "/backup"
+  label?: string;
+  persistInFstab?: boolean;
 }
 
 export interface LinuxLvmExtendPayload {

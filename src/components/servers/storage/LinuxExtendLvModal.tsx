@@ -1,587 +1,350 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
+  Layers,
   X,
   Minus,
   Maximize2,
   Minimize2,
   HardDrive,
   Maximize,
-  ArrowUpRight,
-  AlertTriangle,
-  CheckCircle2,
-  RefreshCw,
-  Plus,
-  Layers,
-  Sparkles,
   ArrowRight,
-  PlusCircle,
-  FolderPlus,
+  AlertCircle,
+  CheckCircle2,
+  ShieldAlert,
 } from 'lucide-react';
-import { RemoteServer, LinuxLvmLv, LinuxLvmVg, LinuxRawDisk } from '../../../types';
-import { extendLinuxLvVolume } from '../../../services/api';
-import { FieldInfoTooltip } from '../../common/FieldInfoTooltip';
+import { useLanguage } from '../../../i18n/LanguageContext';
+import { LinuxLogicalVolume, LinuxVolumeGroup, LinuxRawDisk } from '../../../types';
+import { FieldInfoTooltip } from '../../vpn/FieldInfoTooltip';
+import { LinuxStorageConfirmationModal } from './LinuxStorageConfirmationModal';
 
-interface LinuxExtendLvModalProps {
+export interface LinuxExtendLvModalProps {
   isOpen: boolean;
-  server: RemoteServer;
-  targetLv: LinuxLvmLv | null;
-  allLvs: LinuxLvmLv[];
-  allVgs: LinuxLvmVg[];
-  availableDisks: LinuxRawDisk[];
-  ephemeralPassword?: string;
   onClose: () => void;
-  onMinimize?: () => void;
-  onSuccess: () => void;
-  onOpenAddDiskToVg?: (vgName?: string) => void;
-  onOpenCreateLvm?: (vgName?: string) => void;
+  lv: LinuxLogicalVolume | null;
+  volumeGroups: LinuxVolumeGroup[];
+  availableDisks?: LinuxRawDisk[];
+  onExtend: (params: {
+    lvPath: string;
+    vgName: string;
+    addSize: string;
+    diskToAddToVg?: string;
+  }) => Promise<void>;
   isLightMode?: boolean;
-  isEn?: boolean;
+  isLoading?: boolean;
 }
 
 export const LinuxExtendLvModal: React.FC<LinuxExtendLvModalProps> = ({
   isOpen,
-  server,
-  targetLv,
-  allLvs,
-  allVgs,
-  availableDisks,
-  ephemeralPassword,
   onClose,
-  onMinimize,
-  onSuccess,
-  onOpenAddDiskToVg,
-  onOpenCreateLvm,
+  lv,
+  volumeGroups,
+  availableDisks = [],
+  onExtend,
   isLightMode = false,
-  isEn = true,
+  isLoading = false,
 }) => {
+  const { isEn } = useLanguage();
   const [isMaximized, setIsMaximized] = useState(false);
-  const [selectedLvPath, setSelectedLvPath] = useState('');
   const [addSize, setAddSize] = useState('10G');
-  const [useAllFree, setUseAllFree] = useState(false);
-  const [includeRawDisk, setIncludeRawDisk] = useState(false);
-  const [selectedRawDisk, setSelectedRawDisk] = useState('');
+  const [diskToAddToVg, setDiskToAddToVg] = useState('');
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  if (!isOpen || !lv) return null;
 
-  // Initialize or reset selected LV
-  useEffect(() => {
-    if (targetLv) {
-      setSelectedLvPath(targetLv.path);
-    } else if (allLvs.length > 0) {
-      setSelectedLvPath(allLvs[0].path);
-    }
-    setFeedback(null);
-  }, [targetLv, allLvs, isOpen]);
+  const currentVg = volumeGroups.find((vg) => vg.name === lv.vgName);
+  const vgFreeStr = currentVg?.freeSize || '0 GB';
+  const vgTotalStr = currentVg?.totalSize || '0 GB';
 
-  // Current active LV and its VG
-  const currentLv = allLvs.find((l) => l.path === selectedLvPath) || targetLv;
-  const currentVg = allVgs.find((v) => v.name === currentLv?.vgName);
-
-  // Available raw disks that are not in LVM
-  const unassignedDisks = availableDisks.filter((d) => !d.isInLvm);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentLv) return;
-
-    const sizeValue = useAllFree ? '100%FREE' : addSize.trim();
-    if (!sizeValue) {
-      setFeedback({
-        type: 'error',
-        message: isEn ? 'Please specify the size to add.' : 'لطفاً میزان فضای افزایش را مشخص کنید.',
-      });
+  const handleStartExtend = () => {
+    setValidationError(null);
+    const cleanSize = addSize.trim().toUpperCase();
+    if (!cleanSize) {
+      setValidationError(isEn ? 'Please specify the size to add (e.g. 10G or 100%FREE).' : 'لطفاً میزان حجم افزایش را مشخص کنید (مثال: 10G یا 100%FREE).');
       return;
     }
 
-    setSubmitting(true);
-    setFeedback(null);
-
-    try {
-      const res = await extendLinuxLvVolume(
-        server.id,
-        {
-          lvPath: currentLv.path,
-          vgName: currentLv.vgName,
-          addSize: sizeValue,
-          diskToAddToVg: includeRawDisk && selectedRawDisk ? selectedRawDisk : undefined,
-          fsType: currentLv.fsType || undefined,
-          mountPoint: currentLv.mountPoint || undefined,
-        },
-        ephemeralPassword
-      );
-
-      if (res.success) {
-        setFeedback({
-          type: 'success',
-          message: res.message || (isEn ? 'Logical Volume extended successfully!' : 'فضای لاجیکال ولوم با موفقیت افزایش یافت!'),
-        });
-        onSuccess();
-      } else {
-        setFeedback({
-          type: 'error',
-          message: res.error || res.message || (isEn ? 'Failed to extend Logical Volume.' : 'خطا در افزایش فضای لاجیکال ولوم.'),
-        });
-      }
-    } catch (err: any) {
-      setFeedback({
-        type: 'error',
-        message: err?.message || (isEn ? 'Connection error occurred.' : 'خطای ارتباط با سرور رخ داد.'),
-      });
-    } finally {
-      setSubmitting(false);
+    if (!cleanSize.endsWith('G') && !cleanSize.endsWith('M') && !cleanSize.endsWith('T') && cleanSize !== '100%FREE') {
+      setValidationError(isEn ? 'Size unit must be G, M, T or 100%FREE (e.g. 5G, 20G).' : 'واحد حجم باید G, M, T یا 100%FREE باشد (مثال: 5G, 20G).');
+      return;
     }
+
+    setIsConfirmOpen(true);
   };
 
-  if (!isOpen) return null;
+  const handleExecuteConfirmed = async () => {
+    setIsConfirmOpen(false);
+    await onExtend({
+      lvPath: lv.path,
+      vgName: lv.vgName,
+      addSize: addSize.trim().toUpperCase(),
+      diskToAddToVg: diskToAddToVg || undefined,
+    });
+  };
 
-  return (
-    <div
-      className={
-        isMaximized
-          ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 flex flex-col bg-slate-950/80 backdrop-blur-sm'
-          : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm'
-      }
-      dir={isEn ? 'ltr' : 'rtl'}
-    >
+  const modalContent = (
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
       <div
-        className={`w-full flex flex-col transition-all duration-200 overflow-hidden shadow-2xl ${
+        className={`relative flex flex-col transition-all duration-200 overflow-hidden shadow-2xl border ${
           isMaximized
-            ? 'h-full max-w-none max-h-full rounded-none border-none'
-            : 'max-w-2xl max-h-[90vh] rounded-2xl border'
+            ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 w-full h-full max-w-none max-h-full rounded-none border-none'
+            : 'w-full max-w-xl rounded-xl'
         } ${
           isLightMode
-            ? 'bg-white text-slate-800 border-slate-200'
-            : 'bg-slate-950 text-slate-100 border-slate-800'
+            ? 'bg-white border-slate-200 text-slate-800'
+            : 'bg-slate-900 border-slate-700/80 text-slate-100'
         }`}
       >
-        {/* Header with mandatory 3 buttons */}
+        {/* Header */}
         <div
-          className={`flex items-center justify-between px-5 py-4 border-b shrink-0 ${
-            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+          className={`flex items-center justify-between px-5 py-3.5 border-b select-none ${
+            isLightMode ? 'bg-slate-100 border-slate-200 text-slate-800' : 'bg-slate-800/80 border-slate-700 text-slate-100'
           }`}
         >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-              <Maximize className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold flex items-center gap-2">
-                <span>{isEn ? 'Extend Logical Volume' : 'افزایش فضای لاجیکال ولوم (LVM)'}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full font-mono font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  {currentLv ? currentLv.name : 'LV'}
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {isEn
-                  ? 'Dynamically expand volume capacity and filesystem online without downtime.'
-                  : 'افزایش زنده ظرفیت دیسک و فایل‌سیستم بدون توقف سرویس‌ها یا نیاز به ریبوت.'}
-              </p>
-            </div>
+          <div className="flex items-center gap-2.5 font-semibold text-sm">
+            <Maximize className="w-5 h-5 text-emerald-400" />
+            <span>
+              {isEn ? `Extend Logical Volume: ${lv.name}` : `توسعه حجم منطقی: ${lv.name}`}
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
-            {onMinimize && (
-              <button
-                type="button"
-                onClick={onMinimize}
-                className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                  isLightMode
-                    ? 'hover:bg-slate-200 text-slate-600'
-                    : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-                title={isEn ? 'Minimize' : 'کوچک‌نمایی'}
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-            )}
-
             <button
-              type="button"
-              onClick={() => setIsMaximized(!isMaximized)}
-              className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                isLightMode
-                  ? 'hover:bg-slate-200 text-slate-600'
-                  : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+              onClick={onClose}
+              title={isEn ? 'Minimize' : 'کوچک کردن'}
+              className={`p-1.5 rounded-md transition-colors ${
+                isLightMode ? 'hover:bg-slate-200 text-slate-600' : 'hover:bg-slate-700 text-slate-300'
               }`}
-              title={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setIsMaximized((prev) => !prev)}
+              title={isEn ? (isMaximized ? 'Exit Fullscreen' : 'Fullscreen') : isMaximized ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه'}
+              className={`p-1.5 rounded-md transition-colors ${
+                isLightMode ? 'hover:bg-slate-200 text-slate-600' : 'hover:bg-slate-700 text-slate-300'
+              }`}
             >
               {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
-
             <button
-              type="button"
               onClick={onClose}
-              className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                isLightMode
-                  ? 'hover:bg-rose-100 text-slate-600 hover:text-rose-600'
-                  : 'hover:bg-rose-950/40 text-slate-400 hover:text-rose-400'
-              }`}
               title={isEn ? 'Close' : 'بستن'}
+              className={`p-1.5 rounded-md transition-colors ${
+                isLightMode ? 'hover:bg-rose-100 text-rose-600' : 'hover:bg-rose-900/40 text-rose-400'
+              }`}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Content Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Target LV Selector */}
+        {/* Current State Grid */}
+        <div
+          className={`px-5 py-3.5 border-b grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs ${
+            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+          }`}
+        >
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold flex items-center gap-1.5">
-                <span>{isEn ? 'Target Logical Volume (LV)' : 'انتخاب لاجیکال ولوم مقصد'}</span>
-              </label>
-              <FieldInfoTooltip
-                title={isEn ? 'Logical Volume' : 'فضای لاجیکال ولوم'}
-                whatIsIt={
-                  isEn
-                    ? 'The specific virtual partition within an LVM Volume Group that contains your filesystem.'
-                    : 'پارتیشن مجازی موجود در گروه حجم (Volume Group) که حاوی سیستم‌فایل شماست.'
-                }
-                whyNeeded={
-                  isEn
-                    ? 'Determines which disk partition will receive the additional capacity.'
-                    : 'مشخص می‌کند کدام دیسک یا مانت پوینت فضای اضافی جدید را دریافت خواهد کرد.'
-                }
-                example={isEn ? '/dev/ubuntu-vg/ubuntu-lv or /dev/mapper/...' : '/dev/ubuntu-vg/ubuntu-lv'}
-                isLightMode={isLightMode}
-                isEn={isEn}
-              />
-            </div>
-            <select
-              value={selectedLvPath}
-              onChange={(e) => setSelectedLvPath(e.target.value)}
-              className={`w-full px-3 py-2 text-xs rounded-xl border font-mono transition-colors ${
-                isLightMode
-                  ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500'
-                  : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-cyan-400'
-              }`}
-            >
-              {allLvs.map((lv) => (
-                <option key={lv.path} value={lv.path}>
-                  {lv.name} ({lv.size}) - {lv.mountPoint ? `Mounted on ${lv.mountPoint}` : 'Unmounted'} [{lv.vgName}]
-                </option>
-              ))}
-            </select>
+            <div className="text-slate-400 text-[11px]">{isEn ? 'Current LV Size' : 'حجم فعلی LV'}</div>
+            <div className="font-bold text-cyan-400 text-sm mt-0.5">{lv.size}</div>
           </div>
+          <div>
+            <div className="text-slate-400 text-[11px]">{isEn ? 'Volume Group' : 'گروه حجمی'}</div>
+            <div className="font-semibold text-slate-200 mt-0.5">{lv.vgName}</div>
+          </div>
+          <div>
+            <div className="text-slate-400 text-[11px]">{isEn ? 'VG Free Space' : 'فضای آزاد VG'}</div>
+            <div className="font-bold text-emerald-400 text-sm mt-0.5">{vgFreeStr}</div>
+          </div>
+          <div>
+            <div className="text-slate-400 text-[11px]">{isEn ? 'Filesystem / Mount' : 'فایل‌سیستم / مانت'}</div>
+            <div className="font-medium text-slate-300 mt-0.5 truncate">
+              {lv.fsType || 'ext4'} {lv.mountPoint ? `(${lv.mountPoint})` : ''}
+            </div>
+          </div>
+        </div>
 
-          {/* Current LV & VG Info Box */}
-          {currentLv && (
-            <div
-              className={`p-3.5 rounded-xl border text-xs grid grid-cols-2 sm:grid-cols-4 gap-3 ${
-                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-slate-800'
-              }`}
-            >
-              <div>
-                <span className="text-[10px] text-slate-400 block">{isEn ? 'Current LV Size' : 'حجم فعلی LV'}</span>
-                <span className="font-mono font-bold text-cyan-400 mt-0.5 block">{currentLv.size}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block">{isEn ? 'Volume Group' : 'گروه حجم (VG)'}</span>
-                <span className="font-mono font-bold mt-0.5 block">{currentLv.vgName}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block">{isEn ? 'VG Free Space' : 'فضای آزاد گروه VG'}</span>
-                <span className="font-mono font-bold text-emerald-400 mt-0.5 block">
-                  {currentVg ? currentVg.free : isEn ? 'Unknown' : 'نامشخص'}
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block">{isEn ? 'Mount Point / FS' : 'مسیر مانت / فرمت'}</span>
-                <span className="font-mono font-bold mt-0.5 block truncate">
-                  {currentLv.mountPoint || 'Unmounted'} ({currentLv.fsType || 'ext4'})
-                </span>
-              </div>
+        {/* Form Body */}
+        <div className="flex-1 p-5 space-y-4 overflow-y-auto">
+          {validationError && (
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{validationError}</span>
             </div>
           )}
 
-          {/* Size Increment Controls */}
+          {/* Size Input */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold flex items-center gap-1.5">
-                <span>{isEn ? 'Size to Add' : 'میزان فضای اضافه شونده'}</span>
+              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <span>{isEn ? 'Additional Capacity to Add (+Size)' : 'حجم افزایشی مورد نظر (+Size)'}</span>
               </label>
               <FieldInfoTooltip
-                title={isEn ? 'Add Size' : 'حجم افزایش'}
+                title={isEn ? 'Logical Volume Extension Size' : 'میزان افزایش حجم منطقی'}
                 whatIsIt={
                   isEn
-                    ? 'The amount of disk space to expand the logical volume by (e.g. 10G, 50G, 500M) or 100% of VG free space.'
-                    : 'میزان حجمی که به دیسک اضافه می‌شود (مثلاً 10G یا 50G یا کل فضای آزاد موجود در گروه).'
+                    ? 'The amount of disk space to expand the LV by (e.g. +10G, +50G, or 100%FREE).'
+                    : 'میزان حجمی که به حجم منطقی فعلی اضافه می‌شود (مثال: 10G یا 100%FREE).'
                 }
-                whyNeeded={
+                whyIsItNeeded={
                   isEn
-                    ? 'Allows flexible on-demand expansion matching your workload growth without downtime.'
-                    : 'امکان رشد تدریجی ظرفیت دیسک بر اساس نیاز بدون هیچ‌گونه توقف سیستم را فراهم می‌کند.'
+                    ? 'lvextend allocates additional physical extents from the VG, followed by automatic online filesystem resizing.'
+                    : 'دستور lvextend اکستنت‌های فیزیکی جدید از VG را تخصیص داده و سپس فایل‌سیستم آنلاین بزرگ می‌شود.'
                 }
-                example={isEn ? '10G, 20G, 500M' : '10G یا 20G'}
-                isLightMode={isLightMode}
+                practicalExample="10G or 50G or 100%FREE"
                 isEn={isEn}
+                isLightMode={isLightMode}
               />
             </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={addSize}
-                  disabled={useAllFree}
-                  onChange={(e) => setAddSize(e.target.value)}
-                  placeholder="e.g. 10G or 50G"
-                  className={`flex-1 px-3 py-2 text-xs rounded-xl border font-mono transition-colors disabled:opacity-50 ${
-                    isLightMode
-                      ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500'
-                      : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-cyan-400'
-                  }`}
-                />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={addSize}
+                onChange={(e) => setAddSize(e.target.value)}
+                placeholder="10G"
+                className={`flex-1 px-3.5 py-2.5 rounded-lg border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-800'
+                    : 'bg-slate-950 border-slate-700 text-slate-100'
+                }`}
+              />
+              {['5G', '10G', '20G', '50G', '100%FREE'].map((sug) => (
                 <button
+                  key={sug}
                   type="button"
-                  onClick={() => setUseAllFree(!useAllFree)}
-                  className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                    useAllFree
-                      ? 'bg-cyan-500 text-white border-cyan-500 shadow-sm'
+                  onClick={() => setAddSize(sug)}
+                  className={`px-2.5 py-2 rounded-lg border text-xs font-mono font-medium transition-colors ${
+                    addSize === sug
+                      ? 'bg-emerald-500 text-white border-emerald-500 shadow'
                       : isLightMode
-                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                      ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                      : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{isEn ? 'Use All Free Space (+100%FREE)' : 'اختصاص کل فضای آزاد (+100%FREE)'}</span>
+                  +{sug}
                 </button>
-              </div>
-
-              {/* Quick Size Chips */}
-              {!useAllFree && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[10px] text-slate-400">{isEn ? 'Quick Select:' : 'انتخاب سریع:'}</span>
-                  {['2G', '5G', '10G', '20G', '50G', '100G'].map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setAddSize(s)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer ${
-                        addSize === s
-                          ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
-                          : isLightMode
-                          ? 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
-                      }`}
-                    >
-                      +{s}
-                    </button>
-                  ))}
-                </div>
-              )}
+              ))}
             </div>
           </div>
 
-          {/* Optional: Add Newly Attached Disk to VG First */}
-          <div
-            className={`p-3.5 rounded-xl border transition-colors ${
-              includeRawDisk
-                ? isLightMode
-                  ? 'bg-amber-50/70 border-amber-200'
-                  : 'bg-amber-950/20 border-amber-900/50'
-                : isLightMode
-                ? 'bg-slate-50 border-slate-200'
-                : 'bg-slate-900/40 border-slate-800'
-            }`}
-          >
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeRawDisk}
-                onChange={(e) => {
-                  setIncludeRawDisk(e.target.checked);
-                  if (e.target.checked && unassignedDisks.length > 0 && !selectedRawDisk) {
-                    setSelectedRawDisk(unassignedDisks[0].name);
-                  }
-                }}
-                className="mt-0.5 rounded text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-              />
-              <div className="flex-1 text-xs">
-                <span className="font-semibold block">
-                  {isEn
-                    ? 'Attach a new raw disk to this Volume Group before extending'
-                    : 'افزودن یک دیسک خام جدید به این گروه حجم (VG) قبل از اکستند'}
-                </span>
-                <span className="text-[11px] text-slate-400 block mt-0.5">
-                  {isEn
-                    ? 'If you just attached a new virtual disk (e.g. in Proxmox/VMware), select it here. It will automatically run pvcreate and vgextend.'
-                    : 'اگر دیسک مجازی جدیدی اضافه کرده‌اید، می‌توانید آن را انتخاب کنید تا به طور خودکار pvcreate و vgextend انجام شود.'}
-                </span>
-              </div>
-            </label>
-
-            {includeRawDisk && (
-              <div className="mt-3 pl-6">
-                {unassignedDisks.length === 0 ? (
-                  <p className="text-xs text-amber-400">
-                    {isEn
-                      ? 'No unassigned raw disks detected. Please run "Online Rescan Disks" first to detect newly added hardware.'
-                      : 'هیچ دیسک خامی یافت نشد. ابتدا دکمه «اسکن سریع دیسک‌ها» را بزنید تا دیسک جدید کشف شود.'}
-                  </p>
-                ) : (
-                  <div>
-                    <label className="text-[11px] font-medium block mb-1">
-                      {isEn ? 'Select Unassigned Disk:' : 'انتخاب دیسک خام:'}
-                    </label>
-                    <select
-                      value={selectedRawDisk}
-                      onChange={(e) => setSelectedRawDisk(e.target.value)}
-                      className={`w-full px-3 py-2 text-xs rounded-xl border font-mono ${
-                        isLightMode
-                          ? 'bg-white border-slate-300 text-slate-800'
-                          : 'bg-slate-900 border-slate-700 text-slate-200'
-                      }`}
-                    >
-                      {unassignedDisks.map((d) => (
-                        <option key={d.name} value={d.name}>
-                          {d.name} ({d.size}) - {d.type}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Feedback & SUCCESS NEXT-STEPS ACTION PANEL */}
-          {feedback && (
+          {/* Optional Disk Addition if VG has no space */}
+          {availableDisks.filter((d) => d.isAvailable && !d.isInLvm).length > 0 && (
             <div
-              className={`p-4 rounded-xl border flex flex-col gap-3 ${
-                feedback.type === 'success'
-                  ? isLightMode
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-sm'
-                    : 'bg-emerald-950/50 border-emerald-500/60 text-emerald-200 shadow-sm'
-                  : isLightMode
-                  ? 'bg-rose-50 border-rose-200 text-rose-800'
-                  : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+              className={`p-3.5 rounded-xl border ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
               }`}
             >
-              <div className="flex items-start gap-3">
-                {feedback.type === 'success' ? (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                )}
-                <div className="flex-1">
-                  <div className="text-sm font-semibold">{feedback.message}</div>
-                </div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-cyan-400" />
+                  <span>{isEn ? 'Attach Unused Disk to VG First (Optional)' : 'افزودن دیسک جدید به VG قبل از توسعه (اختیاری)'}</span>
+                </label>
               </div>
-
-              {/* NEXT STEPS NAVIGATOR ON SUCCESS */}
-              {feedback.type === 'success' && (
-                <div className="mt-2 pt-3 border-t border-emerald-500/30 space-y-3">
-                  <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-                    <ArrowRight className="w-4 h-4 text-emerald-400" />
-                    <span>
-                      {isEn
-                        ? 'Next Steps: What would you like to do now?'
-                        : 'گام‌های بعدی: مایل به انجام کدام عملیات هستید؟'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {/* Action 1: Add More Physical Disks to VG */}
-                    {onOpenAddDiskToVg && currentLv?.vgName && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenAddDiskToVg(currentLv.vgName);
-                        }}
-                        className="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
-                      >
-                        <PlusCircle className="w-5 h-5 text-emerald-400" />
-                        <span className="text-xs font-bold">
-                          {isEn ? 'Add Physical Disk (VG)' : 'پیوست دیسک فیزیکی به گروه'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 leading-tight">
-                          {isEn
-                            ? `Expand Volume Group "${currentLv.vgName}" with more disks`
-                            : `افزایش مجدد ظرفیت استخر گروه ${currentLv.vgName}`}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Action 2: Create Another Volume */}
-                    {onOpenCreateLvm && currentLv?.vgName && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenCreateLvm(currentLv.vgName);
-                        }}
-                        className="p-3 rounded-xl border border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 hover:text-teal-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
-                      >
-                        <FolderPlus className="w-5 h-5 text-teal-400" />
-                        <span className="text-xs font-bold">
-                          {isEn ? 'Create Another Volume' : 'ایجاد لاجیکال ولوم دیگر'}
-                        </span>
-                        <span className="text-[10px] text-slate-400 leading-tight">
-                          {isEn
-                            ? 'Create an independent LV inside this Volume Group'
-                            : 'ساخت یک پارتیشن مجزا در این گروه حجم'}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Action 3: Done & Return */}
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="p-3 rounded-xl border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
-                    >
-                      <CheckCircle2 className="w-5 h-5 text-cyan-400" />
-                      <span className="text-xs font-bold">
-                        {isEn ? 'Done / Overview' : 'اتمام و مشاهده وضعیت'}
-                      </span>
-                      <span className="text-[10px] text-slate-400 leading-tight">
-                        {isEn ? 'Return to storage management overview' : 'مشاهده در پنل مدیریت فایل‌سیستم‌ها'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              )}
+              <select
+                value={diskToAddToVg}
+                onChange={(e) => setDiskToAddToVg(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg border text-xs font-mono focus:outline-none ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-800'
+                    : 'bg-slate-900 border-slate-700 text-slate-100'
+                }`}
+              >
+                <option value="">{isEn ? '-- None (Use Existing VG Free Space) --' : '-- هیچ‌کدام (استفاده از فضای آزاد فعلی VG) --'}</option>
+                {availableDisks
+                  .filter((d) => d.isAvailable && !d.isInLvm)
+                  .map((d) => (
+                    <option key={d.name} value={d.name}>
+                      {d.name} ({d.size}) - {isEn ? 'Unallocated Disk' : 'دیسک آزاد'}
+                    </option>
+                  ))}
+              </select>
             </div>
           )}
 
-          {/* Submit Actions */}
-          <div className="flex items-center justify-end gap-2.5 pt-2">
+          {/* Pipeline Diagram */}
+          <div
+            className={`p-3.5 rounded-xl border text-xs ${
+              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+            }`}
+          >
+            <div className="font-semibold text-slate-400 text-[11px] mb-2">
+              {isEn ? 'End-to-End Execution Pipeline:' : 'فرآیند اجرایی پیوسته در لینوکس:'}
+            </div>
+            <div className="flex items-center gap-2 font-mono text-[11px] flex-wrap">
+              <span className="text-emerald-400 font-bold">VG Free ({vgFreeStr})</span>
+              <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-cyan-400 font-bold">lvextend +{addSize}</span>
+              <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-purple-400 font-bold">
+                {lv.fsType === 'xfs' ? 'xfs_growfs' : 'resize2fs'} (Online Grow)
+              </span>
+              <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-amber-400 font-bold">{lv.mountPoint || lv.path} Expanded</span>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-2">
+              {isEn
+                ? 'Filesystem expansion occurs online without unmounting the volume or stopping services.'
+                : 'گسترش فایل‌سیستم به صورت کاملاً آنلاین و بدون نیاز به unmount کردن یا توقف سرویس‌ها انجام می‌پذیرد.'}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div
+          className={`flex items-center justify-between px-5 py-3.5 border-t ${
+            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+          }`}
+        >
+          <div className="text-[11px] text-slate-400">
+            {isEn ? 'Target:' : 'هدف:'} <span className="font-mono text-cyan-400 font-bold">{lv.path}</span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              disabled={submitting}
-              className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+              disabled={isLoading}
+              className={`px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
                 isLightMode
-                  ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
-                  : 'border-slate-800 text-slate-300 hover:bg-slate-900'
+                  ? 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
               }`}
             >
               {isEn ? 'Cancel' : 'انصراف'}
             </button>
             <button
-              type="submit"
-              disabled={submitting || !currentLv}
-              className="px-5 py-2 rounded-xl text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 transition-all shadow-md shadow-cyan-600/20 cursor-pointer flex items-center gap-2"
+              type="button"
+              onClick={handleStartExtend}
+              disabled={isLoading || !addSize.trim()}
+              className="px-5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 active:scale-98 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>{isEn ? 'Expanding Volume...' : 'در حال گسترش فضا...'}</span>
-                </>
-              ) : (
-                <>
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span>{isEn ? 'Extend Logical Volume' : 'افزایش فضای دیسک'}</span>
-                </>
-              )}
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{isEn ? 'Extend Volume & Grow Filesystem' : 'توسعه حجم و بزرگ‌سازی فایل‌سیستم'}</span>
             </button>
           </div>
-        </form>
+        </div>
       </div>
+
+      {/* Confirmation Modal */}
+      <LinuxStorageConfirmationModal
+        isOpen={isConfirmOpen}
+        onClose={() => setIsConfirmOpen(false)}
+        onConfirm={handleExecuteConfirmed}
+        title={isEn ? 'Confirm Logical Volume Extension' : 'تایید توسعه حجم منطقی'}
+        description={
+          isEn
+            ? `You are about to extend Logical Volume "${lv.name}" by +${addSize} and expand the mounted ${lv.fsType || 'ext4'} filesystem. This is an online, non-destructive operation.`
+            : `شما در حال توسعه حجم منطقی "${lv.name}" به میزان +${addSize} و بزرگ‌سازی آنلاین فایل‌سیستم ${lv.fsType || 'ext4'} هستید. این فرآیند بدون قطعی و بدون از بین رفتن داده‌ها انجام می‌شود.`
+        }
+        targetDevice={lv.path}
+        actionType="lvextend"
+        isLightMode={isLightMode}
+        isLoading={isLoading}
+      />
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

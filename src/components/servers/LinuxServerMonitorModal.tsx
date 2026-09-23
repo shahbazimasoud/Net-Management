@@ -39,7 +39,6 @@ import {
   Edit3,
   Settings,
   Plus,
-  FolderMinus,
   FolderCog,
   FileText,
 } from 'lucide-react';
@@ -61,7 +60,7 @@ import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
 import { LinuxDirectoryPolicyTab } from './LinuxDirectoryPolicyTab';
-import { LinuxLvmManager } from './storage/LinuxLvmManager';
+import { LinuxStorageManager } from './storage';
 import { useModalDock } from '../../context/ModalDockContext';
 
 export interface LinuxServerMonitorModalProps {
@@ -1683,15 +1682,15 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               )}
 
               {/* TAB 2: STORAGE & DISKS */}
-              {activeTab === 'disks' && metrics && (
+              {activeTab === 'disks' && (
                 <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center justify-between pb-1">
                     <div>
-                      <h3 className="text-sm font-bold">{isEn ? 'Mounted Filesystems' : 'فایل‌سیستم‌های مانت‌شده'}</h3>
+                      <h3 className="text-sm font-bold">{isEn ? 'Storage, Disks & Filesystems' : 'مدیریت ذخیره‌ساز، دیسک‌ها و فایل‌سیستم‌ها'}</h3>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {isEn
-                          ? 'Real-time partition capacity, free space, and mount paths parsed from df.'
-                          : 'ظرفیت زنده پارتیشن‌ها، فضای آزاد و مسیرهای مانت از دستور df.'}
+                          ? 'Real-time Linux block device topology, LVM volume groups, and live mounted filesystems.'
+                          : 'توپولوژی زنده تجهیزات بلاک لینوکس، گروه‌های حجمی LVM و فایل‌سیستم‌های مانت‌شده.'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1703,109 +1702,14 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                         <FolderCog className="w-3.5 h-3.5 text-amber-400" />
                         <span>{isEn ? 'Directory Policies & Backups' : 'سیاست‌های دایرکتوری و بکاپ'}</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowMountModal(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition-colors shadow-sm cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Mount Filesystem' : 'مانت فایل‌سیستم'}</span>
-                      </button>
-                      <span className="text-xs font-mono px-2.5 py-1.5 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-                        {metrics.disks.length} {isEn ? 'Partitions' : 'پارتیشن'}
-                      </span>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {metrics.disks.map((d) => {
-                      const isSystemProtected = ['/', '/boot', '/proc', '/sys', '/dev', '/run', '/etc', '/var', '/usr'].includes(d.mount);
-                      return (
-                        <div
-                          key={d.mount}
-                          className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
-                            isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold text-cyan-400 font-mono truncate max-w-[180px]">
-                                {d.mount}
-                              </span>
-                              <span
-                                className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
-                                  d.usagePercent > 90
-                                    ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                                    : d.usagePercent > 75
-                                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                                    : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                }`}
-                              >
-                                {d.usagePercent}%
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-mono truncate block mt-0.5">
-                              Device: {d.filesystem}
-                            </span>
-                          </div>
-
-                          <div>
-                            <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
-                              <div
-                                className={`h-full transition-all duration-300 ${
-                                  d.usagePercent > 90
-                                    ? 'bg-rose-500'
-                                    : d.usagePercent > 75
-                                    ? 'bg-amber-400'
-                                    : 'bg-cyan-500'
-                                }`}
-                                style={{ width: `${Math.min(100, d.usagePercent)}%` }}
-                              />
-                            </div>
-
-                            <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
-                              <span>Used: {d.usedHuman}</span>
-                              <span>Free: {d.availHuman}</span>
-                              <span>Total: {d.sizeHuman}</span>
-                            </div>
-
-                            {/* Unmount Action */}
-                            {!isSystemProtected && (
-                              <button
-                                type="button"
-                                onClick={() => handleUnmount(d.mount)}
-                                disabled={unmountingMount === d.mount}
-                                className={`mt-3 w-full py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
-                                  isLightMode
-                                    ? 'border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100'
-                                    : 'border-rose-900/60 text-rose-400 bg-rose-950/20 hover:bg-rose-950/50'
-                                }`}
-                                title={isEn ? `Unmount ${d.mount}` : `آن‌مانت کردن ${d.mount}`}
-                              >
-                                {unmountingMount === d.mount ? (
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <FolderMinus className="w-3.5 h-3.5" />
-                                )}
-                                <span>{isEn ? 'Unmount' : 'آن‌مانت'}</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* LVM (LOGICAL VOLUME MANAGEMENT) SUITE */}
-                  <div className="pt-2">
-                    <LinuxLvmManager
-                      server={server}
-                      ephemeralPassword={ephemeralPassword}
-                      isLightMode={isLightMode}
-                      isEn={isEn}
-                      onRefreshParent={() => fetchMetrics(ephemeralPassword)}
-                    />
-                  </div>
+                  <LinuxStorageManager
+                    server={server}
+                    isLightMode={isLightMode}
+                    onRefreshParent={() => fetchMetrics(ephemeralPassword)}
+                  />
                 </div>
               )}
 
