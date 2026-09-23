@@ -28,6 +28,7 @@ import {
   LinuxLvmOverview,
   LinuxLvmExtendPayload,
   LinuxLvmCreatePayload,
+  LinuxLvmCreateVgPayload,
   LinuxLvmShrinkPayload,
   LinuxServiceWatchdogRule,
   LinuxDirectoryPolicyRule,
@@ -2236,6 +2237,36 @@ export async function addDiskToLinuxVg(
   error?: string;
 }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-add-disk-to-vg`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+/**
+ * Creates a new LVM Volume Group (vgcreate) on the server using one or more block devices
+ */
+export async function createLinuxVolumeGroup(
+  serverId: string,
+  payload: LinuxLvmCreateVgPayload,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  vgName?: string;
+  vgSize?: string;
+  vgFree?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-create-vg`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...payload, password: ephemeralPassword }),

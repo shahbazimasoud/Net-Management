@@ -1786,6 +1786,13 @@ export interface LinuxLvmCreatePayload {
   persistInFstab?: boolean;
 }
 
+export interface LinuxLvmCreateVgPayload {
+  vgName: string;
+  selectedDisks: string[]; // block devices e.g. ["/dev/sdb", "/dev/sdc"]
+  peSize?: string; // e.g. "4M", "8M", "16M"
+  force?: boolean;
+}
+
 export interface LinuxLvmShrinkPayload {
   lvPath: string;
   vgName: string;

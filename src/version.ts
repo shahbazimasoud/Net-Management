@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.129.0';
+export const APP_VERSION = '1.130.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.130.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'افزودن قابلیت ایجاد گروه حجمی جدید (New Volume Group - VG) با کشف هوشمند دیسک‌های خام، اعتبارسنجی LVM و مودال اختصاصی',
+    title_en: 'Added New Volume Group (VG) Creation Capability with Dynamic Raw Disk Discovery, LVM Pre-flight Validation, and Dedicated Modal',
+    changes: [
+      'افزودن دکمه مستقیم "+ New Volume Group" در هدر بخش Volume Groups (VG) و همچنین در وضعیت خالی (Empty State) بدون گروه حجمی.',
+      'طراحی و پیاده‌سازی مودال استاندارد LinuxCreateVgModal مجهز به کنترل‌های سه‌گانه هدر (بستن، مینیمایز، تمام‌صفحه با رعایت حریم فوتر bottom-8).',
+      'شناسایی و لیست خودکار دیسک‌های خام فیزیکی، پارتیشن‌های آزاد و Physical Volumeهای نامتصل جهت انتخاب چندگانه با چک‌باکس و محاسبه مجموع ظرفیت.',
+      'افزودن امکان تنظیم اندازه Physical Extent (PE) با گزینه‌های سریع ۴، ۸، ۱۶، ۳۲ و ۶۴ مگابایت و قابلیت پاک‌سازی خودکار امضاها (-y -ff).',
+      'تجهیز مودال به دکمه مستقیم اسکن آنلاین دیسک‌ها (Online Rescan Disks) در صورت نبود دیسک آزاد بدون نیاز به بستن پنجره.',
+      'پیاده‌سازی اندپوینت بک‌اند POST /api/remote-servers/:id/lvm-create-vg با اجرای واقعی دستورات امنیتی pvcreate و vgcreate بر روی سرور لینوکس.',
+    ],
+    changes_en: [
+      'Added direct "+ New Volume Group" action in the Volume Groups (VG) section header and inside the empty state when no VGs exist.',
+      'Designed and built LinuxCreateVgModal complying with universal modal standards (triad controls: close, minimize, fullscreen with bottom-8 footer clearance).',
+      'Automatic discovery of unassigned physical disks, raw partitions, and unlinked PVs with multi-select checkboxes and aggregate capacity calculation.',
+      'Configurable Physical Extent (PE) size selection (4M default, 8M, 16M, 32M, 64M) with signature wiping flag (-y -ff).',
+      'Integrated in-modal "Online Rescan Disks" button to trigger kernel SCSI bus rescan immediately if no unassigned devices are found.',
+      'Implemented robust backend endpoint POST /api/remote-servers/:id/lvm-create-vg with authentic SSH execution of pvcreate and vgcreate on target Linux hosts.',
+    ],
+  },
   {
     version: '1.129.0',
     releaseDate: '2026-09-23',

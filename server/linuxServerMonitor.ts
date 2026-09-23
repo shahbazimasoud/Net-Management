@@ -4661,3 +4661,160 @@ fi
   }
 }
 
+/**
+ * Creates a new LVM Volume Group (vgcreate) on the specified server using one or more block devices.
+ * Automatically initializes unformatted block devices as Physical Volumes (pvcreate) if needed.
+ */
+export async function createLinuxVolumeGroupSSH(
+  server: RemoteServer,
+  payload: { vgName: string; selectedDisks: string[]; peSize?: string; force?: boolean },
+  ephemeralPassword?: string,
+  timeoutMs: number = 35000
+): Promise<{ success: boolean; message: string; vgName?: string; vgSize?: string; vgFree?: string }> {
+  const { vgName, selectedDisks, peSize, force } = payload;
+  const cleanVg = (vgName || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+
+  if (!cleanVg) {
+    throw new Error('Volume Group name is required (alphanumeric, underscore, hyphen).');
+  }
+
+  const cleanDisks = (selectedDisks || [])
+    .map((d) => d.trim().replace(/[^a-zA-Z0-9_\-/]/g, ''))
+    .filter(Boolean);
+
+  if (cleanDisks.length === 0) {
+    throw new Error('At least one raw disk or partition is required to create a Volume Group.');
+  }
+
+  const cleanPeSize = (peSize || '').trim().replace(/[^0-9kKmMgGtT]/g, '');
+  const forceFlag = force !== false ? '-y -ff' : '-y';
+
+  const script = `export LC_ALL=C
+
+# 1. Check if Volume Group name already exists
+if sudo vgs "${cleanVg}" >/dev/null 2>&1 || vgs "${cleanVg}" >/dev/null 2>&1; then
+  echo "ERR:VG_ALREADY_EXISTS: A Volume Group named '${cleanVg}' already exists on this server."
+  exit 1
+fi
+
+# 2. Check each target block device
+for d in ${cleanDisks.join(' ')}; do
+  if [ ! -b "$d" ]; then
+    if [ -e "$d" ]; then
+      echo "ERR:NOT_A_BLOCK_DEVICE: Device '$d' exists but is not a valid block device."
+      exit 1
+    else
+      echo "ERR:DISK_NOT_FOUND: Block device '$d' does not exist. Please run Online Rescan Disks first."
+      exit 1
+    fi
+  fi
+
+  # Check if disk is already in another VG
+  EXISTING_VG=$(sudo pvs --noheadings -o vg_name "$d" 2>/dev/null | tr -d '[:space:]')
+  if [ -z "$EXISTING_VG" ]; then
+    EXISTING_VG=$(pvs --noheadings -o vg_name "$d" 2>/dev/null | tr -d '[:space:]')
+  fi
+  if [ -n "$EXISTING_VG" ] && [ "$EXISTING_VG" != "none" ] && [ "$EXISTING_VG" != "-" ]; then
+    echo "ERR:DISK_IN_ANOTHER_VG: Device '$d' is already member of Volume Group '$EXISTING_VG'."
+    exit 1
+  fi
+done
+
+# 3. Initialize Physical Volumes (pvcreate) if not already initialized
+for d in ${cleanDisks.join(' ')}; do
+  if ! sudo pvs "$d" >/dev/null 2>&1 && ! pvs "$d" >/dev/null 2>&1; then
+    sudo pvcreate ${forceFlag} "$d" 2>&1 || pvcreate ${forceFlag} "$d" 2>&1 || true
+  fi
+done
+
+sudo udevadm settle 2>/dev/null || true
+
+# 4. Create Volume Group (vgcreate)
+PE_ARG=""
+if [ -n "${cleanPeSize}" ]; then
+  PE_ARG="-s ${cleanPeSize}"
+fi
+
+VG_OUT=$(sudo vgcreate -y $PE_ARG "${cleanVg}" ${cleanDisks.join(' ')} 2>&1 || vgcreate -y $PE_ARG "${cleanVg}" ${cleanDisks.join(' ')} 2>&1)
+VG_STATUS=$?
+
+if [ $VG_STATUS -eq 0 ] || sudo vgs "${cleanVg}" >/dev/null 2>&1 || echo "$VG_OUT" | grep -qi "successfully created"; then
+  VG_SIZE=$(sudo vgs --noheadings --units g -o vg_size "${cleanVg}" 2>/dev/null | tr -d '[:space:]')
+  VG_FREE=$(sudo vgs --noheadings --units g -o vg_free "${cleanVg}" 2>/dev/null | tr -d '[:space:]')
+  echo "VGCREATE_SUCCESS: VG=${cleanVg} SIZE=$VG_SIZE FREE=$VG_FREE"
+  echo "$VG_OUT"
+  exit 0
+else
+  echo "ERR:VGCREATE_FAILED: vgcreate failed for '${cleanVg}': $VG_OUT"
+  exit 1
+fi
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+
+    if (raw.includes('VGCREATE_SUCCESS') || raw.includes('successfully created')) {
+      const sizeMatch = raw.match(/SIZE=([^\s\r\n]+)/);
+      const freeMatch = raw.match(/FREE=([^\s\r\n]+)/);
+      const vgSize = sizeMatch ? sizeMatch[1].trim() : undefined;
+      const vgFree = freeMatch ? freeMatch[1].trim() : undefined;
+
+      return {
+        success: true,
+        vgName: cleanVg,
+        vgSize,
+        vgFree,
+        message: `Volume Group "${cleanVg}" successfully created with ${cleanDisks.length} physical disk(s)${vgSize ? ` (Total Pool: ${vgSize}, Free: ${vgFree || vgSize})` : ''}! You can now carve Logical Volumes (LV) out of it.`,
+      };
+    }
+
+    if (raw.includes('ERR:VG_ALREADY_EXISTS')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:VG_ALREADY_EXISTS')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:VG_ALREADY_EXISTS:\s*/, '').trim(),
+      };
+    }
+    if (raw.includes('ERR:DISK_NOT_FOUND')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:DISK_NOT_FOUND')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:DISK_NOT_FOUND:\s*/, '').trim(),
+      };
+    }
+    if (raw.includes('ERR:NOT_A_BLOCK_DEVICE')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:NOT_A_BLOCK_DEVICE')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:NOT_A_BLOCK_DEVICE:\s*/, '').trim(),
+      };
+    }
+    if (raw.includes('ERR:DISK_IN_ANOTHER_VG')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:DISK_IN_ANOTHER_VG')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:DISK_IN_ANOTHER_VG:\s*/, '').trim(),
+      };
+    }
+    if (raw.includes('ERR:VGCREATE_FAILED')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:VGCREATE_FAILED')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:VGCREATE_FAILED:\s*/, '').trim(),
+      };
+    }
+
+    return {
+      success: false,
+      message: raw.trim() || `Failed to create Volume Group "${cleanVg}".`,
+    };
+  } catch (err: any) {
+    console.error(`[createLinuxVolumeGroupSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Failed to create Volume Group: ${err?.message || err}`,
+    };
+  }
+}
+
+

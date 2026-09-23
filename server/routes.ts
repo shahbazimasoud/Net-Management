@@ -107,6 +107,7 @@ import {
   shrinkLinuxLvSSH,
   addDiskToLinuxVgSSH,
   createLinuxPvSSH,
+  createLinuxVolumeGroupSSH,
 } from './linuxServerMonitor';
 import {
   fetchLinuxSshConfigSSH,
@@ -2987,6 +2988,47 @@ apiRouter.post('/remote-servers/:id/lvm-create-pv', async (req: Request, res: Re
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to initialize Physical Volume',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/lvm-create-vg - Create a new Volume Group (vgcreate)
+apiRouter.post('/remote-servers/:id/lvm-create-vg', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { vgName, selectedDisks, peSize, force, password } = req.body;
+
+    if (!vgName) {
+      return res.status(400).json({ success: false, error: 'Volume Group name (vgName) is required.' });
+    }
+    if (!selectedDisks || !Array.isArray(selectedDisks) || selectedDisks.length === 0) {
+      return res.status(400).json({ success: false, error: 'At least one physical disk or partition must be selected.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createLinuxVolumeGroupSSH(server, { vgName, selectedDisks, peSize, force }, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Create Volume Group (${vgName} on ${selectedDisks.join(', ')})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (VG: ${vgName})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLvmCreateVg API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create Volume Group',
     });
   }
 });

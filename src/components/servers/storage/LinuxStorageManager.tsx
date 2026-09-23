@@ -29,6 +29,7 @@ import {
   LinuxLogicalVolume,
   LinuxDiskFormatMountPayload,
   LinuxLvmCreatePayload,
+  LinuxLvmCreateVgPayload,
 } from '../../../types';
 import {
   fetchLinuxStorageOverview,
@@ -36,11 +37,13 @@ import {
   formatAndMountLinuxDisk,
   extendLinuxLvVolume,
   createLinuxLvmVolume,
+  createLinuxVolumeGroup,
   addDiskToLinuxVg,
 } from '../../../services/api';
 import { LinuxDiskManageModal } from './LinuxDiskManageModal';
 import { LinuxExtendLvModal } from './LinuxExtendLvModal';
 import { LinuxCreateLvModal } from './LinuxCreateLvModal';
+import { LinuxCreateVgModal } from './LinuxCreateVgModal';
 import { FieldInfoTooltip } from '../../vpn/FieldInfoTooltip';
 
 export interface LinuxStorageManagerProps {
@@ -72,6 +75,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   const [selectedDiskForManage, setSelectedDiskForManage] = useState<LinuxPhysicalDisk | null>(null);
   const [selectedLvForExtend, setSelectedLvForExtend] = useState<LinuxLogicalVolume | null>(null);
   const [isCreateLvOpen, setIsCreateLvOpen] = useState(false);
+  const [isCreateVgOpen, setIsCreateVgOpen] = useState(false);
   const [targetVgForCreate, setTargetVgForCreate] = useState<string | null>(null);
   const [isOperationLoading, setIsOperationLoading] = useState(false);
 
@@ -273,6 +277,43 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
     } catch (err: any) {
       setActionMessage({
         text: err?.message || (isEn ? 'Failed to execute LV creation.' : 'خطا در اجرای فرآیند ساخت حجم.'),
+        type: 'error',
+      });
+    } finally {
+      setIsOperationLoading(false);
+    }
+  };
+
+  // Create new Volume Group (vgcreate)
+  const handleCreateVg = async (payload: LinuxLvmCreateVgPayload) => {
+    setIsOperationLoading(true);
+    setActionMessage(null);
+    try {
+      const res = await createLinuxVolumeGroup(server.id, payload);
+      if (res.success) {
+        setActionMessage({
+          text:
+            res.message ||
+            (isEn
+              ? `Volume Group "${payload.vgName}" successfully created!`
+              : `گروه حجمی "${payload.vgName}" با موفقیت ایجاد شد!`),
+          type: 'success',
+        });
+        setIsCreateVgOpen(false);
+        await loadStorageData(true);
+        if (onRefreshParent) onRefreshParent();
+      } else {
+        setActionMessage({
+          text:
+            res.error ||
+            res.message ||
+            (isEn ? 'Failed to create Volume Group.' : 'خطا در ایجاد گروه حجمی.'),
+          type: 'error',
+        });
+      }
+    } catch (err: any) {
+      setActionMessage({
+        text: err?.message || (isEn ? 'Connection error' : 'خطای ارتباط با سرور'),
         type: 'error',
       });
     } finally {
@@ -876,13 +917,26 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => handleOpenCreateLvModal()}
-                    disabled={volumeGroups.length === 0}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setIsCreateVgOpen(true)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm flex items-center gap-1.5 transition-all"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'New Logical Volume' : 'حجم منطقی جدید'}</span>
+                    <span>{isEn ? 'New Volume Group' : 'گروه حجمی جدید (VG)'}</span>
                   </button>
+                  {volumeGroups.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCreateLvModal()}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all ${
+                        isLightMode
+                          ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                      }`}
+                    >
+                      <Layers className="w-3.5 h-3.5 text-purple-400" />
+                      <span>{isEn ? 'New Logical Volume' : 'حجم منطقی جدید'}</span>
+                    </button>
+                  )}
                   <FieldInfoTooltip
                     title={isEn ? 'LVM Volume Group (VG)' : 'گروه حجمی LVM'}
                     whatIsIt={
@@ -904,11 +958,19 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
 
               {volumeGroups.length === 0 ? (
                 <div
-                  className={`p-6 rounded-xl border text-center text-xs text-slate-400 ${
+                  className={`p-6 rounded-xl border text-center text-xs text-slate-400 space-y-3 ${
                     isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                   }`}
                 >
-                  {isEn ? 'No Volume Groups detected on this system.' : 'هیچ گروه حجمی (Volume Group) شناسایی نشد.'}
+                  <p>{isEn ? 'No Volume Groups detected on this system.' : 'هیچ گروه حجمی (Volume Group) شناسایی نشد.'}</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateVgOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Create Volume Group (VG)' : 'ایجاد گروه حجمی (VG)'}</span>
+                  </button>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1162,6 +1224,20 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
         existingLogicalVolumes={logicalVolumes}
         targetVgName={targetVgForCreate}
         onCreateLv={handleCreateLv}
+        isLightMode={isLightMode}
+        isLoading={isOperationLoading}
+      />
+
+      {/* Create VG Modal */}
+      <LinuxCreateVgModal
+        isOpen={isCreateVgOpen}
+        onClose={() => setIsCreateVgOpen(false)}
+        volumeGroups={volumeGroups}
+        physicalDisks={physicalDisks}
+        physicalVolumes={physicalVolumes}
+        availableDisks={data?.availableDisks || []}
+        onCreateVg={handleCreateVg}
+        onRescanDisks={handleScanDisks}
         isLightMode={isLightMode}
         isLoading={isOperationLoading}
       />
