@@ -65,6 +65,7 @@ interface MenuAnchor {
   bottom?: number;
   left?: number;
   right?: number;
+  maxHeight?: number;
   server: RemoteServer;
 }
 
@@ -639,7 +640,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setIsPingingAll(false);
   };
 
-  // Toggle Action Menu Dropdown with Boundary Clamping
+  // Toggle Action Menu Dropdown with Precise 4-Way Boundary Clamping
   const handleToggleActionMenu = (e: React.MouseEvent<HTMLButtonElement>, server: RemoteServer) => {
     e.stopPropagation();
     if (menuAnchor?.id === server.id) {
@@ -648,33 +649,54 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     }
 
     const rect = e.currentTarget.getBoundingClientRect();
-    const menuEstimatedHeight = 280;
-    const menuWidth = 240;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const openUpwards = spaceBelow < menuEstimatedHeight && rect.top > menuEstimatedHeight;
+    const menuWidth = 256; // 16rem
+    const estimatedMenuHeight = server.os_type === 'linux' ? 425 : 385;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 12;
 
-    const pos: MenuAnchor = {
+    const spaceBelow = viewportHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+
+    let top: number;
+    let maxHeight: number;
+
+    // Determine vertical placement: open downwards if ample room or if space below is larger
+    if (spaceBelow >= Math.min(estimatedMenuHeight, 300) || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 6;
+      maxHeight = Math.max(160, viewportHeight - top - margin);
+    } else {
+      // Open upwards
+      const allowedHeight = Math.max(160, Math.min(estimatedMenuHeight, spaceAbove - 6));
+      top = Math.max(margin, rect.top - 6 - allowedHeight);
+      maxHeight = allowedHeight;
+    }
+
+    // Determine horizontal placement with boundary clamping
+    let desiredLeft: number;
+    if (isEn) {
+      // In LTR: align right edge of menu with right edge of button
+      desiredLeft = rect.right - menuWidth;
+      if (desiredLeft < margin && rect.left + menuWidth <= viewportWidth - margin) {
+        desiredLeft = rect.left;
+      }
+    } else {
+      // In RTL: align left edge of menu with left edge of button
+      desiredLeft = rect.left;
+      if (desiredLeft + menuWidth > viewportWidth - margin && rect.right - menuWidth >= margin) {
+        desiredLeft = rect.right - menuWidth;
+      }
+    }
+
+    const left = Math.max(margin, Math.min(desiredLeft, viewportWidth - menuWidth - margin));
+
+    setMenuAnchor({
       id: server.id,
+      top,
+      left,
+      maxHeight,
       server,
-    };
-
-    if (openUpwards) {
-      pos.bottom = window.innerHeight - rect.top + 6;
-    } else {
-      pos.top = rect.bottom + 6;
-    }
-
-    if (!isEn) {
-      // In RTL, align left side bounded
-      const left = Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12));
-      pos.left = left;
-    } else {
-      // In LTR, align right side bounded
-      const right = Math.max(12, Math.min(window.innerWidth - rect.right, window.innerWidth - menuWidth - 12));
-      pos.right = right;
-    }
-
-    setMenuAnchor(pos);
+    });
   };
 
   // Minimization Handlers with ModalDockContext
@@ -2212,17 +2234,17 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             <div
               style={{
                 position: 'fixed',
-                top: menuAnchor.top !== undefined ? `${menuAnchor.top}px` : undefined,
-                bottom: menuAnchor.bottom !== undefined ? `${menuAnchor.bottom}px` : undefined,
-                left: menuAnchor.left !== undefined ? `${menuAnchor.left}px` : undefined,
-                right: menuAnchor.right !== undefined ? `${menuAnchor.right}px` : undefined,
+                top: `${menuAnchor.top}px`,
+                left: `${menuAnchor.left}px`,
+                maxHeight: menuAnchor.maxHeight ? `${menuAnchor.maxHeight}px` : 'calc(100vh - 24px)',
+                width: '16rem',
               }}
-              className={`w-60 z-50 rounded-2xl shadow-2xl p-1.5 border font-sans animate-in fade-in zoom-in-95 ${
+              className={`z-[9999] rounded-2xl shadow-2xl p-1.5 border font-sans animate-in fade-in zoom-in-95 overflow-y-auto overscroll-contain custom-scrollbar ${
                 isEn ? 'text-left' : 'text-right'
               } ${
                 isLightMode
-                  ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
-                  : 'bg-slate-950/95 border-white/15 backdrop-blur-2xl text-slate-100'
+                  ? 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-900/25'
+                  : 'bg-slate-950/95 border-white/15 backdrop-blur-2xl text-slate-100 shadow-black/80'
               }`}
               onClick={(e) => e.stopPropagation()}
             >

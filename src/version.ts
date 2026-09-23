@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.131.2';
+export const APP_VERSION = '1.131.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.131.3',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'رفع مشکل خروج منوی سه‌نقطه سرورها از کادر صفحه و پنهان شدن آیتم‌های پایینی با مهار چهارطرفه، چرخش خودکار و اسکرول هوشمند',
+    title_en: 'Fixed 3-Dot Server Action Menu Viewport Clipping with 4-Way Boundary Clamping, Smart Auto-Flip, and Dynamic Scrollbar',
+    changes: [
+      'اصلاح محاسبات موقعیت‌یابی منوی سه‌نقطه (Action Menu) در صفحه Remote Servers بر اساس ارتفاع واقعی آیتم‌ها (۳۸۵ تا ۴۲۵ پیکسل).',
+      'افزودن منطق تشخیص هوشمند فضای در دسترس در بالا و پایین صفحه (Auto-Flip) جهت باز شدن به سمت بالا در صورت نزدیکی به پایین صفحه.',
+      'مهار دقیق حاشیه‌ها (Boundary Clamping) در هر دو جهت افقی (چپ و راست در تم‌های LTR و RTL) با حداقل فاصله ۱۲ پیکسل از لبه‌های مانیتور.',
+      'افزودن محدودیت ارتفاع حداکثری داینامیک (maxHeight) و اسکرول‌بار نرم (custom-scrollbar) برای تضمین نمایش و دسترسی قطعی به تمام گزینه‌ها (ری‌استارت، ویرایش و حذف) حتی در نمایشگرهای کوچک لپ‌تاپ.',
+      'اختصاص اولویت z-[9999] در پرتال جهت جلوگیری از قرارگیری منو زیر هرگونه لایه دیگر.',
+    ],
+    changes_en: [
+      'Recalculated 3-dot contextual action menu positioning in Remote Servers fleet using true menu item heights (385px to 425px).',
+      'Implemented smart viewport auto-flip logic that seamlessly opens the dropdown upwards when approaching the screen bottom.',
+      'Engineered strict 4-way boundary clamping ensuring 12px safe margins on both horizontal axes across LTR and RTL display modes.',
+      'Added dynamic viewport-bound maxHeight constraints and sleek custom scrollbar ensuring lower critical options (Restart, Edit, Delete) are always visible and accessible on any screen resolution.',
+      'Elevated portal stacking layer to z-[9999] ensuring the menu never falls behind modal backdrops or blurred elements.',
+    ],
+  },
   {
     version: '1.131.2',
     releaseDate: '2026-09-23',
