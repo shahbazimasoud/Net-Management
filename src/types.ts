@@ -1343,7 +1343,7 @@ export interface RemoteServer {
   tags: string[];
   role?: string;
   description?: string;
-  status: 'online' | 'offline' | 'unreachable' | 'maintenance';
+  status: 'online' | 'offline' | 'unreachable' | 'maintenance' | 'untested';
   ssh_port?: number;
   ssh_username?: string;
   ssh_password?: string;

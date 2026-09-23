@@ -1175,6 +1175,7 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
       resolved = true;
       socket.destroy();
       const latency = Date.now() - start;
+      updateRemoteServer(server.id, { status: 'offline' }).catch(() => {});
       res.json({
         success: true,
         reachable: false,
@@ -1190,6 +1191,7 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
       if (resolved) return;
       resolved = true;
       socket.destroy();
+      updateRemoteServer(server.id, { status: 'offline' }).catch(() => {});
       res.json({
         success: true,
         reachable: false,

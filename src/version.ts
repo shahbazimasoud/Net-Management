@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.131.3';
+export const APP_VERSION = '1.131.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.131.4',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'اصلاح وضعیت زنده پینگ سرورها، حذف دیتای ساختگی آنلاین و بررسی خودکار و واقعی وضعیت شبکه در بدو ورود به صفحه',
+    title_en: 'Fixed Inaccurate Live Ping Status, Removed False Online Flags, and Enabled Automatic Genuine Fleet Connectivity Verification',
+    changes: [
+      'اصلاح وضعیت پیش‌فرض سرورهای راه‌دور به «تست‌نشده» (untested) در دیتابیس و پایگاه داده به‌منظور جلوگیری از نمایش دیتای کاذب آنلاین بدون تست.',
+      'افزودن قابلیت پینگ خودکار و بلادرنگ کلیه سرورهای ناوگان در بدو ورود به صفحه با وضعیت فعال «در حال تست...» (Pinging...) و محاسبه دقیق پینگ در صورت دسترسی.',
+      'اصلاح نمایش وضعیت زنده سرورها در جدول و نمای گرید: نمایش متون دقیق دوزبانه (آنلاین، آفلاین، تست‌نشده و در حال تست) و رفع باگ مقدار پیش‌فرض ۱۲ میلی‌ثانیه برای سرورهای خارج از دسترس.',
+      'به‌روزرسانی خودکار استیت سرور به آفلاین در بک‌اند در صورت بروز خطای اتصال سوکت TCP یا انقضای زمان تست (Timeout).',
+      'به‌روزرسانی کارت آماری Reachability Status جهت تفکیک دقیق سرورهای در دسترس، خارج از دسترس و در حال بررسی یا تست‌نشده.',
+    ],
+    changes_en: [
+      'Updated default remote server state to "untested" across database stores to eliminate misleading green online indicators prior to verification.',
+      'Added automatic, genuine keepalive fleet ping verification upon opening Remote Servers view, displaying live "Pinging..." status indicators.',
+      'Refined Live Status column and Grid card rendering with strict bilingual localization (Online, Down/Offline, Untested, Pinging...) and eliminated artificial 12ms latency fallbacks on failed probes.',
+      'Configured backend TCP socket test route to automatically persist offline state upon socket errors or connection timeouts.',
+      'Enhanced Reachability Status summary metrics to clearly differentiate between verified online, confirmed down, and untested/in-progress fleet nodes.',
+    ],
+  },
   {
     version: '1.131.3',
     releaseDate: '2026-09-23',

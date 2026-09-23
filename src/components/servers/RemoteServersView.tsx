@@ -319,8 +319,45 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setActiveTabFilter(initialFilter);
   }, [initialFilter]);
 
+  // Trigger genuine live fleet ping
+  const triggerLiveFleetPing = (fleetServers: RemoteServer[]) => {
+    const allIds = fleetServers.map((s) => s.id);
+    setReachabilityCache((prev) => {
+      const next = { ...prev };
+      allIds.forEach((id) => {
+        next[id] = { reachable: false, latency: 0, testing: true };
+      });
+      return next;
+    });
+
+    Promise.allSettled(
+      fleetServers.map(async (s) => {
+        try {
+          const res = await testRemoteServerConnection(s.id);
+          setReachabilityCache((prev) => ({
+            ...prev,
+            [s.id]: {
+              reachable: Boolean(res.reachable),
+              latency: res.reachable ? (res.latency_ms || 0) : 0,
+              testing: false,
+            },
+          }));
+        } catch {
+          setReachabilityCache((prev) => ({
+            ...prev,
+            [s.id]: {
+              reachable: false,
+              latency: 0,
+              testing: false,
+            },
+          }));
+        }
+      })
+    );
+  };
+
   // Load server fleet
-  const loadFleet = async () => {
+  const loadFleet = async (autoPing = true) => {
     setLoading(true);
     setError(null);
     try {
@@ -328,8 +365,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         fetchRemoteServers(),
         fetchRemoteServerTags(),
       ]);
-      setServers(srvRes.servers || []);
+      const loaded = srvRes.servers || [];
+      setServers(loaded);
       setTagsSummary(tagRes.tags || []);
+
+      // Auto-trigger live authentic keepalive ping check on initial load
+      if (autoPing && loaded.length > 0) {
+        triggerLiveFleetPing(loaded);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load remote servers fleet');
     } finally {
@@ -352,11 +395,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   const handleCategoriesChanged = () => {
     loadCategories();
-    loadFleet();
+    loadFleet(true);
   };
 
   useEffect(() => {
-    loadFleet();
+    loadFleet(true);
     loadCategories();
   }, []);
 
@@ -410,19 +453,25 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
     let reachableCount = 0;
     let unreachableCount = 0;
+    let untestedCount = 0;
     servers.forEach((s) => {
       const cached = reachabilityCache[s.id];
       if (cached) {
-        if (cached.reachable) reachableCount++;
-        else unreachableCount++;
+        if (cached.testing) {
+          untestedCount++;
+        } else if (cached.reachable) {
+          reachableCount++;
+        } else {
+          unreachableCount++;
+        }
       } else {
-        // Fallback to server.status if not pinged yet
         if (s.status === 'online') reachableCount++;
-        else unreachableCount++;
+        else if (s.status === 'offline' || s.status === 'unreachable') unreachableCount++;
+        else untestedCount++;
       }
     });
 
-    return { total, linuxCount, winCount, prodCount, reachableCount, unreachableCount };
+    return { total, linuxCount, winCount, prodCount, reachableCount, unreachableCount, untestedCount };
   }, [servers, reachabilityCache]);
 
   // Handle open Add Modal
@@ -559,8 +608,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       setReachabilityCache((prev) => ({
         ...prev,
         [serverId]: {
-          reachable: res.reachable,
-          latency: res.latency_ms || 12,
+          reachable: Boolean(res.reachable),
+          latency: res.reachable ? (res.latency_ms || 0) : 0,
           testing: false,
         },
       }));
@@ -595,7 +644,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           const res = await testRemoteServerConnection(id);
           setReachabilityCache((prev) => ({
             ...prev,
-            [id]: { reachable: res.reachable, latency: res.latency_ms || 12, testing: false },
+            [id]: {
+              reachable: Boolean(res.reachable),
+              latency: res.reachable ? (res.latency_ms || 0) : 0,
+              testing: false,
+            },
           }));
         } catch {
           setReachabilityCache((prev) => ({
@@ -627,7 +680,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           const res = await testRemoteServerConnection(id);
           setReachabilityCache((prev) => ({
             ...prev,
-            [id]: { reachable: res.reachable, latency: res.latency_ms || 12, testing: false },
+            [id]: {
+              reachable: Boolean(res.reachable),
+              latency: res.reachable ? (res.latency_ms || 0) : 0,
+              testing: false,
+            },
           }));
         } catch {
           setReachabilityCache((prev) => ({
@@ -1025,10 +1082,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             <div className={`text-[10px] uppercase font-bold tracking-wider ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
               {isEn ? 'Reachability Status' : 'وضعیت آنلاین / آفلاین'}
             </div>
-            <div className="text-2xl font-bold font-mono mt-1">
-              <span className="text-emerald-400">{stats.reachableCount}</span>
+            <div className="text-2xl font-bold font-mono mt-1 flex items-baseline">
+              <span className="text-emerald-400" title={isEn ? 'Reachable / Online' : 'آنلاین و در دسترس'}>
+                {stats.reachableCount}
+              </span>
               <span className={`mx-1 text-xs font-normal ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}>/</span>
-              <span className="text-rose-400">{stats.unreachableCount}</span>
+              <span className="text-rose-400" title={isEn ? 'Unreachable / Down' : 'آفلاین و خارج از دسترس'}>
+                {stats.unreachableCount}
+              </span>
+              {stats.untestedCount > 0 && (
+                <>
+                  <span className={`mx-1 text-xs font-normal ${isLightMode ? 'text-slate-400' : 'text-slate-500'}`}>/</span>
+                  <span className="text-slate-400 text-xs font-mono font-normal" title={isEn ? 'Untested / Testing' : 'تست‌نشده / در حال تست'}>
+                    {stats.untestedCount} <span className="text-[10px] font-sans">({isEn ? 'untested' : 'تست‌نشده'})</span>
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <div
@@ -1753,7 +1822,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               {reach?.testing ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 animate-pulse">
                                   <RefreshCw className="w-3 h-3 animate-spin" />
-                                  <span>Pinging...</span>
+                                  <span>{isEn ? 'Pinging...' : 'در حال تست...'}</span>
                                 </span>
                               ) : reach ? (
                                 <span
@@ -1768,24 +1837,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                       reach.reachable ? 'bg-emerald-400' : 'bg-rose-400'
                                     }`}
                                   />
-                                  {reach.reachable ? `${reach.latency}ms` : 'Down'}
+                                  {reach.reachable ? `${reach.latency}ms` : (isEn ? 'Down' : 'آفلاین')}
+                                </span>
+                              ) : server.status === 'offline' || server.status === 'unreachable' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border bg-rose-500/15 text-rose-400 border-rose-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                  {isEn ? 'Offline' : 'آفلاین'}
+                                </span>
+                              ) : server.status === 'online' ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                  {isEn ? 'Online' : 'آنلاین'}
                                 </span>
                               ) : (
-                                <span
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${
-                                    server.status === 'online'
-                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                      : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
-                                  }`}
-                                >
-                                  <span
-                                    className={`w-1.5 h-1.5 rounded-full ${
-                                      server.status === 'online'
-                                        ? 'bg-emerald-400'
-                                        : 'bg-slate-400'
-                                    }`}
-                                  />
-                                  {server.status || 'Ready'}
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border bg-slate-500/15 text-slate-400 border-slate-500/30">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                  {isEn ? 'Untested' : 'تست‌نشده'}
                                 </span>
                               )}
 
@@ -1980,7 +2047,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {reach && (
+                      {reach?.testing ? (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md border bg-cyan-500/15 text-cyan-400 border-cyan-500/30 animate-pulse">
+                          {isEn ? 'Pinging...' : 'در حال تست...'}
+                        </span>
+                      ) : reach ? (
                         <span
                           className={`text-[10px] font-mono px-2 py-0.5 rounded-md border ${
                             reach.reachable
@@ -1988,7 +2059,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
                           }`}
                         >
-                          {reach.reachable ? `${reach.latency}ms` : 'Down'}
+                          {reach.reachable ? `${reach.latency}ms` : (isEn ? 'Down' : 'آفلاین')}
+                        </span>
+                      ) : server.status === 'offline' || server.status === 'unreachable' ? (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md border bg-rose-500/15 text-rose-400 border-rose-500/30">
+                          {isEn ? 'Offline' : 'آفلاین'}
+                        </span>
+                      ) : server.status === 'online' ? (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md border bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+                          {isEn ? 'Online' : 'آنلاین'}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md border bg-slate-500/15 text-slate-400 border-slate-500/30">
+                          {isEn ? 'Untested' : 'تست‌نشده'}
                         </span>
                       )}
                     </div>
