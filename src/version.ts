@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.130.1';
+export const APP_VERSION = '1.130.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.130.2',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'قابلیت باز شدن مستقیم مودال Server Management با کلیک روی نام سرور لینوکسی در هر دو نمای جدولی و کارتی',
+    title_en: 'Direct Server Management Modal Invocation by Clicking Linux Server Name in Both Table and Card Views',
+    changes: [
+      'امکان کلیک مستقیم روی نام سرورهای لینوکسی در جدول Remote Servers جهت باز شدن سریع پنجره Server Management.',
+      'پشتیبانی از هاور تعاملی و کلیک روی عنوان سرور در نمای کارتی (Grid/Cards) برای دسترسی فوری بدون نیاز به منوی سه‌نقطه.',
+      'حفظ ساختار دوزبانه و تولتیپ راهنمای استاندارد بر روی نام سرورها.',
+    ],
+    changes_en: [
+      'Enabled direct click-to-open on Linux server names within the Remote Servers table view to launch the Server Management modal instantly.',
+      'Added interactive hover styling and click trigger on server title headings in the Card view.',
+      'Ensured full bilingual tooltip support and strict accessibility compliance.',
+    ],
+  },
   {
     version: '1.130.1',
     releaseDate: '2026-09-23',

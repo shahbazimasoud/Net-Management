@@ -1563,13 +1563,30 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         {isLinux ? <Terminal className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
                       </div>
                       <div className="min-w-0">
-                        <h3
-                          className={`text-sm font-bold tracking-tight truncate transition-colors ${
-                            isLightMode ? 'text-slate-900 group-hover:text-cyan-700' : 'text-white group-hover:text-cyan-300'
-                          }`}
-                        >
-                          {server.name}
-                        </h3>
+                        {isLinux ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenLinuxMonitor(server)}
+                            className="text-left rtl:text-right cursor-pointer group/name block max-w-full"
+                            title={isEn ? `Open Server Management for ${server.name}` : `باز کردن مدیریت سرور برای ${server.name}`}
+                          >
+                            <h3
+                              className={`text-sm font-bold tracking-tight truncate transition-colors ${
+                                isLightMode ? 'text-slate-900 group-hover/name:text-cyan-700' : 'text-white group-hover/name:text-cyan-300'
+                              }`}
+                            >
+                              {server.name}
+                            </h3>
+                          </button>
+                        ) : (
+                          <h3
+                            className={`text-sm font-bold tracking-tight truncate transition-colors ${
+                              isLightMode ? 'text-slate-900 group-hover:text-cyan-700' : 'text-white group-hover:text-cyan-300'
+                            }`}
+                          >
+                            {server.name}
+                          </h3>
+                        )}
                         <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5 truncate">
                           <span>{server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}</span>
                           <span>•</span>
@@ -1761,8 +1778,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         </span>
                       </td>
                       <td className={`p-3 font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                        <div>{server.name}</div>
-                        <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
+                        {isLinux ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenLinuxMonitor(server)}
+                            className="text-left rtl:text-right group/tblname block cursor-pointer focus:outline-none"
+                            title={isEn ? `Open Server Management for ${server.name}` : `باز کردن مدیریت سرور برای ${server.name}`}
+                          >
+                            <div className="group-hover/tblname:text-cyan-400 group-hover/tblname:underline transition-colors">
+                              {server.name}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
+                          </button>
+                        ) : (
+                          <div>
+                            <div>{server.name}</div>
+                            <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 font-mono text-cyan-400 font-semibold">
                         {server.ip}:{isLinux ? server.ssh_port || 22 : server.win_port || 3389}
