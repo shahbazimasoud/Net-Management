@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.126.0';
+export const APP_VERSION = '1.127.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.127.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'ریفکتور ماژول Storage & Disk لینوکس، پایپ‌لاین جامع معماری ۶ لایه LVM (Disk → PV → VG → LV → FS → Mount) و اکستند بلادرنگ بدون قطعی',
+    title_en: 'Linux Storage & Disk Architectural Refactoring: Full 6-Layer LVM Pipeline (Disk → PV → VG → LV → FS → Mount) & Live Online Extension',
+    changes: [
+      'بازطراحی و ریفکتور اساسی ماژول ذخیره‌سازی لینوکس بر اساس معماری استاندارد شش‌لایه‌ای: Disk (دیسک فیزیکی خام) -> PV (فیزیکال ولوم) -> VG (مخزن و استخر مشترک) -> LV (برداشت ظرفیت برای ولوم) -> Filesystem (فرمت ext4/XFS) -> Mount Point (مسیر اتصال سیستم‌عامل مثل / یا /var).',
+      'ساخت کامپوننت و مودال جدید و جامع LinuxStoragePipelineModal برای اتصال زنجیره‌ای و یکپارچه فرآیند افزودن دیسک جدید، تبدیل به PV، الحاق به VG، افزایش حجم ولوم و رشد آنلاین فایل‌سیستم بدون نیاز به ریستارت سرور.',
+      'تجهیز دیسک‌های خام فیزیکی در بخش Physical Disks به دکمه‌های مستقیم جریان کاری: افزایش حجم درایو موجود (+ Extend Volume)، ایجاد درایو و مانت جدید (+ New Mount)، و مقداردهی اولیه (Init PV).',
+      'ارتقای مودال ساخت ولوم LVM (LinuxCreateLvmModal) با امکان الصاق هم‌زمان دیسک‌های خام جدید به گروه‌های حجم موجود جهت تأمین فضا پیش از ایجاد ولوم.',
+      'مرتب‌سازی اصولی بخش‌های تب LVM متناسب با جریان طبیعی سلسله‌مراتب: لایه ۱ و ۲ (دیسک‌های خام و PVها)، لایه ۳ (استخرهای VG) و لایه‌های ۴، ۵ و ۶ (ولوم‌های منطقی و مسیرهای مانت‌شده).',
+      'تضمین مقاومت در سطح بک‌اند SSH با بهینه‌سازی فرامین pvcreate با فلگ‌های -y -ff، اجرای خودکار udevadm settle، و اجرای مطمئن resize2fs و xfs_growfs.',
+    ],
+    changes_en: [
+      'Re-engineered the Linux Storage & Disk module strictly following the 6-layer architecture: Disk (physical raw disk) -> PV (Physical Volume) -> VG (Volume Group pool) -> LV (Logical Volume slice) -> Filesystem (ext4/XFS) -> Mount Point (directory mount like / or /var).',
+      'Created comprehensive LinuxStoragePipelineModal orchestrating the entire lifecycle: enrolling new raw disks, initializing PVs, joining target VGs, expanding LV boundaries, and growing live filesystems online with zero downtime.',
+      'Equipped detected physical raw disks with direct one-click workflow triggers: "+ Extend Volume" (pipeline extension), "+ New Mount" (new partition & mount point), and "Init PV" (pvcreate).',
+      'Enhanced LinuxCreateLvmModal with capability to attach unassigned raw disks directly to existing Volume Groups to supply needed capacity before volume slicing.',
+      'Re-ordered storage tab sections into their natural progressive flow: Layer 1 & 2 (Physical Disks & PVs), Layer 3 (Volume Group Pools), and Layer 4, 5 & 6 (Logical Volumes & Mount Points).',
+      'Hardened backend SSH execution with robust pvcreate (-y -ff) force handling, udevadm settle synchronization, and resilient filesystem growth fallbacks for ext4 (resize2fs) and XFS (xfs_growfs).',
+    ],
+  },
   {
     version: '1.126.0',
     releaseDate: '2026-09-23',

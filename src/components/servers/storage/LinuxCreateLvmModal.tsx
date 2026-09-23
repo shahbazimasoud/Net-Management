@@ -147,7 +147,7 @@ export const LinuxCreateLvmModal: React.FC<LinuxCreateLvmModalProps> = ({
         {
           isNewVg,
           vgName: targetVg,
-          selectedDisks: isNewVg ? selectedDisks : undefined,
+          selectedDisks: selectedDisks.length > 0 ? selectedDisks : undefined,
           lvName: cleanLv,
           size: finalSize,
           fsType,
@@ -331,7 +331,7 @@ export const LinuxCreateLvmModal: React.FC<LinuxCreateLvmModalProps> = ({
             </div>
 
             {!isNewVg ? (
-              <div>
+              <div className="space-y-3">
                 <select
                   value={existingVgName}
                   onChange={(e) => setExistingVgName(e.target.value)}
@@ -347,6 +347,59 @@ export const LinuxCreateLvmModal: React.FC<LinuxCreateLvmModalProps> = ({
                     </option>
                   ))}
                 </select>
+
+                {unassignedDisks.length > 0 && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs space-y-2 ${
+                      isLightMode ? 'bg-amber-50/60 border-amber-200' : 'bg-amber-950/20 border-amber-900/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-amber-300 flex items-center gap-1.5">
+                        <HardDrive className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Attach Raw Disks to this VG (Optional):' : 'الصاق دیسک‌های خام به این گروه (اختیاری):'}</span>
+                      </span>
+                      {selectedDisks.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDisks([])}
+                          className="text-[10px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                        >
+                          {isEn ? 'Clear selection' : 'حذف انتخاب'}
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      {isEn
+                        ? 'If this Volume Group lacks free space, select one or more detected raw disks. They will be auto-initialized with pvcreate and aggregated into this VG (vgextend).'
+                        : 'اگر این گروه حجم فاقد فضای آزاد کافی است، می‌توانید دیسک‌های خام جدید را انتخاب کنید تا با pvcreate و vgextend ظرفیت آن افزوده شود.'}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {unassignedDisks.map((d) => {
+                        const isSelected = selectedDisks.includes(d.name);
+                        return (
+                          <div
+                            key={d.name}
+                            onClick={() => toggleDiskSelection(d.name)}
+                            className={`p-2.5 rounded-xl border text-xs cursor-pointer flex items-center justify-between transition-all ${
+                              isSelected
+                                ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400 font-semibold'
+                                : isLightMode
+                                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <HardDrive className="w-4 h-4" />
+                              <span className="font-mono">{d.name}</span>
+                            </div>
+                            <span className="font-mono text-[11px]">{d.size}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3">

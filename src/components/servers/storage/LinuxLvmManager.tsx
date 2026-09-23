@@ -22,6 +22,8 @@ import {
   ArrowRight,
   PlusCircle,
   Compass,
+  Cpu,
+  Terminal,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -37,6 +39,7 @@ import { LinuxCreateLvmModal } from './LinuxCreateLvmModal';
 import { LinuxShrinkLvModal } from './LinuxShrinkLvModal';
 import { LinuxAddDiskToVgModal } from './LinuxAddDiskToVgModal';
 import { LinuxInitPvModal } from './LinuxInitPvModal';
+import { LinuxStoragePipelineModal } from './LinuxStoragePipelineModal';
 import { useModalDock } from '../../../context/ModalDockContext';
 
 interface LinuxLvmManagerProps {
@@ -61,6 +64,13 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
 
   // Modals state
   const { dockModal, undockModal } = useModalDock();
+
+  // Storage Pipeline Modal (Disk -> PV -> VG -> LV -> Filesystem -> Mount Point)
+  const [pipelineModalOpen, setPipelineModalOpen] = useState(false);
+  const [pipelineMode, setPipelineMode] = useState<'extend_existing' | 'create_new'>('extend_existing');
+  const [pipelineTargetLv, setPipelineTargetLv] = useState<LinuxLvmLv | null>(null);
+  const [pipelineTargetDisk, setPipelineTargetDisk] = useState<string | null>(null);
+  const [pipelineTargetVg, setPipelineTargetVg] = useState<string | null>(null);
 
   const [initPvModalOpen, setInitPvModalOpen] = useState(false);
   const [targetDiskForInitPv, setTargetDiskForInitPv] = useState<string | null>(null);
@@ -147,6 +157,40 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
     }
   };
 
+  // Pipeline Modal Handlers
+  const handleOpenPipeline = (
+    mode: 'extend_existing' | 'create_new' = 'extend_existing',
+    targetLv?: LinuxLvmLv | null,
+    targetDisk?: string | null,
+    targetVg?: string | null
+  ) => {
+    setPipelineMode(mode);
+    setPipelineTargetLv(targetLv || null);
+    setPipelineTargetDisk(targetDisk || null);
+    setPipelineTargetVg(targetVg || null);
+    setPipelineModalOpen(true);
+    undockModal(`linux_storage_pipeline_${server.id}`);
+  };
+
+  const handleMinimizePipeline = () => {
+    setPipelineModalOpen(false);
+    dockModal({
+      id: `linux_storage_pipeline_${server.id}`,
+      labelEn: `Storage Pipeline (${pipelineMode === 'extend_existing' ? 'Extend' : 'New Volume'})`,
+      labelFa: `پایپ‌لاین ذخیره‌سازی (${pipelineMode === 'extend_existing' ? 'اکستند' : 'درایو جدید'})`,
+      category: 'system',
+      badge: 'pipeline',
+      onRestore: () => {
+        setPipelineModalOpen(true);
+        undockModal(`linux_storage_pipeline_${server.id}`);
+      },
+      onClose: () => {
+        setPipelineModalOpen(false);
+        undockModal(`linux_storage_pipeline_${server.id}`);
+      },
+    });
+  };
+
   const handleOpenInitPv = (diskPath?: string) => {
     setTargetDiskForInitPv(diskPath || null);
     setInitPvModalOpen(true);
@@ -172,7 +216,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
     });
   };
 
-  const handleOpenExtend = (lv?: LinuxLvmLv) => {
+  const handleOpenExtend = (lv?: LinuxLvmLv | null) => {
     setTargetLvForExtend(lv || (overview?.lvs[0] || null));
     setExtendModalOpen(true);
     undockModal(`linux_extend_lv_${server.id}`);
@@ -258,8 +302,8 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
     setAddDiskModalOpen(false);
     dockModal({
       id: `linux_add_disk_${server.id}`,
-      labelEn: `Add Disk to VG (${targetVgForAddDisk || 'VG'})`,
-      labelFa: `پیوست دیسک به گروه (${targetVgForAddDisk || 'گروه حجم'})`,
+      labelEn: `Add Disk to VG (${targetVgForAddDisk || 'Storage Pool'})`,
+      labelFa: `افزودن دیسک به گروه حجم (${targetVgForAddDisk || 'استخر ذخیره'})`,
       category: 'system',
       badge: 'vgextend',
       onRestore: () => {
@@ -287,7 +331,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
         }`}
       >
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+          <div className="p-2.5 rounded-xl bg-gradient-to-tr from-cyan-600 to-teal-500 text-white shadow-md shadow-cyan-500/20">
             <Layers className="w-5 h-5" />
           </div>
           <div>
@@ -296,20 +340,50 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
                 {isEn ? 'Logical Volume Management (LVM)' : 'مدیریت پیشرفته فضاهای دیسک (LVM)'}
               </h3>
               <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-                {vgs.length} {isEn ? 'VGs' : 'گروه حجم'} / {lvs.length} {isEn ? 'LVs' : 'ولوم'}
+                {vgs.length} {isEn ? 'VGs' : 'گروه حجم'} / {lvs.length} {isEn ? 'LVs' : 'ولوم'} / {pvs.length} {isEn ? 'PVs' : 'دیسک عضو'}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
               {isEn
-                ? 'Zero-downtime disk allocation, online scanning, volume extension, and safe shrinking.'
-                : 'تخصیص پویای فضای دیسک، اسکن زنده بدون ریبوت، افزایش حجم (Extend) و کاهش ایمن (Shrink).'}
+                ? 'Cohesive Disk → PV → VG → LV → Filesystem → Mount Point lifecycle with online expansion.'
+                : 'معماری جامع دیسک خام ← PV ← گروه حجم VG ← لاجیکال ولوم LV ← ساختار فایل ← مسیر مانت سیستم‌عامل.'}
             </p>
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Primary Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Online Rescan Button */}
+          {/* PRIMARY WORKFLOW 1: GUIDED STORAGE PIPELINE WIZARD */}
+          <button
+            type="button"
+            onClick={() => handleOpenPipeline('extend_existing')}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 shadow-md shadow-cyan-500/20 cursor-pointer flex items-center gap-1.5 transition-all"
+            title={
+              isEn
+                ? 'Execute end-to-end storage extension: Disk -> PV -> VG -> LV -> Filesystem -> Mount Point'
+                : 'اجرای پایپ‌لاین جامع افزایش حجم: دیسک خام ← فیزیکال ولوم ← گروه حجم ← ولوم و فایل‌سیستم آنلاین'
+            }
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Storage Pipeline Wizard' : 'پایپ‌لاین جامع افزایش حجم (Disk → LV)'}</span>
+          </button>
+
+          {/* PRIMARY WORKFLOW 2: CREATE NEW VOLUME & MOUNT POINT */}
+          <button
+            type="button"
+            onClick={() => handleOpenPipeline('create_new')}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-500 transition-all shadow-sm shadow-teal-600/20 cursor-pointer flex items-center gap-1.5"
+            title={
+              isEn
+                ? 'Create a brand new formatted volume and mount point with fstab persistence'
+                : 'ایجاد درایو و مسیر مانت جدید با دیسک خام و ذخیره در /etc/fstab'
+            }
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>{isEn ? 'New Volume & Mount' : 'ساخت درایو و مانت جدید'}</span>
+          </button>
+
+          {/* ONLINE SCSI & BLOCK DEVICE RESCAN */}
           <button
             type="button"
             onClick={handleOnlineRescan}
@@ -333,18 +407,18 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
                   : 'در حال اسکن آنلاین...'
                 : isEn
                 ? 'Online Rescan Disks'
-                : 'اسکن سریع دیسک‌ها (بدون ریستارت)'}
+                : 'اسکن سریع دیسک‌ها'}
             </span>
           </button>
 
-          {/* Initialize Physical Volume (pvcreate) */}
+          {/* INITIALIZE PHYSICAL VOLUME (pvcreate) */}
           <button
             type="button"
             onClick={() => handleOpenInitPv()}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 shadow-sm ${
+            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 shadow-sm ${
               isLightMode
-                ? 'bg-amber-50/80 hover:bg-amber-100 text-amber-900 border-amber-300'
-                : 'bg-amber-950/20 hover:bg-amber-950/40 text-amber-300 border-amber-700/50'
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
             }`}
             title={
               isEn
@@ -353,30 +427,10 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
             }
           >
             <HardDrive className="w-3.5 h-3.5 text-amber-400" />
-            <span>{isEn ? 'Initialize PV (pvcreate)' : 'مقداردهی فیزیکال ولوم (PV)'}</span>
+            <span>{isEn ? 'Init PV' : 'مقداردهی PV'}</span>
           </button>
 
-          {/* Add Disk to Existing VG */}
-          <button
-            type="button"
-            onClick={() => handleOpenAddDiskToVg()}
-            className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-500 transition-all shadow-sm shadow-teal-600/20 cursor-pointer flex items-center gap-1.5"
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Add Disk to VG' : 'پیوست دیسک به گروه حجم'}</span>
-          </button>
-
-          {/* New LVM Volume Button */}
-          <button
-            type="button"
-            onClick={() => handleOpenCreate()}
-            className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-all shadow-sm shadow-emerald-600/20 cursor-pointer flex items-center gap-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{isEn ? 'New LVM Volume' : 'ایجاد فضای جدید (LVM)'}</span>
-          </button>
-
-          {/* Refresh LVM */}
+          {/* REFRESH INVENTORY */}
           <button
             type="button"
             onClick={loadLvmOverview}
@@ -393,204 +447,134 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
         </div>
       </div>
 
-      {/* Global Interactive Lifecycle & Scenario Navigator */}
+      {/* THE 6-LAYER ARCHITECTURE INTERACTIVE RIBBON */}
       <div
         className={`p-4 rounded-2xl border transition-all ${
-          isLightMode ? 'bg-gradient-to-r from-slate-50 to-cyan-50/40 border-slate-200' : 'bg-slate-900/40 border-slate-800'
+          isLightMode ? 'bg-gradient-to-r from-slate-50 via-cyan-50/30 to-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
         }`}
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
             <Compass className="w-4 h-4 text-cyan-400" />
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              {isEn ? 'Interactive Storage Workflow Guide' : 'راهنمای گام‌به‌گام سناریوهای ذخیره‌سازی'}
+              {isEn ? 'Cohesive Storage Architecture Hierarchy' : 'سلسله‌مراتب و نقش لایه‌های ذخیره‌سازی لینوکس'}
             </h4>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setActiveScenario(activeScenario === 'new_disk' ? null : 'new_disk')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-                activeScenario === 'new_disk'
-                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 font-bold'
-                  : isLightMode
-                  ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {isEn ? '1. Added New Physical Disk?' : '۱. دیسک فیزیکی جدید اضافه کرده‌اید؟'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveScenario(activeScenario === 'extend_lv' ? null : 'extend_lv')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-                activeScenario === 'extend_lv'
-                  ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 font-bold'
-                  : isLightMode
-                  ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {isEn ? '2. Want to Extend an Existing Volume?' : '۲. می‌خواهید درایو موجود را افزایش حجم دهید؟'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveScenario(activeScenario === 'new_mount' ? null : 'new_mount')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-                activeScenario === 'new_mount'
-                  ? 'bg-teal-500/20 border-teal-500/50 text-teal-300 font-bold'
-                  : isLightMode
-                  ? 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {isEn ? '3. Create New Mount Point?' : '۳. ایجاد درایو و مسیر مانت جدید؟'}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => handleOpenPipeline('extend_existing')}
+            className="text-[11px] font-bold text-cyan-400 hover:underline cursor-pointer flex items-center gap-1"
+          >
+            <span>{isEn ? 'Launch Pipeline Wizard →' : 'اجرای پایپ‌لاین گام‌به‌گام ←'}</span>
+          </button>
         </div>
 
-        {/* Selected Scenario Roadmap */}
-        {activeScenario === 'new_disk' && (
+        {/* 6 Step Interactive Architecture Progression Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-center text-xs">
+          {/* Stage 1: Disk */}
           <div
-            className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
-              isLightMode ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' : 'bg-emerald-950/20 border-emerald-800/40 text-emerald-200'
+            onClick={() => handleOpenPipeline('extend_existing')}
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-between gap-1 transition-all cursor-pointer ${
+              rawDisks.length > 0
+                ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 ring-1 ring-amber-500/30'
+                : isLightMode
+                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800'
             }`}
           >
-            <div className="font-semibold flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] font-bold">
-                ✓
-              </span>
-              <span>
-                {isEn
-                  ? 'Scenario: You added a physical or virtual disk (VMware/Proxmox) and want to expand your current server space:'
-                  : 'سناریو: یک دیسک فیزیکی یا مجازی (VMware / Proxmox) اضافه کرده‌اید و می‌خواهید فضای درایوهای موجود را افزایش دهید:'}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
-              <div
-                className={`p-2.5 rounded-lg border ${
-                  isLightMode ? 'bg-white border-emerald-200' : 'bg-slate-950/60 border-emerald-900/50'
-                }`}
-              >
-                <div className="font-bold text-amber-400 flex items-center gap-1 mb-1">
-                  <span>{isEn ? 'Step 1:' : 'گام ۱:'}</span>
-                  <span>{isEn ? 'Physical Disk & Init PV' : 'دیسک خام و مقداردهی PV'}</span>
-                </div>
-                <p className="text-[11px] leading-relaxed text-slate-300">
-                  {isEn
-                    ? 'Check "Physical Disks & Raw Devices". If not listed, run "Online Rescan Disks". Click "Initialize PV" (pvcreate) or use "+ Add to VG" to write LVM headers.'
-                    : 'در بخش پایین دیسک خام را بررسی کنید؛ در صورت نیاز «Online Rescan Disks» را بزنید. سپس دکمه «مقداردهی PV» (دستور pvcreate) یا «+ Add to VG» را برای نوشتن هدر LVM بزنید.'}
-                </p>
-              </div>
-
-              <div
-                className={`p-2.5 rounded-lg border ${
-                  isLightMode ? 'bg-white border-emerald-200' : 'bg-slate-950/60 border-emerald-900/50'
-                }`}
-              >
-                <div className="font-bold text-teal-400 flex items-center gap-1 mb-1">
-                  <span>{isEn ? 'Step 2:' : 'گام ۲:'}</span>
-                  <span>{isEn ? 'Pool into Volume Group (VG)' : 'پیوست به استخر گروه حجم (VG)'}</span>
-                </div>
-                <p className="text-[11px] leading-relaxed text-slate-300">
-                  {isEn
-                    ? 'Click "+ Add to VG" on the disk or PV card to run vgextend. The free capacity of the Volume Group storage pool expands immediately.'
-                    : 'روی کارت دیسک یا فیزیکال ولوم آزاد دکمه «+ Add to VG» را کلیک کنید تا با vgextend ظرفیت استخر گروه حجم بلافاصله گسترش یابد.'}
-                </p>
-              </div>
-
-              <div
-                className={`p-2.5 rounded-lg border ${
-                  isLightMode ? 'bg-white border-emerald-200' : 'bg-slate-950/60 border-emerald-900/50'
-                }`}
-              >
-                <div className="font-bold text-cyan-400 flex items-center gap-1 mb-1">
-                  <span>{isEn ? 'Step 3:' : 'گام ۳:'}</span>
-                  <span>{isEn ? 'Extend Mounted Volume (LV)' : 'افزایش حجم ولوم مانت‌شده'}</span>
-                </div>
-                <p className="text-[11px] leading-relaxed text-slate-300">
-                  {isEn
-                    ? 'Go to "Logical Volumes & Mount Points" and click "Extend" on your mounted volume (e.g. /). The filesystem expands online instantly!'
-                    : 'به بخش «Logical Volumes» رفته و روی ولوم مورد نظر (مانند ریشه / یا دیتا) دکمه «Extend» را بزنید تا حجم آن زنده اضافه شود!'}
-                </p>
-              </div>
-            </div>
+            <HardDrive className="w-4 h-4 text-amber-400" />
+            <span className="font-bold text-[11px]">1. Disk</span>
+            <span className="text-[9px] text-slate-400 leading-tight">
+              {isEn ? 'Physical raw space' : 'فضای فیزیکی جدید'}
+            </span>
+            <span className="text-[8px] font-mono text-amber-400/80">/dev/sdb</span>
           </div>
-        )}
 
-        {activeScenario === 'extend_lv' && (
+          {/* Stage 2: PV */}
           <div
-            className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
-              isLightMode ? 'bg-cyan-50/70 border-cyan-200 text-cyan-950' : 'bg-cyan-950/20 border-cyan-800/40 text-cyan-200'
+            onClick={() => handleOpenInitPv()}
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-between gap-1 transition-all cursor-pointer ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800'
             }`}
           >
-            <div className="font-semibold flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-full bg-cyan-500 text-white flex items-center justify-center text-[10px] font-bold">
-                ✓
-              </span>
-              <span>
-                {isEn
-                  ? 'Scenario: You want to expand an existing Logical Volume / mount point (e.g. / or /var):'
-                  : 'سناریو: می‌خواهید حجم یکی از ولوم‌های لاجیکال یا پارتیشن‌های فعلی (مانند / یا /var) را افزایش دهید:'}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-              <div
-                className={`p-2.5 rounded-lg border ${
-                  isLightMode ? 'bg-white border-cyan-200' : 'bg-slate-950/60 border-cyan-900/50'
-                }`}
-              >
-                <div className="font-bold text-emerald-400 mb-1">
-                  {isEn ? 'Case A: VG has Free Space (Free > 0)' : 'حالت الف: گروه حجم دارای فضای آزاد است (Free > 0)'}
-                </div>
-                <p className="text-[11px] leading-relaxed text-slate-300">
-                  {isEn
-                    ? 'Directly click "Extend" on the target Logical Volume below. Choose the size or +100%FREE, and submit. No disk addition needed.'
-                    : 'مستقیماً در بخش «Logical Volumes» دکمه «Extend» را روی ولوم مورد نظر بزنید و حجم دلخواه را وارد کنید. بدون نیاز به دیسک جدید انجام می‌شود.'}
-                </p>
-              </div>
-
-              <div
-                className={`p-2.5 rounded-lg border ${
-                  isLightMode ? 'bg-white border-cyan-200' : 'bg-slate-950/60 border-cyan-900/50'
-                }`}
-              >
-                <div className="font-bold text-amber-400 mb-1">
-                  {isEn ? 'Case B: VG has 0 Free Space' : 'حالت ب: گروه حجم فاقد فضای آزاد است (Free = 0)'}
-                </div>
-                <p className="text-[11px] leading-relaxed text-slate-300">
-                  {isEn
-                    ? 'First, attach a new virtual disk. Then click "Online Rescan Disks" and use "+ Add to VG" to feed space into the Volume Group before extending.'
-                    : 'ابتدا یک دیسک در هایپروایزر اضافه کنید، سپس با «Online Rescan Disks» و دکمه «+ Add to VG» آن را به گروه حجم متصل کنید تا فضا برای اکستند باز شود.'}
-                </p>
-              </div>
-            </div>
+            <Cpu className="w-4 h-4 text-emerald-400" />
+            <span className="font-bold text-[11px]">2. PV</span>
+            <span className="text-[9px] text-slate-400 leading-tight">
+              {isEn ? 'LVM usable format' : 'تبدیل به فرمت LVM'}
+            </span>
+            <span className="text-[8px] font-mono text-emerald-400/80">pvcreate</span>
           </div>
-        )}
 
-        {activeScenario === 'new_mount' && (
+          {/* Stage 3: VG */}
           <div
-            className={`p-3.5 rounded-xl border text-xs space-y-2 ${
-              isLightMode ? 'bg-teal-50/70 border-teal-200 text-teal-950' : 'bg-teal-950/20 border-teal-800/40 text-teal-200'
+            onClick={() => handleOpenAddDiskToVg()}
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-between gap-1 transition-all cursor-pointer ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800'
             }`}
           >
-            <div className="font-semibold flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-full bg-teal-500 text-white flex items-center justify-center text-[10px] font-bold">
-                ✓
-              </span>
-              <span>
-                {isEn
-                  ? 'Scenario: You want an entirely new volume mounted at /data or /backup with persistent reboot protection:'
-                  : 'سناریو: می‌خواهید یک درایو کاملاً مستقل و جدید با مسیر مانت دلخواه (مثل /data یا /backup) ایجاد و در fstab پایدار کنید:'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-300 leading-relaxed">
-              {isEn
-                ? 'Click "New LVM Volume" at the top. You can choose to create it within an existing Volume Group or form a new VG with unassigned raw disks. It formats with your chosen filesystem (ext4/xfs) and automounts permanently.'
-                : 'دکمه «ایجاد فضای جدید (New LVM Volume)» را در بالا بزنید. می‌توانید آن را درون گروه حجم موجود بسازید یا با دیسک‌های خام گروه جدیدی بسازید. سیستم به طور خودکار آن را فرمت کرده و در /etc/fstab پایدار می‌سازد.'}
-            </p>
+            <Layers className="w-4 h-4 text-cyan-400" />
+            <span className="font-bold text-[11px]">3. VG</span>
+            <span className="text-[9px] text-slate-400 leading-tight">
+              {isEn ? 'Aggregated pool' : 'مخزن/Pool کردن PVها'}
+            </span>
+            <span className="text-[8px] font-mono text-cyan-400/80">vgextend</span>
           </div>
-        )}
+
+          {/* Stage 4: LV */}
+          <div
+            onClick={() => handleOpenExtend()}
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-between gap-1 transition-all cursor-pointer ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Database className="w-4 h-4 text-indigo-400" />
+            <span className="font-bold text-[11px]">4. LV</span>
+            <span className="text-[9px] text-slate-400 leading-tight">
+              {isEn ? 'Volume slice' : 'برداشت ظرفیت برای ولوم'}
+            </span>
+            <span className="text-[8px] font-mono text-indigo-400/80">lvextend</span>
+          </div>
+
+          {/* Stage 5: Filesystem */}
+          <div
+            onClick={() => handleOpenPipeline('extend_existing')}
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-between gap-1 transition-all cursor-pointer ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Sliders className="w-4 h-4 text-teal-400" />
+            <span className="font-bold text-[11px]">5. Filesystem</span>
+            <span className="text-[9px] text-slate-400 leading-tight">
+              {isEn ? 'Live online growth' : 'رشد آنلاین ext4/XFS'}
+            </span>
+            <span className="text-[8px] font-mono text-teal-400/80">resize2fs / xfs</span>
+          </div>
+
+          {/* Stage 6: Mount Point */}
+          <div
+            onClick={() => handleOpenPipeline('create_new')}
+            className={`p-2.5 rounded-xl border flex flex-col items-center justify-between gap-1 transition-all cursor-pointer ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Folder className="w-4 h-4 text-blue-400" />
+            <span className="font-bold text-[11px]">6. Mount</span>
+            <span className="text-[9px] text-slate-400 leading-tight">
+              {isEn ? 'Directory attachment' : 'نقطه اتصال /var یا /'}
+            </span>
+            <span className="text-[8px] font-mono text-blue-400/80">/etc/fstab</span>
+          </div>
+        </div>
       </div>
 
       {/* Notification Banner */}
@@ -655,344 +639,30 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* SECTION 1: VOLUME GROUPS OVERVIEW (VGs) */}
+      {/* LAYER 1 & 2: PHYSICAL DISKS & PHYSICAL VOLUMES (PVs)                      */}
       {/* ========================================================================= */}
       {!loading && overview && overview.lvmInstalled && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyan-400" />
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
               <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                {isEn ? 'Storage Volume Groups (VGs)' : 'گروه‌های حجم ذخیره‌سازی (Storage Volume Groups)'}
+                {isEn
+                  ? 'Layer 1 & 2: Physical Disks & LVM Physical Volumes (PVs)'
+                  : 'لایه ۱ و ۲: دیسک‌های خام فیزیکی و Physical Volumes (PV)'}
               </h4>
             </div>
-            <span className="text-[11px] text-slate-500 font-mono">
-              {vgs.length} {isEn ? 'Groups Defined' : 'گروه تعریف‌شده'}
-            </span>
-          </div>
-
-          {/* Section 1 Operational Guide */}
-          <div
-            className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
-              isLightMode ? 'bg-slate-100/80 border-slate-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-400'
-            }`}
-          >
-            <HelpCircle className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-            <div className="space-y-1 leading-relaxed">
-              <span className="font-semibold text-slate-200 block">
-                {isEn ? 'Volume Group (VG) Workflow Instructions:' : 'راهنمای توالی گام‌ها برای گروه‌های حجم (VGs):'}
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                {rawDisks.length} {isEn ? 'Unassigned Raw Disks' : 'دیسک خام جدید'}
               </span>
-              <p>
-                {isEn
-                  ? '• If you added a new physical disk: Go to Section 3 below, click "+ Add to VG" on the disk card to expand this storage pool.'
-                  : '• اگر دیسک جدیدی اضافه کرده‌اید: ابتدا به بخش ۳ در پایین بروید و دکمه «+ Add to VG» را روی دیسک بزنید تا به این گروه اضافه شود.'}
-              </p>
-              <p>
-                {isEn
-                  ? '• If you want to extend an existing volume: Check the "Free" space here. If positive, go directly to Section 2 and click Extend. If 0, click "+ Add Disk" on the VG card first.'
-                  : '• اگر می‌خواهید ولوم موجود را بزرگ‌تر کنید: فضای آزاد (Free) گروه را ببینید. اگر فضا داشت، مستقیماً به بخش ۲ رفته و Extend بزنید؛ اگر صفر بود، ابتدا دکمه «+ Add Disk» را روی کارت گروه بزنید.'}
-              </p>
-            </div>
-          </div>
-
-          {vgs.length === 0 ? (
-            <div
-              className={`p-6 rounded-2xl border text-center text-xs space-y-2 ${
-                isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-900/40 border-slate-800 text-slate-400'
-              }`}
-            >
-              <Database className="w-6 h-6 mx-auto text-slate-500" />
-              <p>{isEn ? 'No Volume Groups found on this server.' : 'هیچ گروه حجمی روی این سرور یافت نشد.'}</p>
-              <button
-                type="button"
-                onClick={() => handleOpenCreate()}
-                className="mt-2 px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-500 cursor-pointer"
-              >
-                {isEn ? 'Create First Volume Group' : 'ایجاد اولین گروه حجم'}
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {vgs.map((vg) => {
-                const totalFloat = parseFloat(vg.size) || 1;
-                const freeFloat = parseFloat(vg.free) || 0;
-                const usedFloat = Math.max(0, totalFloat - freeFloat);
-                const usedPercent = Math.min(100, Math.round((usedFloat / totalFloat) * 100));
-
-                return (
-                  <div
-                    key={vg.name}
-                    className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition-all ${
-                      isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-cyan-400 font-mono flex items-center gap-1.5">
-                          <Database className="w-3.5 h-3.5" />
-                          <span>{vg.name}</span>
-                        </span>
-                        <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
-                          {vg.size}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-mono">
-                        <span>{vg.pvCount} PVs (Disks)</span>
-                        <span>&bull;</span>
-                        <span>{vg.lvCount} LVs (Volumes)</span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
-                        <div
-                          className={`h-full transition-all duration-300 ${
-                            usedPercent > 90 ? 'bg-rose-500' : usedPercent > 75 ? 'bg-amber-400' : 'bg-emerald-500'
-                          }`}
-                          style={{ width: `${usedPercent}%` }}
-                        />
-                      </div>
-
-                      <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
-                        <span>Used: {usedFloat.toFixed(2)} GB ({usedPercent}%)</span>
-                        <span className="text-emerald-400 font-semibold">Free: {vg.free}</span>
-                      </div>
-
-                      {/* VG Action Buttons: Add Disk, Extend LV, New LV */}
-                      <div className="grid grid-cols-3 gap-1.5 mt-3 pt-2 border-t border-slate-800/60">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenAddDiskToVg(vg.name)}
-                          className={`py-1.5 px-1.5 rounded-lg text-[11px] font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
-                            isLightMode
-                              ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'
-                              : 'bg-teal-950/20 text-teal-300 border-teal-900/50 hover:bg-teal-950/40'
-                          }`}
-                          title={isEn ? 'Attach a raw disk to this VG' : 'پیوست یک دیسک فیزیکی به این گروه حجم'}
-                        >
-                          <PlusCircle className="w-3 h-3" />
-                          <span>{isEn ? '+ Disk' : '+ دیسک'}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenExtend()}
-                          className={`py-1.5 px-1.5 rounded-lg text-[11px] font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
-                            isLightMode
-                              ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
-                              : 'bg-cyan-950/20 text-cyan-300 border-cyan-900/50 hover:bg-cyan-950/40'
-                          }`}
-                          title={isEn ? 'Extend a logical volume' : 'افزایش حجم یک لاجیکال ولوم'}
-                        >
-                          <ArrowUpRight className="w-3 h-3" />
-                          <span>{isEn ? 'Extend' : 'اکستند'}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenCreate(vg.name)}
-                          className={`py-1.5 px-1.5 rounded-lg text-[11px] font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
-                            isLightMode
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                              : 'bg-emerald-950/20 text-emerald-300 border-emerald-900/50 hover:bg-emerald-950/40'
-                          }`}
-                          title={isEn ? 'Create a new volume in this VG' : 'ساخت ولوم جدید در این گروه'}
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>{isEn ? 'New LV' : 'ولوم نو'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* SECTION 2: LOGICAL VOLUMES (LVs) & MOUNT POINTS */}
-      {/* ========================================================================= */}
-      {!loading && overview && overview.lvmInstalled && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                {isEn ? 'Logical Volumes & Mount Points' : 'لاجیکال ولوم‌ها و درایوهای مانت‌شده (Logical Volumes & Mount Points)'}
-              </h4>
-            </div>
-            <span className="text-[11px] text-slate-500 font-mono">
-              {lvs.length} {isEn ? 'Volumes Active' : 'ولوم فعال'}
-            </span>
-          </div>
-
-          {/* Section 2 Operational Guide */}
-          <div
-            className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
-              isLightMode ? 'bg-slate-100/80 border-slate-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-400'
-            }`}
-          >
-            <HelpCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <div className="space-y-1 leading-relaxed">
-              <span className="font-semibold text-slate-200 block">
-                {isEn ? 'Logical Volume (LV) Workflow Instructions:' : 'راهنمای توالی گام‌ها برای لاجیکال ولوم‌ها (LVs):'}
+              <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                {pvs.length} {isEn ? 'PVs Initialized' : 'فیزیکال ولوم فعال'}
               </span>
-              <p>
-                {isEn
-                  ? '• If you added a new disk to increase partition size: Ensure you already ran "+ Add to VG" in Section 3/1, then click "Extend" on the mounted volume below. Filesystem expands online without reboot.'
-                  : '• اگر دیسک جدیدی اضافه کرده‌اید: مطمئن شوید ابتدا آن را به گروه حجم (VG) ملحق کرده‌اید؛ سپس روی درایو مانت‌شده (مانند / یا مسیر دیتا) دکمه «Extend» را بزنید تا فایل‌سیستم آنلاین بزرگ شود.'}
-              </p>
-              <p>
-                {isEn
-                  ? '• If you want to extend an existing volume right now: Click "Extend" directly. If the group has insufficient space, you can either attach a new disk or shrink another volume.'
-                  : '• اگر می‌خواهید همین حالا ولوم را اکستند کنید: مستقیماً دکمه «Extend» را بزنید؛ در صورت کمبود فضا، سیستم به شما پیشنهاد الصاق دیسک می‌دهد.'}
-              </p>
             </div>
           </div>
 
-          {lvs.length === 0 ? (
-            <div
-              className={`p-6 rounded-2xl border text-center text-xs space-y-2 ${
-                isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-900/40 border-slate-800 text-slate-400'
-              }`}
-            >
-              <HardDrive className="w-6 h-6 mx-auto text-slate-500" />
-              <p>{isEn ? 'No Logical Volumes created yet.' : 'هنوز هیچ لاجیکال ولومی ساخته نشده است.'}</p>
-              <button
-                type="button"
-                onClick={() => handleOpenCreate()}
-                className="mt-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer"
-              >
-                {isEn ? 'Create New Volume' : 'ایجاد اولین فضای LVM'}
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {lvs.map((lv) => (
-                <div
-                  key={lv.path}
-                  className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition-all ${
-                    isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-cyan-400 font-mono truncate max-w-[170px]" title={lv.name}>
-                        {lv.name}
-                      </span>
-                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">
-                        {lv.size}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-1">
-                      <span className="truncate max-w-[140px]">VG: {lv.vgName}</span>
-                      <span className="uppercase text-[10px] px-1.5 py-0.2 rounded bg-slate-800/80">
-                        {lv.fsType || 'ext4'}
-                      </span>
-                    </div>
-
-                    {/* Mount Status Badge */}
-                    <div className="mt-2 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Folder className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="text-xs font-mono font-semibold truncate max-w-[150px]">
-                          {lv.mountPoint || (isEn ? 'Not Mounted' : 'مانت نشده')}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                          lv.isMounted
-                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {lv.isMounted ? (isEn ? 'Mounted' : 'مانت') : (isEn ? 'Raw LV' : 'خام')}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    {/* Live Usage Bar (if available) */}
-                    {lv.usagePercent !== undefined && (
-                      <div className="mt-1">
-                        <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className={`h-full ${
-                              lv.usagePercent > 90
-                                ? 'bg-rose-500'
-                                : lv.usagePercent > 75
-                                ? 'bg-amber-400'
-                                : 'bg-cyan-500'
-                            }`}
-                            style={{ width: `${lv.usagePercent}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-1">
-                          <span>{isEn ? 'Live Usage:' : 'مصرف:'} {lv.usagePercent}%</span>
-                          <span className="text-cyan-400">{lv.size}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Action Buttons: Extend & Shrink */}
-                    <div className="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-slate-800/60">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenExtend(lv)}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
-                          isLightMode
-                            ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
-                            : 'bg-cyan-950/20 text-cyan-300 border-cyan-900/50 hover:bg-cyan-950/40'
-                        }`}
-                        title={isEn ? 'Extend volume capacity' : 'افزایش فضای این ولوم'}
-                      >
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Extend' : 'اکستند'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleOpenShrink(lv)}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
-                          isLightMode
-                            ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                            : 'bg-amber-950/20 text-amber-300 border-amber-900/50 hover:bg-amber-950/40'
-                        }`}
-                        title={isEn ? 'Shrink volume and reclaim space' : 'کاهش حجم و آزادسازی فضا'}
-                      >
-                        <ArrowDownLeft className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Shrink' : 'شرینک'}</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* SECTION 3: PHYSICAL VOLUMES (PVs) & DETECTED RAW DISKS */}
-      {/* ========================================================================= */}
-      {!loading && overview && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-400" />
-              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                {isEn ? 'Physical Disks & Raw Devices' : 'دیسک‌های فیزیکی و دستگاه‌های خام شناسایی‌شده (Physical Disks & Raw Devices)'}
-              </h4>
-            </div>
-            <span className="text-[11px] text-slate-500 font-mono">
-              {pvs.length} {isEn ? 'in LVM' : 'عضو LVM'} / {rawDisks.length} {isEn ? 'Unassigned' : 'خام بدون تخصیص'}
-            </span>
-          </div>
-
-          {/* Section 3 Operational Guide */}
+          {/* Layer 1 & 2 Operational Guide */}
           <div
             className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
               isLightMode ? 'bg-slate-100/80 border-slate-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-400'
@@ -1001,22 +671,114 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
             <HelpCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
             <div className="space-y-1 leading-relaxed">
               <span className="font-semibold text-slate-200 block">
-                {isEn ? 'Physical Disks & Raw Devices Workflow Instructions:' : 'راهنمای توالی گام‌ها برای دیسک‌های فیزیکی و دستگاه‌های خام:'}
+                {isEn ? 'Physical Disks & PVs Role & Actions:' : 'نقش دیسک خام و فیزیکال ولوم‌ها:'}
               </span>
               <p>
                 {isEn
-                  ? '• If you added a new disk on VMware/Proxmox/Cloud: Click "Online Rescan Disks" above if it does not appear below. Then click "+ Add to VG" on the disk card to immediately join it to your existing storage pool!'
-                  : '• اگر دیسک جدیدی در مجازی‌ساز وصل کرده‌اید: چنانچه در کارت‌های زیر دیده نمی‌شود، دکمه «Online Rescan Disks» در بالای صفحه را بزنید؛ سپس دکمه «+ Add to VG» را روی دیسک کلیک کنید تا بلافاصله به گروه حجم ملحق گردد.'}
+                  ? '• Newly added disk (e.g. 100GB): Click "+ Extend Volume with this Disk" to atomically initialize PV, join target VG, and expand your mounted partition (e.g. /var or /) without reboot.'
+                  : '• دیسک خام جدید (مثلاً ۱۰۰ گیگابایت): با زدن دکمه «+ اکستند درایو با این دیسک»، این دیسک به صورت آنی به PV تبدیل شده، به گروه حجم ملحق گشته و درایو مانت‌شده (مانند / یا /var) را بدون قطعی بزرگ می‌کند.'}
               </p>
               <p>
                 {isEn
-                  ? '• Next Step after adding to VG: Go up to Section 2 and click "Extend" on your mounted partition to consume this new capacity.'
-                  : '• گام بعدی پس از پیوست به VG: به بخش ۲ (Logical Volumes) در بالا بروید و دکمه «Extend» را روی پارتیشن مدنظرتان بزنید تا فضا به آن اختصاص یابد.'}
+                  ? '• If you resized the virtual disk in VMware/Proxmox: Click "Online Rescan Disks" above; pvresize will automatically expand the PV.'
+                  : '• اگر اندازه دیسک مجازی را در VMware/Proxmox افزایش داده‌اید: دکمه «اسکن سریع دیسک‌ها» را بزنید؛ سیستم آنلاین pvresize را اجرا می‌کند.'}
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Unassigned Raw Disks */}
+            <div
+              className={`p-4 rounded-xl border space-y-3 ${
+                isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold flex items-center gap-1.5">
+                  <HardDrive className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{isEn ? 'Detected Physical Raw Disks' : 'دیسک‌های خام فیزیکی کشف‌شده'}</span>
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold">
+                  {rawDisks.length}
+                </span>
+              </div>
+
+              {rawDisks.length === 0 ? (
+                <div className="p-4 rounded-xl border border-dashed border-slate-800 text-center space-y-2">
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {isEn
+                      ? 'All attached block devices are already enrolled in LVM. If you just attached a new virtual disk in VMware/Proxmox, click "Online Rescan Disks" above.'
+                      : 'تمامی دیسک‌ها به سیستم اختصاص یافته‌اند. اگر دیسک جدیدی در مجازی‌ساز متصل کرده‌اید، دکمه «اسکن سریع دیسک‌ها» در بالا را بزنید.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOnlineRescan}
+                    disabled={rescanning}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-colors cursor-pointer"
+                  >
+                    {rescanning ? (isEn ? 'Scanning...' : 'در حال اسکن...') : (isEn ? 'Rescan SCSI Buses' : 'اسکن آنلاین')}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {rawDisks.map((disk) => (
+                    <div
+                      key={disk.name}
+                      className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2.5 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-amber-300">{disk.name}</span>
+                          <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            {disk.size}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>{isEn ? 'Ready for Enrollment' : 'آماده تخصیص'}</span>
+                        </span>
+                      </div>
+
+                      {/* Direct Workflow Buttons on each Raw Disk */}
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-amber-500/20">
+                        {/* Option 1: Extend Existing Volume with Pipeline */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPipeline('extend_existing', null, disk.name)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 shadow-xs cursor-pointer flex items-center gap-1 transition-all"
+                          title={isEn ? 'Extend existing volume using this disk via pipeline' : 'افزایش حجم درایو موجود با این دیسک از طریق پایپ‌لاین'}
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>{isEn ? '+ Extend Volume' : '+ اکستند درایو'}</span>
+                        </button>
+
+                        {/* Option 2: Create New Volume & Mount Point */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPipeline('create_new', null, disk.name)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-teal-300 bg-teal-950/40 hover:bg-teal-950/70 border border-teal-800/60 cursor-pointer flex items-center gap-1 transition-colors"
+                          title={isEn ? 'Create new standalone partition and mount point' : 'ساخت درایو جدید و مانت دائمی با این دیسک'}
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{isEn ? '+ New Mount' : '+ مانت جدید'}</span>
+                        </button>
+
+                        {/* Option 3: Manual Init PV */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenInitPv(disk.name)}
+                          className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 cursor-pointer flex items-center gap-1 transition-colors"
+                          title={isEn ? 'Initialize disk as Physical Volume (pvcreate)' : 'مقداردهی اولیه دیسک خام با دستور pvcreate'}
+                        >
+                          <span>{isEn ? 'Init PV' : 'دستور pvcreate'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Enrolled PVs */}
             <div
               className={`p-4 rounded-xl border space-y-3 ${
@@ -1025,8 +787,8 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold flex items-center gap-1.5">
-                  <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>{isEn ? 'Active Physical Volumes (PVs)' : 'دیسک‌های عضو LVM (Physical Volumes)'}</span>
+                  <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{isEn ? 'Active Physical Volumes (PVs)' : 'فیزیکال ولوم‌های عضو LVM'}</span>
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">
                   {pvs.length}
@@ -1035,7 +797,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
 
               {pvs.length === 0 ? (
                 <p className="text-xs text-slate-500 italic">
-                  {isEn ? 'No physical volumes initialized.' : 'هیچ دیسکی در LVM مقداردهی نشده است.'}
+                  {isEn ? 'No physical volumes initialized yet.' : 'هنوز هیچ فیزیکال ولومی مقداردهی نشده است.'}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1098,92 +860,350 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
                 </div>
               )}
             </div>
-
-            {/* Unassigned Raw Disks */}
-            <div
-              className={`p-4 rounded-xl border space-y-3 ${
-                isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold flex items-center gap-1.5">
-                  <Server className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{isEn ? 'Unassigned Raw Disks (Newly Detected)' : 'دیسک‌های خام شناسایی‌شده (جدید)'}</span>
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold">
-                  {rawDisks.length}
-                </span>
-              </div>
-
-              {rawDisks.length === 0 ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    {isEn
-                      ? 'All block devices are allocated. If you just attached a new virtual disk on your hypervisor, click "Online Rescan Disks" above to scan SCSI buses without restarting.'
-                      : 'تمامی دیسک‌ها به سیستم اختصاص یافته‌اند. اگر دیسک جدیدی در مجازی‌ساز اضافه کرده‌اید، دکمه «Online Rescan Disks» را در بالای صفحه بزنید.'}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {rawDisks.map((disk) => (
-                    <div
-                      key={disk.name}
-                      className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-amber-300">{disk.name}</span>
-                          <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            {disk.size}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 block font-mono mt-1">
-                          {disk.type} {disk.fstype ? `(${disk.fstype})` : ''} &bull;{' '}
-                          <span className="text-emerald-400">{isEn ? 'Ready for LVM' : 'آماده مقداردهی و پیوست'}</span>
-                        </span>
-                      </div>
-
-                      {/* Three Clear Actions: Initialize PV, Add to Existing VG, or Create Volume */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenInitPv(disk.name)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 cursor-pointer shadow-xs flex items-center gap-1 transition-colors"
-                          title={isEn ? 'Initialize disk as Physical Volume (pvcreate)' : 'مقداردهی اولیه دیسک خام با دستور pvcreate'}
-                        >
-                          <HardDrive className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{isEn ? 'Init PV' : 'مقداردهی PV'}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenAddDiskToVg(undefined, disk.name)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-teal-600 hover:bg-teal-500 cursor-pointer shadow-xs flex items-center gap-1 transition-colors"
-                          title={isEn ? 'Add to existing Volume Group' : 'پیوست این دیسک به گروه حجم موجود'}
-                        >
-                          <PlusCircle className="w-3.5 h-3.5" />
-                          <span>{isEn ? '+ Add to VG' : '+ پیوست به گروه'}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleOpenCreate()}
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 cursor-pointer shadow-xs transition-colors"
-                          title={isEn ? 'Create new standalone VG/volume' : 'ایجاد فضای کاملاً مجزا با این دیسک'}
-                        >
-                          {isEn ? 'Create' : 'ایجاد'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       )}
 
-      {/* Modals */}
+      {/* ========================================================================= */}
+      {/* LAYER 3: STORAGE VOLUME GROUPS (VGs) - AGGREGATED STORAGE POOLS          */}
+      {/* ========================================================================= */}
+      {!loading && overview && overview.lvmInstalled && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                {isEn ? 'Layer 3: Volume Groups (VGs) - Storage Pools' : 'لایه ۳: گروه‌های حجم (VGs) - استخرهای ذخیره‌سازی'}
+              </h4>
+            </div>
+            <span className="text-[11px] text-slate-500 font-mono">
+              {vgs.length} {isEn ? 'Groups Defined' : 'گروه تعریف‌شده'}
+            </span>
+          </div>
+
+          {/* Layer 3 Operational Guide */}
+          <div
+            className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
+              isLightMode ? 'bg-slate-100/80 border-slate-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+            }`}
+          >
+            <HelpCircle className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+            <div className="space-y-1 leading-relaxed">
+              <span className="font-semibold text-slate-200 block">
+                {isEn ? 'Volume Group (VG) Storage Pool Role & Actions:' : 'نقش استخر گروه حجم (VG):'}
+              </span>
+              <p>
+                {isEn
+                  ? '• The VG pools together multiple PVs into one massive shared capacity reservoir. All Logical Volumes carve their space from here.'
+                  : '• گروه حجم تمامی PVها را درون یک استخر ظرفیت مشترک تجمیع می‌کند. تمامی ولوم‌های لاجیکال از این فضا سهم می‌برند.'}
+              </p>
+              <p>
+                {isEn
+                  ? '• If Free is 0: Click "+ Add Disk" to extend the pool with a new physical drive before growing volumes.'
+                  : '• اگر مقدار Free صفر است: دکمه «+ دیسک» را بزنید تا با اضافه کردن دیسک جدید، ظرفیت استخر باز شود.'}
+              </p>
+            </div>
+          </div>
+
+          {vgs.length === 0 ? (
+            <div
+              className={`p-6 rounded-2xl border text-center text-xs space-y-2 ${
+                isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+              }`}
+            >
+              <Database className="w-6 h-6 mx-auto text-slate-500" />
+              <p>{isEn ? 'No Volume Groups found on this server.' : 'هیچ گروه حجمی روی این سرور یافت نشد.'}</p>
+              <button
+                type="button"
+                onClick={() => handleOpenPipeline('create_new')}
+                className="mt-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-500 cursor-pointer"
+              >
+                {isEn ? 'Create First Volume Group' : 'ایجاد اولین گروه حجم'}
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {vgs.map((vg) => {
+                const totalFloat = parseFloat(vg.size) || 1;
+                const freeFloat = parseFloat(vg.free) || 0;
+                const usedFloat = Math.max(0, totalFloat - freeFloat);
+                const usedPercent = Math.min(100, Math.round((usedFloat / totalFloat) * 100));
+
+                return (
+                  <div
+                    key={vg.name}
+                    className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition-all ${
+                      isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-cyan-400 font-mono flex items-center gap-1.5">
+                          <Database className="w-3.5 h-3.5" />
+                          <span>{vg.name}</span>
+                        </span>
+                        <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                          {vg.size}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-mono">
+                        <span>{vg.pvCount} PVs (Disks)</span>
+                        <span>&bull;</span>
+                        <span>{vg.lvCount} LVs (Volumes)</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-white/5">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            usedPercent > 90 ? 'bg-rose-500' : usedPercent > 75 ? 'bg-amber-400' : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${usedPercent}%` }}
+                        />
+                      </div>
+
+                      <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
+                        <span>Used: {usedFloat.toFixed(2)} GB ({usedPercent}%)</span>
+                        <span className="text-emerald-400 font-semibold">Free: {vg.free}</span>
+                      </div>
+
+                      {/* VG Action Buttons */}
+                      <div className="grid grid-cols-3 gap-1.5 mt-3 pt-2 border-t border-slate-800/60">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAddDiskToVg(vg.name)}
+                          className={`py-1.5 px-1.5 rounded-lg text-[11px] font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                            isLightMode
+                              ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'
+                              : 'bg-teal-950/20 text-teal-300 border-teal-900/50 hover:bg-teal-950/40'
+                          }`}
+                          title={isEn ? 'Attach a raw disk to this VG' : 'پیوست یک دیسک فیزیکی به این گروه حجم'}
+                        >
+                          <PlusCircle className="w-3 h-3" />
+                          <span>{isEn ? '+ Disk' : '+ دیسک'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const matchedLv = lvs.find((l) => l.vgName === vg.name) || lvs[0] || null;
+                            handleOpenPipeline('extend_existing', matchedLv, null, vg.name);
+                          }}
+                          className={`py-1.5 px-1.5 rounded-lg text-[11px] font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                            isLightMode
+                              ? 'bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100'
+                              : 'bg-cyan-950/20 text-cyan-300 border-cyan-900/50 hover:bg-cyan-950/40'
+                          }`}
+                          title={isEn ? 'Extend a volume in this VG via pipeline' : 'افزایش حجم ولوم در این گروه با پایپ‌لاین'}
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          <span>{isEn ? 'Extend LV' : 'اکستند'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPipeline('create_new', null, null, vg.name)}
+                          className={`py-1.5 px-1.5 rounded-lg text-[11px] font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                            isLightMode
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              : 'bg-emerald-950/20 text-emerald-300 border-emerald-900/50 hover:bg-emerald-950/40'
+                          }`}
+                          title={isEn ? 'Create a new volume in this VG' : 'ساخت ولوم جدید در این گروه'}
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{isEn ? 'New LV' : 'ولوم نو'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* LAYER 4, 5 & 6: LOGICAL VOLUMES (LVs), FILESYSTEMS & MOUNT POINTS        */}
+      {/* ========================================================================= */}
+      {!loading && overview && overview.lvmInstalled && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+              <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                {isEn
+                  ? 'Layer 4, 5 & 6: Logical Volumes, Filesystems & Mount Points'
+                  : 'لایه ۴، ۵ و ۶: لاجیکال ولوم‌ها (LV)، ساختار فایل‌سیستم و مسیرهای مانت'}
+              </h4>
+            </div>
+            <span className="text-[11px] text-slate-500 font-mono">
+              {lvs.length} {isEn ? 'Volumes Active' : 'ولوم فعال'}
+            </span>
+          </div>
+
+          {/* Layer 4, 5, 6 Operational Guide */}
+          <div
+            className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
+              isLightMode ? 'bg-slate-100/80 border-slate-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+            }`}
+          >
+            <HelpCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="space-y-1 leading-relaxed">
+              <span className="font-semibold text-slate-200 block">
+                {isEn ? 'Volume & Filesystem Growth Workflow:' : 'گسترش آنلاین ولوم و فایل‌سیستم:'}
+              </span>
+              <p>
+                {isEn
+                  ? '• Click "Extend" on any mounted volume (e.g. / or /var) below. The pipeline automatically orchestrates disk enrollment, VG pool extension, and online resize2fs/xfs_growfs with zero downtime.'
+                  : '• روی هر درایو مانت‌شده (مانند / یا /var) دکمه «Extend» را بزنید. پایپ‌لاین به طور خودکار پیوست دیسک، افزایش استخر گروه و رشد آنلاین فایل‌سیستم (resize2fs یا xfs_growfs) را بدون قطعی انجام می‌دهد.'}
+              </p>
+            </div>
+          </div>
+
+          {lvs.length === 0 ? (
+            <div
+              className={`p-6 rounded-2xl border text-center text-xs space-y-2 ${
+                isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+              }`}
+            >
+              <HardDrive className="w-6 h-6 mx-auto text-slate-500" />
+              <p>{isEn ? 'No Logical Volumes created yet.' : 'هنوز هیچ لاجیکال ولومی ساخته نشده است.'}</p>
+              <button
+                type="button"
+                onClick={() => handleOpenPipeline('create_new')}
+                className="mt-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer"
+              >
+                {isEn ? 'Create New Volume & Mount' : 'ایجاد اولین فضای LVM'}
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {lvs.map((lv) => (
+                <div
+                  key={lv.path}
+                  className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 transition-all ${
+                    isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-cyan-400 font-mono truncate max-w-[170px]" title={lv.name}>
+                        {lv.name}
+                      </span>
+                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">
+                        {lv.size}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-1">
+                      <span className="truncate max-w-[140px]">VG: {lv.vgName}</span>
+                      <span className="uppercase text-[10px] px-1.5 py-0.2 rounded bg-slate-800/80 font-bold text-teal-400">
+                        {lv.fsType || 'ext4'}
+                      </span>
+                    </div>
+
+                    {/* Mount Status Badge */}
+                    <div className="mt-2 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Folder className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="text-xs font-mono text-slate-200 truncate max-w-[160px]" title={lv.mountPoint || 'Unmounted'}>
+                          {lv.mountPoint || (isEn ? 'Unmounted' : 'مانت‌نشده')}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                          lv.isMounted
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {lv.isMounted ? (isEn ? 'Mounted' : 'مانت‌شده') : (isEn ? 'Raw' : 'خام')}
+                      </span>
+                    </div>
+
+                    {/* Disk Usage Progress (if mounted) */}
+                    {lv.isMounted && lv.usagePercent !== undefined && (
+                      <div className="mt-2.5">
+                        <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className={`h-full ${
+                              lv.usagePercent > 90 ? 'bg-rose-500' : lv.usagePercent > 75 ? 'bg-amber-400' : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${lv.usagePercent}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-1">
+                          <span>{lv.usagePercent}% used</span>
+                          <span className="text-emerald-400">{lv.size} total</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    {/* Action Buttons: Pipeline Extend & Shrink */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/60">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPipeline('extend_existing', lv, null, lv.vgName)}
+                        className="py-1.5 px-2 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 flex items-center justify-center gap-1 transition-all shadow-xs cursor-pointer"
+                        title={isEn ? 'Extend volume capacity via pipeline' : 'افزایش فضای این ولوم از طریق پایپ‌لاین'}
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Extend' : 'اکستند حجم'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenShrink(lv)}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                          isLightMode
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                            : 'bg-amber-950/20 text-amber-300 border-amber-900/50 hover:bg-amber-950/40'
+                        }`}
+                        title={isEn ? 'Shrink volume and reclaim space' : 'کاهش حجم و آزادسازی فضا'}
+                      >
+                        <ArrowDownLeft className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Shrink' : 'شرینک'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODALS                                                                    */}
+      {/* ========================================================================= */}
+
+      {/* Comprehensive Guided Storage Pipeline Modal */}
+      <LinuxStoragePipelineModal
+        isOpen={pipelineModalOpen}
+        server={server}
+        overview={overview}
+        initialMode={pipelineMode}
+        initialTargetLv={pipelineTargetLv}
+        initialTargetDisk={pipelineTargetDisk}
+        initialTargetVg={pipelineTargetVg}
+        ephemeralPassword={ephemeralPassword}
+        onClose={() => {
+          setPipelineModalOpen(false);
+          undockModal(`linux_storage_pipeline_${server.id}`);
+        }}
+        onMinimize={handleMinimizePipeline}
+        onSuccess={() => {
+          loadLvmOverview();
+          if (onRefreshParent) onRefreshParent();
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
       <LinuxInitPvModal
         isOpen={initPvModalOpen}
         server={server}

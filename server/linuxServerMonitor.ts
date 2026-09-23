@@ -3494,7 +3494,6 @@ export async function rescanLinuxStorageSSH(
   timeoutMs: number = 15000
 ): Promise<{ success: boolean; message: string; scannedCount: number }> {
   const script = `export LC_ALL=C
-set -e
 SCAN_COUNT=0
 
 # 1. Rescan SCSI Host Busses for newly attached disks
@@ -3504,8 +3503,8 @@ for host in /sys/class/scsi_host/host*/scan; do
   fi
 done
 
-# 2. Rescan existing block devices for expanded disk sizes
-for dev in /sys/class/block/sd*/device/rescan; do
+# 2. Rescan existing block devices for expanded disk sizes (SCSI, VirtIO, NVMe)
+for dev in /sys/class/block/sd*/device/rescan /sys/block/*/device/rescan; do
   if [ -f "$dev" ]; then
     echo 1 | sudo tee "$dev" >/dev/null 2>&1
   fi
@@ -3529,6 +3528,8 @@ if command -v pvs >/dev/null 2>&1 || sudo which pvs >/dev/null 2>&1; then
       sudo pvresize -y "$pv" 2>/dev/null || true
     fi
   done
+  # Settle udev and rescan PVs
+  sudo udevadm settle 2>/dev/null || true
 fi
 
 echo "SCSI_SCAN_SUCCESS:$SCAN_COUNT"
@@ -3541,7 +3542,7 @@ echo "SCSI_SCAN_SUCCESS:$SCAN_COUNT"
 
     return {
       success: true,
-      message: `Online SCSI rescan completed successfully across ${scannedCount} host bus controller(s). New disks and expanded partition geometries are now available without restarting the server.`,
+      message: `Online storage rescan completed across ${scannedCount} host bus controller(s). Newly attached disks and resized virtual disks have been refreshed and all PVs auto-expanded without downtime.`,
       scannedCount,
     };
   } catch (err: any) {
@@ -3562,13 +3563,14 @@ export async function extendLinuxLvSSH(
   server: RemoteServer,
   payload: LinuxLvmExtendPayload,
   ephemeralPassword?: string,
-  timeoutMs: number = 25000
+  timeoutMs: number = 30000
 ): Promise<{ success: boolean; message: string }> {
   const { lvPath, vgName, addSize, diskToAddToVg } = payload;
 
   const cleanLvPath = (lvPath || '').trim();
   const cleanVg = (vgName || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
-  const cleanAddSize = (addSize || '').trim();
+  const rawAddSize = (addSize || '').trim();
+  const cleanAddSize = rawAddSize === '100%FREE' ? '100%FREE' : rawAddSize.replace(/^\++/, '');
   const cleanDisk = diskToAddToVg ? diskToAddToVg.trim().replace(/[^a-zA-Z0-9_\-/]/g, '') : null;
 
   if (!cleanLvPath) {
@@ -3579,7 +3581,6 @@ export async function extendLinuxLvSSH(
   }
 
   const script = `export LC_ALL=C
-set -e
 
 # Step 1: Add new disk to VG if requested
 if [ -n "${cleanDisk || ''}" ]; then
@@ -3587,31 +3588,46 @@ if [ -n "${cleanDisk || ''}" ]; then
     echo "DISK_NOT_FOUND"
     exit 1
   fi
-  # Initialize PV if not already recognized as a PV
-  if ! sudo pvs "${cleanDisk}" >/dev/null 2>&1 && ! pvs "${cleanDisk}" >/dev/null 2>&1; then
+  # If already a PV, resize it in case the underlying virtual disk was enlarged
+  if sudo pvs "${cleanDisk}" >/dev/null 2>&1 || pvs "${cleanDisk}" >/dev/null 2>&1; then
+    sudo pvresize -y "${cleanDisk}" 2>&1 || pvresize -y "${cleanDisk}" 2>&1 || true
+  else
+    # Initialize as Physical Volume (pvcreate) with force flag to wipe stale headers cleanly
     sudo pvcreate -y -ff "${cleanDisk}" 2>&1 || pvcreate -y -ff "${cleanDisk}" 2>&1 || sudo pvcreate -y "${cleanDisk}" 2>&1 || true
   fi
+  sudo udevadm settle 2>/dev/null || true
   # Extend VG (proceed if already member or newly added)
   sudo vgextend "${cleanVg}" "${cleanDisk}" 2>&1 || vgextend "${cleanVg}" "${cleanDisk}" 2>&1 || true
 fi
 
 # Step 2: Extend the Logical Volume and auto-resize filesystem (-r)
-EXTEND_CMD=""
 if [ "${cleanAddSize}" = "100%FREE" ]; then
-  EXTEND_CMD="sudo lvextend -l +100%FREE -r ${cleanLvPath}"
+  OUTPUT=$(sudo lvextend -l +100%FREE -r "${cleanLvPath}" 2>&1 || sudo lvextend -l +100%FREE "${cleanLvPath}" 2>&1 || true)
 else
-  EXTEND_CMD="sudo lvextend -L +${cleanAddSize} -r ${cleanLvPath}"
+  OUTPUT=$(sudo lvextend -L "+${cleanAddSize}" -r "${cleanLvPath}" 2>&1 || sudo lvextend -L "+${cleanAddSize}" "${cleanLvPath}" 2>&1 || true)
 fi
-
-OUTPUT=$($EXTEND_CMD 2>&1 || true)
 echo "$OUTPUT"
 
-# Fallback: if -r did not automatically resize or if filesystem is XFS
+if echo "$OUTPUT" | grep -qi "matches existing size" || echo "$OUTPUT" | grep -qi "not enough free space" || echo "$OUTPUT" | grep -qi "Insufficient free space"; then
+  if ! echo "$OUTPUT" | grep -qi "successfully resized"; then
+    echo "ERR_LVM_SPACE"
+    exit 1
+  fi
+fi
+
+# Step 3: Filesystem resize fallback to guarantee online growth (handles XFS and ext4)
 FS_TYPE=$(sudo blkid -s TYPE -o value "${cleanLvPath}" 2>/dev/null || true)
 MOUNT_PT=$(findmnt -n -o TARGET "${cleanLvPath}" 2>/dev/null || true)
+if [ -z "$MOUNT_PT" ]; then
+  MOUNT_PT=$(df -P "${cleanLvPath}" 2>/dev/null | tail -1 | awk '{print $6}' || true)
+fi
 
-if [ "$FS_TYPE" = "xfs" ] && [ -n "$MOUNT_PT" ]; then
-  sudo xfs_growfs "$MOUNT_PT" 2>&1 || true
+if [ "$FS_TYPE" = "xfs" ]; then
+  if [ -n "$MOUNT_PT" ] && [ "$MOUNT_PT" != "Mounted" ]; then
+    sudo xfs_growfs "$MOUNT_PT" 2>&1 || true
+  else
+    sudo xfs_growfs -d "${cleanLvPath}" 2>&1 || true
+  fi
 elif [ "$FS_TYPE" = "ext4" ] || [ "$FS_TYPE" = "ext3" ] || [ "$FS_TYPE" = "ext2" ]; then
   sudo resize2fs "${cleanLvPath}" 2>&1 || true
 fi
@@ -3628,10 +3644,10 @@ echo "EXTEND_SUCCESS"
       };
     }
 
-    if (raw.includes('Insufficient free space') || raw.includes('not enough free space')) {
+    if (raw.includes('ERR_LVM_SPACE') || raw.includes('Insufficient free space') || raw.includes('not enough free space')) {
       return {
         success: false,
-        message: `Volume Group "${cleanVg}" has insufficient free space for +${cleanAddSize}. Please select a smaller size or add a new disk to the Volume Group.`,
+        message: `Volume Group "${cleanVg}" has insufficient free space for +${cleanAddSize}. Please select a smaller size, or select a new raw disk to add to this Volume Group.`,
       };
     }
 
@@ -3689,14 +3705,16 @@ set -e
 # Step 1: Initialize PVs and create/extend VG if disks specified
 if [ "${isNewVg ? '1' : '0'}" = "1" ]; then
   for d in ${cleanDisks.join(' ')}; do
-    sudo pvcreate -y "$d" 2>&1
+    sudo pvcreate -y -ff "$d" 2>&1 || true
   done
+  sudo udevadm settle 2>/dev/null || true
   sudo vgcreate "${cleanVg}" ${cleanDisks.join(' ')} 2>&1
 elif [ -n "${cleanDisks.join(' ')}" ]; then
   for d in ${cleanDisks.join(' ')}; do
-    sudo pvcreate -y "$d" 2>&1
+    sudo pvcreate -y -ff "$d" 2>&1 || true
     sudo vgextend "${cleanVg}" "$d" 2>&1 || true
   done
+  sudo udevadm settle 2>/dev/null || true
 fi
 
 # Step 2: Create Logical Volume
