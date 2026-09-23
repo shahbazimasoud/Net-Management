@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Server,
@@ -129,7 +129,58 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   });
 
   const [isColumnPickerOpen, setIsColumnPickerOpen] = useState(false);
-  const columnPickerRef = useRef<HTMLDivElement>(null);
+  const columnPickerBtnRef = useRef<HTMLButtonElement>(null);
+  const columnDropdownRef = useRef<HTMLDivElement>(null);
+  const [columnPickerCoords, setColumnPickerCoords] = useState<{ top: number; left: number } | null>(null);
+
+  const updateColumnPickerPosition = useCallback(() => {
+    if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
+    const rect = columnPickerBtnRef.current.getBoundingClientRect();
+    const dropdownWidth = 264; // ~16.5rem
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let top = rect.bottom + 6;
+    // If not enough room below (e.g. within 320px of bottom), open above
+    if (top + 320 > viewportHeight && rect.top > 320) {
+      top = Math.max(10, rect.top - 320);
+    }
+
+    let left: number;
+    if (isEn) {
+      // In LTR: try to align right edge of dropdown with right edge of button
+      const desiredLeft = rect.right - dropdownWidth;
+      if (desiredLeft >= 10 && desiredLeft + dropdownWidth <= viewportWidth - 10) {
+        left = desiredLeft;
+      } else if (rect.left + dropdownWidth <= viewportWidth - 10) {
+        left = Math.max(10, rect.left);
+      } else {
+        left = Math.max(10, viewportWidth - dropdownWidth - 10);
+      }
+    } else {
+      // In RTL: try to align left edge of dropdown with left edge of button
+      const desiredLeft = rect.left;
+      if (desiredLeft + dropdownWidth <= viewportWidth - 10 && desiredLeft >= 10) {
+        left = desiredLeft;
+      } else if (rect.right - dropdownWidth >= 10) {
+        left = rect.right - dropdownWidth;
+      } else {
+        left = Math.max(10, Math.min(rect.left, viewportWidth - dropdownWidth - 10));
+      }
+    }
+
+    setColumnPickerCoords({ top, left });
+  }, [isEn]);
+
+  const handleToggleColumnPicker = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isColumnPickerOpen) {
+      updateColumnPickerPosition();
+      setIsColumnPickerOpen(true);
+    } else {
+      setIsColumnPickerOpen(false);
+    }
+  };
 
   const toggleColumn = (key: string) => {
     setVisibleColumns((prev) => {
@@ -159,18 +210,39 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   };
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (columnPickerRef.current && !columnPickerRef.current.contains(e.target as Node)) {
-        setIsColumnPickerOpen(false);
-      }
+    if (!isColumnPickerOpen) return;
+
+    const handleScrollOrResize = () => {
+      updateColumnPickerPosition();
     };
-    if (isColumnPickerOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        columnPickerBtnRef.current &&
+        columnPickerBtnRef.current.contains(target)
+      ) {
+        return;
+      }
+      if (
+        columnDropdownRef.current &&
+        columnDropdownRef.current.contains(target)
+      ) {
+        return;
+      }
+      setIsColumnPickerOpen(false);
+    };
+
+    window.addEventListener('resize', handleScrollOrResize);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    document.addEventListener('mousedown', handleClickOutside);
+
     return () => {
+      window.removeEventListener('resize', handleScrollOrResize);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isColumnPickerOpen]);
+  }, [isColumnPickerOpen, updateColumnPickerPosition]);
 
   // Multi-server Selection state
   const [selectedServerIds, setSelectedServerIds] = useState<Set<string>>(new Set());
@@ -970,7 +1042,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
       {/* 3. Search and Filter Bar */}
       <div
-        className={`p-3.5 rounded-xl border shadow-lg flex flex-wrap items-center justify-between gap-3 text-xs backdrop-blur-xl ${
+        className={`relative z-20 p-3.5 rounded-xl border shadow-lg flex flex-wrap items-center justify-between gap-3 text-xs backdrop-blur-xl ${
           isLightMode
             ? 'bg-white border-slate-200 text-slate-800'
             : 'spatial-glass border-white/10 text-slate-200'
@@ -1141,10 +1213,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           </div>
 
           {/* Column Visibility Selector (Persisted in localStorage) */}
-          <div className="relative" ref={columnPickerRef}>
+          <div className="relative">
             <button
+              ref={columnPickerBtnRef}
               type="button"
-              onClick={() => setIsColumnPickerOpen(!isColumnPickerOpen)}
+              onClick={handleToggleColumnPicker}
               title={isEn ? 'Customize Visible Columns' : 'سفارشی‌سازی ستون‌های جدول'}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer ${
                 isColumnPickerOpen
@@ -1161,63 +1234,74 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               </span>
             </button>
 
-            {isColumnPickerOpen && (
-              <div
-                className={`absolute ${
-                  isEn ? 'right-0' : 'left-0'
-                } mt-2 w-64 rounded-2xl shadow-2xl p-3 border z-40 backdrop-blur-xl animate-in fade-in zoom-in-95 ${
-                  isLightMode
-                    ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/15'
-                    : 'bg-slate-950/95 border-white/15 text-slate-100 shadow-black/60'
-                }`}
-              >
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
-                  <span className="text-xs font-bold flex items-center gap-1.5">
-                    <Columns3 className="w-3.5 h-3.5 text-cyan-400" />
-                    {isEn ? 'Table Columns' : 'ستون‌های جدول'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={resetColumns}
-                    className="text-[11px] text-cyan-400 hover:underline cursor-pointer font-mono"
-                  >
-                    {isEn ? 'Reset Default' : 'پیش‌فرض'}
-                  </button>
-                </div>
+            {isColumnPickerOpen &&
+              columnPickerCoords &&
+              createPortal(
+                <div
+                  ref={columnDropdownRef}
+                  style={{
+                    position: 'fixed',
+                    top: `${columnPickerCoords.top}px`,
+                    left: `${columnPickerCoords.left}px`,
+                    width: '16.5rem',
+                  }}
+                  className={`z-[9999] rounded-2xl shadow-2xl p-3 border font-sans backdrop-blur-2xl animate-in fade-in zoom-in-95 ${
+                    isEn ? 'text-left' : 'text-right'
+                  } ${
+                    isLightMode
+                      ? 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-900/25'
+                      : 'bg-slate-950/95 border-white/15 text-slate-100 shadow-black/80'
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                    <span className="text-xs font-bold flex items-center gap-1.5">
+                      <Columns3 className="w-3.5 h-3.5 text-cyan-400" />
+                      {isEn ? 'Table Columns' : 'ستون‌های جدول'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={resetColumns}
+                      className="text-[11px] text-cyan-400 hover:underline cursor-pointer font-mono"
+                    >
+                      {isEn ? 'Reset Default' : 'پیش‌فرض'}
+                    </button>
+                  </div>
 
-                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                  {SERVER_COLUMNS.map((col) => {
-                    const isVisible = visibleColumns[col.key] !== false;
-                    return (
-                      <label
-                        key={col.key}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs select-none transition ${
-                          col.required
-                            ? 'opacity-70 cursor-not-allowed'
-                            : 'cursor-pointer ' + (isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5')
-                        }`}
-                      >
-                        <span className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={isVisible}
-                            disabled={col.required}
-                            onChange={() => !col.required && toggleColumn(col.key)}
-                            className="w-3.5 h-3.5 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer disabled:cursor-not-allowed"
-                          />
-                          <span className="text-xs">{isEn ? col.labelEn : col.labelFa}</span>
-                        </span>
-                        {col.required && (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {isEn ? 'Required' : 'الزامی'}
+                  <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                    {SERVER_COLUMNS.map((col) => {
+                      const isVisible = visibleColumns[col.key] !== false;
+                      return (
+                        <label
+                          key={col.key}
+                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs select-none transition ${
+                            col.required
+                              ? 'opacity-70 cursor-not-allowed'
+                              : 'cursor-pointer ' + (isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5')
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isVisible}
+                              disabled={col.required}
+                              onChange={() => !col.required && toggleColumn(col.key)}
+                              className="w-3.5 h-3.5 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer disabled:cursor-not-allowed"
+                            />
+                            <span className="text-xs">{isEn ? col.labelEn : col.labelFa}</span>
                           </span>
-                        )}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+                          {col.required && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {isEn ? 'Required' : 'الزامی'}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>,
+                document.body
+              )}
           </div>
         </div>
       </div>

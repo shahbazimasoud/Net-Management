@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.131.0';
+export const APP_VERSION = '1.131.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.131.1',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'رفع مشکل هم‌پوشانی و قرارگیری منوی شخصی‌سازی ستون‌ها در زیر لیست سرورها با استفاده از React Portal و موقعیت‌یابی دقیق شناور',
+    title_en: 'Fixed Column Customization Dropdown Falling Under Servers Table Using React Portal & Clamped Floating Coordinates',
+    changes: [
+      'اصلاح رندر منوی شخصی‌سازی ستون‌های جدول سرورها با استفاده از createPortal روی document.body و اختصاص لایه z-[9999] جهت جلوگیری قطعی از رفتن منو به زیر جدول یا کانتینرهای با backdrop-blur.',
+      'محاسبه خودکار و هوشمند مختصات باز شدن منو نسبت به دکمه ستون‌ها همراه با تشخیص لبه‌های مانیتور و باز شدن برعکس به سمت بالا در صورت کمبود فضای پایین صفحه.',
+      'پشتیبانی یکپارچه از هر دو جهت LTR و RTL (چپ‌چین و راست‌چین متناسب با زبان فارسی و انگلیسی).',
+      'افزودن قابلیت تثبیت موقعیت منو هنگام اسکرول یا تغییر سایز پنجره و بستن هوشمند با کلیک خارج از محدوده.',
+      'افزودن z-20 به نوار جستجو و فیلترها به عنوان لایه دفاعی تکمیلی.',
+    ],
+    changes_en: [
+      'Portaled the table columns customization dropdown directly to document.body with z-[9999] priority, eliminating stacking context issues caused by sibling backdrop-blur filters and table boundaries.',
+      'Engineered smart boundary-aware coordinate positioning relative to the Columns button, with auto-flip logic when approaching the viewport bottom.',
+      'Seamless alignment adaptation for both LTR (English) and RTL (Persian) display contexts.',
+      'Added dynamic repositioning on viewport scroll/resize and robust click-outside detection.',
+      'Added relative z-20 to the search and filter bar container as complementary defense-in-depth.',
+    ],
+  },
   {
     version: '1.131.0',
     releaseDate: '2026-09-23',
