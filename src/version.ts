@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.118.1';
+export const APP_VERSION = '1.119.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.119.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'سیستم جامع سیاست‌های خودکارسازی چرخه حیات، پاکسازی و بکاپ فشرده دایرکتوری‌های لینوکس با موتور کران بومی',
+    title_en: 'Linux Directory Lifecycle, Automated Retention Purge & Compressed Backup Storage Engine',
+    changes: [
+      'افزودن تب تخصصی «چرخه حیات دایرکتوری و بکاپ» به مودال ناظر خودکار با امکان تعریف سیاست‌های نگهداری پوشه‌ها.',
+      'پیاده‌سازی موتور اجرایی بومی لینوکس (/usr/local/bin/nettopology-dir-policy.sh) با مدیریت خودکار فایل‌های کانفیگ در /etc/nettopology-dir-lifecycle/rules.d/ و ادغام پایدار با کران‌تب سیستم (/etc/cron.d/nettopology-dir-lifecycle).',
+      'پشتیبانی از ۴ حالت عملیاتی: (۱) پاکسازی دوره‌ای فایل‌های قدیمی بر اساس سن و الگو، (۲) بکاپ و فشرده‌سازی خودکار (tar.gz, tar.bz2, tar.xz, zip) با امکان انتخاب حذف یا نگهداری مبدا و چرخش خودکار آرشیوها، (۳) سقف حجم مجاز و حذف خودکار فایل‌های قدیمی، (۴) آینه‌سازی و همگام‌سازی با rsync.',
+      'تجهیز به قابلیت اجرای آزمایشی فوری (Run Now) جهت تست بلادرنگ عملکرد اسکریپت در سرور مقصد همراه با نمایش خروجی ترمینال.',
+      'مشاهده زنده لاگ‌های ثبت‌شده اجرای سیاست‌ها از فایل /var/log/nettopology-dir-lifecycle.log با امکان تازه‌سازی و کپی در حافظه.',
+      'رعایت ۱۰۰ درصدی استاندارد ۵ گانه مودال‌ها، راهنماهای سه‌بخشی FieldInfoTooltip، تم‌های تیره/روشن و پشتیبانی کامل دوزبانه فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Added a dedicated "Directory Lifecycle & Backups" tab within the Watchdog modal for managing filesystem automation policies.',
+      'Implemented native destination-side Linux automation agent (/usr/local/bin/nettopology-dir-policy.sh) driven by modular configs in /etc/nettopology-dir-lifecycle/rules.d/ and cron integration (/etc/cron.d/nettopology-dir-lifecycle).',
+      'Supported 4 operational modes: (1) Periodic retention purging based on age and pattern, (2) Automated compressed backups (tar.gz, tar.bz2, tar.xz, zip) with configurable source purging and archive rotation, (3) Size-capped quota auto-pruning, and (4) Directory mirroring with rsync.',
+      'Equipped with on-demand "Run Now" execution with instant live terminal stdout feedback.',
+      'Live audit logging streaming directly from /var/log/nettopology-dir-lifecycle.log with one-click refresh and copy capabilities.',
+      '100% adherence to modal specifications, 3-part FieldInfoTooltips, light/dark themes, and strict bilingual English and Persian localization.'
+    ],
+  },
   {
     version: '1.118.1',
     releaseDate: '2026-09-23',

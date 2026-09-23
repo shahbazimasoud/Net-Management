@@ -93,6 +93,11 @@ import {
   testLinuxServiceWatchdogCheckSSH,
   resetLinuxServiceWatchdogAntiLoopSSH,
   fetchLinuxWatchdogLogsSSH,
+  fetchLinuxDirectoryPoliciesSSH,
+  saveLinuxDirectoryPolicySSH,
+  deleteLinuxDirectoryPolicySSH,
+  runLinuxDirectoryPolicyNowSSH,
+  fetchLinuxDirectoryPolicyLogsSSH,
 } from './linuxServerMonitor';
 import {
   fetchLinuxSshConfigSSH,
@@ -1481,6 +1486,154 @@ apiRouter.get('/remote-servers/:id/service-watchdog-logs', async (req: Request, 
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to fetch watchdog logs from remote server',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/directory-policies - List all directory lifecycle policies
+apiRouter.get('/remote-servers/:id/directory-policies', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const password = (req.query?.password || req.headers['x-server-password']) as string | undefined;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const policies = await fetchLinuxDirectoryPoliciesSSH(server, password);
+    return res.json({ success: true, policies });
+  } catch (err: any) {
+    console.error(`[Directory Policies API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch directory policies from remote server',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/directory-policies - Save or update directory lifecycle policy
+apiRouter.post('/remote-servers/:id/directory-policies', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rule, password } = req.body;
+
+    if (!rule || !rule.targetPath) {
+      return res.status(400).json({ success: false, error: 'Valid rule with targetPath is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await saveLinuxDirectoryPolicySSH(server, rule, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Directory Lifecycle Policy Configured',
+      category: 'operation',
+      target: `${server.name || server.ip} (${rule.name || rule.targetPath})`,
+      status: result.success ? 'success' : 'error',
+      details: `Action: ${rule.actionType}, Schedule: ${rule.scheduleCron}, Result: ${result.message}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Directory Policy Save Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to save directory policy on remote server',
+    });
+  }
+});
+
+// DELETE /api/remote-servers/:id/directory-policies/:ruleId - Delete directory lifecycle policy
+apiRouter.delete('/remote-servers/:id/directory-policies/:ruleId', async (req: Request, res: Response) => {
+  try {
+    const { id, ruleId } = req.params;
+    const password = (req.body?.password || req.query?.password || req.headers['x-server-password']) as string | undefined;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deleteLinuxDirectoryPolicySSH(server, ruleId, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Directory Lifecycle Policy Deleted',
+      category: 'operation',
+      target: `${server.name || server.ip} (Rule: ${ruleId})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Directory Policy Delete Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete directory policy on remote server',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/directory-policies/:ruleId/run-now - On-demand immediate execution
+apiRouter.post('/remote-servers/:id/directory-policies/:ruleId/run-now', async (req: Request, res: Response) => {
+  try {
+    const { id, ruleId } = req.params;
+    const { password } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await runLinuxDirectoryPolicyNowSSH(server, ruleId, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Directory Policy Manual Trigger',
+      category: 'operation',
+      target: `${server.name || server.ip} (Rule: ${ruleId})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Directory Policy Run-Now Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to trigger directory policy execution',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/directory-policy-logs - Fetch live directory policy audit logs
+apiRouter.get('/remote-servers/:id/directory-policy-logs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const lines = Number(req.query.lines) || 100;
+    const password = (req.query?.password || req.headers['x-server-password']) as string | undefined;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await fetchLinuxDirectoryPolicyLogsSSH(server, lines, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Directory Policy Logs Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch directory policy logs from remote server',
     });
   }
 });

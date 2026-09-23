@@ -24,6 +24,7 @@ import {
   LinuxBlockDevice,
   LinuxMountPayload,
   LinuxServiceWatchdogRule,
+  LinuxDirectoryPolicyRule,
   LinuxDnsConfig,
   LinuxFail2banStatus,
   LinuxHostEntry,
@@ -1441,6 +1442,139 @@ export async function fetchLinuxWatchdogLogs(
   }
   const res = await fetch(
     `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-watchdog-logs?${params.toString()}`
+  );
+  const data = await res.json().catch(() => ({
+    success: false,
+    logs: '',
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxDirectoryPolicies(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  policies: LinuxDirectoryPolicyRule[];
+  error?: string;
+}> {
+  const params = new URLSearchParams();
+  if (ephemeralPassword) {
+    params.set('password', ephemeralPassword);
+  }
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/directory-policies${qs}`);
+  const data = await res.json().catch(() => ({
+    success: false,
+    policies: [],
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function saveLinuxDirectoryPolicy(
+  serverId: string,
+  rule: LinuxDirectoryPolicyRule,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  rule?: LinuxDirectoryPolicyRule;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/directory-policies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rule, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function deleteLinuxDirectoryPolicy(
+  serverId: string,
+  ruleId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/directory-policies/${encodeURIComponent(ruleId)}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword }),
+    }
+  );
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function runLinuxDirectoryPolicyNow(
+  serverId: string,
+  ruleId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  output?: string;
+  error?: string;
+}> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/directory-policies/${encodeURIComponent(ruleId)}/run-now`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword }),
+    }
+  );
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxDirectoryPolicyLogs(
+  serverId: string,
+  lines: number = 100,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  logs: string;
+  error?: string;
+}> {
+  const params = new URLSearchParams();
+  params.set('lines', String(lines));
+  if (ephemeralPassword) {
+    params.set('password', ephemeralPassword);
+  }
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/directory-policy-logs?${params.toString()}`
   );
   const data = await res.json().catch(() => ({
     success: false,

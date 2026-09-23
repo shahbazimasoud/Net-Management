@@ -19,10 +19,12 @@ import {
   Lock,
   Unlock,
   Check,
+  FolderCog,
 } from 'lucide-react';
 import { RemoteServer, LinuxSystemService, LinuxServiceWatchdogRule } from '../../types';
 import { ModalHeaderControls } from '../common/ModalHeaderControls';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { LinuxDirectoryPolicyTab } from './LinuxDirectoryPolicyTab';
 import {
   fetchLinuxServiceWatchdogs,
   saveLinuxServiceWatchdog,
@@ -58,7 +60,7 @@ export const LinuxServiceWatchdogModal: React.FC<LinuxServiceWatchdogModalProps>
   onRefreshServices,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
-  const [activeTab, setActiveTab] = useState<'rules' | 'form' | 'logs'>('rules');
+  const [activeTab, setActiveTab] = useState<'rules' | 'form' | 'logs' | 'dir_policies'>('rules');
 
   const [watchdogs, setWatchdogs] = useState<LinuxServiceWatchdogRule[]>([]);
   const [loading, setLoading] = useState(false);
@@ -409,6 +411,23 @@ export const LinuxServiceWatchdogModal: React.FC<LinuxServiceWatchdogModalProps>
 
             <button
               type="button"
+              onClick={() => setActiveTab('dir_policies')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'dir_policies'
+                  ? isLightMode
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-400 hover:bg-slate-800/60'
+              }`}
+            >
+              <FolderCog className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isEn ? 'Directory Lifecycle & Backups' : 'چرخه حیات دایرکتوری و بکاپ'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('logs')}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'logs'
@@ -475,8 +494,18 @@ export const LinuxServiceWatchdogModal: React.FC<LinuxServiceWatchdogModalProps>
         )}
 
         {/* Modal Body Content */}
-        <div className="p-5 flex-1 overflow-y-auto space-y-4">
-          {/* TAB 1: RULES LIST */}
+        {activeTab === 'dir_policies' ? (
+          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+            <LinuxDirectoryPolicyTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              ephemeralPassword={ephemeralPassword}
+            />
+          </div>
+        ) : (
+          <div className="p-5 flex-1 overflow-y-auto space-y-4">
+            {/* TAB 1: RULES LIST */}
           {activeTab === 'rules' && (
             <div className="space-y-4">
               {/* Anti-Loop Safety Explainer Card */}
@@ -1195,6 +1224,7 @@ export const LinuxServiceWatchdogModal: React.FC<LinuxServiceWatchdogModalProps>
             </div>
           )}
         </div>
+      )}
 
         {/* Modal Footer */}
         <div

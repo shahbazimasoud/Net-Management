@@ -10,6 +10,7 @@ import {
   LinuxBlockDevice,
   LinuxMountPayload,
   LinuxServiceWatchdogRule,
+  LinuxDirectoryPolicyRule,
 } from '../src/types';
 
 export interface LinuxServerDiskMetric {
@@ -2593,6 +2594,603 @@ fi
     return {
       success: false,
       logs: `Failed to fetch watchdog logs: ${err?.message || err}`,
+    };
+  }
+}
+
+/**
+ * Embedded Bash Script for NetTopology Directory & Storage Lifecycle Automation Engine
+ */
+const DIR_POLICY_RUNNER_BASH_SCRIPT = `#!/usr/bin/env bash
+# NetTopology Directory & Storage Lifecycle Automation Engine
+export LC_ALL=C
+set -u
+
+RULES_DIR="/etc/nettopology-dir-lifecycle/rules.d"
+STATE_DIR="/var/lib/nettopology-dir-lifecycle"
+LOG_FILE="/var/log/nettopology-dir-lifecycle.log"
+CRON_FILE="/etc/cron.d/nettopology-dir-lifecycle"
+
+mkdir -p "$RULES_DIR" "$STATE_DIR"
+touch "$LOG_FILE"
+
+log() {
+  local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+  echo "$msg" >> "$LOG_FILE"
+}
+
+update_state() {
+  local id="$1"
+  local status="$2"
+  local msg="$3"
+  local now=$(date '+%Y-%m-%d %H:%M:%S')
+  cat <<EOF > "$STATE_DIR/\${id}.state"
+LAST_RUN_AT="\${now}"
+LAST_RUN_STATUS="\${status}"
+LAST_RUN_MESSAGE="\${msg}"
+EOF
+}
+
+run_rule() {
+  local id="$1"
+  local conf="$RULES_DIR/\${id}.conf"
+  if [ ! -f "$conf" ]; then
+    log "[ERROR] Rule file $conf not found."
+    return 1
+  fi
+
+  NAME=""
+  TARGET_PATH=""
+  ACTION_TYPE="cleanup"
+  ENABLED=1
+  CLEANUP_AGE_DAYS=7
+  CLEANUP_PATTERN="*"
+  CLEANUP_REMOVE_EMPTY_DIRS=0
+  BACKUP_FORMAT="tar.gz"
+  BACKUP_DEST="/backup/archives"
+  BACKUP_KEEP_SOURCE=1
+  BACKUP_MAX_COUNT=10
+  SIZE_CAP_MB=1024
+  SYNC_DEST=""
+  SYNC_DELETE=0
+
+  . "$conf"
+
+  if [ "$ENABLED" -eq 0 ]; then
+    log "[INFO] Rule '\$NAME' (\$id) is disabled. Skipping."
+    update_state "$id" "never" "Rule disabled."
+    return 0
+  fi
+
+  if [ -z "$TARGET_PATH" ]; then
+    log "[ERROR] Rule '\$NAME' (\$id) has no target path."
+    update_state "$id" "failed" "Target path is empty."
+    return 1
+  fi
+
+  if [ ! -e "$TARGET_PATH" ]; then
+    log "[WARN] Target path '\$TARGET_PATH' does not exist for rule '\$NAME' (\$id)."
+    update_state "$id" "failed" "Target path \$TARGET_PATH does not exist."
+    return 1
+  fi
+
+  log "[START] Executing policy '\$NAME' (\$id) on target: \$TARGET_PATH (Action: \$ACTION_TYPE)"
+
+  case "$ACTION_TYPE" in
+    cleanup)
+      local age_arg=""
+      if [ -n "\${CLEANUP_AGE_DAYS:-}" ] && [ "\$CLEANUP_AGE_DAYS" -ge 0 ]; then
+        age_arg="-mtime +\${CLEANUP_AGE_DAYS}"
+      fi
+      local pat="\${CLEANUP_PATTERN:-*}"
+      
+      local count_before=0
+      if [ -d "$TARGET_PATH" ]; then
+        count_before=$(find "$TARGET_PATH" -mindepth 1 -type f -name "$pat" \$age_arg 2>/dev/null | wc -l)
+        find "$TARGET_PATH" -mindepth 1 -type f -name "$pat" \$age_arg -delete 2>/dev/null || true
+        if [ "\${CLEANUP_REMOVE_EMPTY_DIRS:-0}" -eq 1 ]; then
+          find "$TARGET_PATH" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+        fi
+      fi
+
+      log "[SUCCESS] Cleanup completed for '\$NAME'. Purged \$count_before files older than \${CLEANUP_AGE_DAYS:-0} days matching '\$pat'."
+      update_state "$id" "success" "Purged \$count_before files older than \${CLEANUP_AGE_DAYS:-0} days."
+      ;;
+
+    backup)
+      local bdest="\${BACKUP_DEST:-/backup/archives}"
+      mkdir -p "$bdest"
+      local base_name
+      base_name=$(basename "$TARGET_PATH")
+      local ts
+      ts=$(date '+%Y%m%d_%H%M%S')
+      local archive_file=""
+      local err_msg=""
+
+      case "\${BACKUP_FORMAT:-tar.gz}" in
+        tar.bz2)
+          archive_file="$bdest/\${base_name}_\${ts}.tar.bz2"
+          tar -cjf "$archive_file" -C "$(dirname "$TARGET_PATH")" "$base_name" 2>&1 || err_msg="tar bz2 failed"
+          ;;
+        tar.xz)
+          archive_file="$bdest/\${base_name}_\${ts}.tar.xz"
+          tar -cJf "$archive_file" -C "$(dirname "$TARGET_PATH")" "$base_name" 2>&1 || err_msg="tar xz failed"
+          ;;
+        zip)
+          archive_file="$bdest/\${base_name}_\${ts}.zip"
+          (cd "$(dirname "$TARGET_PATH")" && zip -rq "$archive_file" "$base_name") 2>&1 || err_msg="zip failed"
+          ;;
+        *)
+          archive_file="$bdest/\${base_name}_\${ts}.tar.gz"
+          tar -czf "$archive_file" -C "$(dirname "$TARGET_PATH")" "$base_name" 2>&1 || err_msg="tar gz failed"
+          ;;
+      esac
+
+      if [ -n "$err_msg" ] || [ ! -f "$archive_file" ]; then
+        log "[ERROR] Backup failed for '\$NAME': \$err_msg"
+        update_state "$id" "failed" "Backup archive creation failed."
+        return 1
+      fi
+
+      local arch_size
+      arch_size=$(du -h "$archive_file" 2>/dev/null | awk '{print $1}')
+      log "[BACKUP] Created archive \$archive_file (\$arch_size)."
+
+      if [ "\${BACKUP_KEEP_SOURCE:-1}" -eq 0 ]; then
+        if [ -d "$TARGET_PATH" ]; then
+          find "$TARGET_PATH" -mindepth 1 -delete 2>/dev/null || true
+          log "[PURGE] Source files purged inside \$TARGET_PATH after archive."
+        fi
+      fi
+
+      if [ -n "\${BACKUP_MAX_COUNT:-}" ] && [ "\$BACKUP_MAX_COUNT" -gt 0 ]; then
+        local total_archives
+        total_archives=$(ls -1t "\$bdest/\${base_name}_"* 2>/dev/null | wc -l)
+        if [ "\$total_archives" -gt "\$BACKUP_MAX_COUNT" ]; then
+          local prune_count=\$((total_archives - BACKUP_MAX_COUNT))
+          ls -1t "\$bdest/\${base_name}_"* 2>/dev/null | tail -n "\$prune_count" | xargs -r rm -f
+          log "[RETENTION] Pruned \$prune_count old archives exceeding limit of \$BACKUP_MAX_COUNT."
+        fi
+      fi
+
+      log "[SUCCESS] Backup completed for '\$NAME' -> \$archive_file (\$arch_size)."
+      update_state "$id" "success" "Archived to \$archive_file (\$arch_size)."
+      ;;
+
+    size_cap)
+      local cur_size_mb
+      cur_size_mb=$(du -sm "$TARGET_PATH" 2>/dev/null | awk '{print $1}')
+      if [ -z "$cur_size_mb" ]; then cur_size_mb=0; fi
+
+      local cap="\${SIZE_CAP_MB:-1024}"
+      if [ "\$cur_size_mb" -gt "\$cap" ]; then
+        log "[SIZE_CAP] Target size \${cur_size_mb}MB exceeds cap \${cap}MB. Pruning oldest files..."
+        local deleted=0
+        while [ "\$cur_size_mb" -gt "\$cap" ]; do
+          local oldest_file
+          oldest_file=$(find "$TARGET_PATH" -mindepth 1 -type f -printf '%T+ %p\\n' 2>/dev/null | sort | head -n 1 | awk '{$1=""; print $0}' | sed 's/^ *//')
+          if [ -z "$oldest_file" ] || [ ! -f "$oldest_file" ]; then
+            break
+          fi
+          rm -f "$oldest_file"
+          deleted=\$((deleted + 1))
+          cur_size_mb=$(du -sm "$TARGET_PATH" 2>/dev/null | awk '{print $1}')
+          if [ -z "$cur_size_mb" ]; then cur_size_mb=0; fi
+        done
+        log "[SUCCESS] Size cap enforced. Deleted \$deleted oldest files. New size: \${cur_size_mb}MB."
+        update_state "$id" "success" "Pruned \$deleted oldest files to fit under \${cap}MB (current: \${cur_size_mb}MB)."
+      else
+        log "[INFO] Target size \${cur_size_mb}MB is within cap \${cap}MB. No pruning required."
+        update_state "$id" "success" "Size \${cur_size_mb}MB is within \${cap}MB cap."
+      fi
+      ;;
+
+    sync)
+      local sdest="\${SYNC_DEST:-}"
+      if [ -z "$sdest" ]; then
+        log "[ERROR] Sync destination path is empty."
+        update_state "$id" "failed" "Sync destination empty."
+        return 1
+      fi
+      mkdir -p "$sdest"
+      local sync_opts="-a"
+      if [ "\${SYNC_DELETE:-0}" -eq 1 ]; then
+        sync_opts="-a --delete"
+      fi
+      if command -v rsync >/dev/null 2>&1; then
+        rsync \$sync_opts "$TARGET_PATH/" "$sdest/" 2>&1 || true
+      else
+        cp -a "$TARGET_PATH/." "$sdest/" 2>&1 || true
+      fi
+      log "[SUCCESS] Synchronized \$TARGET_PATH -> \$sdest."
+      update_state "$id" "success" "Synchronized with \$sdest."
+      ;;
+
+    *)
+      log "[ERROR] Unknown action type '\$ACTION_TYPE' in rule \$id."
+      update_state "$id" "failed" "Unknown action type \$ACTION_TYPE."
+      return 1
+      ;;
+  esac
+}
+
+sync_cron() {
+  cat <<'EOF' > "$CRON_FILE"
+# /etc/cron.d/nettopology-dir-lifecycle
+# Managed automatically by NetTopology Panel. Do not edit manually.
+SHELL=/bin/bash
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+LC_ALL=C
+
+EOF
+
+  for conf in "$RULES_DIR"/*.conf; do
+    [ -f "$conf" ] || continue
+    local id
+    id=$(basename "$conf" .conf)
+    ENABLED=1
+    SCHEDULE_CRON=""
+    . "$conf"
+    if [ "\${ENABLED:-1}" -eq 1 ] && [ -n "\${SCHEDULE_CRON:-}" ]; then
+      echo "\${SCHEDULE_CRON} root /usr/local/bin/nettopology-dir-policy.sh run \\"\${id}\\" >> /var/log/nettopology-dir-lifecycle.log 2>&1" >> "$CRON_FILE"
+    fi
+  done
+  chmod 644 "$CRON_FILE"
+}
+
+list_rules() {
+  echo "["
+  local first=1
+  for conf in "$RULES_DIR"/*.conf; do
+    [ -f "$conf" ] || continue
+    local id
+    id=$(basename "$conf" .conf)
+    
+    NAME="\$id"
+    TARGET_PATH=""
+    ACTION_TYPE="cleanup"
+    ENABLED=1
+    SCHEDULE_PRESET="daily"
+    SCHEDULE_CRON="0 2 * * *"
+    CLEANUP_AGE_DAYS=7
+    CLEANUP_PATTERN="*"
+    CLEANUP_REMOVE_EMPTY_DIRS=0
+    BACKUP_FORMAT="tar.gz"
+    BACKUP_DEST="/backup/archives"
+    BACKUP_KEEP_SOURCE=1
+    BACKUP_MAX_COUNT=10
+    SIZE_CAP_MB=1024
+    SYNC_DEST=""
+    SYNC_DELETE=0
+    CREATED_AT=""
+    UPDATED_AT=""
+
+    . "$conf"
+
+    LAST_RUN_AT=""
+    LAST_RUN_STATUS="never"
+    LAST_RUN_MESSAGE=""
+    if [ -f "$STATE_DIR/\${id}.state" ]; then
+      . "$STATE_DIR/\${id}.state"
+    fi
+
+    if [ "$first" -eq 0 ]; then
+      echo ","
+    fi
+    first=0
+
+    cat <<EOF
+  {
+    "id": "\${id}",
+    "name": "$(echo "\${NAME}" | sed 's/"/\\\\"/g')",
+    "targetPath": "$(echo "\${TARGET_PATH}" | sed 's/"/\\\\"/g')",
+    "actionType": "\${ACTION_TYPE}",
+    "enabled": $([ "\${ENABLED}" -eq 1 ] && echo "true" || echo "false"),
+    "schedulePreset": "\${SCHEDULE_PRESET}",
+    "scheduleCron": "\${SCHEDULE_CRON}",
+    "cleanupAgeDays": \${CLEANUP_AGE_DAYS:-7},
+    "cleanupFilePattern": "$(echo "\${CLEANUP_PATTERN:-*}" | sed 's/"/\\\\"/g')",
+    "cleanupRemoveEmptyDirs": $([ "\${CLEANUP_REMOVE_EMPTY_DIRS:-0}" -eq 1 ] && echo "true" || echo "false"),
+    "backupFormat": "\${BACKUP_FORMAT:-tar.gz}",
+    "backupDestinationPath": "$(echo "\${BACKUP_DEST:-/backup/archives}" | sed 's/"/\\\\"/g')",
+    "backupKeepSourceFiles": $([ "\${BACKUP_KEEP_SOURCE:-1}" -eq 1 ] && echo "true" || echo "false"),
+    "backupMaxRetainedCount": \${BACKUP_MAX_COUNT:-10},
+    "sizeCapMb": \${SIZE_CAP_MB:-1024},
+    "syncDestinationPath": "$(echo "\${SYNC_DEST:-}" | sed 's/"/\\\\"/g')",
+    "syncDeleteExtraneous": $([ "\${SYNC_DELETE:-0}" -eq 1 ] && echo "true" || echo "false"),
+    "lastRunAt": "\${LAST_RUN_AT:-}",
+    "lastRunStatus": "\${LAST_RUN_STATUS:-never}",
+    "lastRunMessage": "$(echo "\${LAST_RUN_MESSAGE:-}" | sed 's/"/\\\\"/g')",
+    "createdAt": "\${CREATED_AT:-}",
+    "updatedAt": "\${UPDATED_AT:-}"
+  }
+EOF
+  done
+  echo "]"
+}
+
+case "\${1:-}" in
+  run)
+    if [ -n "\${2:-}" ]; then
+      run_rule "\$2"
+    else
+      echo "Missing rule id"
+      exit 1
+    fi
+    ;;
+  sync-cron)
+    sync_cron
+    ;;
+  list)
+    list_rules
+    ;;
+  delete)
+    if [ -n "\${2:-}" ]; then
+      rm -f "\$RULES_DIR/\${2}.conf" "\$STATE_DIR/\${2}.state"
+      sync_cron
+      log "[DELETE] Removed rule \${2}."
+      echo "DELETED"
+    fi
+    ;;
+  *)
+    echo "Usage: \$0 {run <id>|sync-cron|list|delete <id>}"
+    exit 1
+    ;;
+esac
+`;
+
+/**
+ * Ensures the Directory Lifecycle runner script is deployed to /usr/local/bin/nettopology-dir-policy.sh
+ */
+export async function ensureDirPolicyAgentInstalledSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<void> {
+  const runnerB64 = Buffer.from(DIR_POLICY_RUNNER_BASH_SCRIPT).toString('base64');
+  const installCmd = `export LC_ALL=C
+sudo mkdir -p /etc/nettopology-dir-lifecycle/rules.d /var/lib/nettopology-dir-lifecycle
+echo "${runnerB64}" | base64 -d | sudo tee /usr/local/bin/nettopology-dir-policy.sh >/dev/null
+sudo chmod 755 /usr/local/bin/nettopology-dir-policy.sh
+echo "DIR_POLICY_AGENT_READY"
+`;
+
+  const output = await runAdaptiveSshCommand(server, installCmd, ephemeralPassword, 15000);
+  if (!output.includes('DIR_POLICY_AGENT_READY')) {
+    throw new Error(`Failed to install Directory Lifecycle Agent on remote host: ${output.slice(0, 300)}`);
+  }
+}
+
+/**
+ * Fetches all configured directory lifecycle policy rules from the remote Linux server
+ */
+export async function fetchLinuxDirectoryPoliciesSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<LinuxDirectoryPolicyRule[]> {
+  const cmd = `export LC_ALL=C
+if [ -x /usr/local/bin/nettopology-dir-policy.sh ]; then
+  sudo /usr/local/bin/nettopology-dir-policy.sh list 2>/dev/null || echo "[]"
+else
+  echo "[]"
+fi
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 10000);
+    const jsonStart = output.indexOf('[');
+    const jsonEnd = output.lastIndexOf(']');
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      const jsonStr = output.substring(jsonStart, jsonEnd + 1);
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => ({
+          id: item.id || `dir_rule_${Date.now()}`,
+          name: item.name || 'Unnamed Rule',
+          targetPath: item.targetPath || '',
+          actionType: item.actionType || 'cleanup',
+          enabled: item.enabled !== false,
+          schedulePreset: item.schedulePreset || 'daily',
+          scheduleCron: item.scheduleCron || '0 2 * * *',
+          cleanupAgeDays: Number(item.cleanupAgeDays) || 7,
+          cleanupFilePattern: item.cleanupFilePattern || '*',
+          cleanupRemoveEmptyDirs: Boolean(item.cleanupRemoveEmptyDirs),
+          backupFormat: item.backupFormat || 'tar.gz',
+          backupDestinationPath: item.backupDestinationPath || '/backup/archives',
+          backupKeepSourceFiles: item.backupKeepSourceFiles !== false,
+          backupMaxRetainedCount: Number(item.backupMaxRetainedCount) || 10,
+          sizeCapMb: Number(item.sizeCapMb) || 1024,
+          syncDestinationPath: item.syncDestinationPath || '',
+          syncDeleteExtraneous: Boolean(item.syncDeleteExtraneous),
+          lastRunAt: item.lastRunAt || '',
+          lastRunStatus: item.lastRunStatus || 'never',
+          lastRunMessage: item.lastRunMessage || '',
+          createdAt: item.createdAt || new Date().toISOString(),
+          updatedAt: item.updatedAt || new Date().toISOString(),
+        }));
+      }
+    }
+    return [];
+  } catch (err: any) {
+    console.error(`[Directory Policy fetch error for server ${server.id}]:`, err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * Saves or updates a directory lifecycle policy rule on the remote Linux host
+ */
+export async function saveLinuxDirectoryPolicySSH(
+  server: RemoteServer,
+  rule: LinuxDirectoryPolicyRule,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; rule?: LinuxDirectoryPolicyRule }> {
+  const cleanId = (rule.id || `dir_${rule.name}_${Date.now()}`)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '_');
+
+  if (!rule.targetPath || !rule.targetPath.trim()) {
+    throw new Error('Target path is required.');
+  }
+
+  await ensureDirPolicyAgentInstalledSSH(server, ephemeralPassword);
+
+  const confContent = `NAME="${(rule.name || cleanId).replace(/"/g, '\\"')}"
+TARGET_PATH="${rule.targetPath.trim().replace(/"/g, '\\"')}"
+ACTION_TYPE="${rule.actionType || 'cleanup'}"
+ENABLED=${rule.enabled !== false ? 1 : 0}
+SCHEDULE_PRESET="${rule.schedulePreset || 'daily'}"
+SCHEDULE_CRON="${(rule.scheduleCron || '0 2 * * *').replace(/"/g, '\\"')}"
+CLEANUP_AGE_DAYS=${Math.max(0, Number(rule.cleanupAgeDays) || 7)}
+CLEANUP_PATTERN="${(rule.cleanupFilePattern || '*').replace(/"/g, '\\"')}"
+CLEANUP_REMOVE_EMPTY_DIRS=${rule.cleanupRemoveEmptyDirs ? 1 : 0}
+BACKUP_FORMAT="${rule.backupFormat || 'tar.gz'}"
+BACKUP_DEST="${(rule.backupDestinationPath || '/backup/archives').replace(/"/g, '\\"')}"
+BACKUP_KEEP_SOURCE=${rule.backupKeepSourceFiles !== false ? 1 : 0}
+BACKUP_MAX_COUNT=${Math.max(1, Number(rule.backupMaxRetainedCount) || 10)}
+SIZE_CAP_MB=${Math.max(10, Number(rule.sizeCapMb) || 1024)}
+SYNC_DEST="${(rule.syncDestinationPath || '').replace(/"/g, '\\"')}"
+SYNC_DELETE=${rule.syncDeleteExtraneous ? 1 : 0}
+CREATED_AT="${rule.createdAt || new Date().toISOString()}"
+UPDATED_AT="${new Date().toISOString()}"
+`;
+
+  const confB64 = Buffer.from(confContent).toString('base64');
+  const applyCmd = `export LC_ALL=C
+sudo mkdir -p /etc/nettopology-dir-lifecycle/rules.d /var/lib/nettopology-dir-lifecycle
+echo "${confB64}" | base64 -d | sudo tee "/etc/nettopology-dir-lifecycle/rules.d/${cleanId}.conf" >/dev/null
+sudo /usr/local/bin/nettopology-dir-policy.sh sync-cron
+echo "DIR_POLICY_SAVED_OK"
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, applyCmd, ephemeralPassword, 15000);
+    if (!output.includes('DIR_POLICY_SAVED_OK')) {
+      return {
+        success: false,
+        message: output.trim() || 'Failed to save directory policy rule on remote host.',
+      };
+    }
+
+    const updatedRule: LinuxDirectoryPolicyRule = {
+      ...rule,
+      id: cleanId,
+      updatedAt: new Date().toISOString(),
+    };
+
+    return {
+      success: true,
+      message: `Directory policy '${rule.name}' saved and scheduled successfully.`,
+      rule: updatedRule,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to save directory policy ${rule.name}`,
+    };
+  }
+}
+
+/**
+ * Deletes a directory lifecycle policy rule from the remote Linux host
+ */
+export async function deleteLinuxDirectoryPolicySSH(
+  server: RemoteServer,
+  ruleId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const cleanId = (ruleId || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  if (!cleanId) {
+    throw new Error('Valid rule ID is required.');
+  }
+
+  const deleteCmd = `export LC_ALL=C
+if [ -x /usr/local/bin/nettopology-dir-policy.sh ]; then
+  sudo /usr/local/bin/nettopology-dir-policy.sh delete "${cleanId}"
+else
+  sudo rm -f "/etc/nettopology-dir-lifecycle/rules.d/${cleanId}.conf" "/var/lib/nettopology-dir-lifecycle/${cleanId}.state"
+fi
+echo "DIR_POLICY_DELETED_OK"
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, deleteCmd, ephemeralPassword, 10000);
+    return {
+      success: true,
+      message: output.includes('DIR_POLICY_DELETED_OK') ? `Policy ${cleanId} removed.` : output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to delete policy ${cleanId}`,
+    };
+  }
+}
+
+/**
+ * Executes a directory lifecycle policy rule immediately on-demand
+ */
+export async function runLinuxDirectoryPolicyNowSSH(
+  server: RemoteServer,
+  ruleId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; output: string }> {
+  const cleanId = (ruleId || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  if (!cleanId) {
+    throw new Error('Valid rule ID is required.');
+  }
+
+  const runCmd = `export LC_ALL=C
+if [ ! -x /usr/local/bin/nettopology-dir-policy.sh ]; then
+  echo "AGENT_NOT_FOUND"
+  exit 1
+fi
+sudo /usr/local/bin/nettopology-dir-policy.sh run "${cleanId}" 2>&1
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, runCmd, ephemeralPassword, 45000);
+    return {
+      success: true,
+      message: `Policy '${cleanId}' executed on host.`,
+      output: output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to execute directory policy ${cleanId}`,
+      output: err?.message || '',
+    };
+  }
+}
+
+/**
+ * Fetches recent directory lifecycle execution audit logs from /var/log/nettopology-dir-lifecycle.log
+ */
+export async function fetchLinuxDirectoryPolicyLogsSSH(
+  server: RemoteServer,
+  lines: number = 100,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; logs: string }> {
+  const lineCount = Math.max(10, Math.min(1000, lines));
+  const cmd = `export LC_ALL=C
+if [ -f /var/log/nettopology-dir-lifecycle.log ]; then
+  sudo tail -n ${lineCount} /var/log/nettopology-dir-lifecycle.log 2>/dev/null
+else
+  echo "No directory lifecycle activity logged yet on this server."
+fi
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 8000);
+    return {
+      success: true,
+      logs: output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      logs: `Failed to fetch directory policy logs: ${err?.message || err}`,
     };
   }
 }

@@ -1478,6 +1478,38 @@ export interface LinuxServiceWatchdogRule {
   systemdUnitActive?: boolean;
 }
 
+export type LinuxDirectoryActionType = 'cleanup' | 'backup' | 'size_cap' | 'sync';
+
+export interface LinuxDirectoryPolicyRule {
+  id: string;
+  name: string;
+  targetPath: string;
+  actionType: LinuxDirectoryActionType;
+  enabled: boolean;
+  schedulePreset: 'hourly' | 'every_6h' | 'daily' | 'weekly' | 'monthly' | 'custom';
+  scheduleCron: string;
+  // Retention & Cleanup options
+  cleanupAgeDays?: number;
+  cleanupFilePattern?: string;
+  cleanupRemoveEmptyDirs?: boolean;
+  // Backup & Archive options
+  backupFormat?: 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'zip';
+  backupDestinationPath?: string;
+  backupKeepSourceFiles?: boolean;
+  backupMaxRetainedCount?: number;
+  // Size-Capped Pruning options
+  sizeCapMb?: number;
+  // Directory Sync / Mirror options
+  syncDestinationPath?: string;
+  syncDeleteExtraneous?: boolean;
+  // Live Status & Audit
+  lastRunAt?: string;
+  lastRunStatus?: 'success' | 'failed' | 'running' | 'never';
+  lastRunMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LinuxSystemService {
   name: string;
   loadState: string;
