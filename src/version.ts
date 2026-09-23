@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.130.2';
+export const APP_VERSION = '1.130.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.130.3',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'افزودن قابلیت شخصی‌سازی و انتخاب ستون‌های جدول سرورها در پنل Remote Servers',
+    title_en: 'Added Customizable Column Visibility Selector for Remote Servers List & Table Views',
+    changes: [
+      'امکان مخفی‌سازی و نمایش انتخابی ستون‌های جدول سرورها (انتخاب، نام سرور، سیستم‌عامل، آی‌پی/پورت، نقش و محیط، وضعیت زنده، تگ‌ها و عملیات).',
+      'ذخیره‌سازی پایدار انتخاب‌های کاربر در حافظه مرورگر (LocalStorage) جهت حفظ چیدمان ستون‌ها در مراجعات بعدی.',
+      'طراحی دراپ‌داون ارگونومیک با دکمه بازنشانی پیش‌فرض و نمایش تعداد ستون‌های فعال.',
+      'همگام‌سازی کامل با نماهای List View و Dense Table View و تم روشن و تیره.',
+    ],
+    changes_en: [
+      'Added column visibility customization dropdown allowing users to show or hide specific columns (Select, Node/Hostname, OS, IP/Port, Role, Live Status, Tags, Actions).',
+      'Persistent column visibility preferences stored in LocalStorage across browser sessions.',
+      'Ergonomic dropdown UI with active column counter and quick reset to default layout.',
+      'Seamless synchronization across both List View and Dense Table View with dark/light theme support.',
+    ],
+  },
   {
     version: '1.130.2',
     releaseDate: '2026-09-23',

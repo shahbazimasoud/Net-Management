@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   List,
   Table as TableIcon,
+  Columns3,
   Cpu,
   Zap,
   Sliders,
@@ -64,6 +65,24 @@ interface MenuAnchor {
   server: RemoteServer;
 }
 
+export interface ServerColumnDef {
+  key: string;
+  labelEn: string;
+  labelFa: string;
+  required?: boolean;
+}
+
+export const SERVER_COLUMNS: ServerColumnDef[] = [
+  { key: 'select', labelEn: 'Selection Checkbox', labelFa: 'چک‌باکس انتخاب' },
+  { key: 'node', labelEn: 'Server Node & Hostname', labelFa: 'نام و هاست‌نیم سرور', required: true },
+  { key: 'os', labelEn: 'OS & Distro', labelFa: 'سیستم‌عامل و توزیع' },
+  { key: 'ip', labelEn: 'IP Address & Port', labelFa: 'آدرس IP و پورت' },
+  { key: 'role', labelEn: 'Role & Environment', labelFa: 'محیط و دسته‌بندی' },
+  { key: 'status', labelEn: 'Live Status / Ping', labelFa: 'وضعیت لحظه‌ای و پینگ' },
+  { key: 'tags', labelEn: 'Automation Tags', labelFa: 'تگ‌های اتوماسیون' },
+  { key: 'actions', labelEn: 'Actions', labelFa: 'عملیات' },
+];
+
 export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   initialFilter = 'all',
   isLightMode = false,
@@ -83,6 +102,72 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'table' | 'grid'>('list');
+
+  // Column Visibility customization (persisted in localStorage)
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('remote_servers_visible_columns');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {
+      // fallback
+    }
+    return {
+      select: true,
+      node: true,
+      os: true,
+      ip: true,
+      role: true,
+      status: true,
+      tags: true,
+      actions: true,
+    };
+  });
+
+  const [isColumnPickerOpen, setIsColumnPickerOpen] = useState(false);
+  const columnPickerRef = useRef<HTMLDivElement>(null);
+
+  const toggleColumn = (key: string) => {
+    setVisibleColumns((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem('remote_servers_visible_columns', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const resetColumns = () => {
+    const defaults = {
+      select: true,
+      node: true,
+      os: true,
+      ip: true,
+      role: true,
+      status: true,
+      tags: true,
+      actions: true,
+    };
+    setVisibleColumns(defaults);
+    try {
+      localStorage.setItem('remote_servers_visible_columns', JSON.stringify(defaults));
+    } catch {}
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (columnPickerRef.current && !columnPickerRef.current.contains(e.target as Node)) {
+        setIsColumnPickerOpen(false);
+      }
+    };
+    if (isColumnPickerOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isColumnPickerOpen]);
 
   // Multi-server Selection state
   const [selectedServerIds, setSelectedServerIds] = useState<Set<string>>(new Set());
@@ -1043,6 +1128,86 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               <LayoutGrid className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Column Visibility Selector (Persisted in localStorage) */}
+          <div className="relative" ref={columnPickerRef}>
+            <button
+              type="button"
+              onClick={() => setIsColumnPickerOpen(!isColumnPickerOpen)}
+              title={isEn ? 'Customize Visible Columns' : 'سفارشی‌سازی ستون‌های جدول'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer ${
+                isColumnPickerOpen
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                  : isLightMode
+                  ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  : 'bg-slate-900/80 border-white/15 text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <Columns3 className="w-4 h-4 text-cyan-400" />
+              <span className="hidden sm:inline">{isEn ? 'Columns' : 'ستون‌ها'}</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-bold">
+                {Object.values(visibleColumns).filter(Boolean).length}/{SERVER_COLUMNS.length}
+              </span>
+            </button>
+
+            {isColumnPickerOpen && (
+              <div
+                className={`absolute ${
+                  isEn ? 'right-0' : 'left-0'
+                } mt-2 w-64 rounded-2xl shadow-2xl p-3 border z-40 backdrop-blur-xl animate-in fade-in zoom-in-95 ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 text-slate-900 shadow-slate-900/15'
+                    : 'bg-slate-950/95 border-white/15 text-slate-100 shadow-black/60'
+                }`}
+              >
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    <Columns3 className="w-3.5 h-3.5 text-cyan-400" />
+                    {isEn ? 'Table Columns' : 'ستون‌های جدول'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={resetColumns}
+                    className="text-[11px] text-cyan-400 hover:underline cursor-pointer font-mono"
+                  >
+                    {isEn ? 'Reset Default' : 'پیش‌فرض'}
+                  </button>
+                </div>
+
+                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                  {SERVER_COLUMNS.map((col) => {
+                    const isVisible = visibleColumns[col.key] !== false;
+                    return (
+                      <label
+                        key={col.key}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs select-none transition ${
+                          col.required
+                            ? 'opacity-70 cursor-not-allowed'
+                            : 'cursor-pointer ' + (isLightMode ? 'hover:bg-slate-100' : 'hover:bg-white/5')
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isVisible}
+                            disabled={col.required}
+                            onChange={() => !col.required && toggleColumn(col.key)}
+                            className="w-3.5 h-3.5 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer disabled:cursor-not-allowed"
+                          />
+                          <span className="text-xs">{isEn ? col.labelEn : col.labelFa}</span>
+                        </span>
+                        {col.required && (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {isEn ? 'Required' : 'الزامی'}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1174,79 +1339,95 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       : 'bg-slate-950/80 text-slate-300 border-white/15'
                   }`}
                 >
-                  <th
-                    className={`p-3.5 ${
-                      isEn ? 'border-r' : 'border-l'
-                    } ${isLightMode ? 'border-slate-200' : 'border-white/15'} w-10 text-center`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={filteredServers.length > 0 && selectedServerIds.size === filteredServers.length}
-                      ref={(el) => {
-                        if (el) {
-                          el.indeterminate =
-                            selectedServerIds.size > 0 && selectedServerIds.size < filteredServers.length;
-                        }
-                      }}
-                      onChange={() => {
-                        if (selectedServerIds.size === filteredServers.length && filteredServers.length > 0) {
-                          setSelectedServerIds(new Set());
-                        } else {
-                          setSelectedServerIds(new Set(filteredServers.map((s) => s.id)));
-                        }
-                      }}
-                      className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
-                    />
-                  </th>
-                  <th
-                    className={`p-3.5 ${
-                      isEn ? 'border-r' : 'border-l'
-                    } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
-                  >
-                    {isEn ? 'Server Node & Hostname' : 'نام و هاست‌نیم سرور'}
-                  </th>
-                  <th
-                    className={`p-3.5 ${
-                      isEn ? 'border-r' : 'border-l'
-                    } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
-                  >
-                    {isEn ? 'OS & Distro' : 'سیستم‌عامل و توزیع'}
-                  </th>
-                  <th
-                    className={`p-3.5 ${
-                      isEn ? 'border-r' : 'border-l'
-                    } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
-                  >
-                    {isEn ? 'IP Address & Port' : 'آدرس IP و پورت'}
-                  </th>
-                  <th
-                    className={`p-3.5 ${
-                      isEn ? 'border-r' : 'border-l'
-                    } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
-                  >
-                    {isEn ? 'Role & Environment' : 'محیط و دسته‌بندی'}
-                  </th>
-                  <th
-                    className={`p-3.5 ${
-                      isEn ? 'border-r' : 'border-l'
-                    } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
-                  >
-                    {isEn ? 'Live Status' : 'وضعیت لحظه‌ای'}
-                  </th>
-                  <th
-                    className={`p-3.5 ${
-                      isEn ? 'border-r' : 'border-l'
-                    } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
-                  >
-                    {isEn ? 'Automation Tags' : 'تگ‌های اتوماسیون'}
-                  </th>
-                  <th className="p-3.5 text-center">{isEn ? 'Actions' : 'عملیات'}</th>
+                  {visibleColumns.select && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'} w-10 text-center`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filteredServers.length > 0 && selectedServerIds.size === filteredServers.length}
+                        ref={(el) => {
+                          if (el) {
+                            el.indeterminate =
+                              selectedServerIds.size > 0 && selectedServerIds.size < filteredServers.length;
+                          }
+                        }}
+                        onChange={() => {
+                          if (selectedServerIds.size === filteredServers.length && filteredServers.length > 0) {
+                            setSelectedServerIds(new Set());
+                          } else {
+                            setSelectedServerIds(new Set(filteredServers.map((s) => s.id)));
+                          }
+                        }}
+                        className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
+                      />
+                    </th>
+                  )}
+                  {visibleColumns.node && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
+                    >
+                      {isEn ? 'Server Node & Hostname' : 'نام و هاست‌نیم سرور'}
+                    </th>
+                  )}
+                  {visibleColumns.os && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
+                    >
+                      {isEn ? 'OS & Distro' : 'سیستم‌عامل و توزیع'}
+                    </th>
+                  )}
+                  {visibleColumns.ip && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
+                    >
+                      {isEn ? 'IP Address & Port' : 'آدرس IP و پورت'}
+                    </th>
+                  )}
+                  {visibleColumns.role && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
+                    >
+                      {isEn ? 'Role & Environment' : 'محیط و دسته‌بندی'}
+                    </th>
+                  )}
+                  {visibleColumns.status && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
+                    >
+                      {isEn ? 'Live Status' : 'وضعیت لحظه‌ای'}
+                    </th>
+                  )}
+                  {visibleColumns.tags && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
+                    >
+                      {isEn ? 'Automation Tags' : 'تگ‌های اتوماسیون'}
+                    </th>
+                  )}
+                  {visibleColumns.actions && (
+                    <th className="p-3.5 text-center">{isEn ? 'Actions' : 'عملیات'}</th>
+                  )}
                 </tr>
               </thead>
               <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-white/10'}`}>
                 {filteredServers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400">
+                    <td colSpan={Object.values(visibleColumns).filter(Boolean).length || 8} className="p-8 text-center text-slate-400">
                       {isEn ? 'No remote servers found matching filters.' : 'هیچ سروری منطبق با فیلترها یافت نشد.'}
                     </td>
                   </tr>
@@ -1270,259 +1451,294 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         }`}
                       >
                         {/* Checkbox Column */}
-                        <td
-                          className={`p-3.5 text-center ${
-                            isEn ? 'border-r' : 'border-l'
-                          } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {
-                              setSelectedServerIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(server.id)) next.delete(server.id);
-                                else next.add(server.id);
-                                return next;
-                              });
-                            }}
-                            className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
-                          />
-                        </td>
+                        {visibleColumns.select && (
+                          <td
+                            className={`p-3.5 text-center ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setSelectedServerIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(server.id)) next.delete(server.id);
+                                  else next.add(server.id);
+                                  return next;
+                                });
+                              }}
+                              className="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-white/20 focus:ring-cyan-500 accent-cyan-500 cursor-pointer"
+                            />
+                          </td>
+                        )}
 
                         {/* Server Node & Hostname */}
-                        <td
-                          className={`p-3.5 ${
-                            isEn ? 'border-r' : 'border-l'
-                          } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`p-2 rounded-xl border shrink-0 ${
-                                isLinux
-                                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                                  : 'bg-blue-500/15 border-blue-500/30 text-blue-400'
-                              }`}
-                            >
-                              {isLinux ? <Terminal className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
-                            </div>
-                            <div className="min-w-0">
+                        {visibleColumns.node && (
+                          <td
+                            className={`p-3.5 ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            <div className="flex items-center gap-3">
                               <div
-                                className={`text-xs font-bold tracking-tight truncate transition-colors ${
-                                  isLightMode
-                                    ? 'text-slate-900 group-hover:text-cyan-700'
-                                    : 'text-white group-hover:text-cyan-300'
+                                className={`p-2 rounded-xl border shrink-0 ${
+                                  isLinux
+                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                    : 'bg-blue-500/15 border-blue-500/30 text-blue-400'
                                 }`}
                               >
-                                {server.name}
+                                {isLinux ? <Terminal className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
                               </div>
-                              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono mt-0.5 truncate">
-                                <span>{server.hostname || server.ip}</span>
-                                <span>•</span>
-                                <span>
-                                  {server.cpu_cores || 4} vCPU • {server.ram_gb || 16} GB
-                                </span>
+                              <div className="min-w-0">
+                                {isLinux ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenLinuxMonitor(server)}
+                                    className="text-left rtl:text-right group/lst block cursor-pointer focus:outline-none"
+                                    title={isEn ? `Open Server Management for ${server.name}` : `باز کردن مدیریت سرور برای ${server.name}`}
+                                  >
+                                    <div
+                                      className={`text-xs font-bold tracking-tight truncate transition-colors group-hover/lst:text-cyan-400 group-hover/lst:underline ${
+                                        isLightMode
+                                          ? 'text-slate-900 group-hover:text-cyan-700'
+                                          : 'text-white group-hover:text-cyan-300'
+                                      }`}
+                                    >
+                                      {server.name}
+                                    </div>
+                                  </button>
+                                ) : (
+                                  <div
+                                    className={`text-xs font-bold tracking-tight truncate transition-colors ${
+                                      isLightMode
+                                        ? 'text-slate-900 group-hover:text-cyan-700'
+                                        : 'text-white group-hover:text-cyan-300'
+                                    }`}
+                                  >
+                                    {server.name}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono mt-0.5 truncate">
+                                  <span>{server.hostname || server.ip}</span>
+                                  <span>•</span>
+                                  <span>
+                                    {server.cpu_cores || 4} vCPU • {server.ram_gb || 16} GB
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
+                          </td>
+                        )}
 
                         {/* OS & Distro */}
-                        <td
-                          className={`p-3.5 ${
-                            isEn ? 'border-r' : 'border-l'
-                          } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
-                        >
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${
-                                  isLinux
-                                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                    : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                                }`}
-                              >
-                                {server.os_type.toUpperCase()}
-                              </span>
-                              <span className="text-xs font-medium truncate max-w-[140px]">
-                                {server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}
+                        {visibleColumns.os && (
+                          <td
+                            className={`p-3.5 ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded border ${
+                                    isLinux
+                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                      : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                                  }`}
+                                >
+                                  {server.os_type.toUpperCase()}
+                                </span>
+                                <span className="text-xs font-medium truncate max-w-[140px]">
+                                  {server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                {isLinux
+                                  ? `Shell: /bin/${server.default_shell || 'bash'}`
+                                  : `Protocol: ${(server.win_protocol || 'rdp').toUpperCase()}`}
                               </span>
                             </div>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {isLinux
-                                ? `Shell: /bin/${server.default_shell || 'bash'}`
-                                : `Protocol: ${(server.win_protocol || 'rdp').toUpperCase()}`}
-                            </span>
-                          </div>
-                        </td>
+                          </td>
+                        )}
 
                         {/* IP Address & Port */}
-                        <td
-                          className={`p-3.5 ${
-                            isEn ? 'border-r' : 'border-l'
-                          } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-cyan-400">{server.ip}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              :{isLinux ? server.ssh_port || 22 : server.win_port || 3389}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyIp(server.ip)}
-                              title={isEn ? 'Copy IP address' : 'کپی آدرس آی‌پی'}
-                              className={`p-1 rounded-md transition cursor-pointer ${
-                                copiedIp === server.ip
-                                  ? 'text-emerald-400'
-                                  : 'text-slate-400 hover:text-white hover:bg-white/10'
-                              }`}
-                            >
-                              {copiedIp === server.ip ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        </td>
+                        {visibleColumns.ip && (
+                          <td
+                            className={`p-3.5 ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-cyan-400">{server.ip}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                :{isLinux ? server.ssh_port || 22 : server.win_port || 3389}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyIp(server.ip)}
+                                title={isEn ? 'Copy IP address' : 'کپی آدرس آی‌پی'}
+                                className={`p-1 rounded-md transition cursor-pointer ${
+                                  copiedIp === server.ip
+                                    ? 'text-emerald-400'
+                                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                                }`}
+                              >
+                                {copiedIp === server.ip ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        )}
 
                         {/* Role & Environment */}
-                        <td
-                          className={`p-3.5 ${
-                            isEn ? 'border-r' : 'border-l'
-                          } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
-                        >
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${
-                                  server.environment === 'Production'
-                                    ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                                    : server.environment === 'Staging'
-                                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                                    : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
-                                }`}
-                              >
-                                {server.environment}
-                              </span>
-                              <span className="text-[11px] text-slate-300 truncate">{server.category}</span>
+                        {visibleColumns.role && (
+                          <td
+                            className={`p-3.5 ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${
+                                    server.environment === 'Production'
+                                      ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                      : server.environment === 'Staging'
+                                      ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                      : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+                                  }`}
+                                >
+                                  {server.environment}
+                                </span>
+                                <span className="text-[11px] text-slate-300 truncate">{server.category}</span>
+                              </div>
+                              {server.prompt_password_on_connect && (
+                                <span
+                                  title={isEn ? 'Zero-storage credential policy (Prompt on connect)' : 'عدم ذخیره پسورد (درخواست در زمان اتصال)'}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 w-fit"
+                                >
+                                  <Key className="w-2.5 h-2.5" />
+                                  <span>{isEn ? 'No-Store' : 'بدون‌ذخیره'}</span>
+                                </span>
+                              )}
                             </div>
-                            {server.prompt_password_on_connect && (
-                              <span
-                                title={isEn ? 'Zero-storage credential policy (Prompt on connect)' : 'عدم ذخیره پسورد (درخواست در زمان اتصال)'}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 w-fit"
-                              >
-                                <Key className="w-2.5 h-2.5" />
-                                <span>{isEn ? 'No-Store' : 'بدون‌ذخیره'}</span>
-                              </span>
-                            )}
-                          </div>
-                        </td>
+                          </td>
+                        )}
 
                         {/* Live Status */}
-                        <td
-                          className={`p-3.5 ${
-                            isEn ? 'border-r' : 'border-l'
-                          } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
-                        >
-                          <div className="flex items-center gap-2">
-                            {reach?.testing ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 animate-pulse">
-                                <RefreshCw className="w-3 h-3 animate-spin" />
-                                <span>Pinging...</span>
-                              </span>
-                            ) : reach ? (
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${
-                                  reach.reachable
-                                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                    : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                                }`}
-                              >
+                        {visibleColumns.status && (
+                          <td
+                            className={`p-3.5 ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              {reach?.testing ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 animate-pulse">
+                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                  <span>Pinging...</span>
+                                </span>
+                              ) : reach ? (
                                 <span
-                                  className={`w-1.5 h-1.5 rounded-full ${
-                                    reach.reachable ? 'bg-emerald-400' : 'bg-rose-400'
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${
+                                    reach.reachable
+                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                      : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
                                   }`}
-                                />
-                                {reach.reachable ? `${reach.latency}ms` : 'Down'}
-                              </span>
-                            ) : (
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${
-                                  server.status === 'online'
-                                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                    : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
-                                }`}
-                              >
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      reach.reachable ? 'bg-emerald-400' : 'bg-rose-400'
+                                    }`}
+                                  />
+                                  {reach.reachable ? `${reach.latency}ms` : 'Down'}
+                                </span>
+                              ) : (
                                 <span
-                                  className={`w-1.5 h-1.5 rounded-full ${
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${
                                     server.status === 'online'
-                                      ? 'bg-emerald-400'
-                                      : 'bg-slate-400'
+                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                      : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
                                   }`}
-                                />
-                                {server.status || 'Ready'}
-                              </span>
-                            )}
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      server.status === 'online'
+                                        ? 'bg-emerald-400'
+                                        : 'bg-slate-400'
+                                    }`}
+                                  />
+                                  {server.status || 'Ready'}
+                                </span>
+                              )}
 
-                            <button
-                              type="button"
-                              onClick={() => handleTestPing(server.id)}
-                              title={isEn ? 'Test keepalive ping' : 'تست پینگ لحظه‌ای'}
-                              className={`p-1 rounded-md border transition cursor-pointer ${
-                                isLightMode
-                                  ? 'border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-cyan-700'
-                                  : 'border-white/10 text-slate-400 hover:text-cyan-300 hover:bg-white/10'
-                              }`}
-                            >
-                              <Zap className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </td>
+                              <button
+                                type="button"
+                                onClick={() => handleTestPing(server.id)}
+                                title={isEn ? 'Test keepalive ping' : 'تست پینگ لحظه‌ای'}
+                                className={`p-1 rounded-md border transition cursor-pointer ${
+                                  isLightMode
+                                    ? 'border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-cyan-700'
+                                    : 'border-white/10 text-slate-400 hover:text-cyan-300 hover:bg-white/10'
+                                }`}
+                              >
+                                <Zap className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
 
                         {/* Automation Tags */}
-                        <td
-                          className={`p-3.5 ${
-                            isEn ? 'border-r' : 'border-l'
-                          } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
-                        >
-                          <div className="flex flex-wrap items-center gap-1 max-w-[200px]">
-                            {Array.isArray(server.tags) && server.tags.length > 0 ? (
-                              server.tags.slice(0, 3).map((t) => (
-                                <button
-                                  key={t}
-                                  type="button"
-                                  onClick={() => setSelectedTag(t)}
-                                  className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 hover:bg-purple-500/25 text-purple-300 border border-purple-500/20 transition cursor-pointer"
-                                >
-                                  #{t}
-                                </button>
-                              ))
-                            ) : (
-                              <span className="text-[10px] text-slate-500">—</span>
-                            )}
-                            {Array.isArray(server.tags) && server.tags.length > 3 && (
-                              <span className="text-[10px] text-slate-500 font-mono">+{server.tags.length - 3}</span>
-                            )}
-                          </div>
-                        </td>
+                        {visibleColumns.tags && (
+                          <td
+                            className={`p-3.5 ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            <div className="flex flex-wrap items-center gap-1 max-w-[200px]">
+                              {Array.isArray(server.tags) && server.tags.length > 0 ? (
+                                server.tags.slice(0, 3).map((t) => (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => setSelectedTag(t)}
+                                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 hover:bg-purple-500/25 text-purple-300 border border-purple-500/20 transition cursor-pointer"
+                                  >
+                                    #{t}
+                                  </button>
+                                ))
+                              ) : (
+                                <span className="text-[10px] text-slate-500">—</span>
+                              )}
+                              {Array.isArray(server.tags) && server.tags.length > 3 && (
+                                <span className="text-[10px] text-slate-500 font-mono">+{server.tags.length - 3}</span>
+                              )}
+                            </div>
+                          </td>
+                        )}
 
                         {/* Actions (3-Dot Options Trigger) */}
-                        <td className="p-3.5 text-center">
-                          <div className="flex items-center justify-center">
-                            {/* 3-Dot Options Trigger */}
-                            <button
-                              type="button"
-                              onClick={(e) => handleToggleActionMenu(e, server)}
-                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                menuAnchor?.id === server.id
-                                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                                  : isLightMode
-                                  ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
-                                  : 'text-slate-400 hover:bg-white/10 hover:text-white border border-white/10'
-                              }`}
-                              title={isEn ? 'Actions & Options' : 'عملیات و گزینه‌ها'}
-                            >
-                              <MoreVertical className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+                        {visibleColumns.actions && (
+                          <td className="p-3.5 text-center">
+                            <div className="flex items-center justify-center">
+                              {/* 3-Dot Options Trigger */}
+                              <button
+                                type="button"
+                                onClick={(e) => handleToggleActionMenu(e, server)}
+                                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                  menuAnchor?.id === server.id
+                                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                    : isLightMode
+                                    ? 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
+                                    : 'text-slate-400 hover:bg-white/10 hover:text-white border border-white/10'
+                                }`}
+                                title={isEn ? 'Actions & Options' : 'عملیات و گزینه‌ها'}
+                              >
+                                <MoreVertical className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })
@@ -1745,13 +1961,13 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       : 'border-white/10 bg-slate-950/80 text-slate-400'
                   }`}
                 >
-                  <th className="p-3">OS</th>
-                  <th className="p-3">{isEn ? 'Server Name' : 'نام سرور'}</th>
-                  <th className="p-3">IP / Port</th>
-                  <th className="p-3">{isEn ? 'Category' : 'دسته'}</th>
-                  <th className="p-3">{isEn ? 'Env' : 'محیط'}</th>
-                  <th className="p-3">{isEn ? 'Tags' : 'تگ‌ها'}</th>
-                  <th className="p-3 text-right">{isEn ? 'Actions' : 'عملیات'}</th>
+                  {visibleColumns.os && <th className="p-3">OS</th>}
+                  {visibleColumns.node && <th className="p-3">{isEn ? 'Server Name' : 'نام سرور'}</th>}
+                  {visibleColumns.ip && <th className="p-3">IP / Port</th>}
+                  {visibleColumns.role && <th className="p-3">{isEn ? 'Category' : 'دسته'}</th>}
+                  {visibleColumns.role && <th className="p-3">{isEn ? 'Env' : 'محیط'}</th>}
+                  {visibleColumns.tags && <th className="p-3">{isEn ? 'Tags' : 'تگ‌ها'}</th>}
+                  {visibleColumns.actions && <th className="p-3 text-right">{isEn ? 'Actions' : 'عملیات'}</th>}
                 </tr>
               </thead>
               <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-white/10'} font-sans`}>
@@ -1765,105 +1981,117 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         isLightMode ? 'hover:bg-slate-50' : 'hover:bg-white/5'
                       }`}
                     >
-                      <td className="p-3">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${
-                            isLinux
-                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                              : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                          }`}
-                        >
-                          {isLinux ? <Terminal className="w-3 h-3" /> : <Monitor className="w-3 h-3" />}
-                          {server.os_type.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className={`p-3 font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                        {isLinux ? (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenLinuxMonitor(server)}
-                            className="text-left rtl:text-right group/tblname block cursor-pointer focus:outline-none"
-                            title={isEn ? `Open Server Management for ${server.name}` : `باز کردن مدیریت سرور برای ${server.name}`}
+                      {visibleColumns.os && (
+                        <td className="p-3">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono border ${
+                              isLinux
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                            }`}
                           >
-                            <div className="group-hover/tblname:text-cyan-400 group-hover/tblname:underline transition-colors">
-                              {server.name}
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
-                          </button>
-                        ) : (
-                          <div>
-                            <div>{server.name}</div>
-                            <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 font-mono text-cyan-400 font-semibold">
-                        {server.ip}:{isLinux ? server.ssh_port || 22 : server.win_port || 3389}
-                      </td>
-                      <td className="p-3 text-slate-400">{server.category}</td>
-                      <td className="p-3">
-                        <span
-                          className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${
-                            server.environment === 'Production'
-                              ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                              : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
-                          }`}
-                        >
-                          {server.environment}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex flex-wrap gap-1">
-                          {server.tags?.map((t) => (
-                            <span
-                              key={t}
-                              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20"
-                            >
-                              #{t}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="p-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                            {isLinux ? <Terminal className="w-3 h-3" /> : <Monitor className="w-3 h-3" />}
+                            {server.os_type.toUpperCase()}
+                          </span>
+                        </td>
+                      )}
+                      {visibleColumns.node && (
+                        <td className={`p-3 font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
                           {isLinux ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenLinuxMonitor(server)}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-400 text-slate-950 hover:bg-cyan-300 cursor-pointer shadow-sm"
-                                title={isEn ? 'Open Server Management' : 'مشاهده و مدیریت کامل سرور'}
-                              >
-                                {isEn ? 'Manage' : 'مدیریت'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')
-                                }
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
-                              >
-                                {isEn ? 'Terminal' : 'ترمینال'}
-                              </button>
-                            </>
-                          ) : (
                             <button
                               type="button"
-                              onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-500 cursor-pointer shadow-sm"
+                              onClick={() => handleOpenLinuxMonitor(server)}
+                              className="text-left rtl:text-right group/tblname block cursor-pointer focus:outline-none"
+                              title={isEn ? `Open Server Management for ${server.name}` : `باز کردن مدیریت سرور برای ${server.name}`}
                             >
-                              Web RDP
+                              <div className="group-hover/tblname:text-cyan-400 group-hover/tblname:underline transition-colors">
+                                {server.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
                             </button>
+                          ) : (
+                            <div>
+                              <div>{server.name}</div>
+                              <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
+                            </div>
                           )}
-                          <button
-                            type="button"
-                            onClick={(e) => handleToggleActionMenu(e, server)}
-                            className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                        </td>
+                      )}
+                      {visibleColumns.ip && (
+                        <td className="p-3 font-mono text-cyan-400 font-semibold">
+                          {server.ip}:{isLinux ? server.ssh_port || 22 : server.win_port || 3389}
+                        </td>
+                      )}
+                      {visibleColumns.role && <td className="p-3 text-slate-400">{server.category}</td>}
+                      {visibleColumns.role && (
+                        <td className="p-3">
+                          <span
+                            className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${
+                              server.environment === 'Production'
+                                ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                                : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+                            }`}
                           >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+                            {server.environment}
+                          </span>
+                        </td>
+                      )}
+                      {visibleColumns.tags && (
+                        <td className="p-3">
+                          <div className="flex flex-wrap gap-1">
+                            {server.tags?.map((t) => (
+                              <span
+                                key={t}
+                                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20"
+                              >
+                                #{t}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      )}
+                      {visibleColumns.actions && (
+                        <td className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isLinux ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenLinuxMonitor(server)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-400 text-slate-950 hover:bg-cyan-300 cursor-pointer shadow-sm"
+                                  title={isEn ? 'Open Server Management' : 'مشاهده و مدیریت کامل سرور'}
+                                >
+                                  {isEn ? 'Manage' : 'مدیریت'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleOpenLinuxTerminal(server, server.default_shell === 'zsh' ? 'zsh' : 'bash')
+                                  }
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
+                                >
+                                  {isEn ? 'Terminal' : 'ترمینال'}
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenInBrowserRemote(server, 'rdp')}
+                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-500 cursor-pointer shadow-sm"
+                              >
+                                Web RDP
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => handleToggleActionMenu(e, server)}
+                              className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
