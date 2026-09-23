@@ -13,6 +13,9 @@ import {
   Plus,
   Layers,
   Sparkles,
+  ArrowRight,
+  PlusCircle,
+  FolderPlus,
 } from 'lucide-react';
 import { RemoteServer, LinuxLvmLv, LinuxLvmVg, LinuxRawDisk } from '../../../types';
 import { extendLinuxLvVolume } from '../../../services/api';
@@ -29,6 +32,8 @@ interface LinuxExtendLvModalProps {
   onClose: () => void;
   onMinimize?: () => void;
   onSuccess: () => void;
+  onOpenAddDiskToVg?: (vgName?: string) => void;
+  onOpenCreateLvm?: (vgName?: string) => void;
   isLightMode?: boolean;
   isEn?: boolean;
 }
@@ -44,6 +49,8 @@ export const LinuxExtendLvModal: React.FC<LinuxExtendLvModalProps> = ({
   onClose,
   onMinimize,
   onSuccess,
+  onOpenAddDiskToVg,
+  onOpenCreateLvm,
   isLightMode = false,
   isEn = true,
 }) => {
@@ -109,10 +116,7 @@ export const LinuxExtendLvModal: React.FC<LinuxExtendLvModalProps> = ({
           type: 'success',
           message: res.message || (isEn ? 'Logical Volume extended successfully!' : 'فضای لاجیکال ولوم با موفقیت افزایش یافت!'),
         });
-        setTimeout(() => {
-          onSuccess();
-          onClose();
-        }, 1500);
+        onSuccess();
       } else {
         setFeedback({
           type: 'error',
@@ -443,21 +447,104 @@ export const LinuxExtendLvModal: React.FC<LinuxExtendLvModalProps> = ({
             )}
           </div>
 
-          {/* Feedback */}
+          {/* Feedback & SUCCESS NEXT-STEPS ACTION PANEL */}
           {feedback && (
             <div
-              className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+              className={`p-4 rounded-xl border flex flex-col gap-3 ${
                 feedback.type === 'success'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                  ? isLightMode
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-sm'
+                    : 'bg-emerald-950/50 border-emerald-500/60 text-emerald-200 shadow-sm'
+                  : isLightMode
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
               }`}
             >
-              {feedback.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 shrink-0" />
+              <div className="flex items-start gap-3">
+                {feedback.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1">
+                  <div className="text-sm font-semibold">{feedback.message}</div>
+                </div>
+              </div>
+
+              {/* NEXT STEPS NAVIGATOR ON SUCCESS */}
+              {feedback.type === 'success' && (
+                <div className="mt-2 pt-3 border-t border-emerald-500/30 space-y-3">
+                  <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                    <ArrowRight className="w-4 h-4 text-emerald-400" />
+                    <span>
+                      {isEn
+                        ? 'Next Steps: What would you like to do now?'
+                        : 'گام‌های بعدی: مایل به انجام کدام عملیات هستید؟'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* Action 1: Add More Physical Disks to VG */}
+                    {onOpenAddDiskToVg && currentLv?.vgName && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenAddDiskToVg(currentLv.vgName);
+                        }}
+                        className="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <PlusCircle className="w-5 h-5 text-emerald-400" />
+                        <span className="text-xs font-bold">
+                          {isEn ? 'Add Physical Disk (VG)' : 'پیوست دیسک فیزیکی به گروه'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          {isEn
+                            ? `Expand Volume Group "${currentLv.vgName}" with more disks`
+                            : `افزایش مجدد ظرفیت استخر گروه ${currentLv.vgName}`}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Action 2: Create Another Volume */}
+                    {onOpenCreateLvm && currentLv?.vgName && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenCreateLvm(currentLv.vgName);
+                        }}
+                        className="p-3 rounded-xl border border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 hover:text-teal-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <FolderPlus className="w-5 h-5 text-teal-400" />
+                        <span className="text-xs font-bold">
+                          {isEn ? 'Create Another Volume' : 'ایجاد لاجیکال ولوم دیگر'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          {isEn
+                            ? 'Create an independent LV inside this Volume Group'
+                            : 'ساخت یک پارتیشن مجزا در این گروه حجم'}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Action 3: Done & Return */}
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="p-3 rounded-xl border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <CheckCircle2 className="w-5 h-5 text-cyan-400" />
+                      <span className="text-xs font-bold">
+                        {isEn ? 'Done / Overview' : 'اتمام و مشاهده وضعیت'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 leading-tight">
+                        {isEn ? 'Return to storage management overview' : 'مشاهده در پنل مدیریت فایل‌سیستم‌ها'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
               )}
-              <span>{feedback.message}</span>
             </div>
           )}
 

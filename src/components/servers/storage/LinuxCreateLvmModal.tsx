@@ -13,6 +13,9 @@ import {
   Plus,
   Sparkles,
   Check,
+  ArrowRight,
+  ArrowUpRight,
+  PlusCircle,
 } from 'lucide-react';
 import { RemoteServer, LinuxLvmVg, LinuxRawDisk } from '../../../types';
 import { createLinuxLvmVolume } from '../../../services/api';
@@ -21,12 +24,15 @@ import { FieldInfoTooltip } from '../../common/FieldInfoTooltip';
 interface LinuxCreateLvmModalProps {
   isOpen: boolean;
   server: RemoteServer;
+  targetVgName?: string | null;
   allVgs: LinuxLvmVg[];
   availableDisks: LinuxRawDisk[];
   ephemeralPassword?: string;
   onClose: () => void;
   onMinimize?: () => void;
   onSuccess: () => void;
+  onOpenExtendLv?: (vgName?: string, lvName?: string) => void;
+  onOpenAddDiskToVg?: (vgName?: string) => void;
   isLightMode?: boolean;
   isEn?: boolean;
 }
@@ -34,12 +40,15 @@ interface LinuxCreateLvmModalProps {
 export const LinuxCreateLvmModal: React.FC<LinuxCreateLvmModalProps> = ({
   isOpen,
   server,
+  targetVgName,
   allVgs,
   availableDisks,
   ephemeralPassword,
   onClose,
   onMinimize,
   onSuccess,
+  onOpenExtendLv,
+  onOpenAddDiskToVg,
   isLightMode = false,
   isEn = true,
 }) => {
@@ -64,18 +73,24 @@ export const LinuxCreateLvmModal: React.FC<LinuxCreateLvmModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  const [createdDetails, setCreatedDetails] = useState<{ vg: string; lv: string } | null>(null);
+
   // Unassigned disks that aren't in LVM
   const unassignedDisks = availableDisks.filter((d) => !d.isInLvm);
 
   useEffect(() => {
-    if (allVgs.length > 0 && !existingVgName) {
+    if (targetVgName && allVgs.some((v) => v.name === targetVgName)) {
+      setExistingVgName(targetVgName);
+      setIsNewVg(false);
+    } else if (allVgs.length > 0 && !existingVgName) {
       setExistingVgName(allVgs[0].name);
     }
     if (unassignedDisks.length > 0 && selectedDisks.length === 0) {
       setSelectedDisks([unassignedDisks[0].name]);
     }
     setFeedback(null);
-  }, [allVgs, availableDisks, isOpen]);
+    setCreatedDetails(null);
+  }, [targetVgName, allVgs, availableDisks, isOpen]);
 
   const toggleDiskSelection = (diskName: string) => {
     setSelectedDisks((prev) =>
@@ -143,18 +158,16 @@ export const LinuxCreateLvmModal: React.FC<LinuxCreateLvmModalProps> = ({
       );
 
       if (res.success) {
+        setCreatedDetails({ vg: targetVg, lv: cleanLv });
         setFeedback({
           type: 'success',
           message:
             res.message ||
             (isEn
-              ? 'Logical Volume created and formatted successfully!'
-              : 'فضای لاجیکال ولوم با موفقیت ساخته، فرمت و مانت شد!'),
+              ? `Logical Volume "${cleanLv}" created and mounted successfully in Volume Group "${targetVg}"!`
+              : `فضای لاجیکال ولوم «${cleanLv}» با موفقیت در گروه حجم «${targetVg}» ساخته و مانت شد!`),
         });
-        setTimeout(() => {
-          onSuccess();
-          onClose();
-        }, 1500);
+        onSuccess();
       } else {
         setFeedback({
           type: 'error',
@@ -573,21 +586,104 @@ export const LinuxCreateLvmModal: React.FC<LinuxCreateLvmModalProps> = ({
             )}
           </div>
 
-          {/* Feedback */}
+          {/* Feedback & SUCCESS NEXT-STEPS ACTION PANEL */}
           {feedback && (
             <div
-              className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+              className={`p-4 rounded-xl border flex flex-col gap-3 ${
                 feedback.type === 'success'
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                  ? isLightMode
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-sm'
+                    : 'bg-emerald-950/50 border-emerald-500/60 text-emerald-200 shadow-sm'
+                  : isLightMode
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
               }`}
             >
-              {feedback.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 shrink-0" />
+              <div className="flex items-start gap-3">
+                {feedback.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1">
+                  <div className="text-sm font-semibold">{feedback.message}</div>
+                </div>
+              </div>
+
+              {/* NEXT STEPS NAVIGATOR ON SUCCESS */}
+              {feedback.type === 'success' && (
+                <div className="mt-2 pt-3 border-t border-emerald-500/30 space-y-3">
+                  <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                    <ArrowRight className="w-4 h-4 text-emerald-400" />
+                    <span>
+                      {isEn
+                        ? 'Next Steps: What would you like to do now?'
+                        : 'گام‌های بعدی: مایل به انجام کدام عملیات هستید؟'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* Action 1: Extend LV */}
+                    {onOpenExtendLv && createdDetails && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenExtendLv(createdDetails.vg, createdDetails.lv);
+                        }}
+                        className="p-3 rounded-xl border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <ArrowUpRight className="w-5 h-5 text-cyan-400" />
+                        <span className="text-xs font-bold">
+                          {isEn ? 'Extend Logical Volume' : 'افزایش حجم ولوم (LV)'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          {isEn
+                            ? `Expand "${createdDetails.lv}" with additional storage`
+                            : `افزایش بیشتر فضای ولوم ${createdDetails.lv}`}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Action 2: Add More Physical Disks to VG */}
+                    {onOpenAddDiskToVg && createdDetails && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenAddDiskToVg(createdDetails.vg);
+                        }}
+                        className="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <PlusCircle className="w-5 h-5 text-emerald-400" />
+                        <span className="text-xs font-bold">
+                          {isEn ? 'Add Physical Disk (VG)' : 'پیوست دیسک فیزیکی به گروه'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 leading-tight">
+                          {isEn
+                            ? `Attach more raw drives to VG "${createdDetails.vg}"`
+                            : `اتصال دیسک‌های خام بیشتر به گروه ${createdDetails.vg}`}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Action 3: Done & Return */}
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="p-3 rounded-xl border border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 hover:text-teal-200 transition-all flex flex-col items-center text-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <CheckCircle2 className="w-5 h-5 text-teal-400" />
+                      <span className="text-xs font-bold">
+                        {isEn ? 'Done / Overview' : 'اتمام و مشاهده وضعیت'}
+                      </span>
+                      <span className="text-[10px] text-slate-400 leading-tight">
+                        {isEn ? 'Return to storage management overview' : 'مشاهده در پنل مدیریت فایل‌سیستم‌ها'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
               )}
-              <span>{feedback.message}</span>
             </div>
           )}
 

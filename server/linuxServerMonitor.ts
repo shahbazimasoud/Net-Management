@@ -3587,10 +3587,12 @@ if [ -n "${cleanDisk || ''}" ]; then
     echo "DISK_NOT_FOUND"
     exit 1
   fi
-  # Initialize PV
-  sudo pvcreate -y "${cleanDisk}" 2>&1
-  # Extend VG
-  sudo vgextend "${cleanVg}" "${cleanDisk}" 2>&1
+  # Initialize PV if not already recognized as a PV
+  if ! sudo pvs "${cleanDisk}" >/dev/null 2>&1 && ! pvs "${cleanDisk}" >/dev/null 2>&1; then
+    sudo pvcreate -y -ff "${cleanDisk}" 2>&1 || pvcreate -y -ff "${cleanDisk}" 2>&1 || sudo pvcreate -y "${cleanDisk}" 2>&1 || true
+  fi
+  # Extend VG (proceed if already member or newly added)
+  sudo vgextend "${cleanVg}" "${cleanDisk}" 2>&1 || vgextend "${cleanVg}" "${cleanDisk}" 2>&1 || true
 fi
 
 # Step 2: Extend the Logical Volume and auto-resize filesystem (-r)
@@ -3873,36 +3875,126 @@ export async function addDiskToLinuxVgSSH(
   if (!cleanDisk) throw new Error('Target disk or partition path is required.');
 
   const script = `export LC_ALL=C
-set -e
 
+# 1. Validate block device existence
 if [ ! -b "${cleanDisk}" ]; then
-  echo "DISK_NOT_FOUND"
+  if [ -e "${cleanDisk}" ]; then
+    echo "ERR:NOT_A_BLOCK_DEVICE: Device ${cleanDisk} exists but is not a block device."
+    exit 1
+  else
+    echo "ERR:DISK_NOT_FOUND: Block device ${cleanDisk} does not exist. Please run Online Rescan Disks first."
+    exit 1
+  fi
+fi
+
+# 2. Check if disk is already in an existing Volume Group
+EXISTING_VG=$(sudo pvs --noheadings -o vg_name "${cleanDisk}" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$EXISTING_VG" ]; then
+  EXISTING_VG=$(pvs --noheadings -o vg_name "${cleanDisk}" 2>/dev/null | tr -d '[:space:]')
+fi
+
+if [ -n "$EXISTING_VG" ] && [ "$EXISTING_VG" != "none" ] && [ "$EXISTING_VG" != "-" ]; then
+  if [ "$EXISTING_VG" = "${cleanVg}" ]; then
+    echo "VG_ALREADY_MEMBER: Disk ${cleanDisk} is already part of Volume Group ${cleanVg}."
+    exit 0
+  else
+    echo "ERR:DISK_IN_ANOTHER_VG: Disk ${cleanDisk} is already member of Volume Group '$EXISTING_VG'. Cannot add to '${cleanVg}'."
+    exit 1
+  fi
+fi
+
+# 3. Check if target Volume Group exists
+if ! sudo vgs "${cleanVg}" >/dev/null 2>&1 && ! vgs "${cleanVg}" >/dev/null 2>&1; then
+  echo "ERR:VG_NOT_FOUND: Target Volume Group '${cleanVg}' not found on server."
   exit 1
 fi
 
-# Initialize PV and extend VG
-sudo pvcreate -y "${cleanDisk}" 2>&1
-sudo vgextend "${cleanVg}" "${cleanDisk}" 2>&1
-echo "VG_EXTEND_SUCCESS"
+# 4. Initialize as Physical Volume (pvcreate) if not already a valid PV
+IS_ALREADY_PV=0
+if sudo pvs "${cleanDisk}" >/dev/null 2>&1 || pvs "${cleanDisk}" >/dev/null 2>&1; then
+  IS_ALREADY_PV=1
+fi
+
+if [ $IS_ALREADY_PV -eq 0 ]; then
+  PV_OUT=$(sudo pvcreate -y -ff "${cleanDisk}" 2>&1 || pvcreate -y -ff "${cleanDisk}" 2>&1 || sudo pvcreate -y "${cleanDisk}" 2>&1)
+  PV_STATUS=$?
+  if [ $PV_STATUS -ne 0 ]; then
+    if ! sudo pvs "${cleanDisk}" >/dev/null 2>&1 && ! pvs "${cleanDisk}" >/dev/null 2>&1; then
+      echo "ERR:PVCREATE_FAILED: pvcreate failed on ${cleanDisk}: $PV_OUT"
+      exit 1
+    fi
+  fi
+fi
+
+# 5. Extend the Volume Group (vgextend)
+VGEXT_OUT=$(sudo vgextend "${cleanVg}" "${cleanDisk}" 2>&1 || vgextend "${cleanVg}" "${cleanDisk}" 2>&1)
+VGEXT_STATUS=$?
+
+if [ $VGEXT_STATUS -eq 0 ] || echo "$VGEXT_OUT" | grep -qi "successfully extended" || echo "$VGEXT_OUT" | grep -qi "already in volume group"; then
+  UPDATED_FREE=$(sudo vgs --noheadings -o vg_free --units g "${cleanVg}" 2>/dev/null | tr -d '[:space:]')
+  echo "VG_EXTEND_SUCCESS: Free space now: $UPDATED_FREE"
+  echo "$VGEXT_OUT"
+  exit 0
+else
+  echo "ERR:VGEXTEND_FAILED: vgextend failed for VG '${cleanVg}' with disk '${cleanDisk}': $VGEXT_OUT"
+  exit 1
+fi
 `;
 
   try {
     const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
-    if (raw.includes('DISK_NOT_FOUND')) {
+    if (raw.includes('VG_EXTEND_SUCCESS') || raw.includes('successfully extended') || raw.includes('VG_ALREADY_MEMBER')) {
+      const freeMatch = raw.match(/Free space now:\s*([^\r\n]+)/);
+      const freeInfo = freeMatch ? ` (Current Free Space: ${freeMatch[1]})` : '';
+      return {
+        success: true,
+        message: `Disk "${cleanDisk}" successfully added to Volume Group "${cleanVg}"! Free storage pool in this VG has been expanded.${freeInfo}`,
+      };
+    }
+
+    if (raw.includes('ERR:DISK_NOT_FOUND')) {
       return {
         success: false,
         message: `Device "${cleanDisk}" not found on server. Please run "Online Rescan Disks" first.`,
       };
     }
-    if (raw.includes('VG_EXTEND_SUCCESS') || raw.includes('successfully extended')) {
+    if (raw.includes('ERR:NOT_A_BLOCK_DEVICE')) {
       return {
-        success: true,
-        message: `Disk "${cleanDisk}" initialized as Physical Volume and successfully added to Volume Group "${cleanVg}"! Free storage pool in this VG has been expanded.`,
+        success: false,
+        message: `Target "${cleanDisk}" is not a valid block device.`,
       };
     }
+    if (raw.includes('ERR:DISK_IN_ANOTHER_VG')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:DISK_IN_ANOTHER_VG')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:DISK_IN_ANOTHER_VG:\s*/, '').trim(),
+      };
+    }
+    if (raw.includes('ERR:VG_NOT_FOUND')) {
+      return {
+        success: false,
+        message: `Volume Group "${cleanVg}" does not exist on this server.`,
+      };
+    }
+    if (raw.includes('ERR:PVCREATE_FAILED')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:PVCREATE_FAILED')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:PVCREATE_FAILED:\s*/, '').trim(),
+      };
+    }
+    if (raw.includes('ERR:VGEXTEND_FAILED')) {
+      const line = raw.split('\n').find((l) => l.includes('ERR:VGEXTEND_FAILED')) || raw;
+      return {
+        success: false,
+        message: line.replace(/ERR:VGEXTEND_FAILED:\s*/, '').trim(),
+      };
+    }
+
     return {
-      success: true,
-      message: raw.trim() || `Disk added to Volume Group ${cleanVg}.`,
+      success: false,
+      message: raw.trim() || `Failed to add disk "${cleanDisk}" to Volume Group "${cleanVg}".`,
     };
   } catch (err: any) {
     console.error(`[addDiskToLinuxVgSSH] error:`, err?.message || err);

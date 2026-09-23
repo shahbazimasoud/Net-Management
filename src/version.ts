@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.124.0';
+export const APP_VERSION = '1.125.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.125.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'رفع خطای پیوست دیسک به گروه حجم (vgextend)، ناوبری تعاملی بین مودال‌های ذخیره‌سازی، و رفع عناوین فارسی در زبان انگلیسی',
+    title_en: 'Reliable Disk-to-VG Attachment (vgextend), Cross-Modal Next-Step Workflows, and Strict English Localization',
+    changes: [
+      'اصلاح و بازنویسی اسکریپت بک‌اند addDiskToLinuxVgSSH جهت اعتبارسنجی دقیق مسیر دیسک، بررسی بلوک دیوایس، مقداردهی هوشمند دیسک با pvcreate و اجرای بدون خطای vgextend.',
+      'افزودن ناوبری تعاملی و هوشمند پس از اتمام موفق عملیات در هر یک از مودال‌های سه‌گانه ذخیره‌سازی (Add to VG، Extend LV و Create LVM) جهت سوییچ مستقیم به مودال مرتبط بعدی.',
+      'پشتیبانی از ورودی دستی مسیر دیسک در مودال پیوست به VG برای مواردی که دیسک در فهرست خودکار نمایان نشده است.',
+      'اصلاح کامل عناوین مراحل در تب ذخیره‌سازی (گام ۱، گام ۲، گام ۳) و تضمین عدم نمایش متون فارسی در حالت انگلیسی پنل (Step 1, Step 2, Step 3).',
+    ],
+    changes_en: [
+      'Re-engineered backend addDiskToLinuxVgSSH logic to perform robust disk path verification, block device detection, idempotent pvcreate initialization, and error-free vgextend execution.',
+      'Integrated interactive Next-Step navigation cards across storage modals (Add to VG, Extend LV, and Create LVM) enabling seamless one-click transitions to related subsequent storage actions.',
+      'Added support for manual disk path input in the Add to VG modal to accommodate custom block devices and undetected virtual drives.',
+      'Fixed localization of storage workflow step indicators in English mode (displaying "Step 1", "Step 2", "Step 3" instead of Persian labels) ensuring 100% strict bilingual compliance.',
+    ],
+  },
   {
     version: '1.124.0',
     releaseDate: '2026-09-23',

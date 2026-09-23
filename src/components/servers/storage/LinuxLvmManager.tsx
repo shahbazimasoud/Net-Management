@@ -62,6 +62,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
   const [targetLvForExtend, setTargetLvForExtend] = useState<LinuxLvmLv | null>(null);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [targetVgForCreate, setTargetVgForCreate] = useState<string | null>(null);
 
   const [shrinkModalOpen, setShrinkModalOpen] = useState(false);
   const [targetLvForShrink, setTargetLvForShrink] = useState<LinuxLvmLv | null>(null);
@@ -149,7 +150,8 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
     setShrinkModalOpen(true);
   };
 
-  const handleOpenCreate = () => {
+  const handleOpenCreate = (vgName?: string) => {
+    setTargetVgForCreate(vgName || null);
     setCreateModalOpen(true);
   };
 
@@ -340,7 +342,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
                 }`}
               >
                 <div className="font-bold text-emerald-400 flex items-center gap-1 mb-1">
-                  <span>گام ۱:</span>
+                  <span>{isEn ? 'Step 1:' : 'گام ۱:'}</span>
                   <span>{isEn ? 'Physical Disks & Rescan' : 'دیسک‌های فیزیکی و اسکن'}</span>
                 </div>
                 <p className="text-[11px] leading-relaxed text-slate-300">
@@ -356,7 +358,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
                 }`}
               >
                 <div className="font-bold text-teal-400 flex items-center gap-1 mb-1">
-                  <span>گام ۲:</span>
+                  <span>{isEn ? 'Step 2:' : 'گام ۲:'}</span>
                   <span>{isEn ? 'Add to Volume Group (VG)' : 'پیوست به گروه حجم'}</span>
                 </div>
                 <p className="text-[11px] leading-relaxed text-slate-300">
@@ -372,7 +374,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
                 }`}
               >
                 <div className="font-bold text-cyan-400 flex items-center gap-1 mb-1">
-                  <span>گام ۳:</span>
+                  <span>{isEn ? 'Step 3:' : 'گام ۳:'}</span>
                   <span>{isEn ? 'Extend Mounted Volume (LV)' : 'افزایش حجم ولوم مانت‌شده'}</span>
                 </div>
                 <p className="text-[11px] leading-relaxed text-slate-300">
@@ -1007,6 +1009,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
         targetDiskPath={targetDiskForAddDisk}
         allVgs={vgs}
         availableDisks={overview?.availableDisks || []}
+        allPvs={pvs}
         ephemeralPassword={ephemeralPassword}
         onClose={() => setAddDiskModalOpen(false)}
         onSuccess={() => {
@@ -1016,6 +1019,9 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
         onOpenExtendLv={(vgName) => {
           const matchedLv = lvs.find((l) => l.vgName === vgName) || lvs[0] || null;
           handleOpenExtend(matchedLv);
+        }}
+        onOpenCreateLvm={(vgName) => {
+          handleOpenCreate(vgName);
         }}
         isLightMode={isLightMode}
         isEn={isEn}
@@ -1034,6 +1040,12 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
           loadLvmOverview();
           if (onRefreshParent) onRefreshParent();
         }}
+        onOpenAddDiskToVg={(vgName) => {
+          handleOpenAddDiskToVg(vgName);
+        }}
+        onOpenCreateLvm={(vgName) => {
+          handleOpenCreate(vgName);
+        }}
         isLightMode={isLightMode}
         isEn={isEn}
       />
@@ -1041,6 +1053,7 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
       <LinuxCreateLvmModal
         isOpen={createModalOpen}
         server={server}
+        targetVgName={targetVgForCreate}
         allVgs={vgs}
         availableDisks={overview?.availableDisks || []}
         ephemeralPassword={ephemeralPassword}
@@ -1048,6 +1061,17 @@ export const LinuxLvmManager: React.FC<LinuxLvmManagerProps> = ({
         onSuccess={() => {
           loadLvmOverview();
           if (onRefreshParent) onRefreshParent();
+        }}
+        onOpenExtendLv={(vgName, lvName) => {
+          const matched =
+            lvs.find((l) => (vgName ? l.vgName === vgName : true) && (lvName ? l.name === lvName : true)) ||
+            lvs.find((l) => (vgName ? l.vgName === vgName : true)) ||
+            lvs[0] ||
+            null;
+          handleOpenExtend(matched);
+        }}
+        onOpenAddDiskToVg={(vgName) => {
+          handleOpenAddDiskToVg(vgName);
         }}
         isLightMode={isLightMode}
         isEn={isEn}
