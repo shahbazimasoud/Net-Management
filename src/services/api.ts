@@ -17,6 +17,7 @@ import {
   LinuxSystemService,
   LinuxSystemUser,
   LinuxSystemGroup,
+  LinuxUserSecurityInfo,
   LinuxLoggedInUser,
   LinuxNetworkInterfaceDetail,
   LinuxSystemDetailedInfo,
@@ -1656,6 +1657,8 @@ export async function createLinuxUser(
     shell?: string;
     groups?: string[];
     createHome?: boolean;
+    expireDate?: string;
+    forcePasswordChange?: boolean;
   },
   ephemeralPassword?: string
 ): Promise<{ success: boolean; message?: string; error?: string }> {
@@ -1674,16 +1677,67 @@ export async function createLinuxUser(
   return data;
 }
 
+export async function updateLinuxUser(
+  serverId: string,
+  params: {
+    username: string;
+    comment?: string;
+    homeDir?: string;
+    shell?: string;
+    groups?: string[];
+    newPassword?: string;
+    forcePasswordChange?: boolean;
+    expireDate?: string;
+    isLocked?: boolean;
+  },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...params, ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxUserSecurityInfo(
+  serverId: string,
+  username: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; data?: LinuxUserSecurityInfo; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/${encodeURIComponent(username)}/info`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function updateLinuxUserPassword(
   serverId: string,
   username: string,
   password: string,
-  ephemeralPassword?: string
+  ephemeralPassword?: string,
+  forcePasswordChange?: boolean
 ): Promise<{ success: boolean; message?: string; error?: string }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/users/password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, ephemeralPassword }),
+    body: JSON.stringify({ username, password, ephemeralPassword, forcePasswordChange }),
   });
   const data = await res.json().catch(() => ({
     success: false,

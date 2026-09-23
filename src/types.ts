@@ -1539,6 +1539,55 @@ export interface LinuxSystemUser {
   primaryGroup?: string;
   groups?: string[];
   isLocked?: boolean;
+  expireDate?: string;
+  isExpired?: boolean;
+  daysUntilExpire?: number | null;
+  mustChangePassword?: boolean;
+}
+
+export interface LinuxUserSecurityInfo {
+  username: string;
+  uid?: number;
+  gid?: number;
+  comment?: string;
+  shell?: string;
+  homeDir?: string;
+  groups?: string[];
+  isLocked: boolean;
+  status: 'active' | 'locked' | 'password_expired' | 'no_password';
+  lastPasswordChange: string;
+  mustChangePassword: boolean;
+  passwordExpires: string;
+  passwordInactive: string;
+  accountExpires: string;
+  isExpired: boolean;
+  daysUntilExpire: number | null;
+  expiryStatusText: string;
+  minDaysBetweenChange: number;
+  maxDaysBetweenChange: number;
+  warnDaysBeforeExpire: number;
+  lastLogin: {
+    ip: string;
+    port?: string;
+    time: string;
+    tty: string;
+  } | null;
+  loginHistory: Array<{
+    tty: string;
+    ip: string;
+    loginTime: string;
+    logoutTime: string;
+    duration: string;
+    stillLoggedIn: boolean;
+  }>;
+  uniqueIps: string[];
+  activeSessions: Array<{
+    tty: string;
+    from: string;
+    loginTime: string;
+    idleTime: string;
+    what: string;
+  }>;
 }
 
 export interface LinuxLoggedInUser {

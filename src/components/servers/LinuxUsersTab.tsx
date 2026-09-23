@@ -25,6 +25,8 @@ import {
   Check,
   Plus,
   LogOut,
+  Calendar,
+  Edit,
 } from 'lucide-react';
 import { RemoteServer, LinuxSystemUser, LinuxLoggedInUser, LinuxSystemGroup } from '../../types';
 import {
@@ -34,6 +36,8 @@ import {
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { CreateUserModal } from './users/CreateUserModal';
+import { EditUserModal } from './users/EditUserModal';
+import { UserInfoModal } from './users/UserInfoModal';
 import { ChangePasswordModal } from './users/ChangePasswordModal';
 import { ManageUserGroupsModal } from './users/ManageUserGroupsModal';
 import { DeleteUserModal } from './users/DeleteUserModal';
@@ -71,6 +75,8 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
 
   // Modals state
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [userForEdit, setUserForEdit] = useState<LinuxSystemUser | null>(null);
+  const [userForInfo, setUserForInfo] = useState<LinuxSystemUser | null>(null);
   const [userForPassword, setUserForPassword] = useState<LinuxSystemUser | null>(null);
   const [userForGroups, setUserForGroups] = useState<LinuxSystemUser | null>(null);
   const [userForDelete, setUserForDelete] = useState<LinuxSystemUser | null>(null);
@@ -619,25 +625,48 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
 
                       {/* Status */}
                       <td className="py-2.5 px-3">
-                        {u.isLocked ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                            <Lock className="w-3 h-3" />
-                            <span>{isEn ? 'Disabled' : 'غیرفعال'}</span>
-                          </span>
-                        ) : isRoot ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                            Root
-                          </span>
-                        ) : u.isSystem ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded font-semibold bg-slate-500/15 text-slate-400">
-                            {isEn ? 'System' : 'سیستمی'}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                            <span>{isEn ? 'Active' : 'فعال'}</span>
-                          </span>
-                        )}
+                        <div className="flex flex-col gap-1 items-start">
+                          {u.isLocked ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                              <Lock className="w-3 h-3" />
+                              <span>{isEn ? 'Disabled / Locked' : 'قفل / غیرفعال'}</span>
+                            </span>
+                          ) : isRoot ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                              Root
+                            </span>
+                          ) : u.isSystem ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded font-semibold bg-slate-500/15 text-slate-400">
+                              {isEn ? 'System' : 'سیستمی'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              <span>{isEn ? 'Active' : 'فعال'}</span>
+                            </span>
+                          )}
+
+                          {u.isExpired && (
+                            <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                              <Calendar className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'Expired' : 'منقضی شده'}</span>
+                            </span>
+                          )}
+
+                          {u.expireDate && u.expireDate !== 'never' && !u.isExpired && (
+                            <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20" title={`Expires on: ${u.expireDate}`}>
+                              <Calendar className="w-2.5 h-2.5" />
+                              <span>{u.expireDate}</span>
+                            </span>
+                          )}
+
+                          {u.mustChangePassword && (
+                            <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30" title={isEn ? 'Must change password on next login' : 'الزام به تغییر رمز در ورود بعدی'}>
+                              <Clock className="w-2.5 h-2.5" />
+                              <span>{isEn ? 'Password Expired' : 'تغییر رمز الزامی'}</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* UID / GID */}
@@ -715,6 +744,26 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
                       {/* Action buttons */}
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {/* User Info / Security Audit */}
+                          <button
+                            type="button"
+                            onClick={() => setUserForInfo(u)}
+                            title={isEn ? 'Security Audit & Login Info' : 'اطلاعات امنیتی، آی‌پی‌ها و لاگین‌ها'}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 transition cursor-pointer"
+                          >
+                            <Info className="w-3.5 h-3.5 text-cyan-400" />
+                          </button>
+
+                          {/* Edit User */}
+                          <button
+                            type="button"
+                            onClick={() => setUserForEdit(u)}
+                            title={isEn ? 'Edit User Details' : 'ویرایش مشخصات کاربر'}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 transition cursor-pointer"
+                          >
+                            <Edit className="w-3.5 h-3.5 text-slate-300" />
+                          </button>
+
                           {/* Manage Groups */}
                           <button
                             type="button"
@@ -1001,6 +1050,38 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
           onSuccess={(msg) => {
             showNotification(msg);
             loadUserData();
+          }}
+        />
+      )}
+
+      {/* Edit User Modal */}
+      {userForEdit && (
+        <EditUserModal
+          server={server}
+          user={userForEdit}
+          systemGroups={systemGroups}
+          ephemeralPassword={ephemeralPassword}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          onClose={() => setUserForEdit(null)}
+          onSuccess={() => {
+            showNotification(isEn ? `User ${userForEdit.username} updated successfully` : `مشخصات کاربر ${userForEdit.username} با موفقیت ذخیره شد`);
+            loadUserData();
+          }}
+        />
+      )}
+
+      {/* User Info & Security Audit Modal */}
+      {userForInfo && (
+        <UserInfoModal
+          server={server}
+          user={userForInfo}
+          ephemeralPassword={ephemeralPassword}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          onClose={() => setUserForInfo(null)}
+          onEditUser={() => {
+            setUserForEdit(userForInfo);
           }}
         />
       )}

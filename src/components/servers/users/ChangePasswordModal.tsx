@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Lock,
+  Clock,
 } from 'lucide-react';
 import { RemoteServer, LinuxSystemUser } from '../../../types';
 import { updateLinuxUserPassword } from '../../../services/api';
@@ -41,6 +42,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [forcePasswordChange, setForcePasswordChange] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +60,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     setError(null);
 
     try {
-      const res = await updateLinuxUserPassword(server.id, user.username, password, ephemeralPassword);
+      const res = await updateLinuxUserPassword(server.id, user.username, password, ephemeralPassword, forcePasswordChange);
       if (res.success) {
         onSuccess();
         onClose();
@@ -206,6 +208,38 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               className={`w-full px-3 py-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-2 focus:ring-cyan-500 ${
                 isLightMode ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-slate-100'
               }`}
+            />
+          </div>
+
+          {/* Force password change on next login */}
+          <div className={`p-3 rounded-xl border flex items-center justify-between ${
+            isLightMode ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-500/10 border-amber-500/30'
+          }`}>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={forcePasswordChange}
+                onChange={(e) => setForcePasswordChange(e.target.checked)}
+                className="rounded text-amber-500 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+              />
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                <span className="text-xs font-semibold">
+                  {isEn ? 'Force password change on next login' : 'اجبار کاربر به تغییر رمز در ورود بعدی'}
+                </span>
+              </div>
+            </label>
+            <FieldInfoTooltip
+              title={isEn ? 'Force Password Change' : 'اجبار تغییر رمز عبور'}
+              whatIsIt={isEn
+                ? 'Sets password age to 0 via chage -d 0 so the user must immediately reset their password upon next login.'
+                : 'عمر رمز را با دستور chage -d 0 صفر می‌کند تا کاربر در ورود بعدی ناچار به انتخاب رمز عبور جدید باشد.'}
+              whyNeeded={isEn
+                ? 'Standard administrative credential issuance security practice ensuring the admin does not keep working knowledge of user credentials.'
+                : 'رویه امنیتی استاندارد جهت اطمینان از اینکه پس از تغییر موقت رمز توسط ادمین، خود کاربر رمز اختصاصی خود را برگزیند.'}
+              practicalExample={isEn
+                ? 'Executes sudo chage -d 0 <user> after resetting password.'
+                : 'اجرای دستور sudo chage -d 0 <user> بلافاصله پس از ثبت رمز جدید.'}
             />
           </div>
 

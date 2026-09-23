@@ -16,6 +16,8 @@ import {
   Search,
   Check,
   Plus,
+  Calendar,
+  Clock,
 } from 'lucide-react';
 import { RemoteServer, LinuxSystemGroup } from '../../../types';
 import { createLinuxUser, createLinuxGroup } from '../../../services/api';
@@ -54,6 +56,27 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
   const [createHome, setCreateHome] = useState(true);
   const [shell, setShell] = useState('/bin/bash');
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [forcePasswordChange, setForcePasswordChange] = useState(false);
+  const [expirePreset, setExpirePreset] = useState<'never' | '30' | '90' | '180' | '365' | 'custom'>('never');
+  const [expireDate, setExpireDate] = useState('');
+
+  const handleExpirePresetChange = (preset: 'never' | '30' | '90' | '180' | '365' | 'custom') => {
+    setExpirePreset(preset);
+    if (preset === 'never') {
+      setExpireDate('');
+    } else if (preset === 'custom') {
+      if (!expireDate) {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        setExpireDate(d.toISOString().split('T')[0]);
+      }
+    } else {
+      const days = parseInt(preset, 10);
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      setExpireDate(d.toISOString().split('T')[0]);
+    }
+  };
 
   // Group selector filter & quick add
   const [groupFilter, setGroupFilter] = useState('');
@@ -140,6 +163,8 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
           shell: shell.trim() || undefined,
           groups: selectedGroups,
           createHome,
+          expireDate: expireDate.trim() || undefined,
+          forcePasswordChange,
         },
         ephemeralPassword
       );
@@ -326,6 +351,122 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
                 }`}
               />
             </div>
+          </div>
+
+          {/* Force password change on first login */}
+          {password && (
+            <div className={`p-3 rounded-xl border flex items-center justify-between ${
+              isLightMode ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-500/10 border-amber-500/30'
+            }`}>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={forcePasswordChange}
+                  onChange={(e) => setForcePasswordChange(e.target.checked)}
+                  className="rounded text-amber-500 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                />
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                  <span className="text-xs font-semibold">
+                    {isEn ? 'Require password change upon first login' : 'اجبار کاربر به تغییر رمز عبور در اولین لاگین'}
+                  </span>
+                </div>
+              </label>
+              <FieldInfoTooltip
+                title={isEn ? 'Force Password Change' : 'اجبار تغییر رمز عبور'}
+                whatIsIt={isEn
+                  ? 'Expires the user password immediately so they must set their own new password upon initial login.'
+                  : 'عمر رمز عبور را به صفر می‌رساند تا کاربر در اولین اتصال از طریق SSH یا ترمینال، ملزم به تعیین رمز جدید شود.'}
+                whyNeeded={isEn
+                  ? 'Key security baseline practice preventing administrators or provisioners from permanently knowing the user private credentials.'
+                  : 'الزام امنیتی استانداردی است که از دسترسی دائمی مدیران سرور به رمز عبور شخصی کاربر جلوگیری می‌کند.'}
+                practicalExample={isEn
+                  ? 'Executes chage -d 0 username upon user creation.'
+                  : 'دستور chage -d 0 username را روی کاربر اعمال می‌کند.'}
+              />
+            </div>
+          )}
+
+          {/* Account Expiration Date */}
+          <div className={`p-3.5 rounded-xl border ${
+            isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-xs font-semibold">
+                  {isEn ? 'Account Expiration Date' : 'تاریخ انقضای حساب کاربری (Expire Date)'}
+                </span>
+              </div>
+              <FieldInfoTooltip
+                title={isEn ? 'User Account Expiration' : 'تاریخ انقضای کاربر'}
+                whatIsIt={isEn
+                  ? 'Sets an explicit expiration date for this Linux user account in /etc/shadow using useradd -e YYYY-MM-DD.'
+                  : 'یک تاریخ انقضای مشخص در فایل /etc/shadow از طریق سوئیچ useradd -e YYYY-MM-DD روی حساب کاربر تنظیم می‌کند.'}
+                whyNeeded={isEn
+                  ? 'Crucial for temporary contractors, time-limited projects, or temporary access grants that must automatically deactivate.'
+                  : 'برای حساب‌های پیمانکاران، پروژه‌های موقت یا دسترسی‌های زمان‌دار ضروری است تا حساب پس از موعد به طور خودکار غیرفعال شود.'}
+                practicalExample={isEn
+                  ? 'Set to 90 Days or specific date e.g. 2026-12-31.'
+                  : 'تنظیم روی ۳۰ روز یا تاریخ معین مانند ۲۰۲۶-۱۲-۳۱.'}
+              />
+            </div>
+
+            {/* Presets */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+              {[
+                { id: 'never', labelEn: 'Never (Permanent)', labelFa: 'همیشگی (بدون انقضا)' },
+                { id: '30', labelEn: '30 Days', labelFa: '۳۰ روزه' },
+                { id: '90', labelEn: '90 Days', labelFa: '۹۰ روزه' },
+                { id: '180', labelEn: '180 Days', labelFa: '۶ ماهه' },
+                { id: '365', labelEn: '1 Year', labelFa: '۱ ساله' },
+                { id: 'custom', labelEn: 'Custom Date', labelFa: 'تاریخ دلخواه' },
+              ].map((p) => {
+                const active = expirePreset === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleExpirePresetChange(p.id as any)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
+                      active
+                        ? 'bg-cyan-500 text-white shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {isEn ? p.labelEn : p.labelFa}
+                  </button>
+                );
+              })}
+            </div>
+
+            {expirePreset !== 'never' && (
+              <div className="flex items-center gap-3">
+                <input
+                  type="date"
+                  value={expireDate}
+                  onChange={(e) => {
+                    setExpireDate(e.target.value);
+                    setExpirePreset('custom');
+                  }}
+                  min={new Date().toISOString().split('T')[0]}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono border focus:outline-none focus:ring-2 focus:ring-cyan-500 ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900'
+                      : 'bg-slate-950 border-slate-700 text-slate-100'
+                  }`}
+                />
+                <span className="text-[11px] text-slate-400">
+                  {expireDate ? (
+                    isEn ? `Account will deactivate on ${expireDate}` : `حساب در تاریخ ${expireDate} منقضی خواهد شد`
+                  ) : (
+                    isEn ? 'Select an expiration date' : 'تاریخ انقضا را انتخاب کنید'
+                  )}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Directory & Shell */}

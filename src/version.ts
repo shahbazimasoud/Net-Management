@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.132.0';
+export const APP_VERSION = '1.133.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.133.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'امکان ویرایش کامل کاربران لینوکس، تعیین تاریخ انقضای حساب، اجبار به تغییر رمز در ورود بعدی و ممیزی امنیتی و سوابق IP و نشست‌ها',
+    title_en: 'Comprehensive Linux User Editing, Account Expiration, Mandatory Password Change on Next Login, and In-Depth Security & IP Audit Modal',
+    changes: [
+      'افزودن قابلیت ویرایش کامل کاربران لینوکس (Edit User) شامل تغییر شل لاگین، پوشه خانگی، نام و توضیحات GECOS، گروه‌های تکمیلی، قفل/آزادسازی حساب، تغییر رمز و تنظیم انقضا.',
+      'امکان تعیین تاریخ انقضای حساب کاربری (Account Expiration Date) در فرم ساخت و فرم ویرایش کاربر با پریست‌های آماده (۳۰، ۹۰، ۱۸۰، ۳۶۵ روزه یا تاریخ دلخواه) و همگام‌سازی مستقیم با /etc/shadow.',
+      'افزودن قابلیت اجبار کاربر به تغییر رمز عبور در اولین ورود (Force Password Change on Next Login) در فرم‌های ساخت کاربر، ویرایش کاربر و پنجره اختصاصی تغییر گذرواژه با اجرای امن chage -d 0.',
+      'افزودن مودال جامع ممیزی امنیتی کاربر (User Security Audit Modal) با کلیک روی آیکون Info در سطر هر کاربر، شامل استخراج واقعی و زنده آدرس‌های IP متصل‌شده به این حساب، وضعیت قفل بودن، تاریخ انقضا و محاسبه روزهای باقی‌مانده، سن رمز عبور و سیاست‌های shadow، سوابق آخرین ورودها و نشست‌های فعال زنده.',
+      'پیاده‌سازی اندپوینت‌های امن SSH در بک‌اند شامل /api/remote-servers/linux/users/update و /api/remote-servers/linux/users/:username/info با اعتبارسنجی دقیق و امنیت رمز عبور بدون نشت در کلاینت.',
+    ],
+    changes_en: [
+      'Added full Linux User Editing capability (Edit User) allowing modification of login shells, home directories, GECOS comments, secondary group memberships, lock/unlock status, password updates, and expiration policies.',
+      'Added Account Expiration Date support across both user creation and user editing flows with quick presets (30, 90, 180, 365 days, or custom dates) directly committed to /etc/shadow.',
+      'Implemented mandatory password rotation ("Require password change upon first/next login") across Create User, Edit User, and Change Password modals utilizing secure chage -d 0 execution.',
+      'Added an In-Depth User Security Audit Modal accessible via the new Info icon on each user row, providing live extraction of all unique IP addresses used by the account, lock status, expiration status with days remaining countdown, password age and shadow aging policies, historical login records, and live active sessions.',
+      'Developed backend SSH API endpoints (/api/remote-servers/linux/users/update and /api/remote-servers/linux/users/:username/info) with strict input validation, PAM/shadow integration, and zero-leak credential protection.',
+    ],
+  },
   {
     version: '1.132.0',
     releaseDate: '2026-09-23',
