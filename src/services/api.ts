@@ -43,6 +43,10 @@ import {
   LinuxTcpWrappersData,
   LinuxLogCategory,
   LinuxSystemLogsResponse,
+  LinuxPackageItem,
+  LinuxPackageUpdateOverview,
+  PackageUpdateJobStatus,
+  PackageUpdateJobStep,
 } from '../types';
 
 const API_BASE = '/api';
@@ -2766,6 +2770,120 @@ export async function truncateLinuxServerLog(
     body: JSON.stringify({ filePath, password: ephemeralPassword }),
   });
   return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+// ========================================================
+// LINUX PACKAGE MANAGEMENT & SYSTEM UPGRADE API METHODS
+// ========================================================
+
+export async function fetchLinuxPackageOverview(
+  serverId: string,
+  ephemeralPassword?: string,
+  refresh?: boolean
+): Promise<{
+  success: boolean;
+  osInfo?: LinuxPackageUpdateOverview['osInfo'];
+  totalInstalled?: number;
+  upgradableCount?: number;
+  securityCount?: number;
+  packages?: LinuxPackageItem[];
+  upgradablePackages?: LinuxPackageItem[];
+  error?: string;
+  requires_password?: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, refresh: !!refresh }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse package response from server',
+  }));
+  return data;
+}
+
+export async function updateAllLinuxPackages(
+  serverId: string,
+  distUpgrade: boolean = false,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; job?: PackageUpdateJobStatus; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages/update-all`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ distUpgrade, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to initiate bulk package upgrade' }));
+}
+
+export async function updateSelectedLinuxPackages(
+  serverId: string,
+  packages: Array<{ name: string; currentVersion?: string; targetVersion?: string }>,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; job?: PackageUpdateJobStatus; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages/update-selected`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ packages, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to initiate selected packages upgrade' }));
+}
+
+export async function updateSingleLinuxPackage(
+  serverId: string,
+  packageName: string,
+  currentVersion?: string,
+  targetVersion?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; job?: PackageUpdateJobStatus; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages/update-single`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ packageName, currentVersion, targetVersion, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to initiate package update' }));
+}
+
+export async function refreshLinuxPackageRepo(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; job?: PackageUpdateJobStatus; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages/repo-update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to refresh repository metadata' }));
+}
+
+export async function autoremoveLinuxPackages(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; job?: PackageUpdateJobStatus; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages/autoremove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to run autoremove cleanup' }));
+}
+
+export async function fetchPackageUpdateJobStatus(
+  serverId: string,
+  jobId: string
+): Promise<{ success: boolean; job?: PackageUpdateJobStatus; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages/job/${encodeURIComponent(jobId)}`);
+  return res.json().catch(() => ({ success: false, error: 'Failed to fetch update job progress' }));
+}
+
+export async function cancelPackageUpdateJob(
+  serverId: string,
+  jobId: string
+): Promise<{ success: boolean; cancelled?: boolean; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/packages/job/${encodeURIComponent(jobId)}/cancel`, {
+    method: 'POST',
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to cancel update job' }));
 }
 
 

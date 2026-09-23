@@ -111,6 +111,12 @@ import {
   executeServerRestartSSH,
 } from './linuxServerMonitor';
 import {
+  fetchLinuxPackageOverview,
+  startPackageUpdateJob,
+  getPackageUpdateJob,
+  cancelPackageUpdateJob,
+} from './linuxPackageUpdates';
+import {
   fetchLinuxSshConfigSSH,
   updateLinuxSshConfigSSH,
   fetchLinuxHostnameSSH,
@@ -2692,6 +2698,211 @@ apiRouter.post('/remote-servers/:id/ssh-port', async (req: Request, res: Respons
       error: err.message || 'Failed to change SSH port',
     });
   }
+});
+
+// ========================================================
+// LINUX PACKAGE MANAGEMENT & SYSTEM UPGRADE ENDPOINTS
+// ========================================================
+
+// GET & POST /api/remote-servers/:id/packages - Fetch package updates and installed software list
+const handleGetLinuxPackages = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'Package management is designed for Linux servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const refresh = req.body?.refresh === true || req.query?.refresh === 'true';
+    const overview = await fetchLinuxPackageOverview(server, ephemeralPassword, refresh);
+
+    return res.json({
+      success: true,
+      ...overview,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxPackages API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch package status from remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/packages', handleGetLinuxPackages);
+apiRouter.post('/remote-servers/:id/packages', handleGetLinuxPackages);
+
+// POST /api/remote-servers/:id/packages/update-all - Upgrade all packages
+apiRouter.post('/remote-servers/:id/packages/update-all', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const ephemeralPassword = req.body?.password as string | undefined;
+    const isDistUpgrade = req.body?.distUpgrade === true;
+
+    const job = startPackageUpdateJob(
+      server,
+      {
+        mode: isDistUpgrade ? 'dist-upgrade' : 'all',
+      },
+      ephemeralPassword
+    );
+
+    addAuditLog({
+      action: isDistUpgrade ? 'execute_linux_dist_upgrade' : 'execute_linux_package_update_all',
+      username: req.body?.userName || 'Admin',
+      category: 'system',
+      target: `${server.name} (${server.ip})`,
+      status: 'success',
+      details: isDistUpgrade ? 'Initiated full Linux distribution upgrade' : 'Initiated bulk upgrade for all packages',
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json({ success: true, job });
+  } catch (err: any) {
+    console.error(`[LinuxPackageUpdateAll Error]:`, err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to start update all job' });
+  }
+});
+
+// POST /api/remote-servers/:id/packages/update-selected - Upgrade selected packages list
+apiRouter.post('/remote-servers/:id/packages/update-selected', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const { packages, password } = req.body;
+    if (!Array.isArray(packages) || packages.length === 0) {
+      return res.status(400).json({ success: false, error: 'No packages provided for update' });
+    }
+
+    const job = startPackageUpdateJob(
+      server,
+      {
+        mode: 'selected',
+        packages,
+      },
+      password
+    );
+
+    return res.json({ success: true, job });
+  } catch (err: any) {
+    console.error(`[LinuxPackageUpdateSelected Error]:`, err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to start update selected job' });
+  }
+});
+
+// POST /api/remote-servers/:id/packages/update-single - Upgrade single package
+apiRouter.post('/remote-servers/:id/packages/update-single', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const { packageName, currentVersion, targetVersion, password } = req.body;
+    if (!packageName) {
+      return res.status(400).json({ success: false, error: 'packageName is required' });
+    }
+
+    const job = startPackageUpdateJob(
+      server,
+      {
+        mode: 'single',
+        packages: [{ name: packageName, currentVersion, targetVersion }],
+      },
+      password
+    );
+
+    return res.json({ success: true, job });
+  } catch (err: any) {
+    console.error(`[LinuxPackageUpdateSingle Error]:`, err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to start single package update' });
+  }
+});
+
+// POST /api/remote-servers/:id/packages/repo-update - Refresh repository metadata
+apiRouter.post('/remote-servers/:id/packages/repo-update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const ephemeralPassword = req.body?.password as string | undefined;
+    const job = startPackageUpdateJob(
+      server,
+      { mode: 'repo-update' },
+      ephemeralPassword
+    );
+
+    return res.json({ success: true, job });
+  } catch (err: any) {
+    console.error(`[LinuxPackageRepoUpdate Error]:`, err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to start repository update job' });
+  }
+});
+
+// POST /api/remote-servers/:id/packages/autoremove - Clean obsolete packages
+apiRouter.post('/remote-servers/:id/packages/autoremove', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const ephemeralPassword = req.body?.password as string | undefined;
+    const job = startPackageUpdateJob(
+      server,
+      { mode: 'autoremove' },
+      ephemeralPassword
+    );
+
+    return res.json({ success: true, job });
+  } catch (err: any) {
+    console.error(`[LinuxPackageAutoremove Error]:`, err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to start autoremove job' });
+  }
+});
+
+// GET /api/remote-servers/:id/packages/job/:jobId - Poll job status
+apiRouter.get('/remote-servers/:id/packages/job/:jobId', (req: Request, res: Response) => {
+  const { jobId } = req.params;
+  const job = getPackageUpdateJob(jobId);
+  if (!job) {
+    return res.status(404).json({ success: false, error: 'Update job not found' });
+  }
+  return res.json({ success: true, job });
+});
+
+// POST /api/remote-servers/:id/packages/job/:jobId/cancel - Cancel active job
+apiRouter.post('/remote-servers/:id/packages/job/:jobId/cancel', (req: Request, res: Response) => {
+  const { jobId } = req.params;
+  const cancelled = cancelPackageUpdateJob(jobId);
+  return res.json({ success: true, cancelled });
 });
 
 // GET & POST /api/remote-servers/:id/block-devices - Fetch block devices and unmounted disks

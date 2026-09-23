@@ -2007,5 +2007,68 @@ export interface LinuxLogCategoryDetail {
   commandsUsed: string[];
 }
 
+// ========================================================
+// LINUX PACKAGE MANAGEMENT & SYSTEM UPGRADE INTERFACES
+// ========================================================
+
+export type LinuxPackageManagerType = 'apt' | 'dnf' | 'yum' | 'pacman' | 'zypper' | 'apk' | 'generic';
+
+export interface LinuxPackageItem {
+  name: string;
+  currentVersion: string;
+  candidateVersion?: string;
+  architecture?: string;
+  summary?: string;
+  status: 'up_to_date' | 'update_available' | 'security_update';
+  isSecurityUpdate?: boolean;
+  packageManager: LinuxPackageManagerType;
+}
+
+export interface LinuxPackageUpdateOverview {
+  osInfo: {
+    prettyName: string;
+    kernel: string;
+    arch: string;
+    hostname: string;
+    packageManager: LinuxPackageManagerType;
+    lastUpdated?: string;
+    uptime?: string;
+  };
+  totalInstalled: number;
+  upgradableCount: number;
+  securityCount: number;
+  packages: LinuxPackageItem[];
+  upgradablePackages: LinuxPackageItem[];
+}
+
+export interface PackageUpdateJobStep {
+  packageName: string;
+  currentVersion: string;
+  targetVersion: string;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  startTime?: number;
+  endTime?: number;
+  durationSec?: number;
+  output?: string;
+  error?: string;
+}
+
+export interface PackageUpdateJobStatus {
+  jobId: string;
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
+  mode: 'single' | 'selected' | 'all' | 'dist-upgrade' | 'repo-update' | 'autoremove';
+  totalPackages: number;
+  completedPackages: number;
+  successCount: number;
+  failedCount: number;
+  percentage: number;
+  currentPackageName?: string;
+  currentStepDescription?: string;
+  steps: PackageUpdateJobStep[];
+  startedAt: number;
+  finishedAt?: number;
+  fullLog?: string;
+}
+
 
 

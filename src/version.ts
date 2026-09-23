@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.133.0';
+export const APP_VERSION = '1.134.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.134.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'افزودن تب مدیریت و به‌روزرسانی پکیج‌ها (Update Package)، ارتقای سراسری سیستم‌عامل، مانیتورینگ پیشرفت زنده شبیه اتوماسیون سیسکو و تمیزکاری وابستگی‌ها',
+    title_en: 'Linux Package Management & System Upgrade Tab (Update Package) with Real-Time Execution Progress Bar, Bulk Upgrade, and OS Maintenance',
+    changes: [
+      'افزودن تب جدید «Update Package» به مودال مدیریت سرور لینوکس (Linux Server Management) جهت مشاهده کلیه نرم‌افزارها و پکیج‌های نصب‌شده به همراه بررسی زنده آخرین نگارش موجود در مخازن.',
+      'طراحی بنر جامع و زیبای سیستم‌عامل در بالای صفحه شامل مشخصات سیستم، نسخه توزیع، نسخه کرنل، معماری، آپ‌تایم، وضعیت کلی پکیج منیجر و شمارنده تفکیک‌شده آپدیت‌های در دسترس و اصلاحیه‌های امنیتی.',
+      'تعبیه دکمه شاخص «به‌روزرسانی همه پکیج‌ها (Update All Packages)» در بالاترین نقطه صفحه جهت ارتقای دسته‌جمعی خودکار و سریع کلیه بسته‌های نیازمند آپدیت با یک کلیک.',
+      'افزودن گزینه‌های پیشرفته ارتقای جامع توزیع (Full OS Dist-Upgrade)، بررسی و تازه‌سازی کش مخازن (apt-get update) و پاک‌سازی پکیج‌ها و کرنل‌های منسوخ و آزاد‌سازی حافظه (Autoremove).',
+      'امکان به‌روزرسانی تک‌تک پکیج‌ها یا انتخاب چندتایی دلخواه با چک‌باکس و فیلترهای تفکیک‌شده (همه، دارای آپدیت، امنیتی، به‌روز).',
+      'پیاده‌سازی نوار پیشرفت گرادیانی و رهگیری زنده‌ی وضعیت اجرای عملیات به‌روزرسانی، دقیقاً مشابه طراحی Bulk Device Configuration در بخش اتوماسیون با نمایش نام بسته در حال پردازش، شمارنده وضعیت (موفق، ناموفق، کل)، درصد پیشرفت، مدت زمان هر گام، و کنسول استریم لاگ‌های مستقیم پکیج منیجر.',
+      'پیاده‌سازی کامل بک‌اند با اندپوینت‌های امن SSH و انطباق کامل با توزیع‌های مختلف (Debian/Ubuntu با APT و RHEL/CentOS/Rocky با DNF/YUM)، موتور مدیریت پس‌زمینه جاب‌ها، ثبت رخدادهای Audit Log و رعایت استانداردهای دوزبانه و تم تیره/روشن.',
+    ],
+    changes_en: [
+      'Added the "Update Package" tab to the Linux Server Management modal to list all installed software/packages and check for candidate updates from upstream repositories in real time.',
+      'Created a rich OS & System Card at the top displaying operating system name, distro release, Linux kernel, architecture, uptime, package manager type, and KPI counters for available updates and security patches.',
+      'Implemented a prominent "Update All Packages" button at the top for instant one-click bulk upgrading of all outdated software components.',
+      'Added advanced system maintenance actions: Full OS Distribution Upgrade (apt-get dist-upgrade), repository metadata refresh (apt-get update / dnf check-update), and obsolete package/dependency cleanup (autoremove).',
+      'Supported individual package upgrades and multi-package selection with intuitive checkboxes and filters (All, Upgradable, Security Fixes, Up to Date).',
+      'Engineered a real-time progress bar and execution tracking monitor modeled directly after the Bulk Device Configuration UX, featuring gradient fill, processing package indicator, status stat pills (Success, Failed, Total), step-by-step per-package results with duration, and expandable terminal output.',
+      'Developed backend SSH API endpoints (/api/remote-servers/:id/packages, /update-all, /update-selected, /update-single, /repo-update, /autoremove, /job/:jobId) supporting Debian/Ubuntu (APT) and RHEL/CentOS (DNF/YUM) with zero credential leaks, background job tracking, audit logging, and 100% strict bilingual i18n.',
+    ],
+  },
   {
     version: '1.133.0',
     releaseDate: '2026-09-23',

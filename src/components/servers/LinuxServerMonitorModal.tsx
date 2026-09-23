@@ -41,6 +41,7 @@ import {
   Plus,
   FolderCog,
   FileText,
+  PackageCheck,
 } from 'lucide-react';
 import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService, LinuxNetworkInterfaceDetail, LinuxSystemDetailedInfo } from '../../types';
 import {
@@ -56,6 +57,7 @@ import { ProcessActionModals } from './ProcessActionModals';
 import { LinuxUsersTab } from './LinuxUsersTab';
 import { LinuxSysConfigTab } from './LinuxSysConfigTab';
 import { LinuxLogsTab } from './LinuxLogsTab';
+import { LinuxPackageUpdateTab } from './LinuxPackageUpdateTab';
 import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
@@ -98,7 +100,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [ephemeralPassword, setEphemeralPassword] = useState(sessionPassword || '');
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(3000); // 3 seconds default
   const [history, setHistory] = useState<HistoricalDataPoint[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'directories' | 'network' | 'users' | 'sysconfig' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'directories' | 'network' | 'users' | 'sysconfig' | 'logs' | 'updates'>('overview');
   const [processSearch, setProcessSearch] = useState('');
   const [sortProcessBy, setSortProcessBy] = useState<'cpu' | 'mem'>('cpu');
 
@@ -1074,6 +1076,21 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
             >
               <FileText className="w-3.5 h-3.5" />
               <span>{isEn ? 'System Logs' : 'لاگ‌های سیستم'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('updates')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'updates'
+                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <PackageCheck className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Update Package' : 'به‌روزرسانی پکیج‌ها'}</span>
             </button>
           </div>
 
@@ -2442,6 +2459,16 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               {/* TAB 7: LINUX SYSTEM LOGS */}
               {activeTab === 'logs' && (
                 <LinuxLogsTab
+                  server={server}
+                  ephemeralPassword={ephemeralPassword}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              )}
+
+              {/* TAB 8: UPDATE PACKAGES */}
+              {activeTab === 'updates' && server && (
+                <LinuxPackageUpdateTab
                   server={server}
                   ephemeralPassword={ephemeralPassword}
                   isLightMode={isLightMode}
