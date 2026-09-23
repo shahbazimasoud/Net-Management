@@ -127,6 +127,7 @@ import {
   updateLinuxUserGroupsSSH,
   createLinuxGroupSSH,
   deleteLinuxUserSSH,
+  logoutLinuxUserSessionSSH,
 } from './linuxUserManager';
 import {
   fetchLinuxSystemLogsSSH,
@@ -2274,6 +2275,64 @@ apiRouter.post('/remote-servers/:id/send-message', async (req: Request, res: Res
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to send message to user',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/logout-user - Terminate an active user session or all sessions with optional pre-logout alert
+apiRouter.post('/remote-servers/:id/logout-user', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, tty, delaySeconds, message, force, allSessions, password } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'User logout is designed for Linux servers.' });
+    }
+
+    const ephemeralPassword = password;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const result = await logoutLinuxUserSessionSSH(
+      server,
+      {
+        username,
+        tty,
+        delaySeconds: Number(delaySeconds) || 0,
+        message,
+        force: Boolean(force),
+        allSessions: Boolean(allSessions),
+      },
+      ephemeralPassword
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Logout User Session (${username || tty || 'active'})`,
+      category: 'operation',
+      target: `${server.name || server.ip}`,
+      status: result.success ? 'success' : 'error',
+      details: `${result.message} (TTY: ${tty || 'all'}, Delay: ${delaySeconds || 0}s, Force: ${Boolean(force)})`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLogoutUser API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to logout user session',
     });
   }
 });

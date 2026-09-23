@@ -577,3 +577,161 @@ fi
     message: `User account "${cleanUser}" was removed from the server.`,
   };
 }
+
+/**
+ * Log out / Terminate an active user session or all sessions of a user on the Linux remote server.
+ * Supports sending pre-logout alert messages and delayed/scheduled execution.
+ */
+export async function logoutLinuxUserSessionSSH(
+  server: RemoteServer,
+  params: {
+    username: string;
+    tty?: string;
+    delaySeconds?: number;
+    message?: string;
+    force?: boolean;
+    allSessions?: boolean;
+  },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const username = (params.username || '').trim();
+  const rawTty = (params.tty || '').trim();
+  const cleanTty = rawTty.replace(/^\/dev\//, '').replace(/[^a-zA-Z0-9/_.-]/g, '');
+  const delay = Math.max(0, Math.floor(Number(params.delaySeconds) || 0));
+  const rawMessage = (params.message || '').trim();
+  const isForce = Boolean(params.force);
+  const allSessions = Boolean(params.allSessions);
+
+  if (!username && !cleanTty) {
+    throw new Error('Either username or tty must be specified to log out session.');
+  }
+
+  // Base64 encoding to prevent quoting/injection issues
+  const b64User = Buffer.from(username).toString('base64');
+  const b64Tty = Buffer.from(cleanTty).toString('base64');
+  const b64Msg = Buffer.from(rawMessage).toString('base64');
+
+  const script = `export LC_ALL=C
+U=$(echo "${b64User}" | base64 -d)
+T=$(echo "${b64Tty}" | base64 -d)
+M=$(echo "${b64Msg}" | base64 -d)
+D=${delay}
+F=${isForce ? '1' : '0'}
+ALL=${allSessions ? '1' : '0'}
+
+# 1. Send warning message before terminating if provided
+if [ -n "$M" ]; then
+  if [ -n "$T" ] && ( [ -w "/dev/$T" ] || sudo test -e "/dev/$T" ); then
+    printf '\\n\\n*** [ALERT FROM ADMINISTRATOR] ***\\n%s\\n\\n' "$M" | sudo tee "/dev/$T" >/dev/null 2>&1 || true
+  elif [ -n "$U" ]; then
+    printf '\\n*** [ALERT FROM ADMINISTRATOR to %s] ***\\n%s\\n\\n' "$U" "$M" | sudo wall 2>&1 || printf '%s\\n' "$M" | sudo write "$U" 2>&1 || true
+  else
+    printf '\\n*** [ALERT FROM ADMINISTRATOR] ***\\n%s\\n\\n' "$M" | sudo wall 2>&1 || true
+  fi
+fi
+
+# 2. Execution: Immediate vs Delayed
+if [ "$D" -le 0 ]; then
+  # Immediate termination
+  if [ "$ALL" = "1" ] && [ -n "$U" ]; then
+    if [ "$F" = "1" ]; then
+      sudo pkill -KILL -u "$U" 2>/dev/null || true
+    else
+      sudo pkill -HUP -u "$U" 2>/dev/null || true
+      sleep 0.3
+      sudo pkill -KILL -u "$U" 2>/dev/null || true
+    fi
+    if command -v loginctl >/dev/null 2>&1; then
+      sudo loginctl terminate-user "$U" 2>/dev/null || true
+    fi
+  else
+    if [ -n "$T" ]; then
+      CLEAN_DEV="/dev/$T"
+      if [ "$F" = "1" ]; then
+        sudo pkill -KILL -t "$T" 2>/dev/null || true
+      else
+        sudo pkill -HUP -t "$T" 2>/dev/null || true
+        sleep 0.3
+        sudo pkill -KILL -t "$T" 2>/dev/null || true
+      fi
+      if [ -e "$CLEAN_DEV" ]; then
+        sudo fuser -k -9 "$CLEAN_DEV" 2>/dev/null || true
+      fi
+      if command -v loginctl >/dev/null 2>&1; then
+        S_ID=$(loginctl list-sessions --no-legend 2>/dev/null | grep "$T" | awk '{print $1}' | head -n 1)
+        if [ -n "$S_ID" ]; then
+          sudo loginctl terminate-session "$S_ID" 2>/dev/null || true
+        fi
+      fi
+    elif [ -n "$U" ]; then
+      sudo pkill -KILL -u "$U" 2>/dev/null || true
+    fi
+  fi
+  echo "LOGOUT_EXEC_IMMEDIATE_DONE"
+else
+  # Background delayed termination
+  nohup bash -c '
+    U="'"$U"'"
+    T="'"$T"'"
+    M="'"$M"'"
+    D="'"$D"'"
+    F="'"$F"'"
+    ALL="'"$ALL"'"
+    sleep "$D"
+    if [ -n "$M" ] && [ -n "$T" ]; then
+      if [ -w "/dev/$T" ] || sudo test -e "/dev/$T"; then
+        printf "\\n\\n*** [SESSION TERMINATED] Time expired. Closing session now. ***\\n\\n" | sudo tee "/dev/$T" >/dev/null 2>&1 || true
+      fi
+    fi
+    sleep 0.5
+    if [ "$ALL" = "1" ] && [ -n "$U" ]; then
+      if [ "$F" = "1" ]; then
+        sudo pkill -KILL -u "$U" 2>/dev/null || true
+      else
+        sudo pkill -HUP -u "$U" 2>/dev/null || true
+        sleep 0.3
+        sudo pkill -KILL -u "$U" 2>/dev/null || true
+      fi
+      if command -v loginctl >/dev/null 2>&1; then
+        sudo loginctl terminate-user "$U" 2>/dev/null || true
+      fi
+    else
+      if [ -n "$T" ]; then
+        if [ "$F" = "1" ]; then
+          sudo pkill -KILL -t "$T" 2>/dev/null || true
+        else
+          sudo pkill -HUP -t "$T" 2>/dev/null || true
+          sleep 0.3
+          sudo pkill -KILL -t "$T" 2>/dev/null || true
+        fi
+        if [ -e "/dev/$T" ]; then
+          sudo fuser -k -9 "/dev/$T" 2>/dev/null || true
+        fi
+        if command -v loginctl >/dev/null 2>&1; then
+          S_ID=$(loginctl list-sessions --no-legend 2>/dev/null | grep "$T" | awk "{print \\$1}" | head -n 1)
+          if [ -n "$S_ID" ]; then
+            sudo loginctl terminate-session "$S_ID" 2>/dev/null || true
+          fi
+        fi
+      fi
+    fi
+  ' >/dev/null 2>&1 &
+  echo "LOGOUT_EXEC_SCHEDULED_DELAY_${delay}_DONE"
+fi
+`;
+
+  await runAdaptiveSshCommand(server, script, ephemeralPassword, 12000);
+
+  if (delay > 0) {
+    return {
+      success: true,
+      message: `Session termination scheduled in ${delay} second(s) for ${username || cleanTty}${rawMessage ? ' with alert message delivered' : ''}.`,
+    };
+  }
+
+  return {
+    success: true,
+    message: `Session for ${username || cleanTty} has been terminated successfully.`,
+  };
+}
+

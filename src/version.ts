@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.120.0';
+export const APP_VERSION = '1.121.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.121.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'قابلیت قطع اتصال و خروج نشست کاربران آنلاین (Logout Active Sessions) با پیام هشدار و زمان‌بندی مهلت',
+    title_en: 'Active User Session Logout with Pre-Termination Broadcast Alert & Grace Period Scheduling',
+    changes: [
+      'افزودن دکمه اختصاصی «خروج / Log Out» برای تمامی نشست‌های فعال در بخش Currently Logged-In Users در تب مدیریت کاربران لینوکس.',
+      'طراحی و پیاده‌سازی مودال پیشرفته LogoutUserSessionModal با پشتیبانی از خروج فوری (Force) و مهلت‌های زمانی ۱ دقیقه، ۳ دقیقه، ۵ دقیقه یا زمان دلخواه (ثانیه / دقیقه).',
+      'امکان ارسال همزمان پیام هشدار پیش از قطع اتصال بر روی ترمینال و کنسول کاربر هدف با قالب‌های آماده (تعمیرات سرور، انقضای نشست، هشدار امنیتی).',
+      'پشتیبانی از سیگنال قطع اجباری (SIGKILL -9) و انتخاب دامنه قطع نشست (تنها ترمینال جاری یا کلیه نشست‌های کاربر).',
+      'هشدار حفاظتی خودکار در صورت انتخاب حساب کاربری فعال اتصال SSH مدیریت سرور جهت جلوگیری از قطعی ناخواسته دسترسی پنل.',
+      'تجهیز کامل مودال به استانداردهای پنج‌گانه Universal Modal: دکمه‌های سه‌گانه هدر (بستن، مینیمایز، تمام‌صفحه با لبه bottom-8)، انطباق تم تیره/روشن، دو زبانه کامل و کادر راهنمای سه‌بخشی Info.'
+    ],
+    changes_en: [
+      'Added dedicated "Log Out" action button for all live sessions in the "Currently Logged-In Users" table in Linux Server Users management.',
+      'Engineered LogoutUserSessionModal featuring immediate forced termination as well as 1-minute, 3-minute, 5-minute, or custom grace period scheduling (seconds/minutes).',
+      'Integrated real-time pre-termination alert message delivery to the target user TTY with customizable templates (Server Maintenance, Session Timeout, Security Compliance).',
+      'Supports forced kill signals (SIGKILL -9) alongside scope selection between specific TTY session or all active sessions of the user.',
+      'Added safeguard warning banner when attempting to log out the active SSH management account to prevent accidental administrator lockout.',
+      'Compliant with 5 Universal Modal Architectural standards: 3 header controls (Close, Minimize, Fullscreen with bottom-8 footer clearance), dark/light theme adaptability, strict bilingual i18n, and boundary-safe 3-part Info tooltip.'
+    ],
+  },
   {
     version: '1.120.0',
     releaseDate: '2026-09-23',

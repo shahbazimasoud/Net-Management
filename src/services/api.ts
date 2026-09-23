@@ -1796,6 +1796,37 @@ export async function sendLinuxServerUserMessage(
   return data;
 }
 
+export async function logoutLinuxServerUserSession(
+  serverId: string,
+  params: {
+    username: string;
+    tty?: string;
+    delaySeconds?: number;
+    message?: string;
+    force?: boolean;
+    allSessions?: boolean;
+  },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/logout-user`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...params, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = data.message || `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchLinuxServerSysConfig(
   serverId: string,
   ephemeralPassword?: string
