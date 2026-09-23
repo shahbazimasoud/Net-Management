@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.123.0';
+export const APP_VERSION = '1.124.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.124.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'بهبود تجربه کاربری مدیریت LVM، پیوست مستقیم دیسک خام به گروه حجم (vgextend) و راهنمای سناریومحور در هر ۳ بخش ذخیره‌سازی',
+    title_en: 'Enhanced LVM Storage UX: Direct Disk-to-VG Attachment Modal and Contextual Lifecycle Guides Across All Storage Sections',
+    changes: [
+      'توسعه مودال اختصاصی LinuxAddDiskToVgModal جهت پیوست مستقیم و آسان دیسک‌های خام جدید به گروه‌های حجم موجود (pvcreate و vgextend) بدون نیاز به ساخت گروه یا ولوم جدید.',
+      'افزودن دکمه‌های عملیاتی سریع «+ Add to VG» بر روی کارت‌های دیسک‌های خام شناسایی‌شده و «+ Add Disk» بر روی کارت‌های گروه‌های حجم (VGs) با جریان کاری هدایت‌شونده به اکستند ولوم.',
+      'طراحی و تعبیه راهنمای تعاملی سراسری (Interactive Storage Workflow Guide) در بالای صفحه با تفکیک ۳ سناریوی کلیدی: افزودن دیسک جدید، اکستند درایوهای موجود، و ایجاد مانت‌پوینت مستقل.',
+      'افزودن کادر راهنمای عملیاتی تفکیک‌شده و شفاف در هر یک از ۳ بخش اصلی (Storage Volume Groups ،Logical Volumes & Mount Points و Physical Disks & Raw Devices) جهت مشخص‌سازی دقیق پیش‌نیازها و گام‌های بعدی کاربر.',
+      'رعایت کامل استانداردهای پنج‌گانه Universal Modal در مودال پیوست دیسک (دکمه‌های سه‌گانه، مینیمایز، تمام‌صفحه با رعایت فاصله bottom-8 از فوتر، انطباق تم تیره/روشن و کادرهای راهنمای Info).'
+    ],
+    changes_en: [
+      'Engineered a dedicated LinuxAddDiskToVgModal for seamlessly attaching newly detected raw disks or partitions directly to existing Volume Groups (pvcreate & vgextend) without forcing new volume creation.',
+      'Added direct quick-action "+ Add to VG" buttons on unassigned raw disk cards and "+ Add Disk" buttons on Volume Group cards, with guided transition to extending target mounted logical volumes.',
+      'Designed an interactive top-level Lifecycle Navigator with 3 distinct network storage scenarios: adding new physical disks, extending existing logical volumes, and establishing new persistent mount points.',
+      'Integrated dedicated contextual operational guides inside each of the 3 core storage sections (Storage Volume Groups, Logical Volumes & Mount Points, and Physical Disks & Raw Devices) clarifying exact prerequisites and next steps.',
+      'Maintained 100% adherence to all 5 Universal Modal Architectural Standards (3 header controls, minimization, strict fullscreen with bottom-8 footer clearance, dark/light contrast, and boundary-safe 3-part Info tooltips).'
+    ],
+  },
   {
     version: '1.123.0',
     releaseDate: '2026-09-23',

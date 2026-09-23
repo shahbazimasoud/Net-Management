@@ -3854,3 +3854,62 @@ echo "SHRINK_SUCCESS"
     };
   }
 }
+
+/**
+ * Initializes a physical raw disk/partition as an LVM Physical Volume (pvcreate)
+ * and extends an existing Volume Group (vgextend) to immediately increase the free storage pool.
+ */
+export async function addDiskToLinuxVgSSH(
+  server: RemoteServer,
+  payload: { vgName: string; diskPath: string },
+  ephemeralPassword?: string,
+  timeoutMs: number = 30000
+): Promise<{ success: boolean; message: string }> {
+  const { vgName, diskPath } = payload;
+  const cleanVg = (vgName || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+  const cleanDisk = (diskPath || '').trim().replace(/[^a-zA-Z0-9_\-/]/g, '');
+
+  if (!cleanVg) throw new Error('Volume Group name is required.');
+  if (!cleanDisk) throw new Error('Target disk or partition path is required.');
+
+  const script = `export LC_ALL=C
+set -e
+
+if [ ! -b "${cleanDisk}" ]; then
+  echo "DISK_NOT_FOUND"
+  exit 1
+fi
+
+# Initialize PV and extend VG
+sudo pvcreate -y "${cleanDisk}" 2>&1
+sudo vgextend "${cleanVg}" "${cleanDisk}" 2>&1
+echo "VG_EXTEND_SUCCESS"
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+    if (raw.includes('DISK_NOT_FOUND')) {
+      return {
+        success: false,
+        message: `Device "${cleanDisk}" not found on server. Please run "Online Rescan Disks" first.`,
+      };
+    }
+    if (raw.includes('VG_EXTEND_SUCCESS') || raw.includes('successfully extended')) {
+      return {
+        success: true,
+        message: `Disk "${cleanDisk}" initialized as Physical Volume and successfully added to Volume Group "${cleanVg}"! Free storage pool in this VG has been expanded.`,
+      };
+    }
+    return {
+      success: true,
+      message: raw.trim() || `Disk added to Volume Group ${cleanVg}.`,
+    };
+  } catch (err: any) {
+    console.error(`[addDiskToLinuxVgSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Failed to add disk to Volume Group: ${err?.message || err}`,
+    };
+  }
+}
+

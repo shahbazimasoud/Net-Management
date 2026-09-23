@@ -2162,6 +2162,33 @@ export async function shrinkLinuxLvVolume(
   return data;
 }
 
+/**
+ * Adds an unassigned raw disk or partition to an existing Volume Group (pvcreate + vgextend)
+ */
+export async function addDiskToLinuxVg(
+  serverId: string,
+  payload: { vgName: string; diskPath: string },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-add-disk-to-vg`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 // ----------------------------------------------------
 // Linux Sysconfig API (DNS, Fail2ban, Hostname, SSH, Time)
 // ----------------------------------------------------

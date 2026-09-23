@@ -103,6 +103,7 @@ import {
   extendLinuxLvSSH,
   createLinuxLvmVolumeSSH,
   shrinkLinuxLvSSH,
+  addDiskToLinuxVgSSH,
 } from './linuxServerMonitor';
 import {
   fetchLinuxSshConfigSSH,
@@ -2850,6 +2851,44 @@ apiRouter.post('/remote-servers/:id/lvm-shrink', async (req: Request, res: Respo
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to shrink Logical Volume',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/lvm-add-disk-to-vg - Attach raw disk/partition to existing Volume Group
+apiRouter.post('/remote-servers/:id/lvm-add-disk-to-vg', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { vgName, diskPath, password } = req.body;
+
+    if (!vgName || !diskPath) {
+      return res.status(400).json({ success: false, error: 'vgName and diskPath are required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await addDiskToLinuxVgSSH(server, { vgName, diskPath }, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Add Disk to VG (${diskPath} -> ${vgName})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (${vgName})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLvmAddDiskToVg API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to add disk to Volume Group',
     });
   }
 });
