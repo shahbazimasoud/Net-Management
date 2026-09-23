@@ -1496,6 +1496,7 @@ export interface LinuxDirectoryPolicyRule {
   backupFormat?: 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'zip';
   backupDestinationPath?: string;
   backupKeepSourceFiles?: boolean;
+  backupPreserveAll?: boolean;
   backupMaxRetainedCount?: number;
   // Size-Capped Pruning options
   sizeCapMb?: number;

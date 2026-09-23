@@ -2649,7 +2649,8 @@ run_rule() {
   BACKUP_FORMAT="tar.gz"
   BACKUP_DEST="/backup/archives"
   BACKUP_KEEP_SOURCE=1
-  BACKUP_MAX_COUNT=10
+  BACKUP_PRESERVE_ALL=1
+  BACKUP_MAX_COUNT=0
   SIZE_CAP_MB=1024
   SYNC_DEST=""
   SYNC_DELETE=0
@@ -2704,31 +2705,43 @@ run_rule() {
       base_name=$(basename "$TARGET_PATH")
       local ts
       ts=$(date '+%Y%m%d_%H%M%S')
+      local ext="tar.gz"
       local archive_file=""
       local err_msg=""
 
       case "\${BACKUP_FORMAT:-tar.gz}" in
+        tar.bz2) ext="tar.bz2" ;;
+        tar.xz) ext="tar.xz" ;;
+        zip) ext="zip" ;;
+        *) ext="tar.gz" ;;
+      esac
+
+      # Ensure collision-free naming so existing backups in destination are NEVER overwritten
+      archive_file="$bdest/\${base_name}_\${ts}.\${ext}"
+      local seq=0
+      while [ -e "$archive_file" ]; do
+        seq=\$((seq + 1))
+        archive_file="$bdest/\${base_name}_\${ts}_\${seq}.\${ext}"
+      done
+
+      case "\${BACKUP_FORMAT:-tar.gz}" in
         tar.bz2)
-          archive_file="$bdest/\${base_name}_\${ts}.tar.bz2"
           tar -cjf "$archive_file" -C "$(dirname "$TARGET_PATH")" "$base_name" 2>&1 || err_msg="tar bz2 failed"
           ;;
         tar.xz)
-          archive_file="$bdest/\${base_name}_\${ts}.tar.xz"
           tar -cJf "$archive_file" -C "$(dirname "$TARGET_PATH")" "$base_name" 2>&1 || err_msg="tar xz failed"
           ;;
         zip)
-          archive_file="$bdest/\${base_name}_\${ts}.zip"
           (cd "$(dirname "$TARGET_PATH")" && zip -rq "$archive_file" "$base_name") 2>&1 || err_msg="zip failed"
           ;;
         *)
-          archive_file="$bdest/\${base_name}_\${ts}.tar.gz"
           tar -czf "$archive_file" -C "$(dirname "$TARGET_PATH")" "$base_name" 2>&1 || err_msg="tar gz failed"
           ;;
       esac
 
       if [ -n "$err_msg" ] || [ ! -f "$archive_file" ]; then
         log "[ERROR] Backup failed for '\$NAME': \$err_msg"
-        update_state "$id" "failed" "Backup archive creation failed."
+        update_state "$id" "failed" "Backup archive creation failed: \$err_msg"
         return 1
       fi
 
@@ -2743,18 +2756,22 @@ run_rule() {
         fi
       fi
 
-      if [ -n "\${BACKUP_MAX_COUNT:-}" ] && [ "\$BACKUP_MAX_COUNT" -gt 0 ]; then
+      # Retention policy: Preserve all prior backups unless auto-rotation is explicitly enabled
+      local preserve_all="\${BACKUP_PRESERVE_ALL:-1}"
+      if [ "\$preserve_all" -eq 1 ] || [ "\${BACKUP_MAX_COUNT:-0}" -le 0 ]; then
+        log "[RETENTION] Preservation mode active. All existing and prior backups in \$bdest remain intact."
+      else
         local total_archives
-        total_archives=$(ls -1t "\$bdest/\${base_name}_"* 2>/dev/null | wc -l)
+        total_archives=$(ls -1t "\$bdest/\${base_name}_"* 2>/dev/null | grep -E '\.(tar\.(gz|bz2|xz)|zip)$' | wc -l)
         if [ "\$total_archives" -gt "\$BACKUP_MAX_COUNT" ]; then
           local prune_count=\$((total_archives - BACKUP_MAX_COUNT))
-          ls -1t "\$bdest/\${base_name}_"* 2>/dev/null | tail -n "\$prune_count" | xargs -r rm -f
+          ls -1t "\$bdest/\${base_name}_"* 2>/dev/null | grep -E '\.(tar\.(gz|bz2|xz)|zip)$' | tail -n "\$prune_count" | xargs -r rm -f
           log "[RETENTION] Pruned \$prune_count old archives exceeding limit of \$BACKUP_MAX_COUNT."
         fi
       fi
 
-      log "[SUCCESS] Backup completed for '\$NAME' -> \$archive_file (\$arch_size)."
-      update_state "$id" "success" "Archived to \$archive_file (\$arch_size)."
+      log "[SUCCESS] Backup completed for '\$NAME' -> \$archive_file (\$arch_size). Previous backups preserved."
+      update_state "$id" "success" "Archived to $(basename "\$archive_file") (\$arch_size). Existing backups preserved."
       ;;
 
     size_cap)
@@ -2858,7 +2875,8 @@ list_rules() {
     BACKUP_FORMAT="tar.gz"
     BACKUP_DEST="/backup/archives"
     BACKUP_KEEP_SOURCE=1
-    BACKUP_MAX_COUNT=10
+    BACKUP_PRESERVE_ALL=1
+    BACKUP_MAX_COUNT=0
     SIZE_CAP_MB=1024
     SYNC_DEST=""
     SYNC_DELETE=0
@@ -2894,7 +2912,8 @@ list_rules() {
     "backupFormat": "\${BACKUP_FORMAT:-tar.gz}",
     "backupDestinationPath": "$(echo "\${BACKUP_DEST:-/backup/archives}" | sed 's/"/\\\\"/g')",
     "backupKeepSourceFiles": $([ "\${BACKUP_KEEP_SOURCE:-1}" -eq 1 ] && echo "true" || echo "false"),
-    "backupMaxRetainedCount": \${BACKUP_MAX_COUNT:-10},
+    "backupPreserveAll": $([ "\${BACKUP_PRESERVE_ALL:-1}" -eq 1 ] && echo "true" || echo "false"),
+    "backupMaxRetainedCount": \${BACKUP_MAX_COUNT:-0},
     "sizeCapMb": \${SIZE_CAP_MB:-1024},
     "syncDestinationPath": "$(echo "\${SYNC_DEST:-}" | sed 's/"/\\\\"/g')",
     "syncDeleteExtraneous": $([ "\${SYNC_DELETE:-0}" -eq 1 ] && echo "true" || echo "false"),
@@ -2997,7 +3016,8 @@ fi
           backupFormat: item.backupFormat || 'tar.gz',
           backupDestinationPath: item.backupDestinationPath || '/backup/archives',
           backupKeepSourceFiles: item.backupKeepSourceFiles !== false,
-          backupMaxRetainedCount: Number(item.backupMaxRetainedCount) || 10,
+          backupPreserveAll: item.backupPreserveAll !== false,
+          backupMaxRetainedCount: Number(item.backupMaxRetainedCount) || 0,
           sizeCapMb: Number(item.sizeCapMb) || 1024,
           syncDestinationPath: item.syncDestinationPath || '',
           syncDeleteExtraneous: Boolean(item.syncDeleteExtraneous),
@@ -3047,7 +3067,8 @@ CLEANUP_REMOVE_EMPTY_DIRS=${rule.cleanupRemoveEmptyDirs ? 1 : 0}
 BACKUP_FORMAT="${rule.backupFormat || 'tar.gz'}"
 BACKUP_DEST="${(rule.backupDestinationPath || '/backup/archives').replace(/"/g, '\\"')}"
 BACKUP_KEEP_SOURCE=${rule.backupKeepSourceFiles !== false ? 1 : 0}
-BACKUP_MAX_COUNT=${Math.max(1, Number(rule.backupMaxRetainedCount) || 10)}
+BACKUP_PRESERVE_ALL=${rule.backupPreserveAll !== false ? 1 : 0}
+BACKUP_MAX_COUNT=${rule.backupPreserveAll !== false ? 0 : Math.max(0, Number(rule.backupMaxRetainedCount) || 0)}
 SIZE_CAP_MB=${Math.max(10, Number(rule.sizeCapMb) || 1024)}
 SYNC_DEST="${(rule.syncDestinationPath || '').replace(/"/g, '\\"')}"
 SYNC_DELETE=${rule.syncDeleteExtraneous ? 1 : 0}

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.119.1';
+export const APP_VERSION = '1.119.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.119.2',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'تضمین عدم بازنویسی و حفظ دائمی بکاپ‌های پیشین در سیاست‌های چرخه حیات دایرکتوری سرور لینوکس',
+    title_en: 'Collision-Free Preservation & Overwrite Protection for Linux Directory Backup Policies',
+    changes: [
+      'رفع مشکل جایگزینی و بازنویسی بکاپ‌های قبلی با نام‌گذاری غیرتداخلی و برچسب زمانی یکتا به همراه مکانیزم بررسی عدم وجود فایل مشابه.',
+      'افزودن استراتژی حفظ دائمی بکاپ‌های پیشین (Preserve All Existing Backups) به صورت پیش‌فرض جهت نگهداری صددرصدی تمام نسخه‌های گذشته در مسیر مقصد.',
+      'تجهیز فرم پیکربندی بکاپ به انتخابگر دوگانه نگهداری دائمی امن یا چرخش خودکار بر اساس سقف تعداد نسخه.',
+      'ارتقای اسکریپت رانر لینوکس به حفظ فایل‌های قبلی موجود در پوشه بکاپ و عدم حذف آنها در صورت فعال بودن حالت نگهداری.',
+    ],
+    changes_en: [
+      'Resolved backup overwriting behavior by implementing collision-safe sequential timestamped archive naming with pre-flight existence checks.',
+      'Added "Preserve All Existing Backups" retention strategy as default to ensure all prior archives in the destination folder remain completely intact.',
+      'Enhanced backup configuration UI with dual-mode selector between safe indefinite preservation and count-based auto-rotation.',
+      'Updated backend remote Linux runner script to strictly guard existing backup archives from premature rotation or deletion.',
+    ],
+  },
   {
     version: '1.119.1',
     releaseDate: '2026-09-23',

@@ -14,6 +14,7 @@ import {
   RefreshCw,
   ArrowRight,
   Shield,
+  ShieldCheck,
   Layers,
   Calendar,
   Settings2,
@@ -84,6 +85,7 @@ export const LinuxDirectoryPolicyTab: React.FC<LinuxDirectoryPolicyTabProps> = (
   const [backupFormat, setBackupFormat] = useState<'tar.gz' | 'tar.bz2' | 'tar.xz' | 'zip'>('tar.gz');
   const [backupDestinationPath, setBackupDestinationPath] = useState('/backup/archives');
   const [backupKeepSourceFiles, setBackupKeepSourceFiles] = useState(true);
+  const [backupPreserveAll, setBackupPreserveAll] = useState(true);
   const [backupMaxRetainedCount, setBackupMaxRetainedCount] = useState(7);
 
   // Size Cap Options
@@ -171,6 +173,7 @@ export const LinuxDirectoryPolicyTab: React.FC<LinuxDirectoryPolicyTabProps> = (
     setBackupFormat('tar.gz');
     setBackupDestinationPath('/backup/archives');
     setBackupKeepSourceFiles(true);
+    setBackupPreserveAll(true);
     setBackupMaxRetainedCount(7);
     setSizeCapMb(1024);
     setSyncDestinationPath('');
@@ -191,6 +194,7 @@ export const LinuxDirectoryPolicyTab: React.FC<LinuxDirectoryPolicyTabProps> = (
     setBackupFormat(rule.backupFormat || 'tar.gz');
     setBackupDestinationPath(rule.backupDestinationPath || '/backup/archives');
     setBackupKeepSourceFiles(rule.backupKeepSourceFiles !== false);
+    setBackupPreserveAll(rule.backupPreserveAll !== false && (!rule.backupMaxRetainedCount || rule.backupMaxRetainedCount === 0 || rule.backupPreserveAll === true));
     setBackupMaxRetainedCount(rule.backupMaxRetainedCount ?? 7);
     setSizeCapMb(rule.sizeCapMb ?? 1024);
     setSyncDestinationPath(rule.syncDestinationPath || '');
@@ -229,7 +233,8 @@ export const LinuxDirectoryPolicyTab: React.FC<LinuxDirectoryPolicyTabProps> = (
         backupFormat,
         backupDestinationPath: backupDestinationPath.trim() || '/backup/archives',
         backupKeepSourceFiles,
-        backupMaxRetainedCount: Number(backupMaxRetainedCount) || 7,
+        backupPreserveAll,
+        backupMaxRetainedCount: backupPreserveAll ? 0 : (Number(backupMaxRetainedCount) || 7),
         sizeCapMb: Number(sizeCapMb) || 1024,
         syncDestinationPath: syncDestinationPath.trim(),
         syncDeleteExtraneous,
@@ -603,12 +608,20 @@ export const LinuxDirectoryPolicyTab: React.FC<LinuxDirectoryPolicyTabProps> = (
                                         rule.backupKeepSourceFiles
                                           ? 'Retains source files.'
                                           : 'Purges source contents.'
-                                      } (Keeps last ${rule.backupMaxRetainedCount || 7} archives)`
+                                      } ${
+                                        rule.backupPreserveAll !== false || !rule.backupMaxRetainedCount
+                                          ? '(Preserves all existing backups)'
+                                          : `(Keeps last ${rule.backupMaxRetainedCount} archives)`
+                                      }`
                                     : `فشرده‌سازی (${rule.backupFormat || 'tar.gz'}) به مسیر "${rule.backupDestinationPath}". ${
                                         rule.backupKeepSourceFiles
                                           ? 'فایل‌های مبدا حفظ می‌شوند.'
                                           : 'محتوای مبدا پس از فشرده‌سازی پاک می‌شود.'
-                                      } (نگهداری ${rule.backupMaxRetainedCount || 7} نسخه اخیر)`}
+                                      } ${
+                                        rule.backupPreserveAll !== false || !rule.backupMaxRetainedCount
+                                          ? '(نگهداری تمام بکاپ‌های قبلی - بدون حذف یا رونویسی)'
+                                          : `(نگهداری ${rule.backupMaxRetainedCount} نسخه اخیر)`
+                                      }`}
                                 </p>
                               )}
 
@@ -1162,36 +1175,116 @@ export const LinuxDirectoryPolicyTab: React.FC<LinuxDirectoryPolicyTabProps> = (
                       </div>
                     </div>
 
-                    {/* Retention: Max number of archives to keep */}
-                    <div className="space-y-1.5">
+                    {/* Retention & Previous Backups Preservation */}
+                    <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800 space-y-3">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-300">
-                          {isEn ? 'Max Retained Backup Archives (Auto-Rotate)' : 'حداکثر تعداد نسخه‌های بکاپ نگهداری‌شده (چرخش خودکار)'}
-                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                          <label className="text-xs font-semibold text-slate-300">
+                            {isEn ? 'Retention & Existing Backups Preservation' : 'استراتژی نگهداری و حفظ بکاپ‌های پیشین'}
+                          </label>
+                        </div>
                         <FieldInfoTooltip
-                          fieldName={isEn ? 'Max Retained Backups' : 'سقف نسخه‌های بکاپ'}
-                          infoWhatEn="Maximum number of backup archives kept in the destination folder. Older archives are purged."
-                          infoWhatFa="تعداد نسخه‌های اخیری که در پوشه بکاپ نگهداری می‌شود و نسخه‌های قدیمی‌تر به‌طور خودکار حذف می‌شوند."
-                          infoWhyEn="Prevents the backup disk from overflowing with years of stale archive files."
-                          infoWhyFa="جلوگیری از پر شدن دیسک بکاپ با فایل‌های آرشیو بسیار قدیمی."
-                          infoExampleEn="e.g. 7 (keep last 7 days) or 14"
-                          infoExampleFa="پیشنهادی: ۷ نسخه (یک هفته اخیر)"
+                          fieldName={isEn ? 'Retention & Preservation' : 'نگهداری و حفظ بکاپ‌های قبلی'}
+                          infoWhatEn="Determines whether existing and prior backup archives in the destination folder are permanently preserved or automatically rotated."
+                          infoWhatFa="تعیین می‌کند که آیا بکاپ‌های قبلی و موجود در پوشه مقصد برای همیشه حفظ شوند یا چرخشی پاکسازی گردند."
+                          infoWhyEn="Preserving all archives guarantees no previous backup is ever overwritten or lost when taking new snapshots."
+                          infoWhyFa="حفظ تمام بکاپ‌ها تضمین می‌کند که هیچ بکاپ قبلی در اجرای بعدی رونویسی، جایگزین یا حذف نشود."
+                          infoExampleEn="Recommended: Preserve All Existing Backups (Safe Mode)"
+                          infoExampleFa="پیشنهادی: نگهداری تمام بکاپ‌های قبلی (حالت امن بدون حذف)"
                           isLightMode={isLightMode}
                           isEn={isEn}
                         />
                       </div>
-                      <input
-                        type="number"
-                        min="1"
-                        max="365"
-                        value={backupMaxRetainedCount}
-                        onChange={(e) => setBackupMaxRetainedCount(Number(e.target.value))}
-                        className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
-                          isLightMode
-                            ? 'bg-slate-50 border-slate-300 text-slate-900'
-                            : 'bg-slate-950 border-slate-800 text-slate-100'
-                        }`}
-                      />
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label
+                          className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                            backupPreserveAll
+                              ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-200 shadow-sm'
+                              : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="backupPreserveStrategy"
+                            checked={backupPreserveAll}
+                            onChange={() => setBackupPreserveAll(true)}
+                            className="mt-0.5 text-emerald-500"
+                          />
+                          <div className="text-xs space-y-0.5">
+                            <span className="font-semibold block text-emerald-300">
+                              {isEn ? 'Preserve All Existing Backups' : 'نگهداری تمام بکاپ‌های قبلی (پیشنهادی)'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block leading-relaxed">
+                              {isEn
+                                ? 'Prior archives in destination remain intact. Backups are never overwritten or purged.'
+                                : 'بکاپ‌های قبلی در مسیر مقصد دست‌نخورده باقی می‌مانند و هیچ فایلی رونویسی یا پاک نمی‌شود.'}
+                            </span>
+                          </div>
+                        </label>
+
+                        <label
+                          className={`p-2.5 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                            !backupPreserveAll
+                              ? 'bg-amber-500/15 border-amber-500/50 text-amber-200 shadow-sm'
+                              : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="backupPreserveStrategy"
+                            checked={!backupPreserveAll}
+                            onChange={() => setBackupPreserveAll(false)}
+                            className="mt-0.5 text-amber-500"
+                          />
+                          <div className="text-xs space-y-0.5">
+                            <span className="font-semibold block text-amber-300">
+                              {isEn ? 'Auto-Rotate (Keep Last N Backups)' : 'چرخش خودکار (نگهداری N نسخه اخیر)'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block leading-relaxed">
+                              {isEn
+                                ? 'Only keep recent archives; older backup files matching this policy are pruned.'
+                                : 'تنها تعداد مشخصی از آخرین نسخه‌ها نگهداری شده و نسخه‌های قدیمی‌تر خودکار حذف می‌شوند.'}
+                            </span>
+                          </div>
+                        </label>
+                      </div>
+
+                      {/* When Auto-Rotate is active, show the count input */}
+                      {!backupPreserveAll ? (
+                        <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-slate-300">
+                              {isEn ? 'Maximum Retained Archive Count' : 'حداکثر تعداد نسخه‌های نگهداری‌شده'}
+                            </label>
+                            <span className="text-[10px] text-amber-400 font-mono">
+                              {isEn ? `Rotates when > ${backupMaxRetainedCount}` : `چرخش در صورت بیشتر از ${backupMaxRetainedCount}`}
+                            </span>
+                          </div>
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={backupMaxRetainedCount}
+                            onChange={(e) => setBackupMaxRetainedCount(Math.max(1, Number(e.target.value)))}
+                            className={`w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                              isLightMode
+                                ? 'bg-slate-50 border-slate-300 text-slate-900'
+                                : 'bg-slate-950 border-slate-800 text-slate-100'
+                            }`}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300">
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                          <span>
+                            {isEn
+                              ? 'Safe Preservation Active: Each backup run generates a uniquely timestamped archive alongside all previous backups in the folder without overwriting anything.'
+                              : 'حفظ ایمن فعال است: هر بار اجرای بکاپ با نام و برچسب زمانی یکتا در کنار تمام بکاپ‌های قبلی در پوشه مقصد ذخیره شده و هیچ فایلی جایگزین نمی‌شود.'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
