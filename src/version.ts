@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.118.0';
+export const APP_VERSION = '1.118.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.118.1',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'رفع خطای باز شدن و رندر مودال ناظر خودکار سرویس‌ها با پورتال مستقیم به document.body، اصلاح لایه‌بندی z-index و اتصال به داک مینیمایز',
+    title_en: 'Fix Service Watchdog Modal Rendering, Direct Portal to document.body, z-index Stacking & ToolsDock Minimization',
+    changes: [
+      'اصلاح ساختار رندرینگ مودال ناظر خودکار (LinuxServiceWatchdogModal) و استفاده از createPortal مستقیم در document.body جهت جلوگیری از افتادن مودال زیر پس‌زمینه مودال مانیتورینگ.',
+      'افزایش اولویت لایه‌بندی استک (z-index) مودال ناظر به z-[80] بالاتر از پنجره مانیتورینگ والد (z-50) و سازگاری کامل با تم روشن و تاریک.',
+      'اصلاح منطق بازنشانی تب‌ها و فیلدها در زمان کلیک روی دکمه هدر اصلی در مقایسه با دکمه هر سرویس (انتخاب تب rules در حالت کلی و تب form با سرویس معین در کلیک از سطر).',
+      'تجهیز کامل مودال به مدیریت داک مینیمایز در نوار ابزار پایین (ToolsDock) از طریق هوک useModalDock و حفظ وضعیت در زمان بازیابی.'
+    ],
+    changes_en: [
+      'Fixed the Service Watchdog modal rendering pipeline by portaling directly to document.body via createPortal, preventing it from getting occluded beneath the parent monitor backdrop.',
+      'Elevated modal stacking layer to z-[80] strictly above the parent Linux monitor modal (z-50) with complete dark/light theme fidelity.',
+      'Streamlined active tab routing and state resets when opening from the general toolbar (defaults to Rules tab) versus per-service table row action (defaults to Form tab with preselected service).',
+      'Equipped the modal with native ToolsDock minimization and restoration handlers via useModalDock.'
+    ],
+  },
   {
     version: '1.118.0',
     releaseDate: '2026-09-23',

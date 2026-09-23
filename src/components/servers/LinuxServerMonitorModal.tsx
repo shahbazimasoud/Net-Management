@@ -59,6 +59,7 @@ import { LinuxLogsTab } from './LinuxLogsTab';
 import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
+import { useModalDock } from '../../context/ModalDockContext';
 
 export interface LinuxServerMonitorModalProps {
   isOpen: boolean;
@@ -144,6 +145,33 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   // Storage & Mount State
   const [showMountModal, setShowMountModal] = useState(false);
   const [unmountingMount, setUnmountingMount] = useState<string | null>(null);
+
+  const { dockModal, undockModal } = useModalDock();
+
+  const handleMinimizeWatchdog = () => {
+    setIsWatchdogModalOpen(false);
+    if (!server) return;
+    dockModal({
+      id: `linux_watchdog_${server.id}`,
+      labelEn: `Watchdog (${server.name || server.ip})`,
+      labelFa: `ناظر خودکار (${server.name || server.ip})`,
+      category: 'system',
+      badge: 'Watchdog',
+      onRestore: () => {
+        setIsWatchdogModalOpen(true);
+        undockModal(`linux_watchdog_${server.id}`);
+      },
+      onClose: () => {
+        setIsWatchdogModalOpen(false);
+        undockModal(`linux_watchdog_${server.id}`);
+      },
+    });
+  };
+
+  const handleCloseWatchdog = () => {
+    setIsWatchdogModalOpen(false);
+    if (server) undockModal(`linux_watchdog_${server.id}`);
+  };
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -2563,8 +2591,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
           services={services}
           initialServiceName={selectedWatchdogService}
           ephemeralPassword={ephemeralPassword}
-          onClose={() => setIsWatchdogModalOpen(false)}
-          onMinimize={() => setIsWatchdogModalOpen(false)}
+          onClose={handleCloseWatchdog}
+          onMinimize={handleMinimizeWatchdog}
           isLightMode={isLightMode}
           isEn={isEn}
           onRefreshServices={loadServices}

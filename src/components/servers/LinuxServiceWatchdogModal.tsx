@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Shield,
   ShieldAlert,
@@ -135,7 +136,11 @@ export const LinuxServiceWatchdogModal: React.FC<LinuxServiceWatchdogModalProps>
       loadWatchdogs();
       if (initialServiceName) {
         setServiceName(initialServiceName);
+        setEditingRuleId(null);
         setActiveTab('form');
+      } else {
+        setEditingRuleId(null);
+        setActiveTab('rules');
       }
     }
   }, [isOpen, initialServiceName, loadWatchdogs]);
@@ -292,13 +297,14 @@ export const LinuxServiceWatchdogModal: React.FC<LinuxServiceWatchdogModalProps>
 
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div
       className={
         isMaximized
-          ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 flex flex-col'
-          : 'fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/70 backdrop-blur-sm pb-10'
+          ? 'fixed top-0 left-0 right-0 bottom-8 z-[80] p-0 flex flex-col'
+          : 'fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm pb-10'
       }
+      dir={isEn ? 'ltr' : 'rtl'}
     >
       <div
         className={`w-full flex flex-col overflow-hidden transition-all duration-200 ${
@@ -1215,4 +1221,6 @@ export const LinuxServiceWatchdogModal: React.FC<LinuxServiceWatchdogModalProps>
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 };
