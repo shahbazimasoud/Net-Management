@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.131.4';
+export const APP_VERSION = '1.131.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.131.5',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'رفع باگ بسته شدن ناگهانی منوی سه‌نقطه هنگام اسکرول کردن برای مشاهده آیتم‌های پایینی',
+    title_en: 'Fixed Sudden Closure of 3-Dot Action Menu When Scrolling to Inspect Lower Items',
+    changes: [
+      'اصلاح لیسنر رویداد اسکرول پنجره (Window Scroll Listener) جهت نادیده گرفتن اسکرول داخلی کانتینر منوی عملیات سه‌نقطه.',
+      'تعبیه رفرنس مستقیم به منوی سه‌نقطه (menuDropdownRef) و مهار رویدادهای اسکرول و چرخ ماوس (onWheel stopPropagation) در منوهای RemoteServersView و DeviceListView.',
+      'افزایش لایه پس‌زمینه شفاف (Backdrop) به z-[9998] زیر منوی عملیات سه‌نقطه (z-[9999]) جهت حفظ پایداری و بسته‌شدن تمیز فقط در هنگام کلیک یا اسکرول در خارج از کادر منو.',
+    ],
+    changes_en: [
+      'Updated window scroll event listener to ignore internal scrolling occurring within the 3-dot action dropdown container.',
+      'Attached direct container ref (menuDropdownRef) and isolated wheel/scroll event chaining with stopPropagation across RemoteServersView and DeviceListView.',
+      'Adjusted backdrop stacking order to z-[9998] right beneath the action menu (z-[9999]), ensuring seamless internal scrolling while retaining clean dismissal on outside interactions.',
+    ],
+  },
   {
     version: '1.131.4',
     releaseDate: '2026-09-23',

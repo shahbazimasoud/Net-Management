@@ -302,10 +302,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Bulk Linux Server Configuration Modal State
   const [isBulkConfigOpen, setIsBulkConfigOpen] = useState(false);
 
-  // Close floating action menu on scroll or window resize
+  // Ref to the floating 3-dots action menu dropdown container
+  const menuDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Close floating action menu on outside scroll or window resize
   useEffect(() => {
     if (!menuAnchor) return;
-    const handleClose = () => setMenuAnchor(null);
+    const handleClose = (e: Event) => {
+      const target = e.target as Node | null;
+      // If the scroll event occurred inside the action dropdown menu itself, ignore and do not close
+      if (
+        menuDropdownRef.current &&
+        target &&
+        (menuDropdownRef.current === target || menuDropdownRef.current.contains(target))
+      ) {
+        return;
+      }
+      setMenuAnchor(null);
+    };
     window.addEventListener('scroll', handleClose, true);
     window.addEventListener('resize', handleClose);
     return () => {
@@ -2307,7 +2321,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           <>
             {/* Transparent backdrop */}
             <div
-              className="fixed inset-0 z-50 bg-black/10"
+              className="fixed inset-0 z-[9998] bg-black/10"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuAnchor(null);
@@ -2315,6 +2329,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             />
 
             <div
+              ref={menuDropdownRef}
               style={{
                 position: 'fixed',
                 top: `${menuAnchor.top}px`,
@@ -2330,6 +2345,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   : 'bg-slate-950/95 border-white/15 backdrop-blur-2xl text-slate-100 shadow-black/80'
               }`}
               onClick={(e) => e.stopPropagation()}
+              onWheel={(e) => e.stopPropagation()}
             >
               {/* Menu Header: Name & IP */}
               <div

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Plus,
@@ -195,10 +195,24 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
     setIsNoteModalOpen(true);
   };
 
+  // Ref to the floating 3-dots action menu dropdown container
+  const menuDropdownRef = useRef<HTMLDivElement | null>(null);
+
   // Close 3-dots action menu on outside scroll or window resize
   useEffect(() => {
     if (!menuAnchor) return;
-    const handleClose = () => setMenuAnchor(null);
+    const handleClose = (e: Event) => {
+      const target = e.target as Node | null;
+      // If the scroll event occurred inside the action dropdown menu itself, ignore and do not close
+      if (
+        menuDropdownRef.current &&
+        target &&
+        (menuDropdownRef.current === target || menuDropdownRef.current.contains(target))
+      ) {
+        return;
+      }
+      setMenuAnchor(null);
+    };
     window.addEventListener('scroll', handleClose, true);
     window.addEventListener('resize', handleClose);
     return () => {
@@ -885,7 +899,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           <>
             {/* Transparent backdrop */}
             <div
-              className="fixed inset-0 z-50 bg-black/5"
+              className="fixed inset-0 z-[9998] bg-black/10"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuAnchor(null);
@@ -893,17 +907,21 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             />
 
             <div
+              ref={menuDropdownRef}
               style={{
                 position: 'fixed',
                 top: menuAnchor.top !== undefined ? `${menuAnchor.top}px` : undefined,
                 bottom: menuAnchor.bottom !== undefined ? `${menuAnchor.bottom}px` : undefined,
                 left: menuAnchor.left !== undefined ? `${menuAnchor.left}px` : undefined,
                 right: menuAnchor.right !== undefined ? `${menuAnchor.right}px` : undefined,
+                maxHeight: 'calc(100vh - 24px)',
+                zIndex: 9999,
               }}
-              className={`w-64 z-50 rounded-2xl shadow-2xl p-1.5 border border-white/15 backdrop-blur-2xl bg-slate-950/95 font-sans device-action-dropdown animate-fadeIn ${
+              className={`w-64 rounded-2xl shadow-2xl p-1.5 border border-white/15 backdrop-blur-2xl bg-slate-950/95 font-sans device-action-dropdown animate-fadeIn overflow-y-auto overscroll-contain custom-scrollbar ${
                 isRtl ? 'text-right' : 'text-left'
               }`}
               onClick={(e) => e.stopPropagation()}
+              onWheel={(e) => e.stopPropagation()}
             >
               <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between text-[11px] font-mono">
                 <span className="font-bold text-white truncate max-w-[120px]">{menuAnchor.device.name}</span>
