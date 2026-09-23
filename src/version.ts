@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.128.0';
+export const APP_VERSION = '1.129.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.129.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'اصلاح و هوشمندسازی فرآیند ساخت حجم منطقی (LV) با ارث‌بری خودکار گروه حجمی، اعتبارسنجی فضای آزاد و دکمه New LV در بخش‌های مرتبط',
+    title_en: 'Enhanced Context-Aware Logical Volume (LV) Creation Flow with Automatic VG Inheritance, Real Free Space Validation, and Dedicated Section Actions',
+    changes: [
+      'افزودن دکمه مستقیم "+ New LV" در هدر بخش Logical Volumes جهت ایجاد آسان حجم منطقی جدید با امکان انتخاب گروه حجمی مورد نظر.',
+      'اصلاح هوشمند رفتار مودال هنگام باز شدن از کارت یک Volume Group خاص؛ ارث‌بری خودکار و قفل شدن فیلد VG هدف بدون درخواست مجدد از کاربر.',
+      'پیاده‌سازی اعتبارسنجی دقیق و بلادرنگ فضای آزاد واقعی استخر VG قبل از ارسال درخواست و جلوگیری از خطای کمبود فضا.',
+      'افزودن دکمه کارآمد "Use All Free Space" و گزینه‌های پیش‌فرض سریع (5G, 10G, 20G, 50G, 100%FREE) بر مبنای ظرفیت واقعی سرور.',
+      'اعتبارسنجی سمت کلاینت و سمت سرور برای نام LV (بررسی تکراری نبودن در VG هدف و کاراکترهای مجاز).',
+      'مدیریت خطاهای واقعی سیستم‌عامل (عدم وجود VG، کمبود فضا یا نام تکراری) با پیام‌های خطای شفاف و فارسی/انگلیسی استاندارد.',
+    ],
+    changes_en: [
+      'Added a dedicated "+ New LV" action directly in the Logical Volumes section header with VG selector dropdown.',
+      'Fixed contextual inheritance when opening the modal from a specific VG card, automatically locking and displaying the target VG without asking the user to re-select it.',
+      'Implemented real-time client-side and server-side VG free space validation, preventing out-of-space allocation requests before submission.',
+      'Added "Use All Free Space" action and quick size presets (5G, 10G, 20G, 50G, 100%FREE) based on actual available capacity.',
+      'Added comprehensive LV name validation (checking for duplicates within the target VG and strictly allowed characters).',
+      'Enhanced backend error handling in SSH LVM operations for authentic reporting of VG absence, duplicate names, or capacity exhaustion.',
+    ],
+  },
   {
     version: '1.128.0',
     releaseDate: '2026-09-23',

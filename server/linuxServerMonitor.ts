@@ -4186,6 +4186,17 @@ elif [ -n "${cleanDisks.join(' ')}" ]; then
     sudo vgextend "${cleanVg}" "$d" 2>&1 || true
   done
   sudo udevadm settle 2>/dev/null || true
+else
+  # Verify that target VG actually exists
+  if ! sudo vgs "${cleanVg}" >/dev/null 2>&1 && ! vgs "${cleanVg}" >/dev/null 2>&1; then
+    echo "ERR:VG_NOT_FOUND: Volume Group '${cleanVg}' does not exist on this server."
+    exit 1
+  fi
+  # Verify that an LV with this name does not already exist in the VG
+  if sudo lvs "${cleanVg}/${cleanLv}" >/dev/null 2>&1 || lvs "${cleanVg}/${cleanLv}" >/dev/null 2>&1; then
+    echo "ERR:LV_ALREADY_EXISTS: Logical Volume '${cleanLv}' already exists in Volume Group '${cleanVg}'."
+    exit 1
+  fi
 fi
 
 # Step 2: Create Logical Volume
@@ -4232,8 +4243,29 @@ echo "LVM_CREATE_SUCCESS:$LV_DEV"
 
   try {
     const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+    if (raw.includes('ERR:VG_NOT_FOUND:')) {
+      const msg = raw.split('ERR:VG_NOT_FOUND:')[1]?.split('\n')[0]?.trim();
+      return { success: false, message: msg || `Volume Group "${cleanVg}" not found on server.` };
+    }
+    if (raw.includes('ERR:LV_ALREADY_EXISTS:')) {
+      const msg = raw.split('ERR:LV_ALREADY_EXISTS:')[1]?.split('\n')[0]?.trim();
+      return { success: false, message: msg || `Logical Volume "${cleanLv}" already exists in Volume Group "${cleanVg}".` };
+    }
+    if (raw.toLowerCase().includes('insufficient free space')) {
+      return {
+        success: false,
+        message: `Insufficient free space in Volume Group "${cleanVg}" for requested size (${cleanSize}).`,
+      };
+    }
+
     const match = raw.match(/LVM_CREATE_SUCCESS:(\S+)/);
-    const lvPath = match ? match[1] : `/dev/${cleanVg}/${cleanLv}`;
+    if (!match) {
+      return {
+        success: false,
+        message: `Failed to create Logical Volume: ${raw.trim()}`,
+      };
+    }
+    const lvPath = match[1] || `/dev/${cleanVg}/${cleanLv}`;
 
     return {
       success: true,
@@ -4242,6 +4274,21 @@ echo "LVM_CREATE_SUCCESS:$LV_DEV"
     };
   } catch (err: any) {
     console.error(`[createLinuxLvmVolumeSSH] error:`, err?.message || err);
+    const errText = String(err?.message || err);
+    if (errText.includes('ERR:VG_NOT_FOUND:')) {
+      const msg = errText.split('ERR:VG_NOT_FOUND:')[1]?.split('\n')[0]?.trim();
+      return { success: false, message: msg || `Volume Group "${cleanVg}" not found.` };
+    }
+    if (errText.includes('ERR:LV_ALREADY_EXISTS:')) {
+      const msg = errText.split('ERR:LV_ALREADY_EXISTS:')[1]?.split('\n')[0]?.trim();
+      return { success: false, message: msg || `Logical Volume "${cleanLv}" already exists in Volume Group "${cleanVg}".` };
+    }
+    if (errText.toLowerCase().includes('insufficient free space')) {
+      return {
+        success: false,
+        message: `Insufficient free space in Volume Group "${cleanVg}" for requested size (${cleanSize}).`,
+      };
+    }
     return {
       success: false,
       message: `Failed to create Logical Volume: ${err?.message || err}`,

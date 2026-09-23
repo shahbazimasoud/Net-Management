@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Layers,
@@ -10,9 +10,11 @@ import {
   Database,
   CheckCircle2,
   AlertCircle,
+  Lock,
+  HardDrive,
 } from 'lucide-react';
 import { useLanguage } from '../../../i18n/LanguageContext';
-import { LinuxVolumeGroup, LinuxLvmCreatePayload } from '../../../types';
+import { LinuxVolumeGroup, LinuxLogicalVolume, LinuxLvmCreatePayload } from '../../../types';
 import { FieldInfoTooltip } from '../../vpn/FieldInfoTooltip';
 import { LinuxStorageConfirmationModal } from './LinuxStorageConfirmationModal';
 
@@ -20,22 +22,54 @@ export interface LinuxCreateLvModalProps {
   isOpen: boolean;
   onClose: () => void;
   volumeGroups: LinuxVolumeGroup[];
+  existingLogicalVolumes?: LinuxLogicalVolume[];
+  targetVgName?: string | null;
   onCreateLv: (payload: LinuxLvmCreatePayload) => Promise<void>;
   isLightMode?: boolean;
   isLoading?: boolean;
+}
+
+/**
+ * Parses size strings like "200.00 GB", "20G", "500MB", "1.5T" to Megabytes (MB)
+ */
+export function parseSizeStringToMB(sizeStr: string): number | null {
+  if (!sizeStr) return null;
+  const s = sizeStr.trim().toUpperCase();
+  if (s.includes('%')) return null; // e.g. 100%FREE
+  const match = s.match(/^([0-9.]+)\s*([KMGTPE]?I?B?)$/);
+  if (!match) return null;
+  const num = parseFloat(match[1]);
+  if (isNaN(num) || num <= 0) return null;
+  const unit = match[2] || '';
+  if (unit.startsWith('T')) return num * 1024 * 1024;
+  if (unit.startsWith('G')) return num * 1024;
+  if (unit.startsWith('M')) return num;
+  if (unit.startsWith('K')) return num / 1024;
+  if (unit.startsWith('P')) return num * 1024 * 1024 * 1024;
+  return num * 1024; // default assume GB
 }
 
 export const LinuxCreateLvModal: React.FC<LinuxCreateLvModalProps> = ({
   isOpen,
   onClose,
   volumeGroups,
+  existingLogicalVolumes = [],
+  targetVgName = null,
   onCreateLv,
   isLightMode = false,
   isLoading = false,
 }) => {
   const { isEn } = useLanguage();
   const [isMaximized, setIsMaximized] = useState(false);
-  const [selectedVg, setSelectedVg] = useState<string>(volumeGroups[0]?.name || '');
+
+  // If opened with targetVgName, lock to it; otherwise default to first available VG
+  const [selectedVg, setSelectedVg] = useState<string>(() => {
+    if (targetVgName && volumeGroups.some((vg) => vg.name === targetVgName)) {
+      return targetVgName;
+    }
+    return volumeGroups[0]?.name || '';
+  });
+
   const [lvName, setLvName] = useState('data_lv');
   const [size, setSize] = useState('20G');
   const [fsType, setFsType] = useState<'ext4' | 'xfs' | 'btrfs'>('ext4');
@@ -45,26 +79,110 @@ export const LinuxCreateLvModal: React.FC<LinuxCreateLvModalProps> = ({
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // Synchronize VG state whenever modal opens or targetVgName changes
+  useEffect(() => {
+    if (isOpen) {
+      setValidationError(null);
+      if (targetVgName && volumeGroups.some((vg) => vg.name === targetVgName)) {
+        setSelectedVg(targetVgName);
+      } else if (!selectedVg || !volumeGroups.some((vg) => vg.name === selectedVg)) {
+        setSelectedVg(volumeGroups[0]?.name || '');
+      }
+    }
+  }, [isOpen, targetVgName, volumeGroups]);
+
   if (!isOpen) return null;
 
+  const isVgLocked = Boolean(targetVgName && volumeGroups.some((vg) => vg.name === targetVgName));
   const currentVg = volumeGroups.find((vg) => vg.name === selectedVg);
 
   const handleStartCreate = () => {
     setValidationError(null);
+
+    // 1. Validate VG
     if (!selectedVg) {
       setValidationError(isEn ? 'Please select a Volume Group.' : 'لطفاً یک گروه حجمی انتخاب کنید.');
       return;
     }
-    const cleanLv = lvName.trim().replace(/[^a-zA-Z0-9_\-]/g, '');
-    if (!cleanLv) {
-      setValidationError(isEn ? 'Please enter a valid Logical Volume name.' : 'لطفاً یک نام معتبر برای حجم منطقی وارد کنید.');
+
+    if (!currentVg) {
+      setValidationError(
+        isEn
+          ? `Volume Group "${selectedVg}" is not currently available.`
+          : `گروه حجمی "${selectedVg}" در حال حاضر در دسترس نیست.`
+      );
       return;
     }
+
+    // 2. Validate LV Name
+    const cleanLv = lvName.trim();
+    if (!cleanLv) {
+      setValidationError(isEn ? 'Please enter a valid Logical Volume name.' : 'لطفاً نام حجم منطقی را وارد کنید.');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_\-]+$/.test(cleanLv)) {
+      setValidationError(
+        isEn
+          ? 'LV name may only contain letters, numbers, underscores, and hyphens.'
+          : 'نام حجم منطقی تنها می‌تواند شامل حروف انگلیسی، اعداد، خط زیر و خط تیره باشد.'
+      );
+      return;
+    }
+
+    // Check duplicate LV name in this VG
+    const isDuplicate =
+      existingLogicalVolumes.some(
+        (lv) => lv.vgName === selectedVg && lv.name.toLowerCase() === cleanLv.toLowerCase()
+      ) ||
+      (currentVg.lvs && currentVg.lvs.some((l) => l.toLowerCase() === cleanLv.toLowerCase()));
+
+    if (isDuplicate) {
+      setValidationError(
+        isEn
+          ? `A Logical Volume named "${cleanLv}" already exists in Volume Group "${selectedVg}". Please choose a unique name.`
+          : `یک حجم منطقی با نام "${cleanLv}" از قبل در گروه حجمی "${selectedVg}" وجود دارد. لطفاً نام دیگری انتخاب کنید.`
+      );
+      return;
+    }
+
+    // 3. Validate Size
     const cleanSize = size.trim().toUpperCase();
     if (!cleanSize) {
-      setValidationError(isEn ? 'Please enter a valid size (e.g. 20G or 100%FREE).' : 'لطفاً حجم مورد نظر را وارد کنید (مثال: 20G یا 100%FREE).');
+      setValidationError(
+        isEn ? 'Please specify an allocation size (e.g. 20G or 100%FREE).' : 'لطفاً حجم تخصیصی را وارد کنید (مثال: 20G یا 100%FREE).'
+      );
       return;
     }
+
+    // Check free space if not 100%FREE
+    if (cleanSize === '100%FREE' || cleanSize === '100% FREE') {
+      // Valid LVM parameter
+    } else {
+      const isFormatValid = /^[0-9.]+\s*[KMGTPE]?I?B?$/i.test(cleanSize);
+      if (!isFormatValid) {
+        setValidationError(
+          isEn
+            ? 'Invalid size format. Examples: 20G, 500M, 1.5T, 100%FREE'
+            : 'فرمت حجم نامعتبر است. نمونه‌ها: 20G یا 500M یا 1.5T یا 100%FREE'
+        );
+        return;
+      }
+
+      const reqMB = parseSizeStringToMB(cleanSize);
+      const freeMB = parseSizeStringToMB(currentVg.freeSize);
+
+      if (reqMB !== null && freeMB !== null && reqMB > freeMB) {
+        setValidationError(
+          isEn
+            ? `Insufficient free space in Volume Group "${currentVg.name}". Available: ${currentVg.freeSize}, Requested: ${cleanSize}.`
+            : `فضای آزاد کافی در گروه حجمی "${currentVg.name}" وجود ندارد. فضای در دسترس: ${currentVg.freeSize}، فضای درخواستی: ${cleanSize}.`
+        );
+        return;
+      }
+    }
+
+    // 4. Validate Mount Point if provided
     if (mountPoint.trim()) {
       if (!mountPoint.trim().startsWith('/')) {
         setValidationError(isEn ? 'Mount point must be an absolute path starting with /.' : 'مسیر مانت باید با / شروع شود.');
@@ -157,32 +275,90 @@ export const LinuxCreateLvModal: React.FC<LinuxCreateLvModalProps> = ({
             </div>
           )}
 
-          {/* Volume Group Selection */}
+          {/* Volume Group Selection or Locked Context */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-cyan-400" />
-                <span>{isEn ? 'Select Volume Group (VG)' : 'انتخاب گروه حجمی (VG)'}</span>
+                <span>
+                  {isVgLocked
+                    ? isEn
+                      ? 'Target Volume Group (VG)'
+                      : 'گروه حجمی هدف (VG)'
+                    : isEn
+                    ? 'Select Volume Group (VG)'
+                    : 'انتخاب گروه حجمی (VG)'}
+                </span>
               </label>
+
+              {isVgLocked ? (
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  <span>{isEn ? 'Inherited Context' : 'از گروه انتخابی'}</span>
+                </span>
+              ) : (
+                <FieldInfoTooltip
+                  title={isEn ? 'Volume Group Selection' : 'انتخاب گروه حجمی'}
+                  whatIsIt={
+                    isEn
+                      ? 'The storage pool from which this Logical Volume will be carved out.'
+                      : 'استخر ذخیره‌سازی که این حجم منطقی از فضای آن ساخته می‌شود.'
+                  }
+                  whyIsItNeeded={
+                    isEn
+                      ? 'Every Logical Volume must reside inside an existing Volume Group.'
+                      : 'هر درایو منطقی باید متعلق به یک گروه حجمی باشد.'
+                  }
+                  practicalExample="ubuntu-vg, data-vg"
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                />
+              )}
             </div>
-            <select
-              value={selectedVg}
-              onChange={(e) => setSelectedVg(e.target.value)}
-              className={`w-full px-3 py-2 rounded-lg border text-xs font-mono focus:outline-none ${
-                isLightMode
-                  ? 'bg-white border-slate-300 text-slate-800'
-                  : 'bg-slate-950 border-slate-700 text-slate-100'
-              }`}
-            >
-              {volumeGroups.map((vg) => (
-                <option key={vg.name} value={vg.name}>
-                  {vg.name} (Free: {vg.freeSize} / Total: {vg.totalSize})
-                </option>
-              ))}
-            </select>
-            {currentVg && (
-              <div className="text-[11px] text-slate-400 mt-1">
-                {isEn ? 'Available free space in VG:' : 'فضای آزاد در دسترس در VG:'}{' '}
+
+            {isVgLocked ? (
+              <div
+                className={`w-full px-3.5 py-2.5 rounded-lg border text-xs font-mono flex items-center justify-between shadow-xs ${
+                  isLightMode ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-slate-950/80 border-slate-700 text-slate-200'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <HardDrive className="w-4 h-4 text-cyan-400" />
+                  <span className="font-bold text-cyan-400">{selectedVg}</span>
+                  {currentVg && (
+                    <span className="text-[11px] text-slate-400">
+                      ({isEn ? 'Total:' : 'کل:'} {currentVg.totalSize})
+                    </span>
+                  )}
+                </div>
+                {currentVg && (
+                  <div className="flex items-center gap-1 text-[11px]">
+                    <span className="text-slate-400">{isEn ? 'Free:' : 'آزاد:'}</span>
+                    <span className="text-emerald-400 font-bold">{currentVg.freeSize}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <select
+                value={selectedVg}
+                onChange={(e) => setSelectedVg(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg border text-xs font-mono focus:outline-none ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-800'
+                    : 'bg-slate-950 border-slate-700 text-slate-100'
+                }`}
+              >
+                {volumeGroups.map((vg) => (
+                  <option key={vg.name} value={vg.name}>
+                    {vg.name} (Free: {vg.freeSize} / Total: {vg.totalSize})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {currentVg && !isVgLocked && (
+              <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
+                <span>{isEn ? 'Available free space in VG:' : 'فضای آزاد در دسترس در VG:'}</span>
                 <span className="text-emerald-400 font-bold font-mono">{currentVg.freeSize}</span>
               </div>
             )}
@@ -222,26 +398,49 @@ export const LinuxCreateLvModal: React.FC<LinuxCreateLvModalProps> = ({
                 <label className="text-xs font-semibold text-slate-300">
                   {isEn ? 'Allocation Size' : 'حجم تخصیصی'}
                 </label>
-                <FieldInfoTooltip
-                  title={isEn ? 'LV Size' : 'حجم LV'}
-                  whatIsIt={isEn ? 'The capacity to carve out from the Volume Group.' : 'میزان حجمی که از گروه حجمی کسر و به این LV اختصاص می‌یابد.'}
-                  whyIsItNeeded={isEn ? 'Determines disk space of the filesystem.' : 'تعیین‌کننده حجم نهایی فایل‌سیستم است.'}
-                  practicalExample="20G or 100%FREE"
-                  isEn={isEn}
-                  isLightMode={isLightMode}
-                />
+                {currentVg && (
+                  <button
+                    type="button"
+                    onClick={() => setSize('100%FREE')}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-colors cursor-pointer"
+                    title={isEn ? 'Carve out all remaining free extents in this VG' : 'تخصیص تمام فضای آزاد باقیمانده در این VG'}
+                  >
+                    {isEn ? 'Use All Free Space' : 'تمام فضای آزاد'}
+                  </button>
+                )}
               </div>
               <input
                 type="text"
                 value={size}
                 onChange={(e) => setSize(e.target.value)}
-                placeholder="20G"
+                placeholder="20G or 100%FREE"
                 className={`w-full px-3 py-2 rounded-lg border text-xs font-mono focus:outline-none ${
                   isLightMode
                     ? 'bg-white border-slate-300 text-slate-800'
                     : 'bg-slate-950 border-slate-700 text-slate-100'
                 }`}
               />
+
+              {/* Quick size presets */}
+              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <span className="text-[10px] text-slate-400">{isEn ? 'Presets:' : 'پیش‌فرض‌ها:'}</span>
+                {['5G', '10G', '20G', '50G', '100%FREE'].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setSize(preset)}
+                    className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                      size.toUpperCase() === preset
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                        : isLightMode
+                        ? 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

@@ -72,7 +72,13 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   const [selectedDiskForManage, setSelectedDiskForManage] = useState<LinuxPhysicalDisk | null>(null);
   const [selectedLvForExtend, setSelectedLvForExtend] = useState<LinuxLogicalVolume | null>(null);
   const [isCreateLvOpen, setIsCreateLvOpen] = useState(false);
+  const [targetVgForCreate, setTargetVgForCreate] = useState<string | null>(null);
   const [isOperationLoading, setIsOperationLoading] = useState(false);
+
+  const handleOpenCreateLvModal = (vgName?: string) => {
+    setTargetVgForCreate(vgName || null);
+    setIsCreateLvOpen(true);
+  };
 
   // Fetch real storage overview from server
   const loadStorageData = useCallback(async (isSilent = false) => {
@@ -255,6 +261,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
           type: 'success',
         });
         setIsCreateLvOpen(false);
+        setTargetVgForCreate(null);
         await loadStorageData(true);
         if (onRefreshParent) onRefreshParent();
       } else {
@@ -869,7 +876,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsCreateLvOpen(true)}
+                    onClick={() => handleOpenCreateLvModal()}
                     disabled={volumeGroups.length === 0}
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -970,11 +977,11 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
                       <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => setIsCreateLvOpen(true)}
+                          onClick={() => handleOpenCreateLvModal(vg.name)}
                           className="px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 transition-colors flex items-center gap-1.5"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>{isEn ? 'Carve New LV' : 'تخصیص LV جدید'}</span>
+                          <span>{isEn ? 'New LV' : 'حجم منطقی جدید'}</span>
                         </button>
                       </div>
                     </div>
@@ -995,22 +1002,40 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
                   </span>
                   <span className="text-xs font-normal text-slate-400">({logicalVolumes.length})</span>
                 </div>
-                <FieldInfoTooltip
-                  title={isEn ? 'LVM Logical Volume (LV)' : 'حجم منطقی LVM'}
-                  whatIsIt={
-                    isEn
-                      ? 'A virtual block device carved out from a Volume Group, holding a filesystem and mount point.'
-                      : 'تجهیز بلاک مجازی که از استخر VG مشتق شده و فایل‌سیستم روی آن فرمت و مانت می‌گردد.'
-                  }
-                  whyIsItNeeded={
-                    isEn
-                      ? 'LVs can be resized online (lvextend) and snapshot-managed without taking services down.'
-                      : 'امکان بزرگ‌سازی آنلاین (lvextend) و بدون وقفه سرویس‌ها را در شبکه فراهم می‌سازد.'
-                  }
-                  practicalExample="root-lv, data-lv"
-                  isEn={isEn}
-                  isLightMode={isLightMode}
-                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCreateLvModal()}
+                    disabled={volumeGroups.length === 0}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-500 text-white shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={
+                      volumeGroups.length === 0
+                        ? isEn
+                          ? 'No Volume Group available'
+                          : 'هیچ گروه حجمی در دسترس نیست'
+                        : undefined
+                    }
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'New LV' : 'حجم منطقی جدید'}</span>
+                  </button>
+                  <FieldInfoTooltip
+                    title={isEn ? 'LVM Logical Volume (LV)' : 'حجم منطقی LVM'}
+                    whatIsIt={
+                      isEn
+                        ? 'A virtual block device carved out from a Volume Group, holding a filesystem and mount point.'
+                        : 'تجهیز بلاک مجازی که از استخر VG مشتق شده و فایل‌سیستم روی آن فرمت و مانت می‌گردد.'
+                    }
+                    whyIsItNeeded={
+                      isEn
+                        ? 'LVs can be resized online (lvextend) and snapshot-managed without taking services down.'
+                        : 'امکان بزرگ‌سازی آنلاین (lvextend) و بدون وقفه سرویس‌ها را در شبکه فراهم می‌سازد.'
+                    }
+                    practicalExample="root-lv, data-lv"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
               </div>
 
               {logicalVolumes.length === 0 ? (
@@ -1129,8 +1154,13 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
       {/* Create LV Modal */}
       <LinuxCreateLvModal
         isOpen={isCreateLvOpen}
-        onClose={() => setIsCreateLvOpen(false)}
+        onClose={() => {
+          setIsCreateLvOpen(false);
+          setTargetVgForCreate(null);
+        }}
         volumeGroups={volumeGroups}
+        existingLogicalVolumes={logicalVolumes}
+        targetVgName={targetVgForCreate}
         onCreateLv={handleCreateLv}
         isLightMode={isLightMode}
         isLoading={isOperationLoading}
