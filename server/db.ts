@@ -131,7 +131,7 @@ export interface RemoteServer {
   vnc_username?: string;
   vnc_password?: string;
   prompt_password_on_connect?: boolean;
-  status: 'online' | 'offline' | 'unreachable';
+  status: 'online' | 'offline' | 'unreachable' | 'maintenance' | 'untested';
   cpu_cores?: number;
   ram_gb?: number;
   disk_gb?: number;

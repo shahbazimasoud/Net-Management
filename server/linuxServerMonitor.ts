@@ -688,6 +688,7 @@ export async function runAdaptiveSshCommand(
 export async function executeServerRestartSSH(
   server: RemoteServer,
   params: {
+    actionType?: 'restart' | 'poweroff';
     delayMinutes: number;
     notifyUsers: boolean;
     message?: string;
@@ -702,50 +703,75 @@ export async function executeServerRestartSSH(
   output?: string;
 }> {
   const isWindows = server.os_type === 'windows';
+  const actionType = params.actionType === 'poweroff' ? 'poweroff' : 'restart';
   let command = '';
   let actionDesc = '';
 
   if (isWindows) {
     if (params.cancelPending) {
       command = 'shutdown /a';
-      actionDesc = 'Cancelled scheduled Windows restart';
+      actionDesc = actionType === 'poweroff'
+        ? 'Cancelled scheduled Windows shutdown'
+        : 'Cancelled scheduled Windows restart';
     } else {
       const delaySec = Math.max(0, Math.floor(params.delayMinutes * 60));
       const forceFlag = params.force !== false ? '/f' : '';
       const safeMsg = (params.message || '').replace(/["\r\n]/g, ' ').trim();
+      const actionFlag = actionType === 'poweroff' ? '/s' : '/r';
 
       if (params.notifyUsers && safeMsg) {
-        command = `msg * "${safeMsg}" & shutdown /r /t ${delaySec} ${forceFlag} /c "${safeMsg}"`;
+        command = `msg * "${safeMsg}" & shutdown ${actionFlag} /t ${delaySec} ${forceFlag} /c "${safeMsg}"`;
       } else {
-        command = `shutdown /r /t ${delaySec} ${forceFlag}`;
+        command = `shutdown ${actionFlag} /t ${delaySec} ${forceFlag}`;
       }
       actionDesc = delaySec > 0
-        ? `Scheduled Windows restart in ${params.delayMinutes} minute(s)`
-        : `Initiated immediate Windows restart`;
+        ? `Scheduled Windows ${actionType === 'poweroff' ? 'shutdown' : 'restart'} in ${params.delayMinutes} minute(s)`
+        : `Initiated immediate Windows ${actionType === 'poweroff' ? 'shutdown' : 'restart'}`;
     }
   } else {
     // Linux
     if (params.cancelPending) {
       command = 'sudo shutdown -c "Cancelled by administrator" 2>&1 || shutdown -c 2>&1';
-      actionDesc = 'Cancelled scheduled Linux reboot';
+      actionDesc = actionType === 'poweroff'
+        ? 'Cancelled scheduled Linux shutdown'
+        : 'Cancelled scheduled Linux reboot';
     } else {
       const delayMin = Math.max(0, Math.floor(params.delayMinutes));
       const safeMsg = (params.message || '').replace(/["\\`$]/g, '\\$&').trim();
 
-      if (delayMin === 0) {
-        if (params.notifyUsers && safeMsg) {
-          command = `wall "${safeMsg}" 2>/dev/null ; (sleep 1 && (sudo shutdown -r now || sudo reboot || reboot)) &`;
+      if (actionType === 'poweroff') {
+        if (delayMin === 0) {
+          if (params.notifyUsers && safeMsg) {
+            command = `wall "${safeMsg}" 2>/dev/null ; (sleep 1 && (sudo shutdown -h now || sudo poweroff || poweroff)) &`;
+          } else {
+            command = `(sleep 1 && (sudo shutdown -h now || sudo poweroff || poweroff)) &`;
+          }
+          actionDesc = 'Initiated immediate Linux system shutdown';
         } else {
-          command = `(sleep 1 && (sudo shutdown -r now || sudo reboot || reboot)) &`;
+          if (params.notifyUsers && safeMsg) {
+            command = `wall "${safeMsg}" 2>/dev/null ; (sudo shutdown -h +${delayMin} "${safeMsg}" || sudo shutdown -h +${delayMin} || shutdown -h +${delayMin})`;
+          } else {
+            command = `sudo shutdown -h +${delayMin} || shutdown -h +${delayMin}`;
+          }
+          actionDesc = `Scheduled Linux system shutdown in ${delayMin} minute(s)`;
         }
-        actionDesc = 'Initiated immediate Linux system reboot';
       } else {
-        if (params.notifyUsers && safeMsg) {
-          command = `wall "${safeMsg}" 2>/dev/null ; (sudo shutdown -r +${delayMin} "${safeMsg}" || sudo shutdown -r +${delayMin} || shutdown -r +${delayMin})`;
+        // restart / reboot
+        if (delayMin === 0) {
+          if (params.notifyUsers && safeMsg) {
+            command = `wall "${safeMsg}" 2>/dev/null ; (sleep 1 && (sudo shutdown -r now || sudo reboot || reboot)) &`;
+          } else {
+            command = `(sleep 1 && (sudo shutdown -r now || sudo reboot || reboot)) &`;
+          }
+          actionDesc = 'Initiated immediate Linux system reboot';
         } else {
-          command = `sudo shutdown -r +${delayMin} || shutdown -r +${delayMin}`;
+          if (params.notifyUsers && safeMsg) {
+            command = `wall "${safeMsg}" 2>/dev/null ; (sudo shutdown -r +${delayMin} "${safeMsg}" || sudo shutdown -r +${delayMin} || shutdown -r +${delayMin})`;
+          } else {
+            command = `sudo shutdown -r +${delayMin} || shutdown -r +${delayMin}`;
+          }
+          actionDesc = `Scheduled Linux system reboot in ${delayMin} minute(s)`;
         }
-        actionDesc = `Scheduled Linux system reboot in ${delayMin} minute(s)`;
       }
     }
   }
@@ -769,7 +795,7 @@ export async function executeServerRestartSSH(
     ) {
       return {
         success: true,
-        message: `${actionDesc} (SSH connection terminated as target server initiated reboot sequence).`,
+        message: `${actionDesc} (SSH connection terminated as target server initiated ${actionType === 'poweroff' ? 'shutdown' : 'reboot'} sequence).`,
         command,
         output: errMsg,
       };

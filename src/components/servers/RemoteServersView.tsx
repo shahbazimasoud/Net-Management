@@ -30,6 +30,7 @@ import {
   Key,
   FolderTree,
   RotateCcw,
+  Power,
   X,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory } from '../../types';
@@ -290,7 +291,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
   const [isPingingAll, setIsPingingAll] = useState(false);
   const [serverToDelete, setServerToDelete] = useState<RemoteServer | null>(null);
-  const [serverToRestart, setServerToRestart] = useState<RemoteServer | null>(null);
+  const [powerModalConfig, setPowerModalConfig] = useState<{
+    server?: RemoteServer;
+    servers?: RemoteServer[];
+    action: 'restart' | 'poweroff';
+  } | null>(null);
   const [successNotification, setSuccessNotification] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1493,6 +1498,38 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
             <button
               type="button"
+              onClick={() => {
+                const targetList = servers.filter((s) => selectedServerIds.has(s.id));
+                setPowerModalConfig({ servers: targetList, action: 'restart' });
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-bold shadow-md shadow-amber-500/20 cursor-pointer active:scale-95 transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>
+                {isEn
+                  ? `Restart Selected (${selectedServerIds.size})`
+                  : `ری‌استارت انتخاب‌شده‌ها (${selectedServerIds.size})`}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const targetList = servers.filter((s) => selectedServerIds.has(s.id));
+                setPowerModalConfig({ servers: targetList, action: 'poweroff' });
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-bold shadow-md shadow-rose-500/20 cursor-pointer active:scale-95 transition"
+            >
+              <Power className="w-3.5 h-3.5" />
+              <span>
+                {isEn
+                  ? `Shutdown Selected (${selectedServerIds.size})`
+                  : `خاموش کردن انتخاب‌شده‌ها (${selectedServerIds.size})`}
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setIsBulkConfigOpen(true)}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold shadow-md shadow-indigo-500/20 cursor-pointer active:scale-95 transition"
             >
@@ -2495,7 +2532,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   onClick={() => {
                     const s = menuAnchor.server;
                     setMenuAnchor(null);
-                    setServerToRestart(s);
+                    setPowerModalConfig({ server: s, action: 'restart' });
                   }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-400 hover:text-amber-300 transition cursor-pointer ${
                     isEn ? 'text-left' : 'text-right'
@@ -2506,6 +2543,27 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     <span>{isEn ? 'Restart Server' : 'راه‌اندازی مجدد (ری‌استارت)'}</span>
                     <span className="text-[10px] text-amber-400/80 font-mono">
                       {menuAnchor.server.os_type === 'linux' ? 'Linux (reboot / shutdown -r)' : 'Windows (shutdown /r /t)'}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Shutdown / Power Off Server */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const s = menuAnchor.server;
+                    setMenuAnchor(null);
+                    setPowerModalConfig({ server: s, action: 'poweroff' });
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 transition cursor-pointer ${
+                    isEn ? 'text-left' : 'text-right'
+                  } ${isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/15'}`}
+                >
+                  <Power className="w-4 h-4 text-rose-400 shrink-0" />
+                  <div className="flex flex-col">
+                    <span>{isEn ? 'Shutdown / Power Off' : 'خاموش کردن سرور (Shutdown)'}</span>
+                    <span className="text-[10px] text-rose-400/80 font-mono">
+                      {menuAnchor.server.os_type === 'linux' ? 'Linux (poweroff / shutdown -h)' : 'Windows (shutdown /s /t)'}
                     </span>
                   </div>
                 </button>
@@ -2727,13 +2785,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onServersUpdated={loadFleet}
       />
 
-      {/* 18. Server Restart Confirmation & Scheduling Modal */}
-      {serverToRestart && (
+      {/* 18. Server Restart & Shutdown / Power Confirmation & Scheduling Modal */}
+      {powerModalConfig && (
         <RestartServerModal
-          server={serverToRestart}
+          server={powerModalConfig.server}
+          servers={powerModalConfig.servers}
+          initialAction={powerModalConfig.action}
           isLightMode={isLightMode}
           isEn={isEn}
-          onClose={() => setServerToRestart(null)}
+          onClose={() => setPowerModalConfig(null)}
           onSuccess={(msg) => {
             setSuccessNotification(msg);
             loadFleet();

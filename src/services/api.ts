@@ -1837,6 +1837,7 @@ export async function logoutLinuxServerUserSession(
 export async function restartRemoteServer(
   serverId: string,
   params: {
+    actionType?: 'restart' | 'poweroff';
     delayMinutes?: number;
     notifyUsers?: boolean;
     message?: string;
@@ -1860,6 +1861,45 @@ export async function restartRemoteServer(
   const data = await res.json().catch(() => ({
     success: false,
     message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = data.message || `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function executeBulkServerPower(params: {
+  serverIds: string[];
+  actionType?: 'restart' | 'poweroff';
+  delayMinutes?: number;
+  notifyUsers?: boolean;
+  message?: string;
+  force?: boolean;
+  cancelPending?: boolean;
+  password?: string;
+}): Promise<{
+  success: boolean;
+  results: Array<{
+    serverId: string;
+    serverName: string;
+    ip: string;
+    osType: string;
+    success: boolean;
+    message: string;
+    command?: string;
+    output?: string;
+    error?: string;
+  }>;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/bulk-power`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    results: [],
   }));
   if (!res.ok && !data.error) {
     data.error = data.message || `HTTP Error ${res.status}`;

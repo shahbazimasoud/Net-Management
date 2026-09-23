@@ -2350,11 +2350,11 @@ apiRouter.post('/remote-servers/:id/logout-user', async (req: Request, res: Resp
   }
 });
 
-// POST /api/remote-servers/:id/restart - Execute immediate or scheduled reboot for Linux/Windows servers
+// POST /api/remote-servers/:id/restart - Execute immediate or scheduled reboot or shutdown for Linux/Windows servers
 apiRouter.post('/remote-servers/:id/restart', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { delayMinutes, notifyUsers, message, force, cancelPending, password } = req.body;
+    const { delayMinutes, notifyUsers, message, force, cancelPending, password, actionType } = req.body;
 
     const server = await getRemoteServerById(id);
     if (!server) {
@@ -2371,9 +2371,11 @@ apiRouter.post('/remote-servers/:id/restart', async (req: Request, res: Response
     }
 
     const isWindows = server.os_type === 'windows';
+    const isPowerOff = actionType === 'poweroff';
     const result = await executeServerRestartSSH(
       server,
       {
+        actionType: isPowerOff ? 'poweroff' : 'restart',
         delayMinutes: Number(delayMinutes) || 0,
         notifyUsers: Boolean(notifyUsers),
         message: typeof message === 'string' ? message : undefined,
@@ -2387,8 +2389,8 @@ apiRouter.post('/remote-servers/:id/restart', async (req: Request, res: Response
     await addAuditLog({
       userName: 'Administrator',
       action: cancelPending
-        ? `Cancel Scheduled Restart (${isWindows ? 'Windows' : 'Linux'})`
-        : `Server Restart (${isWindows ? 'Windows' : 'Linux'}, Delay: ${delayMinutes || 0}m)`,
+        ? `Cancel Scheduled ${isPowerOff ? 'Shutdown' : 'Restart'} (${isWindows ? 'Windows' : 'Linux'})`
+        : `Server ${isPowerOff ? 'Shutdown' : 'Restart'} (${isWindows ? 'Windows' : 'Linux'}, Delay: ${delayMinutes || 0}m)`,
       category: 'operation',
       target: `${server.name || server.ip}`,
       status: result.success ? 'success' : 'error',
@@ -2402,6 +2404,100 @@ apiRouter.post('/remote-servers/:id/restart', async (req: Request, res: Response
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to execute restart on remote server',
+    });
+  }
+});
+
+// POST /api/remote-servers/bulk-power - Execute batch restart or shutdown across selected servers
+apiRouter.post('/remote-servers/bulk-power', async (req: Request, res: Response) => {
+  try {
+    const { serverIds, actionType, delayMinutes, notifyUsers, message, force, cancelPending, password } = req.body;
+
+    if (!Array.isArray(serverIds) || serverIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'serverIds array is required' });
+    }
+
+    const isPowerOff = actionType === 'poweroff';
+    const clientIp = getClientIp(req);
+
+    const results = await Promise.allSettled(
+      serverIds.map(async (id: string) => {
+        const server = await getRemoteServerById(id);
+        if (!server) {
+          throw new Error('Server not found');
+        }
+
+        const ephemeralPassword = password;
+        if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password && !server.win_password) {
+          throw new Error('Password prompt required (Zero-storage policy)');
+        }
+
+        const res = await executeServerRestartSSH(
+          server,
+          {
+            actionType: isPowerOff ? 'poweroff' : 'restart',
+            delayMinutes: Number(delayMinutes) || 0,
+            notifyUsers: Boolean(notifyUsers),
+            message: typeof message === 'string' ? message : undefined,
+            force: force !== undefined ? Boolean(force) : true,
+            cancelPending: Boolean(cancelPending),
+          },
+          ephemeralPassword
+        );
+
+        // Audit log per server
+        await addAuditLog({
+          userName: 'Administrator',
+          action: cancelPending
+            ? `Bulk Cancel Scheduled ${isPowerOff ? 'Shutdown' : 'Restart'} (${server.os_type})`
+            : `Bulk Server ${isPowerOff ? 'Shutdown' : 'Restart'} (${server.os_type}, Delay: ${delayMinutes || 0}m)`,
+          category: 'operation',
+          target: `${server.name || server.ip}`,
+          status: res.success ? 'success' : 'error',
+          details: `${res.message} [Command: ${res.command}]`,
+          ipAddress: clientIp,
+        }).catch(() => {});
+
+        return {
+          serverId: server.id,
+          serverName: server.name,
+          ip: server.ip,
+          osType: server.os_type,
+          success: res.success,
+          message: res.message,
+          command: res.command,
+          output: res.output,
+        };
+      })
+    );
+
+    const formattedResults = results.map((r, idx) => {
+      if (r.status === 'fulfilled') {
+        return r.value;
+      } else {
+        return {
+          serverId: serverIds[idx],
+          serverName: `Server #${idx + 1}`,
+          ip: '',
+          osType: 'unknown',
+          success: false,
+          message: r.reason?.message || 'Execution failed',
+          command: '',
+          error: r.reason?.message || 'Execution failed',
+        };
+      }
+    });
+
+    const anySuccess = formattedResults.some((r) => r.success);
+    return res.json({
+      success: anySuccess,
+      results: formattedResults,
+    });
+  } catch (err: any) {
+    console.error('[BulkServerPower API Error]:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute bulk power action',
     });
   }
 });

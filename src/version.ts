@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.131.5';
+export const APP_VERSION = '1.132.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.132.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'قابلیت ری‌استارت و خاموش‌سازی گروهی و تکی سرورها با دستورات اختصاصی و انطباقی لینوکس و ویندوز',
+    title_en: 'Bulk & Individual Server Restart and Shutdown/Power Off with Adaptive Linux and Windows Execution',
+    changes: [
+      'افزودن دکمه‌های ری‌استارت و خاموش‌سازی گروهی (Bulk Restart & Shutdown) به نوار ابزار انتخاب چندتایی سرورها در Remote Servers & Automation Fleet.',
+      'افزودن گزینه خاموش کردن سرور (Shutdown / Power Off) در منوی سه‌نقطه عملیات هر سرور در کنار گزینه راه‌اندازی مجدد.',
+      'ارسال دستورات اجرایی بر اساس سیستم‌عامل سرور: در سرورهای لینوکس دستورات shutdown -r / shutdown -h / reboot / poweroff و پیام همگانی wall، و در سرورهای ویندوز دستورات shutdown /r /t /f /c یا shutdown /s /t /f /c و پیام تعاملی msg.exe.',
+      'ارتقای مودال راه‌اندازی و خاموش‌سازی با امکان جابجایی بین ری‌استارت و خاموش کردن، نمایش پیش‌نمایش دستورات هر سیستم‌عامل، مهلت زمانی پیش از اجرا، اخطار همگانی، گزارش زنده و پشتیبانی از مینی‌مایز به داک ابزارها.',
+      'پیاده‌سازی اندپوینت بک‌اند /api/remote-servers/bulk-power جهت مدیریت و اجرای هم‌زمان دستورات روی ناوگان سرورها همراه با ثبت رخداد در Audit Log.',
+    ],
+    changes_en: [
+      'Added Bulk Restart and Bulk Shutdown buttons to the multi-server selection action bar in Remote Servers & Automation Fleet.',
+      'Added Shutdown / Power Off option alongside Restart Server in the 3-dot action menu for individual servers.',
+      'Implemented OS-adaptive command dispatch: sends Linux-native commands (shutdown -r / shutdown -h / reboot / poweroff with wall broadcasts) and Windows-native commands (shutdown /r /t /f /c or shutdown /s /t /f /c with msg.exe popups).',
+      'Enhanced power management modal supporting single & bulk servers with action toggling, delay presets, live per-server execution feedback, zero-storage password handling, and ToolsDock minimization.',
+      'Implemented backend endpoint /api/remote-servers/bulk-power for concurrent fleet execution and detailed audit logging.',
+    ],
+  },
   {
     version: '1.131.5',
     releaseDate: '2026-09-23',
