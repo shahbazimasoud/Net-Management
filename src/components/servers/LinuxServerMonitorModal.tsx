@@ -58,6 +58,7 @@ import { LinuxSysConfigTab } from './LinuxSysConfigTab';
 import { LinuxLogsTab } from './LinuxLogsTab';
 import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 import { LinuxMountModal } from './LinuxMountModal';
+import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
 
 export interface LinuxServerMonitorModalProps {
   isOpen: boolean;
@@ -102,6 +103,10 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [selectedInterfaceForConfig, setSelectedInterfaceForConfig] = useState<LinuxNetworkInterfaceDetail | null>(null);
   const [detailedInterfaces, setDetailedInterfaces] = useState<LinuxNetworkInterfaceDetail[]>([]);
   const [sysInfo, setSysInfo] = useState<LinuxSystemDetailedInfo | null>(null);
+
+  // Watchdog & Auto-Recovery Modal State
+  const [isWatchdogModalOpen, setIsWatchdogModalOpen] = useState(false);
+  const [selectedWatchdogService, setSelectedWatchdogService] = useState<string | undefined>(undefined);
 
   // Services Management State
   const [services, setServices] = useState<LinuxSystemService[]>([]);
@@ -2101,6 +2106,18 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
 
                       <button
                         type="button"
+                        onClick={() => {
+                          setSelectedWatchdogService(undefined);
+                          setIsWatchdogModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 rounded-lg border border-cyan-500/40 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 transition cursor-pointer flex items-center gap-1.5 text-xs font-mono font-medium shadow-sm"
+                      >
+                        <Shield className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{isEn ? 'Service Watchdog & Auto-Recovery' : 'ناظر خودکار و خودترمیمی'}</span>
+                      </button>
+
+                      <button
+                        type="button"
                         disabled={servicesLoading}
                         onClick={() => loadServices()}
                         className="px-2.5 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5 text-xs font-mono"
@@ -2378,6 +2395,30 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                                         )}
                                         <span>{isEn ? 'Disable' : 'غیرفعال‌سازی'}</span>
                                       </button>
+
+                                      {/* Watchdog / Self-Healing Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedWatchdogService(s.name);
+                                          setIsWatchdogModalOpen(true);
+                                        }}
+                                        title={
+                                          s.hasWatchdog
+                                            ? (isEn ? `Watchdog Active (${s.watchdogStatus || 'monitoring'}) - Click to configure` : `ناظر خودکار فعال (${s.watchdogStatus || 'در حال پایش'}) - کلیک جهت تنظیم`)
+                                            : (isEn ? 'Configure Auto-Recovery Watchdog & Anti-Loop Policy' : 'پیکربندی ناظر خودکار، استارت مجدد و محافظت ضدلوپ')
+                                        }
+                                        className={`px-2 py-1 rounded transition cursor-pointer flex items-center gap-1 text-[11px] ${
+                                          s.hasWatchdog
+                                            ? s.watchdogStatus === 'anti_loop_halted'
+                                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                                              : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                                            : 'bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/60'
+                                        }`}
+                                      >
+                                        <Shield className={`w-3 h-3 ${s.hasWatchdog ? 'text-cyan-400' : 'text-slate-400'}`} />
+                                        <span>{s.hasWatchdog ? (isEn ? 'Watchdog: ON' : 'ناظر: فعال') : isEn ? 'Watchdog' : 'ناظر خودکار'}</span>
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -2513,6 +2554,20 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
           }}
           isLightMode={isLightMode}
           isEn={isEn}
+        />
+      )}
+      {isWatchdogModalOpen && server && (
+        <LinuxServiceWatchdogModal
+          isOpen={true}
+          server={server}
+          services={services}
+          initialServiceName={selectedWatchdogService}
+          ephemeralPassword={ephemeralPassword}
+          onClose={() => setIsWatchdogModalOpen(false)}
+          onMinimize={() => setIsWatchdogModalOpen(false)}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          onRefreshServices={loadServices}
         />
       )}
       <ProcessActionModals

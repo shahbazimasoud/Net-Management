@@ -87,6 +87,12 @@ import {
   fetchLinuxBlockDevicesSSH,
   executeLinuxMountFilesystem,
   executeLinuxUnmountFilesystem,
+  fetchLinuxServiceWatchdogsSSH,
+  saveLinuxServiceWatchdogSSH,
+  deleteLinuxServiceWatchdogSSH,
+  testLinuxServiceWatchdogCheckSSH,
+  resetLinuxServiceWatchdogAntiLoopSSH,
+  fetchLinuxWatchdogLogsSSH,
 } from './linuxServerMonitor';
 import {
   fetchLinuxSshConfigSSH,
@@ -1250,6 +1256,33 @@ const handleLinuxServerServices = async (req: Request, res: Response) => {
     }
 
     const services = await fetchLinuxServicesSSH(server, ephemeralPassword);
+    
+    // Check if any services have watchdog rules configured on the remote host
+    try {
+      const watchdogs = await fetchLinuxServiceWatchdogsSSH(server, ephemeralPassword);
+      if (Array.isArray(watchdogs) && watchdogs.length > 0) {
+        const wdMap = new Map<string, typeof watchdogs[0]>();
+        for (const wd of watchdogs) {
+          wdMap.set(wd.serviceName.toLowerCase(), wd);
+          // Also match without .service extension
+          const noExt = wd.serviceName.toLowerCase().replace(/\.service$/, '');
+          wdMap.set(noExt, wd);
+        }
+
+        for (const s of services) {
+          const sLower = s.name.toLowerCase();
+          const sNoExt = sLower.replace(/\.service$/, '');
+          const match = wdMap.get(sLower) || wdMap.get(sNoExt);
+          if (match) {
+            s.hasWatchdog = true;
+            s.watchdogStatus = match.status;
+          }
+        }
+      }
+    } catch {
+      // Non-fatal: if watchdog query times out, return raw services
+    }
+
     return res.json({
       success: true,
       services,
@@ -1265,6 +1298,192 @@ const handleLinuxServerServices = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/services', handleLinuxServerServices);
 apiRouter.post('/remote-servers/:id/services', handleLinuxServerServices);
+
+// ==============================================================================
+// LINUX SERVICE WATCHDOG & AUTO-RECOVERY API ROUTES
+// ==============================================================================
+
+// GET /api/remote-servers/:id/service-watchdogs - List all active watchdog rules from target host
+apiRouter.get('/remote-servers/:id/service-watchdogs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const ephemeralPassword = (req.query?.password || req.headers['x-server-password']) as string | undefined;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const watchdogs = await fetchLinuxServiceWatchdogsSSH(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      watchdogs,
+    });
+  } catch (err: any) {
+    console.error(`[Watchdogs API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch service watchdogs from remote server',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/service-watchdogs - Create or update a watchdog rule on target host
+apiRouter.post('/remote-servers/:id/service-watchdogs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rule, password } = req.body;
+
+    if (!rule || !rule.serviceName) {
+      return res.status(400).json({ success: false, error: 'Watchdog rule with serviceName is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await saveLinuxServiceWatchdogSSH(server, rule, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Watchdog Policy Configured',
+      category: 'operation',
+      target: `${server.name || server.ip} (${rule.serviceName})`,
+      status: result.success ? 'success' : 'error',
+      details: `Watchdog configured: restarts=${rule.maxRestartAttempts}, reboot=${rule.rebootOnPersistentFailure ? 'yes' : 'no'}, cooldown=${rule.rebootCooldownMinutes}m`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Watchdog Save API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to save watchdog rule on remote server',
+    });
+  }
+});
+
+// DELETE /api/remote-servers/:id/service-watchdogs/:serviceName - Remove watchdog rule and stop service
+apiRouter.delete('/remote-servers/:id/service-watchdogs/:serviceName', async (req: Request, res: Response) => {
+  try {
+    const { id, serviceName } = req.params;
+    const password = (req.body?.password || req.query?.password) as string | undefined;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deleteLinuxServiceWatchdogSSH(server, serviceName, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Watchdog Policy Removed',
+      category: 'operation',
+      target: `${server.name || server.ip} (${serviceName})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Watchdog Delete API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete watchdog rule from remote server',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/service-watchdogs/:serviceName/test - Run diagnostic test check
+apiRouter.post('/remote-servers/:id/service-watchdogs/:serviceName/test', async (req: Request, res: Response) => {
+  try {
+    const { id, serviceName } = req.params;
+    const { password } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await testLinuxServiceWatchdogCheckSSH(server, serviceName, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Watchdog Test API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to test watchdog rule on remote server',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/service-watchdogs/:serviceName/reset-loop - Reset anti-loop lock
+apiRouter.post('/remote-servers/:id/service-watchdogs/:serviceName/reset-loop', async (req: Request, res: Response) => {
+  try {
+    const { id, serviceName } = req.params;
+    const { password } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await resetLinuxServiceWatchdogAntiLoopSSH(server, serviceName, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Watchdog Anti-Loop Lock Reset',
+      category: 'operation',
+      target: `${server.name || server.ip} (${serviceName})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Watchdog Reset Loop Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to reset anti-loop lock on remote server',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/service-watchdogs/logs - Fetch live watchdog audit logs
+apiRouter.get('/remote-servers/:id/service-watchdog-logs', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const lines = Number(req.query.lines) || 100;
+    const password = (req.query?.password || req.headers['x-server-password']) as string | undefined;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await fetchLinuxWatchdogLogsSSH(server, lines, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Watchdog Logs API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch watchdog logs from remote server',
+    });
+  }
+});
 
 // POST /api/remote-servers/:id/service-action - Start, Stop, Restart, Enable, Disable Linux Service
 apiRouter.post('/remote-servers/:id/service-action', async (req: Request, res: Response) => {

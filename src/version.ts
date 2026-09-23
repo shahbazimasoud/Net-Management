@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.117.2';
+export const APP_VERSION = '1.118.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.118.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'موتور ناظر خودکار و خودترمیمی سرویس‌های لینوکس با ماتریس محافظت سه‌لایه در برابر لوپ بوت و ریستارت',
+    title_en: 'Linux Service Self-Healing Watchdog Engine with 3-Layer Anti-Boot-Loop Protection Matrix',
+    changes: [
+      'پیاده‌سازی موتور بومی ناظر خودکار سرویس‌ها (Service Watchdog Agent) روی سرور لینوکس مقصد در مسیر /usr/local/bin/nettopology-watchdog.sh و اجرای آن تحت مدیریت تمپلیت سیستم‌دی nettopology-watchdog@.service.',
+      'افزودن امکان تعریف بازه بررسی سلامت (Check Interval)، حداکثر تلاش‌های استارت مجدد (Max Retries) و پنجره پایداری بازیابی (Stability Cooldown Window) به ازای هر سرویس.',
+      'طراحی ماتریس ۳ لایه محافظت قطعی در برابر چرخه لوپ ریستارت سرور (Anti-Boot-Loop Circuit Breaker): بررسی حداقل زمان روشن بودن سرور (≥ 5m uptime)، کول‌داون پایدار بین ریستارت‌ها روی دیسک (≥ 60m cooldown) و سقف مجاز ریستارت در شبانه‌روز (Daily Cap).',
+      'امکان تعریف هوک پاکسازی و دستورات پیش‌نیاز قبل از ریستارت سرویس (Pre-Restart Hook Command) مانند کشتن پراسس‌های معلق یا حذف فایل‌های لاک.',
+      'طراحی مودال جامع LinuxServiceWatchdogModal مطابق ۵ استاندارد اجباری مودال‌ها با پشتیبانی کامل از تولتیپ‌های سه‌بخشی، تم روشن/تیره، زبان‌های فارسی/انگلیسی و مشاهده زنده لاگ‌های ناظر از فایل /var/log/nettopology-watchdog.log.',
+      'تجهیز جدول سرویس‌های لینوکس به دکمه‌های وضعیت زنده ناظر (Watchdog ON / Anti-Loop Halted / Inactive) و دکمه‌های تست تشخیصی و ریست قفل ضدلوپ.'
+    ],
+    changes_en: [
+      'Implemented native destination-side Linux Service Watchdog Agent (/usr/local/bin/nettopology-watchdog.sh) executed as an isolated background daemon via systemd template nettopology-watchdog@.service.',
+      'Added per-service health check intervals, configurable consecutive restart retry limits, and healthy stability windows for failure counter resets.',
+      'Architected 3-Layer Anti-Boot-Loop Protection Circuit Breaker: Enforces minimum host uptime (≥ 5m), persistent reboot cooldown persisted to disk across reboots (≥ 60m), and a 24-hour daily reboot cap with admin lockout.',
+      'Supported custom pre-restart hook shell commands (e.g. killing zombie sockets or cleaning corrupted lockfiles) before executing systemctl restart.',
+      'Built fully-featured LinuxServiceWatchdogModal adhering to the 5 mandatory modal specifications with 3-part field info tooltips, dark/light themes, bilingual i18n, and live log tailing from /var/log/nettopology-watchdog.log.',
+      'Equipped the Linux Services table with live status badges (Watchdog ON / Anti-Loop Halted / Inactive), instant diagnostic testing, and one-click anti-loop reset.'
+    ],
+  },
   {
     version: '1.117.2',
     releaseDate: '2026-09-22',

@@ -1363,6 +1363,7 @@ export interface RemoteServer {
   uptime_str?: string;
   location?: string;
   notes?: string;
+  watchdogs?: LinuxServiceWatchdogRule[];
   created_at?: string;
   updated_at?: string;
 }
@@ -1453,6 +1454,30 @@ export interface LinuxServerLiveMetrics {
   processes: LinuxServerProcessMetric[];
 }
 
+export interface LinuxServiceWatchdogRule {
+  id: string;
+  serviceName: string;
+  enabled: boolean;
+  checkIntervalSeconds: number;
+  maxRestartAttempts: number;
+  cooldownPeriodSeconds: number;
+  rebootOnPersistentFailure: boolean;
+  rebootCooldownMinutes: number;
+  minUptimeBeforeRebootMinutes: number;
+  maxRebootsPerDay?: number;
+  customPreRestartCommand?: string;
+  createdAt: string;
+  updatedAt: string;
+  // Live state returned from destination Linux host
+  status?: 'active' | 'inactive' | 'recovering' | 'anti_loop_halted' | 'failed' | 'unknown';
+  consecutiveFailures?: number;
+  lastCheckTimestamp?: number;
+  lastRestartTimestamp?: number;
+  lastRebootTimestamp?: number;
+  lastActionMessage?: string;
+  systemdUnitActive?: boolean;
+}
+
 export interface LinuxSystemService {
   name: string;
   loadState: string;
@@ -1460,6 +1485,8 @@ export interface LinuxSystemService {
   subState: string;
   unitFileState?: string;
   description: string;
+  hasWatchdog?: boolean;
+  watchdogStatus?: 'active' | 'inactive' | 'recovering' | 'anti_loop_halted' | 'failed' | 'unknown';
 }
 
 export interface LinuxSystemGroup {

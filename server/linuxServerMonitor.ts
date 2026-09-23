@@ -9,6 +9,7 @@ import {
   LinuxProxyConfig,
   LinuxBlockDevice,
   LinuxMountPayload,
+  LinuxServiceWatchdogRule,
 } from '../src/types';
 
 export interface LinuxServerDiskMetric {
@@ -378,6 +379,8 @@ export interface LinuxSystemService {
   subState: string;
   unitFileState?: string;
   description: string;
+  hasWatchdog?: boolean;
+  watchdogStatus?: string;
 }
 
 const SERVICES_SHELL_SCRIPT = `export LC_ALL=C
@@ -1796,6 +1799,800 @@ echo "UMOUNT_SUCCESS"
     return {
       success: false,
       message: err?.message || `Failed to unmount "${cleanMount}".`,
+    };
+  }
+}
+
+// ==============================================================================
+// LINUX SYSTEMD SERVICE WATCHDOG & SELF-HEALING ENGINE (REAL DESTINATION AGENT)
+// ==============================================================================
+
+const WATCHDOG_RUNNER_BASH_SCRIPT = `#!/bin/bash
+# ==============================================================================
+# NetTopology Service Watchdog & Self-Healing Agent
+# Managed by NetTopology Network Management System
+# ==============================================================================
+set -u
+
+CONFIG_DIR="/etc/nettopology-watchdog/rules.d"
+STATE_DIR="/var/lib/nettopology-watchdog"
+LOG_FILE="/var/log/nettopology-watchdog.log"
+REBOOT_HIST_FILE="/var/lib/nettopology-watchdog/reboot_history.log"
+
+mkdir -p "$CONFIG_DIR" "$STATE_DIR"
+touch "$LOG_FILE" "$REBOOT_HIST_FILE"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
+chmod 644 "$LOG_FILE" 2>/dev/null || true
+
+log() {
+    local msg="$1"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] $msg" >> "$LOG_FILE"
+    if command -v logger >/dev/null 2>&1; then
+        logger -t "nettopology-watchdog" "$msg"
+    fi
+}
+
+clean_unit_name() {
+    echo "$1" | sed 's/[^a-zA-Z0-9_@.-]/_/g'
+}
+
+is_service_active() {
+    local unit="$1"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet "$unit"
+        return $?
+    elif command -v service >/dev/null 2>&1; then
+        service "$unit" status >/dev/null 2>&1
+        return $?
+    elif [ -x "/etc/init.d/$unit" ]; then
+        "/etc/init.d/$unit" status >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+check_rule() {
+    local service_name="$1"
+    local test_mode="\${2:-0}"
+    local clean_name=$(clean_unit_name "$service_name")
+    local conf_file="$CONFIG_DIR/\${clean_name}.conf"
+    local state_file="$STATE_DIR/\${clean_name}.state"
+
+    if [ ! -f "$conf_file" ]; then
+        [ "$test_mode" -eq 1 ] && echo "ERROR: Configuration file not found: $conf_file"
+        return 1
+    fi
+
+    # Defaults
+    ENABLED=1
+    CHECK_INTERVAL_SEC=30
+    MAX_RESTART_ATTEMPTS=3
+    COOLDOWN_PERIOD_SEC=300
+    REBOOT_ON_PERSISTENT_FAILURE=0
+    REBOOT_COOLDOWN_MIN=60
+    MIN_UPTIME_BEFORE_REBOOT_MIN=5
+    MAX_REBOOTS_PER_DAY=2
+    CUSTOM_PRE_RESTART_CMD=""
+
+    . "$conf_file"
+
+    if [ "$ENABLED" -ne 1 ] && [ "$test_mode" -ne 1 ]; then
+        return 0
+    fi
+
+    CONSECUTIVE_FAILURES=0
+    LAST_REBOOT_TIMESTAMP=0
+    LAST_RESTART_TIMESTAMP=0
+    ANTI_LOOP_HALTED=0
+    HEALTHY_SINCE=0
+    STATUS="active"
+    LAST_ACTION_MSG="Watchdog active"
+
+    if [ -f "$state_file" ]; then
+        . "$state_file"
+    fi
+
+    local NOW=$(date +%s)
+
+    # 1. Check if unit is active
+    if is_service_active "$service_name"; then
+        if [ "$CONSECUTIVE_FAILURES" -gt 0 ]; then
+            if [ "$HEALTHY_SINCE" -eq 0 ]; then
+                HEALTHY_SINCE=$NOW
+            fi
+            local HEALTHY_ELAPSED=$(( NOW - HEALTHY_SINCE ))
+            if [ "$HEALTHY_ELAPSED" -ge "$COOLDOWN_PERIOD_SEC" ]; then
+                log "RECOVERY CONFIRMED: $service_name continuously active for \${HEALTHY_ELAPSED}s. Failure counter reset (was $CONSECUTIVE_FAILURES)."
+                CONSECUTIVE_FAILURES=0
+                ANTI_LOOP_HALTED=0
+                HEALTHY_SINCE=$NOW
+                STATUS="active"
+                LAST_ACTION_MSG="Service healthy and active. Failure counter cleared."
+            else
+                STATUS="recovering"
+                LAST_ACTION_MSG="Service active. In health cooldown (\${HEALTHY_ELAPSED}/\${COOLDOWN_PERIOD_SEC}s)."
+            fi
+        else
+            STATUS="active"
+            LAST_ACTION_MSG="Service active and normal."
+            HEALTHY_SINCE=$NOW
+        fi
+
+        cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$LAST_REBOOT_TIMESTAMP
+ANTI_LOOP_HALTED=$ANTI_LOOP_HALTED
+HEALTHY_SINCE=$HEALTHY_SINCE
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+
+        [ "$test_mode" -eq 1 ] && echo "PASS: $service_name is currently ACTIVE and healthy. (Failures: $CONSECUTIVE_FAILURES, Anti-Loop: $ANTI_LOOP_HALTED)"
+        return 0
+    fi
+
+    # Service is NOT active (Failed / Dead / Inactive)
+    HEALTHY_SINCE=0
+
+    # Check if Anti-Loop Lock is already tripped
+    if [ "$ANTI_LOOP_HALTED" -eq 1 ]; then
+        local msg="ANTI-LOOP ACTIVE: $service_name is DOWN, but auto-reboot is HALTED to protect host from boot loop. Manual admin intervention required."
+        log "$msg"
+        STATUS="anti_loop_halted"
+        LAST_ACTION_MSG="$msg"
+        cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$LAST_REBOOT_TIMESTAMP
+ANTI_LOOP_HALTED=1
+HEALTHY_SINCE=0
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+        [ "$test_mode" -eq 1 ] && echo "BLOCKED: $msg"
+        return 2
+    fi
+
+    CONSECUTIVE_FAILURES=$(( CONSECUTIVE_FAILURES + 1 ))
+
+    # Attempt service restart if within max restart limit
+    if [ "$CONSECUTIVE_FAILURES" -le "$MAX_RESTART_ATTEMPTS" ]; then
+        log "FAILURE DETECTED: $service_name is down. Triggering restart attempt $CONSECUTIVE_FAILURES of $MAX_RESTART_ATTEMPTS..."
+        
+        if [ -n "$CUSTOM_PRE_RESTART_CMD" ]; then
+            log "Executing pre-restart hook: $CUSTOM_PRE_RESTART_CMD"
+            eval "$CUSTOM_PRE_RESTART_CMD" >> "$LOG_FILE" 2>&1 || true
+        fi
+
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl restart "$service_name" >> "$LOG_FILE" 2>&1 || true
+        elif command -v service >/dev/null 2>&1; then
+            service "$service_name" restart >> "$LOG_FILE" 2>&1 || true
+        fi
+
+        LAST_RESTART_TIMESTAMP=$NOW
+        sleep 2
+
+        if is_service_active "$service_name"; then
+            log "RESTART SUCCESS: $service_name restored to active state on attempt $CONSECUTIVE_FAILURES/$MAX_RESTART_ATTEMPTS."
+            STATUS="recovering"
+            HEALTHY_SINCE=$(date +%s)
+            LAST_ACTION_MSG="Restarted successfully on attempt $CONSECUTIVE_FAILURES/$MAX_RESTART_ATTEMPTS."
+        else
+            log "RESTART FAILED: $service_name failed to start on attempt $CONSECUTIVE_FAILURES/$MAX_RESTART_ATTEMPTS."
+            STATUS="recovering"
+            LAST_ACTION_MSG="Restart attempt $CONSECUTIVE_FAILURES/$MAX_RESTART_ATTEMPTS failed."
+        fi
+
+        cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$LAST_REBOOT_TIMESTAMP
+ANTI_LOOP_HALTED=0
+HEALTHY_SINCE=$HEALTHY_SINCE
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+        [ "$test_mode" -eq 1 ] && echo "ACTION: Restarted $service_name (Attempt $CONSECUTIVE_FAILURES/$MAX_RESTART_ATTEMPTS). Current status: $STATUS"
+        return 1
+    fi
+
+    # Consecutive restarts exhausted
+    log "PERSISTENT FAILURE: $service_name failed after $MAX_RESTART_ATTEMPTS consecutive restart attempts."
+
+    if [ "$REBOOT_ON_PERSISTENT_FAILURE" -ne 1 ]; then
+        STATUS="failed"
+        LAST_ACTION_MSG="Service failed after $MAX_RESTART_ATTEMPTS restart attempts. Reboot policy is disabled."
+        cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$LAST_REBOOT_TIMESTAMP
+ANTI_LOOP_HALTED=0
+HEALTHY_SINCE=0
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+        [ "$test_mode" -eq 1 ] && echo "ALERT: $service_name persistently failed. Server reboot disabled."
+        return 2
+    fi
+
+    # ==========================================================================
+    # ANTI-BOOT-LOOP PROTECTION MATRIX
+    # ==========================================================================
+
+    # LAYER 1: Host Uptime Verification (cannot reboot right after boot)
+    local UPTIME_SEC=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+    local MIN_UPTIME_SEC=$(( MIN_UPTIME_BEFORE_REBOOT_MIN * 60 ))
+    if [ "$UPTIME_SEC" -lt "$MIN_UPTIME_SEC" ]; then
+        local msg="ANTI-LOOP TRIP [Layer 1]: Host uptime is only \${UPTIME_SEC}s (Required minimum: \${MIN_UPTIME_SEC}s). Halting reboot to prevent rapid boot loop!"
+        log "$msg"
+        STATUS="anti_loop_halted"
+        ANTI_LOOP_HALTED=1
+        LAST_ACTION_MSG="$msg"
+        cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$LAST_REBOOT_TIMESTAMP
+ANTI_LOOP_HALTED=1
+HEALTHY_SINCE=0
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+        [ "$test_mode" -eq 1 ] && echo "BLOCKED: $msg"
+        return 2
+    fi
+
+    # LAYER 2: Cooldown Verification Against Last Watchdog Reboot
+    local REBOOT_COOLDOWN_SEC=$(( REBOOT_COOLDOWN_MIN * 60 ))
+    local REBOOT_ELAPSED=$(( NOW - LAST_REBOOT_TIMESTAMP ))
+    if [ "$LAST_REBOOT_TIMESTAMP" -gt 0 ] && [ "$REBOOT_ELAPSED" -lt "$REBOOT_COOLDOWN_SEC" ]; then
+        local msg="ANTI-LOOP TRIP [Layer 2]: Last watchdog reboot was \${REBOOT_ELAPSED}s ago (Cooldown window: \${REBOOT_COOLDOWN_SEC}s). Halting reboot to prevent infinite reboot loop!"
+        log "$msg"
+        STATUS="anti_loop_halted"
+        ANTI_LOOP_HALTED=1
+        LAST_ACTION_MSG="$msg"
+        cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$LAST_REBOOT_TIMESTAMP
+ANTI_LOOP_HALTED=1
+HEALTHY_SINCE=0
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+        [ "$test_mode" -eq 1 ] && echo "BLOCKED: $msg"
+        return 2
+    fi
+
+    # LAYER 3: Sliding 24-Hour Reboot Cap
+    local DAY_AGO=$(( NOW - 86400 ))
+    local RECENT_REBOOTS=0
+    if [ -f "$REBOOT_HIST_FILE" ]; then
+        local TMP_HIST=$(mktemp 2>/dev/null || echo "/tmp/reboot_hist_$NOW")
+        awk -v cutoff="$DAY_AGO" '$1 > cutoff {print $1}' "$REBOOT_HIST_FILE" > "$TMP_HIST" 2>/dev/null || true
+        mv "$TMP_HIST" "$REBOOT_HIST_FILE" 2>/dev/null || true
+        RECENT_REBOOTS=$(wc -l < "$REBOOT_HIST_FILE" 2>/dev/null | tr -d ' ' || echo 0)
+    fi
+
+    if [ "$RECENT_REBOOTS" -ge "$MAX_REBOOTS_PER_DAY" ]; then
+        local msg="ANTI-LOOP TRIP [Layer 3]: Maximum allowed daily reboots ($MAX_REBOOTS_PER_DAY) reached in last 24 hours. Halting reboot!"
+        log "$msg"
+        STATUS="anti_loop_halted"
+        ANTI_LOOP_HALTED=1
+        LAST_ACTION_MSG="$msg"
+        cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$LAST_REBOOT_TIMESTAMP
+ANTI_LOOP_HALTED=1
+HEALTHY_SINCE=0
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+        [ "$test_mode" -eq 1 ] && echo "BLOCKED: $msg"
+        return 2
+    fi
+
+    # ==========================================================================
+    # ALL ANTI-LOOP CHECKS PASSED: EXECUTE CONTROLLED EMERGENCY REBOOT
+    # ==========================================================================
+    log "EMERGENCY ACTION: $service_name failed $MAX_RESTART_ATTEMPTS restart attempts. Anti-loop checks passed (Uptime: \${UPTIME_SEC}s, Cooldown: \${REBOOT_COOLDOWN_SEC}s). Initiating server reboot."
+    echo "$NOW" >> "$REBOOT_HIST_FILE"
+
+    STATUS="rebooting"
+    LAST_REBOOT_TIMESTAMP=$NOW
+    LAST_ACTION_MSG="Initiating controlled emergency reboot due to persistent failure of $service_name"
+    cat <<EOF > "$state_file"
+STATUS="$STATUS"
+CONSECUTIVE_FAILURES=$CONSECUTIVE_FAILURES
+LAST_CHECK_TIMESTAMP=$NOW
+LAST_RESTART_TIMESTAMP=$LAST_RESTART_TIMESTAMP
+LAST_REBOOT_TIMESTAMP=$NOW
+ANTI_LOOP_HALTED=0
+HEALTHY_SINCE=0
+LAST_ACTION_MSG="$LAST_ACTION_MSG"
+EOF
+
+    if [ "$test_mode" -eq 1 ]; then
+        echo "TEST SIMULATION: Anti-loop checks passed! In live production, server reboot would execute now."
+        return 0
+    fi
+
+    sync; sync
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl reboot || /sbin/reboot || reboot
+    else
+        /sbin/reboot || reboot
+    fi
+}
+
+run_loop() {
+    local service_name="$1"
+    local clean_name=$(clean_unit_name "$service_name")
+    local conf_file="$CONFIG_DIR/\${clean_name}.conf"
+
+    log "Starting NetTopology Watchdog daemon loop for service: $service_name"
+
+    while true; do
+        if [ ! -f "$conf_file" ]; then
+            log "Configuration removed for $service_name. Stopping watchdog loop."
+            exit 0
+        fi
+
+        CHECK_INTERVAL_SEC=30
+        ENABLED=1
+        . "$conf_file"
+
+        if [ "$ENABLED" -eq 1 ]; then
+            check_rule "$service_name" 0
+        fi
+
+        sleep "\${CHECK_INTERVAL_SEC:-30}"
+    done
+}
+
+reset_loop() {
+    local service_name="$1"
+    local clean_name=$(clean_unit_name "$service_name")
+    local state_file="$STATE_DIR/\${clean_name}.state"
+
+    log "Administrator manually reset anti-loop lock and failure counters for: $service_name"
+
+    if [ -f "$state_file" ]; then
+        cat <<EOF > "$state_file"
+STATUS="active"
+CONSECUTIVE_FAILURES=0
+LAST_CHECK_TIMESTAMP=$(date +%s)
+LAST_RESTART_TIMESTAMP=0
+LAST_REBOOT_TIMESTAMP=0
+ANTI_LOOP_HALTED=0
+HEALTHY_SINCE=$(date +%s)
+LAST_ACTION_MSG="Anti-loop lock cleared manually by administrator."
+EOF
+    fi
+    echo "SUCCESS: Anti-loop lock and failure counters reset for $service_name"
+}
+
+CMD="\${1:-help}"
+SERVICE="\${2:-}"
+
+case "$CMD" in
+    run)
+        if [ -z "$SERVICE" ]; then
+            echo "Usage: $0 run <service_name>"
+            exit 1
+        fi
+        run_loop "$SERVICE"
+        ;;
+    check-once)
+        if [ -z "$SERVICE" ]; then
+            echo "Usage: $0 check-once <service_name>"
+            exit 1
+        fi
+        check_rule "$SERVICE" 1
+        ;;
+    reset-loop)
+        if [ -z "$SERVICE" ]; then
+            echo "Usage: $0 reset-loop <service_name>"
+            exit 1
+        fi
+        reset_loop "$SERVICE"
+        ;;
+    list)
+        echo "["
+        FIRST=1
+        for f in "$CONFIG_DIR"/*.conf; do
+            [ -e "$f" ] || continue
+            [ "$FIRST" -eq 0 ] && echo ","
+            FIRST=0
+            
+            SERVICE_NAME=""
+            ENABLED=1
+            CHECK_INTERVAL_SEC=30
+            MAX_RESTART_ATTEMPTS=3
+            COOLDOWN_PERIOD_SEC=300
+            REBOOT_ON_PERSISTENT_FAILURE=0
+            REBOOT_COOLDOWN_MIN=60
+            MIN_UPTIME_BEFORE_REBOOT_MIN=5
+            MAX_REBOOTS_PER_DAY=2
+            CUSTOM_PRE_RESTART_CMD=""
+            . "$f"
+
+            clean_name=$(clean_unit_name "$SERVICE_NAME")
+            state_file="$STATE_DIR/\${clean_name}.state"
+            STATUS="unknown"
+            CONSECUTIVE_FAILURES=0
+            LAST_CHECK_TIMESTAMP=0
+            LAST_RESTART_TIMESTAMP=0
+            LAST_REBOOT_TIMESTAMP=0
+            ANTI_LOOP_HALTED=0
+            HEALTHY_SINCE=0
+            LAST_ACTION_MSG=""
+            if [ -f "$state_file" ]; then
+                . "$state_file"
+            fi
+
+            UNIT_ACTIVE="false"
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl is-active --quiet "nettopology-watchdog@\${clean_name}.service" && UNIT_ACTIVE="true"
+            fi
+
+            cat <<JSON
+  {
+    "id": "$clean_name",
+    "serviceName": "$SERVICE_NAME",
+    "enabled": $( [ "$ENABLED" -eq 1 ] && echo "true" || echo "false" ),
+    "checkIntervalSeconds": \${CHECK_INTERVAL_SEC:-30},
+    "maxRestartAttempts": \${MAX_RESTART_ATTEMPTS:-3},
+    "cooldownPeriodSeconds": \${COOLDOWN_PERIOD_SEC:-300},
+    "rebootOnPersistentFailure": $( [ "$REBOOT_ON_PERSISTENT_FAILURE" -eq 1 ] && echo "true" || echo "false" ),
+    "rebootCooldownMinutes": \${REBOOT_COOLDOWN_MIN:-60},
+    "minUptimeBeforeRebootMinutes": \${MIN_UPTIME_BEFORE_REBOOT_MIN:-5},
+    "maxRebootsPerDay": \${MAX_REBOOTS_PER_DAY:-2},
+    "customPreRestartCommand": $(echo "$CUSTOM_PRE_RESTART_CMD" | jq -R . 2>/dev/null || echo "\"$CUSTOM_PRE_RESTART_CMD\""),
+    "status": "$STATUS",
+    "consecutiveFailures": \${CONSECUTIVE_FAILURES:-0},
+    "lastCheckTimestamp": \${LAST_CHECK_TIMESTAMP:-0},
+    "lastRestartTimestamp": \${LAST_RESTART_TIMESTAMP:-0},
+    "lastRebootTimestamp": \${LAST_REBOOT_TIMESTAMP:-0},
+    "antiLoopHalted": $( [ "\${ANTI_LOOP_HALTED:-0}" -eq 1 ] && echo "true" || echo "false" ),
+    "systemdUnitActive": $UNIT_ACTIVE,
+    "lastActionMessage": $(echo "$LAST_ACTION_MSG" | jq -R . 2>/dev/null || echo "\"$LAST_ACTION_MSG\"")
+  }
+JSON
+        done
+        echo "]"
+        ;;
+    *)
+        echo "NetTopology Watchdog CLI"
+        echo "Usage: $0 {run|check-once|reset-loop|list} [service_name]"
+        exit 1
+        ;;
+esac
+`;
+
+const WATCHDOG_SYSTEMD_TEMPLATE = `[Unit]
+Description=NetTopology Service Watchdog & Auto-Recovery for %I
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nettopology-watchdog.sh run %I
+Restart=always
+RestartSec=10
+KillMode=process
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+`;
+
+/**
+ * Ensures the NetTopology watchdog engine script and systemd unit template
+ * are installed on the remote Linux host.
+ */
+export async function ensureWatchdogAgentInstalledSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<void> {
+  const runnerB64 = Buffer.from(WATCHDOG_RUNNER_BASH_SCRIPT).toString('base64');
+  const unitB64 = Buffer.from(WATCHDOG_SYSTEMD_TEMPLATE).toString('base64');
+
+  const installScript = `export LC_ALL=C
+sudo mkdir -p /etc/nettopology-watchdog/rules.d /var/lib/nettopology-watchdog /etc/systemd/system
+
+# Deploy runner script
+echo "${runnerB64}" | base64 -d | sudo tee /usr/local/bin/nettopology-watchdog.sh >/dev/null
+sudo chmod +x /usr/local/bin/nettopology-watchdog.sh
+
+# Deploy systemd unit template
+echo "${unitB64}" | base64 -d | sudo tee /etc/systemd/system/nettopology-watchdog@.service >/dev/null
+
+if command -v systemctl >/dev/null 2>&1; then
+  sudo systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+echo "WATCHDOG_INSTALLED_OK"
+`;
+
+  await runAdaptiveSshCommand(server, installScript, ephemeralPassword, 12000);
+}
+
+/**
+ * Fetches all configured watchdog rules and live states from the remote Linux server
+ */
+export async function fetchLinuxServiceWatchdogsSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<LinuxServiceWatchdogRule[]> {
+  const cmd = `export LC_ALL=C
+if [ -x /usr/local/bin/nettopology-watchdog.sh ]; then
+  sudo /usr/local/bin/nettopology-watchdog.sh list 2>/dev/null || echo "[]"
+else
+  echo "[]"
+fi
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 10000);
+    const jsonStart = output.indexOf('[');
+    const jsonEnd = output.lastIndexOf(']');
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      const jsonStr = output.substring(jsonStart, jsonEnd + 1);
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any) => ({
+          id: item.id || (item.serviceName ? item.serviceName.replace(/[^a-zA-Z0-9_@.-]/g, '_') : 'watchdog'),
+          serviceName: item.serviceName || '',
+          enabled: item.enabled !== false,
+          checkIntervalSeconds: Number(item.checkIntervalSeconds) || 30,
+          maxRestartAttempts: Number(item.maxRestartAttempts) || 3,
+          cooldownPeriodSeconds: Number(item.cooldownPeriodSeconds) || 300,
+          rebootOnPersistentFailure: Boolean(item.rebootOnPersistentFailure),
+          rebootCooldownMinutes: Number(item.rebootCooldownMinutes) || 60,
+          minUptimeBeforeRebootMinutes: Number(item.minUptimeBeforeRebootMinutes) || 5,
+          maxRebootsPerDay: Number(item.maxRebootsPerDay) || 2,
+          customPreRestartCommand: item.customPreRestartCommand || '',
+          createdAt: item.createdAt || new Date().toISOString(),
+          updatedAt: item.updatedAt || new Date().toISOString(),
+          status: item.status || 'active',
+          consecutiveFailures: Number(item.consecutiveFailures) || 0,
+          lastCheckTimestamp: Number(item.lastCheckTimestamp) || 0,
+          lastRestartTimestamp: Number(item.lastRestartTimestamp) || 0,
+          lastRebootTimestamp: Number(item.lastRebootTimestamp) || 0,
+          lastActionMessage: item.lastActionMessage || '',
+          systemdUnitActive: Boolean(item.systemdUnitActive),
+        }));
+      }
+    }
+    return [];
+  } catch (err: any) {
+    console.error(`[Watchdog fetch error for server ${server.id}]:`, err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * Saves or updates a service watchdog rule and starts/enables its systemd unit on the remote host
+ */
+export async function saveLinuxServiceWatchdogSSH(
+  server: RemoteServer,
+  rule: LinuxServiceWatchdogRule,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; rule?: LinuxServiceWatchdogRule }> {
+  const cleanName = (rule.serviceName || '').trim().replace(/[^a-zA-Z0-9_@.-]/g, '_');
+  if (!cleanName) {
+    throw new Error('Valid service name is required.');
+  }
+
+  // Ensure agent is installed
+  await ensureWatchdogAgentInstalledSSH(server, ephemeralPassword);
+
+  const confContent = `SERVICE_NAME="${rule.serviceName}"
+ENABLED=${rule.enabled !== false ? 1 : 0}
+CHECK_INTERVAL_SEC=${Math.max(10, Math.min(3600, rule.checkIntervalSeconds || 30))}
+MAX_RESTART_ATTEMPTS=${Math.max(1, Math.min(20, rule.maxRestartAttempts || 3))}
+COOLDOWN_PERIOD_SEC=${Math.max(30, Math.min(86400, rule.cooldownPeriodSeconds || 300))}
+REBOOT_ON_PERSISTENT_FAILURE=${rule.rebootOnPersistentFailure ? 1 : 0}
+REBOOT_COOLDOWN_MIN=${Math.max(10, Math.min(1440, rule.rebootCooldownMinutes || 60))}
+MIN_UPTIME_BEFORE_REBOOT_MIN=${Math.max(1, Math.min(120, rule.minUptimeBeforeRebootMinutes || 5))}
+MAX_REBOOTS_PER_DAY=${Math.max(1, Math.min(10, rule.maxRebootsPerDay || 2))}
+CUSTOM_PRE_RESTART_CMD="${(rule.customPreRestartCommand || '').replace(/"/g, '\\"')}"
+`;
+
+  const confB64 = Buffer.from(confContent).toString('base64');
+
+  const applyScript = `export LC_ALL=C
+sudo mkdir -p /etc/nettopology-watchdog/rules.d /var/lib/nettopology-watchdog
+echo "${confB64}" | base64 -d | sudo tee "/etc/nettopology-watchdog/rules.d/${cleanName}.conf" >/dev/null
+
+if [ "${rule.enabled !== false ? 1 : 0}" -eq 1 ]; then
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo systemctl daemon-reload >/dev/null 2>&1 || true
+    sudo systemctl enable --now "nettopology-watchdog@${cleanName}.service" 2>&1
+  fi
+else
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo systemctl stop "nettopology-watchdog@${cleanName}.service" 2>&1 || true
+    sudo systemctl disable "nettopology-watchdog@${cleanName}.service" 2>&1 || true
+  fi
+fi
+echo "WATCHDOG_RULE_SAVED_OK"
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, applyScript, ephemeralPassword, 15000);
+    if (!output.includes('WATCHDOG_RULE_SAVED_OK')) {
+      return {
+        success: false,
+        message: output.trim() || 'Failed to deploy watchdog rule to server.',
+      };
+    }
+
+    const updatedRule: LinuxServiceWatchdogRule = {
+      ...rule,
+      id: cleanName,
+      status: rule.enabled !== false ? 'active' : 'inactive',
+      updatedAt: new Date().toISOString(),
+    };
+
+    return {
+      success: true,
+      message: `Watchdog rule for ${rule.serviceName} successfully configured and activated.`,
+      rule: updatedRule,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to apply watchdog rule for ${rule.serviceName}`,
+    };
+  }
+}
+
+/**
+ * Deletes a watchdog rule, stops the systemd service, and cleans up configuration on the remote host
+ */
+export async function deleteLinuxServiceWatchdogSSH(
+  server: RemoteServer,
+  serviceName: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const cleanName = (serviceName || '').trim().replace(/[^a-zA-Z0-9_@.-]/g, '_');
+  if (!cleanName) {
+    throw new Error('Valid service name is required.');
+  }
+
+  const deleteScript = `export LC_ALL=C
+if command -v systemctl >/dev/null 2>&1; then
+  sudo systemctl stop "nettopology-watchdog@${cleanName}.service" 2>&1 || true
+  sudo systemctl disable "nettopology-watchdog@${cleanName}.service" 2>&1 || true
+  sudo systemctl reset-failed "nettopology-watchdog@${cleanName}.service" 2>&1 || true
+fi
+sudo rm -f "/etc/nettopology-watchdog/rules.d/${cleanName}.conf"
+sudo rm -f "/var/lib/nettopology-watchdog/${cleanName}.state"
+echo "WATCHDOG_DELETED_OK"
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, deleteScript, ephemeralPassword, 10000);
+    return {
+      success: true,
+      message: `Watchdog rule for ${serviceName} successfully removed.`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to delete watchdog rule for ${serviceName}`,
+    };
+  }
+}
+
+/**
+ * Runs a single diagnostic test evaluation pass for a watchdog rule on the remote server
+ */
+export async function testLinuxServiceWatchdogCheckSSH(
+  server: RemoteServer,
+  serviceName: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; output: string }> {
+  const cleanName = (serviceName || '').trim().replace(/[^a-zA-Z0-9_@.-]/g, '_');
+  if (!cleanName) {
+    throw new Error('Valid service name is required.');
+  }
+
+  const testScript = `export LC_ALL=C
+if [ ! -x /usr/local/bin/nettopology-watchdog.sh ]; then
+  echo "ERROR: NetTopology watchdog agent not yet installed on host."
+  exit 1
+fi
+sudo /usr/local/bin/nettopology-watchdog.sh check-once "${serviceName}" 2>&1
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, testScript, ephemeralPassword, 12000);
+    return {
+      success: true,
+      output: output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      output: err?.message || `Failed to run diagnostic test for ${serviceName}`,
+    };
+  }
+}
+
+/**
+ * Manually resets the anti-loop trip lock and consecutive failure counters on the remote server
+ */
+export async function resetLinuxServiceWatchdogAntiLoopSSH(
+  server: RemoteServer,
+  serviceName: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string }> {
+  const cleanName = (serviceName || '').trim().replace(/[^a-zA-Z0-9_@.-]/g, '_');
+  if (!cleanName) {
+    throw new Error('Valid service name is required.');
+  }
+
+  const resetScript = `export LC_ALL=C
+if [ ! -x /usr/local/bin/nettopology-watchdog.sh ]; then
+  echo "ERROR: Watchdog runner not found."
+  exit 1
+fi
+sudo /usr/local/bin/nettopology-watchdog.sh reset-loop "${serviceName}" 2>&1
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, resetScript, ephemeralPassword, 10000);
+    return {
+      success: true,
+      message: output.trim() || `Anti-loop lock cleared for ${serviceName}.`,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || `Failed to reset anti-loop lock for ${serviceName}`,
+    };
+  }
+}
+
+/**
+ * Fetches recent watchdog execution audit logs from /var/log/nettopology-watchdog.log on the remote host
+ */
+export async function fetchLinuxWatchdogLogsSSH(
+  server: RemoteServer,
+  lines: number = 100,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; logs: string }> {
+  const lineCount = Math.max(10, Math.min(1000, lines));
+  const cmd = `export LC_ALL=C
+if [ -f /var/log/nettopology-watchdog.log ]; then
+  sudo tail -n ${lineCount} /var/log/nettopology-watchdog.log 2>/dev/null
+else
+  echo "No watchdog activity logged yet on this server."
+fi
+`;
+
+  try {
+    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 8000);
+    return {
+      success: true,
+      logs: output.trim(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      logs: `Failed to fetch watchdog logs: ${err?.message || err}`,
     };
   }
 }

@@ -23,6 +23,7 @@ import {
   LinuxProxyConfig,
   LinuxBlockDevice,
   LinuxMountPayload,
+  LinuxServiceWatchdogRule,
   LinuxDnsConfig,
   LinuxFail2banStatus,
   LinuxHostEntry,
@@ -1285,6 +1286,166 @@ export async function controlLinuxServerService(
   const data = await res.json().catch(() => ({
     success: false,
     message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxServiceWatchdogs(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  watchdogs: LinuxServiceWatchdogRule[];
+  error?: string;
+}> {
+  const params = new URLSearchParams();
+  if (ephemeralPassword) {
+    params.set('password', ephemeralPassword);
+  }
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-watchdogs${qs}`);
+  const data = await res.json().catch(() => ({
+    success: false,
+    watchdogs: [],
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function saveLinuxServiceWatchdog(
+  serverId: string,
+  rule: LinuxServiceWatchdogRule,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  rule?: LinuxServiceWatchdogRule;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-watchdogs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rule, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function deleteLinuxServiceWatchdog(
+  serverId: string,
+  serviceName: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-watchdogs/${encodeURIComponent(serviceName)}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword }),
+    }
+  );
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function testLinuxServiceWatchdog(
+  serverId: string,
+  serviceName: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  output: string;
+  error?: string;
+}> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-watchdogs/${encodeURIComponent(serviceName)}/test`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword }),
+    }
+  );
+  const data = await res.json().catch(() => ({
+    success: false,
+    output: '',
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function resetLinuxServiceWatchdogAntiLoop(
+  serverId: string,
+  serviceName: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-watchdogs/${encodeURIComponent(serviceName)}/reset-loop`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword }),
+    }
+  );
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxWatchdogLogs(
+  serverId: string,
+  lines: number = 100,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  logs: string;
+  error?: string;
+}> {
+  const params = new URLSearchParams();
+  params.set('lines', String(lines));
+  if (ephemeralPassword) {
+    params.set('password', ephemeralPassword);
+  }
+  const res = await fetch(
+    `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/service-watchdog-logs?${params.toString()}`
+  );
+  const data = await res.json().catch(() => ({
+    success: false,
+    logs: '',
+    error: 'Failed to parse response from server',
   }));
   if (!res.ok && !data.error) {
     data.error = `HTTP Error ${res.status}`;
