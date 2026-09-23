@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.119.0';
+export const APP_VERSION = '1.119.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.119.1',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'تعبیه تب مستقیم سیاست‌های دایرکتوری و بکاپ در نوار اصلی مودال مانیتور سرورهای لینوکس و بخش دیسک‌ها',
+    title_en: 'Direct Directory Lifecycle & Backups Tab in Linux Server Monitor Modal & Storage Quick Actions',
+    changes: [
+      'افزودن مستقیم تب «سیاست‌های دایرکتوری و بکاپ» (Directory Lifecycle & Backups) به نوار تب‌های اصلی پنجره مانیتور زنده سرورهای لینوکس (LinuxServerMonitorModal).',
+      'تعبیه دکمه دسترسی سریع در تب ذخیره‌سازی و دیسک‌ها (Storage & Disks) جهت انتقال مستقیم به مدیریت سیاست‌های دایرکتوری و بکاپ.',
+      'همگام‌سازی کامل رمز موقت SSH و اطلاعات احراز هویت نشست بین تب مانیتور و تب مدیریت سیاست‌های دایرکتوری.',
+    ],
+    changes_en: [
+      'Added direct "Directory Lifecycle & Backups" tab to the primary tab navigation bar of the Linux Server Monitor Modal (LinuxServerMonitorModal).',
+      'Embedded a quick-action shortcut button in the Storage & Disks tab to jump directly to directory lifecycle and backup management.',
+      'Synchronized ephemeral SSH session credentials seamlessly between monitor telemetry and directory policy automation workflows.',
+    ],
+  },
   {
     version: '1.119.0',
     releaseDate: '2026-09-23',

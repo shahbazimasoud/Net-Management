@@ -40,6 +40,7 @@ import {
   Settings,
   Plus,
   FolderMinus,
+  FolderCog,
   FileText,
 } from 'lucide-react';
 import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService, LinuxNetworkInterfaceDetail, LinuxSystemDetailedInfo } from '../../types';
@@ -59,6 +60,7 @@ import { LinuxLogsTab } from './LinuxLogsTab';
 import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
+import { LinuxDirectoryPolicyTab } from './LinuxDirectoryPolicyTab';
 import { useModalDock } from '../../context/ModalDockContext';
 
 export interface LinuxServerMonitorModalProps {
@@ -96,7 +98,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [ephemeralPassword, setEphemeralPassword] = useState(sessionPassword || '');
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(3000); // 3 seconds default
   const [history, setHistory] = useState<HistoricalDataPoint[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'network' | 'users' | 'sysconfig' | 'logs'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'directories' | 'network' | 'users' | 'sysconfig' | 'logs'>('overview');
   const [processSearch, setProcessSearch] = useState('');
   const [sortProcessBy, setSortProcessBy] = useState<'cpu' | 'mem'>('cpu');
 
@@ -950,6 +952,21 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
 
             <button
               type="button"
+              onClick={() => setActiveTab('directories')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'directories'
+                  ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <FolderCog className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isEn ? 'Directory Lifecycle & Backups' : 'سیاست‌های دایرکتوری و بکاپ'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('network')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'network'
@@ -1677,6 +1694,14 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('directories')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 transition-colors shadow-sm cursor-pointer"
+                      >
+                        <FolderCog className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{isEn ? 'Directory Policies & Backups' : 'سیاست‌های دایرکتوری و بکاپ'}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setShowMountModal(true)}
@@ -2481,6 +2506,18 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                     if (server) server.ssh_port = newPort;
                   }}
                 />
+              )}
+
+              {/* TAB: DIRECTORY POLICIES & BACKUPS */}
+              {activeTab === 'directories' && server && (
+                <div className="space-y-4">
+                  <LinuxDirectoryPolicyTab
+                    server={server}
+                    ephemeralPassword={ephemeralPassword}
+                    isLightMode={isLightMode}
+                    isEn={isEn}
+                  />
+                </div>
               )}
 
               {/* TAB 7: LINUX SYSTEM LOGS */}
