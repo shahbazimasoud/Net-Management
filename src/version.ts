@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.130.0';
+export const APP_VERSION = '1.130.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.130.1',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'تغییر عنوان مودال مانیتور سرورهای لینوکس به Server Management (مدیریت سرور) در تمامی بخش‌ها و منوها',
+    title_en: 'Renamed Linux Server Monitor Modal to "Server Management" Across All Views, Actions, and Navigation Menus',
+    changes: [
+      'تغییر نام گزینه "Live Resource Monitor" به "Server Management" (مدیریت سرور) در منوی سه‌نقطه سرورها.',
+      'افزودن برچسب اختصاصی Server Management در هدر اصلی مودال مدیریت سرور لینوکس در کنار نام و مشخصات سیستم.',
+      'به‌روزرسانی عناوین دکمه‌های کنترلی، بستن، و لیبل تب داک‌شده در ToolsDock به مدیریت سرور.',
+    ],
+    changes_en: [
+      'Renamed "Live Resource Monitor" to "Server Management" in the 3-dot server action dropdown menu.',
+      'Added a dedicated "Server Management" badge directly into the header of LinuxServerMonitorModal alongside host specifications.',
+      'Updated action button tooltips, close titles, and minimized ToolsDock tabs to "Server Management".',
+    ],
+  },
   {
     version: '1.130.0',
     releaseDate: '2026-09-23',

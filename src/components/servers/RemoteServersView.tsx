@@ -533,8 +533,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (monitorServer) {
       dockModal({
         id: `linux_mon_${monitorServer.id}`,
-        labelEn: `${monitorServer.name} Monitor`,
-        labelFa: `مانیتور ${monitorServer.name}`,
+        labelEn: `${monitorServer.name} - Server Management`,
+        labelFa: `مدیریت سرور ${monitorServer.name}`,
         badge: 'LIVE',
         category: 'tools',
         onRestore: () => setIsMonitorModalOpen(true),
@@ -1680,10 +1680,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                         type="button"
                         onClick={() => handleOpenLinuxMonitor(server)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-cyan-400 hover:bg-cyan-300 shadow-md transition-all cursor-pointer"
-                        title={isEn ? 'Open Live Resource & Telemetry Monitor' : 'مشاهده مانیتورینگ زنده منابع سرور'}
+                        title={isEn ? 'Open Server Management' : 'مشاهده و مدیریت کامل سرور'}
                       >
                         <Activity className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Monitor' : 'مانیتور'}</span>
+                        <span>{isEn ? 'Management' : 'مدیریت'}</span>
                       </button>
                       <button
                         type="button"
@@ -1799,9 +1799,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                 type="button"
                                 onClick={() => handleOpenLinuxMonitor(server)}
                                 className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-400 text-slate-950 hover:bg-cyan-300 cursor-pointer shadow-sm"
-                                title={isEn ? 'Open Live Resource & Telemetry Monitor' : 'مشاهده مانیتورینگ زنده منابع سرور'}
+                                title={isEn ? 'Open Server Management' : 'مشاهده و مدیریت کامل سرور'}
                               >
-                                {isEn ? 'Monitor' : 'مانیتور'}
+                                {isEn ? 'Manage' : 'مدیریت'}
                               </button>
                               <button
                                 type="button"
@@ -1930,8 +1930,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     >
                       <Activity className="w-4 h-4 text-cyan-400 shrink-0" />
                       <div className="flex flex-col">
-                        <span>{isEn ? 'Live Resource Monitor' : 'مانیتورینگ زنده منابع'}</span>
-                        <span className="text-[10px] text-cyan-400/80 font-mono">CPU, RAM, Disk & Network</span>
+                        <span>{isEn ? 'Server Management' : 'مدیریت سرور'}</span>
+                        <span className="text-[10px] text-cyan-400/80 font-mono">Overview, Storage, Services & Config</span>
                       </div>
                     </button>
 

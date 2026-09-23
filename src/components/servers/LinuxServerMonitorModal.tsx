@@ -816,6 +816,9 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                 <h2 className="text-sm sm:text-base font-bold tracking-tight truncate">
                   {server.name}
                 </h2>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                  {isEn ? 'Server Management' : 'مدیریت سرور'}
+                </span>
                 <span className="text-xs font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
                   {server.ip}:{server.ssh_port || 22}
                 </span>
@@ -897,7 +900,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
             <button
               type="button"
               onClick={onClose}
-              title={isEn ? 'Close Monitor' : 'بستن مانیتور'}
+              title={isEn ? 'Close Server Management' : 'بستن مدیریت سرور'}
               className="p-2 rounded-lg border border-rose-500/20 text-rose-400 hover:bg-rose-500/15 transition cursor-pointer"
             >
               <X className="w-4 h-4" />
