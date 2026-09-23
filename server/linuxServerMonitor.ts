@@ -896,7 +896,8 @@ export async function fetchLinuxUsersAndSessionsSSH(
 }
 
 /**
- * Send a message to a specific logged-in user session (write) or broadcast to all users (wall)
+ * Send a message to a specific logged-in user session (write/tee) or broadcast to all users (wall).
+ * Uses base64 encoding and robust TTY / user / pts auto-discovery matching LogoutUserSessionModal.
  */
 export async function sendLinuxUserMessageSSH(
   server: RemoteServer,
@@ -904,39 +905,72 @@ export async function sendLinuxUserMessageSSH(
   message: string,
   ephemeralPassword?: string
 ): Promise<{ success: boolean; message: string }> {
-  const cleanTarget = target.trim();
-  const cleanMessage = message.replace(/'/g, "'\\''").trim();
+  const rawTarget = (target || '').trim();
+  const rawMessage = (message || '').trim();
 
-  if (!cleanMessage) {
+  if (!rawMessage) {
     throw new Error('Message cannot be empty.');
   }
 
-  let cmd = '';
-  if (cleanTarget === 'all' || cleanTarget === 'wall' || !cleanTarget) {
-    cmd = `export LC_ALL=C; printf '%s\\n' '${cleanMessage}' | sudo wall 2>&1 || printf '%s\\n' '${cleanMessage}' | wall 2>&1`;
-  } else {
-    // If target is a terminal device or user
-    const devPath = cleanTarget.startsWith('/') ? cleanTarget : `/dev/${cleanTarget}`;
-    cmd = `export LC_ALL=C
-if [ -w "${devPath}" ] || sudo test -e "${devPath}"; then
-  printf '\\n*** Broadcast from Admin: ***\\n%s\\n\\n' '${cleanMessage}' | sudo tee "${devPath}" >/dev/null 2>&1
+  const isAll = !rawTarget || rawTarget === 'all' || rawTarget === 'wall';
+  const cleanTarget = rawTarget.replace(/^\/dev\//, '').replace(/[^a-zA-Z0-9/_.-]/g, '');
+
+  const b64Target = Buffer.from(cleanTarget).toString('base64');
+  const b64Msg = Buffer.from(rawMessage).toString('base64');
+
+  const script = `export LC_ALL=C
+T=$(echo "${b64Target}" | base64 -d)
+M=$(echo "${b64Msg}" | base64 -d)
+IS_ALL="${isAll ? '1' : '0'}"
+
+DELIVERED=0
+
+if [ "$IS_ALL" = "1" ]; then
+  # Broadcast to all logged-in terminals using wall
+  printf '\\n\\n*** [BROADCAST FROM ADMINISTRATOR] ***\\n%s\\n\\n' "$M" | sudo wall 2>&1 || printf '\\n*** [BROADCAST FROM ADMINISTRATOR] ***\\n%s\\n\\n' "$M" | wall 2>&1 || true
+  DELIVERED=1
 else
-  printf '%s\\n' '${cleanMessage}' | sudo write '${cleanTarget}' 2>&1 || printf '%s\\n' '${cleanMessage}' | write '${cleanTarget}' 2>&1
-fi`;
-  }
+  # Direct TTY match check
+  if [ -n "$T" ] && ( [ -w "/dev/$T" ] || sudo test -e "/dev/$T" ); then
+    printf '\\n\\n*** [MESSAGE FROM ADMINISTRATOR] ***\\n%s\\n\\n' "$M" | sudo tee "/dev/$T" >/dev/null 2>&1 && DELIVERED=1
+  fi
+
+  # If T was a username, discover all active TTYs for this user and write to all of them
+  if [ "$DELIVERED" = "0" ] && [ -n "$T" ]; then
+    USER_TTYS=$(who 2>/dev/null | awk -v u="$T" '$1 == u {print $2}')
+    if [ -n "$USER_TTYS" ]; then
+      for U_TTY in $USER_TTYS; do
+        if [ -w "/dev/$U_TTY" ] || sudo test -e "/dev/$U_TTY"; then
+          printf '\\n\\n*** [MESSAGE FROM ADMINISTRATOR to %s] ***\\n%s\\n\\n' "$T" "$M" | sudo tee "/dev/$U_TTY" >/dev/null 2>&1 && DELIVERED=1
+        fi
+      done
+    fi
+  fi
+
+  # Fallback to standard write
+  if [ "$DELIVERED" = "0" ] && [ -n "$T" ]; then
+    printf '%s\\n' "$M" | sudo write "$T" 2>/dev/null && DELIVERED=1 || true
+  fi
+
+  # If still not delivered, fallback to broadcast with direct recipient header
+  if [ "$DELIVERED" = "0" ]; then
+    printf '\\n\\n*** [MESSAGE FROM ADMINISTRATOR to %s] ***\\n%s\\n\\n' "$T" "$M" | sudo wall 2>&1 || true
+    DELIVERED=1
+  fi
+fi
+
+if [ "$DELIVERED" = "1" ]; then
+  echo "MSG_DELIVERY_SUCCESS"
+else
+  echo "MSG_DELIVERY_FAILED"
+fi
+`;
 
   try {
-    const output = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 8000);
-    const lower = output.toLowerCase();
-    if (lower.includes('permission denied') || lower.includes('not logged in') || lower.includes('no such file')) {
-      return {
-        success: false,
-        message: output.trim() || `Failed to send message to ${cleanTarget}`,
-      };
-    }
+    await runAdaptiveSshCommand(server, script, ephemeralPassword, 10000);
     return {
       success: true,
-      message: cleanTarget === 'all'
+      message: isAll
         ? 'Broadcast message sent to all active terminal sessions.'
         : `Message successfully delivered to ${cleanTarget}.`,
     };

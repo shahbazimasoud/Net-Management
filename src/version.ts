@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.121.0';
+export const APP_VERSION = '1.122.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.122.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'بازنویسی استاندارد و ارتقای ماژول Broadcast / Send Terminal Message با ساختار Base64 و مودال مستقل ۵ گانه',
+    title_en: 'Universal Broadcast / Send Terminal Message Refactor with Base64 Encoding & Modal Standards',
+    changes: [
+      'اصلاح و ارتقای ساختار ارسال پیام ترمینال (Broadcast / Send Terminal Message) با استفاده از معماری انکودینگ امن Base64 مشابه مودال خروج نشست.',
+      'رفع خطای ارسال پیام به آی‌پی یا ترمینال اشتباه با تفکیک دقیق نام کاربری و TTY و ارسال مستقیم به پایانه شبه‌ترمینال (/dev/pts/X) و write چندگانه.',
+      'طراحی و پیاده‌سازی کامپوننت مستقل SendTerminalMessageModal با رعایت کامل ۵ استاندارد اجباری Universal Modal (دکمه‌های سه‌گانه، مینیمایز، تمام‌صفحه با حریم bottom-8، پشتیبانی از تم تاریک/روشن و تول‌تیپ سه‌بخشی Info).',
+      'افزودن دکمه دسترسی سریع «Broadcast Message / ارسال پیام همگانی» در هدر بخش Currently Logged-In Users جهت ارسال پیام‌های عمومی فوری به کل کاربران.',
+      'پشتیبانی از قالب‌های آماده پیام (تعمیرات، هشدار مصرف منابع و اطلاعیه) همراه با نمایش زنده کارت مشخصات ترمینال، آی‌پی کاربر متصل و مدت زمان بیکاری.'
+    ],
+    changes_en: [
+      'Refactored the Terminal Message / Broadcast engine using robust Base64 encoding and direct TTY streaming identical to the session logout architecture.',
+      'Resolved destination mismatch and inaccurate IP routing by correctly isolating TTY endpoints (/dev/pts/X), multi-session user lookup, and adaptive write fallback.',
+      'Created standalone SendTerminalMessageModal adhering strictly to the 5 Universal Modal Architectural standards (3 header controls, minimization, fullscreen with bottom-8 footer clearance, dark/light contrast, and 3-part Info tooltip).',
+      'Added a quick-access "Broadcast Message" button directly inside the Currently Logged-In Users section header for fast server-wide announcements.',
+      'Integrated quick-message templates (maintenance, warning, administrative notice) alongside live session inspect cards showing remote IP, TTY, and idle duration.'
+    ],
+  },
   {
     version: '1.121.0',
     releaseDate: '2026-09-23',

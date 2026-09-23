@@ -29,7 +29,6 @@ import {
 import { RemoteServer, LinuxSystemUser, LinuxLoggedInUser, LinuxSystemGroup } from '../../types';
 import {
   fetchLinuxServerUsers,
-  sendLinuxServerUserMessage,
   toggleLinuxUserLock,
   createLinuxGroup,
 } from '../../services/api';
@@ -39,6 +38,7 @@ import { ChangePasswordModal } from './users/ChangePasswordModal';
 import { ManageUserGroupsModal } from './users/ManageUserGroupsModal';
 import { DeleteUserModal } from './users/DeleteUserModal';
 import { LogoutUserSessionModal } from './users/LogoutUserSessionModal';
+import { SendTerminalMessageModal } from './users/SendTerminalMessageModal';
 
 interface LinuxUsersTabProps {
   server: RemoteServer;
@@ -84,12 +84,9 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
   // User Lock/Unlock in-flight indicator
   const [lockingUsername, setLockingUsername] = useState<string | null>(null);
 
-  // Terminal Message Sending State
+  // Terminal Message Modal State
   const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
   const [messageTarget, setMessageTarget] = useState<string>('all');
-  const [messageText, setMessageText] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
-  const [messageFeedback, setMessageFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const loadUserData = useCallback(async () => {
     setLoading(true);
@@ -172,41 +169,6 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
       setError(err?.message || (isEn ? 'Network error creating group' : 'خطای شبکه در ساخت گروه'));
     } finally {
       setCreatingGroup(false);
-    }
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!messageText.trim()) return;
-
-    setSendingMessage(true);
-    setMessageFeedback(null);
-
-    try {
-      const res = await sendLinuxServerUserMessage(server.id, messageTarget, messageText.trim(), ephemeralPassword);
-      if (res.success) {
-        setMessageFeedback({
-          message: res.message || (isEn ? 'Message broadcasted successfully' : 'پیام با موفقیت ارسال شد'),
-          type: 'success',
-        });
-        setMessageText('');
-        setTimeout(() => {
-          setIsMessageModalOpen(false);
-          setMessageFeedback(null);
-        }, 2000);
-      } else {
-        setMessageFeedback({
-          message: res.message || res.error || (isEn ? 'Failed to deliver message' : 'خطا در ارسال پیام'),
-          type: 'error',
-        });
-      }
-    } catch (err: any) {
-      setMessageFeedback({
-        message: err?.message || (isEn ? 'Network error delivering message' : 'خطای شبکه در ارسال پیام'),
-        type: 'error',
-      });
-    } finally {
-      setSendingMessage(false);
     }
   };
 
@@ -362,15 +324,30 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
             </div>
           </div>
 
-          <span
-            className={`text-xs font-mono px-2 py-0.5 rounded-full border ${
-              loggedInUsers.length > 0
-                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
-            }`}
-          >
-            {loggedInUsers.length > 0 ? (isEn ? 'Live Sessions' : 'آنلاین') : (isEn ? 'No Active TTY' : 'بدون نشست فعال')}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMessageTarget('all');
+                setIsMessageModalOpen(true);
+              }}
+              title={isEn ? 'Broadcast message to all users' : 'ارسال پیام همگانی به همه کاربران'}
+              className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-400 border border-cyan-500/30 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Broadcast Message' : 'ارسال پیام همگانی'}</span>
+            </button>
+
+            <span
+              className={`text-xs font-mono px-2 py-0.5 rounded-full border ${
+                loggedInUsers.length > 0
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                  : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+              }`}
+            >
+              {loggedInUsers.length > 0 ? (isEn ? 'Live Sessions' : 'آنلاین') : (isEn ? 'No Active TTY' : 'بدون نشست فعال')}
+            </span>
+          </div>
         </div>
 
         {loggedInUsers.length === 0 ? (
@@ -931,124 +908,20 @@ export const LinuxUsersTab: React.FC<LinuxUsersTabProps> = ({
         )}
       </div>
 
-      {/* Message Modal */}
+      {/* Broadcast / Send Terminal Message Modal */}
       {isMessageModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div
-            className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl space-y-4 ${
-              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700 text-white'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-400">
-                  <Send className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold">
-                    {isEn ? 'Broadcast / Send Terminal Message' : 'ارسال پیام به کنسول ترمینال'}
-                  </h3>
-                  <span className="text-xs text-slate-400 font-mono">
-                    Target: {messageTarget === 'all' ? (isEn ? 'Broadcast to ALL (wall)' : 'عمومی (wall)') : messageTarget}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsMessageModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {messageFeedback && (
-              <div
-                className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
-                  messageFeedback.type === 'success'
-                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                    : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
-                }`}
-              >
-                {messageFeedback.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                )}
-                <span className="font-mono">{messageFeedback.message}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSendMessage} className="space-y-4">
-              <div>
-                <label className="text-xs font-semibold block mb-1">
-                  {isEn ? 'Recipient' : 'گیرنده پیام'}
-                </label>
-                <select
-                  value={messageTarget}
-                  onChange={(e) => setMessageTarget(e.target.value)}
-                  className={`w-full px-3 py-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-2 focus:ring-cyan-500 ${
-                    isLightMode
-                      ? 'bg-slate-50 border-slate-300 text-slate-800'
-                      : 'bg-slate-950 border-slate-700 text-white'
-                  }`}
-                >
-                  <option value="all">{isEn ? '📢 Broadcast to ALL (wall command)' : '📢 ارسال همگانی به تمامی کاربران (دستور wall)'}</option>
-                  {loggedInUsers.map((u) => (
-                    <option key={`${u.user}-${u.tty}`} value={u.tty || u.user}>
-                      {u.user} ({u.tty} - {u.from || 'local'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold block mb-1">
-                  {isEn ? 'Message Text' : 'متن پیام کنسول'}
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder={
-                    isEn
-                      ? 'e.g., Server maintenance scheduled in 10 minutes. Please save your work.'
-                      : 'مثال: تعمیرات سرور تا ۱۰ دقیقه دیگر آغاز می‌شود. لطفاً اطلاعات خود را ذخیره کنید.'
-                  }
-                  value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
-                  className={`w-full px-3 py-2 rounded-lg text-xs font-mono border focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none ${
-                    isLightMode
-                      ? 'bg-slate-50 border-slate-300 text-slate-800'
-                      : 'bg-slate-950 border-slate-700 text-white'
-                  }`}
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsMessageModalOpen(false)}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-                    isLightMode
-                      ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
-                      : 'border-slate-700 text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  {isEn ? 'Cancel' : 'انصراف'}
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={sendingMessage || !messageText.trim()}
-                  className="px-4 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <Send className={`w-3.5 h-3.5 ${sendingMessage ? 'animate-spin' : ''}`} />
-                  <span>{sendingMessage ? (isEn ? 'Sending...' : 'در حال ارسال...') : (isEn ? 'Deliver Message' : 'ارسال پیام')}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <SendTerminalMessageModal
+          server={server}
+          loggedInUsers={loggedInUsers}
+          initialTarget={messageTarget}
+          ephemeralPassword={ephemeralPassword}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          onClose={() => setIsMessageModalOpen(false)}
+          onSuccess={(msg) => {
+            showNotification(msg);
+          }}
+        />
       )}
 
       {/* Create User Modal */}
