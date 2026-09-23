@@ -52,6 +52,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Child process for Python backend
 let pythonProcess: ChildProcess | null = null;
+let isStartingPython = false;
 
 function isPortActive(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -73,46 +74,94 @@ function isPortActive(port: number): Promise<boolean> {
   });
 }
 
-async function startPythonBackend() {
-  const active = await isPortActive(PYTHON_PORT);
-  if (active) {
-    console.log(`[Python Manager] Port ${PYTHON_PORT} is already active. Reusing running Python backend.`);
-    return;
-  }
-
-  const pythonScript = path.join(projectRoot, 'backend', 'server.py');
-  console.log(`[Python Manager] Starting Python backend from ${pythonScript} on port ${PYTHON_PORT} (WS on ${PYTHON_WS_PORT})...`);
-  
-  pythonProcess = spawn('python3', [pythonScript, String(PYTHON_PORT)], {
-    cwd: projectRoot,
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      BACKEND_PORT: String(PYTHON_PORT),
-      PYTHON_PORT: String(PYTHON_PORT),
-      PYTHON_WS_PORT: String(PYTHON_WS_PORT),
-    }
+function checkPythonHealth(port: number, timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: '/api/devices',
+      method: 'GET',
+      timeout: timeoutMs,
+    }, (res) => {
+      res.resume(); // drain response
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.end();
   });
+}
 
-  pythonProcess.on('error', (err) => {
-    console.error('[Python Manager] Failed to start Python process:', err);
+function killProcessOnPort(port: number): Promise<void> {
+  return new Promise((resolve) => {
+    exec(`fuser -k ${port}/tcp || (command -v lsof >/dev/null && kill -9 $(lsof -t -i:${port}) || true)`, () => {
+      resolve();
+    });
   });
+}
 
-  pythonProcess.on('exit', (code, signal) => {
-    if (code === 0) {
-      console.log(`[Python Manager] Python process exited normally.`);
-      return;
-    }
-    console.warn(`[Python Manager] Python process exited with code ${code}, signal ${signal}. Checking before restart...`);
-    setTimeout(async () => {
-      const isRunning = await isPortActive(PYTHON_PORT);
-      if (!isRunning) {
-        startPythonBackend();
-      } else {
-        console.log(`[Python Manager] Port ${PYTHON_PORT} is currently active. No restart needed.`);
+async function startPythonBackend(forceRestart = false) {
+  if (isStartingPython) return;
+  isStartingPython = true;
+
+  try {
+    if (!forceRestart) {
+      const isHealthy = await checkPythonHealth(PYTHON_PORT);
+      if (isHealthy) {
+        console.log(`[Python Manager] Python backend is healthy and responding on port ${PYTHON_PORT}.`);
+        return;
       }
-    }, 2000);
-  });
+    }
+
+    // If port is occupied by an unresponsive or stale process, terminate it
+    const active = await isPortActive(PYTHON_PORT);
+    if (active) {
+      console.warn(`[Python Manager] Port ${PYTHON_PORT} is open but unresponsive. Terminating stale process...`);
+      await killProcessOnPort(PYTHON_PORT);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    if (pythonProcess) {
+      try {
+        pythonProcess.kill('SIGKILL');
+      } catch {}
+      pythonProcess = null;
+    }
+
+    const pythonScript = path.join(projectRoot, 'backend', 'server.py');
+    console.log(`[Python Manager] Starting Python backend from ${pythonScript} on port ${PYTHON_PORT} (WS on ${PYTHON_WS_PORT})...`);
+
+    pythonProcess = spawn('python3', [pythonScript, String(PYTHON_PORT)], {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        BACKEND_PORT: String(PYTHON_PORT),
+        PYTHON_PORT: String(PYTHON_PORT),
+        PYTHON_WS_PORT: String(PYTHON_WS_PORT),
+      }
+    });
+
+    pythonProcess.on('error', (err) => {
+      console.error('[Python Manager] Failed to start Python process:', err);
+    });
+
+    pythonProcess.on('exit', (code, signal) => {
+      console.warn(`[Python Manager] Python process exited (code: ${code}, signal: ${signal}).`);
+      pythonProcess = null;
+      setTimeout(async () => {
+        const isHealthy = await checkPythonHealth(PYTHON_PORT);
+        if (!isHealthy) {
+          startPythonBackend();
+        }
+      }, 2000);
+    });
+  } finally {
+    isStartingPython = false;
+  }
 }
 
 // Start Python
@@ -931,15 +980,24 @@ function getLocalDevicesFallback(): any {
 
 // Proxy /api/* to Python HTTP server (including Python SSH lifecycle engine)
 app.use('/api', (req: Request, res: Response) => {
+  const headers: http.OutgoingHttpHeaders = { ...req.headers };
+  delete headers['host'];
+  delete headers['content-length'];
+
+  let bodyData: string | undefined;
+  if (req.body && Object.keys(req.body).length > 0) {
+    bodyData = JSON.stringify(req.body);
+    headers['content-length'] = Buffer.byteLength(bodyData);
+    headers['content-type'] = headers['content-type'] || 'application/json';
+  }
+
   const options: http.RequestOptions = {
     hostname: '127.0.0.1',
     port: PYTHON_PORT,
     path: req.originalUrl,
     method: req.method,
-    headers: {
-      ...req.headers,
-      host: `127.0.0.1:${PYTHON_PORT}`,
-    },
+    headers,
+    timeout: 30000,
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
@@ -947,8 +1005,18 @@ app.use('/api', (req: Request, res: Response) => {
     proxyRes.pipe(res, { end: true });
   });
 
-  proxyReq.on('error', (err) => {
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy(new Error('Proxy request timed out after 30s'));
+  });
+
+  proxyReq.on('error', (err: any) => {
     console.error(`[API Proxy Error] Unable to connect to Python backend: ${err.message}`);
+
+    // Self-healing: if socket hang up, ECONNREFUSED or ECONNRESET, trigger background health check & restart
+    if (err.message?.includes('socket hang up') || err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') {
+      startPythonBackend();
+    }
+
     if (!res.headersSent) {
       if (req.method === 'GET') {
         const cleanPath = (req.path || '').replace(/\/$/, '');
@@ -976,9 +1044,7 @@ app.use('/api', (req: Request, res: Response) => {
     }
   });
 
-  if (req.body && Object.keys(req.body).length > 0) {
-    const bodyData = JSON.stringify(req.body);
-    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+  if (bodyData) {
     proxyReq.write(bodyData);
   }
 

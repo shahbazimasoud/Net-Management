@@ -8,7 +8,7 @@ import threading
 import random
 import uuid
 from typing import Dict, Any, List, Optional
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote
 
 # Ensure current and parent directories are in sys.path before any relative or package imports
@@ -4046,9 +4046,10 @@ def run_server(port=5001, host=None):
     start_websocket_server(ws_port)
 
     server_address = (host, port)
-    HTTPServer.allow_reuse_address = True
+    ThreadingHTTPServer.allow_reuse_address = True
     try:
-        httpd = HTTPServer(server_address, NetworkAPIHandler)
+        httpd = ThreadingHTTPServer(server_address, NetworkAPIHandler)
+        httpd.daemon_threads = True
     except OSError as e:
         if getattr(e, 'errno', None) == 98 or 'Address already in use' in str(e):
             print(f"[Python Network Engine] Port {port} is already in use by an active server instance. Reusing existing instance.")

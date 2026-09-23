@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.127.0';
+export const APP_VERSION = '1.127.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.127.1',
+    releaseDate: '2026-09-23',
+    type: 'patch',
+    title: 'رفع خطای پروکسی پایتون (socket hang up)، مهاجرت به ThreadingHTTPServer و مکانیزم خودترمیمی بک‌اند',
+    title_en: 'Fix Python API Proxy socket hang up, migrate to ThreadingHTTPServer & backend self-healing recovery',
+    changes: [
+      'شناسایی و رفع ریشه‌ای خطای قطعی سوکت پایتون (socket hang up) ناشی از وجود پردازه زامبی روی پورت ۵۰۰۱.',
+      'ارتقای سرور پایتون backend/server.py به ThreadingHTTPServer جهت پشتیبانی چندریسمانی (Multithreaded) بدون بلاک شدن درخواست‌ها.',
+      'پیاده‌سازی مکانیزم بررسی سلامت HTTP (checkPythonHealth) و پاکسازی پردازه‌های معلق روی پورت پایتون پیش از راه‌اندازی.',
+      'اصلاح ساختار هدرها و اندازه‌گیری دقیق Content-Length در پراکسی Node/Express با تایم‌اوت ۳۰ ثانیه‌ای و بازیابی خودکار در صورت بروز خطای اتصال.',
+    ],
+    changes_en: [
+      'Diagnosed and resolved the root cause of Python API proxy socket hang up caused by stale/zombie process occupying port 5001.',
+      'Upgraded Python backend/server.py to use ThreadingHTTPServer for concurrent non-blocking HTTP request processing.',
+      'Implemented HTTP health checks (checkPythonHealth) and automatic termination of hung/stale processes locking port 5001 prior to spawn.',
+      'Hardened Node/Express /api proxy with sanitized headers, accurate Content-Length calculation, 30s timeout, and auto-healing reconnection logic.',
+    ],
+  },
   {
     version: '1.127.0',
     releaseDate: '2026-09-23',
