@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.122.0';
+export const APP_VERSION = '1.123.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.123.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'سیستم جامع مدیریت فضاهای دیسک LVM، اسکن سریع آنلاین بدون ریستارت، اکستند زنده، ایجاد فضای جدید و شرینک ایمن',
+    title_en: 'Comprehensive Linux LVM Storage Suite with Online Rescan, Dynamic Extend, Custom Formatting & Safe Shrinking',
+    changes: [
+      'پیاده‌سازی ماژول قدرتمند و یوزر فرندلی مدیریت LVM در تب Storage & Disks جهت نظارت و پیکربندی گروه‌های حجم (VGs)، دیسک‌های فیزیکی (PVs) و لاجیکال ولوم‌ها (LVs).',
+      'قابلیت اسکن سریع آنلاین دیسک‌ها بدون نیاز به ریستارت (Online SCSI Bus & Block Device Rescan) جهت شناسایی آنی دیسک‌های مجازی اضافه‌شده در هایپروایزرها (VMware، Proxmox و KVM).',
+      'سیستم اکستند زنده لاجیکال ولوم‌ها (Online LV Extend) همراه با گسترش خودکار و بی‌وقفه فایل‌سیستم (ext4 و XFS) و امکان پیوست همزمان دیسک‌های خام جدید به گروه حجم.',
+      'قابلیت ایجاد فضاهای ذخیره‌سازی جدید در LVM با فرمت‌های دلخواه (ext4، xfs و btrfs) و مانت خودکار در مسیر دلخواه با ثبت دائمی در /etc/fstab جهت پایداری پس از ریبوت.',
+      'قابلیت شرینک ایمن لاجیکال ولوم‌ها (Safe LV Shrink) با اعتبارسنجی e2fsck، آزادسازی فضای کاسته شده به استخر گروه حجم (vg_free) و ممانعت مهندسی‌شده از خراب شدن فایل‌سیستم‌های فاقد پشتیبانی شرینک نظیر XFS و ریشه سیستم (/).',
+      'تجهیز تمامی مودال‌های سه‌گانه LVM (افزایش، ایجاد و کاهش) به ۵ استاندارد اجباری Universal Modal (دکمه‌های سه‌گانه، مینیمایز، تمام‌صفحه با حریم bottom-8، تطابق کامل تم تیره/روشن و کادرهای راهنمای سه‌بخشی Info).'
+    ],
+    changes_en: [
+      'Engineered a comprehensive, user-friendly LVM Storage Manager in the Storage & Disks tab for inspecting and managing Volume Groups (VGs), Physical Volumes (PVs), and Logical Volumes (LVs).',
+      'Added Online SCSI & Block Device Rescan without system reboots, instantly recognizing newly attached virtual disks or enlarged hypervisor geometries across VMware, Proxmox, and KVM.',
+      'Implemented dynamic zero-downtime Logical Volume Extension (lvextend -r) with automatic filesystem growth (ext4/XFS) and optional seamless inclusion of raw disks into the Volume Group.',
+      'Enabled creation of brand new LVM volumes with custom filesystem formatting (ext4, XFS, Btrfs), custom mount points, and persistent automount across reboots via /etc/fstab with UUIDs.',
+      'Introduced safe Logical Volume Shrinking (lvreduce -r) with e2fsck verification, immediate space reclamation back to the Volume Group pool, and strict architectural guards blocking destructive operations on XFS and root (/).',
+      'Equipped all 3 LVM modals (Extend, Create, Shrink) with all 5 mandatory Universal Modal Standards (3 header controls, minimization, fullscreen with bottom-8 footer clearance, dark/light contrast, and boundary-safe 3-part Info tooltips).'
+    ],
+  },
   {
     version: '1.122.0',
     releaseDate: '2026-09-23',

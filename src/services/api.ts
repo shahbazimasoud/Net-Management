@@ -23,6 +23,10 @@ import {
   LinuxProxyConfig,
   LinuxBlockDevice,
   LinuxMountPayload,
+  LinuxLvmOverview,
+  LinuxLvmExtendPayload,
+  LinuxLvmCreatePayload,
+  LinuxLvmShrinkPayload,
   LinuxServiceWatchdogRule,
   LinuxDirectoryPolicyRule,
   LinuxDnsConfig,
@@ -2019,6 +2023,134 @@ export async function unmountLinuxFilesystem(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mountPoint, force, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+// ----------------------------------------------------
+// Linux LVM (Logical Volume Management) API
+// ----------------------------------------------------
+
+export async function fetchLinuxLvmOverview(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  pvs?: LinuxLvmOverview['pvs'];
+  vgs?: LinuxLvmOverview['vgs'];
+  lvs?: LinuxLvmOverview['lvs'];
+  availableDisks?: LinuxLvmOverview['availableDisks'];
+  lvmInstalled?: boolean;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-overview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function rescanLinuxStorageDisks(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  scannedCount?: number;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-rescan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function extendLinuxLvVolume(
+  serverId: string,
+  payload: LinuxLvmExtendPayload,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-extend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function createLinuxLvmVolume(
+  serverId: string,
+  payload: LinuxLvmCreatePayload,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  lvPath?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function shrinkLinuxLvVolume(
+  serverId: string,
+  payload: LinuxLvmShrinkPayload,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/lvm-shrink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, password: ephemeralPassword }),
   });
   const data = await res.json().catch(() => ({
     success: false,

@@ -1603,6 +1603,80 @@ export interface LinuxBlockDevice {
   label?: string | null;
 }
 
+export interface LinuxLvmPv {
+  name: string;
+  vgName: string;
+  size: string;
+  free: string;
+  used: string;
+  format?: string;
+}
+
+export interface LinuxLvmVg {
+  name: string;
+  pvCount: number;
+  lvCount: number;
+  size: string;
+  free: string;
+}
+
+export interface LinuxLvmLv {
+  name: string;
+  vgName: string;
+  path: string;
+  size: string;
+  mountPoint?: string | null;
+  fsType?: string | null;
+  usagePercent?: number;
+  isMounted?: boolean;
+}
+
+export interface LinuxRawDisk {
+  name: string;
+  size: string;
+  type: string;
+  fstype?: string | null;
+  mountpoint?: string | null;
+  model?: string;
+  isInLvm?: boolean;
+}
+
+export interface LinuxLvmOverview {
+  pvs: LinuxLvmPv[];
+  vgs: LinuxLvmVg[];
+  lvs: LinuxLvmLv[];
+  availableDisks: LinuxRawDisk[];
+  lvmInstalled: boolean;
+}
+
+export interface LinuxLvmExtendPayload {
+  lvPath: string;
+  vgName: string;
+  addSize: string; // e.g. "10G" or "100%FREE"
+  diskToAddToVg?: string; // Optional raw disk e.g. "/dev/sdb" to pvcreate & vgextend
+  fsType?: string;
+  mountPoint?: string;
+}
+
+export interface LinuxLvmCreatePayload {
+  isNewVg: boolean;
+  vgName: string;
+  selectedDisks?: string[]; // raw disks to pvcreate and use for VG
+  lvName: string;
+  size: string; // e.g. "20G" or "100%FREE"
+  fsType: 'ext4' | 'xfs' | 'btrfs';
+  mountPath?: string;
+  persistInFstab?: boolean;
+}
+
+export interface LinuxLvmShrinkPayload {
+  lvPath: string;
+  vgName: string;
+  reduceAmount: string; // e.g. "5G"
+  mountPoint?: string;
+  fsType?: string;
+}
+
 export interface LinuxMountPayload {
   device: string;
   mountPoint: string;

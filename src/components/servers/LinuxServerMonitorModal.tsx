@@ -61,6 +61,7 @@ import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
 import { LinuxDirectoryPolicyTab } from './LinuxDirectoryPolicyTab';
+import { LinuxLvmManager } from './storage/LinuxLvmManager';
 import { useModalDock } from '../../context/ModalDockContext';
 
 export interface LinuxServerMonitorModalProps {
@@ -1793,6 +1794,17 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* LVM (LOGICAL VOLUME MANAGEMENT) SUITE */}
+                  <div className="pt-2">
+                    <LinuxLvmManager
+                      server={server}
+                      ephemeralPassword={ephemeralPassword}
+                      isLightMode={isLightMode}
+                      isEn={isEn}
+                      onRefreshParent={() => fetchMetrics(ephemeralPassword)}
+                    />
                   </div>
                 </div>
               )}

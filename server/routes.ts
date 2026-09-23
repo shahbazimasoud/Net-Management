@@ -98,6 +98,11 @@ import {
   deleteLinuxDirectoryPolicySSH,
   runLinuxDirectoryPolicyNowSSH,
   fetchLinuxDirectoryPolicyLogsSSH,
+  fetchLinuxLvmOverviewSSH,
+  rescanLinuxStorageSSH,
+  extendLinuxLvSSH,
+  createLinuxLvmVolumeSSH,
+  shrinkLinuxLvSSH,
 } from './linuxServerMonitor';
 import {
   fetchLinuxSshConfigSSH,
@@ -2632,6 +2637,219 @@ apiRouter.post('/remote-servers/:id/unmount-action', async (req: Request, res: R
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to unmount remote filesystem',
+    });
+  }
+});
+
+// ==========================================
+// LINUX LVM MANAGEMENT ENDPOINTS
+// ==========================================
+
+// GET & POST /api/remote-servers/:id/lvm-overview
+const handleLinuxLvmOverview = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'LVM management is only supported on Linux servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const overview = await fetchLinuxLvmOverviewSSH(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      ...overview,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxLvmOverview API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch LVM overview',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/lvm-overview', handleLinuxLvmOverview);
+apiRouter.post('/remote-servers/:id/lvm-overview', handleLinuxLvmOverview);
+
+// POST /api/remote-servers/:id/lvm-rescan - Online SCSI & Block Device Rescan without reboot
+apiRouter.post('/remote-servers/:id/lvm-rescan', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'SCSI rescan is only supported on Linux servers.' });
+    }
+
+    const result = await rescanLinuxStorageSSH(server, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Online SCSI & Storage Rescan',
+      category: 'storage',
+      target: server.name || server.ip,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLvmRescan API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to rescan storage devices',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/lvm-extend - Extend Logical Volume & dynamic filesystem grow
+apiRouter.post('/remote-servers/:id/lvm-extend', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { lvPath, vgName, addSize, diskToAddToVg, password } = req.body;
+
+    if (!lvPath || !addSize) {
+      return res.status(400).json({ success: false, error: 'lvPath and addSize are required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await extendLinuxLvSSH(
+      server,
+      { lvPath, vgName, addSize, diskToAddToVg },
+      password
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Extend Logical Volume (${lvPath} +${addSize})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (${lvPath})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLvmExtend API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to extend Logical Volume',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/lvm-create - Create New LV/VG, format, and persistent mount
+apiRouter.post('/remote-servers/:id/lvm-create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { isNewVg, vgName, selectedDisks, lvName, size, fsType, mountPath, persistInFstab, password } = req.body;
+
+    if (!vgName || !lvName || !size) {
+      return res.status(400).json({ success: false, error: 'vgName, lvName, and size are required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createLinuxLvmVolumeSSH(
+      server,
+      {
+        isNewVg: !!isNewVg,
+        vgName,
+        selectedDisks,
+        lvName,
+        size,
+        fsType: fsType || 'ext4',
+        mountPath,
+        persistInFstab: !!persistInFstab,
+      },
+      password
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Create LVM Volume (${vgName}/${lvName} -> ${mountPath || 'unmounted'})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (${vgName}/${lvName})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLvmCreate API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create Logical Volume',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/lvm-shrink - Safely shrink LV and reclaim space to VG
+apiRouter.post('/remote-servers/:id/lvm-shrink', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { lvPath, vgName, reduceAmount, mountPoint, fsType, password } = req.body;
+
+    if (!lvPath || !reduceAmount) {
+      return res.status(400).json({ success: false, error: 'lvPath and reduceAmount are required.' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await shrinkLinuxLvSSH(
+      server,
+      { lvPath, vgName, reduceAmount, mountPoint, fsType },
+      password
+    );
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Shrink Logical Volume (${lvPath} -${reduceAmount})`,
+      category: 'storage',
+      target: `${server.name || server.ip} (${lvPath})`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxLvmShrink API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to shrink Logical Volume',
     });
   }
 });

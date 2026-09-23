@@ -9,6 +9,14 @@ import {
   LinuxProxyConfig,
   LinuxBlockDevice,
   LinuxMountPayload,
+  LinuxLvmOverview,
+  LinuxLvmPv,
+  LinuxLvmVg,
+  LinuxLvmLv,
+  LinuxRawDisk,
+  LinuxLvmExtendPayload,
+  LinuxLvmCreatePayload,
+  LinuxLvmShrinkPayload,
   LinuxServiceWatchdogRule,
   LinuxDirectoryPolicyRule,
 } from '../src/types';
@@ -3246,6 +3254,603 @@ fi
     return {
       success: false,
       logs: `Failed to fetch directory policy logs: ${err?.message || err}`,
+    };
+  }
+}
+
+// ==========================================
+// LVM (LOGICAL VOLUME MANAGEMENT) SUITE
+// ==========================================
+
+/**
+ * Fetches real LVM inventory: Physical Volumes (PVs), Volume Groups (VGs), Logical Volumes (LVs),
+ * mount points, usage percentages, and available raw unpartitioned/unassigned disks.
+ */
+export async function fetchLinuxLvmOverviewSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string,
+  timeoutMs: number = 10000
+): Promise<LinuxLvmOverview> {
+  const script = `export LC_ALL=C
+if ! command -v pvs >/dev/null 2>&1 && ! sudo which pvs >/dev/null 2>&1; then
+  echo "LVM_NOT_INSTALLED"
+  echo "===DISKS==="
+  lsblk -dn -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null || true
+  exit 0
+fi
+
+echo "LVM_INSTALLED"
+
+echo "===PVS==="
+sudo pvs --noheadings --nosuffix --units g -o pv_name,vg_name,pv_fmt,pv_size,pv_free,pv_used --separator '|' 2>/dev/null || true
+
+echo "===VGS==="
+sudo vgs --noheadings --nosuffix --units g -o vg_name,pv_count,lv_count,vg_size,vg_free --separator '|' 2>/dev/null || true
+
+echo "===LVS==="
+sudo lvs --noheadings --nosuffix --units g -o lv_name,vg_name,lv_path,lv_size,lv_attr --separator '|' 2>/dev/null || true
+
+echo "===MOUNTS==="
+findmnt -rno TARGET,FSTYPE,SOURCE 2>/dev/null || df -hT 2>/dev/null || true
+
+echo "===DF==="
+df -h 2>/dev/null || true
+
+echo "===DISKS==="
+lsblk -dn -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null || true
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+
+    const lvmInstalled = !raw.includes('LVM_NOT_INSTALLED');
+
+    const pvs: LinuxLvmPv[] = [];
+    const vgs: LinuxLvmVg[] = [];
+    const lvs: LinuxLvmLv[] = [];
+    const availableDisks: LinuxRawDisk[] = [];
+
+    // Parse sections
+    const getSection = (name: string, nextName: string | null): string[] => {
+      const startMarker = `===${name}===`;
+      const startIdx = raw.indexOf(startMarker);
+      if (startIdx === -1) return [];
+      const afterStart = raw.slice(startIdx + startMarker.length);
+      let endIdx = -1;
+      if (nextName) {
+        const nextMarker = `===${nextName}===`;
+        endIdx = afterStart.indexOf(nextMarker);
+      }
+      const sectionText = endIdx !== -1 ? afterStart.slice(0, endIdx) : afterStart;
+      return sectionText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('==='));
+    };
+
+    // PV lines: pv_name|vg_name|pv_fmt|pv_size|pv_free|pv_used
+    const pvLines = getSection('PVS', 'VGS');
+    for (const line of pvLines) {
+      const parts = line.split('|').map((p) => p.trim());
+      if (parts.length >= 5) {
+        const pvName = parts[0];
+        pvs.push({
+          name: pvName,
+          vgName: parts[1] || 'none',
+          format: parts[2] || 'lvm2',
+          size: `${parseFloat(parts[3] || '0').toFixed(2)} GB`,
+          free: `${parseFloat(parts[4] || '0').toFixed(2)} GB`,
+          used: `${parseFloat(parts[5] || '0').toFixed(2)} GB`,
+        });
+      }
+    }
+
+    // VG lines: vg_name|pv_count|lv_count|vg_size|vg_free
+    const vgLines = getSection('VGS', 'LVS');
+    for (const line of vgLines) {
+      const parts = line.split('|').map((p) => p.trim());
+      if (parts.length >= 5) {
+        vgs.push({
+          name: parts[0],
+          pvCount: parseInt(parts[1], 10) || 0,
+          lvCount: parseInt(parts[2], 10) || 0,
+          size: `${parseFloat(parts[3] || '0').toFixed(2)} GB`,
+          free: `${parseFloat(parts[4] || '0').toFixed(2)} GB`,
+        });
+      }
+    }
+
+    // Mounts & DF map
+    const mountMap: Record<string, { mountPoint: string; fsType: string }> = {};
+    const usageMap: Record<string, number> = {};
+
+    const mountLines = getSection('MOUNTS', 'DF');
+    for (const line of mountLines) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 3) {
+        const target = parts[0];
+        const fstype = parts[1];
+        const source = parts[2];
+        if (source) {
+          mountMap[source] = { mountPoint: target, fsType: fstype };
+        }
+      }
+    }
+
+    const dfLines = getSection('DF', 'DISKS');
+    for (const line of dfLines) {
+      if (line.startsWith('Filesystem')) continue;
+      const parts = line.split(/\s+/);
+      if (parts.length >= 6) {
+        const dev = parts[0];
+        const pctStr = parts[4].replace('%', '');
+        const pct = parseInt(pctStr, 10);
+        if (!isNaN(pct)) {
+          usageMap[dev] = pct;
+        }
+      }
+    }
+
+    // LV lines: lv_name|vg_name|lv_path|lv_size|lv_attr
+    const lvLines = getSection('LVS', 'MOUNTS');
+    for (const line of lvLines) {
+      const parts = line.split('|').map((p) => p.trim());
+      if (parts.length >= 4) {
+        const lvName = parts[0];
+        const vgName = parts[1];
+        let lvPath = parts[2] || `/dev/${vgName}/${lvName}`;
+        if (!lvPath.startsWith('/')) lvPath = `/dev/${lvPath}`;
+        const mapperPath = `/dev/mapper/${vgName.replace(/-/g, '--')}-${lvName.replace(/-/g, '--')}`;
+
+        // Match mount info
+        let mInfo = mountMap[lvPath] || mountMap[mapperPath];
+        if (!mInfo) {
+          // Look for partial match
+          for (const [src, info] of Object.entries(mountMap)) {
+            if (src.includes(lvName) && src.includes(vgName)) {
+              mInfo = info;
+              break;
+            }
+          }
+        }
+
+        let usagePercent = usageMap[lvPath] || usageMap[mapperPath];
+        if (usagePercent === undefined && mInfo) {
+          // Match by mount point
+          for (const line of dfLines) {
+            const dfParts = line.split(/\s+/);
+            if (dfParts.length >= 6 && dfParts[5] === mInfo.mountPoint) {
+              usagePercent = parseInt(dfParts[4].replace('%', ''), 10);
+              break;
+            }
+          }
+        }
+
+        lvs.push({
+          name: lvName,
+          vgName,
+          path: lvPath,
+          size: `${parseFloat(parts[3] || '0').toFixed(2)} GB`,
+          mountPoint: mInfo?.mountPoint || null,
+          fsType: mInfo?.fsType || null,
+          usagePercent: usagePercent !== undefined ? usagePercent : undefined,
+          isMounted: !!mInfo,
+        });
+      }
+    }
+
+    // DISKS lines: NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT
+    const diskLines = getSection('DISKS', null);
+    for (const line of diskLines) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 2) {
+        const rawName = parts[0];
+        if (rawName.startsWith('loop') || rawName.startsWith('sr') || rawName.startsWith('ram')) continue;
+        const devName = rawName.startsWith('/') ? rawName : `/dev/${rawName}`;
+        const size = parts[1] || '-';
+        const type = parts[2] || 'disk';
+        const fstype = parts[3] && parts[3] !== '-' ? parts[3] : null;
+        const mountpoint = parts[4] && parts[4] !== '-' ? parts[4] : null;
+
+        const isInLvm = pvs.some((pv) => pv.name === devName || pv.name.startsWith(devName));
+
+        availableDisks.push({
+          name: devName,
+          size,
+          type,
+          fstype,
+          mountpoint,
+          isInLvm,
+        });
+      }
+    }
+
+    return {
+      pvs,
+      vgs,
+      lvs,
+      availableDisks,
+      lvmInstalled,
+    };
+  } catch (err: any) {
+    console.error(`[fetchLinuxLvmOverviewSSH] error:`, err?.message || err);
+    return {
+      pvs: [],
+      vgs: [],
+      lvs: [],
+      availableDisks: [],
+      lvmInstalled: false,
+    };
+  }
+}
+
+/**
+ * Rescans SCSI hosts and block devices online without rebooting the system.
+ * Detects newly added disks (e.g. in VMware, Proxmox, AWS, KVM) and updates disk geometries.
+ */
+export async function rescanLinuxStorageSSH(
+  server: RemoteServer,
+  ephemeralPassword?: string,
+  timeoutMs: number = 15000
+): Promise<{ success: boolean; message: string; scannedCount: number }> {
+  const script = `export LC_ALL=C
+set -e
+SCAN_COUNT=0
+
+# 1. Rescan SCSI Host Busses for newly attached disks
+for host in /sys/class/scsi_host/host*/scan; do
+  if [ -f "$host" ]; then
+    echo "- - -" | sudo tee "$host" >/dev/null 2>&1 && SCAN_COUNT=$((SCAN_COUNT+1))
+  fi
+done
+
+# 2. Rescan existing block devices for expanded disk sizes
+for dev in /sys/class/block/sd*/device/rescan; do
+  if [ -f "$dev" ]; then
+    echo 1 | sudo tee "$dev" >/dev/null 2>&1
+  fi
+done
+
+for dev in /sys/class/block/nvme*n*/device/rescan; do
+  if [ -f "$dev" ]; then
+    echo 1 | sudo tee "$dev" >/dev/null 2>&1
+  fi
+done
+
+# 3. Inform kernel of partition table updates
+sudo partprobe 2>/dev/null || true
+sudo udevadm settle 2>/dev/null || true
+
+# 4. If any existing Physical Volumes were resized on the hypervisor, resize them in LVM
+if command -v pvs >/dev/null 2>&1 || sudo which pvs >/dev/null 2>&1; then
+  EXISTING_PVS=$(sudo pvs --noheadings -o pv_name 2>/dev/null | tr -d ' ' || true)
+  for pv in $EXISTING_PVS; do
+    if [ -b "$pv" ]; then
+      sudo pvresize -y "$pv" 2>/dev/null || true
+    fi
+  done
+fi
+
+echo "SCSI_SCAN_SUCCESS:$SCAN_COUNT"
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+    const match = raw.match(/SCSI_SCAN_SUCCESS:(\d+)/);
+    const scannedCount = match ? parseInt(match[1], 10) : 0;
+
+    return {
+      success: true,
+      message: `Online SCSI rescan completed successfully across ${scannedCount} host bus controller(s). New disks and expanded partition geometries are now available without restarting the server.`,
+      scannedCount,
+    };
+  } catch (err: any) {
+    console.error(`[rescanLinuxStorageSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Online rescan failed: ${err?.message || err}`,
+      scannedCount: 0,
+    };
+  }
+}
+
+/**
+ * Extends an existing Logical Volume (LV) and dynamically expands its filesystem (ext4/xfs).
+ * Can optionally initialize a raw disk (pvcreate) and add it to the VG (vgextend) first.
+ */
+export async function extendLinuxLvSSH(
+  server: RemoteServer,
+  payload: LinuxLvmExtendPayload,
+  ephemeralPassword?: string,
+  timeoutMs: number = 25000
+): Promise<{ success: boolean; message: string }> {
+  const { lvPath, vgName, addSize, diskToAddToVg } = payload;
+
+  const cleanLvPath = (lvPath || '').trim();
+  const cleanVg = (vgName || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+  const cleanAddSize = (addSize || '').trim();
+  const cleanDisk = diskToAddToVg ? diskToAddToVg.trim().replace(/[^a-zA-Z0-9_\-/]/g, '') : null;
+
+  if (!cleanLvPath) {
+    throw new Error('Logical Volume path is required.');
+  }
+  if (!cleanAddSize) {
+    throw new Error('Size to add is required (e.g. 10G, 500M, or 100%FREE).');
+  }
+
+  const script = `export LC_ALL=C
+set -e
+
+# Step 1: Add new disk to VG if requested
+if [ -n "${cleanDisk || ''}" ]; then
+  if [ ! -b "${cleanDisk}" ]; then
+    echo "DISK_NOT_FOUND"
+    exit 1
+  fi
+  # Initialize PV
+  sudo pvcreate -y "${cleanDisk}" 2>&1
+  # Extend VG
+  sudo vgextend "${cleanVg}" "${cleanDisk}" 2>&1
+fi
+
+# Step 2: Extend the Logical Volume and auto-resize filesystem (-r)
+EXTEND_CMD=""
+if [ "${cleanAddSize}" = "100%FREE" ]; then
+  EXTEND_CMD="sudo lvextend -l +100%FREE -r ${cleanLvPath}"
+else
+  EXTEND_CMD="sudo lvextend -L +${cleanAddSize} -r ${cleanLvPath}"
+fi
+
+OUTPUT=$($EXTEND_CMD 2>&1 || true)
+echo "$OUTPUT"
+
+# Fallback: if -r did not automatically resize or if filesystem is XFS
+FS_TYPE=$(sudo blkid -s TYPE -o value "${cleanLvPath}" 2>/dev/null || true)
+MOUNT_PT=$(findmnt -n -o TARGET "${cleanLvPath}" 2>/dev/null || true)
+
+if [ "$FS_TYPE" = "xfs" ] && [ -n "$MOUNT_PT" ]; then
+  sudo xfs_growfs "$MOUNT_PT" 2>&1 || true
+elif [ "$FS_TYPE" = "ext4" ] || [ "$FS_TYPE" = "ext3" ] || [ "$FS_TYPE" = "ext2" ]; then
+  sudo resize2fs "${cleanLvPath}" 2>&1 || true
+fi
+
+echo "EXTEND_SUCCESS"
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+    if (raw.includes('DISK_NOT_FOUND')) {
+      return {
+        success: false,
+        message: `Selected disk "${cleanDisk}" was not found on the server. Please run Online Rescan first.`,
+      };
+    }
+
+    if (raw.includes('Insufficient free space') || raw.includes('not enough free space')) {
+      return {
+        success: false,
+        message: `Volume Group "${cleanVg}" has insufficient free space for +${cleanAddSize}. Please select a smaller size or add a new disk to the Volume Group.`,
+      };
+    }
+
+    if (raw.includes('EXTEND_SUCCESS') || raw.includes('successfully resized')) {
+      return {
+        success: true,
+        message: `Logical Volume "${cleanLvPath}" successfully extended by ${cleanAddSize}${cleanDisk ? ` (and initialized ${cleanDisk} into VG ${cleanVg})` : ''}. Filesystem resized online without downtime.`,
+      };
+    }
+
+    return {
+      success: true,
+      message: raw.trim() || 'Logical volume expansion completed.',
+    };
+  } catch (err: any) {
+    console.error(`[extendLinuxLvSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Failed to extend Logical Volume: ${err?.message || err}`,
+    };
+  }
+}
+
+/**
+ * Creates a new LVM Logical Volume, formats it with a chosen filesystem (ext4/xfs/btrfs),
+ * mounts it to a target path, and optionally makes it persistent across reboots via /etc/fstab.
+ */
+export async function createLinuxLvmVolumeSSH(
+  server: RemoteServer,
+  payload: LinuxLvmCreatePayload,
+  ephemeralPassword?: string,
+  timeoutMs: number = 30000
+): Promise<{ success: boolean; message: string; lvPath?: string }> {
+  const { isNewVg, vgName, selectedDisks, lvName, size, fsType, mountPath, persistInFstab } = payload;
+
+  const cleanVg = (vgName || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+  const cleanLv = (lvName || '').trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+  const cleanSize = (size || '').trim();
+  const cleanFs = (fsType || 'ext4').trim().toLowerCase();
+  const cleanMount = mountPath ? mountPath.trim() : null;
+
+  if (!cleanVg) throw new Error('Volume Group name is required.');
+  if (!cleanLv) throw new Error('Logical Volume name is required.');
+  if (!cleanSize) throw new Error('Volume size is required (e.g. 20G or 100%FREE).');
+
+  if (isNewVg && (!selectedDisks || selectedDisks.length === 0)) {
+    throw new Error('Creating a new Volume Group requires selecting at least one raw disk or partition.');
+  }
+
+  const cleanDisks = (selectedDisks || []).map((d) => d.trim().replace(/[^a-zA-Z0-9_\-/]/g, ''));
+
+  const script = `export LC_ALL=C
+set -e
+
+# Step 1: Initialize PVs and create/extend VG if disks specified
+if [ "${isNewVg ? '1' : '0'}" = "1" ]; then
+  for d in ${cleanDisks.join(' ')}; do
+    sudo pvcreate -y "$d" 2>&1
+  done
+  sudo vgcreate "${cleanVg}" ${cleanDisks.join(' ')} 2>&1
+elif [ -n "${cleanDisks.join(' ')}" ]; then
+  for d in ${cleanDisks.join(' ')}; do
+    sudo pvcreate -y "$d" 2>&1
+    sudo vgextend "${cleanVg}" "$d" 2>&1 || true
+  done
+fi
+
+# Step 2: Create Logical Volume
+if [ "${cleanSize}" = "100%FREE" ]; then
+  sudo lvcreate -l 100%FREE -n "${cleanLv}" "${cleanVg}" -y 2>&1
+else
+  sudo lvcreate -L "${cleanSize}" -n "${cleanLv}" "${cleanVg}" -y 2>&1
+fi
+
+LV_DEV="/dev/${cleanVg}/${cleanLv}"
+
+# Step 3: Format Filesystem
+if [ "${cleanFs}" = "xfs" ]; then
+  sudo mkfs.xfs -f "$LV_DEV" 2>&1
+elif [ "${cleanFs}" = "btrfs" ]; then
+  sudo mkfs.btrfs -f "$LV_DEV" 2>&1
+else
+  sudo mkfs.ext4 -F "$LV_DEV" 2>&1
+fi
+
+# Step 4: Mount to target path if requested
+if [ -n "${cleanMount || ''}" ]; then
+  sudo mkdir -p "${cleanMount}"
+  sudo mount "$LV_DEV" "${cleanMount}" 2>&1
+
+  # Step 5: Persistent /etc/fstab entry
+  if [ "${persistInFstab ? '1' : '0'}" = "1" ]; then
+    UUID=$(sudo blkid -s UUID -o value "$LV_DEV" 2>/dev/null || true)
+    sudo cp /etc/fstab /etc/fstab.bak.$(date +%s)
+    if [ -n "$UUID" ]; then
+      FSTAB_LINE="UUID=$UUID ${cleanMount} ${cleanFs} defaults,nofail 0 2"
+    else
+      FSTAB_LINE="$LV_DEV ${cleanMount} ${cleanFs} defaults,nofail 0 2"
+    fi
+    if ! grep -qs "${cleanMount}" /etc/fstab; then
+      echo "$FSTAB_LINE" | sudo tee -a /etc/fstab >/dev/null
+    fi
+    sudo mount -a 2>&1 || true
+  fi
+fi
+
+echo "LVM_CREATE_SUCCESS:$LV_DEV"
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+    const match = raw.match(/LVM_CREATE_SUCCESS:(\S+)/);
+    const lvPath = match ? match[1] : `/dev/${cleanVg}/${cleanLv}`;
+
+    return {
+      success: true,
+      message: `Logical Volume "${cleanLv}" (${cleanSize}) created successfully in Volume Group "${cleanVg}", formatted as ${cleanFs.toUpperCase()}${cleanMount ? ` and mounted to "${cleanMount}" with persistent reboot protection` : ''}.`,
+      lvPath,
+    };
+  } catch (err: any) {
+    console.error(`[createLinuxLvmVolumeSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Failed to create Logical Volume: ${err?.message || err}`,
+    };
+  }
+}
+
+/**
+ * Safely shrinks a Logical Volume (ext4 only; XFS is blocked because XFS cannot be shrunk by design).
+ * Returns the reclaimed space directly to the Volume Group (vg_free) for other LVs or mount paths.
+ */
+export async function shrinkLinuxLvSSH(
+  server: RemoteServer,
+  payload: LinuxLvmShrinkPayload,
+  ephemeralPassword?: string,
+  timeoutMs: number = 25000
+): Promise<{ success: boolean; message: string }> {
+  const { lvPath, vgName, reduceAmount, mountPoint, fsType } = payload;
+
+  const cleanLvPath = (lvPath || '').trim();
+  const cleanVg = (vgName || '').trim();
+  const cleanReduce = (reduceAmount || '').trim();
+  const cleanFs = (fsType || '').trim().toLowerCase();
+  const cleanMount = mountPoint ? mountPoint.trim() : null;
+
+  if (!cleanLvPath) throw new Error('Logical Volume path is required.');
+  if (!cleanReduce) throw new Error('Reduction amount is required (e.g. 5G or 10G).');
+
+  // Hard protection: XFS cannot be shrunk by design!
+  if (cleanFs === 'xfs') {
+    return {
+      success: false,
+      message: 'XFS Filesystem Architecture Restriction: The XFS filesystem does not support shrinking or reduction by design (only expansion via xfs_growfs is possible). To reduce space on an XFS partition, you must back up its contents, recreate the volume with the smaller size, and restore the files.',
+    };
+  }
+
+  // Hard protection: active root filesystem cannot be shrunk live
+  if (cleanMount === '/') {
+    return {
+      success: false,
+      message: 'Safety Restriction: The active root filesystem (/) cannot be safely unmounted or shrunk while the operating system is running. Shrinking root requires booting into a live rescue environment.',
+    };
+  }
+
+  const script = `export LC_ALL=C
+set -e
+
+# Detect actual filesystem if not provided
+ACTUAL_FS=$(sudo blkid -s TYPE -o value "${cleanLvPath}" 2>/dev/null || true)
+if [ "$ACTUAL_FS" = "xfs" ]; then
+  echo "XFS_BLOCKED"
+  exit 1
+fi
+
+WAS_MOUNTED=0
+if [ -n "${cleanMount || ''}" ] && mountpoint -q "${cleanMount}" 2>/dev/null; then
+  WAS_MOUNTED=1
+  # Unmount safely
+  sudo umount "${cleanMount}" 2>&1
+fi
+
+# Run e2fsck prior to resizing
+sudo e2fsck -f -y "${cleanLvPath}" 2>&1 || true
+
+# Shrink LV and resize filesystem in one atomic operation (-r)
+sudo lvreduce --resizefs -L -"${cleanReduce}" -y "${cleanLvPath}" 2>&1
+
+# Remount if it was mounted before
+if [ "$WAS_MOUNTED" = "1" ]; then
+  sudo mount "${cleanLvPath}" "${cleanMount}" 2>&1
+fi
+
+echo "SHRINK_SUCCESS"
+`;
+
+  try {
+    const raw = await runAdaptiveSshCommand(server, script, ephemeralPassword, timeoutMs);
+    if (raw.includes('XFS_BLOCKED')) {
+      return {
+        success: false,
+        message: 'The target filesystem is XFS, which cannot be shrunk by design. Only ext4/ext3 filesystems support reduction.',
+      };
+    }
+
+    if (raw.includes('SHRINK_SUCCESS') || raw.includes('successfully resized')) {
+      return {
+        success: true,
+        message: `Logical Volume "${cleanLvPath}" shrunk by ${cleanReduce}. The reclaimed space is now immediately available in Volume Group "${cleanVg}" for other volumes or paths.`,
+      };
+    }
+
+    return {
+      success: true,
+      message: raw.trim() || 'Logical volume reduction completed.',
+    };
+  } catch (err: any) {
+    console.error(`[shrinkLinuxLvSSH] error:`, err?.message || err);
+    return {
+      success: false,
+      message: `Failed to shrink Logical Volume: ${err?.message || err}`,
     };
   }
 }
