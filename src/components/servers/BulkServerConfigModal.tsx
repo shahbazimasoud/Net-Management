@@ -29,7 +29,9 @@ import {
   ChevronRight,
   Database,
   HelpCircle,
-  AlertCircle
+  AlertCircle,
+  FolderArchive,
+  ShieldCheck
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -417,6 +419,9 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
         return <Users className={className} />;
       case 'HardDrive':
         return <HardDrive className={className} />;
+      case 'FolderArchive':
+      case 'Archive':
+        return <FolderArchive className={className} />;
       case 'Layers':
         return <Layers className={className} />;
       case 'Terminal':
@@ -892,6 +897,37 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
 
                         <div className="space-y-3">
                           {activeTemplate.parameters.map((param) => {
+                            // Filter conditional parameters for directory lifecycle & backup template
+                            if (activeTemplate.id === 'linux_directory_lifecycle_backup') {
+                              const currentAction = parameters.action || 'backup';
+                              const backupParams = [
+                                'backup_format',
+                                'backup_destination_path',
+                                'backup_keep_source_files',
+                                'backup_preserve_all',
+                                'backup_max_count'
+                              ];
+                              const cleanupParams = ['retention_days', 'file_pattern'];
+                              const sizeCapParams = ['size_cap_mb'];
+                              const syncParams = ['sync_destination_path', 'sync_delete_extraneous'];
+
+                              if (currentAction !== 'backup' && backupParams.includes(param.name)) {
+                                return null;
+                              }
+                              if (currentAction !== 'cleanup' && cleanupParams.includes(param.name)) {
+                                return null;
+                              }
+                              if (currentAction !== 'size_cap' && sizeCapParams.includes(param.name)) {
+                                return null;
+                              }
+                              if (currentAction !== 'sync' && syncParams.includes(param.name)) {
+                                return null;
+                              }
+                              if (param.name === 'backup_max_count' && parameters.backup_preserve_all !== false) {
+                                return null;
+                              }
+                            }
+
                             const paramGuide = getServerParameterGuide(activeTemplate.id, param, isEn);
 
                             return (
@@ -1036,6 +1072,82 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
                                         className="px-2 py-0.5 rounded bg-white/5 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-white/5 cursor-pointer transition"
                                       >
                                         {item.name} ({item.port})
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Directory Lifecycle Presets & Safe Mode Banner */}
+                                {activeTemplate.id === 'linux_directory_lifecycle_backup' && param.name === 'backup_preserve_all' && (
+                                  parameters.backup_preserve_all !== false ? (
+                                    <div className="mt-2 p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 flex items-start gap-2 text-[11px] text-emerald-300 font-mono">
+                                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                                      <div>
+                                        <span className="font-bold">
+                                          {isEn ? 'Safe Preservation Mode Active:' : 'حالت حفظ ایمن فعال است:'}
+                                        </span>{' '}
+                                        <span>
+                                          {isEn
+                                            ? 'All historical and previous backups are guaranteed safe. Archives are saved with non-colliding sequential timestamps so existing backups are never overwritten or deleted.'
+                                            : 'تمام بکاپ‌های تاریخی و پیشین در دایرکتوری مقصد در امان هستند. آرشیوها با برچسب‌های زمانی نامکرر ذخیره شده و هیچ آرشیو قبلی بازنویسی یا حذف نمی‌گردد.'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 p-2 rounded-lg bg-amber-950/30 border border-amber-500/30 text-[11px] text-amber-300 font-mono flex items-center gap-2">
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                      <span>
+                                        {isEn
+                                          ? 'Auto-Rotation Active: Older archives exceeding max retained count will be pruned.'
+                                          : 'چرخش خودکار فعال است: آرشیوهای قدیمی‌تر از سقف مجاز به صورت خودکار حذف می‌شوند.'}
+                                      </span>
+                                    </div>
+                                  )
+                                )}
+
+                                {activeTemplate.id === 'linux_directory_lifecycle_backup' && param.name === 'target_path' && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono">
+                                    <span className="text-slate-400">{isEn ? 'Common Paths:' : 'مسیرهای متداول:'}</span>
+                                    {['/var/log', '/opt/data', '/var/backups', '/var/www'].map((p) => (
+                                      <button
+                                        key={p}
+                                        type="button"
+                                        onClick={() => setParameters((prev) => ({ ...prev, target_path: p }))}
+                                        className="px-2 py-0.5 rounded bg-white/5 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-white/5 cursor-pointer transition"
+                                      >
+                                        {p}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {activeTemplate.id === 'linux_directory_lifecycle_backup' && param.name === 'backup_destination_path' && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono">
+                                    <span className="text-slate-400">{isEn ? 'Destinations:' : 'مسیرهای مقصد:'}</span>
+                                    {['/backup/archives', '/var/backups/fleet', '/mnt/backup'].map((p) => (
+                                      <button
+                                        key={p}
+                                        type="button"
+                                        onClick={() => setParameters((prev) => ({ ...prev, backup_destination_path: p }))}
+                                        className="px-2 py-0.5 rounded bg-white/5 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-white/5 cursor-pointer transition"
+                                      >
+                                        {p}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {activeTemplate.id === 'linux_directory_lifecycle_backup' && param.name === 'retention_days' && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono">
+                                    <span className="text-slate-400">{isEn ? 'Retention Thresholds:' : 'مهلت‌های زمانی:'}</span>
+                                    {['7', '14', '30', '60', '90'].map((d) => (
+                                      <button
+                                        key={d}
+                                        type="button"
+                                        onClick={() => setParameters((prev) => ({ ...prev, retention_days: Number(d) }))}
+                                        className="px-2 py-0.5 rounded bg-white/5 hover:bg-cyan-500/20 text-slate-300 hover:text-cyan-300 border border-white/5 cursor-pointer transition"
+                                      >
+                                        {d} {isEn ? 'days' : 'روز'}
                                       </button>
                                     ))}
                                   </div>

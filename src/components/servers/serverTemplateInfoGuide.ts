@@ -170,6 +170,80 @@ export const SERVER_TEMPLATE_GUIDES_FA: Record<string, ServerTemplateGuideItem> 
         example: 'web_app, redis_cache, nginx_proxy, all'
       }
     }
+  },
+  linux_directory_lifecycle_backup: {
+    template: {
+      what: 'مدیریت یکپارچه سیاست‌های فشرده‌سازی بکاپ، پاک‌سازی فایل‌های قدیمی بر اساس سن، مهار حجم دایرکتوری و همگام‌سازی با تضمین عدم حذف یا بازنویسی آرشیوهای قبلی.',
+      why: 'حفاظت پایدار از داده‌ها، جلوگیری از پر شدن دیسک سرور و پشتیبان‌گیری منظم در سطح کل ناوگان لینوکس.',
+      example: 'تهیه بکاپ روزانه از /var/log/nginx در پوشه /backup/archives با فرمت tar.gz و حفظ تمام نسخه‌های تاریخی.'
+    },
+    parameters: {
+      action: {
+        what: 'نوع سیاست اجرایی: بکاپ فشرده، پاک‌سازی فایل‌های قدیمی، سقف حجم دایرکتوری یا همگام‌سازی.',
+        why: 'تعیین‌کننده عملکرد اسکریپت روی دایرکتوری هدف در سرورها.',
+        example: 'backup, cleanup, size_cap, sync'
+      },
+      target_path: {
+        what: 'مسیر دایرکتوری در سرور که سیاست روی آن اجرا می‌شود.',
+        why: 'تعیین محدوده دقیق فایل‌های تحت مدیریت سیاست.',
+        example: '/var/log/nginx, /opt/data, /var/backups'
+      },
+      schedule_mode: {
+        what: 'حالت اجرا: اجرای فوری در یک نوبت یا زمان‌بندی مداوم در کرون‌جاب (روزانه، هفتگی، ساعتی).',
+        why: 'اتوماسیون دوره‌ای بدون نیاز به پیکربندی دستی crontab.',
+        example: 'run_once (فوری), daily (روزانه ساعت ۰۲:۰۰), weekly (هفتگی)'
+      },
+      backup_format: {
+        what: 'الگوریتم فشرده‌سازی فایل آرشیو (tar.gz, tar.bz2, tar.xz, zip).',
+        why: 'ایجاد تعادل بین سرعت اجرا و نسبت فشرده‌سازی فایل نهایی.',
+        example: 'tar.gz (سریع و استاندارد), tar.xz (بالاترین فشرده‌سازی)'
+      },
+      backup_destination_path: {
+        what: 'مسیر پوشه در سرور جهت ذخیره فایل‌های آرشیو بکاپ.',
+        why: 'جداسازی داده‌های فعال از فایل‌های پشتیبان جهت امنیت و نظم سیستم.',
+        example: '/backup/archives, /var/backups/fleet'
+      },
+      backup_keep_source_files: {
+        what: 'حفظ فایل‌های اصلی در دایرکتوری مبدا پس از اتمام فشرده‌سازی.',
+        why: 'جلوگیری از توقف سرویس‌هایی که به فایل‌های مبدا نیاز دارند.',
+        example: 'فعال (True) برای حفظ مبدا'
+      },
+      backup_preserve_all: {
+        what: 'حالت ایمن: حفظ کامل تمام بکاپ‌های قبلی با نام‌گذاری غیرتداخلی بدون بازنویسی یا حذف.',
+        why: 'تضمین صددرصدی اینکه بکاپ‌های گذشته هرگز پاک نشده و آرشیوهای قبلی از بین نمی‌روند.',
+        example: 'فعال (Safe Preservation Mode)'
+      },
+      backup_max_count: {
+        what: 'حداکثر تعداد آرشیوهای نگهداری‌شده در صورت غیرفعال بودن حالت حفظ کامل (Auto-Rotate).',
+        why: 'جلوگیری از مصرف بیش از حد دیسک در صورت ترجیح چرخش خودکار.',
+        example: '7 (نگهداری ۷ نسخه اخیر) یا 14'
+      },
+      retention_days: {
+        what: 'سقف نگهداری فایل‌ها بر حسب روز در حالت پاک‌سازی (cleanup).',
+        why: 'حذف خودکار فایل‌های قدیمی‌تر از این سن جهت آزادسازی فضا.',
+        example: '30 روز (حذف فایل‌های بیش از ۱ ماه)'
+      },
+      file_pattern: {
+        what: 'الگوی تطبیق نام فایل‌ها برای پاک‌سازی (مانند *.log).',
+        why: 'فیلتر دقیق فایل‌های هدف بدون لمس سایر فایل‌های دایرکتوری.',
+        example: '*.log, *.tmp, *.audit'
+      },
+      size_cap_mb: {
+        what: 'سقف مجاز حجم کل دایرکتوری بر حسب مگابایت در حالت size_cap.',
+        why: 'حذف قدیمی‌ترین فایل‌ها تا رسیدن حجم دایرکتوری به زیر این سقف.',
+        example: '1024 (۱ گیگابایت), 5120 (۵ گیگابایت)'
+      },
+      sync_destination_path: {
+        what: 'مسیر مقصد در سرور برای کلون یا همگام‌سازی دایرکتوری.',
+        why: 'ایجاد نسخه آینه‌ای روی دیسک یا پارتیشن دیگر.',
+        example: '/backup/mirrors/nginx, /mnt/storage/mirror'
+      },
+      sync_delete_extraneous: {
+        what: 'حذف فایل‌های اضافه در مقصد همگام‌سازی که در مبدا وجود ندارند (--delete).',
+        why: 'انطباق ۱۰۰ درصدی مقصد با مبدا.',
+        example: 'غیرفعال (False) جهت ایمنی'
+      }
+    }
   }
 };
 
@@ -336,6 +410,80 @@ export const SERVER_TEMPLATE_GUIDES_EN: Record<string, ServerTemplateGuideItem> 
         what: 'Target container name or matching pattern.',
         why: 'Scopes action to a specific workload without disturbing other services.',
         example: 'web_app, redis_cache, nginx_proxy, all'
+      }
+    }
+  },
+  linux_directory_lifecycle_backup: {
+    template: {
+      what: 'Fleet-wide directory lifecycle management: compressed archives with safe preservation, age-based purge, size cap, and rsync mirror.',
+      why: 'Protects critical production data via non-overwriting backup archives while actively preventing disk exhaustion across all fleet hosts.',
+      example: 'Daily compressed tar.gz backup of /var/log/app to /backup/archives preserving all prior snapshots.'
+    },
+    parameters: {
+      action: {
+        what: 'Lifecycle policy operational action: compress backup, age purge, size cap, or sync mirror.',
+        why: 'Directs whether to archive, purge, enforce quota, or replicate.',
+        example: 'backup, cleanup, size_cap, sync'
+      },
+      target_path: {
+        what: 'Target absolute directory path on the remote Linux servers.',
+        why: 'Defines the operational directory scope.',
+        example: '/var/log/nginx, /opt/data, /var/backups'
+      },
+      schedule_mode: {
+        what: 'Execution mode: run immediately once or register in persistent root crontab (daily, weekly, hourly).',
+        why: 'Enables continuous hands-off automation across servers.',
+        example: 'run_once, daily, weekly, hourly'
+      },
+      backup_format: {
+        what: 'Compression algorithm and archive format (tar.gz, tar.bz2, tar.xz, zip).',
+        why: 'Balances CPU consumption against disk space savings.',
+        example: 'tar.gz (fast & standard), tar.xz (highest compression)'
+      },
+      backup_destination_path: {
+        what: 'Directory folder on target hosts where backup archives are stored.',
+        why: 'Separates live production files from archive snapshots.',
+        example: '/backup/archives, /var/backups'
+      },
+      backup_keep_source_files: {
+        what: 'If true, preserves source directory contents after archive generation.',
+        why: 'Prevents disrupting active services reading from the source path.',
+        example: 'Enabled (True)'
+      },
+      backup_preserve_all: {
+        what: 'Safe Preservation Mode: All existing and previous backups remain intact; archives use unique collision-free timestamps.',
+        why: 'Guarantees that historical snapshots are never lost when new backups run.',
+        example: 'Enabled (Safe Preservation Mode)'
+      },
+      backup_max_count: {
+        what: 'Max retained archives when Preserve All is disabled (auto-rotation threshold).',
+        why: 'Prevents storage partition overflow when rotation is desired.',
+        example: '7 (keep last 7 archives) or 14'
+      },
+      retention_days: {
+        what: 'Retention age threshold in days for cleanup mode; older files are removed.',
+        why: 'Frees disk space occupied by obsolete logs or stale files.',
+        example: '30 days, 90 days'
+      },
+      file_pattern: {
+        what: 'Filename matching glob pattern for deletion in cleanup mode.',
+        why: 'Enables granular filtering of specific file extensions.',
+        example: '*.log, *.tmp, *.audit'
+      },
+      size_cap_mb: {
+        what: 'Maximum allowed directory storage ceiling in MB for size_cap action.',
+        why: 'Caps runaway disk growth by automatically pruning oldest files.',
+        example: '1024 (1 GB), 5120 (5 GB)'
+      },
+      sync_destination_path: {
+        what: 'Destination path on target hosts for directory mirroring/sync.',
+        why: 'Creates a live directory replica on another disk/partition.',
+        example: '/backup/mirrors/app, /mnt/storage/mirror'
+      },
+      sync_delete_extraneous: {
+        what: 'Removes files in destination that no longer exist in source path (--delete).',
+        why: 'Maintains exact 100% parity with source.',
+        example: 'Disabled (False) for extra safety'
       }
     }
   }

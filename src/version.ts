@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.119.2';
+export const APP_VERSION = '1.120.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.120.0',
+    releaseDate: '2026-09-23',
+    type: 'minor',
+    title: 'افزودن الگوی مدیریت چرخه حیات دایرکتوری و بکاپ ایمن به بخش پیکربندی گروهی سرورهای لینوکس (Bulk Linux Configuration)',
+    title_en: 'Directory Lifecycle, Retention & Safe Backup Template in Bulk Linux Server Configuration Suite',
+    changes: [
+      'افزودن الگوی اختصاصی «مدیریت چرخه حیات دایرکتوری و بکاپ ناوگان» (linux_directory_lifecycle_backup) به لیست الگوهای پیکربندی گروهی سرورهای لینوکس.',
+      'تجهیز الگو به گزینه‌های محافظت و نگهداری بکاپ (حفظ کامل تمام بکاپ‌های پیشین بدون بازنویسی و حذف، یا چرخش خودکار بر اساس سقف تعداد آرشیو).',
+      'پشتیبانی از انواع عملیات شامل فشرده‌سازی و بکاپ (tar.gz, tar.bz2, tar.xz, zip)، پاک‌سازی فایل‌های قدیمی بر اساس سن (روز)، سقف حجم دایرکتوری و همگام‌سازی (rsync mirror).',
+      'فیلترسازی هوشمند پارامترها در فرم مودال بر اساس عملیات انتخابی و نمایش کارت وضعیت سبز حالت حفظ ایمن بکاپ‌ها (Safe Preservation Mode).',
+      'افزودن پیش‌تنظیم‌های سریع (Presets) برای مسیرهای دایرکتوری، پوشه‌های مقصد بکاپ و مهلت‌های نگهداری زمانی.',
+      'افزودن راهنماهای جامع سه‌بخشی Info (این چیست، چرا لازم است، مثال کاربردی) به زبان‌های فارسی و انگلیسی برای الگو و کلیه پارامترها.'
+    ],
+    changes_en: [
+      'Added dedicated "Directory Lifecycle, Retention & Fleet Backup" command template (linux_directory_lifecycle_backup) to Bulk Linux Server Configuration suite.',
+      'Equipped the template with comprehensive backup retention options (Safe Preservation of all prior backups without overwriting/deletion, or Auto-Rotation by max count).',
+      'Full support for lifecycle actions: compressed backup archive (tar.gz, tar.bz2, tar.xz, zip), retention age purge (days), directory size quota cap, and sync mirroring.',
+      'Added dynamic parameter filtering in the bulk modal based on active action, accompanied by a dedicated Safe Preservation Mode active indicator banner.',
+      'Integrated quick-fill preset chips for common target paths, backup destinations, and retention thresholds.',
+      'Authored complete bilingual 3-part Info guides (What is it, Why needed, Practical example) for the template and all individual configuration parameters.'
+    ],
+  },
   {
     version: '1.119.2',
     releaseDate: '2026-09-23',
