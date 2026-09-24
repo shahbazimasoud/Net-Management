@@ -822,12 +822,12 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
   if (!isOpen || !server) return null;
 
-  return (
+  return createPortal(
     <div
       className={
         isMaximized
-          ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 flex flex-col'
-          : 'fixed inset-0 z-50 p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
+          ? 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-0 flex flex-col'
+          : 'fixed inset-0 z-[9999] p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
       }
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -846,7 +846,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {/* MODAL HEADER (Universal 3-Control & Strict Bounds)        */}
         {/* ======================================================== */}
         <div
-          className={`flex items-center justify-between px-4 sm:px-6 py-3 border-b shrink-0 ${
+          className={`flex items-center justify-between px-4 sm:px-6 py-3 border-b shrink-0 relative z-20 ${
             isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
           }`}
         >
@@ -882,7 +882,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
           </div>
 
           {/* 3-Control Header Action Buttons */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 relative z-20">
             {/* Minimize to ToolsDock */}
             <button
               type="button"
@@ -2975,6 +2975,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

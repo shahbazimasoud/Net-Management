@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.143.0';
+export const APP_VERSION = '1.143.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.143.1',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'رفع مشکل پنهان شدن دکمه‌های کنترلی هدر کاوشگر فایل در حالت تمام‌صفحه (فاز ۶)',
+    title_en: 'Fix File Explorer Header Action Buttons Stacking in Fullscreen Mode (Phase 6)',
+    changes: [
+      'انتقال رندرینگ کل مودال کاوشگر فایل (LinuxFileExplorerModal) به ریشه document.body با createPortal جهت خروج قطعی از Stacking Context و والد z-10 بدنه برنامه.',
+      'افزایش اولویت لایه‌بندی مودال به z-[9999] و ارتقای هدر و دکمه‌های سه‌گانه کنترلی به relative z-20 جهت دسترسی بدون مانع.',
+      'تضمین دیده‌شدن، کلیک‌پذیری و عملکرد بی‌نقص دکمه‌های بستن، مینیمایز در نوار داک (ToolsDock) و خروج از حالت تمام‌صفحه در کلیه رزولوشن‌ها و حالت‌های مرورگر.',
+    ],
+    changes_en: [
+      'Hoisted LinuxFileExplorerModal rendering directly into document.body using createPortal to escape parent layout overflow and z-10 stacking context.',
+      'Elevated modal stacking order to z-[9999] and assigned relative z-20 to header controls for uninterrupted visibility.',
+      'Guaranteed flawless clickability and immediate accessibility for Close, ToolsDock Minimize, and Fullscreen toggle buttons across all screen resolutions.',
+    ],
+  },
   {
     version: '1.143.0',
     releaseDate: '2026-09-24',
