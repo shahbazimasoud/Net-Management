@@ -45,8 +45,11 @@ import {
   Download,
   Archive,
   Upload,
+  Calendar,
+  User,
+  Users,
 } from 'lucide-react';
-import { RemoteServer, LinuxFsItem, LinuxFsListResult, LinuxQuickDir, LinuxFileContentResult } from '../../types';
+import { RemoteServer, LinuxFsItem, LinuxFsListResult, LinuxQuickDir, LinuxFileContentResult, LinuxItemProperties } from '../../types';
 import {
   fetchLinuxDirectory,
   fetchLinuxQuickDirs,
@@ -58,6 +61,7 @@ import {
   deleteLinuxRemoteItem,
   downloadLinuxFiles,
   uploadLinuxFile,
+  fetchLinuxItemProperties,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -245,6 +249,23 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     error: null,
   });
 
+  // Properties / Info Modal State
+  const [propertiesModal, setPropertiesModal] = useState<{
+    isOpen: boolean;
+    item: LinuxFsItem | null;
+    targetPath: string;
+    data: LinuxItemProperties | null;
+    loading: boolean;
+    error: string | null;
+  }>({
+    isOpen: false,
+    item: null,
+    targetPath: '',
+    data: null,
+    loading: false,
+    error: null,
+  });
+
   // Context Menu State for Right-Click Actions (item can be null for empty space)
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -377,6 +398,45 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
     // Refresh directory
     loadDirectory(destPath, ephemeralPassword, false);
+  };
+
+  const handleOpenProperties = (item: LinuxFsItem | null, customPath?: string) => {
+    if (!server) return;
+    const targetPath = item ? item.path : (customPath || currentPath);
+    setPropertiesModal({
+      isOpen: true,
+      item,
+      targetPath,
+      data: null,
+      loading: true,
+      error: null,
+    });
+    setContextMenu(null);
+
+    fetchLinuxItemProperties(server.id, targetPath, ephemeralPassword || sessionPassword)
+      .then((res) => {
+        if (res.success && res.properties) {
+          setPropertiesModal((prev) => ({
+            ...prev,
+            data: res.properties!,
+            loading: false,
+            error: null,
+          }));
+        } else {
+          setPropertiesModal((prev) => ({
+            ...prev,
+            loading: false,
+            error: res.error || (isEn ? 'Failed to fetch detailed attributes' : 'خطا در دریافت مشخصات تفصیلی'),
+          }));
+        }
+      })
+      .catch((err) => {
+        setPropertiesModal((prev) => ({
+          ...prev,
+          loading: false,
+          error: err?.message || (isEn ? 'Connection error' : 'خطای ارتباط با سرور'),
+        }));
+      });
   };
 
   const handleDownload = async (pathsToDownload?: string[], forceArchive: boolean = false) => {
@@ -2188,6 +2248,406 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         )}
 
         {/* ======================================================== */}
+        {/* FILE / DIRECTORY PROPERTIES & INFO MODAL (PORTAL)        */}
+        {/* ======================================================== */}
+        {propertiesModal.isOpen &&
+          createPortal(
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs select-none animate-in fade-in duration-150">
+              <div
+                className={`w-full max-w-xl rounded-2xl border shadow-2xl flex flex-col max-h-[92vh] overflow-hidden ${
+                  isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-100'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div
+                  className={`px-5 py-3.5 border-b flex items-center justify-between shrink-0 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 shrink-0">
+                      {propertiesModal.item?.type === 'directory' || (!propertiesModal.item && propertiesModal.targetPath) ? (
+                        <Folder className="w-5 h-5 text-amber-400" />
+                      ) : (
+                        <FileText className="w-5 h-5 text-indigo-400" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-sm truncate font-mono">
+                          {propertiesModal.data?.name || propertiesModal.item?.name || propertiesModal.targetPath.split('/').pop() || '/'}
+                        </h3>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${
+                            (propertiesModal.data?.type === 'directory' || propertiesModal.item?.type === 'directory')
+                              ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                              : (propertiesModal.data?.type === 'symlink' || propertiesModal.item?.type === 'symlink')
+                              ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                              : 'bg-indigo-500/15 text-indigo-400 border border-indigo-500/30'
+                          }`}
+                        >
+                          {propertiesModal.data?.typeHuman ||
+                            (propertiesModal.item?.type === 'directory'
+                              ? isEn
+                                ? 'Directory'
+                                : 'پوشه'
+                              : isEn
+                              ? 'Regular File'
+                              : 'فایل معمولی')}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 truncate font-mono mt-0.5">
+                        {propertiesModal.targetPath}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPropertiesModal({
+                        isOpen: false,
+                        item: null,
+                        targetPath: '',
+                        data: null,
+                        loading: false,
+                        error: null,
+                      })
+                    }
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Body Content */}
+                <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-xs font-sans">
+                  {propertiesModal.loading ? (
+                    <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                      <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin" />
+                      <p className="text-xs text-slate-400 font-mono">
+                        {isEn ? 'Querying file properties via stat / SFTP...' : 'در حال واکشی اطلاعات تفصیلی فایل...'}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {propertiesModal.error && (
+                        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          <span>{propertiesModal.error}</span>
+                        </div>
+                      )}
+
+                      {/* Section 1: General Info Card */}
+                      <div
+                        className={`p-3.5 rounded-xl border space-y-2.5 ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Info className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>{isEn ? 'General Information' : 'اطلاعات عمومی'}</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <span className="text-slate-400 block text-[11px]">
+                              {isEn ? 'Full Path' : 'مسیر کامل'}:
+                            </span>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="font-mono text-cyan-400 break-all select-text text-[11px]">
+                                {propertiesModal.data?.path || propertiesModal.targetPath}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyPath(propertiesModal.data?.path || propertiesModal.targetPath)}
+                                title={isEn ? 'Copy Path' : 'کپی مسیر'}
+                                className="p-1 rounded text-slate-400 hover:text-white shrink-0 cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="text-slate-400 block text-[11px]">
+                              {isEn ? 'Size' : 'حجم'}:
+                            </span>
+                            <span className="font-mono font-bold text-slate-200 mt-0.5 block">
+                              {propertiesModal.data?.sizeHuman || propertiesModal.item?.sizeHuman || '0 B'}{' '}
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                ({(propertiesModal.data?.size ?? propertiesModal.item?.size ?? 0).toLocaleString()} {isEn ? 'bytes' : 'بایت'})
+                              </span>
+                            </span>
+                          </div>
+
+                          {propertiesModal.data?.symlinkTarget && (
+                            <div className="sm:col-span-2">
+                              <span className="text-slate-400 block text-[11px]">
+                                {isEn ? 'Symlink Target Destination' : 'مقصد پیوند نمادین (Target)'}:
+                              </span>
+                              <span className="font-mono text-amber-300 break-all block mt-0.5">
+                                → {propertiesModal.data.symlinkTarget}
+                              </span>
+                            </div>
+                          )}
+
+                          {propertiesModal.data?.itemCount !== undefined && (
+                            <div>
+                              <span className="text-slate-400 block text-[11px]">
+                                {isEn ? 'Contained Items' : 'تعداد آیتم‌های درون پوشه'}:
+                              </span>
+                              <span className="font-mono text-emerald-400 mt-0.5 block font-bold">
+                                {propertiesModal.data.itemCount} {isEn ? 'items (direct children)' : 'مورد'}
+                              </span>
+                            </div>
+                          )}
+
+                          <div>
+                            <span className="text-slate-400 block text-[11px]">
+                              {isEn ? 'Parent Directory' : 'پوشه والد'}:
+                            </span>
+                            <span className="font-mono text-slate-300 truncate mt-0.5 block">
+                              {propertiesModal.data?.parentPath ||
+                                propertiesModal.targetPath.substring(0, propertiesModal.targetPath.lastIndexOf('/')) ||
+                                '/'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 2: Ownership & Access Permissions */}
+                      <div
+                        className={`p-3.5 rounded-xl border space-y-3 ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{isEn ? 'Ownership & Permissions' : 'مالکیت و سطح دسترسی'}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                              {propertiesModal.data?.octalPermissions || propertiesModal.item?.octalPermissions || '0755'}
+                            </span>
+                            <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-slate-800 text-cyan-300 border border-slate-700">
+                              {propertiesModal.data?.permissions || propertiesModal.item?.permissions || 'drwxr-xr-x'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Owner & Group Info */}
+                        <div className="grid grid-cols-2 gap-3 text-xs pt-1">
+                          <div className="flex items-center gap-2 p-2 rounded-lg bg-black/20 border border-white/5">
+                            <User className="w-4 h-4 text-cyan-400 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-[10px] text-slate-400 block">
+                                {isEn ? 'Owner (User / UID)' : 'کاربر مالک (User / UID)'}
+                              </span>
+                              <span className="font-mono font-bold text-slate-200 truncate block">
+                                {propertiesModal.data?.ownerUser || String(propertiesModal.item?.owner ?? 'root')}{' '}
+                                <span className="text-[10px] text-slate-400 font-normal">
+                                  (UID: {propertiesModal.data?.ownerUid ?? propertiesModal.item?.owner ?? 0})
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 p-2 rounded-lg bg-black/20 border border-white/5">
+                            <Users className="w-4 h-4 text-purple-400 shrink-0" />
+                            <div className="min-w-0">
+                              <span className="text-[10px] text-slate-400 block">
+                                {isEn ? 'Group (Group / GID)' : 'گروه کاربری (Group / GID)'}
+                              </span>
+                              <span className="font-mono font-bold text-slate-200 truncate block">
+                                {propertiesModal.data?.groupName || String(propertiesModal.item?.group ?? 'root')}{' '}
+                                <span className="text-[10px] text-slate-400 font-normal">
+                                  (GID: {propertiesModal.data?.groupGid ?? propertiesModal.item?.group ?? 0})
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Visual Permission Breakdown Matrix */}
+                        <div className="space-y-1 pt-1">
+                          <span className="text-[10px] text-slate-400 font-semibold block uppercase">
+                            {isEn ? 'Access Rights Breakdown' : 'تفکیک دسترسی‌های سه‌گانه'}
+                          </span>
+                          <div className="border border-white/10 rounded-lg overflow-hidden font-mono text-[11px]">
+                            <div className="grid grid-cols-4 bg-white/5 p-2 font-bold text-slate-300 border-b border-white/10">
+                              <span>{isEn ? 'Role' : 'نقش'}</span>
+                              <span className="text-center">{isEn ? 'Read (r)' : 'خواندن (r)'}</span>
+                              <span className="text-center">{isEn ? 'Write (w)' : 'نوشتن (w)'}</span>
+                              <span className="text-center">{isEn ? 'Execute (x)' : 'اجرا (x)'}</span>
+                            </div>
+                            {(() => {
+                              const octal = (
+                                propertiesModal.data?.octalPermissions ||
+                                propertiesModal.item?.octalPermissions ||
+                                '755'
+                              )
+                                .slice(-3)
+                                .padStart(3, '0');
+                              const u = parseInt(octal[0], 10) || 0;
+                              const g = parseInt(octal[1], 10) || 0;
+                              const o = parseInt(octal[2], 10) || 0;
+
+                              const rows = [
+                                { label: isEn ? 'Owner' : 'مالک (Owner)', val: u },
+                                { label: isEn ? 'Group' : 'گروه (Group)', val: g },
+                                { label: isEn ? 'Others' : 'سایرین (Others)', val: o },
+                              ];
+
+                              return rows.map((r, i) => {
+                                const canR = Boolean(r.val & 4);
+                                const canW = Boolean(r.val & 2);
+                                const canX = Boolean(r.val & 1);
+
+                                return (
+                                  <div
+                                    key={r.label}
+                                    className={`grid grid-cols-4 p-2 items-center ${
+                                      i % 2 === 1 ? 'bg-white/[0.02]' : ''
+                                    } border-b last:border-b-0 border-white/5`}
+                                  >
+                                    <span className="font-sans font-medium text-slate-300">{r.label}</span>
+                                    <div className="flex justify-center">
+                                      {canR ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
+                                          ✓ Read
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-500 text-[10px]">—</span>
+                                      )}
+                                    </div>
+                                    <div className="flex justify-center">
+                                      {canW ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold text-[10px]">
+                                          ✓ Write
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-500 text-[10px]">—</span>
+                                      )}
+                                    </div>
+                                    <div className="flex justify-center">
+                                      {canX ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 font-bold text-[10px]">
+                                          ✓ Exec
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-500 text-[10px]">—</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Timestamps */}
+                      <div
+                        className={`p-3.5 rounded-xl border space-y-2.5 ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>{isEn ? 'Timestamps & Dates' : 'تاریخچه و زمان‌بندی'}</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                          <div>
+                            <span className="text-[11px] text-slate-400 block">
+                              {isEn ? 'Last Modified (mtime)' : 'آخرین تغییر محتوا (mtime)'}:
+                            </span>
+                            <span className="font-mono text-slate-200 mt-0.5 block select-text">
+                              {propertiesModal.data?.modifiedTime || propertiesModal.item?.modifiedTime || '—'}
+                            </span>
+                          </div>
+
+                          {propertiesModal.data?.accessTime && (
+                            <div>
+                              <span className="text-[11px] text-slate-400 block">
+                                {isEn ? 'Last Accessed (atime)' : 'آخرین زمان دسترسی (atime)'}:
+                              </span>
+                              <span className="font-mono text-slate-300 mt-0.5 block select-text">
+                                {propertiesModal.data.accessTime}
+                              </span>
+                            </div>
+                          )}
+
+                          {propertiesModal.data?.createdTime && (
+                            <div>
+                              <span className="text-[11px] text-slate-400 block">
+                                {isEn ? 'Created / Changed (ctime)' : 'زمان ایجاد یا تغییر وضعیت (ctime)'}:
+                              </span>
+                              <span className="font-mono text-slate-300 mt-0.5 block select-text">
+                                {propertiesModal.data.createdTime}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Footer Controls */}
+                <div
+                  className={`px-5 py-3 border-t flex items-center justify-between shrink-0 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyPath(propertiesModal.data?.path || propertiesModal.targetPath)}
+                      className="px-3 py-1.5 rounded-xl border border-slate-700 text-xs font-medium hover:bg-white/10 flex items-center gap-1.5 cursor-pointer text-slate-300"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isEn ? 'Copy Path' : 'کپی مسیر'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const oct = propertiesModal.data?.octalPermissions || propertiesModal.item?.octalPermissions || '755';
+                        const p = propertiesModal.data?.path || propertiesModal.targetPath;
+                        handleCopyPath(`chmod ${oct} "${p}"`);
+                      }}
+                      className="px-3 py-1.5 rounded-xl border border-slate-700 text-xs font-medium hover:bg-white/10 flex items-center gap-1.5 cursor-pointer text-slate-300"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{isEn ? 'Copy Chmod' : 'کپی دستور Chmod'}</span>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPropertiesModal({
+                        isOpen: false,
+                        item: null,
+                        targetPath: '',
+                        data: null,
+                        loading: false,
+                        error: null,
+                      })
+                    }
+                    className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium text-xs transition cursor-pointer"
+                  >
+                    {isEn ? 'Close' : 'بستن'}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+        {/* ======================================================== */}
         {/* ITEM / EMPTY SPACE CONTEXT MENU (PORTAL)                  */}
         {/* ======================================================== */}
         {contextMenu?.isOpen &&
@@ -2283,6 +2743,20 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     <span>{isEn ? 'Refresh Directory' : 'تازه‌سازی دایرکتوری'}</span>
+                  </button>
+
+                  <div className="my-1 border-t border-white/10" />
+
+                  {/* Directory Properties */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenProperties(null, currentPath)}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-indigo-50 text-indigo-700 font-medium' : 'hover:bg-indigo-500/15 text-indigo-300 font-medium'
+                    }`}
+                  >
+                    <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span>{isEn ? 'Directory Properties' : 'مشخصات پوشه (Properties)'}</span>
                   </button>
                 </>
               ) : selectedPaths.size > 1 ? (
@@ -2445,6 +2919,18 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                     <span>{isEn ? 'Rename' : 'تغییر نام'}</span>
+                  </button>
+
+                  {/* Properties / Info */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenProperties(contextMenu.item)}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-indigo-50 text-indigo-700 font-medium' : 'hover:bg-indigo-500/15 text-indigo-300 font-medium'
+                    }`}
+                  >
+                    <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span>{isEn ? 'Properties / Info' : 'مشخصات و جزئیات (Properties)'}</span>
                   </button>
 
                   <div className="my-1 border-t border-white/10" />

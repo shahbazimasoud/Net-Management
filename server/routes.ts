@@ -176,6 +176,7 @@ import {
   downloadLinuxSingleFile,
   downloadLinuxArchive,
   uploadLinuxFile,
+  getLinuxItemProperties,
 } from './linuxFileExplorer';
 
 export const apiRouter = Router();
@@ -4334,6 +4335,24 @@ apiRouter.post('/remote-servers/:id/fs/upload', async (req: Request, res: Respon
   } catch (err: any) {
     console.error(`[LinuxFS upload error on server ${req.params.id}]:`, err?.message || err);
     res.status(500).json({ success: false, error: err.message || 'Failed to upload file' });
+  }
+});
+
+// GET & POST /api/remote-servers/:id/fs/properties - Get detailed file or directory properties
+apiRouter.all('/remote-servers/:id/fs/properties', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const targetPath = (req.query.path || req.body.path || '/') as string;
+    const password = (req.body?.password || req.query?.password) as string | undefined;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const properties = await getLinuxItemProperties(server, targetPath, password);
+    return res.json({ success: true, properties });
+  } catch (err: any) {
+    console.error(`[LinuxFS properties error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to inspect file properties' });
   }
 });
 

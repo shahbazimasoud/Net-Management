@@ -2288,3 +2288,25 @@ export interface LinuxFileContentResult {
   isTruncated: boolean;
   path: string;
 }
+
+export interface LinuxItemProperties {
+  name: string;
+  path: string;
+  parentPath: string;
+  type: LinuxFsItemType;
+  typeHuman: string;
+  size: number;
+  sizeHuman: string;
+  permissions: string;
+  octalPermissions: string;
+  ownerUser: string;
+  ownerUid: number;
+  groupName: string;
+  groupGid: number;
+  modifiedTime: string;
+  accessTime: string;
+  createdTime?: string;
+  statusChangeTime?: string;
+  symlinkTarget?: string;
+  itemCount?: number;
+}

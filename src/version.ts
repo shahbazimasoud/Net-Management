@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.142.0';
+export const APP_VERSION = '1.143.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.143.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'پنجره مشخصات و اینفو جامع فایل و دایرکتوری در راست‌کلیک کاوشگر لینوکس (فاز ۵)',
+    title_en: 'Comprehensive File & Directory Properties/Info Dialog in Linux File Explorer Context Menu (Phase 5)',
+    changes: [
+      'افزودن گزینه Properties / Info در منوی راست‌کلیک تک فایل، پوشه و فضای خالی دایرکتوری جاری.',
+      'واکشی متادیتای تفصیلی فایل و پوشه از سرور با دستورات stat و پشتیبانی SFTP شامل مسیر کامل، نام، حجم دقیق به بایت و فرمت‌شده، مقصد Symlink و تعداد آیتم‌ها.',
+      'نمایش نام و شناسه عددی مالک (UID/User) و گروه کاربری (GID/Group) به همراه مجوزهای عددی اکتال (مانند 0755) و متنی.',
+      'طراحی ماتریس تفکیکی مجوزهای سه‌گانه کاربر، گروه و دیگران (Read, Write, Execute) با بج‌های وضعیت بصری شفاف.',
+      'نمایش زمان آخرین تغییر محتوا (mtime)، آخرین دسترسی (atime) و زمان ایجاد یا تغییر وضعیت (ctime) با دکمه‌های کپی مسیر و دستور chmod.',
+    ],
+    changes_en: [
+      'Added Properties / Info option in context menus for files, folders, and current directory empty space.',
+      'Fetched detailed file/directory metadata from Linux server via stat and SFTP fallback including path, name, exact bytes, symlink target, and direct child count.',
+      'Displayed owner UID/User, group GID/Group, octal permissions (e.g. 0755), and textual permission strings.',
+      'Designed interactive visual permissions matrix table detailing User, Group, and Others read/write/execute rights.',
+      'Showed modified time (mtime), access time (atime), and creation/change time (ctime) with quick copy buttons for path and chmod command.',
+    ],
+  },
   {
     version: '1.142.0',
     releaseDate: '2026-09-24',

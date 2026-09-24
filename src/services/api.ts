@@ -56,6 +56,7 @@ import {
   LinuxFsItem,
   LinuxQuickDir,
   LinuxFileContentResult,
+  LinuxItemProperties,
 } from '../types';
 
 const API_BASE = '/api';
@@ -3254,6 +3255,35 @@ export async function uploadLinuxFile(
     return data;
   } catch (err: any) {
     return { success: false, error: err?.message || 'Failed to upload file' };
+  }
+}
+
+export async function fetchLinuxItemProperties(
+  serverId: string,
+  path: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; properties?: LinuxItemProperties; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/properties?path=${encodeURIComponent(path)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, password: ephemeralPassword }),
+      }
+    );
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse properties response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to fetch properties' };
   }
 }
 

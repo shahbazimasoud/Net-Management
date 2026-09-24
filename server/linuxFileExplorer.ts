@@ -1022,3 +1022,158 @@ export async function uploadLinuxFile(
   }
 }
 
+export interface LinuxItemProperties {
+  name: string;
+  path: string;
+  parentPath: string;
+  type: 'directory' | 'file' | 'symlink' | 'other';
+  typeHuman: string;
+  size: number;
+  sizeHuman: string;
+  permissions: string;
+  octalPermissions: string;
+  ownerUser: string;
+  ownerUid: number;
+  groupName: string;
+  groupGid: number;
+  modifiedTime: string;
+  accessTime: string;
+  createdTime?: string;
+  statusChangeTime?: string;
+  symlinkTarget?: string;
+  itemCount?: number;
+}
+
+/**
+ * Fetch detailed file or directory properties and metadata via SSH stat with SFTP fallback.
+ */
+export async function getLinuxItemProperties(
+  server: RemoteServer,
+  targetPath: string,
+  ephemeralPassword?: string
+): Promise<LinuxItemProperties> {
+  const cleanPath = targetPath.trim() === '' ? '/' : targetPath.trim().replace(/\/+/g, '/');
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+
+  try {
+    // 1. Try comprehensive stat command
+    try {
+      const statCmd = `stat -c '%n|%s|%F|%U|%u|%G|%g|%a|%A|%y|%x|%w|%z' "${cleanPath}"`;
+      const statOut = await executeExecCommand(client, statCmd, 5000);
+      const parts = statOut.trim().split('|');
+      if (parts.length >= 11) {
+        const size = parseInt(parts[1], 10) || 0;
+        const rawType = (parts[2] || '').toLowerCase();
+        const ownerUser = parts[3] || 'unknown';
+        const ownerUid = parseInt(parts[4], 10) || 0;
+        const groupName = parts[5] || 'unknown';
+        const groupGid = parseInt(parts[6], 10) || 0;
+        const octal = (parts[7] || '').padStart(3, '0');
+        const permString = parts[8] || '-';
+        const mtime = parts[9] || new Date().toISOString();
+        const atime = parts[10] || new Date().toISOString();
+        const wtime = parts[11] && parts[11] !== '-' ? parts[11] : undefined;
+        const ztime = parts[12] && parts[12] !== '-' ? parts[12] : undefined;
+
+        let type: 'directory' | 'file' | 'symlink' | 'other' = 'file';
+        if (rawType.includes('directory')) type = 'directory';
+        else if (rawType.includes('symbolic')) type = 'symlink';
+        else if (rawType.includes('socket') || rawType.includes('fifo') || rawType.includes('device')) type = 'other';
+
+        let symlinkTarget: string | undefined;
+        if (type === 'symlink') {
+          try {
+            symlinkTarget = (await executeExecCommand(client, `readlink "${cleanPath}"`, 2000)).trim();
+          } catch {}
+        }
+
+        let itemCount: number | undefined;
+        if (type === 'directory') {
+          try {
+            const countOut = await executeExecCommand(
+              client,
+              `find "${cleanPath}" -maxdepth 1 ! -path "${cleanPath}" | wc -l`,
+              2500
+            );
+            const count = parseInt(countOut.trim(), 10);
+            if (!isNaN(count)) itemCount = count;
+          } catch {}
+        }
+
+        const name = cleanPath === '/' ? '/' : cleanPath.substring(cleanPath.lastIndexOf('/') + 1);
+        const parentPath = cleanPath === '/' ? '/' : cleanPath.substring(0, cleanPath.lastIndexOf('/')) || '/';
+
+        return {
+          name,
+          path: cleanPath,
+          parentPath,
+          type,
+          typeHuman: parts[2] || type,
+          size,
+          sizeHuman: formatBytes(size),
+          permissions: permString,
+          octalPermissions: octal,
+          ownerUser,
+          ownerUid,
+          groupName,
+          groupGid,
+          modifiedTime: mtime,
+          accessTime: atime,
+          createdTime: wtime || ztime,
+          statusChangeTime: ztime,
+          symlinkTarget,
+          itemCount,
+        };
+      }
+    } catch {}
+
+    // 2. Fallback via SFTP
+    return await new Promise<LinuxItemProperties>((resolve, reject) => {
+      client.sftp((err, sftp) => {
+        if (err || !sftp) {
+          return reject(new Error(`Failed to inspect file: ${err?.message || 'SFTP unavailable'}`));
+        }
+        sftp.lstat(cleanPath, (statErr, stats) => {
+          if (statErr || !stats) {
+            return reject(statErr || new Error(`Cannot stat item ${cleanPath}`));
+          }
+
+          const mode = stats.mode || 0;
+          const isDir = (mode & 0o040000) === 0o040000;
+          const isSymlink = (mode & 0o120000) === 0o120000;
+          const type = isDir ? 'directory' : isSymlink ? 'symlink' : 'file';
+          const size = stats.size || 0;
+          const { octal, stringFormat } = parseOctalPermissions(mode);
+          const mtime = stats.mtime ? new Date(stats.mtime * 1000).toISOString() : new Date().toISOString();
+          const atime = stats.atime ? new Date(stats.atime * 1000).toISOString() : new Date().toISOString();
+          const name = cleanPath === '/' ? '/' : cleanPath.substring(cleanPath.lastIndexOf('/') + 1);
+          const parentPath = cleanPath === '/' ? '/' : cleanPath.substring(0, cleanPath.lastIndexOf('/')) || '/';
+
+          resolve({
+            name,
+            path: cleanPath,
+            parentPath,
+            type,
+            typeHuman: isDir ? 'directory' : isSymlink ? 'symbolic link' : 'regular file',
+            size,
+            sizeHuman: formatBytes(size),
+            permissions: stringFormat,
+            octalPermissions: octal,
+            ownerUser: String(stats.uid ?? 0),
+            ownerUid: stats.uid ?? 0,
+            groupName: String(stats.gid ?? 0),
+            groupGid: stats.gid ?? 0,
+            modifiedTime: mtime,
+            accessTime: atime,
+          });
+        });
+      });
+    });
+  } finally {
+    try {
+      client.end();
+    } catch {}
+  }
+}
+
+
