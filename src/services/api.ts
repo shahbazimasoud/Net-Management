@@ -3155,6 +3155,29 @@ export async function renameLinuxRemoteItem(
   }
 }
 
+export async function pasteLinuxItems(
+  serverId: string,
+  sourcePaths: string[],
+  targetDirectory: string,
+  operation: 'copy' | 'cut',
+  ephemeralPassword?: string
+): Promise<{ success: boolean; processedCount?: number; message?: string; error?: string; failures?: string[] }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/paste`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourcePaths, targetDirectory, operation, password: ephemeralPassword }),
+    });
+    const data = await res.json().catch(() => ({ success: false, error: 'Failed to parse paste response' }));
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to paste items' };
+  }
+}
+
 export async function deleteLinuxRemoteItem(
   serverId: string,
   path: string,

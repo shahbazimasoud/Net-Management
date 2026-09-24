@@ -179,6 +179,7 @@ import {
   getLinuxItemProperties,
   updateLinuxItemAttributes,
   getLinuxSystemUsersAndGroups,
+  pasteLinuxItems,
 } from './linuxFileExplorer';
 
 export const apiRouter = Router();
@@ -4223,6 +4224,53 @@ apiRouter.post('/remote-servers/:id/fs/rename', async (req: Request, res: Respon
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'Failed to rename item' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/paste - Copy or Cut (move) files/folders to target directory
+apiRouter.post('/remote-servers/:id/fs/paste', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { sourcePaths, targetDirectory, operation, password } = req.body;
+
+    if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) {
+      return res.status(400).json({ success: false, error: 'sourcePaths array must not be empty' });
+    }
+    if (!targetDirectory || typeof targetDirectory !== 'string') {
+      return res.status(400).json({ success: false, error: 'targetDirectory is required' });
+    }
+    if (operation !== 'copy' && operation !== 'cut') {
+      return res.status(400).json({ success: false, error: 'operation must be "copy" or "cut"' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await pasteLinuxItems(
+      server,
+      {
+        sourcePaths,
+        targetDirectory,
+        operation,
+      },
+      password
+    );
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: operation === 'cut' ? 'Linux File(s) Moved/Cut' : 'Linux File(s) Copied',
+      category: 'file_system',
+      target: `Server ${server.name || server.ip}: ${targetDirectory}`,
+      status: result.success ? 'success' : 'error',
+      details: `${operation.toUpperCase()} ${result.processedCount} item(s) to "${targetDirectory}"`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFS paste error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to paste items' });
   }
 });
 

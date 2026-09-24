@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.144.0';
+export const APP_VERSION = '1.145.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.145.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'افزودن امکان کپی، کات (برش) و چسباندن (Paste) فایل‌ها و پوشه‌ها در کاوشگر لینوکس',
+    title_en: 'Copy, Cut, and Paste Operations Across Paths in Linux File Explorer',
+    changes: [
+      'افزودن گزینه‌های کپی (Copy) و برش (Cut) به منوی راست‌کلیک روی فایل‌ها و پوشه‌ها (تک‌انتخابی و چندانتخابی).',
+      'افزودن گزینه چسباندن (Paste) به منوی راست‌کلیک در فضای خالی دایرکتوری و همچنین بر روی پوشه‌ها (Paste into Folder).',
+      'پشتیبانی از کلیدهای میانبر استاندارد صفحه‌کلید (Ctrl+C برای کپی، Ctrl+X برای برش، Ctrl+V برای چسباندن و Escape برای لغو برش).',
+      'نمایش نوار وضعیت کلیپ‌بورد پویا در بالای فایل‌ها با دکمه چسباندن سریع و دکمه پاک‌سازی حافظه موقت.',
+      'افکت بصری نیمه‌شفاف و خط‌چین به همراه نشانگر وضعیت برش (Cut badge) روی ردیف‌ها و کارت‌های در حال انتقال.',
+      'اجرای مستقیم بر روی سرور لینوکس از طریق SSH با دستورات بومی cp -r و mv و نام‌گذاری خودکار هوشمند در صورت کپی در همان مسیر.',
+    ],
+    changes_en: [
+      'Added Copy and Cut context menu actions for individual and multi-selected files and directories.',
+      'Added Paste context menu actions on empty directory spaces and directly on folders (Paste into Folder).',
+      'Full support for standard keyboard shortcuts (Ctrl+C to copy, Ctrl+X to cut, Ctrl+V to paste, Escape to cancel cut).',
+      'Floating active clipboard banner displaying pending cut/copied items with instant Paste Here and Clear actions.',
+      'Semi-transparent, dashed visual feedback with Cut badges for items queued for moving across directories.',
+      'Native SSH backend execution utilizing cp -r and mv with automatic non-colliding name generation when copying into the same path.',
+    ],
+  },
   {
     version: '1.144.0',
     releaseDate: '2026-09-24',

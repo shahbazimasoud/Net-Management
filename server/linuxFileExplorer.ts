@@ -766,6 +766,146 @@ export async function renameLinuxItem(
   }
 }
 
+export interface LinuxPasteOptions {
+  sourcePaths: string[];
+  targetDirectory: string;
+  operation: 'copy' | 'cut';
+}
+
+/**
+ * Copy or cut (move) one or more files/directories into a target directory.
+ */
+export async function pasteLinuxItems(
+  server: RemoteServer,
+  options: LinuxPasteOptions,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; processedCount: number; message: string; failures?: string[] }> {
+  const cleanTarget = options.targetDirectory.trim().replace(/\/+$/, '') || '/';
+  const cleanSources = (options.sourcePaths || []).map((p) => p.trim()).filter(Boolean);
+
+  if (cleanSources.length === 0) {
+    throw new Error('At least one source item is required to paste.');
+  }
+
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+  const isCut = options.operation === 'cut';
+  const failures: string[] = [];
+  let processedCount = 0;
+
+  try {
+    // Ensure destination directory exists
+    try {
+      await executeExecCommand(client, `mkdir -p "${cleanTarget}"`, 10000);
+    } catch (mkdirErr: any) {
+      if ((server.ssh_username || 'root') !== 'root') {
+        await executeExecCommand(client, `sudo -n mkdir -p "${cleanTarget}"`, 10000).catch(() => {});
+      }
+    }
+
+    for (const src of cleanSources) {
+      try {
+        const parts = src.split('/').filter(Boolean);
+        const baseName = parts.pop() || '';
+        if (!baseName) continue;
+        const parentDir = src.substring(0, src.lastIndexOf('/')) || '/';
+
+        if (isCut) {
+          // If moving into identical directory, no-op
+          if (parentDir === cleanTarget) {
+            continue;
+          }
+          const moveCmd = `mv "${src}" "${cleanTarget}/"`;
+          try {
+            await executeExecCommand(client, moveCmd, 30000);
+          } catch (err: any) {
+            if ((server.ssh_username || 'root') !== 'root') {
+              const sudoMoveCmd = `sudo -n mv "${src}" "${cleanTarget}/"`;
+              await executeExecCommand(client, sudoMoveCmd, 30000);
+            } else {
+              throw err;
+            }
+          }
+          processedCount++;
+        } else {
+          // COPY operation
+          if (parentDir === cleanTarget) {
+            // Copying into same folder: auto-generate unique copy name
+            const extDot = baseName.lastIndexOf('.');
+            const hasExt = extDot > 0;
+            const nameWithoutExt = hasExt ? baseName.substring(0, extDot) : baseName;
+            const ext = hasExt ? baseName.substring(extDot) : '';
+
+            const copyScript = `
+TARGET_DIR="${cleanTarget}"
+SRC="${src}"
+BASE="${nameWithoutExt}"
+EXT="${ext}"
+COPY_NAME="\${BASE} - Copy\${EXT}"
+if [ -e "\${TARGET_DIR}/\${COPY_NAME}" ]; then
+  I=2
+  while [ -e "\${TARGET_DIR}/\${BASE} - Copy (\${I})\${EXT}" ]; do
+    I=$((I+1))
+  done
+  DEST="\${TARGET_DIR}/\${BASE} - Copy (\${I})\${EXT}"
+else
+  DEST="\${TARGET_DIR}/\${COPY_NAME}"
+fi
+cp -r -p "\${SRC}" "\${DEST}"
+`;
+            try {
+              await executeExecCommand(client, copyScript, 60000);
+            } catch (err: any) {
+              if ((server.ssh_username || 'root') !== 'root') {
+                const sudoCopyScript = `sudo -n bash -c '${copyScript.replace(/'/g, "'\\''")}'`;
+                await executeExecCommand(client, sudoCopyScript, 60000);
+              } else {
+                throw err;
+              }
+            }
+            processedCount++;
+          } else {
+            // Copying into different directory
+            const copyCmd = `cp -r -p "${src}" "${cleanTarget}/"`;
+            try {
+              await executeExecCommand(client, copyCmd, 60000);
+            } catch (err: any) {
+              if ((server.ssh_username || 'root') !== 'root') {
+                const sudoCopyCmd = `sudo -n cp -r -p "${src}" "${cleanTarget}/"`;
+                await executeExecCommand(client, sudoCopyCmd, 60000);
+              } else {
+                throw err;
+              }
+            }
+            processedCount++;
+          }
+        }
+      } catch (itemErr: any) {
+        failures.push(`${src}: ${itemErr?.message || 'Failed'}`);
+      }
+    }
+
+    if (processedCount === 0 && failures.length > 0) {
+      throw new Error(`Failed to ${isCut ? 'move' : 'copy'} items: ${failures.join('; ')}`);
+    }
+
+    const actionWord = isCut ? 'moved' : 'copied';
+    const message = failures.length > 0
+      ? `Partially ${actionWord}: ${processedCount} succeeded, ${failures.length} failed (${failures.join(', ')})`
+      : `Successfully ${actionWord} ${processedCount} item(s) to ${cleanTarget}`;
+
+    return {
+      success: true,
+      processedCount,
+      message,
+      failures: failures.length > 0 ? failures : undefined,
+    };
+  } finally {
+    try {
+      client.end();
+    } catch {}
+  }
+}
+
 /**
  * Delete a file or directory on remote server.
  */

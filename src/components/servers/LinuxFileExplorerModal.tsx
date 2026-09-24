@@ -49,6 +49,8 @@ import {
   User,
   Users,
   Save,
+  Scissors,
+  ClipboardPaste,
 } from 'lucide-react';
 import { RemoteServer, LinuxFsItem, LinuxFsListResult, LinuxQuickDir, LinuxFileContentResult, LinuxItemProperties } from '../../types';
 import {
@@ -65,6 +67,7 @@ import {
   fetchLinuxItemProperties,
   updateLinuxItemAttributes,
   fetchLinuxSystemUsersAndGroups,
+  pasteLinuxItems,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -312,6 +315,14 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
   const [systemUsers, setSystemUsers] = useState<string[]>([]);
   const [systemGroups, setSystemGroups] = useState<string[]>([]);
   const [isLoadingUsersGroups, setIsLoadingUsersGroups] = useState(false);
+
+  // Clipboard State for Copy / Cut / Paste across directories
+  const [clipboard, setClipboard] = useState<{
+    items: LinuxFsItem[];
+    operation: 'copy' | 'cut';
+    sourceDirectory: string;
+  } | null>(null);
+  const [isPasting, setIsPasting] = useState(false);
 
   // Context Menu State for Right-Click Actions (item can be null for empty space)
   const [contextMenu, setContextMenu] = useState<{
@@ -851,6 +862,140 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       setSelectedItem(item);
     }
   };
+
+  // Clipboard Operations (Copy, Cut, Paste)
+  const handleCopyItems = useCallback((itemsToCopy: LinuxFsItem[]) => {
+    if (itemsToCopy.length === 0) return;
+    setClipboard({
+      items: itemsToCopy,
+      operation: 'copy',
+      sourceDirectory: currentPath,
+    });
+    setContextMenu(null);
+    setFeedback({
+      message: isEn
+        ? `Copied ${itemsToCopy.length} item(s) to clipboard`
+        : `${itemsToCopy.length} مورد به حافظه موقت کپی شد`,
+      type: 'info',
+    });
+    setTimeout(() => setFeedback(null), 3500);
+  }, [currentPath, isEn]);
+
+  const handleCutItems = useCallback((itemsToCut: LinuxFsItem[]) => {
+    if (itemsToCut.length === 0) return;
+    setClipboard({
+      items: itemsToCut,
+      operation: 'cut',
+      sourceDirectory: currentPath,
+    });
+    setContextMenu(null);
+    setFeedback({
+      message: isEn
+        ? `Cut ${itemsToCut.length} item(s). Ready to paste.`
+        : `${itemsToCut.length} مورد برش (کات) شد. آماده برای انتقال و چسباندن.`,
+      type: 'info',
+    });
+    setTimeout(() => setFeedback(null), 3500);
+  }, [currentPath, isEn]);
+
+  const handlePasteItems = useCallback(async (targetDirectory: string) => {
+    if (!server || !clipboard || clipboard.items.length === 0) return;
+    setIsPasting(true);
+    setContextMenu(null);
+    const count = clipboard.items.length;
+    const op = clipboard.operation;
+    try {
+      const res = await pasteLinuxItems(
+        server.id,
+        clipboard.items.map((i) => i.path),
+        targetDirectory,
+        op,
+        ephemeralPassword || sessionPassword
+      );
+      if (!res.success) {
+        setFeedback({
+          message: res.error || (isEn ? 'Failed to paste items' : 'خطا در عملیات چسباندن آیتم‌ها'),
+          type: 'error',
+        });
+      } else {
+        setFeedback({
+          message: isEn
+            ? `Successfully ${op === 'cut' ? 'moved' : 'copied'} ${res.processedCount || count} item(s) to ${targetDirectory}`
+            : `${res.processedCount || count} مورد با موفقیت به ${targetDirectory} ${op === 'cut' ? 'منتقل شد' : 'کپی شد'}`,
+          type: 'success',
+        });
+        if (op === 'cut') {
+          setClipboard(null);
+        }
+        loadDirectory(currentPath, ephemeralPassword, false);
+      }
+    } catch (err: any) {
+      setFeedback({
+        message: err?.message || (isEn ? 'Error pasting items' : 'خطا در پردازش چسباندن'),
+        type: 'error',
+      });
+    } finally {
+      setIsPasting(false);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  }, [server, clipboard, ephemeralPassword, sessionPassword, isEn, currentPath, loadDirectory]);
+
+  const handleClearClipboard = useCallback(() => {
+    setClipboard(null);
+    setContextMenu(null);
+  }, []);
+
+  // Keyboard shortcuts (Ctrl+C, Ctrl+X, Ctrl+V, Escape)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.getAttribute('role') === 'textbox')
+      ) {
+        return;
+      }
+
+      // Ctrl+C / Cmd+C (Copy)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        if (selectedPaths.size > 0) {
+          e.preventDefault();
+          const selItems = items.filter((it) => selectedPaths.has(it.path));
+          if (selItems.length > 0) {
+            handleCopyItems(selItems);
+          }
+        }
+      }
+      // Ctrl+X / Cmd+X (Cut)
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
+        if (selectedPaths.size > 0) {
+          e.preventDefault();
+          const selItems = items.filter((it) => selectedPaths.has(it.path));
+          if (selItems.length > 0) {
+            handleCutItems(selItems);
+          }
+        }
+      }
+      // Ctrl+V / Cmd+V (Paste)
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        if (clipboard && clipboard.items.length > 0) {
+          e.preventDefault();
+          handlePasteItems(currentPath);
+        }
+      }
+      // Escape to cancel cut
+      else if (e.key === 'Escape' && clipboard?.operation === 'cut') {
+        setClipboard(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, selectedPaths, items, clipboard, currentPath, handleCopyItems, handleCutItems, handlePasteItems]);
 
   // Create Directory
   const handleCreateDirectory = async (e: React.FormEvent) => {
@@ -1578,6 +1723,67 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
               className="flex-1 overflow-y-auto p-3 relative"
               onContextMenu={handleEmptyAreaContextMenu}
             >
+              {/* Active Clipboard Status Banner */}
+              {clipboard && clipboard.items.length > 0 && (
+                <div
+                  className={`p-2.5 px-4 mb-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 shadow-md backdrop-blur-md animate-in slide-in-from-top-2 ${
+                    isLightMode
+                      ? 'bg-amber-50/95 border-amber-300 text-amber-950'
+                      : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs">
+                    {clipboard.operation === 'cut' ? (
+                      <Scissors className="w-4 h-4 text-amber-400 shrink-0" />
+                    ) : (
+                      <Copy className="w-4 h-4 text-cyan-400 shrink-0" />
+                    )}
+                    <span className="font-semibold">
+                      {clipboard.operation === 'cut'
+                        ? (isEn ? 'Cut to clipboard:' : 'برش در کلیپ‌بورد:')
+                        : (isEn ? 'Copied to clipboard:' : 'کپی در کلیپ‌بورد:')}
+                    </span>
+                    <span className="font-mono bg-black/20 px-2 py-0.5 rounded text-[11px] font-bold">
+                      {isEn
+                        ? `${clipboard.items.length} item(s)`
+                        : `${clipboard.items.length} مورد`}
+                    </span>
+                    <span className="text-[11px] text-slate-400 hidden md:inline truncate max-w-xs font-mono">
+                      ({isEn ? 'from' : 'از'} {clipboard.sourceDirectory})
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handlePasteItems(currentPath)}
+                      disabled={isPasting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition font-bold text-xs cursor-pointer shadow disabled:opacity-50"
+                    >
+                      {isPasting ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <ClipboardPaste className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {isEn
+                          ? `Paste Here (${clipboard.items.length})`
+                          : `چسباندن در اینجا (${clipboard.items.length})`}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleClearClipboard}
+                      title={isEn ? 'Clear Clipboard' : 'خالی کردن حافظه موقت'}
+                      className="p-1.5 rounded-lg hover:bg-black/20 text-slate-400 hover:text-white transition cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Error State */}
               {error && (
                 <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 flex items-center justify-between mb-3">
@@ -1721,6 +1927,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                         const iconInfo = getFileIconInfo(item);
                         const IconComp = iconInfo.icon;
                         const isSelected = selectedPaths.has(item.path);
+                        const isCutItem = clipboard?.operation === 'cut' && clipboard.items.some((ci) => ci.path === item.path);
 
                         return (
                           <tr
@@ -1729,7 +1936,9 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                             onDoubleClick={() => handleItemDoubleClick(item)}
                             onContextMenu={(e) => handleItemContextMenu(e, item)}
                             className={`transition cursor-pointer select-none ${
-                              isSelected
+                              isCutItem
+                                ? 'opacity-40 border-dashed border-amber-500/50 italic bg-amber-500/10'
+                                : isSelected
                                 ? isLightMode
                                   ? 'bg-cyan-100/90 text-slate-950 font-semibold ring-1 ring-cyan-500/40'
                                   : 'bg-cyan-500/25 text-white font-semibold ring-1 ring-cyan-500/50'
@@ -1744,10 +1953,16 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                                 <div className={`p-1.5 rounded-lg ${iconInfo.bgColor} ${iconInfo.color} shrink-0`}>
                                   <IconComp className="w-4 h-4" />
                                 </div>
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex items-center gap-1.5">
                                   <span className="font-mono text-xs truncate block hover:underline">
                                     {item.name}
                                   </span>
+                                  {isCutItem && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                                      <Scissors className="w-2.5 h-2.5 animate-pulse" />
+                                      {isEn ? 'Cut' : 'برش'}
+                                    </span>
+                                  )}
                                   {item.type === 'symlink' && item.target && (
                                     <span className="text-[10px] text-purple-400 font-mono flex items-center gap-1">
                                       <span>→</span> {item.target}
@@ -1819,6 +2034,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                     const iconInfo = getFileIconInfo(item);
                     const IconComp = iconInfo.icon;
                     const isSelected = selectedPaths.has(item.path);
+                    const isCutItem = clipboard?.operation === 'cut' && clipboard.items.some((ci) => ci.path === item.path);
 
                     return (
                       <div
@@ -1827,7 +2043,9 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                         onDoubleClick={() => handleItemDoubleClick(item)}
                         onContextMenu={(e) => handleItemContextMenu(e, item)}
                         className={`p-3 rounded-xl border flex flex-col items-center text-center transition cursor-pointer relative group select-none ${
-                          isSelected
+                          isCutItem
+                            ? 'opacity-40 border-dashed border-amber-500/60 bg-amber-500/10 ring-1 ring-amber-400/40'
+                            : isSelected
                             ? isLightMode
                               ? 'bg-cyan-50 border-cyan-500/60 text-cyan-950 font-semibold ring-2 ring-cyan-400'
                               : 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200 font-semibold ring-2 ring-cyan-400/60'
@@ -1836,6 +2054,12 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                             : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-200'
                         }`}
                       >
+                        {isCutItem && (
+                          <div className="absolute top-1.5 left-1.5 px-1 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[9px] flex items-center gap-1 font-bold">
+                            <Scissors className="w-2.5 h-2.5 animate-pulse" />
+                            {isEn ? 'Cut' : 'برش'}
+                          </div>
+                        )}
                         <div className={`p-3 rounded-xl ${iconInfo.bgColor} ${iconInfo.color} mb-2`}>
                           <IconComp className="w-6 h-6" />
                         </div>
@@ -3359,6 +3583,45 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                     <span>{isEn ? 'New Empty File' : 'فایل جدید'}</span>
                   </button>
 
+                  {/* Paste into Current Directory if Clipboard has items */}
+                  {clipboard && clipboard.items.length > 0 && (
+                    <>
+                      <div className="my-1 border-t border-white/10" />
+                      <button
+                        type="button"
+                        onClick={() => handlePasteItems(currentPath)}
+                        disabled={isPasting}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                          isLightMode
+                            ? 'hover:bg-emerald-50 text-emerald-700 font-semibold'
+                            : 'hover:bg-emerald-500/15 text-emerald-300 font-semibold'
+                        }`}
+                      >
+                        {isPasting ? (
+                          <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin shrink-0" />
+                        ) : (
+                          <ClipboardPaste className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        )}
+                        <span>
+                          {isEn
+                            ? `Paste (${clipboard.items.length}) Items Here`
+                            : `چسباندن (${clipboard.items.length}) مورد در اینجا`}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleClearClipboard}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                          isLightMode ? 'hover:bg-slate-100 text-slate-500' : 'hover:bg-white/10 text-slate-400'
+                        }`}
+                      >
+                        <X className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{isEn ? 'Clear Clipboard' : 'خالی کردن حافظه موقت'}</span>
+                      </button>
+                    </>
+                  )}
+
                   <div className="my-1 border-t border-white/10" />
 
                   {/* Refresh */}
@@ -3401,6 +3664,30 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                       Ctrl+Click
                     </span>
                   </div>
+
+                  {/* Copy Selected Items */}
+                  <button
+                    type="button"
+                    onClick={() => handleCopyItems(items.filter((it) => selectedPaths.has(it.path)))}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-slate-100 text-slate-700 font-medium' : 'hover:bg-white/10 text-slate-200 font-medium'
+                    }`}
+                  >
+                    <Copy className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span>{isEn ? `Copy (${selectedPaths.size}) Items` : `کپی (${selectedPaths.size}) مورد`}</span>
+                  </button>
+
+                  {/* Cut Selected Items */}
+                  <button
+                    type="button"
+                    onClick={() => handleCutItems(items.filter((it) => selectedPaths.has(it.path)))}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-500/15 text-amber-300 font-medium'
+                    }`}
+                  >
+                    <Scissors className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>{isEn ? `Cut (${selectedPaths.size}) Items` : `برش / کات (${selectedPaths.size}) مورد`}</span>
+                  </button>
 
                   {/* Download All as ZIP */}
                   <button
@@ -3466,6 +3753,57 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                       </p>
                     </div>
                   </div>
+
+                  {/* Copy Single Item */}
+                  <button
+                    type="button"
+                    onClick={() => handleCopyItems([contextMenu.item!])}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-slate-100 text-slate-700 font-medium' : 'hover:bg-white/10 text-slate-200 font-medium'
+                    }`}
+                  >
+                    <Copy className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span>{isEn ? 'Copy' : 'کپی (Copy)'}</span>
+                  </button>
+
+                  {/* Cut Single Item */}
+                  <button
+                    type="button"
+                    onClick={() => handleCutItems([contextMenu.item!])}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-500/15 text-amber-300 font-medium'
+                    }`}
+                  >
+                    <Scissors className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>{isEn ? 'Cut' : 'برش / کات (Cut)'}</span>
+                  </button>
+
+                  {/* Paste Into this Folder (if folder and clipboard active) */}
+                  {contextMenu.item.type === 'directory' && clipboard && clipboard.items.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handlePasteItems(contextMenu.item!.path)}
+                      disabled={isPasting}
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                        isLightMode
+                          ? 'hover:bg-emerald-50 text-emerald-700 font-semibold'
+                          : 'hover:bg-emerald-500/15 text-emerald-300 font-semibold'
+                      }`}
+                    >
+                      {isPasting ? (
+                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin shrink-0" />
+                      ) : (
+                        <ClipboardPaste className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      )}
+                      <span>
+                        {isEn
+                          ? `Paste (${clipboard.items.length}) Into Folder`
+                          : `چسباندن (${clipboard.items.length}) در این پوشه`}
+                      </span>
+                    </button>
+                  )}
+
+                  <div className="my-1 border-t border-white/10" />
 
                   {/* Upload Into Directory */}
                   {contextMenu.item.type === 'directory' && (
