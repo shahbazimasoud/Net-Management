@@ -117,6 +117,9 @@ import {
   setLinuxInterfaceState,
 } from './linuxNetworkManager';
 import {
+  detectLinuxFirewall,
+} from './linuxFirewallManager';
+import {
   fetchLinuxPackageOverview,
   startPackageUpdateJob,
   getPackageUpdateJob,
@@ -2713,6 +2716,45 @@ apiRouter.post('/remote-servers/:id/interface-state', async (req: Request, res: 
     });
   }
 });
+
+// GET / POST /api/remote-servers/:id/firewall - Detect and fetch Linux firewall status and rules
+const handleLinuxServerFirewall = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'Firewall management is designed for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const firewallInfo = await detectLinuxFirewall(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      ...firewallInfo,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxFirewall API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to inspect firewall on remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/firewall', handleLinuxServerFirewall);
+apiRouter.post('/remote-servers/:id/firewall', handleLinuxServerFirewall);
 
 // POST /api/remote-servers/:id/proxy-action - Configure or clear persistent system proxy
 apiRouter.post('/remote-servers/:id/proxy-action', async (req: Request, res: Response) => {

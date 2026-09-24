@@ -2153,5 +2153,91 @@ export interface PackageUpdateJobStatus {
   fullLog?: string;
 }
 
+// ========================================================
+// LINUX FIREWALL ENGINE INTERFACES (UFW, FIREWALLD, NFTABLES, IPTABLES)
+// ========================================================
+
+export type LinuxFirewallBackend = 'ufw' | 'firewalld' | 'nftables' | 'iptables' | 'none' | 'unknown';
+export type LinuxFirewallStatus = 'active' | 'inactive' | 'disabled' | 'not_installed' | 'unknown';
+export type LinuxFirewallAction = 'ALLOW' | 'DENY' | 'REJECT' | 'LIMIT';
+export type LinuxFirewallDirection = 'IN' | 'OUT' | 'FORWARD';
+export type LinuxFirewallProtocol = 'tcp' | 'udp' | 'icmp' | 'any' | 'all';
+
+export interface LinuxFirewallRule {
+  id: string;
+  ruleNumber?: number;
+  backend: LinuxFirewallBackend;
+  action: LinuxFirewallAction;
+  direction: LinuxFirewallDirection;
+  protocol: LinuxFirewallProtocol;
+  port?: string;
+  source?: string;
+  destination?: string;
+  interface?: string;
+  ipVersion: 'v4' | 'v6' | 'both';
+  enabled: boolean;
+  comment?: string;
+  logging?: boolean;
+  rawRule?: string;
+}
+
+export interface LinuxFirewallPolicies {
+  incoming: 'ALLOW' | 'DENY' | 'DROP' | 'REJECT' | string;
+  outgoing: 'ALLOW' | 'DENY' | 'DROP' | 'REJECT' | string;
+  forward?: 'ALLOW' | 'DENY' | 'DROP' | 'REJECT' | string;
+}
+
+export interface LinuxFirewallCapabilities {
+  supportsRuleOrdering: boolean;
+  supportsComments: boolean;
+  supportsZones: boolean;
+  supportsIPv6: boolean;
+  supportsLogging: boolean;
+  supportsPortRanges: boolean;
+  supportsInterfaces: boolean;
+  supportsDefaultPolicies: boolean;
+  supportsToggleState: boolean;
+}
+
+export interface LinuxListeningPortSummary {
+  port: number;
+  proto: string;
+  process?: string;
+  pid?: number;
+  address?: string;
+  allowedInFirewall: boolean;
+}
+
+export interface LinuxFirewallInfo {
+  backend: LinuxFirewallBackend;
+  status: LinuxFirewallStatus;
+  serviceName: string;
+  installed: boolean;
+  enabled: boolean;
+  active: boolean;
+  version?: string;
+  defaultPolicies: LinuxFirewallPolicies;
+  rulesCount: number;
+  rules: LinuxFirewallRule[];
+  capabilities: LinuxFirewallCapabilities;
+  activeZone?: string;
+  rawStatusOutput?: string;
+  listeningPortsSummary?: LinuxListeningPortSummary[];
+}
+
+export interface LinuxFirewallRulePayload {
+  action: LinuxFirewallAction;
+  direction: LinuxFirewallDirection;
+  protocol: LinuxFirewallProtocol;
+  port?: string;
+  source?: string;
+  destination?: string;
+  interface?: string;
+  ipVersion?: 'v4' | 'v6' | 'both';
+  comment?: string;
+  logging?: boolean;
+}
+
+
 
 

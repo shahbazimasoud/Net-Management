@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.136.0';
+export const APP_VERSION = '1.137.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.137.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'معماری و ماژول تشخیص خودکار فایروال لینوکس (UFW، firewalld، nftables، iptables) و تب اختصاصی Firewall',
+    title_en: 'Linux Firewall Engine Discovery (UFW, firewalld, nftables, iptables) & Dedicated Firewall Management Tab',
+    changes: [
+      'پیاده‌سازی ماژول و تب اختصاصی Firewall در مدال مدیریت سرور لینوکس جهت پایش، تشخیص و مدیریت حرفه‌ای فایروال.',
+      'طراحی معماری ارائه‌دهنده فایروال (FirewallProvider) با کلاس‌های تفکیک‌شده برای UFW، firewalld، nftables، iptables و سناریوی بدون فایروال فعال.',
+      'کاوش بلادرنگ وضعیت اجرایی، فعال بودن دیمون سیستم‌دی، نسخه و سیاست‌های پیش‌فرض ورودی (Default Incoming)، خروجی (Default Outgoing) و هدایت (Forward).',
+      'استخراج و نمایش قوانین فعال به صورت کارت‌های خوانا و ساختاریافته به همراه شماره قانون، پورت، پروتکل، جهت و آدرس مبدا.',
+      'تطبیق بلادرنگ سوکت‌ها و پورت‌های گوش‌دهنده سیستم (Listening Sockets از طریق ss/netstat) با قوانین فایروال جهت تشخیص باز یا مسدود بودن سرویس‌ها.',
+      'افزودن دیاگنوستیک کامل با امکان باز کردن آکاردئون خروجی خام پروب جهت شفافیت حداکثری و عیب‌یابی مدیران شبکه.',
+    ],
+    changes_en: [
+      'Implemented dedicated Firewall management tab inside the Linux Server Management modal for real-time inspection and configuration.',
+      'Engineered extensible FirewallProvider architecture with dedicated drivers for UFW, firewalld, nftables, iptables, and unmanaged systems.',
+      'Integrated live remote discovery probing daemon state, systemd services, active tables, and default policies for incoming, outgoing, and forwarding traffic.',
+      'Extracted active packet-filtering rules into human-readable cards detailing action, protocol, port, direction, source address, and comments.',
+      'Added listening sockets correlation analyzing active listening ports against firewall filter rules to determine open vs blocked daemon ports.',
+      'Provided raw diagnostic probe output accordion for enterprise transparency and root-cause troubleshooting.',
+    ],
+  },
   {
     version: '1.136.0',
     releaseDate: '2026-09-24',

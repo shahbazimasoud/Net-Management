@@ -49,6 +49,9 @@ import {
   LinuxPackageUpdateOverview,
   PackageUpdateJobStatus,
   PackageUpdateJobStep,
+  LinuxFirewallInfo,
+  LinuxFirewallRule,
+  LinuxFirewallRulePayload,
 } from '../types';
 
 const API_BASE = '/api';
@@ -2968,6 +2971,23 @@ export async function cancelPackageUpdateJob(
   });
   return res.json().catch(() => ({ success: false, error: 'Failed to cancel update job' }));
 }
+
+// ========================================================
+// LINUX FIREWALL SERVICES (UFW, FIREWALLD, NFTABLES, IPTABLES)
+// ========================================================
+
+export async function fetchLinuxFirewallInfo(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; error?: string; requires_password?: boolean } & Partial<LinuxFirewallInfo>> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/firewall`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to fetch firewall details' }));
+}
+
 
 
 

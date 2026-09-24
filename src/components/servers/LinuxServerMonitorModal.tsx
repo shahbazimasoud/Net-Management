@@ -73,6 +73,7 @@ import { LinuxLogsTab } from './LinuxLogsTab';
 import { LinuxPackageUpdateTab } from './LinuxPackageUpdateTab';
 import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
 import { LinuxNetworkInterfacesTab } from './LinuxNetworkInterfacesTab';
+import { LinuxFirewallTab } from './LinuxFirewallTab';
 import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
 import { LinuxDirectoryPolicyTab } from './LinuxDirectoryPolicyTab';
@@ -114,7 +115,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [ephemeralPassword, setEphemeralPassword] = useState(sessionPassword || '');
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(3000); // 3 seconds default
   const [history, setHistory] = useState<HistoricalDataPoint[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'directories' | 'network' | 'users' | 'sysconfig' | 'logs' | 'updates'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'directories' | 'network' | 'firewall' | 'users' | 'sysconfig' | 'logs' | 'updates'>('overview');
   const [processSearch, setProcessSearch] = useState('');
   const [sortProcessBy, setSortProcessBy] = useState<'cpu' | 'mem'>('cpu');
 
@@ -1030,6 +1031,21 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
 
             <button
               type="button"
+              onClick={() => setActiveTab('firewall')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'firewall'
+                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Firewall' : 'فایروال'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setActiveTab('services');
                 if (services.length === 0) loadServices();
@@ -1802,6 +1818,16 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                   loading={networkLoading}
                   onRefresh={() => loadNetworkStack()}
                   onConfigureInterface={(iface) => setSelectedInterfaceForConfig(iface)}
+                />
+              )}
+
+              {/* TAB: FIREWALL */}
+              {activeTab === 'firewall' && (
+                <LinuxFirewallTab
+                  server={server}
+                  ephemeralPassword={ephemeralPassword}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
                 />
               )}
 
