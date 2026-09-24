@@ -94,6 +94,8 @@ export interface LinuxServerLiveMetrics {
     swapUsedHuman: string;
   };
   disks: LinuxServerDiskMetric[];
+  totalDiskBytes?: number;
+  totalDiskGb?: number;
   networks: LinuxServerNetMetric[];
   processes: LinuxServerProcessMetric[];
 }
@@ -142,6 +144,8 @@ sleep 0.25
 head -n 1 /proc/stat 2>/dev/null
 echo "---MEM---"
 cat /proc/meminfo 2>/dev/null
+echo "---BLOCK_DISKS---"
+lsblk -b -d -n -o NAME,SIZE,TYPE 2>/dev/null || true
 echo "---DISK---"
 df -k -P -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null || df -k -P 2>/dev/null
 echo "---NET---"
@@ -297,6 +301,49 @@ export function parseLinuxTelemetry(rawOutput: string, host: string, port: numbe
     }
   }
 
+  // 7.1 True Block Disks from lsblk (whole-disk devices, no partitions, no duplicates)
+  const blockDiskLines = sections['BLOCK_DISKS'] || [];
+  let blockDisksBytes = 0;
+  for (const row of blockDiskLines) {
+    const parts = row.trim().split(/\s+/);
+    if (parts.length >= 3) {
+      const type = parts[2].toLowerCase();
+      const bytes = parseInt(parts[1], 10) || 0;
+      if (type === 'disk' && bytes > 0) {
+        blockDisksBytes += bytes;
+      }
+    }
+  }
+
+  // If lsblk had no whole disks, calculate from unique /dev/ filesystems from df (excluding docker/container duplicates)
+  let totalDiskBytes = blockDisksBytes;
+  if (totalDiskBytes === 0) {
+    const seenDevs = new Set<string>();
+    for (const d of disks) {
+      if (
+        d.filesystem.startsWith('/dev/') &&
+        !seenDevs.has(d.filesystem) &&
+        !d.mount.includes('/docker') &&
+        !d.mount.includes('/containerd') &&
+        !d.mount.includes('/overlay2') &&
+        !d.mount.includes('/kubelet')
+      ) {
+        seenDevs.add(d.filesystem);
+        totalDiskBytes += d.sizeBytes;
+      }
+    }
+  }
+
+  // Fallback to root disk if still 0
+  if (totalDiskBytes === 0) {
+    const rootDisk = disks.find((d) => d.mount === '/');
+    if (rootDisk && rootDisk.sizeBytes > 0) {
+      totalDiskBytes = rootDisk.sizeBytes;
+    }
+  }
+
+  const totalDiskGb = totalDiskBytes > 0 ? Math.round(totalDiskBytes / (1024 * 1024 * 1024)) : undefined;
+
   // 8. Network Interfaces from /proc/net/dev
   const netLines = sections['NET'] || [];
   const networks: LinuxServerNetMetric[] = [];
@@ -384,6 +431,8 @@ export function parseLinuxTelemetry(rawOutput: string, host: string, port: numbe
       swapUsedHuman: formatBytes(swapUsedBytes),
     },
     disks,
+    totalDiskBytes,
+    totalDiskGb,
     networks,
     processes,
   };

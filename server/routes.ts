@@ -1184,32 +1184,71 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
         try {
           const hwScript = `export LC_ALL=C
 echo "---HW---"
-nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo ""
-awk '/MemTotal/{printf "%.1f", $2/1048576}' /proc/meminfo 2>/dev/null || echo ""
-DISK_GB=$(lsblk -b -d -n -o SIZE,TYPE 2>/dev/null | awk '$2=="disk"{sum+=$1} END{if(sum>0) print int(sum/1073741824)}')
-if [ -z "$DISK_GB" ] || [ "$DISK_GB" -le 0 ] 2>/dev/null; then
-  DISK_GB=$(df -k -P -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null | awk 'NR>1{sum+=$2} END{if(sum>0) print int(sum/1048576)}')
+CORES=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)
+echo "CORES=$CORES"
+RAM_GB=$(awk '/MemTotal/{printf "%.1f\\n", $2/1048576}' /proc/meminfo 2>/dev/null || echo "")
+echo "RAM_GB=$RAM_GB"
+
+# 1. Total real disk capacity from whole-disk block devices (no partitions, no docker duplicates)
+DISK_GB=""
+if command -v lsblk >/dev/null 2>&1; then
+  DISK_GB=$(lsblk -b -d -n -o TYPE,SIZE 2>/dev/null | awk '$1=="disk" && $2>0 {sum+=$2} END {if(sum>0) print int((sum+536870912)/1073741824)}')
 fi
+
+# 2. Check /sys/block for physical/virtual disks
 if [ -z "$DISK_GB" ] || [ "$DISK_GB" -le 0 ] 2>/dev/null; then
-  DISK_GB=$(df -k -P / 2>/dev/null | awk 'NR==2{print int($2/1048576)}')
+  DISK_BYTES=0
+  for b in /sys/block/*; do
+    devname=$(basename "$b")
+    case "$devname" in
+      loop*|ram*|sr*|dm-*) continue ;;
+    esac
+    if [ -f "$b/size" ]; then
+      s=$(cat "$b/size" 2>/dev/null || echo 0)
+      if [ "$s" -gt 0 ] 2>/dev/null; then
+        DISK_BYTES=$((DISK_BYTES + s * 512))
+      fi
+    fi
+  done
+  if [ "$DISK_BYTES" -gt 0 ]; then
+    DISK_GB=$(( (DISK_BYTES + 536870912) / 1073741824 ))
+  fi
 fi
-echo "$DISK_GB"
-uptime -p 2>/dev/null || uptime 2>/dev/null || echo ""
+
+# 3. Unique physical mounted filesystems from df (excluding docker/container duplicates)
+if [ -z "$DISK_GB" ] || [ "$DISK_GB" -le 0 ] 2>/dev/null; then
+  DISK_GB=$(df -k -P 2>/dev/null | awk '$1 ~ /^\\/dev\\// && $6 !~ /\\/(docker|containerd|overlay2|kubelet)/ { if(!seen[$1]++) sum+=$2 } END {if(sum>0) print int((sum+524288)/1048576)}')
+fi
+
+# 4. Fallback to root mount
+if [ -z "$DISK_GB" ] || [ "$DISK_GB" -le 0 ] 2>/dev/null; then
+  DISK_GB=$(df -k -P / 2>/dev/null | awk 'NR==2 {print int(($2+524288)/1048576)}')
+fi
+
+echo "DISK_GB=$DISK_GB"
+UPTIME=$(uptime -p 2>/dev/null || uptime 2>/dev/null || echo "")
+echo "UPTIME=$UPTIME"
 echo "---END---"`;
-          const rawHw = await runAdaptiveSshCommand(server, hwScript, undefined, 3000);
+          const rawHw = await runAdaptiveSshCommand(server, hwScript, undefined, 6000);
           if (rawHw && rawHw.includes('---HW---')) {
             const hwPart = rawHw.split('---HW---')[1]?.split('---END---')[0]?.trim();
             if (hwPart) {
               const hwLines = hwPart.split('\n').map((l: string) => l.trim());
-              const coresVal = parseInt(hwLines[0], 10);
-              const ramVal = parseFloat(hwLines[1]);
-              const diskVal = parseInt(hwLines[2], 10);
-              const uptimeVal = hwLines[3];
-
-              if (!isNaN(coresVal) && coresVal > 0) hardwareUpdates.cpu_cores = coresVal;
-              if (!isNaN(ramVal) && ramVal > 0) hardwareUpdates.ram_gb = Math.round(ramVal * 10) / 10;
-              if (!isNaN(diskVal) && diskVal > 0) hardwareUpdates.disk_gb = diskVal;
-              if (uptimeVal) hardwareUpdates.uptime_str = uptimeVal;
+              for (const line of hwLines) {
+                if (line.startsWith('CORES=')) {
+                  const val = parseInt(line.replace('CORES=', '').trim(), 10);
+                  if (!isNaN(val) && val > 0) hardwareUpdates.cpu_cores = val;
+                } else if (line.startsWith('RAM_GB=')) {
+                  const val = parseFloat(line.replace('RAM_GB=', '').trim());
+                  if (!isNaN(val) && val > 0) hardwareUpdates.ram_gb = Math.round(val * 10) / 10;
+                } else if (line.startsWith('DISK_GB=')) {
+                  const val = parseInt(line.replace('DISK_GB=', '').trim(), 10);
+                  if (!isNaN(val) && val > 0) hardwareUpdates.disk_gb = val;
+                } else if (line.startsWith('UPTIME=')) {
+                  const val = line.replace('UPTIME=', '').trim();
+                  if (val) hardwareUpdates.uptime_str = val;
+                }
+              }
             }
           }
         } catch {
@@ -1323,20 +1362,14 @@ const handleLinuxServerMonitor = async (req: Request, res: Response) => {
     const metrics = await executeLinuxTelemetrySSH(server, ephemeralPassword);
     
     // Automatically persist real discovered hardware specs to database
-    let disk_gb = server.disk_gb;
+    let disk_gb = metrics.totalDiskGb || server.disk_gb;
     const storageOverview = (metrics as any).storageOverview;
-    if (storageOverview?.totalStorageBytes && storageOverview.totalStorageBytes > 0) {
+    if (!disk_gb && storageOverview?.totalStorageBytes && storageOverview.totalStorageBytes > 0) {
       disk_gb = Math.round(storageOverview.totalStorageBytes / (1024 * 1024 * 1024));
-    } else if (metrics.disks && metrics.disks.length > 0) {
-      const nonVirtDisks = metrics.disks.filter((d: any) => !d.mount.startsWith('/sys') && !d.mount.startsWith('/dev') && !d.mount.startsWith('/run'));
-      const totalBytes = nonVirtDisks.reduce((acc: number, d: any) => acc + (d.sizeBytes || 0), 0);
-      if (totalBytes > 0) {
-        disk_gb = Math.round(totalBytes / (1024 * 1024 * 1024));
-      } else {
-        const rootDisk = metrics.disks.find((d: any) => d.mount === '/') || metrics.disks[0];
-        if (rootDisk && rootDisk.sizeBytes > 0) {
-          disk_gb = Math.round(rootDisk.sizeBytes / (1024 * 1024 * 1024));
-        }
+    } else if (!disk_gb && metrics.disks && metrics.disks.length > 0) {
+      const rootDisk = metrics.disks.find((d: any) => d.mount === '/') || metrics.disks[0];
+      if (rootDisk && rootDisk.sizeBytes > 0) {
+        disk_gb = Math.round(rootDisk.sizeBytes / (1024 * 1024 * 1024));
       }
     }
     const ram_gb = metrics.memory?.totalBytes > 0 

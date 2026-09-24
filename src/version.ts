@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.138.5';
+export const APP_VERSION = '1.138.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.138.6',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'رفع قطعی خطای محاسبه و نمایش حجم توتال دیسک سرور در لیست و پایش زنده ناوگان',
+    title_en: 'Fix Total Server Disk Size Calculation and Live Hardware Telemetry Probe',
+    changes: [
+      'اصلاح ساختار اسکریپت کاوش سخت‌افزار (hwScript) در مسیر تست ارتباط با خروجی صریح جفت کلید-مقدار و جلوگیری از تداخل سطرها.',
+      'افزودن دستور استخراج دیسک‌های بلوکی کامل (lsblk -b -d -n) جهت سنجش مستقیم ظرفیت فیزیکی/مجازی دیسک‌ها بدون احتساب تکراری پارتیشن‌ها یا کانتینرهای داکر.',
+      'حذف رفتار جمع‌زدن اشتباه تمام ردیف‌های df که باعث ضرب شدن سایز پارتیشن در تعداد کانتینرهای در حال اجرا و نمایش ارقام نادرستی چون ۲۵۰ گیگابایت می‌شد.',
+      'همگام‌سازی لحظه‌ای متریک‌های سخت‌افزاری دریافت شده با حافظه محلی و پایگاه داده در پایش سرورهای لینوکس.',
+    ],
+    changes_en: [
+      'Refactored hardware keepalive probe script to use clean, unambiguous KEY=VALUE output, eliminating line concatenation bugs.',
+      'Integrated whole-disk block device discovery (lsblk -b -d -n) to measure true underlying physical/virtual disk capacity without duplicate partition or docker container overlay counting.',
+      'Eliminated naive summation over all df rows which previously accumulated identical filesystem mounts across running docker containers and led to false calculations like 250 GB.',
+      'Synchronized freshly discovered hardware metrics seamlessly into local client state and the PostgreSQL database layer.',
+    ],
+  },
   {
     version: '1.138.5',
     releaseDate: '2026-09-24',

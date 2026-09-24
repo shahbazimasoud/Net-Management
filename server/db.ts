@@ -3155,9 +3155,9 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
       ? Boolean(updates.prompt_password_on_connect)
       : (current.prompt_password_on_connect ?? false),
     status: updates.status !== undefined ? updates.status : (current.status || 'untested'),
-    cpu_cores: updates.cpu_cores !== undefined ? Number(updates.cpu_cores) : current.cpu_cores,
-    ram_gb: updates.ram_gb !== undefined ? Number(updates.ram_gb) : current.ram_gb,
-    disk_gb: updates.disk_gb !== undefined ? Number(updates.disk_gb) : current.disk_gb,
+    cpu_cores: updates.cpu_cores !== undefined ? (updates.cpu_cores !== null && Number(updates.cpu_cores) > 0 ? Number(updates.cpu_cores) : undefined) : current.cpu_cores,
+    ram_gb: updates.ram_gb !== undefined ? (updates.ram_gb !== null && Number(updates.ram_gb) > 0 ? Number(updates.ram_gb) : undefined) : current.ram_gb,
+    disk_gb: updates.disk_gb !== undefined ? (updates.disk_gb !== null && Number(updates.disk_gb) > 0 ? Number(updates.disk_gb) : undefined) : current.disk_gb,
     uptime_str: updates.uptime_str !== undefined ? updates.uptime_str : current.uptime_str,
     location: updates.location !== undefined ? updates.location.trim() : current.location,
     notes: updates.notes !== undefined ? updates.notes.trim() : (updates.description !== undefined ? updates.description.trim() : (current.notes || current.description || '')),
