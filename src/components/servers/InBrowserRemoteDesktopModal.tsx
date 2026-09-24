@@ -109,6 +109,22 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       clearTimeout(connectTimeoutRef.current);
       connectTimeoutRef.current = null;
     }
+    if (guacKeyboardRef.current) {
+      try {
+        guacKeyboardRef.current.onkeydown = null;
+        guacKeyboardRef.current.onkeyup = null;
+        guacKeyboardRef.current.reset();
+      } catch {}
+      guacKeyboardRef.current = null;
+    }
+    if (guacMouseRef.current) {
+      try {
+        guacMouseRef.current.onmousedown = null;
+        guacMouseRef.current.onmouseup = null;
+        guacMouseRef.current.onmousemove = null;
+      } catch {}
+      guacMouseRef.current = null;
+    }
     if (guacClientRef.current) {
       try {
         guacClientRef.current.disconnect();
@@ -130,7 +146,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       pingIntervalRef.current = null;
     }
     if (displayContainerRef.current) {
-      displayContainerRef.current.innerHTML = '';
+      try {
+        displayContainerRef.current.blur();
+        displayContainerRef.current.innerHTML = '';
+      } catch {}
     }
   }, []);
 
@@ -209,6 +228,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       const displayElem = display.getElement();
       displayElem.style.margin = 'auto';
       displayElem.style.outline = 'none';
+      displayElem.tabIndex = 0;
 
       if (displayContainerRef.current) {
         displayContainerRef.current.innerHTML = '';
@@ -270,7 +290,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           }
           setConnectionStatus('connected');
           registerActivity();
-          setTimeout(updateDisplayScale, 200);
+          setTimeout(() => {
+            updateDisplayScale();
+            displayContainerRef.current?.focus();
+          }, 200);
         } else if (state === 5) {
           if (connectTimeoutRef.current) {
             clearTimeout(connectTimeoutRef.current);
@@ -337,20 +360,49 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       // Mouse input handling
       const mouse: any = new Guacamole.Mouse(displayElem);
       guacMouseRef.current = mouse;
-      mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
+      mouse.onmousedown = (mouseState: any) => {
+        registerActivity();
+        if (displayContainerRef.current && document.activeElement !== displayContainerRef.current) {
+          displayContainerRef.current.focus();
+        }
+        client.sendMouseState(mouseState);
+      };
+      mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
         registerActivity();
         client.sendMouseState(mouseState);
       };
 
-      // Keyboard input handling
-      const keyboard: any = new Guacamole.Keyboard(document);
+      // Keyboard input handling:
+      // Bind keyboard events EXCLUSIVELY to the display container element, NEVER to the global `document`.
+      // Binding to `document` attaches a permanent capture-phase listener that executes e.preventDefault(),
+      // which intercepts and blocks keystrokes in other modals (such as Add Server or Password prompt).
+      const keyTarget = displayContainerRef.current || displayElem;
+      const keyboard: any = new Guacamole.Keyboard(keyTarget);
       guacKeyboardRef.current = keyboard;
+
       keyboard.onkeydown = (keysym: number) => {
         registerActivity();
+        // Guard: If the user is typing in an input, textarea, select, or editable element anywhere, yield to browser
+        const active = document.activeElement;
+        if (active) {
+          const tag = active.tagName ? active.tagName.toLowerCase() : '';
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || (active as HTMLElement).isContentEditable) {
+            return true; // Allow browser to type into the input
+          }
+        }
         client.sendKeyEvent(1, keysym);
+        return false;
       };
+
       keyboard.onkeyup = (keysym: number) => {
         registerActivity();
+        const active = document.activeElement;
+        if (active) {
+          const tag = active.tagName ? active.tagName.toLowerCase() : '';
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || (active as HTMLElement).isContentEditable) {
+            return;
+          }
+        }
         client.sendKeyEvent(0, keysym);
       };
 
@@ -595,6 +647,21 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     }
   };
 
+  // Safe Minimize with blur and keyboard reset
+  const handleMinimize = () => {
+    if (displayContainerRef.current) {
+      try {
+        displayContainerRef.current.blur();
+      } catch {}
+    }
+    if (guacKeyboardRef.current) {
+      try {
+        guacKeyboardRef.current.reset();
+      } catch {}
+    }
+    onMinimize();
+  };
+
   const handleForceClose = () => {
     setShowConfirmClose(false);
     setIsLocked(false);
@@ -742,7 +809,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             {/* Minimize Button */}
             <button
               type="button"
-              onClick={onMinimize}
+              onClick={handleMinimize}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                 isLightMode
                   ? 'hover:bg-slate-100 text-slate-600'
@@ -997,11 +1064,24 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         )}
 
         {/* Remote Desktop Canvas Viewport Container */}
-        <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden p-1">
+        <div 
+          className="flex-1 relative bg-black flex items-center justify-center overflow-hidden p-1 cursor-default"
+          onClick={() => {
+            if (!showClipboardModal && !showConfirmClose) {
+              displayContainerRef.current?.focus();
+            }
+          }}
+        >
           {/* Live Guacamole Display Element */}
           <div
             ref={displayContainerRef}
-            className={`w-full h-full flex items-center justify-center overflow-hidden ${
+            tabIndex={0}
+            onClick={() => {
+              if (!showClipboardModal && !showConfirmClose) {
+                displayContainerRef.current?.focus();
+              }
+            }}
+            className={`w-full h-full flex items-center justify-center overflow-hidden focus:outline-none ${
               connectionStatus !== 'connected' ? 'hidden' : ''
             }`}
           />

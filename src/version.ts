@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.0';
+export const APP_VERSION = '1.152.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.1',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'رفع تداخل رویدادهای کیبورد گوآکامولی و بازگردانی امکان تایپ در مودال‌های دیگر پس از خروج از RDP',
+    title_en: 'Fix Guacamole Keyboard Event Interception & Restore Global Input Accessibility Across All Modals',
+    changes: [
+      'مهار رویدادهای کیبورد گوآکامولی منحصراً به کانتینر دیسپلی ریموت دسکتاپ و حذف شنونده سراسری از شیء global document.',
+      'پاکسازی و ریست کامل شنونده‌های کیبورد و ماوس گوآکامولی هنگام بستن (Close)، مینیمایز (Minimize) و خروج از مودال.',
+      'افزودن گارد هوشمند به رویدادهای کلیدها جهت عدم مسدودسازی و جلوگیری از preventDefault هنگام فوکوس روی فیلدهای متنی، رمز عبور یا سایر مودال‌ها.',
+      'رفع قطعی مشکل غیرفعال شدن امکان تایپ در مودال افزودن سرور، پرامپت پسورد اتصال RDP و سایر دیالوگ‌های برنامه پس از بستن کنسول ریموت دسکتاپ.',
+    ],
+    changes_en: [
+      'Bound Apache Guacamole keyboard capture exclusively to the remote desktop display viewport element, completely eliminating global document event listeners.',
+      'Engineered complete teardown and state reset of Guacamole keyboard/mouse listeners upon modal close, minimize, and connection termination.',
+      'Added active element guard in keyboard handlers ensuring keydown/keyup events are never suppressed when inputs, textareas, or other dialogs are focused.',
+      'Permanently resolved the bug preventing keyboard input in the Add Server modal, on-demand RDP password prompts, and other application dialogs after closing the RDP console.',
+    ],
+  },
   {
     version: '1.152.0',
     releaseDate: '2026-09-24',
