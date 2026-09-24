@@ -92,8 +92,6 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!isOpen) return null;
-
   // Apply a preset
   const handleApplyPreset = (preset: CommonServicePreset) => {
     setPort(preset.port);
@@ -577,6 +575,8 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
       </div>
     </div>
   );
+
+  if (!isOpen) return null;
 
   return createPortal(modalContent, document.body);
 };

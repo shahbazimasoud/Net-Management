@@ -621,7 +621,7 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
       )}
 
       {/* Add Rule Modal */}
-      {firewallInfo && (
+      {isAddModalOpen && firewallInfo && (
         <LinuxAddFirewallRuleModal
           isOpen={isAddModalOpen}
           server={server}

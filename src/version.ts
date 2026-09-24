@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.138.0';
+export const APP_VERSION = '1.138.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.138.1',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'رفع خطای رندرینگ هوک‌های ری‌اکت (React Error #310) در مودال ثبت قانون فایروال',
+    title_en: 'Fix React Hooks Order Violation (Minified React Error #310) in Add Firewall Rule Modal',
+    changes: [
+      'رفع خطای نقض قوانین هوک‌های ری‌اکت (Rules of Hooks) به علت خروج زودهنگام شرطی (if (!isOpen) return null) قبل از فراخوانی هوک‌های useMemo در مودال ثبت قوانین فایروال.',
+      'اصلاح ساختار ترتیب هوک‌ها در کامپوننت LinuxAddFirewallRuleModal به صورت کاملاً ایستا و اجرای یکپارچه بدون خروج زودهنگام.',
+      'مشروط‌سازی رندر مودال در والد (LinuxFirewallTab) جهت آزادسازی حافظه و ریست شدن صحیح استیت فرم در زمان بستن و بازگشایی مجدد.',
+    ],
+    changes_en: [
+      'Fixed React Error #310 caused by an early conditional return (if (!isOpen) return null) placed before useMemo hooks in LinuxAddFirewallRuleModal.',
+      'Guaranteed consistent unconditional hook call hierarchy across all renders inside LinuxAddFirewallRuleModal.',
+      'Optimized modal mounting in LinuxFirewallTab ensuring clean state initialization and portal mounting upon user interaction.',
+    ],
+  },
   {
     version: '1.138.0',
     releaseDate: '2026-09-24',
