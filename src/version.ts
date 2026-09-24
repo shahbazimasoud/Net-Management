@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.140.2';
+export const APP_VERSION = '1.140.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.140.3',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'افزودن منوی راست‌کلیک هوشمند (Context Menu) و پاکسازی هاور در کاوشگر فایل (فاز ۲)',
+    title_en: 'Smart Context Menu on Right-Click & Clean Hover State in Linux File Explorer (Phase 2)',
+    changes: [
+      'جایگزینی دکمه‌های هاور مزاحم با منوی راست‌کلیک هوشمند (Context Menu) روی فایل‌ها و پوشه‌ها.',
+      'طراحی پورتال امن و سازگار با مرزهای صفحه (4-Way Boundary Clamped) با پشتیبانی کامل از تم تیره و روشن.',
+      'امکان دسترسی به گزینه‌های کپی مسیر کامل، تغییر نام و حذف از طریق راست‌کلیک و دکمه گزینه‌ها (3-dot).',
+    ],
+    changes_en: [
+      'Replaced hover action buttons with a smart, native-feeling right-click context menu on files and folders.',
+      'Engineered a boundary-safe (4-way viewport clamped) portal menu with full dark and light mode contrast support.',
+      'Accessible item actions for copying full path, renaming, and deleting via right-click or quick 3-dots trigger.',
+    ],
+  },
   {
     version: '1.140.2',
     releaseDate: '2026-09-24',
