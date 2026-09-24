@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.139.0';
+export const APP_VERSION = '1.140.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.140.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'طراحی و ساخت مودال جامع کاوشگر فایل لینوکس (Linux File Explorer Modal - فاز ۲)',
+    title_en: 'Design and Build Full-Featured Linux File Explorer Modal (Phase 2)',
+    changes: [
+      'طراحی رابط کاربری دو تکه (Split-Pane): پنل سمت چپ (۱ چهارم عرض صفحه) اختصاص‌یافته به دایرکتوری‌های اصلی و سیستمی لینوکس با قابلیت جستجو، و پنل سمت راست (۳ چهارم) برای مرور فایل‌ها و پوشه‌ها.',
+      'پشتیبانی کامل از ناوبری چندسطحی، تاریخچه رفت و برگشت (Back/Forward)، رفتن به پوشه والد (Up)، و نوار مسیر پویا (Breadcrumb Path Bar).',
+      'تجهیز به حالت‌های نمایش دوگانه جدولی (Table List) و شبکه‌ای (Grid View)، تفکیک هوشمند آیکون‌ها بر اساس نوع فایل (پوشه، اسکریپت، کانفیگ، لاگ، آرشیو، گواهینامه، باینری، تصاویر).',
+      'ویرایشگر و مشاهده‌گر متن داخلی یکپارچه با قابلیت ذخیره‌سازی، نمایش وضعیت تغییرات، کپی محتوا، و مدهای فقط‌خواندنی یا ویرایش.',
+      'افزودن قابلیت‌های ایجاد پوشه، ایجاد فایل، تغییر نام و حذف قطعی با تأییدیه بازگشتی.',
+      'رعایت صددرصدی قوانین پنج‌گانه مودال (دکمه‌های سه‌گانه هدر، حریم فوتر bottom-8 در فول‌اسکرین، تم‌های تیره/روشن، عدم وجود متن فارسی در زبان انگلیسی، و راهنماهای سه‌بخشی FieldInfoTooltip).',
+    ],
+    changes_en: [
+      'Engineered split-pane architecture: left pane (1/4 width) dedicated to standard Linux system quick directories with search, and right pane (3/4 width) for file and folder browsing.',
+      'Full support for multi-level navigation, history traversal (Back/Forward), parent jump (Up), and interactive Breadcrumb Path Bar.',
+      'Equipped with dual Table List and Grid views with intelligent type-based icon recognition (folders, scripts, configs, logs, archives, keys, binaries, images).',
+      'Built-in in-app text/code editor and viewer with direct write-back, unsaved changes tracking, content copying, and read-only/editable safety guards.',
+      'Added modals for directory creation, empty file creation, renaming, and recursive deletion with safety confirmation.',
+      '100% compliant with universal 5-point modal rules (triple header controls, bottom-8 fullscreen boundary, dark/light theme ergonomics, strict bilingual i18n, and boundary-safe 3-part FieldInfoTooltip popovers).',
+    ],
+  },
   {
     version: '1.139.0',
     releaseDate: '2026-09-24',
