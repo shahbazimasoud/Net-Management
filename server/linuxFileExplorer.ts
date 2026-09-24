@@ -978,3 +978,47 @@ zf.close()`;
     });
   });
 }
+
+/**
+ * Upload a file to a remote Linux directory via SFTP with fallback.
+ */
+export async function uploadLinuxFile(
+  server: RemoteServer,
+  targetDirectory: string,
+  fileName: string,
+  fileBuffer: Buffer,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; path: string; bytesUploaded: number }> {
+  const cleanDir = targetDirectory.trim().replace(/\/+$/, '') || '/';
+  const cleanName = fileName.replace(/[\/\\]/g, '_').trim();
+  const destPath = cleanDir === '/' ? `/${cleanName}` : `${cleanDir}/${cleanName}`;
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+
+  try {
+    return await new Promise((resolve, reject) => {
+      client.sftp((err, sftp) => {
+        if (err || !sftp) {
+          // Fallback via base64 pipe if SFTP is restricted
+          const b64 = fileBuffer.toString('base64');
+          return executeExecCommand(client, `echo "${b64}" | base64 -d > "${destPath}"`)
+            .then(() => resolve({ success: true, path: destPath, bytesUploaded: fileBuffer.length }))
+            .catch(reject);
+        }
+
+        const writeStream = sftp.createWriteStream(destPath);
+        writeStream.on('close', () => {
+          resolve({ success: true, path: destPath, bytesUploaded: fileBuffer.length });
+        });
+        writeStream.on('error', (streamErr) => {
+          reject(streamErr);
+        });
+        writeStream.end(fileBuffer);
+      });
+    });
+  } finally {
+    try {
+      client.end();
+    } catch {}
+  }
+}
+

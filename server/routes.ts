@@ -175,6 +175,7 @@ import {
   deleteLinuxItem,
   downloadLinuxSingleFile,
   downloadLinuxArchive,
+  uploadLinuxFile,
 } from './linuxFileExplorer';
 
 export const apiRouter = Router();
@@ -4293,6 +4294,46 @@ apiRouter.all('/remote-servers/:id/fs/download', async (req: Request, res: Respo
     if (!res.headersSent) {
       return res.status(500).json({ success: false, error: err.message || 'Failed to download files' });
     }
+  }
+});
+
+// POST /api/remote-servers/:id/fs/upload - Upload file to remote server directory
+apiRouter.post('/remote-servers/:id/fs/upload', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { targetDirectory, fileName, fileBase64, password } = req.body;
+
+    if (!targetDirectory || typeof targetDirectory !== 'string') {
+      return res.status(400).json({ success: false, error: 'Target directory is required' });
+    }
+    if (!fileName || typeof fileName !== 'string') {
+      return res.status(400).json({ success: false, error: 'File name is required' });
+    }
+    if (typeof fileBase64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'File data is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const buffer = Buffer.from(fileBase64, 'base64');
+    const result = await uploadLinuxFile(server, targetDirectory, fileName, buffer, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Linux Remote File Uploaded',
+      category: 'file_system',
+      target: `Server ${server.name}: ${result.path}`,
+      status: 'success',
+      details: `Uploaded file "${fileName}" (${result.bytesUploaded} bytes) to directory "${targetDirectory}"`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json({ success: true, result });
+  } catch (err: any) {
+    console.error(`[LinuxFS upload error on server ${req.params.id}]:`, err?.message || err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to upload file' });
   }
 });
 

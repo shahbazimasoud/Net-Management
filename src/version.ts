@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.141.0';
+export const APP_VERSION = '1.142.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.142.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'امکان بارگذاری (Upload) فایل در پوشه با راست‌کلیک در فضای خالی کاوشگر لینوکس (فاز ۴)',
+    title_en: 'Direct File Upload Dialog via Empty Space Right-Click in Linux File Explorer (Phase 4)',
+    changes: [
+      'امکان کلیک راست در فضای خالی هر دایرکتوری و انتخاب گزینه بارگذاری فایل در آن مسیر.',
+      'افزودن مودال اختصاصی بارگذاری فایل با پشتیبانی از Drag & Drop و انتخاب چندین فایل همزمان.',
+      'افزودن دکمه بارگذاری سریع در نوار ابزار و منوی راست‌کلیک روی زیرپوشه‌ها.',
+      'پیاده‌سازی پایپ انتقال امن فایل روی SFTP سمت سرور با نوار پیشرفت و رفرش خودکار دایرکتوری.',
+    ],
+    changes_en: [
+      'Added right-click context menu on empty folder spaces to trigger direct file upload.',
+      'Implemented dedicated file upload modal with drag-and-drop zone and multi-file selection support.',
+      'Added quick upload button in top toolbar and inside folder context menu.',
+      'Built SFTP streaming upload pipeline on server with live progress indicator and automatic directory refresh.',
+    ],
+  },
   {
     version: '1.141.0',
     releaseDate: '2026-09-24',

@@ -46,9 +46,9 @@ const PORT = 3000;
 const PYTHON_PORT = process.env.BACKEND_PORT ? parseInt(process.env.BACKEND_PORT, 10) : (process.env.PYTHON_PORT ? parseInt(process.env.PYTHON_PORT, 10) : 5001);
 const PYTHON_WS_PORT = process.env.PYTHON_WS_PORT ? parseInt(process.env.PYTHON_WS_PORT, 10) : PYTHON_PORT + 1;
 
-// Parse json and urlencoded
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Parse json and urlencoded (with 100mb limit for file transfers and backups)
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Child process for Python backend
 let pythonProcess: ChildProcess | null = null;

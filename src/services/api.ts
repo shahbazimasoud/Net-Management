@@ -3215,6 +3215,48 @@ export async function downloadLinuxFiles(
   }
 }
 
+export async function uploadLinuxFile(
+  serverId: string,
+  targetDirectory: string,
+  file: File,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; path?: string; bytesUploaded?: number; error?: string }> {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(arrayBuffer);
+    const len = bytes.byteLength;
+    const chunkSize = 0x8000;
+    for (let i = 0; i < len; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, len)) as unknown as number[]);
+    }
+    const fileBase64 = btoa(binary);
+
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetDirectory,
+        fileName: file.name,
+        fileBase64,
+        password: ephemeralPassword,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse response from server',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to upload file' };
+  }
+}
+
 
 
 
