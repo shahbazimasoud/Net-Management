@@ -1,4 +1,5 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   NetworkToolId
 } from './types';
@@ -157,11 +158,45 @@ export const NetworkToolsMenu: React.FC<NetworkToolsMenuProps> = ({
   isLightMode
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ bottom: number; left?: number; right?: number }>({
+    bottom: 38,
+  });
 
   useEffect(() => {
     if (!isOpen) return;
 
+    const updatePosition = () => {
+      const btn = document.getElementById('footer-tools-menu-button');
+      if (btn) {
+        const rect = btn.getBoundingClientRect();
+        const bottom = Math.max(36, Math.round(window.innerHeight - rect.top + 6));
+        if (isEn) {
+          // Align right edge of menu with right edge of button, clamped with 12px margin
+          const right = Math.max(12, Math.min(Math.round(window.innerWidth - rect.right), window.innerWidth - 384 - 12));
+          setCoords({ bottom, right, left: undefined });
+        } else {
+          // Align left edge of menu with left edge of button, clamped with 12px margin
+          const left = Math.max(12, Math.min(Math.round(rect.left), window.innerWidth - 384 - 12));
+          setCoords({ bottom, left, right: undefined });
+        }
+      } else {
+        if (isEn) {
+          setCoords({ bottom: 40, right: 16, left: undefined });
+        } else {
+          setCoords({ bottom: 40, left: 16, right: undefined });
+        }
+      }
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
     const handleClickOutside = (e: MouseEvent) => {
+      const btn = document.getElementById('footer-tools-menu-button');
+      if (btn && btn.contains(e.target as Node)) {
+        return;
+      }
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
@@ -176,24 +211,30 @@ export const NetworkToolsMenu: React.FC<NetworkToolsMenuProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, isEn]);
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       id="network-tools-bottom-menu"
-      className={`absolute bottom-full mb-2 z-[1300] w-96 max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl border transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 ${
-        isEn ? 'right-0' : 'left-0'
-      } ${
+      style={{
+        bottom: `${coords.bottom}px`,
+        ...(coords.right !== undefined ? { right: `${coords.right}px` } : {}),
+        ...(coords.left !== undefined ? { left: `${coords.left}px` } : {}),
+      }}
+      className={`fixed z-[999999] w-96 max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl border transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 ${
         isLightMode
           ? 'bg-white/95 text-slate-900 border-slate-200 shadow-slate-300/60 backdrop-blur-xl'
           : 'bg-slate-950/95 text-slate-100 border-slate-800 shadow-[0_10px_40px_rgba(0,0,0,0.8)] backdrop-blur-2xl'
       }`}
+      dir={isEn ? 'ltr' : 'rtl'}
     >
       {/* Header */}
       <div
@@ -288,6 +329,7 @@ export const NetworkToolsMenu: React.FC<NetworkToolsMenuProps> = ({
       >
         {isEn ? 'Tools support minimize & dock for uninterrupted work' : 'ابزارها از قابلیت مینیمایز در نوار پایین جهت کار هم‌زمان پشتیبانی می‌کنند'}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

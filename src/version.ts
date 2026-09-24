@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.149.0';
+export const APP_VERSION = '1.150.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.150.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'انتقال منوی ابزارها (Tools Menu) به بالاترین سطح رندرینگ سراسری با اولویت دیده‌شدن روی تمامی مودال‌ها',
+    title_en: 'Elevated Network Tools Menu to Top-Level Universal Portal Layering (z-[999999]) Above All Modals',
+    changes: [
+      'حل مشکل مخفی شدن منوی ابزارها (NetworkToolsMenu) در زیر پنجره‌های فعال؛ هم‌اکنون با باز شدن منوی ابزارها از فوتر، منو بالاتر از تمامی پنجره‌ها و حتی در حالت تمام‌صفحه ترمینال و فایل اکسپلورر باز می‌شود.',
+      'انتقال رندرینگ کل کامپوننت منوی ابزارها به ریشه document.body با createPortal جهت خروج از محدودیت‌های لایه‌ای (Stacking Context) فوتر و والدها.',
+      'اختصاص لایه z-[999999] به منوی ابزارها جهت تضمین قرارگیری مطلق روی هرگونه مودال، کادر فول‌اسکرین، دیالوگ و هشدار سیستم.',
+      'محاسبه داینامیک موقعیت بازگشایی مماس بر دکمه ابزارهای فوتر با مهار هوشمند کادر (4-Way Clamping) در هر دو زبان انگلیسی و فارسی.',
+    ],
+    changes_en: [
+      'Resolved Tools menu occlusion: opening the Network Tools menu from the footer now displays it reliably above all active modals, including Linux Terminal and File Explorer in fullscreen.',
+      'Hoisted NetworkToolsMenu rendering directly into document.body using createPortal to escape parent layout overflow and stacking context constraints.',
+      'Assigned top-tier z-[999999] stacking to guarantee absolute top-level visibility above any modal, fullscreen container, or nested dialog.',
+      'Implemented dynamic viewport-aware anchor positioning above the footer tools button with intelligent 4-way boundary clamping for both LTR and RTL directions.',
+    ],
+  },
   {
     version: '1.149.0',
     releaseDate: '2026-09-24',
