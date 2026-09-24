@@ -180,6 +180,7 @@ import {
   updateLinuxItemAttributes,
   getLinuxSystemUsersAndGroups,
   pasteLinuxItems,
+  compressLinuxItems,
 } from './linuxFileExplorer';
 
 export const apiRouter = Router();
@@ -4271,6 +4272,39 @@ apiRouter.post('/remote-servers/:id/fs/paste', async (req: Request, res: Respons
   } catch (err: any) {
     console.error(`[LinuxFS paste error on server ${req.params.id}]:`, err?.message || err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to paste items' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/compress - Compress files or directories with rich options
+apiRouter.post('/remote-servers/:id/fs/compress', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { sourcePaths, archiveName, destinationDir, format, compressionLevel, deleteSource, password } = req.body;
+
+    if (!sourcePaths || !Array.isArray(sourcePaths) || sourcePaths.length === 0) {
+      return res.status(400).json({ success: false, error: 'sourcePaths array is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await compressLinuxItems(
+      server,
+      {
+        sourcePaths,
+        archiveName,
+        destinationDir: destinationDir || '/',
+        format,
+        compressionLevel: typeof compressionLevel === 'number' ? compressionLevel : 6,
+        deleteSource: Boolean(deleteSource),
+      },
+      password
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFS compress error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to compress items' });
   }
 });
 

@@ -3178,6 +3178,30 @@ export async function pasteLinuxItems(
   }
 }
 
+export async function compressLinuxRemoteItems(
+  serverId: string,
+  options: {
+    sourcePaths: string[];
+    archiveName: string;
+    destinationDir: string;
+    format?: 'tar.gz' | 'zip' | 'tar.bz2' | 'tar.xz' | 'tar';
+    compressionLevel?: number;
+    deleteSource?: boolean;
+    password?: string;
+  }
+): Promise<{ success: boolean; archivePath?: string; sizeHuman?: string; message?: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/compress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to compress items' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to compress items' };
+  }
+}
+
 export async function deleteLinuxRemoteItem(
   serverId: string,
   path: string,

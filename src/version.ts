@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.145.0';
+export const APP_VERSION = '1.146.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.146.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'امکان فشرده‌سازی فایل‌ها و پوشه‌ها با تنظیمات پیشرفته در کاوشگر لینوکس',
+    title_en: 'Advanced File and Directory Compression Suite in Linux File Explorer',
+    changes: [
+      'افزودن امکان فشرده‌سازی (Compress / Archive) در منوی راست‌کلیک فایل‌ها و پوشه‌ها (تک‌انتخابی و چندانتخابی) و نوار ابزار بالا.',
+      'پشتیبانی از انواع فرمت‌های فشرده‌سازی پرکاربرد شامل tar.gz (استاندارد لینوکس)، zip (سازگار با ویندوز و مک)، tar.bz2، tar.xz و tar معمولی.',
+      'امکان تنظیم سطح فشرده‌سازی (سریع‌ترین با مصرف کم پردازنده، متوازن و بیشترین فشردگی).',
+      'امکان تعیین دایرکتوری مقصد جهت ذخیره مستقیم آرشیو فشرده در هر مسیر دلخواه یا مسیر جاری.',
+      'امکان حذف خودکار فایل‌ها و پوشه‌های مبدا پس از فشرده‌سازی موفق جهت آزادسازی فضای ذخیره‌سازی سرور.',
+      'رعایت استانداردهای پنج‌گانه مودال (دکمه‌های سه‌گانه، انطباق تم تیره/روشن، عدم متن فارسی در حالت انگلیسی، حریم bottom-8 و راهنماهای سه‌بخشی FieldInfoTooltip).',
+    ],
+    changes_en: [
+      'Added rich Archive & Compression action in right-click context menu (single & multi-selection) and top toolbar in Linux File Explorer.',
+      'Full support for standard compression formats: tar.gz (standard Linux), zip (cross-platform Windows/Mac), tar.bz2, tar.xz, and uncompressed tar.',
+      'Configurable compression levels (Level 1 Fastest/Low CPU, Level 6 Balanced, Level 9 Maximum compression).',
+      'Custom destination directory selection with quick reset to current directory.',
+      'Optional automated cleanup of original source items following verified archive generation to free disk space.',
+      'Strict adherence to universal modal architecture (triple header controls, light/dark themes, strict bilingual localization, bottom-8 clearance, and 3-part FieldInfoTooltips).',
+    ],
+  },
   {
     version: '1.145.0',
     releaseDate: '2026-09-24',

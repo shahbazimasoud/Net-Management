@@ -1464,4 +1464,172 @@ export async function updateLinuxItemAttributes(
   }
 }
 
+export interface LinuxCompressOptions {
+  sourcePaths: string[];
+  archiveName: string;
+  destinationDir: string;
+  format?: 'tar.gz' | 'zip' | 'tar.bz2' | 'tar.xz' | 'tar';
+  compressionLevel?: number;
+  deleteSource?: boolean;
+}
+
+/**
+ * Compress one or multiple files/directories on remote Linux server with rich options.
+ */
+export async function compressLinuxItems(
+  server: RemoteServer,
+  options: LinuxCompressOptions,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; archivePath: string; sizeHuman?: string; message: string }> {
+  const cleanSources = (options.sourcePaths || []).map((p) => p.trim()).filter(Boolean);
+  if (cleanSources.length === 0) {
+    throw new Error('At least one source file or directory is required for compression.');
+  }
+
+  // Prevent deleting critical root directories
+  for (const p of cleanSources) {
+    if (p === '/' || p === '/root' || p === '/home' || p === '/etc' || p === '/bin' || p === '/usr') {
+      if (options.deleteSource) {
+        throw new Error(`Deleting critical system directory "${p}" after archiving is strictly prohibited.`);
+      }
+    }
+  }
+
+  const format = options.format || 'tar.gz';
+  let destDir = (options.destinationDir || '').trim().replace(/\/+$/, '') || '/';
+  if (destDir === '') destDir = '/';
+
+  // Normalize archive name and extension
+  let rawName = (options.archiveName || '').trim();
+  if (!rawName) {
+    const firstBase = cleanSources[0].split('/').filter(Boolean).pop() || 'archive';
+    rawName = cleanSources.length === 1 ? firstBase : 'archive';
+  }
+
+  // Strip known extensions from rawName if user typed them to prevent duplication (e.g. file.tar.gz.tar.gz)
+  const validExtensions = ['.tar.gz', '.tgz', '.zip', '.tar.bz2', '.tbz2', '.tar.xz', '.txz', '.tar'];
+  for (const ext of validExtensions) {
+    if (rawName.toLowerCase().endsWith(ext)) {
+      rawName = rawName.substring(0, rawName.length - ext.length);
+      break;
+    }
+  }
+
+  const extMap: Record<string, string> = {
+    'tar.gz': '.tar.gz',
+    'zip': '.zip',
+    'tar.bz2': '.tar.bz2',
+    'tar.xz': '.tar.xz',
+    'tar': '.tar',
+  };
+  const targetExt = extMap[format] || '.tar.gz';
+  const finalArchiveName = `${rawName}${targetExt}`;
+  const archivePath = destDir === '/' ? `/${finalArchiveName}` : `${destDir}/${finalArchiveName}`;
+
+  const level = Math.min(Math.max(options.compressionLevel || 6, 1), 9);
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+
+  try {
+    // Determine common parent directory if all sources share the same parent
+    const parents = cleanSources.map((p) => {
+      const idx = p.lastIndexOf('/');
+      return idx <= 0 ? '/' : p.substring(0, idx);
+    });
+    const allSameParent = parents.every((p) => p === parents[0]);
+    const workingDir = allSameParent ? parents[0] : '/';
+
+    // Relative item names if working from workingDir, or absolute paths
+    const relItems = cleanSources.map((p) => {
+      if (allSameParent) {
+        return p === '/' ? '.' : p.substring(workingDir === '/' ? 1 : workingDir.length + 1);
+      }
+      return p;
+    });
+
+    const quotedItems = relItems.map((it) => `"${it.replace(/"/g, '\\"')}"`).join(' ');
+
+    let compressCmd = '';
+    if (format === 'tar.gz') {
+      compressCmd = `cd "${workingDir}" && GZIP="-${level}" tar -czf "${archivePath}" ${quotedItems}`;
+    } else if (format === 'tar.bz2') {
+      compressCmd = `cd "${workingDir}" && BZIP2="-${level}" tar -cjf "${archivePath}" ${quotedItems}`;
+    } else if (format === 'tar.xz') {
+      compressCmd = `cd "${workingDir}" && XZ_OPT="-${level}" tar -cJf "${archivePath}" ${quotedItems}`;
+    } else if (format === 'tar') {
+      compressCmd = `cd "${workingDir}" && tar -cf "${archivePath}" ${quotedItems}`;
+    } else if (format === 'zip') {
+      // Use zip CLI if available, otherwise python3 zipfile fallback
+      const pyScript = `import sys, zipfile, os
+arc = sys.argv[1]
+lvl = int(sys.argv[2])
+zf = zipfile.ZipFile(arc, "w", zipfile.ZIP_DEFLATED, compresslevel=lvl)
+for item in sys.argv[3:]:
+    p = os.path.abspath(item)
+    if os.path.isfile(p):
+        zf.write(p, arcname=os.path.basename(p))
+    elif os.path.isdir(p):
+        parent = os.path.dirname(p)
+        for root, dirs, files in os.walk(p):
+            for f in files:
+                fp = os.path.join(root, f)
+                zf.write(fp, arcname=os.path.relpath(fp, parent))
+zf.close()`;
+      compressCmd = `cd "${workingDir}" && (command -v zip >/dev/null 2>&1 && zip -r -${level} -q "${archivePath}" ${quotedItems} || python3 -c '${pyScript}' "${archivePath}" ${level} ${quotedItems})`;
+    }
+
+    // Execute compression command
+    try {
+      await executeExecCommand(client, compressCmd, 60000);
+    } catch (cmdErr: any) {
+      if ((server.ssh_username || 'root') !== 'root') {
+        const sudoCompressCmd = `sudo -n sh -c '${compressCmd.replace(/'/g, "'\\''")}'`;
+        await executeExecCommand(client, sudoCompressCmd, 60000);
+      } else {
+        throw cmdErr;
+      }
+    }
+
+    // Verify archive was created and get size
+    let sizeHuman = '';
+    try {
+      const statOut = await executeExecCommand(
+        client,
+        `stat -c '%s' "${archivePath}" 2>/dev/null || wc -c < "${archivePath}"`,
+        5000
+      );
+      const sizeBytes = parseInt(statOut.trim(), 10);
+      if (!isNaN(sizeBytes) && sizeBytes > 0) {
+        sizeHuman = formatBytes(sizeBytes);
+      }
+    } catch {}
+
+    // If deleteSource is requested, delete the source paths
+    if (options.deleteSource) {
+      for (const p of cleanSources) {
+        try {
+          const rmCmd = `rm -rf "${p}"`;
+          await executeExecCommand(client, rmCmd, 15000).catch(async () => {
+            if ((server.ssh_username || 'root') !== 'root') {
+              await executeExecCommand(client, `sudo -n rm -rf "${p}"`, 15000);
+            }
+          });
+        } catch (delErr) {
+          console.warn(`[compressLinuxItems deleteSource warning on ${p}]:`, delErr);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      archivePath,
+      sizeHuman,
+      message: `Successfully created archive: ${finalArchiveName}${sizeHuman ? ` (${sizeHuman})` : ''}`,
+    };
+  } finally {
+    try {
+      client.end();
+    } catch {}
+  }
+}
+
 

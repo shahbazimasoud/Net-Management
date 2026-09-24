@@ -68,6 +68,7 @@ import {
   updateLinuxItemAttributes,
   fetchLinuxSystemUsersAndGroups,
   pasteLinuxItems,
+  compressLinuxRemoteItems,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -254,6 +255,20 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     currentFileIndex: 0,
     error: null,
   });
+
+  // Compression Modal State
+  const [compressModal, setCompressModal] = useState<{
+    isOpen: boolean;
+    items: LinuxFsItem[];
+    archiveName: string;
+    format: 'tar.gz' | 'zip' | 'tar.bz2' | 'tar.xz' | 'tar';
+    compressionLevel: number;
+    deleteSource: boolean;
+    destinationDir: string;
+    loading: boolean;
+    error: string | null;
+    isMaximized?: boolean;
+  } | null>(null);
 
   // Properties / Info Modal State
   const [propertiesModal, setPropertiesModal] = useState<{
@@ -1114,6 +1129,68 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     showToast(isEn ? `Path copied: ${path}` : `مسیر در کلیپ‌بورد کپی شد: ${path}`, 'info');
   };
 
+  // Open Compression Modal
+  const handleOpenCompress = (targetItems: LinuxFsItem[]) => {
+    if (!targetItems || targetItems.length === 0) return;
+    const firstItem = targetItems[0];
+    let defaultBaseName = targetItems.length === 1 ? firstItem.name : 'archive';
+    if (targetItems.length === 1 && firstItem.type === 'file') {
+      const lastDot = defaultBaseName.lastIndexOf('.');
+      if (lastDot > 0) {
+        defaultBaseName = defaultBaseName.substring(0, lastDot);
+      }
+    }
+    setCompressModal({
+      isOpen: true,
+      items: targetItems,
+      archiveName: defaultBaseName,
+      format: 'tar.gz',
+      compressionLevel: 6,
+      deleteSource: false,
+      destinationDir: currentPath,
+      loading: false,
+      error: null,
+      isMaximized: false,
+    });
+    setContextMenu(null);
+  };
+
+  // Execute Compression on Remote Server
+  const handleExecuteCompress = async () => {
+    if (!server || !compressModal) return;
+    setCompressModal((prev) => (prev ? { ...prev, loading: true, error: null } : null));
+
+    try {
+      const res = await compressLinuxRemoteItems(server.id, {
+        sourcePaths: compressModal.items.map((it) => it.path),
+        archiveName: compressModal.archiveName,
+        destinationDir: compressModal.destinationDir || currentPath,
+        format: compressModal.format,
+        compressionLevel: compressModal.compressionLevel,
+        deleteSource: compressModal.deleteSource,
+        password: ephemeralPassword,
+      });
+
+      if (res.success) {
+        const createdName = res.archivePath
+          ? res.archivePath.split('/').pop()
+          : `${compressModal.archiveName}.${compressModal.format}`;
+        setCompressModal(null);
+        showToast(
+          isEn
+            ? `Compressed successfully: ${createdName}${res.sizeHuman ? ` (${res.sizeHuman})` : ''}`
+            : `فشرده‌سازی با موفقیت انجام شد: ${createdName}${res.sizeHuman ? ` (${res.sizeHuman})` : ''}`,
+          'success'
+        );
+        loadDirectory(currentPath, ephemeralPassword, false);
+      } else {
+        setCompressModal((prev) => (prev ? { ...prev, loading: false, error: res.error || 'Failed to compress' } : null));
+      }
+    } catch (err: any) {
+      setCompressModal((prev) => (prev ? { ...prev, loading: false, error: err?.message || 'Connection error' } : null));
+    }
+  };
+
   // Handle Ephemeral Password Submission
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1669,6 +1746,24 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                     )}
                     <span className="hidden sm:inline">
                       {isEn ? `Download (${selectedPaths.size})` : `دانلود (${selectedPaths.size})`}
+                    </span>
+                  </button>
+                )}
+
+                {/* Compress Selected */}
+                {selectedPaths.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selItems = items.filter((it) => selectedPaths.has(it.path));
+                      handleOpenCompress(selItems);
+                    }}
+                    title={isEn ? `Compress selected (${selectedPaths.size})` : `فشرده‌سازی موارد انتخابی (${selectedPaths.size})`}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/40 hover:bg-purple-500/30 text-xs font-semibold cursor-pointer transition animate-in fade-in"
+                  >
+                    <FileArchive className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">
+                      {isEn ? `Compress (${selectedPaths.size})` : `فشرده‌سازی (${selectedPaths.size})`}
                     </span>
                   </button>
                 )}
@@ -3503,6 +3598,521 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
           )}
 
         {/* ======================================================== */}
+        {/* COMPRESSION MODAL (PORTAL, 3-CONTROL, FIELD INFO TOOLTIP)*/}
+        {/* ======================================================== */}
+        {compressModal && compressModal.isOpen &&
+          createPortal(
+            <div
+              className={
+                compressModal.isMaximized
+                  ? 'fixed top-0 left-0 right-0 bottom-8 z-[99999] p-0 flex flex-col'
+                  : 'fixed inset-0 z-[99999] p-3 sm:p-4 bg-black/75 backdrop-blur-xs flex items-center justify-center'
+              }
+              dir={isEn ? 'ltr' : 'rtl'}
+              onClick={() => {
+                if (!compressModal.loading) {
+                  setCompressModal(null);
+                }
+              }}
+            >
+              <div
+                className={`flex flex-col overflow-hidden transition-all duration-200 shadow-2xl border ${
+                  compressModal.isMaximized
+                    ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
+                    : 'w-full max-w-xl max-h-[92vh] rounded-2xl'
+                } ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 text-slate-800'
+                    : 'bg-slate-950 border-slate-800 text-slate-100'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header with 3 control buttons */}
+                <div
+                  className={`px-5 py-3.5 border-b flex items-center justify-between shrink-0 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400 shrink-0">
+                      <FileArchive className="w-5 h-5 text-purple-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm truncate">
+                        {isEn ? 'Compress Files & Folders' : 'فشرده‌سازی فایل‌ها و پوشه‌ها'}
+                      </h3>
+                      <p className="text-[11px] text-slate-400 truncate font-mono">
+                        {isEn
+                          ? `Creating archive from ${compressModal.items.length} item(s)`
+                          : `ایجاد آرشیو فشرده از ${compressModal.items.length} مورد`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Minimize / Close */}
+                    <button
+                      type="button"
+                      onClick={() => setCompressModal(null)}
+                      title={isEn ? 'Close' : 'بستن'}
+                      className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                        isLightMode
+                          ? 'border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                          : 'border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    {/* Maximize Toggle */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCompressModal((prev) =>
+                          prev ? { ...prev, isMaximized: !prev.isMaximized } : null
+                        )
+                      }
+                      title={
+                        compressModal.isMaximized
+                          ? isEn
+                            ? 'Exit Fullscreen'
+                            : 'خروج از تمام‌صفحه'
+                          : isEn
+                          ? 'Fullscreen'
+                          : 'تمام‌صفحه'
+                      }
+                      className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                        isLightMode
+                          ? 'border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                          : 'border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {compressModal.isMaximized ? (
+                        <Minimize2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    {/* Close */}
+                    <button
+                      type="button"
+                      onClick={() => setCompressModal(null)}
+                      title={isEn ? 'Close' : 'بستن'}
+                      className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                        isLightMode
+                          ? 'border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200'
+                          : 'border-white/10 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/30'
+                      }`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Body Content */}
+                <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                  {/* Selected items summary */}
+                  <div
+                    className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+                      isLightMode
+                        ? 'bg-purple-50/60 border-purple-200 text-purple-900'
+                        : 'bg-purple-500/10 border-purple-500/20 text-purple-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>
+                        {isEn
+                          ? `Total items to compress: ${compressModal.items.length}`
+                          : `مجموع آیتم‌های انتخابی برای فشرده‌سازی: ${compressModal.items.length}`}
+                      </span>
+                    </div>
+                    <span className="font-mono font-semibold">
+                      {formatBytes(compressModal.items.reduce((acc, it) => acc + (it.size || 0), 0))}
+                    </span>
+                  </div>
+
+                  {/* Archive File Name */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold">
+                        {isEn ? 'Archive File Name' : 'نام فایل آرشیو فشرده'}
+                      </label>
+                      <FieldInfoTooltip
+                        fieldName={isEn ? 'Archive Name' : 'نام فایل فشرده'}
+                        whatIsIt={
+                          isEn
+                            ? 'The base filename for the created compressed archive.'
+                            : 'نام پایه فایل فشرده ایجاد شده در سرور.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Identifies the generated archive file in the target filesystem directory.'
+                            : 'برای مشخص شدن نام فایل فشرده نهایی در دایرکتوری مقصد.'
+                        }
+                        practicalExample={
+                          isEn ? 'backup-configs-2026 or site_assets' : 'backup-configs-2026 یا site_assets'
+                        }
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </div>
+                    <div className="flex items-center rounded-xl border overflow-hidden font-mono text-xs focus-within:ring-2 focus-within:ring-purple-500">
+                      <input
+                        type="text"
+                        value={compressModal.archiveName}
+                        onChange={(e) =>
+                          setCompressModal((prev) =>
+                            prev ? { ...prev, archiveName: e.target.value } : null
+                          )
+                        }
+                        placeholder={isEn ? 'archive-name' : 'نام آرشیو'}
+                        className={`flex-1 px-3 py-2 outline-none font-mono ${
+                          isLightMode ? 'bg-white text-slate-800' : 'bg-slate-900 text-slate-100'
+                        }`}
+                        dir="ltr"
+                      />
+                      <span
+                        className={`px-3 py-2 font-mono font-bold text-xs select-none border-s ${
+                          isLightMode
+                            ? 'bg-slate-100 border-slate-200 text-purple-700'
+                            : 'bg-slate-800 border-slate-700 text-purple-300'
+                        }`}
+                        dir="ltr"
+                      >
+                        .{compressModal.format}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Archive Format Selector */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold">
+                        {isEn ? 'Compression Format & Algorithm' : 'فرمت و الگوریتم فشرده‌سازی'}
+                      </label>
+                      <FieldInfoTooltip
+                        fieldName={isEn ? 'Archive Format' : 'فرمت آرشیو'}
+                        whatIsIt={
+                          isEn
+                            ? 'The compression format and container algorithm used to pack the files.'
+                            : 'الگوریتم و ساختار ظرف فشرده‌سازی مورد استفاده برای بسته‌بندی فایل‌ها.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Different formats offer varying compression ratios, CPU consumption, and cross-platform compatibility.'
+                            : 'فرمت‌های مختلف سطوح متفاوتی از نرخ فشردگی، سرعت پردازش و سازگاری با سیستم‌عامل‌های دیگر ارائه می‌دهند.'
+                        }
+                        practicalExample={
+                          isEn
+                            ? 'tar.gz for standard Linux archives, zip for Windows/Mac compatibility, tar.xz for maximum compression.'
+                            : 'tar.gz برای لینوکس استاندارد، zip برای سازگاری کامل با ویندوز و مک، tar.xz برای بالاترین نرخ فشردگی.'
+                        }
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {[
+                        {
+                          id: 'tar.gz',
+                          label: '.tar.gz (Gzip)',
+                          desc: isEn ? 'Standard Linux, Fast' : 'استاندارد لینوکس و سریع',
+                          badge: isEn ? 'Recommended' : 'پیشنهادی',
+                        },
+                        {
+                          id: 'zip',
+                          label: '.zip (ZIP)',
+                          desc: isEn ? 'Universal Windows/Mac' : 'سازگار با ویندوز و مک',
+                        },
+                        {
+                          id: 'tar.bz2',
+                          label: '.tar.bz2 (Bzip2)',
+                          desc: isEn ? 'High ratio for text/logs' : 'فشردگی بالا برای متن و لاگ',
+                        },
+                        {
+                          id: 'tar.xz',
+                          label: '.tar.xz (XZ)',
+                          desc: isEn ? 'Maximum compression' : 'بیشترین میزان فشردگی',
+                        },
+                        {
+                          id: 'tar',
+                          label: '.tar (Tarball)',
+                          desc: isEn ? 'Uncompressed archive' : 'بسته‌بندی بدون فشرده‌سازی',
+                        },
+                      ].map((fmt) => (
+                        <button
+                          key={fmt.id}
+                          type="button"
+                          onClick={() =>
+                            setCompressModal((prev) =>
+                              prev ? { ...prev, format: fmt.id as any } : null
+                            )
+                          }
+                          className={`p-2.5 rounded-xl border text-start transition cursor-pointer flex flex-col justify-between ${
+                            compressModal.format === fmt.id
+                              ? 'border-purple-500 bg-purple-500/15 text-purple-300 ring-1 ring-purple-500'
+                              : isLightMode
+                              ? 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                              : 'border-white/10 bg-slate-900/60 text-slate-300 hover:bg-white/5'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-mono font-bold text-xs">{fmt.label}</span>
+                            {fmt.badge && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-semibold">
+                                {fmt.badge}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-1">{fmt.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Compression Level (for compressed formats) */}
+                  {compressModal.format !== 'tar' && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-semibold">
+                          {isEn ? 'Compression Level' : 'سطح فشردگی (Compression Level)'}
+                        </label>
+                        <FieldInfoTooltip
+                          fieldName={isEn ? 'Compression Level' : 'سطح فشردگی'}
+                          whatIsIt={
+                            isEn
+                              ? 'Determines trade-off between CPU processing time and archive file size.'
+                              : 'میزان تعادل میان زمان پردازش پردازنده و اندازه نهایی فایل فشرده.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Level 1 is fast with lower compression; Level 9 maximizes compression using more CPU.'
+                              : 'سطح ۱ سریع‌ترین پردازش با حجم بیشتر است؛ سطح ۹ بیشترین فشردگی را با مصرف بیشتر پردازنده فراهم می‌آورد.'
+                          }
+                          practicalExample={isEn ? 'Level 6 (Balanced default)' : 'سطح ۶ (حالت متوازن پیش‌فرض)'}
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          {
+                            lvl: 1,
+                            title: isEn ? '1 - Fastest' : '۱ - سریع‌ترین',
+                            desc: isEn ? 'Low CPU, larger file' : 'مصرف کم پردازنده',
+                          },
+                          {
+                            lvl: 6,
+                            title: isEn ? '6 - Balanced' : '۶ - متوازن',
+                            desc: isEn ? 'Optimal size/speed' : 'بهترین تعادل سرعت و حجم',
+                          },
+                          {
+                            lvl: 9,
+                            title: isEn ? '9 - Maximum' : '۹ - بیشترین فشردگی',
+                            desc: isEn ? 'Smallest file, slow' : 'کوچک‌ترین حجم ممکن',
+                          },
+                        ].map((l) => (
+                          <button
+                            key={l.lvl}
+                            type="button"
+                            onClick={() =>
+                              setCompressModal((prev) =>
+                                prev ? { ...prev, compressionLevel: l.lvl } : null
+                              )
+                            }
+                            className={`p-2 rounded-xl border text-start transition cursor-pointer ${
+                              compressModal.compressionLevel === l.lvl
+                                ? 'border-purple-500 bg-purple-500/15 text-purple-300 font-semibold'
+                                : isLightMode
+                                ? 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                                : 'border-white/10 bg-slate-900/60 text-slate-300 hover:bg-white/5'
+                            }`}
+                          >
+                            <p className="text-xs font-mono font-bold">{l.title}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">{l.desc}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Destination Directory */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold">
+                        {isEn ? 'Destination Directory' : 'مسیر ذخیره‌سازی آرشیو'}
+                      </label>
+                      <FieldInfoTooltip
+                        fieldName={isEn ? 'Destination Directory' : 'مسیر مقصد'}
+                        whatIsIt={
+                          isEn
+                            ? 'The remote folder path where the compressed archive will be saved.'
+                            : 'مسیر پوشه در سرور راه دور که فایل فشرده در آن ذخیره خواهد شد.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Allows saving the compressed file in the current directory or routing it to another folder like /tmp or /backup.'
+                            : 'امکان ذخیره فایل در مسیر جاری یا انتقال مستقیم به پوشه‌های دیگر مانند /tmp یا /backup.'
+                        }
+                        practicalExample={isEn ? '/tmp or /backup or current folder' : '/tmp یا /backup یا پوشه جاری'}
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={compressModal.destinationDir}
+                        onChange={(e) =>
+                          setCompressModal((prev) =>
+                            prev ? { ...prev, destinationDir: e.target.value } : null
+                          )
+                        }
+                        className={`flex-1 px-3 py-2 rounded-xl border font-mono text-xs outline-none ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 text-slate-800 focus:border-purple-500'
+                            : 'bg-slate-900 border-slate-700 text-slate-100 focus:border-purple-500'
+                        }`}
+                        dir="ltr"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCompressModal((prev) =>
+                            prev ? { ...prev, destinationDir: currentPath } : null
+                          )
+                        }
+                        className="px-2.5 py-2 rounded-xl border border-slate-700 text-xs font-mono text-slate-300 hover:bg-white/10 shrink-0 cursor-pointer"
+                        title={isEn ? 'Reset to current directory' : 'تنظیم به مسیر جاری'}
+                      >
+                        {isEn ? 'Current Dir' : 'مسیر جاری'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Delete Source Files Checkbox */}
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl border border-dashed border-rose-500/30 bg-rose-500/5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={compressModal.deleteSource}
+                      onChange={(e) =>
+                        setCompressModal((prev) =>
+                          prev ? { ...prev, deleteSource: e.target.checked } : null
+                        )
+                      }
+                      className="mt-0.5 rounded text-rose-500"
+                    />
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-rose-300">
+                          {isEn
+                            ? 'Delete original files after successful compression'
+                            : 'حذف فایل‌ها و پوشه‌های اصلی پس از فشرده‌سازی موفق'}
+                        </span>
+                        <FieldInfoTooltip
+                          fieldName={isEn ? 'Delete Source Files' : 'حذف فایل‌های اصلی'}
+                          whatIsIt={
+                            isEn
+                              ? 'Automatically removes the source items once the archive is verified to save disk space.'
+                              : 'پس از اطمینان از ایجاد صحیح آرشیو، فایل‌ها و پوشه‌های اولیه را برای آزادسازی فضای دیسک حذف می‌کند.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Helpful when freeing disk space on servers with limited storage during log rotation or archiving.'
+                              : 'برای آزاد کردن سریع فضای دیسک در سرورهایی با محدودیت فضا هنگام پشتیبان‌گیری و آرشیو لاگ‌ها.'
+                          }
+                          practicalExample={
+                            isEn ? 'Enable when archiving old rotated logs' : 'فعال‌سازی هنگام فشرده‌سازی لاگ‌های قدیمی'
+                          }
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <p className="text-[10px] text-rose-400/80">
+                        {isEn
+                          ? 'Warning: Source files will be permanently erased after archiving is complete.'
+                          : 'هشدار: آیتم‌های مبدا پس از پایان فشرده‌سازی برای همیشه از روی سرور پاک خواهند شد.'}
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Source items preview list */}
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      {isEn ? 'Selected Items to Include:' : 'آیتم‌های انتخابی برای گنجاندن در آرشیو:'}
+                    </span>
+                    <div
+                      className={`max-h-36 overflow-y-auto rounded-xl border p-2 space-y-1 font-mono text-xs ${
+                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      {compressModal.items.map((it) => (
+                        <div key={it.path} className="flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-white/5">
+                          <div className="flex items-center gap-1.5 truncate">
+                            {it.type === 'directory' ? (
+                              <Folder className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            ) : (
+                              <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                            )}
+                            <span className="truncate">{it.name}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 shrink-0 font-mono">
+                            {it.type === 'directory' ? (isEn ? 'Folder' : 'پوشه') : it.sizeHuman}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Error display */}
+                  {compressModal.error && (
+                    <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-mono flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                      <span>{compressModal.error}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Controls */}
+                <div
+                  className={`px-5 py-3 border-t flex items-center justify-between shrink-0 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setCompressModal(null)}
+                    disabled={compressModal.loading}
+                    className="px-4 py-2 rounded-xl border border-slate-700 text-xs font-medium hover:bg-white/10 transition cursor-pointer text-slate-300"
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExecuteCompress}
+                    disabled={compressModal.loading || !compressModal.archiveName.trim()}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {compressModal.loading ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>{isEn ? 'Compressing on Server...' : 'در حال فشرده‌سازی روی سرور...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileArchive className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Create Compressed Archive' : 'ایجاد آرشیو فشرده'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+        {/* ======================================================== */}
         {/* ITEM / EMPTY SPACE CONTEXT MENU (PORTAL)                  */}
         {/* ======================================================== */}
         {contextMenu?.isOpen &&
@@ -3702,6 +4312,21 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                     <span>{isEn ? 'Download as ZIP (.zip)' : 'دانلود در قالب فایل فشرده (ZIP)'}</span>
                   </button>
 
+                  {/* Compress Selected Items */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selItems = items.filter((it) => selectedPaths.has(it.path));
+                      handleOpenCompress(selItems);
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-purple-50 text-purple-700 font-medium' : 'hover:bg-purple-500/15 text-purple-300 font-medium'
+                    }`}
+                  >
+                    <FileArchive className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                    <span>{isEn ? `Compress (${selectedPaths.size}) Items...` : `فشرده‌سازی (${selectedPaths.size}) مورد...`}</span>
+                  </button>
+
                   {/* Copy All Paths */}
                   <button
                     type="button"
@@ -3852,6 +4477,18 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                         <span>{isEn ? 'Download File' : 'دانلود فایل'}</span>
                       </>
                     )}
+                  </button>
+
+                  {/* Compress Single Item */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCompress([contextMenu.item!])}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-purple-50 text-purple-700 font-medium' : 'hover:bg-purple-500/15 text-purple-300 font-medium'
+                    }`}
+                  >
+                    <FileArchive className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                    <span>{isEn ? 'Compress / Archive...' : 'فشرده‌سازی (Compress)...'}</span>
                   </button>
 
                   {/* Copy Path */}
