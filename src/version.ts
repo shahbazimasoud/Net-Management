@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.6';
+export const APP_VERSION = '1.152.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.7',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'رفع خطای Incomplete instruction در ریموت دسکتاپ، اصلاح فریمینگ گیت‌وی Guacamole و افزودن ورودی مستقیم پسورد ویندوز',
+    title_en: 'Fix Guacamole Protocol Framing & Incomplete Instruction Error, Add Direct In-Modal Password Entry',
+    changes: [
+      'اصلاح تابع encodeGuacElement و محاسبه طول عناصر بر اساس تعداد کاراکترهای یونیکد (str.length) به جای طول بایتی UTF-8، جهت سازگاری ۱۰۰٪ با کلاینت guacamole-common-js و جلوگیری از خطای Incomplete instruction.',
+      'پیاده‌سازی مفسر پکت‌های استریمینگ extractNextGuacInstruction جهت تفکیک دقیق دستورات پروتکل بر اساس طول المنت‌ها و عدم برش اشتباه دستورات هنگام وجود سمیکالن داخل مقادیر متنی.',
+      'جلوگیری از ارسال خطاهای تکراری و متناقض هنگام بسته‌شدن سوکت TCP سرویس guacd.',
+      'افزودن فیلد ورودی مستقیم رمز عبور ویندوز / اکتیو دایرکتوری در صفحه خطای مودال با امکان نمایش/مخفی‌سازی رمز و تلاش مجدد فوری جهت تسهیل احراز هویت NLA.',
+      'ترجمه هوشمند خطاهای فریمینگ کلاینت در parseGuacErrorMessage به توضیحات شفاف مهندسی جهت هدایت کاربر به بررسی اطلاعات کاربری و NLA.',
+    ],
+    changes_en: [
+      'Corrected encodeGuacElement element length calculation to use Unicode character code unit count (str.length) instead of raw UTF-8 byte length, ensuring full guacamole-common-js client alignment and permanently resolving "Incomplete instruction." errors.',
+      'Implemented robust stream packet parser extractNextGuacInstruction respecting Guacamole element lengths and preventing premature instruction slicing on semicolons inside string/error payloads.',
+      'Prevented duplicate conflicting error instructions on guacd socket termination.',
+      'Added direct inline Windows / Active Directory password input on the modal retry/error card with show/hide toggle for immediate NLA credential retry.',
+      'Smartly translated client framing errors in parseGuacErrorMessage to clear engineering diagnostics guiding the user on credential and NLA verification.',
+    ],
+  },
   {
     version: '1.152.6',
     releaseDate: '2026-09-24',

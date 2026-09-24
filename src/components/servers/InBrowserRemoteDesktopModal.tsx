@@ -23,7 +23,10 @@ import {
   Download,
   Server,
   Cpu,
-  Info
+  Info,
+  Eye,
+  EyeOff,
+  Key
 } from 'lucide-react';
 import { RemoteServer } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -65,6 +68,11 @@ function parseGuacErrorMessage(rawMsg: any, isEn: boolean): string | null {
         // Fall back to raw string
       }
     }
+    if (trimmed.toLowerCase().includes('incomplete instruction')) {
+      return isEn
+        ? 'Remote desktop authentication or protocol handshake was rejected by the Windows server. Ensure username, password, and domain are valid, and that Network Level Authentication (NLA) is satisfied.'
+        : 'احراز هویت یا هندشیک پروتکل ریموت دسکتاپ توسط سرور ویندوز رد شد. صحت نام کاربری، رمز عبور، دامین و مجوزهای NLA را بررسی فرمایید.';
+    }
     return trimmed;
   }
   return null;
@@ -83,6 +91,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const [isMaximized, setIsMaximized] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [showConfirmClose, setShowConfirmClose] = useState(false);
+
+  // Authentication & Password States
+  const [customPassword, setCustomPassword] = useState<string>('');
+  const [showCustomPassword, setShowCustomPassword] = useState<boolean>(false);
 
   // Connection & Gateway states
   type RdpConnectionStage =
@@ -563,6 +575,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       }
 
       // 3. Request single-use connection token
+      const effectivePassword = customPassword || sessionPassword;
       const resp = await fetch('/api/remote-desktop/token', {
         method: 'POST',
         headers: {
@@ -575,7 +588,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           width,
           height,
           dpi: 96,
-          ...(sessionPassword ? { sessionPassword } : {}),
+          ...(effectivePassword ? { sessionPassword: effectivePassword } : {}),
         }),
       });
 
@@ -1398,6 +1411,47 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                     </li>
                   </ul>
                 )}
+              </div>
+
+              {/* Inline Windows / Active Directory Password Input */}
+              <div className="w-full p-3 rounded-xl bg-slate-900/90 border border-slate-700/80 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                  <span className="flex items-center gap-1.5 text-cyan-400">
+                    <Key className="w-3.5 h-3.5" />
+                    {isEn ? 'Windows / Active Directory Password' : 'رمز عبور ویندوز / اکتیو دایرکتوری'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal font-mono">
+                    {targetValidationInfo?.hasPasswordConfigured
+                      ? (isEn ? 'Stored in vault' : 'در والت ذخیره شده')
+                      : (isEn ? 'Required for NLA' : 'الزامی برای NLA')}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showCustomPassword ? 'text' : 'password'}
+                    value={customPassword}
+                    onChange={(e) => setCustomPassword(e.target.value)}
+                    placeholder={
+                      isEn
+                        ? `Enter password for ${server?.win_username || 'Administrator'}`
+                        : `رمز عبور برای ${server?.win_username || 'Administrator'} را وارد کنید`
+                    }
+                    className="w-full px-3 py-2 pr-10 rounded-lg text-xs bg-slate-950 border border-slate-700 text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none font-mono"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        initiateConnection();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomPassword(!showCustomPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                    title={showCustomPassword ? (isEn ? 'Hide password' : 'مخفی‌سازی رمز') : (isEn ? 'Show password' : 'نمایش رمز')}
+                  >
+                    {showCustomPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-3">

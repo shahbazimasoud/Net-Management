@@ -56,10 +56,49 @@ const TOKEN_TTL_MS = 60 * 1000; // 60 seconds single-use token lifetime
 
 /**
  * Format string as a Guacamole protocol element: "<length>.<value>"
+ * In Guacamole protocol (and guacamole-common-js), length is the number of characters (Unicode code points),
+ * which corresponds to JavaScript string character length (str.length).
  */
 function encodeGuacElement(val: string | number): string {
   const str = String(val);
-  return `${Buffer.byteLength(str, 'utf-8')}.${str}`;
+  return `${str.length}.${str}`;
+}
+
+/**
+ * Extract the next complete Guacamole instruction from an incoming stream buffer.
+ * Correctly respects element length prefixes and prevents premature splits on semicolons
+ * embedded inside values or incomplete TCP packets.
+ */
+function extractNextGuacInstruction(buffer: string): { instruction: string; remaining: string; parts: string[] } | null {
+  const parts: string[] = [];
+  let pos = 0;
+  while (pos < buffer.length) {
+    const dot = buffer.indexOf('.', pos);
+    if (dot === -1) return null; // Length prefix not fully received
+    const lenStr = buffer.substring(pos, dot);
+    const len = parseInt(lenStr, 10);
+    if (isNaN(len) || len < 0) {
+      return null;
+    }
+    const valStart = dot + 1;
+    const valEnd = valStart + len;
+    if (valEnd >= buffer.length) {
+      return null; // Value and/or terminator not fully in buffer yet
+    }
+    const val = buffer.substring(valStart, valEnd);
+    parts.push(val);
+    const terminator = buffer[valEnd];
+    if (terminator === ';') {
+      const instruction = buffer.substring(0, valEnd);
+      const remaining = buffer.substring(valEnd + 1);
+      return { instruction, remaining, parts };
+    } else if (terminator === ',') {
+      pos = valEnd + 1;
+    } else {
+      return null;
+    }
+  }
+  return null;
 }
 
 /**
@@ -770,6 +809,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     let handshakeState: 'SELECT' | 'CONNECTING' | 'READY' = 'SELECT';
     let guacBuffer = '';
+    let errorSent = false;
 
     guacdSocket.connect(guacdPort, guacdHost, () => {
       activeSession.guacdConnected = true;
@@ -782,13 +822,12 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       guacBuffer += chunk.toString('utf-8');
 
       while (true) {
-        const semiIdx = guacBuffer.indexOf(';');
-        if (semiIdx === -1) break;
+        const next = extractNextGuacInstruction(guacBuffer);
+        if (!next) break;
 
-        const instructionStr = guacBuffer.substring(0, semiIdx);
-        guacBuffer = guacBuffer.substring(semiIdx + 1);
-
-        const parsed = parseGuacInstruction(instructionStr);
+        guacBuffer = next.remaining;
+        const instructionStr = next.instruction;
+        const parsed = next.parts;
         const opcode = parsed[0];
 
         if (handshakeState === 'SELECT') {
@@ -843,6 +882,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port, config.domain);
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(encodeGuacInstruction('error', JSON.stringify(structured), structured.code));
+              errorSent = true;
             }
           }
         } else {
@@ -868,7 +908,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     guacdSocket.on('error', (err: Error) => {
       console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
-      if (clientWs.readyState === WebSocket.OPEN) {
+      if (clientWs.readyState === WebSocket.OPEN && !errorSent) {
         const payload = {
           category: 'GATEWAY_SOCKET_ERROR',
           message_en: `Gateway connection error with guacd: ${err.message}`,
@@ -876,11 +916,12 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           code: '516',
         };
         clientWs.send(encodeGuacInstruction('error', JSON.stringify(payload), '516'));
+        errorSent = true;
       }
     });
 
     guacdSocket.on('close', () => {
-      if (clientWs.readyState === WebSocket.OPEN) {
+      if (clientWs.readyState === WebSocket.OPEN && !errorSent) {
         const isEstablished = handshakeState === 'READY';
         const payload = isEstablished
           ? {
@@ -891,19 +932,20 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             }
           : {
               category: 'RDP_UNREACHABLE_OR_FAILED',
-              message_en: `Failed to connect to ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). Server is unreachable or port is blocked by firewall.`,
-              message_fa: `عدم برقراری ارتباط با ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). سرور در دسترس نیست یا پورت توسط فایروال مسدود شده است.`,
+              message_en: `Failed to connect to ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). Verify Remote Desktop credentials, NLA settings, or firewall permissions.`,
+              message_fa: `عدم برقراری ارتباط با ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). اطلاعات کاربری، تنظیمات NLA یا دسترسی فایروال را بررسی کنید.`,
               code: '516',
             };
         clientWs.send(encodeGuacInstruction('error', JSON.stringify(payload), '516'));
-        setTimeout(() => {
-          try {
-            if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.close(4504, 'Remote session closed');
-            }
-          } catch {}
-        }, 150);
+        errorSent = true;
       }
+      setTimeout(() => {
+        try {
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.close(4504, 'Remote session closed');
+          }
+        } catch {}
+      }, 150);
       activeSessions.delete(config.id);
     });
 
