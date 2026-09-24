@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.1';
+export const APP_VERSION = '1.152.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.2',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'ممیزی جامع و گزارش دیاگنوستیک معماری اتصال ریموت دسکتاپ مرورگری و بررسی گیت‌وی guacd',
+    title_en: 'Comprehensive Audit and Diagnostics of In-Browser RDP Architecture & guacd Gateway Flow',
+    changes: [
+      'ممیزی کامل جریان اتصال RDP، بررسی بسته‌های دیمن بومی guacd نسخه 1.3.0 و پلاگین‌های libguac-client-rdp0 و libfreerdp2.',
+      'بررسی و تثبیت مدل داده سرورها در دیتابیس (ip, win_port, win_username, win_domain, win_password).',
+      'تدوین مستند فنی RDP_AUDIT_REPORT.md جهت پیاده‌سازی اصلاحات مرحله‌به‌مرحله اتصال ریموت دسکتاپ.',
+    ],
+    changes_en: [
+      'Conducted technical audit of end-to-end RDP connection flow, verified native guacd 1.3.0 daemon, libguac-client-rdp0, and libfreerdp2.',
+      'Validated Windows Server data model in database_store.json (ip, win_port, win_username, win_domain, win_password).',
+      'Published comprehensive technical report RDP_AUDIT_REPORT.md for phased guacd protocol and frontend overhaul.',
+    ],
+  },
   {
     version: '1.152.1',
     releaseDate: '2026-09-24',
