@@ -18,6 +18,7 @@ import {
   AlertCircle,
   HelpCircle,
   Cpu,
+  HardDrive,
   Globe,
   Settings,
   Eye,
@@ -146,6 +147,11 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [winUsername, setWinUsername] = useState('Administrator');
   const [winPassword, setWinPassword] = useState('');
 
+  // Hardware specifications (authentic values; auto-detected or manually configured)
+  const [cpuCores, setCpuCores] = useState<number | string>('');
+  const [ramGb, setRamGb] = useState<number | string>('');
+  const [diskGb, setDiskGb] = useState<number | string>('');
+
   // Track initialization to prevent form reset while user is actively typing
   const initializedServerIdRef = useRef<string | null>(null);
   const wasOpenRef = useRef(false);
@@ -185,6 +191,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setWinDomain(serverToEdit.win_domain || '');
         setWinUsername(serverToEdit.win_username || 'Administrator');
         setWinPassword(serverToEdit.win_password || '');
+        setCpuCores(serverToEdit.cpu_cores !== undefined && serverToEdit.cpu_cores !== null ? serverToEdit.cpu_cores : '');
+        setRamGb(serverToEdit.ram_gb !== undefined && serverToEdit.ram_gb !== null ? serverToEdit.ram_gb : '');
+        setDiskGb(serverToEdit.disk_gb !== undefined && serverToEdit.disk_gb !== null ? serverToEdit.disk_gb : '');
       } else {
         // Defaults for new server
         setName('');
@@ -206,6 +215,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setWinDomain('');
         setWinUsername('Administrator');
         setWinPassword('');
+        setCpuCores('');
+        setRamGb('');
+        setDiskGb('');
       }
       setShowSshPassword(false);
       setShowWinPassword(false);
@@ -272,6 +284,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         tags,
         prompt_password_on_connect: promptPasswordOnConnect,
         status: serverToEdit?.status || 'online',
+        cpu_cores: cpuCores !== '' && Number(cpuCores) > 0 ? Number(cpuCores) : undefined,
+        ram_gb: ramGb !== '' && Number(ramGb) > 0 ? Number(ramGb) : undefined,
+        disk_gb: diskGb !== '' && Number(diskGb) > 0 ? Number(diskGb) : undefined,
         ...(osType === 'linux'
           ? {
               ssh_port: Number(sshPort) || 22,
@@ -735,6 +750,111 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                   ))}
                 </select>
               </div>
+            </div>
+
+            {/* Hardware Specifications (Authentic CPU, RAM, and Disk) */}
+            <div className="mt-3 pt-3 border-t border-slate-700/40">
+              <div className="text-[11px] font-bold tracking-wider uppercase text-cyan-400 mb-2 flex items-center gap-1.5">
+                <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isEn ? 'Hardware Specifications (Authentic or Manual)' : 'مشخصات سخت‌افزاری سرور (واقعی یا دستی)'}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {/* CPU Cores */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1">
+                    <label className="font-medium text-xs text-slate-300">
+                      {isEn ? 'CPU Cores (vCPU)' : 'هسته‌های پردازنده (vCPU)'}
+                    </label>
+                    <FieldInfoTooltip
+                      title={isEn ? 'vCPU Cores' : 'هسته‌های پردازنده'}
+                      whatIsIt={isEn ? 'Total number of virtual or physical CPU cores.' : 'تعداد کل هسته‌های پردازشی مجازی یا فیزیکی سرور.'}
+                      whyNeeded={isEn ? 'Accurately displays compute capacity on dashboards and monitors load balance.' : 'نمایش دقیق ظرفیت پردازشی در داشبورد و پایش توازن بار.'}
+                      example="2, 4, 8, 16"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    max="512"
+                    value={cpuCores}
+                    onChange={(e) => setCpuCores(e.target.value)}
+                    placeholder={isEn ? 'Auto-detected / e.g. 4' : 'تشخیص خودکار / مثال: ۴'}
+                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none transition-all ${
+                      isLightMode
+                        ? 'bg-white border-slate-200 text-slate-900 focus:border-cyan-500'
+                        : 'bg-slate-900 border-slate-700/80 text-slate-100 focus:border-cyan-500'
+                    }`}
+                  />
+                </div>
+
+                {/* RAM (GB) */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1">
+                    <label className="font-medium text-xs text-slate-300">
+                      {isEn ? 'Memory RAM (GB)' : 'حافظه رم (GB)'}
+                    </label>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Total RAM' : 'حافظه رم کل'}
+                      whatIsIt={isEn ? 'Total system RAM in Gigabytes.' : 'میزان کل حافظه رم سرور بر حسب گیگابایت.'}
+                      whyNeeded={isEn ? 'Evaluates memory footprint and prevents out-of-memory crashes.' : 'سنجش ظرفیت رم و جلوگیری از کمبود حافظه سرور.'}
+                      example="4, 8, 16, 32, 64"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.5"
+                    max="2048"
+                    value={ramGb}
+                    onChange={(e) => setRamGb(e.target.value)}
+                    placeholder={isEn ? 'Auto-detected / e.g. 16' : 'تشخیص خودکار / مثال: ۱۶'}
+                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none transition-all ${
+                      isLightMode
+                        ? 'bg-white border-slate-200 text-slate-900 focus:border-cyan-500'
+                        : 'bg-slate-900 border-slate-700/80 text-slate-100 focus:border-cyan-500'
+                    }`}
+                  />
+                </div>
+
+                {/* Disk (GB) */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1">
+                    <label className="font-medium text-xs text-slate-300">
+                      {isEn ? 'Disk Storage (GB)' : 'حجم کل دیسک (GB)'}
+                    </label>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Disk Storage Capacity' : 'حجم دیسک ذخیره‌سازی'}
+                      whatIsIt={isEn ? 'Real authentic disk capacity in GB without hardcoded defaults.' : 'حجم واقعی حافظه ذخیره‌سازی بر حسب گیگابایت بدون هیچ مقدار فرضی.'}
+                      whyNeeded={isEn ? 'Displays authentic server disk size instead of incorrect 250 GB default.' : 'نمایش اندازه دقیق دیسک سرور به جای مقدار نادرست ۲۵۰ گیگابایت.'}
+                      example="40, 80, 120, 500, 1000"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000000"
+                    value={diskGb}
+                    onChange={(e) => setDiskGb(e.target.value)}
+                    placeholder={isEn ? 'Auto-detected / e.g. 100' : 'تشخیص خودکار / مثال: ۱۰۰'}
+                    className={`w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none transition-all ${
+                      isLightMode
+                        ? 'bg-white border-slate-200 text-slate-900 focus:border-cyan-500'
+                        : 'bg-slate-900 border-slate-700/80 text-slate-100 focus:border-cyan-500'
+                    }`}
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                {isEn
+                  ? '💡 If left empty, hardware specs are discovered automatically when Keepalive or SSH connects to the server.'
+                  : '💡 در صورت خالی گذاشتن، مشخصات سخت‌افزار به صورت خودکار در اتصال Keepalive یا SSH از سرور استخراج می‌شود.'}
+              </p>
             </div>
           </div>
 

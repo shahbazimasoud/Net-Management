@@ -254,11 +254,11 @@ CREATE TABLE IF NOT EXISTS remote_servers (
     win_port INT DEFAULT 3389,
     win_username VARCHAR(64) DEFAULT 'Administrator',
     win_domain VARCHAR(64) DEFAULT 'CORP.INTERNAL',
-    status VARCHAR(32) DEFAULT 'online', -- 'online' | 'offline' | 'unreachable'
-    cpu_cores INT DEFAULT 4,
-    ram_gb INT DEFAULT 16,
-    disk_gb INT DEFAULT 250,
-    uptime_str VARCHAR(64) DEFAULT '45 days, 12 hours',
+    status VARCHAR(32) DEFAULT 'untested', -- 'online' | 'offline' | 'unreachable' | 'untested'
+    cpu_cores INT,
+    ram_gb NUMERIC,
+    disk_gb INT,
+    uptime_str VARCHAR(64) DEFAULT '',
     location VARCHAR(128) DEFAULT 'Datacenter A (Rack R-04)',
     notes TEXT,
     prompt_password_on_connect BOOLEAN DEFAULT FALSE,

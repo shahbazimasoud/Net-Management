@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.138.4';
+export const APP_VERSION = '1.138.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.138.5',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'رفع خطای نمایش پیش‌فرض ۲۵۰ گیگابایت دیسک سرور و فعال‌سازی سنجش دقیق ظرفیت واقعی سخت‌افزار',
+    title_en: 'Fix Incorrect 250 GB Server Disk Display and Enable Authentic Multi-Tier Capacity Discovery',
+    changes: [
+      'حذف کامل مقادیر فرضی و هاردکد شده ۲۵۰ گیگابایت برای دیسک (و مقادیر پیش‌فرض ساختگی) از پایگاه داده و لایه تبدیل مدل سرورها.',
+      'ارتقای اسکریپت کاوش سخت‌افزار در پایش زنده و کیپ‌الایو با الگوریتم چندسطحی (سنجش دیسک‌های فیزیکی/مجازی با lsblk، مجموع فایل‌سیستم‌های واقعی با df و پارتیشن ریشه) جهت استخراج ظرفیت دقیق و بدون خطا.',
+      'افزودن بخش مشخصات سخت‌افزاری (تعداد هسته‌های پردازنده، حافظه رم و ظرفیت واقعی دیسک) در مودال ایجاد و ویرایش سرور (AddEditServerModal) با اعتبارسنجی ارگونومیک و راهنمای سه‌بخشی Info Tooltip.',
+      'پایبندی کامل به قانون منع استفاده از داده‌های ساختگی (Rule 8) و نمایش خط تیره در صورت عدم اتصال یا مشخص نبودن اندازه دیسک به جای اعداد فرضی.',
+    ],
+    changes_en: [
+      'Completely eliminated hardcoded 250 GB fallback defaults for server disk capacity (and simulated hardware fallbacks) across the database and model mapping layer.',
+      'Upgraded live telemetry and keepalive hardware discovery with a robust multi-tier pipeline (lsblk physical/virtual disk aggregation, real non-virtual filesystem sum via df, and root partition measurement) for accurate storage detection.',
+      'Added a dedicated Hardware Specifications section (vCPU cores, RAM memory, and authentic Disk capacity) to AddEditServerModal with 3-part boundary-safe Info Tooltips.',
+      'Enforced strict authentic telemetry rules (Rule 8) to show graceful dashes (— Disk) instead of arbitrary fabricated numbers whenever disk size is unmeasured.',
+    ],
+  },
   {
     version: '1.138.4',
     releaseDate: '2026-09-24',

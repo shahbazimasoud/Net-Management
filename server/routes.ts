@@ -1186,7 +1186,14 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
 echo "---HW---"
 nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo ""
 awk '/MemTotal/{printf "%.1f", $2/1048576}' /proc/meminfo 2>/dev/null || echo ""
-df -BG -P / 2>/dev/null | awk 'NR==2{sub(/G/,"",$2); print $2}' || df -k -P / 2>/dev/null | awk 'NR==2{print int($2/1048576)}' || echo ""
+DISK_GB=$(lsblk -b -d -n -o SIZE,TYPE 2>/dev/null | awk '$2=="disk"{sum+=$1} END{if(sum>0) print int(sum/1073741824)}')
+if [ -z "$DISK_GB" ] || [ "$DISK_GB" -le 0 ] 2>/dev/null; then
+  DISK_GB=$(df -k -P -x tmpfs -x devtmpfs -x squashfs -x overlay 2>/dev/null | awk 'NR>1{sum+=$2} END{if(sum>0) print int(sum/1048576)}')
+fi
+if [ -z "$DISK_GB" ] || [ "$DISK_GB" -le 0 ] 2>/dev/null; then
+  DISK_GB=$(df -k -P / 2>/dev/null | awk 'NR==2{print int($2/1048576)}')
+fi
+echo "$DISK_GB"
 uptime -p 2>/dev/null || uptime 2>/dev/null || echo ""
 echo "---END---"`;
           const rawHw = await runAdaptiveSshCommand(server, hwScript, undefined, 3000);
@@ -1316,10 +1323,22 @@ const handleLinuxServerMonitor = async (req: Request, res: Response) => {
     const metrics = await executeLinuxTelemetrySSH(server, ephemeralPassword);
     
     // Automatically persist real discovered hardware specs to database
-    const rootDisk = metrics.disks.find((d: any) => d.mount === '/') || metrics.disks[0];
-    const disk_gb = rootDisk && rootDisk.sizeBytes > 0 
-      ? Math.round(rootDisk.sizeBytes / (1024 * 1024 * 1024)) 
-      : server.disk_gb;
+    let disk_gb = server.disk_gb;
+    const storageOverview = (metrics as any).storageOverview;
+    if (storageOverview?.totalStorageBytes && storageOverview.totalStorageBytes > 0) {
+      disk_gb = Math.round(storageOverview.totalStorageBytes / (1024 * 1024 * 1024));
+    } else if (metrics.disks && metrics.disks.length > 0) {
+      const nonVirtDisks = metrics.disks.filter((d: any) => !d.mount.startsWith('/sys') && !d.mount.startsWith('/dev') && !d.mount.startsWith('/run'));
+      const totalBytes = nonVirtDisks.reduce((acc: number, d: any) => acc + (d.sizeBytes || 0), 0);
+      if (totalBytes > 0) {
+        disk_gb = Math.round(totalBytes / (1024 * 1024 * 1024));
+      } else {
+        const rootDisk = metrics.disks.find((d: any) => d.mount === '/') || metrics.disks[0];
+        if (rootDisk && rootDisk.sizeBytes > 0) {
+          disk_gb = Math.round(rootDisk.sizeBytes / (1024 * 1024 * 1024));
+        }
+      }
+    }
     const ram_gb = metrics.memory?.totalBytes > 0 
       ? Math.round((metrics.memory.totalBytes / (1024 * 1024 * 1024)) * 10) / 10 
       : server.ram_gb;
