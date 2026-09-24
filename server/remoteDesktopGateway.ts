@@ -146,24 +146,51 @@ export function checkTcpReachability(host: string, port: number, timeoutMs: numb
 /**
  * Translate low-level Guacamole & FreeRDP handshake errors into structured diagnostic categories
  */
-export function parseStructuredGuacError(errMsg: string, host: string, port: number): { category: string; message_en: string; message_fa: string; code: string } {
+export function parseStructuredGuacError(errMsg: string, host: string, port: number, domain?: string): { category: string; message_en: string; message_fa: string; code: string } {
   const lower = (errMsg || '').toLowerCase();
 
-  if (lower.includes('logon failure') || lower.includes('authentication') || lower.includes('credentials') || lower.includes('password') || lower.includes('0x2000c') || lower.includes('0x00000002') || lower.includes('account')) {
+  if (lower.includes('disabled') || lower.includes('locked out') || lower.includes('expired')) {
     return {
-      category: 'RDP_AUTH_FAILED',
-      message_en: `Authentication failed on target host ${host}:${port}. The Windows server rejected the supplied username or password. Verify the Domain and username credentials.`,
-      message_fa: `احراز هویت در هاست مقصد ${host}:${port} ناموفق بود. ویندوز سرور نام کاربری یا رمز عبور را رد کرد. تنظیمات دامین و کاربر را بررسی نمایید.`,
+      category: 'RDP_ACCOUNT_LOCKED_OR_EXPIRED',
+      message_en: `Active Directory rejected logon: The user account on ${domain ? domain + '/' : ''}${host} is locked out, expired, or disabled. Contact your Active Directory domain administrator.`,
+      message_fa: `اکتیو دایرکتوری دسترسی را رد کرد: حساب کاربری در ${domain ? domain + '/' : ''}${host} قفل شده، منقضی شده یا غیرفعال است. با مدیر شبکه تماس بگیرید.`,
       code: '517',
     };
   }
 
-  if (lower.includes('nla') || lower.includes('credssp') || lower.includes('security negotiation')) {
+  if (lower.includes('denied') || lower.includes('not authorized') || lower.includes('group') || lower.includes('privilege')) {
+    return {
+      category: 'RDP_PERMISSION_DENIED',
+      message_en: `Logon permission denied by Windows Server (${host}). The account lacks 'Remote Desktop Users' or 'Remote Management Users' group membership in the domain.`,
+      message_fa: `مجوز ورود توسط ویندوز سرور (${host}) رد شد. کاربر عضو گروه 'Remote Desktop Users' در اکتیو دایرکتوری نیست.`,
+      code: '515',
+    };
+  }
+
+  if (lower.includes('logon failure') || lower.includes('authentication') || lower.includes('credentials') || lower.includes('password') || lower.includes('0x2000c') || lower.includes('0x00000002') || lower.includes('account')) {
+    return {
+      category: 'RDP_AUTH_FAILED',
+      message_en: `Active Directory / Windows authentication failed on ${host}:${port}. The server rejected the username or password. If joined to AD, verify the Domain (${domain || 'configured domain'}) and username format.`,
+      message_fa: `احراز هویت اکتیو دایرکتوری / ویندوز در ${host}:${port} ناموفق بود. نام کاربری یا رمز عبور توسط سرور رد شد. در صورت عضویت در دامین، نام دامین (${domain || 'دامین کانفیگ‌شده'}) و صحت نام کاربری را بررسی نمایید.`,
+      code: '517',
+    };
+  }
+
+  if (lower.includes('nla') || lower.includes('credssp') || lower.includes('security negotiation') || lower.includes('security layer')) {
     return {
       category: 'RDP_NLA_FAILED',
-      message_en: `Windows rejected the NLA (Network Level Authentication) handshake on ${host}:${port}. Verify username, password, and domain membership.`,
-      message_fa: `احراز هویت لایه شبکه (NLA) توسط ویندوز در ${host}:${port} رد شد. از صحت نام کاربری، رمز عبور و دامین اطمینان حاصل فرمایید.`,
+      message_en: `Windows rejected the Network Level Authentication (NLA) negotiation on ${host}:${port}. Ensure non-blank password is provided and Kerberos/NTLM authentication is permitted for domain ${domain || 'target'}.`,
+      message_fa: `ویندوز سرور مذاکره امنیتی احراز هویت لایه شبکه (NLA) را در ${host}:${port} رد کرد. اطمینان حاصل نمایید رمز عبور خالی نیست و پروتکل NTLM/Kerberos در دامین ${domain || 'مقصد'} مجاز باشد.`,
       code: '517',
+    };
+  }
+
+  if (lower.includes('certificate') || lower.includes('tls') || lower.includes('ssl') || lower.includes('handshake failed')) {
+    return {
+      category: 'RDP_TLS_FAILED',
+      message_en: `RDP TLS security handshake failed with ${host}:${port}. Verify that the Windows Server supports TLS/RDP encryption.`,
+      message_fa: `هندشیک امنیتی TLS در اتصال RDP به ${host}:${port} ناموفق بود. بررسی نمایید رمزنگاری TLS/RDP در ویندوز سرور پشتیبانی شود.`,
+      code: '516',
     };
   }
 
@@ -801,7 +828,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           } else if (opcode === 'error') {
             const rawErrMsg = parsed[1] || 'Remote server connection error';
             console.warn(`[RemoteDesktop] guacd error during handshake: ${rawErrMsg}`);
-            const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port);
+            const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port, config.domain);
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(encodeGuacInstruction('error', structured.message_en, structured.code));
             }

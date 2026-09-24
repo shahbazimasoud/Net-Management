@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.4';
+export const APP_VERSION = '1.152.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.5',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'پشتیبانی تخصصی از احراز هویت دامین اکتیو دایرکتوری، اعتبارسنجی NLA/TLS و تفکیک مجوزهای گروه کاربری',
+    title_en: 'Active Directory Domain & NLA Authentication Hardening, Group Policy & Lockout Diagnostics',
+    changes: [
+      'تقویت تفکیک خطاهای اکتیو دایرکتوری در گیت‌وی شامل تشخیص قفل یا انقضای حساب کاربری (RDP_ACCOUNT_LOCKED_OR_EXPIRED).',
+      'تشخیص عدم عضویت کاربر در گروه Remote Desktop Users دامین (RDP_PERMISSION_DENIED).',
+      'ارسال نام دامین اکتیو دایرکتوری در پیام‌های خطا جهت راهنمایی دقیق عیب‌یابی کاربران دامین.',
+      'تطبیق کامل مذاکره امنیتی TLS/NLA در اتصال با ویندوز سرورهای کنترل‌کننده دامین (Domain Controller).',
+    ],
+    changes_en: [
+      'Enriched Active Directory error discrimination including account lockout/expiration detection (RDP_ACCOUNT_LOCKED_OR_EXPIRED).',
+      'Added detection for missing domain Remote Desktop Users group authorization (RDP_PERMISSION_DENIED).',
+      'Injected Active Directory domain context into structured error payloads for targeted administrative troubleshooting.',
+      'Optimized TLS/NLA security layer negotiation for Domain Controllers and member servers.',
+    ],
+  },
   {
     version: '1.152.4',
     releaseDate: '2026-09-24',
