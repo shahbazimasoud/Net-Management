@@ -52,6 +52,10 @@ import {
   LinuxFirewallInfo,
   LinuxFirewallRule,
   LinuxFirewallRulePayload,
+  LinuxFsListResult,
+  LinuxFsItem,
+  LinuxQuickDir,
+  LinuxFileContentResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -3022,6 +3026,150 @@ export async function deleteLinuxFirewallRule(
     body: JSON.stringify({ rule, activeZone, password: ephemeralPassword }),
   });
   return res.json().catch(() => ({ success: false, message: 'Network error', error: 'Failed to delete firewall rule' }));
+}
+
+// ============================================================================
+// LINUX FILE EXPLORER CLIENT API
+// ============================================================================
+
+export async function fetchLinuxDirectory(
+  serverId: string,
+  path: string = '/',
+  ephemeralPassword?: string
+): Promise<{ success: boolean; result?: LinuxFsListResult; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/list?path=${encodeURIComponent(path)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, password: ephemeralPassword }),
+      }
+    );
+    const data = await res.json().catch(() => ({ success: false, error: 'Network parsing error' }));
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Connection failed' };
+  }
+}
+
+export async function fetchLinuxQuickDirs(
+  serverId: string
+): Promise<{ success: boolean; quickDirs: LinuxQuickDir[]; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/quick-dirs`);
+    return await res.json().catch(() => ({ success: false, quickDirs: [], error: 'Failed to parse quick dirs' }));
+  } catch (err: any) {
+    return { success: false, quickDirs: [], error: err?.message || 'Failed to fetch quick dirs' };
+  }
+}
+
+export async function readLinuxRemoteFile(
+  serverId: string,
+  path: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; file?: LinuxFileContentResult; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/read?path=${encodeURIComponent(path)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, password: ephemeralPassword }),
+      }
+    );
+    return await res.json().catch(() => ({ success: false, error: 'Failed to parse file response' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to read file' };
+  }
+}
+
+export async function writeLinuxRemoteFile(
+  serverId: string,
+  path: string,
+  content: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; bytesWritten?: number; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/write`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content, password: ephemeralPassword }),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to write file' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to write file' };
+  }
+}
+
+export async function createLinuxRemoteDirectory(
+  serverId: string,
+  path: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; path?: string; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/mkdir`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, password: ephemeralPassword }),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to create directory' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to create directory' };
+  }
+}
+
+export async function createLinuxRemoteEmptyFile(
+  serverId: string,
+  path: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; path?: string; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/touch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, password: ephemeralPassword }),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to create file' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to create file' };
+  }
+}
+
+export async function renameLinuxRemoteItem(
+  serverId: string,
+  oldPath: string,
+  newPath: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPath, newPath, password: ephemeralPassword }),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to rename item' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to rename item' };
+  }
+}
+
+export async function deleteLinuxRemoteItem(
+  serverId: string,
+  path: string,
+  isRecursive: boolean = false,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; path?: string; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, isRecursive, password: ephemeralPassword }),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to delete item' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to delete item' };
+  }
 }
 
 

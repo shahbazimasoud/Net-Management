@@ -164,6 +164,16 @@ import {
   fetchLinuxSystemLogsSSH,
   truncateLinuxLogSSH,
 } from './linuxLogManager';
+import {
+  listLinuxDirectory,
+  LINUX_QUICK_DIRECTORIES,
+  readLinuxFile,
+  writeLinuxFile,
+  createLinuxDirectory,
+  createLinuxEmptyFile,
+  renameLinuxItem,
+  deleteLinuxItem,
+} from './linuxFileExplorer';
 
 export const apiRouter = Router();
 
@@ -4077,6 +4087,156 @@ apiRouter.post('/remote-servers/:id/time/set', async (req: Request, res: Respons
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'Failed to set system time' });
+  }
+});
+
+// ==========================================
+// LINUX FILE EXPLORER & SFTP ENDPOINTS
+// ==========================================
+
+// GET & POST /api/remote-servers/:id/fs/list - List files and directories
+apiRouter.all('/remote-servers/:id/fs/list', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const targetPath = (req.query.path || req.body.path || '/') as string;
+    const password = (req.body?.password || req.query?.password) as string | undefined;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await listLinuxDirectory(server, targetPath, password);
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    console.error(`[LinuxFS list error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to list directory contents' });
+  }
+});
+
+// GET /api/remote-servers/:id/fs/quick-dirs - Get system standard quick directories
+apiRouter.get('/remote-servers/:id/fs/quick-dirs', async (_req: Request, res: Response) => {
+  return res.json({ success: true, quickDirs: LINUX_QUICK_DIRECTORIES });
+});
+
+// GET & POST /api/remote-servers/:id/fs/read - Read text file content
+apiRouter.all('/remote-servers/:id/fs/read', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const filePath = (req.query.path || req.body.path) as string;
+    const password = (req.body?.password || req.query?.password) as string | undefined;
+
+    if (!filePath) {
+      return res.status(400).json({ success: false, error: 'File path is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const file = await readLinuxFile(server, filePath, password);
+    return res.json({ success: true, file });
+  } catch (err: any) {
+    console.error(`[LinuxFS read error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to read file' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/write - Write/save text file content
+apiRouter.post('/remote-servers/:id/fs/write', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { path: filePath, content, password } = req.body;
+
+    if (!filePath || typeof content !== 'string') {
+      return res.status(400).json({ success: false, error: 'File path and content string are required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await writeLinuxFile(server, filePath, content, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFS write error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to write file' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/mkdir - Create directory
+apiRouter.post('/remote-servers/:id/fs/mkdir', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { path: dirPath, password } = req.body;
+
+    if (!dirPath) {
+      return res.status(400).json({ success: false, error: 'Directory path is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await createLinuxDirectory(server, dirPath, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to create directory' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/touch - Create empty file
+apiRouter.post('/remote-servers/:id/fs/touch', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { path: filePath, password } = req.body;
+
+    if (!filePath) {
+      return res.status(400).json({ success: false, error: 'File path is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await createLinuxEmptyFile(server, filePath, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to create file' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/rename - Rename or move file/directory
+apiRouter.post('/remote-servers/:id/fs/rename', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { oldPath, newPath, password } = req.body;
+
+    if (!oldPath || !newPath) {
+      return res.status(400).json({ success: false, error: 'Both oldPath and newPath are required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await renameLinuxItem(server, oldPath, newPath, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to rename item' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/delete - Delete file or directory
+apiRouter.post('/remote-servers/:id/fs/delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { path: targetPath, isRecursive, password } = req.body;
+
+    if (!targetPath) {
+      return res.status(400).json({ success: false, error: 'Target path is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await deleteLinuxItem(server, targetPath, !!isRecursive, password);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to delete item' });
   }
 });
 

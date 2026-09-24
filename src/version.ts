@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.138.6';
+export const APP_VERSION = '1.139.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.139.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'افزودن ماژول و موتور بک‌اند SFTP و File Explorer برای سرورهای لینوکس (فاز ۱)',
+    title_en: 'Add Native SFTP Engine & File System API Layer for Linux Servers (Phase 1)',
+    changes: [
+      'توسعه موتور ارتباطی مستقیم SFTP روی SSH2 سازگار با الگوریتم‌های مدرن و سنتی (Adaptive Multi-Generation Fallback طبق Rule 12).',
+      'ایجاد اندپوینت‌های استاندارد فهرست‌گیری، خواندن فایل‌های متنی/کانفیگ، ذخیره‌سازی، ایجاد پوشه، ایجاد فایل، تغییر نام و حذف در روت‌های /api/remote-servers/:id/fs/*.',
+      'پشتیبانی کامل از دایرکتوری‌های سیستمی سریع (Quick Dirs) شامل /، /etc، /var/log، /home، /root، /tmp، /opt و غیره.',
+      'افزودن تایپ‌های استوار TypeScript و متدهای کلاینت در لایه ارتباطی api.ts.',
+    ],
+    changes_en: [
+      'Engineered native SSH2 SFTP filesystem engine with adaptive modern & legacy cipher negotiation (Rule 12 compliant).',
+      'Created standard API endpoints for directory listing, text/config file reading, persistent file writing, directory creation, empty file creation, renaming and deletion under /api/remote-servers/:id/fs/*.',
+      'Built fast system quick directory catalog (/ , /etc, /var/log, /home, /root, /tmp, /opt, /mnt, /media, /srv).',
+      'Added robust TypeScript interfaces and client API methods across src/types.ts and src/services/api.ts.',
+    ],
+  },
   {
     version: '1.138.6',
     releaseDate: '2026-09-24',

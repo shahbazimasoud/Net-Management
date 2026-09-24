@@ -2238,6 +2238,53 @@ export interface LinuxFirewallRulePayload {
   logging?: boolean;
 }
 
+// ============================================================================
+// LINUX FILE EXPLORER & SFTP TYPES
+// ============================================================================
 
+export type LinuxFsItemType = 'directory' | 'file' | 'symlink' | 'other';
 
+export interface LinuxFsItem {
+  name: string;
+  path: string;
+  type: LinuxFsItemType;
+  size: number;
+  sizeHuman: string;
+  permissions: string;
+  octalPermissions: string;
+  owner: number | string;
+  group: number | string;
+  modifiedTime: string;
+  extension: string;
+  target?: string;
+}
 
+export interface LinuxFsListResult {
+  currentPath: string;
+  parentPath: string | null;
+  items: LinuxFsItem[];
+  totalFiles: number;
+  totalDirectories: number;
+  totalSize: number;
+  totalSizeHuman: string;
+  freeSpaceHuman?: string;
+  totalSpaceHuman?: string;
+  usedPercent?: number;
+}
+
+export interface LinuxQuickDir {
+  path: string;
+  name: string;
+  name_fa: string;
+  description: string;
+  description_fa: string;
+  icon: string;
+  isImportant?: boolean;
+}
+
+export interface LinuxFileContentResult {
+  content: string;
+  size: number;
+  isTruncated: boolean;
+  path: string;
+}
