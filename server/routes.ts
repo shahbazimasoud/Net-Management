@@ -110,7 +110,12 @@ import {
   createLinuxVolumeGroupSSH,
   executeServerRestartSSH,
 } from './linuxServerMonitor';
-import { detectLinuxNetworkStack } from './linuxNetworkManager';
+import {
+  detectLinuxNetworkStack,
+  applyLinuxNetworkConfiguration,
+  restartLinuxNetworkService,
+  setLinuxInterfaceState,
+} from './linuxNetworkManager';
 import {
   fetchLinuxPackageOverview,
   startPackageUpdateJob,
@@ -2614,7 +2619,7 @@ apiRouter.post('/remote-servers/:id/network-action', async (req: Request, res: R
       return res.status(404).json({ success: false, error: 'Server not found' });
     }
 
-    const result = await configureLinuxNetworkInterfaceSSH(server, interfaceName, config || {}, password);
+    const result = await applyLinuxNetworkConfiguration(server, interfaceName, config || {}, password);
 
     // Audit log
     await addAuditLog({
@@ -2623,7 +2628,7 @@ apiRouter.post('/remote-servers/:id/network-action', async (req: Request, res: R
       category: 'configuration',
       target: `${server.name || server.ip} (${interfaceName})`,
       status: result.success ? 'success' : 'error',
-      details: result.message,
+      details: `${result.message} [Provider: ${result.providerUsed}]`,
       ipAddress: getClientIp(req),
     }).catch(() => {});
 
@@ -2633,6 +2638,78 @@ apiRouter.post('/remote-servers/:id/network-action', async (req: Request, res: R
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to configure network interface',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/restart-network - Safely restart active network service
+apiRouter.post('/remote-servers/:id/restart-network', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await restartLinuxNetworkService(server, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Restart Network Service (${result.serviceRestarted})`,
+      category: 'system',
+      target: `${server.name || server.ip}`,
+      status: result.success ? 'success' : 'error',
+      details: result.message,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxRestartNetwork API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to restart network service',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/interface-state - Bring interface UP or DOWN
+apiRouter.post('/remote-servers/:id/interface-state', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { interfaceName, state, password } = req.body;
+
+    if (!interfaceName || !state || !['UP', 'DOWN'].includes(state)) {
+      return res.status(400).json({ success: false, error: 'interfaceName and valid state (UP/DOWN) are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await setLinuxInterfaceState(server, interfaceName, state, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Set Interface State (${interfaceName} -> ${state})`,
+      category: 'configuration',
+      target: `${server.name || server.ip} (${interfaceName})`,
+      status: result.success ? 'success' : 'error',
+      details: `${result.message} ${result.warning || ''}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxInterfaceState API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to set interface state',
     });
   }
 });

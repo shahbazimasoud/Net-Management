@@ -2512,11 +2512,13 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
           isOpen={true}
           server={server}
           iface={selectedInterfaceForConfig}
+          networkStackInfo={networkStackInfo}
           ephemeralPassword={ephemeralPassword}
           onClose={() => setSelectedInterfaceForConfig(null)}
           onMinimize={() => setSelectedInterfaceForConfig(null)}
           onSuccess={() => {
             setSelectedInterfaceForConfig(null);
+            loadNetworkStack();
             fetchMetrics();
             loadSysConfig();
           }}

@@ -2020,23 +2020,79 @@ export async function fetchLinuxNetworkStack(
 export async function configureLinuxServerNetwork(
   serverId: string,
   interfaceName: string,
-  config: {
-    state?: 'UP' | 'DOWN';
-    ipv4?: string;
-    cidr?: number;
-    gateway?: string;
-    mtu?: number;
-  },
+  config: LinuxInterfaceConfigPayload,
   ephemeralPassword?: string
 ): Promise<{
   success: boolean;
   message: string;
   error?: string;
+  providerUsed?: string;
+  verifiedState?: {
+    interfaceName: string;
+    state: 'UP' | 'DOWN';
+    ipv4?: string;
+    cidr?: number;
+    gateway?: string;
+    dns?: string[];
+    mtu?: number;
+  };
+  warning?: string;
 }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/network-action`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ interfaceName, config, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function restartLinuxNetworkService(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  serviceRestarted?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/restart-network`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function setLinuxInterfaceState(
+  serverId: string,
+  interfaceName: string,
+  state: 'UP' | 'DOWN',
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  currentState?: 'UP' | 'DOWN';
+  warning?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/interface-state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ interfaceName, state, password: ephemeralPassword }),
   });
   const data = await res.json().catch(() => ({
     success: false,

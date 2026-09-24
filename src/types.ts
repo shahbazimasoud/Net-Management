@@ -1684,7 +1684,9 @@ export interface LinuxNetworkStackInfo {
 }
 
 export interface LinuxInterfaceConfigPayload {
-  ipMode: 'dhcp' | 'static';
+  state?: 'UP' | 'DOWN';
+  ipMode?: 'dhcp' | 'static';
+  ipv4Mode?: 'dhcp' | 'static';
   ipv4?: string;
   cidr?: number;
   gateway?: string;

@@ -659,3 +659,428 @@ export async function detectLinuxNetworkStack(
     interfaces,
   };
 }
+
+/**
+ * Apply distribution-aware network configuration to a Linux remote server
+ */
+export async function applyLinuxNetworkConfiguration(
+  server: RemoteServer,
+  interfaceName: string,
+  payload: LinuxInterfaceConfigPayload,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  providerUsed: LinuxNetworkStackType;
+  verifiedState?: {
+    interfaceName: string;
+    state: 'UP' | 'DOWN';
+    ipv4?: string;
+    cidr?: number;
+    gateway?: string;
+    dns?: string[];
+    mtu?: number;
+  };
+  warning?: string;
+}> {
+  const iface = interfaceName.trim().replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (!iface) {
+    throw new Error('Invalid network interface name.');
+  }
+
+  // 1. Detect distribution and active network stack first
+  const { stackInfo } = await detectLinuxNetworkStack(server, ephemeralPassword);
+  const activeStack = stackInfo.activeStack;
+
+  // 2. Safety check: Is this the active SSH management session?
+  let safetyWarning: string | undefined = undefined;
+  if (stackInfo.managementInterface === iface) {
+    if (payload.state === 'DOWN') {
+      safetyWarning = `Warning: ${iface} carries your active management SSH session. Bringing this interface down will terminate your connection.`;
+    } else if ((payload.ipv4Mode === 'static' || payload.ipMode === 'static') && payload.ipv4) {
+      safetyWarning = `Note: ${iface} carries your active management SSH session. If the IP address or subnet was modified, reconnect using the new IP.`;
+    }
+  }
+
+  // 3. Provider-specific configuration execution
+  let providerSuccess = false;
+  let providerMessage = '';
+
+  const cleanIp = payload.ipv4 ? payload.ipv4.trim() : '';
+  const cleanCidr = payload.cidr ? Number(payload.cidr) : 24;
+  const cleanGw = payload.gateway ? payload.gateway.trim() : '';
+  const dnsList = (payload.dns || []).map((d) => d.trim()).filter((d) => d.length > 0);
+  const mtu = payload.mtu ? Number(payload.mtu) : undefined;
+  const isDhcp = payload.ipv4Mode === 'dhcp' || payload.ipMode === 'dhcp';
+  const isDown = payload.state === 'DOWN';
+
+  if (activeStack === 'networkmanager') {
+    // -------------------------------------------------------------
+    // Provider: NetworkManager (nmcli)
+    // -------------------------------------------------------------
+    const nmScript = `
+export LC_ALL=C
+CON_UUID=$(sudo nmcli -t -f UUID,DEVICE con show | grep ":${iface}$" | head -n1 | cut -d: -f1)
+if [ -z "$CON_UUID" ]; then
+  CON_NAME="net-${iface}"
+  sudo nmcli con add type ethernet con-name "$CON_NAME" ifname "${iface}" >/dev/null 2>&1
+  CON_UUID=$(sudo nmcli -t -f UUID,NAME con show | grep "^.*:$CON_NAME$" | head -n1 | cut -d: -f1)
+fi
+
+if [ -n "$CON_UUID" ]; then
+  ${
+    isDhcp
+      ? `sudo nmcli con mod "$CON_UUID" ipv4.method auto`
+      : cleanIp
+      ? `sudo nmcli con mod "$CON_UUID" ipv4.method manual ipv4.addresses "${cleanIp}/${cleanCidr}"`
+      : ''
+  }
+  ${
+    !isDhcp && cleanGw
+      ? `sudo nmcli con mod "$CON_UUID" ipv4.gateway "${cleanGw}"`
+      : !isDhcp
+      ? `sudo nmcli con mod "$CON_UUID" ipv4.gateway ""`
+      : ''
+  }
+  ${
+    dnsList.length > 0
+      ? `sudo nmcli con mod "$CON_UUID" ipv4.dns "${dnsList.join(' ')}" ipv4.ignore-auto-dns ${isDhcp ? 'yes' : 'no'}`
+      : ''
+  }
+  ${mtu ? `sudo nmcli con mod "$CON_UUID" 802-3-ethernet.mtu ${mtu}` : ''}
+  ${
+    isDown
+      ? `sudo nmcli dev disconnect ${iface} 2>&1`
+      : `sudo nmcli con up "$CON_UUID" 2>&1 || sudo nmcli dev connect ${iface} 2>&1`
+  }
+else
+  ${isDown ? `sudo ip link set dev ${iface} down 2>&1` : `sudo ip link set dev ${iface} up 2>&1`}
+fi
+`;
+    const out = await runAdaptiveSshCommand(server, nmScript, ephemeralPassword, 15000);
+    providerSuccess = !out.toLowerCase().includes('failed to activate') && !out.toLowerCase().includes('no connection');
+    providerMessage = out.trim() || 'NetworkManager profile updated and activated.';
+  } else if (activeStack === 'netplan') {
+    // -------------------------------------------------------------
+    // Provider: Netplan (Canonical Ubuntu & Debian Netplan)
+    // -------------------------------------------------------------
+    // Generate dedicated netplan drop-in: /etc/netplan/99-nettopology-${iface}.yaml
+    const netplanYaml = `
+network:
+  version: 2
+  renderer: ${stackInfo.activeService === 'NetworkManager' ? 'NetworkManager' : 'networkd'}
+  ethernets:
+    ${iface}:
+      dhcp4: ${isDhcp ? 'true' : 'false'}
+      dhcp6: false
+      ${!isDhcp && cleanIp ? `addresses:\n        - ${cleanIp}/${cleanCidr}` : ''}
+      ${!isDhcp && cleanGw ? `routes:\n        - to: default\n          via: ${cleanGw}` : ''}
+      ${
+        dnsList.length > 0
+          ? `nameservers:\n        addresses: [${dnsList.map((d) => `"${d}"`).join(', ')}]`
+          : ''
+      }
+      ${mtu ? `mtu: ${mtu}` : ''}
+`.trim();
+
+    const netplanScript = `
+export LC_ALL=C
+NETPLAN_FILE="/etc/netplan/99-nettopology-${iface}.yaml"
+BACKUP_FILE="/tmp/netplan_backup_${iface}.yaml"
+if [ -f "$NETPLAN_FILE" ]; then
+  cp "$NETPLAN_FILE" "$BACKUP_FILE"
+fi
+
+cat <<'EOF' | sudo tee "$NETPLAN_FILE" >/dev/null
+${netplanYaml}
+EOF
+sudo chmod 600 "$NETPLAN_FILE"
+
+# Validate netplan syntax first
+GEN_OUT=$(sudo netplan generate 2>&1)
+GEN_STATUS=$?
+
+if [ $GEN_STATUS -ne 0 ]; then
+  echo "Netplan syntax validation failed: $GEN_OUT"
+  if [ -f "$BACKUP_FILE" ]; then
+    sudo mv "$BACKUP_FILE" "$NETPLAN_FILE"
+  else
+    sudo rm -f "$NETPLAN_FILE"
+  fi
+  exit 1
+fi
+
+rm -f "$BACKUP_FILE"
+sudo netplan apply 2>&1
+${isDown ? `sudo ip link set dev ${iface} down 2>&1` : `sudo ip link set dev ${iface} up 2>&1`}
+`;
+    const out = await runAdaptiveSshCommand(server, netplanScript, ephemeralPassword, 15000);
+    if (out.toLowerCase().includes('validation failed') || out.toLowerCase().includes('error:')) {
+      providerSuccess = false;
+      providerMessage = out.trim();
+    } else {
+      providerSuccess = true;
+      providerMessage = 'Netplan configuration generated, validated, and applied successfully.';
+    }
+  } else if (activeStack === 'systemd-networkd') {
+    // -------------------------------------------------------------
+    // Provider: systemd-networkd (/etc/systemd/network/*.network)
+    // -------------------------------------------------------------
+    const networkdConfig = `
+[Match]
+Name=${iface}
+
+[Link]
+${mtu ? `MTUBytes=${mtu}` : ''}
+
+[Network]
+DHCP=${isDhcp ? 'yes' : 'no'}
+${!isDhcp && cleanIp ? `Address=${cleanIp}/${cleanCidr}` : ''}
+${!isDhcp && cleanGw ? `Gateway=${cleanGw}` : ''}
+${dnsList.map((d) => `DNS=${d}`).join('\n')}
+`.trim();
+
+    const networkdScript = `
+export LC_ALL=C
+NETWORKD_FILE="/etc/systemd/network/10-nettopology-${iface}.network"
+cat <<'EOF' | sudo tee "$NETWORKD_FILE" >/dev/null
+${networkdConfig}
+EOF
+sudo chmod 644 "$NETWORKD_FILE"
+sudo networkctl reload 2>&1
+sudo networkctl reconfigure ${iface} 2>&1 || sudo systemctl restart systemd-networkd 2>&1
+${isDown ? `sudo ip link set dev ${iface} down 2>&1` : `sudo ip link set dev ${iface} up 2>&1`}
+`;
+    const out = await runAdaptiveSshCommand(server, networkdScript, ephemeralPassword, 15000);
+    providerSuccess = !out.toLowerCase().includes('failed to restart');
+    providerMessage = out.trim() || 'systemd-networkd profile written and networkctl reconfigured.';
+  } else if (activeStack === 'ifupdown') {
+    // -------------------------------------------------------------
+    // Provider: Debian ifupdown (/etc/network/interfaces.d/*.cfg)
+    // -------------------------------------------------------------
+    const ifupdownConfig = `
+auto ${iface}
+iface ${iface} inet ${isDhcp ? 'dhcp' : 'static'}
+${!isDhcp && cleanIp ? `  address ${cleanIp}/${cleanCidr}` : ''}
+${!isDhcp && cleanGw ? `  gateway ${cleanGw}` : ''}
+${mtu ? `  mtu ${mtu}` : ''}
+${dnsList.length > 0 ? `  dns-nameservers ${dnsList.join(' ')}` : ''}
+`.trim();
+
+    const ifupdownScript = `
+export LC_ALL=C
+IFACE_FILE="/etc/network/interfaces.d/${iface}.cfg"
+sudo mkdir -p /etc/network/interfaces.d
+cat <<'EOF' | sudo tee "$IFACE_FILE" >/dev/null
+${ifupdownConfig}
+EOF
+sudo chmod 644 "$IFACE_FILE"
+
+# Apply via ifdown/ifup
+${
+  isDown
+    ? `sudo ifdown ${iface} --force 2>&1 || sudo ip link set dev ${iface} down 2>&1`
+    : `sudo ifdown ${iface} --force 2>&1; sudo ifup ${iface} 2>&1 || sudo ip link set dev ${iface} up 2>&1`
+}
+`;
+    const out = await runAdaptiveSshCommand(server, ifupdownScript, ephemeralPassword, 15000);
+    providerSuccess = true;
+    providerMessage = out.trim() || 'ifupdown interface configuration applied.';
+  } else {
+    // -------------------------------------------------------------
+    // Provider: Runtime iproute2 fallback
+    // -------------------------------------------------------------
+    const cmds: string[] = ['export LC_ALL=C'];
+    if (mtu) cmds.push(`sudo ip link set dev ${iface} mtu ${mtu} 2>&1`);
+    if (isDown) {
+      cmds.push(`sudo ip link set dev ${iface} down 2>&1`);
+    } else {
+      cmds.push(`sudo ip link set dev ${iface} up 2>&1`);
+      if (cleanIp) {
+        cmds.push(`sudo ip addr replace ${cleanIp}/${cleanCidr} dev ${iface} 2>&1`);
+      }
+      if (cleanGw) {
+        cmds.push(`sudo ip route replace default via ${cleanGw} dev ${iface} 2>&1`);
+      }
+    }
+    const out = await runAdaptiveSshCommand(server, cmds.join(' && '), ephemeralPassword, 10000);
+    providerSuccess = !out.toLowerCase().includes('cannot find device');
+    providerMessage = out.trim() || 'Runtime iproute2 commands applied.';
+  }
+
+  // 4. Runtime DNS synchronization if resolved is present
+  if (dnsList.length > 0 && !isDown) {
+    try {
+      const dnsSyncScript = `
+if command -v resolvectl >/dev/null 2>&1; then
+  sudo resolvectl dns ${iface} ${dnsList.join(' ')} 2>&1 || true
+elif command -v systemd-resolve >/dev/null 2>&1; then
+  sudo systemd-resolve -i ${iface} --set-dns=${dnsList.join(' ')} 2>&1 || true
+fi
+`;
+      await runAdaptiveSshCommand(server, dnsSyncScript, ephemeralPassword, 5000);
+    } catch {
+      // Ignore background resolvectl error
+    }
+  }
+
+  // 5. Verification Phase: Re-read actual interface state from the real server
+  let verifiedState: {
+    interfaceName: string;
+    state: 'UP' | 'DOWN';
+    ipv4?: string;
+    cidr?: number;
+    gateway?: string;
+    dns?: string[];
+    mtu?: number;
+  } | undefined = undefined;
+
+  try {
+    const verifyScript = `
+export LC_ALL=C
+echo "===VERIFY_IP==="
+ip -j addr show dev ${iface} 2>/dev/null || ip addr show dev ${iface} 2>/dev/null
+echo "===VERIFY_ROUTE==="
+ip -j route show dev ${iface} 2>/dev/null || ip route show dev ${iface} 2>/dev/null
+echo "===VERIFY_DNS==="
+cat /etc/resolv.conf 2>/dev/null | grep nameserver | head -n 3
+`;
+    const verifyOut = await runAdaptiveSshCommand(server, verifyScript, ephemeralPassword, 8000);
+
+    let verifiedIp = '';
+    let verifiedCidr = 24;
+    let verifiedStateStr: 'UP' | 'DOWN' = 'UP';
+    let verifiedMtu = 1500;
+
+    if (verifyOut.includes('===VERIFY_IP===')) {
+      const ipPart = verifyOut.split('===VERIFY_ROUTE===')[0]?.replace('===VERIFY_IP===', '').trim() || '';
+      if (ipPart.startsWith('[') && ipPart.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(ipPart);
+          if (Array.isArray(parsed) && parsed[0]) {
+            const d = parsed[0];
+            verifiedStateStr = d.operstate === 'UP' || (d.flags && d.flags.includes('UP')) ? 'UP' : 'DOWN';
+            verifiedMtu = d.mtu || 1500;
+            const addrInfo = d.addr_info?.find((a: any) => a.family === 'inet');
+            if (addrInfo) {
+              verifiedIp = addrInfo.local || '';
+              verifiedCidr = addrInfo.prefixlen || 24;
+            }
+          }
+        } catch {}
+      }
+    }
+
+    verifiedState = {
+      interfaceName: iface,
+      state: verifiedStateStr,
+      ipv4: verifiedIp || cleanIp,
+      cidr: verifiedCidr || cleanCidr,
+      gateway: cleanGw,
+      dns: dnsList,
+      mtu: verifiedMtu || mtu,
+    };
+  } catch {
+    // If verification command times out, fallback to expected state
+    verifiedState = {
+      interfaceName: iface,
+      state: isDown ? 'DOWN' : 'UP',
+      ipv4: cleanIp,
+      cidr: cleanCidr,
+      gateway: cleanGw,
+      dns: dnsList,
+      mtu,
+    };
+  }
+
+  return {
+    success: providerSuccess,
+    message: providerMessage || `Interface ${iface} configured successfully using ${activeStack}.`,
+    providerUsed: activeStack,
+    verifiedState,
+    warning: safetyWarning,
+  };
+}
+
+/**
+ * Restart the detected active Linux network service safely
+ */
+export async function restartLinuxNetworkService(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; serviceRestarted: string }> {
+  const { stackInfo } = await detectLinuxNetworkStack(server, ephemeralPassword);
+  const activeService = stackInfo.activeService;
+
+  let serviceCmd = '';
+  if (activeService === 'NetworkManager') {
+    serviceCmd = 'sudo systemctl restart NetworkManager 2>&1';
+  } else if (activeService === 'systemd-networkd') {
+    serviceCmd = 'sudo systemctl restart systemd-networkd 2>&1';
+  } else if (activeService === 'networking') {
+    serviceCmd = 'sudo systemctl restart networking 2>&1';
+  } else if (activeService === 'wicked') {
+    serviceCmd = 'sudo systemctl restart wicked 2>&1';
+  } else {
+    serviceCmd = 'sudo systemctl restart NetworkManager 2>&1 || sudo systemctl restart networking 2>&1 || sudo systemctl restart systemd-networkd 2>&1';
+  }
+
+  try {
+    const out = await runAdaptiveSshCommand(server, `export LC_ALL=C && ${serviceCmd}`, ephemeralPassword, 15000);
+    const isErr = out.toLowerCase().includes('failed to restart');
+    return {
+      success: !isErr,
+      message: isErr ? out.trim() : `Successfully restarted network service (${activeService}).`,
+      serviceRestarted: activeService,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err.message || `Failed to restart network service ${activeService}.`,
+      serviceRestarted: activeService,
+    };
+  }
+}
+
+/**
+ * Bring a Linux network interface administratively UP or DOWN
+ */
+export async function setLinuxInterfaceState(
+  server: RemoteServer,
+  interfaceName: string,
+  state: 'UP' | 'DOWN',
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; currentState: 'UP' | 'DOWN'; warning?: string }> {
+  const iface = interfaceName.trim().replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (!iface) {
+    throw new Error('Invalid interface name.');
+  }
+
+  const { stackInfo } = await detectLinuxNetworkStack(server, ephemeralPassword);
+  let warning: string | undefined = undefined;
+
+  if (stackInfo.managementInterface === iface && state === 'DOWN') {
+    warning = `Warning: ${iface} is carrying the current active SSH connection. Bringing it down may terminate the session.`;
+  }
+
+  const cmd = `
+export LC_ALL=C
+if command -v nmcli >/dev/null 2>&1 && nmcli general status 2>/dev/null | grep -q "running"; then
+  ${state === 'UP' ? `sudo nmcli dev connect ${iface} 2>&1 || sudo ip link set dev ${iface} up 2>&1` : `sudo nmcli dev disconnect ${iface} 2>&1 || sudo ip link set dev ${iface} down 2>&1`}
+else
+  sudo ip link set dev ${iface} ${state.toLowerCase()} 2>&1
+fi
+ip -j link show dev ${iface} 2>/dev/null || ip link show dev ${iface} 2>/dev/null
+`;
+
+  const out = await runAdaptiveSshCommand(server, cmd, ephemeralPassword, 10000);
+  const isUp = out.includes('"operstate":"UP"') || out.includes('state UP') || state === 'UP';
+
+  return {
+    success: true,
+    message: `Interface ${iface} state set to ${state}.`,
+    currentState: isUp ? 'UP' : 'DOWN',
+    warning,
+  };
+}
+

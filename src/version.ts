@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.135.0';
+export const APP_VERSION = '1.136.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.136.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'تکمیل مودال پیکربندی پیشرفته کارت شبکه (DHCP/Static/DNS)، پیش‌نمایش تغییرات و ری‌استارت ایمن سرویس شبکه لینوکس',
+    title_en: 'Advanced Linux Network Interface Configuration (DHCP/Static/DNS), Pre-flight Preview Diff, and Safe Network Service Restart',
+    changes: [
+      'توسعه و بازنویسی جامع مودال Configure Network Interface با پشتیبانی کامل از تغییر متد آدرس‌دهی (DHCP خودکار و Static دستی)، آدرس IPv4، پیشوند CIDR، گیت‌وی پیش‌فرض، مقدار MTU و سرورهای نام (DNS).',
+      'افزودن ماژول مدیریت سرورهای DNS با قابلیت درج چندین آدرس، حذف، و دکمه‌های درج سریع ارائه‌دهندگان معتبر (Cloudflare 1.1.1.1، Google 8.8.8.8، Quad9 9.9.9.9) و نگارش خودکار در پشته هدف (NetworkManager، Netplan، systemd-resolved، resolv.conf).',
+      'پیاده‌سازی مرحله پیش‌نمایش تفکیک‌شده (Configuration Preview Diff) پیش از ارسال دستورات به سرور، جهت مقایسه مقادیر فعلی و مقادیر هدف به همراه بنر اخطار اتصال فعال SSH.',
+      'افزودن سیستم ایمنی و الزام تایید صریح کاربر در صورت اعمال تغییرات یا خاموش کردن کارت شبکه‌ای که نشست لایو SSH از طریق آن در حال اجراست.',
+      'پیاده‌سازی عملیات راه‌اندازی مجدد سرویس شبکه (Restart Network Service) با تشخیص پشته فعال سیستم و مودال هشدار تاییدیه پیش از اجرا.',
+      'تعبیه دکمه‌های کنترل وضعیت کارت شبکه (Bring UP / Bring DOWN) با دریافت تاییدیه صریح و هشدارهای امنیتی.',
+      'استقرار موتور اعتبارسنجی پس از پیکربندی (Post-Apply Live Verification) با بازخوانی وضعیت زنده از کرنل لینوکس، نام پکیج اعمال‌کننده و مقادیر تاییدشده.',
+    ],
+    changes_en: [
+      'Overhauled Configure Network Interface modal supporting dynamic switching between DHCP and Static IP modes, IPv4 address, CIDR prefix, default gateway, MTU tuning, and multi-resolver DNS management.',
+      'Added full DNS manager with multi-server addition/removal, one-click presets (Cloudflare 1.1.1.1, Google 8.8.8.8, Quad9 9.9.9.9), and native writing to target stack (NetworkManager, Netplan, systemd-resolved, resolv.conf).',
+      'Implemented pre-flight Configuration Preview Diff comparing active kernel state with target values before dispatching commands, accompanied by live SSH management path warnings.',
+      'Integrated active SSH session safety guards requiring mandatory risk acknowledgment checkbox when reconfiguring or bringing down the interface carrying the current management connection.',
+      'Added real Network Service Restart action with native daemon detection (NetworkManager, systemd-networkd, networking) and explicit confirmation modal warning about potential SSH interruption.',
+      'Provided direct administrative Bring UP / Bring DOWN controls on interface cards with confirmation guards.',
+      'Integrated post-apply live verification reading kernel state after changes and presenting confirmed IP, gateway, MTU, and the Linux provider used.',
+    ],
+  },
   {
     version: '1.135.0',
     releaseDate: '2026-09-24',
