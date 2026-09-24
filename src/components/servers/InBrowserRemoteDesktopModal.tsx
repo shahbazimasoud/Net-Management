@@ -56,9 +56,31 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const [showConfirmClose, setShowConfirmClose] = useState(false);
 
   // Connection & Gateway states
-  const [connectionStatus, setConnectionStatus] = useState<
-    'idle' | 'requesting_token' | 'connecting' | 'connected' | 'guacd_offline' | 'disconnected' | 'error'
-  >('idle');
+  type RdpConnectionStage =
+    | 'idle'
+    | 'validating_target'
+    | 'requesting_token'
+    | 'connecting_tunnel'
+    | 'negotiating_rdp'
+    | 'connecting'
+    | 'connected'
+    | 'guacd_offline'
+    | 'disconnected'
+    | 'error';
+
+  const [connectionStatus, setConnectionStatus] = useState<RdpConnectionStage>('idle');
+  const [connectionStageText, setConnectionStageText] = useState<string>('');
+  const [targetValidationInfo, setTargetValidationInfo] = useState<{
+    targetHost?: string;
+    targetPort?: number;
+    reachable?: boolean;
+    latencyMs?: number;
+    error?: string | null;
+    guacdRunning?: boolean;
+    normalizedUser?: string;
+    normalizedDomain?: string;
+    hasPasswordConfigured?: boolean;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -420,21 +442,25 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
       };
 
-      // 10-second safety timeout so it never hangs indefinitely
+      // Update status to negotiating RDP when tunnel connects
+      setConnectionStatus('negotiating_rdp');
+      setConnectionStageText(isEn ? 'Negotiating NLA/TLS encryption and authenticating with Windows Server...' : 'در حال مذاکره پروتکل امنیتی NLA/TLS و احراز هویت با ویندوز سرور...');
+
+      // 25-second smart timeout for full Active Directory / NLA authentication exchange
       connectTimeoutRef.current = setTimeout(() => {
         setConnectionStatus((curr) => {
-          if (curr === 'connecting' || curr === 'requesting_token') {
+          if (curr === 'negotiating_rdp' || curr === 'connecting_tunnel' || curr === 'requesting_token') {
             try { client.disconnect(); } catch {}
             setErrorMessage(
               isEn
-                ? `Connection timed out (10s). Target host ${server?.ip}:${defaultPort} took too long to respond. The server may be unreachable, RDP service disabled, or NLA authentication failed.`
-                : `زمان برقراری اتصال پس از ۱۰ ثانیه به پایان رسید. هاست مقصد ${server?.ip}:${defaultPort} پاسخی ارسال نکرد. سرور ممکن است در دسترس نباشد، سرویس RDP غیرفعال باشد یا احراز هویت NLA رد شده باشد.`
+                ? `RDP connection timed out (25s). Target host ${server?.ip}:${defaultPort} did not complete authentication. Verify Windows credentials, Active Directory domain (${targetValidationInfo?.normalizedDomain || server?.win_domain || 'local'}), and NLA requirements.`
+                : `زمان اتصال RDP به پایان رسید (۲۵ ثانیه). هاست ${server?.ip}:${defaultPort} احراز هویت را کامل نکرد. رمز عبور، دامین اکتیو دایرکتوری (${targetValidationInfo?.normalizedDomain || server?.win_domain || 'local'}) و تنظیمات NLA را بررسی نمایید.`
             );
             return 'error';
           }
           return curr;
         });
-      }, 10000);
+      }, 25000);
 
       // Connect to server with token query parameter
       client.connect('token=' + encodeURIComponent(token));
@@ -1180,20 +1206,25 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             </div>
           )}
 
-          {/* Overlay Status when connecting */}
-          {(connectionStatus === 'requesting_token' || connectionStatus === 'connecting') && (
+          {/* Overlay Status when connecting / validating */}
+          {(connectionStatus === 'validating_target' || connectionStatus === 'requesting_token' || connectionStatus === 'connecting_tunnel' || connectionStatus === 'negotiating_rdp') && (
             <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
               <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mb-3" />
               <p className="text-sm font-bold text-slate-200">
-                {isEn
-                  ? 'Connecting to Live Remote Desktop Stream...'
-                  : 'در حال برقراری ارتباط زنده با ریموت دسکتاپ...'}
+                {connectionStageText || (isEn ? 'Connecting to Live Remote Desktop...' : 'در حال اتصال به ریموت دسکتاپ...')}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
-                {isEn
-                  ? 'Establishing secure Guacamole WebSocket tunnel with host.'
-                  : 'اتصال تونل رمزنگاری‌شده گوآکامولی با هاست سرور.'}
-              </p>
+              <div className="mt-3 flex items-center gap-2 text-[11px] font-mono text-slate-400 bg-slate-900/70 px-3 py-1.5 rounded-lg border border-slate-800">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                <span>{server?.ip}:{defaultPort}</span>
+                <span>•</span>
+                <span>User: {targetValidationInfo?.normalizedUser || server?.win_username || 'Administrator'}</span>
+                {(targetValidationInfo?.normalizedDomain || server?.win_domain) && (
+                  <>
+                    <span>•</span>
+                    <span className="text-cyan-300">Domain: {targetValidationInfo?.normalizedDomain || server?.win_domain}</span>
+                  </>
+                )}
+              </div>
             </div>
           )}
 

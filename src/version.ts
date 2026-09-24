@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.3';
+export const APP_VERSION = '1.152.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.4',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'ارتقای چرخه حیات کلاینت ریموت دسکتاپ، تفکیک مراحل اتصال و جایگزینی تایم‌اوت عمومی با وضعیت‌های واقعی',
+    title_en: 'Improve In-Browser RDP Client Lifecycle, Granular Stages & Replace Generic Timeout',
+    changes: [
+      'تفکیک کامل مراحل اتصال در کلاینت مرورگر (validating_target -> requesting_token -> connecting_tunnel -> negotiating_rdp -> connected).',
+      'اجرای اعتبارسنجی پیش‌پرواز TCP پیش از ارسال توکن و نمایش خطای شفاف در صورت در دسترس نبودن پورت سرور ویندوز.',
+      'حذف تایم‌اوت ۱۰ ثانیه‌ای هاردکدشده و جایگزینی با تایم‌اوت هوشمند ۲۵ ثانیه‌ای متناسب با زمان مذاکره NLA و Kerberos اکتیو دایرکتوری.',
+      'نمایش وضعیت زنده نام کاربری، دامین نرمال‌شده و پورت RDP در لایه بارگذاری مودال.',
+    ],
+    changes_en: [
+      'Implemented granular connection stages in browser modal (validating_target -> requesting_token -> connecting_tunnel -> negotiating_rdp -> connected).',
+      'Integrated pre-flight TCP reachability validation with descriptive actionable error feedback when target host/port is unreachable.',
+      'Replaced generic 10s timeout with a resilient 25s timeout calibrated for Active Directory Kerberos and NLA security handshakes.',
+      'Displayed live connection context including normalized username, Active Directory domain, and RDP port inside loading overlay.',
+    ],
+  },
   {
     version: '1.152.3',
     releaseDate: '2026-09-24',
