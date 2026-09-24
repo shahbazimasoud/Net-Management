@@ -163,6 +163,67 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+// Dedicated Modern Filled & Layered Folder Icon for Grid View
+const ModernFolderIcon: React.FC<{ className?: string; isSelected?: boolean }> = ({
+  className = 'w-14 h-14 sm:w-16 sm:h-16',
+  isSelected = false
+}) => (
+  <svg
+    viewBox="0 0 64 54"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={`${className} transition-transform duration-200 group-hover:scale-105 shrink-0 select-none drop-shadow-md`}
+  >
+    <defs>
+      <linearGradient id="lfe-folder-back" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#f59e0b" />
+        <stop offset="100%" stopColor="#d97706" />
+      </linearGradient>
+      <linearGradient id="lfe-folder-front" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor={isSelected ? '#38bdf8' : '#fbbf24'} />
+        <stop offset="100%" stopColor={isSelected ? '#0284c7' : '#f59e0b'} />
+      </linearGradient>
+      <linearGradient id="lfe-folder-paper" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+        <stop offset="100%" stopColor="#f1f5f9" stopOpacity="0.85" />
+      </linearGradient>
+    </defs>
+    {/* Folder Back Plate & Tab */}
+    <path
+      d="M6 10C6 7.79086 7.79086 6 10 6H23.1716C24.2324 6 25.2497 6.42143 26 7.17157L29.8284 11H54C56.2091 11 58 12.7909 58 15V44C58 46.2091 56.2091 48 54 48H10C7.79086 48 6 46.2091 6 44V10Z"
+      fill={isSelected ? '#0369a1' : 'url(#lfe-folder-back)'}
+    />
+    {/* Interior Document Sheet Peek */}
+    <rect
+      x="12"
+      y="14"
+      width="40"
+      height="16"
+      rx="3"
+      fill="url(#lfe-folder-paper)"
+    />
+    <line x1="16" y1="18" x2="32" y2="18" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" />
+    <line x1="16" y1="22" x2="26" y2="22" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" />
+    {/* Front Flap (Cover) */}
+    <path
+      d="M4 20C4 17.7909 5.79086 16 8 16H56C58.2091 16 60 17.7909 60 20V46C60 48.2091 58.2091 50 56 50H8C5.79086 50 4 48.2091 4 46V20Z"
+      fill="url(#lfe-folder-front)"
+    />
+    {/* Front Flap Top Edge Highlight Line */}
+    <path
+      d="M8 17H56C57.6569 17 59 18.3431 59 20C59 20.5523 58.5523 21 58 21H6C5.44772 21 5 20.5523 5 20C5 18.3431 6.34315 17 8 17Z"
+      fill="#ffffff"
+      opacity="0.4"
+    />
+    {/* Bottom subtle edge */}
+    <path
+      d="M4 46C4 48.2091 5.79086 50 8 50H56C58.2091 50 60 48.2091 60 46H4Z"
+      fill={isSelected ? '#075985' : '#b45309'}
+      opacity="0.3"
+    />
+  </svg>
+);
+
 export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
   isOpen,
   server,
@@ -196,7 +257,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [quickDirSearch, setQuickDirSearch] = useState('');
   const [showHidden, setShowHidden] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [sortBy, setSortBy] = useState<'name' | 'size' | 'mtime' | 'type'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -2328,10 +2389,16 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                             {isEn ? 'Cut' : 'برش'}
                           </div>
                         )}
-                        <div className={`p-3 rounded-xl ${iconInfo.bgColor} ${iconInfo.color} mb-2`}>
-                          <IconComp className="w-6 h-6" />
-                        </div>
-                        <span className="font-mono text-xs truncate max-w-full block font-medium">
+                        {item.type === 'directory' ? (
+                          <div className="py-1 flex items-center justify-center">
+                            <ModernFolderIcon className="w-14 h-14 sm:w-16 sm:h-16" isSelected={isSelected} />
+                          </div>
+                        ) : (
+                          <div className={`p-2.5 rounded-xl ${iconInfo.bgColor} ${iconInfo.color} mb-1.5 flex items-center justify-center transition-transform group-hover:scale-105`}>
+                            <IconComp className="w-7 h-7" />
+                          </div>
+                        )}
+                        <span className="font-mono text-xs truncate max-w-full block font-medium mt-1">
                           {item.name}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono mt-0.5">

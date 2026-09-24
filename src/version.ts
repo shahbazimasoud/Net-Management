@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.151.0';
+export const APP_VERSION = '1.152.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'تنظیم حالت شبکه‌ای (Grid View) به عنوان نمای پیش‌فرض و بازطراحی مدرن و توپر آیکون پوشه‌ها در کاوشگر لینوکس',
+    title_en: 'Default Grid View Mode & Modern Large Filled Folder Vector Redesign in Linux File Explorer',
+    changes: [
+      'تنظیم حالت نمایش شبکه‌ای (Grid View) به عنوان حالت پیش‌فرض و آغازین در کاوشگر فایل لینوکس (LinuxFileExplorerModal).',
+      'حذف کامل کادر مربعی، پس‌زمینه و هاله زرد رنگ دور پوشه‌ها در حالت شبکه‌ای و نمایش انحصاری و تمیز خود آیکون فولدر.',
+      'طراحی اختصاصی آیکون وکتور فولدر مدرن، چندلایه و کاملاً توپر (Modern Filled Folder) با گرادیان طلایی، زبانه پشت، پیش‌نمایش برگه داخلی و خط بازتاب نور سطحی.',
+      'افزایش چشمگیر اندازه فولدر به ابعاد بزرگ و ارگونومیک (w-16 h-16) جهت ارائه تجربه‌ای مشابه فایل منیجرهای مدرن دسکتاپ.',
+    ],
+    changes_en: [
+      'Set Grid View as the primary default layout mode in Linux Remote File Explorer (LinuxFileExplorerModal).',
+      'Completely eliminated the enclosing square wrapper, background tint, and yellow halo around folders in grid mode, presenting solely the pristine folder icon.',
+      'Engineered custom modern multi-layered filled vector folder design (ModernFolderIcon) featuring amber-gold gradients, interior sheet preview, tab highlights, and drop shadows.',
+      'Significantly increased folder visual footprint to large, ergonomic dimensions (w-16 h-16) for a premium desktop-grade file management experience.',
+    ],
+  },
   {
     version: '1.151.0',
     releaseDate: '2026-09-24',
