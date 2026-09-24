@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.147.0';
+export const APP_VERSION = '1.148.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.148.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'حذف همزمان چندتایی فایل‌ها و پوشه‌ها به همراه حذف بازگشتی کامل محتویات در کاوشگر لینوکس',
+    title_en: 'Bulk Multi-Item Deletion & Full Recursive Directory Content Removal in Linux File Explorer',
+    changes: [
+      'حل مشکل حذف تکی هنگام انتخاب چندین فایل؛ هم‌اکنون با انتخاب چند فایل یا پوشه، تمام موارد انتخاب شده به صورت یکجا حذف می‌شوند.',
+      'پیاده‌سازی حذف بازگشتی (Recursive rm -rf) به طوری که با حذف هر پوشه، تمام فایل‌ها، اسکریپت‌ها و زیرپوشه‌های تودرتوی آن نیز به صورت کامل و مطمئن حذف می‌گردند.',
+      'افزودن دکمه اختصاصی حذف چندتایی (Delete Selected) در نوار ابزار بالای کاوشگر به همراه نشانگر تعداد موارد انتخاب شده.',
+      'افزودن پنجره مدرن و استاندارد تأیید حذف چندتایی با لیست تفکیک‌شده آیتم‌ها، نام، حجم و نوع هر آیتم.',
+      'افزودن هشدار هوشمند محتوای پوشه‌ها و سوییچ اختیاری حذف بازگشتی (rm -rf) به همراه راهنمای سه‌بخشی استاندارد FieldInfoTooltip.',
+      'پشتیبانی امنیتی در سطح سرور جهت محافظت اکید از مسیرهای حیاتی سیستم عامل (مانند /، /etc، /var، /usr و ...).',
+      'رعایت کامل استانداردهای معماری مودال (دکمه‌های سه‌گانه بستن/مینیمایز/فول‌اسکرین، فاصله bottom-8، انطباق تم تیره/روشن و عدم کاراکتر فارسی در زبان انگلیسی).',
+    ],
+    changes_en: [
+      'Resolved multi-item deletion issue: selecting multiple files and folders now deletes all selected items concurrently in a single unified operation.',
+      'Implemented robust recursive deletion (rm -rf): deleting any folder now thoroughly and reliably removes all nested files, scripts, and subdirectories.',
+      'Added dedicated "Delete Selected" bulk button to the top toolbar with real-time selection count badge.',
+      'Engineered advanced bulk deletion confirmation modal with scrollable preview of all target items, item names, sizes, and directory badges.',
+      'Integrated intelligent directory content notice and recursive deletion toggle with 3-part boundary-safe FieldInfoTooltip.',
+      'Server-side security hardening with critical system directory protection against accidental deletion (/etc, /root, /var, etc.).',
+      'Strict adherence to universal modal specifications (triple header buttons, bottom-8 clearance, full light/dark theme contrast, and strict zero-Persian English localization).',
+    ],
+  },
   {
     version: '1.147.0',
     releaseDate: '2026-09-24',

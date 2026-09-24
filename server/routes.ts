@@ -173,6 +173,7 @@ import {
   createLinuxEmptyFile,
   renameLinuxItem,
   deleteLinuxItem,
+  deleteLinuxItems,
   downloadLinuxSingleFile,
   downloadLinuxArchive,
   uploadLinuxFile,
@@ -4341,23 +4342,37 @@ apiRouter.post('/remote-servers/:id/fs/extract', async (req: Request, res: Respo
   }
 });
 
-// POST /api/remote-servers/:id/fs/delete - Delete file or directory
+// POST /api/remote-servers/:id/fs/delete - Delete file(s) or directory(ies)
 apiRouter.post('/remote-servers/:id/fs/delete', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { path: targetPath, isRecursive, password } = req.body;
+    const { path: targetPath, paths, isRecursive, password } = req.body;
 
-    if (!targetPath) {
-      return res.status(400).json({ success: false, error: 'Target path is required' });
+    const targets: string[] = [];
+    if (Array.isArray(paths) && paths.length > 0) {
+      for (const p of paths) {
+        if (typeof p === 'string' && p.trim()) {
+          targets.push(p.trim());
+        }
+      }
+    } else if (typeof targetPath === 'string' && targetPath.trim()) {
+      targets.push(targetPath.trim());
+    }
+
+    if (targets.length === 0) {
+      return res.status(400).json({ success: false, error: 'Target path or paths are required' });
     }
 
     const { server, error, status, requires_password } = await getValidatedServer(id, password);
     if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
 
-    const result = await deleteLinuxItem(server, targetPath, !!isRecursive, password);
+    // isRecursive defaults to true so folders with nested contents are deleted without error
+    const recursiveFlag = isRecursive !== false;
+    const result = await deleteLinuxItems(server, targets, recursiveFlag, password);
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message || 'Failed to delete item' });
+    console.error(`[LinuxFS delete error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to delete items' });
   }
 });
 

@@ -62,6 +62,7 @@ import {
   createLinuxRemoteEmptyFile,
   renameLinuxRemoteItem,
   deleteLinuxRemoteItem,
+  deleteLinuxRemoteItems,
   downloadLinuxFiles,
   uploadLinuxFile,
   fetchLinuxItemProperties,
@@ -236,16 +237,18 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
   const [deleteDialog, setDeleteDialog] = useState<{
     isOpen: boolean;
-    item: LinuxFsItem | null;
+    items: LinuxFsItem[];
     isRecursive: boolean;
     loading: boolean;
     error: string | null;
+    isMaximized?: boolean;
   }>({
     isOpen: false,
-    item: null,
-    isRecursive: false,
+    items: [],
+    isRecursive: true,
     loading: false,
     error: null,
+    isMaximized: false,
   });
 
   const [passwordModal, setPasswordModal] = useState<{ isOpen: boolean; passwordInput: string }>({
@@ -1129,31 +1132,53 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     }
   };
 
-  // Delete Item
-  const handleDeleteItem = async () => {
-    if (!server || !deleteDialog.item) return;
+  // Delete Items (Bulk & Single)
+  const handleDeleteItems = async () => {
+    if (!server || !deleteDialog.items || deleteDialog.items.length === 0) return;
     setDeleteDialog((prev) => ({ ...prev, loading: true, error: null }));
 
+    const pathsToDelete = deleteDialog.items.map((it) => it.path);
     try {
-      const res = await deleteLinuxRemoteItem(
+      const res = await deleteLinuxRemoteItems(
         server.id,
-        deleteDialog.item.path,
+        pathsToDelete,
         deleteDialog.isRecursive,
         ephemeralPassword
       );
       if (res.success) {
-        const deletedName = deleteDialog.item.name;
-        setDeleteDialog({ isOpen: false, item: null, isRecursive: false, loading: false, error: null });
-        showToast(
-          isEn ? `Deleted ${deletedName}` : `مورد با موفقیت حذف شد: ${deletedName}`,
-          'info'
-        );
+        const count = res.deletedCount ?? deleteDialog.items.length;
+        const msg =
+          count === 1
+            ? isEn
+              ? `Deleted "${deleteDialog.items[0].name}"`
+              : `آیتم "${deleteDialog.items[0].name}" با موفقیت حذف شد`
+            : isEn
+            ? `Successfully deleted ${count} items`
+            : `${count} مورد با موفقیت حذف شدند`;
+        setDeleteDialog({
+          isOpen: false,
+          items: [],
+          isRecursive: true,
+          loading: false,
+          error: null,
+          isMaximized: false,
+        });
+        setSelectedPaths(new Set());
+        showToast(msg, 'info');
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
-        setDeleteDialog((prev) => ({ ...prev, loading: false, error: res.error || 'Failed to delete' }));
+        setDeleteDialog((prev) => ({
+          ...prev,
+          loading: false,
+          error: res.error || 'Failed to delete items',
+        }));
       }
     } catch (err: any) {
-      setDeleteDialog((prev) => ({ ...prev, loading: false, error: err?.message || 'Connection error' }));
+      setDeleteDialog((prev) => ({
+        ...prev,
+        loading: false,
+        error: err?.message || 'Connection error',
+      }));
     }
   };
 
@@ -1887,6 +1912,35 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                   </button>
                 )}
 
+                {/* Delete Selected (Bulk Delete) */}
+                {selectedPaths.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selItems = items.filter((it) => selectedPaths.has(it.path));
+                      setDeleteDialog({
+                        isOpen: true,
+                        items: selItems,
+                        isRecursive: true,
+                        loading: false,
+                        error: null,
+                        isMaximized: false,
+                      });
+                    }}
+                    title={
+                      isEn
+                        ? `Delete selected (${selectedPaths.size}) items permanently`
+                        : `حذف قطعی موارد انتخابی (${selectedPaths.size})`
+                    }
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 text-xs font-semibold cursor-pointer transition animate-in fade-in"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span className="hidden sm:inline">
+                      {isEn ? `Delete (${selectedPaths.size})` : `حذف (${selectedPaths.size})`}
+                    </span>
+                  </button>
+                )}
+
                 {/* Upload File */}
                 <button
                   type="button"
@@ -2529,83 +2583,289 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         )}
 
         {/* ======================================================== */}
-        {/* DELETE CONFIRMATION DIALOG                               */}
+        {/* DELETE CONFIRMATION DIALOG (SINGLE & BULK RECURSIVE)      */}
         {/* ======================================================== */}
-        {deleteDialog.isOpen && deleteDialog.item && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        {deleteDialog.isOpen && deleteDialog.items.length > 0 &&
+          createPortal(
             <div
-              className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 ${
-                isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-100'
+              className={`fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs transition-all ${
+                deleteDialog.isMaximized ? 'p-0' : ''
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-rose-400">
-                  <AlertTriangle className="w-5 h-5" />
-                  <h3 className="font-bold text-sm">
-                    {isEn ? 'Confirm Deletion' : 'تأیید حذف آیتم'}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDeleteDialog({ isOpen: false, item: null, isRecursive: false, loading: false, error: null })}
-                  className="p-1 rounded text-slate-400 hover:text-white"
+              <div
+                className={`flex flex-col transition-all duration-200 border shadow-2xl ${
+                  deleteDialog.isMaximized
+                    ? 'fixed top-0 left-0 right-0 bottom-8 z-[99999] w-full h-auto rounded-none border-none'
+                    : 'w-full max-w-lg rounded-2xl max-h-[90vh]'
+                } ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 text-slate-900'
+                    : 'bg-slate-950 border-rose-500/30 text-slate-100'
+                }`}
+              >
+                {/* Header with 3 control buttons */}
+                <div
+                  className={`px-5 py-4 border-b flex items-center justify-between shrink-0 ${
+                    isLightMode ? 'border-slate-200 bg-rose-50/50' : 'border-rose-500/20 bg-rose-950/20'
+                  }`}
                 >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+                  <div className="flex items-center gap-2.5 text-rose-400">
+                    <AlertTriangle className="w-5 h-5 shrink-0" />
+                    <div>
+                      <h3 className="font-bold text-sm leading-tight">
+                        {isEn
+                          ? deleteDialog.items.length > 1
+                            ? `Confirm Deletion (${deleteDialog.items.length} Items)`
+                            : 'Confirm Deletion'
+                          : deleteDialog.items.length > 1
+                          ? `تأیید حذف گروهی (${deleteDialog.items.length} مورد)`
+                          : 'تأیید حذف آیتم'}
+                      </h3>
+                      <p className="text-[11px] text-slate-400 font-mono">
+                        {server?.name || server?.ip_address}
+                      </p>
+                    </div>
+                  </div>
 
-              <p className="text-xs text-slate-300">
-                {isEn
-                  ? `Are you sure you want to delete ${deleteDialog.item.type === 'directory' ? 'the directory' : 'the file'}:`
-                  : `آیا از حذف ${deleteDialog.item.type === 'directory' ? 'پوشه' : 'فایل'} زیر مطمئن هستید؟`}
-              </p>
+                  <div className="flex items-center gap-1.5">
+                    {/* Minimize */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeleteDialog((prev) => ({
+                          ...prev,
+                          isOpen: false,
+                        }))
+                      }
+                      title={isEn ? 'Minimize' : 'کوچک‌سازی'}
+                      className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                        isLightMode
+                          ? 'border-slate-200 text-slate-500 hover:bg-slate-100'
+                          : 'border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
 
-              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 font-mono text-xs text-rose-300 break-all">
-                {deleteDialog.item.path}
-              </div>
+                    {/* Maximize / Restore */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeleteDialog((prev) => ({
+                          ...prev,
+                          isMaximized: !prev.isMaximized,
+                        }))
+                      }
+                      title={
+                        deleteDialog.isMaximized
+                          ? isEn
+                            ? 'Exit Fullscreen'
+                            : 'خروج از تمام‌صفحه'
+                          : isEn
+                          ? 'Fullscreen'
+                          : 'تمام‌صفحه'
+                      }
+                      className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                        isLightMode
+                          ? 'border-slate-200 text-slate-500 hover:bg-slate-100'
+                          : 'border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {deleteDialog.isMaximized ? (
+                        <Minimize2 className="w-3.5 h-3.5" />
+                      ) : (
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
 
-              {deleteDialog.item.type === 'directory' && (
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={deleteDialog.isRecursive}
-                    onChange={(e) => setDeleteDialog((prev) => ({ ...prev, isRecursive: e.target.checked }))}
-                    className="rounded text-rose-500"
-                  />
-                  <span>
+                    {/* Close */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDeleteDialog({
+                          isOpen: false,
+                          items: [],
+                          isRecursive: true,
+                          loading: false,
+                          error: null,
+                          isMaximized: false,
+                        })
+                      }
+                      title={isEn ? 'Close' : 'بستن'}
+                      className="p-1.5 rounded-lg border border-rose-500/20 text-rose-400 hover:bg-rose-500/15 transition cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                  {/* Question Prompt */}
+                  <p className="font-medium text-slate-300">
                     {isEn
-                      ? 'Delete recursively (all nested files and subfolders)'
-                      : 'حذف به صورت بازگشتی (شامل تمامی فایل‌ها و زیرپوشه‌ها)'}
-                  </span>
-                </label>
-              )}
+                      ? deleteDialog.items.length > 1
+                        ? `Are you sure you want to permanently delete these ${deleteDialog.items.length} items from the remote server?`
+                        : `Are you sure you want to permanently delete this ${
+                            deleteDialog.items[0]?.type === 'directory' ? 'directory' : 'file'
+                          }?`
+                      : deleteDialog.items.length > 1
+                      ? `آیا از حذف قطعی این ${deleteDialog.items.length} مورد از سرور اطمینان دارید؟`
+                      : `آیا از حذف قطعی این ${
+                          deleteDialog.items[0]?.type === 'directory' ? 'پوشه' : 'فایل'
+                        } مطمئن هستید؟`}
+                  </p>
 
-              {deleteDialog.error && (
-                <div className="p-2 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-mono">
-                  {deleteDialog.error}
+                  {/* List of items to delete */}
+                  <div
+                    className={`rounded-xl border max-h-48 overflow-y-auto divide-y font-mono ${
+                      isLightMode
+                        ? 'bg-rose-50/40 border-rose-200 divide-rose-100'
+                        : 'bg-rose-950/20 border-rose-500/30 divide-rose-500/20'
+                    }`}
+                  >
+                    {deleteDialog.items.map((item) => (
+                      <div
+                        key={item.path}
+                        className="p-2.5 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {item.type === 'directory' ? (
+                            <Folder className="w-4 h-4 text-amber-400 shrink-0" />
+                          ) : (
+                            <File className="w-4 h-4 text-slate-400 shrink-0" />
+                          )}
+                          <span className="font-semibold text-rose-400 truncate">
+                            {item.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 text-[11px] text-slate-400">
+                          {item.type === 'directory' ? (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                              {isEn ? 'Folder' : 'پوشه'}
+                            </span>
+                          ) : (
+                            <span>{item.sizeHuman}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Folder recursive deletion warning banner */}
+                  {deleteDialog.items.some((it) => it.type === 'directory') && (
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 flex items-start gap-2.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="text-xs leading-relaxed">
+                        <span className="font-bold">
+                          {isEn ? 'Directory Content Warning: ' : 'هشدار محتوای پوشه: '}
+                        </span>
+                        <span>
+                          {isEn
+                            ? 'One or more folders are selected. Deleting a folder will recursively remove all files, scripts, and nested subfolders inside it.'
+                            : 'یک یا چند پوشه انتخاب شده است. حذف پوشه به صورت بازگشتی تمام فایل‌ها، اسکریپت‌ها و زیرپوشه‌های درون آن را به کلی حذف خواهد کرد.'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recursive Checkbox Option */}
+                  {deleteDialog.items.some((it) => it.type === 'directory') && (
+                    <div
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 select-none ${
+                        isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <label className="flex items-center gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={deleteDialog.isRecursive}
+                          onChange={(e) =>
+                            setDeleteDialog((prev) => ({ ...prev, isRecursive: e.target.checked }))
+                          }
+                          className="rounded text-rose-500 focus:ring-rose-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span className="font-medium text-slate-200">
+                          {isEn
+                            ? 'Delete recursively (rm -rf: all nested files and subfolders)'
+                            : 'حذف به صورت بازگشتی (rm -rf: تمام فایل‌ها و زیرپوشه‌ها)'}
+                        </span>
+                      </label>
+
+                      <FieldInfoTooltip
+                        title={isEn ? 'Recursive Directory Deletion' : 'حذف بازگشتی دایرکتوری'}
+                        infoWhatEn="Instructs the system to use 'rm -rf', deleting the folder along with every single subfolder and contained file inside it."
+                        infoWhatFa="اجرای حذف بازگشتی دایرکتوری با دستور rm -rf تا تمام زیرپوشه‌ها و محتویات درون آن بدون خطا به طور کامل پاک شوند."
+                        infoWhyEn="Without recursive deletion, Linux refuses to delete non-empty directories and returns 'Directory not empty' error."
+                        infoWhyFa="بدون فعال بودن این گزینه، لینوکس از حذف پوشه‌های غیرخالی ممانعت کرده و خطای دایرکتوری خالی نیست می‌دهد."
+                        infoExampleEn="rm -rf /var/www/my-app /opt/custom-tools"
+                        infoExampleFa="حذف دایرکتوری‌های حاوی پروژه‌ها، لاگ‌ها یا فایل‌های موقت همراه با تمامی زیرشاخه‌ها"
+                      />
+                    </div>
+                  )}
+
+                  {/* Error Notification */}
+                  {deleteDialog.error && (
+                    <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 font-mono text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                      <span>{deleteDialog.error}</span>
+                    </div>
+                  )}
                 </div>
-              )}
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setDeleteDialog({ isOpen: false, item: null, isRecursive: false, loading: false, error: null })}
-                  className="px-3 py-1.5 rounded-xl border border-slate-700 text-xs font-medium hover:bg-white/10"
+                {/* Footer Buttons */}
+                <div
+                  className={`p-4 border-t flex items-center justify-end gap-2.5 shrink-0 ${
+                    isLightMode ? 'border-slate-200 bg-slate-50' : 'border-slate-800 bg-slate-900/50'
+                  }`}
                 >
-                  {isEn ? 'Cancel' : 'انصراف'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeleteItem}
-                  disabled={deleteDialog.loading}
-                  className="px-4 py-1.5 rounded-xl bg-rose-500 text-white font-bold text-xs hover:bg-rose-400 transition cursor-pointer disabled:opacity-50"
-                >
-                  {deleteDialog.loading ? (isEn ? 'Deleting...' : 'در حال حذف...') : isEn ? 'Delete Permanently' : 'حذف قطعی'}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDeleteDialog({
+                        isOpen: false,
+                        items: [],
+                        isRecursive: true,
+                        loading: false,
+                        error: null,
+                        isMaximized: false,
+                      })
+                    }
+                    className="px-4 py-2 rounded-xl border border-slate-700 text-xs font-semibold hover:bg-white/10 transition cursor-pointer"
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteItems}
+                    disabled={deleteDialog.loading}
+                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition cursor-pointer shadow-lg shadow-rose-900/30 flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {deleteDialog.loading ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>{isEn ? 'Deleting...' : 'در حال حذف...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>
+                          {isEn
+                            ? deleteDialog.items.length > 1
+                              ? `Delete All (${deleteDialog.items.length}) Items`
+                              : 'Delete Permanently'
+                            : deleteDialog.items.length > 1
+                            ? `حذف قطعی (${deleteDialog.items.length}) مورد`
+                            : 'حذف قطعی'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            </div>,
+            document.body
+          )}
 
         {/* ======================================================== */}
         {/* PASSWORD REQUIRED PROMPT MODAL (Zero-Storage Policy)    */}
@@ -4855,12 +5115,14 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      const selItems = items.filter((it) => selectedPaths.has(it.path));
                       setDeleteDialog({
                         isOpen: true,
-                        item: contextMenu.item,
+                        items: selItems.length > 0 ? selItems : (contextMenu.item ? [contextMenu.item] : []),
                         isRecursive: true,
                         loading: false,
                         error: null,
+                        isMaximized: false,
                       });
                       setContextMenu(null);
                     }}
@@ -5077,16 +5339,17 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
                   <div className="my-1 border-t border-white/10" />
 
-                  {/* Delete */}
+                  {/* Delete Single Item */}
                   <button
                     type="button"
                     onClick={() => {
                       setDeleteDialog({
                         isOpen: true,
-                        item: contextMenu.item,
-                        isRecursive: contextMenu.item!.type === 'directory',
+                        items: [contextMenu.item!],
+                        isRecursive: true,
                         loading: false,
                         error: null,
+                        isMaximized: false,
                       });
                       setContextMenu(null);
                     }}

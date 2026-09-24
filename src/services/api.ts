@@ -3225,10 +3225,35 @@ export async function extractLinuxRemoteArchive(
   }
 }
 
+export async function deleteLinuxRemoteItems(
+  serverId: string,
+  paths: string[],
+  isRecursive: boolean = true,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  deletedCount?: number;
+  message?: string;
+  error?: string;
+  failures?: string[];
+  requires_password?: boolean;
+}> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, isRecursive, password: ephemeralPassword }),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to delete item(s)' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to delete item(s)' };
+  }
+}
+
 export async function deleteLinuxRemoteItem(
   serverId: string,
   path: string,
-  isRecursive: boolean = false,
+  isRecursive: boolean = true,
   ephemeralPassword?: string
 ): Promise<{ success: boolean; path?: string; error?: string; requires_password?: boolean }> {
   try {

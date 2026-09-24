@@ -907,30 +907,108 @@ cp -r -p "\${SRC}" "\${DEST}"
 }
 
 /**
- * Delete a file or directory on remote server.
+ * Protected system directories that must never be deleted.
  */
-export async function deleteLinuxItem(
+const CRITICAL_SYSTEM_PATHS = new Set([
+  '/',
+  '/root',
+  '/home',
+  '/etc',
+  '/var',
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib64',
+  '/boot',
+  '/sys',
+  '/proc',
+  '/dev',
+  '/opt',
+]);
+
+/**
+ * Delete one or multiple files/directories on remote server.
+ * Recursively deletes directory contents when isRecursive is true (default).
+ */
+export async function deleteLinuxItems(
   server: RemoteServer,
-  targetPath: string,
-  isRecursive: boolean = false,
+  paths: string[],
+  isRecursive: boolean = true,
   ephemeralPassword?: string
-): Promise<{ success: boolean; path: string }> {
-  const cleanPath = targetPath.trim();
-  if (cleanPath === '/' || cleanPath === '/root' || cleanPath === '/home' || cleanPath === '/etc') {
-    throw new Error('Deletion of critical root directories is strictly prohibited.');
+): Promise<{ success: boolean; deletedCount: number; message: string; failures?: string[] }> {
+  const cleanPaths = paths
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => (p.length > 1 ? p.replace(/\/+$/, '') : p));
+
+  if (cleanPaths.length === 0) {
+    throw new Error('At least one target path is required for deletion.');
+  }
+
+  // Validate against critical directories
+  for (const p of cleanPaths) {
+    if (CRITICAL_SYSTEM_PATHS.has(p)) {
+      throw new Error(`Deletion of critical system path "${p}" is strictly prohibited.`);
+    }
   }
 
   const client = await getAdaptiveSshClient(server, ephemeralPassword);
+  const failures: string[] = [];
+  let deletedCount = 0;
 
   try {
-    const cmd = isRecursive ? `rm -rf "${cleanPath}"` : `rm -f "${cleanPath}"`;
-    await executeExecCommand(client, cmd);
-    return { success: true, path: cleanPath };
+    for (const itemPath of cleanPaths) {
+      try {
+        // Use rm -rf if recursive is true, otherwise rm -f
+        const rmCmd = isRecursive ? `rm -rf "${itemPath}"` : `rm -f "${itemPath}"`;
+        try {
+          await executeExecCommand(client, rmCmd, 30000);
+          deletedCount++;
+        } catch (execErr: any) {
+          // If non-root user and permission denied, attempt sudo
+          if ((server.ssh_username || 'root') !== 'root') {
+            const sudoCmd = isRecursive ? `sudo -n rm -rf "${itemPath}"` : `sudo -n rm -f "${itemPath}"`;
+            await executeExecCommand(client, sudoCmd, 30000);
+            deletedCount++;
+          } else {
+            throw execErr;
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[deleteLinuxItems]: Failed to delete "${itemPath}":`, err?.message || err);
+        failures.push(`${itemPath}: ${err?.message || 'Delete failed'}`);
+      }
+    }
+
+    if (deletedCount === 0 && failures.length > 0) {
+      throw new Error(`Failed to delete selected items: ${failures.join('; ')}`);
+    }
+
+    return {
+      success: true,
+      deletedCount,
+      message: `Successfully deleted ${deletedCount} of ${cleanPaths.length} items.`,
+      failures: failures.length > 0 ? failures : undefined,
+    };
   } finally {
     try {
       client.end();
     } catch {}
   }
+}
+
+/**
+ * Delete a file or directory on remote server (backward-compatible single item wrapper).
+ */
+export async function deleteLinuxItem(
+  server: RemoteServer,
+  targetPath: string,
+  isRecursive: boolean = true,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; path: string }> {
+  await deleteLinuxItems(server, [targetPath], isRecursive, ephemeralPassword);
+  return { success: true, path: targetPath.trim() };
 }
 
 /**
