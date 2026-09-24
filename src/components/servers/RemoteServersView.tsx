@@ -1795,46 +1795,66 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                     className="text-left rtl:text-right group/lst block cursor-pointer focus:outline-none"
                                     title={isEn ? `Open Server Management for ${server.name}` : `باز کردن مدیریت سرور برای ${server.name}`}
                                   >
-                                    <div
-                                      className={`text-xs font-bold tracking-tight truncate transition-colors group-hover/lst:text-cyan-400 group-hover/lst:underline ${
-                                        isLightMode
-                                          ? 'text-slate-900 group-hover:text-cyan-700'
-                                          : 'text-white group-hover:text-cyan-300'
-                                      }`}
-                                    >
-                                      {server.name}
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span
+                                        className={`text-xs font-bold tracking-tight transition-colors group-hover/lst:text-cyan-400 group-hover/lst:underline ${
+                                          isLightMode
+                                            ? 'text-slate-900 group-hover:text-cyan-700'
+                                            : 'text-white group-hover:text-cyan-300'
+                                        }`}
+                                      >
+                                        {server.name}
+                                      </span>
+                                      {server.hostname && server.hostname !== server.name && (
+                                        <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                          ({server.hostname})
+                                        </span>
+                                      )}
                                     </div>
                                   </button>
                                 ) : (
-                                  <div
-                                    className={`text-xs font-bold tracking-tight truncate transition-colors ${
-                                      isLightMode
-                                        ? 'text-slate-900 group-hover:text-cyan-700'
-                                        : 'text-white group-hover:text-cyan-300'
-                                    }`}
-                                  >
-                                    {server.name}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span
+                                      className={`text-xs font-bold tracking-tight ${
+                                        isLightMode ? 'text-slate-900' : 'text-white'
+                                      }`}
+                                    >
+                                      {server.name}
+                                    </span>
+                                    {server.hostname && server.hostname !== server.name && (
+                                      <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                        ({server.hostname})
+                                      </span>
+                                    )}
                                   </div>
                                 )}
-                                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono mt-0.5 truncate">
-                                  <span>{server.hostname || server.ip}</span>
-                                  <span>•</span>
-                                  <span className="text-slate-300">
-                                    {formatServerHardwareSpecs(server, isEn)}
-                                  </span>
-                                  {server.uptime_str && (
-                                    <>
-                                      <span>•</span>
-                                      <span
-                                        className="text-cyan-400/90 inline-flex items-center gap-1"
-                                        title={isEn ? `Server Uptime: ${server.uptime_str}` : `مدت زمان کارکرد: ${server.uptime_str}`}
-                                      >
-                                        <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
-                                        <span>{server.uptime_str}</span>
-                                      </span>
-                                    </>
-                                  )}
+
+                                {/* Line 2: Server Hardware Resources (خط بعد از اسم سرور) */}
+                                <div
+                                  className={`flex items-center gap-1.5 text-[11px] font-mono mt-1 ${
+                                    isLightMode ? 'text-slate-600' : 'text-slate-300'
+                                  }`}
+                                  title={isEn ? 'Hardware Specifications (CPU • RAM • Disk)' : 'مشخصات سخت‌افزاری (پردازنده • رم • هارد)'}
+                                >
+                                  <Cpu className="w-3 h-3 text-cyan-400/80 shrink-0" />
+                                  <span>{formatServerHardwareSpecs(server, isEn)}</span>
                                 </div>
+
+                                {/* Line 3: System Uptime (زیر خط ریسورس) */}
+                                {server.uptime_str && (
+                                  <div
+                                    className={`flex items-center gap-1.5 text-[10px] font-mono mt-0.5 ${
+                                      isLightMode ? 'text-cyan-700' : 'text-cyan-400/90'
+                                    }`}
+                                    title={isEn ? `Server Uptime: ${server.uptime_str}` : `مدت زمان کارکرد سرور: ${server.uptime_str}`}
+                                  >
+                                    <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
+                                    <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                                      {isEn ? 'Uptime:' : 'آپ‌تایم:'}
+                                    </span>
+                                    <span className="font-semibold">{server.uptime_str}</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -2379,18 +2399,40 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               <div className="group-hover/tblname:text-cyan-400 group-hover/tblname:underline transition-colors">
                                 {server.name}
                               </div>
-                              <div className="text-[10px] text-slate-400 font-normal font-mono flex items-center gap-1.5 truncate">
-                                {server.os_distro && <span>{server.os_distro} •</span>}
-                                <span className="text-slate-300">{formatServerHardwareSpecs(server, isEn)}</span>
+                              <div className="text-[10px] font-normal font-mono flex items-center gap-1.5 mt-0.5">
+                                {server.os_distro && <span className="text-slate-400">{server.os_distro} •</span>}
+                                <span className={isLightMode ? 'text-slate-600' : 'text-slate-300'}>
+                                  {formatServerHardwareSpecs(server, isEn)}
+                                </span>
                               </div>
+                              {server.uptime_str && (
+                                <div className="text-[10px] text-cyan-400 font-mono mt-0.5 flex items-center gap-1">
+                                  <Clock className="w-3 h-3 shrink-0" />
+                                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                                    {isEn ? 'Up:' : 'آپ‌تایم:'}
+                                  </span>
+                                  <span className="font-medium">{server.uptime_str}</span>
+                                </div>
+                              )}
                             </button>
                           ) : (
                             <div>
                               <div>{server.name}</div>
-                              <div className="text-[10px] text-slate-400 font-normal font-mono flex items-center gap-1.5 truncate">
-                                {server.os_distro && <span>{server.os_distro} •</span>}
-                                <span className="text-slate-300">{formatServerHardwareSpecs(server, isEn)}</span>
+                              <div className="text-[10px] font-normal font-mono flex items-center gap-1.5 mt-0.5">
+                                {server.os_distro && <span className="text-slate-400">{server.os_distro} •</span>}
+                                <span className={isLightMode ? 'text-slate-600' : 'text-slate-300'}>
+                                  {formatServerHardwareSpecs(server, isEn)}
+                                </span>
                               </div>
+                              {server.uptime_str && (
+                                <div className="text-[10px] text-cyan-400 font-mono mt-0.5 flex items-center gap-1">
+                                  <Clock className="w-3 h-3 shrink-0" />
+                                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                                    {isEn ? 'Up:' : 'آپ‌تایم:'}
+                                  </span>
+                                  <span className="font-medium">{server.uptime_str}</span>
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>

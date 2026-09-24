@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.138.3';
+export const APP_VERSION = '1.138.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.138.4',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'اصلاح چیدمان چندخطی مشخصات سخت‌افزاری و آپ‌تایم زیر نام سرور جهت جلوگیری از تعریض ستون‌ها',
+    title_en: 'Multi-Line Layout for Server Hardware Resources and Uptime Below Server Name',
+    changes: [
+      'انتقال مشخصات سخت‌افزاری سرورها (پردازنده، رم و دیسک) به سطر دوم درست زیر نام سرور جهت جلوگیری از کشیدگی افقی ستون.',
+      'انتقال آپ‌تایم (مدت زمان کارکرد سرور) به سطر سوم زیر مشخصات ریسورس‌ها با آیکون ساعت و طراحی جمع‌وجور ارگونومیک.',
+      'اعمال ساختار چندخطی بهینه بر روی نماهای لیستی (List View) و جدول متراکم (Dense Table View).',
+    ],
+    changes_en: [
+      'Relocated server hardware specifications (CPU, RAM, and Disk) to a dedicated second line under the server name to prevent horizontal table column stretching.',
+      'Positioned system uptime on the third line directly underneath the resources row with a compact ergonomic clock indicator.',
+      'Applied the optimized multi-line layout consistently across List View and Dense Table View.',
+    ],
+  },
   {
     version: '1.138.3',
     releaseDate: '2026-09-24',
