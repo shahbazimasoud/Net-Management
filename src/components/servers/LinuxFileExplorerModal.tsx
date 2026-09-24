@@ -29,7 +29,6 @@ import {
   Edit2,
   Copy,
   Check,
-  Save,
   RotateCcw,
   ExternalLink,
   ChevronRight,
@@ -166,20 +165,6 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
   // Feedback Toast
   const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-
-  // Text File Viewer / Editor State
-  const [fileViewer, setFileViewer] = useState<{
-    isOpen: boolean;
-    path: string;
-    name: string;
-    content: string;
-    originalContent: string;
-    loading: boolean;
-    saving: boolean;
-    isReadOnly: boolean;
-    sizeFormatted: string;
-    error: string | null;
-  } | null>(null);
 
   // Dialogs
   const [newDirDialog, setNewDirDialog] = useState<{ isOpen: boolean; name: string; loading: boolean; error: string | null }>({
@@ -354,107 +339,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     if (item.type === 'directory') {
       loadDirectory(item.path, ephemeralPassword, true);
     } else {
-      handleOpenFile(item);
-    }
-  };
-
-  // Open File for View/Edit
-  const handleOpenFile = async (item: LinuxFsItem) => {
-    if (!server) return;
-    setFileViewer({
-      isOpen: true,
-      path: item.path,
-      name: item.name,
-      content: '',
-      originalContent: '',
-      loading: true,
-      saving: false,
-      isReadOnly: false,
-      sizeFormatted: item.sizeHuman,
-      error: null,
-    });
-
-    try {
-      const res = await readLinuxRemoteFile(server.id, item.path, ephemeralPassword);
-      if (res.success && res.file) {
-        setFileViewer((prev) =>
-          prev
-            ? {
-                ...prev,
-                loading: false,
-                content: res.file!.content,
-                originalContent: res.file!.content,
-                isReadOnly: false,
-                sizeFormatted: formatBytes(res.file!.size),
-              }
-            : null
-        );
-      } else {
-        setFileViewer((prev) =>
-          prev
-            ? {
-                ...prev,
-                loading: false,
-                error: res.error || (isEn ? 'Failed to read file' : 'خطا در خواندن فایل'),
-              }
-            : null
-        );
-      }
-    } catch (err: any) {
-      setFileViewer((prev) =>
-        prev
-          ? {
-              ...prev,
-              loading: false,
-              error: err?.message || (isEn ? 'Connection error' : 'خطای ارتباط'),
-            }
-          : null
-      );
-    }
-  };
-
-  // Save File
-  const handleSaveFile = async () => {
-    if (!server || !fileViewer || fileViewer.saving || fileViewer.isReadOnly) return;
-    setFileViewer((prev) => (prev ? { ...prev, saving: true, error: null } : null));
-
-    try {
-      const res = await writeLinuxRemoteFile(server.id, fileViewer.path, fileViewer.content, ephemeralPassword);
-      if (res.success) {
-        setFileViewer((prev) =>
-          prev
-            ? {
-                ...prev,
-                saving: false,
-                originalContent: prev.content,
-              }
-            : null
-        );
-        showToast(
-          isEn ? `Saved ${fileViewer.name} successfully` : `فایل ${fileViewer.name} با موفقیت ذخیره شد`,
-          'success'
-        );
-      } else {
-        setFileViewer((prev) =>
-          prev
-            ? {
-                ...prev,
-                saving: false,
-                error: res.error || (isEn ? 'Failed to write file' : 'خطا در ذخیره‌سازی فایل'),
-              }
-            : null
-        );
-      }
-    } catch (err: any) {
-      setFileViewer((prev) =>
-        prev
-          ? {
-              ...prev,
-              saving: false,
-              error: err?.message || (isEn ? 'Network error' : 'خطای شبکه'),
-            }
-          : null
-      );
+      setSelectedItem(item);
     }
   };
 
@@ -1337,19 +1222,6 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                             {/* Actions */}
                             <td className="px-3 py-2 whitespace-nowrap text-center">
                               <div className="flex items-center justify-center gap-1">
-                                {item.type !== 'directory' && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleOpenFile(item);
-                                    }}
-                                    title={isEn ? 'View & Edit' : 'مشاهده و ویرایش'}
-                                    className="p-1 rounded text-cyan-400 hover:bg-cyan-500/20 cursor-pointer"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -1438,19 +1310,6 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
                         {/* Hover Quick Actions */}
                         <div className="absolute top-1.5 right-1.5 hidden group-hover:flex items-center gap-1 bg-slate-950/90 rounded-lg p-1 border border-slate-800">
-                          {item.type !== 'directory' && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenFile(item);
-                              }}
-                              className="p-1 hover:text-cyan-400 cursor-pointer"
-                              title={isEn ? 'View & Edit' : 'ویرایش'}
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          )}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1488,114 +1347,6 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
             </div>
           </div>
         </div>
-
-        {/* ======================================================== */}
-        {/* TEXT FILE VIEWER & EDITOR OVERLAY                         */}
-        {/* ======================================================== */}
-        {fileViewer?.isOpen && (
-          <div className="absolute inset-0 z-50 flex flex-col bg-slate-950 text-slate-100">
-            {/* Editor Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/90 shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="p-1.5 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
-                  <FileCode className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm font-mono truncate">{fileViewer.name}</span>
-                    {fileViewer.isReadOnly ? (
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                        {isEn ? 'READ-ONLY' : 'فقط خواندنی'}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        {isEn ? 'EDITABLE' : 'قابل ویرایش'}
-                      </span>
-                    )}
-                    {fileViewer.content !== fileViewer.originalContent && (
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        {isEn ? 'UNSAVED CHANGES' : 'تغییرات ذخیره نشده'}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-slate-400 font-mono truncate block mt-0.5">
-                    {fileViewer.path} • {fileViewer.sizeFormatted}
-                  </span>
-                </div>
-              </div>
-
-              {/* Editor Controls */}
-              <div className="flex items-center gap-2 shrink-0">
-                {!fileViewer.isReadOnly && (
-                  <button
-                    type="button"
-                    onClick={handleSaveFile}
-                    disabled={fileViewer.saving || fileViewer.content === fileViewer.originalContent}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs hover:bg-cyan-400 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {fileViewer.saving ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Save className="w-3.5 h-3.5" />
-                    )}
-                    <span>{fileViewer.saving ? (isEn ? 'Saving...' : 'ذخیره...') : isEn ? 'Save' : 'ذخیره'}</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard.writeText(fileViewer.content);
-                    showToast(isEn ? 'File content copied' : 'محتوای فایل کپی شد', 'info');
-                  }}
-                  title={isEn ? 'Copy Content' : 'کپی محتوا'}
-                  className="p-2 rounded-lg border border-white/10 text-slate-300 hover:bg-white/10 cursor-pointer"
-                >
-                  <Copy className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setFileViewer(null)}
-                  title={isEn ? 'Close Editor' : 'بستن ویرایشگر'}
-                  className="p-2 rounded-lg border border-rose-500/20 text-rose-400 hover:bg-rose-500/15 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Error Banner if any */}
-            {fileViewer.error && (
-              <div className="px-4 py-2 bg-rose-500/15 border-b border-rose-500/30 text-rose-300 text-xs font-mono">
-                {fileViewer.error}
-              </div>
-            )}
-
-            {/* Editor Textarea */}
-            <div className="flex-1 p-2 relative flex flex-col min-h-0 bg-slate-950">
-              {fileViewer.loading ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                  <RefreshCw className="w-7 h-7 text-cyan-400 animate-spin" />
-                  <span className="text-xs font-mono text-slate-400">
-                    {isEn ? 'Reading remote file...' : 'در حال خواندن فایل از سرور...'}
-                  </span>
-                </div>
-              ) : (
-                <textarea
-                  value={fileViewer.content}
-                  onChange={(e) =>
-                    setFileViewer((prev) => (prev ? { ...prev, content: e.target.value } : null))
-                  }
-                  readOnly={fileViewer.isReadOnly}
-                  spellCheck={false}
-                  className="w-full flex-1 p-4 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 font-mono text-xs sm:text-sm leading-relaxed outline-none resize-none overflow-y-auto selection:bg-cyan-500/30"
-                  placeholder={isEn ? 'Empty file...' : 'فایل خالی است...'}
-                />
-              )}
-            </div>
-          </div>
-        )}
 
         {/* ======================================================== */}
         {/* NEW FOLDER DIALOG                                        */}

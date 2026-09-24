@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.140.1';
+export const APP_VERSION = '1.140.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.140.2',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'حذف حالت ویرایش فایل و رفع فریز لودینگ فایل‌ها در کاوشگر فایل لینوکس (فاز ۱)',
+    title_en: 'Remove File In-Modal Editor & Prevent Loading Freeze in Linux File Explorer (Phase 1)',
+    changes: [
+      'حذف کامل حالت ویرایش درون‌برنامه‌ای فایل‌ها به منظور رفع مشکل فریز و انتظار نامحدود در لودینگ فایل‌ها.',
+      'بهبود عملکرد دابل‌کلیک جهت ورود مستقیم به پوشه‌ها و سوییچ سریع به حالت انتخاب فایل.',
+      'پاکسازی دکمه‌ها و اکشن‌های ادیت فایل از نماهای جدولی و شبکه‌ای مودال.',
+    ],
+    changes_en: [
+      'Completely removed the in-modal file editor overlay to eliminate remote file loading freeze and hang states.',
+      'Optimized double-click navigation to exclusively open directories without triggering hanging file read operations.',
+      'Cleaned up edit action buttons and unnecessary UI overlays from both table and grid views.',
+    ],
+  },
   {
     version: '1.140.1',
     releaseDate: '2026-09-24',
