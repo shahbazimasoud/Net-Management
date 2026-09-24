@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Shield,
   ShieldAlert,
@@ -14,10 +14,17 @@ import {
   Cpu,
   Lock,
   Unlock,
+  Plus,
+  Trash2,
+  Search,
+  Filter,
+  ArrowRight,
+  Info,
 } from 'lucide-react';
-import { RemoteServer, LinuxFirewallInfo } from '../../types';
-import { fetchLinuxFirewallInfo } from '../../services/api';
+import { RemoteServer, LinuxFirewallInfo, LinuxFirewallRule } from '../../types';
+import { fetchLinuxFirewallInfo, deleteLinuxFirewallRule } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { LinuxAddFirewallRuleModal } from './LinuxAddFirewallRuleModal';
 
 interface LinuxFirewallTabProps {
   server: RemoteServer;
@@ -36,6 +43,16 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRawOutput, setShowRawOutput] = useState(false);
+
+  // Modals & Actions
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [ruleToDelete, setRuleToDelete] = useState<LinuxFirewallRule | null>(null);
+  const [deletingRule, setDeletingRule] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Filter & Search
+  const [ruleSearch, setRuleSearch] = useState('');
+  const [actionFilter, setActionFilter] = useState<'ALL' | 'ALLOW' | 'DENY' | 'REJECT'>('ALL');
 
   const loadData = async () => {
     setLoading(true);
@@ -57,6 +74,52 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
   useEffect(() => {
     loadData();
   }, [server.id, ephemeralPassword]);
+
+  // Filtered Rules
+  const filteredRules = useMemo(() => {
+    if (!firewallInfo?.rules) return [];
+    return firewallInfo.rules.filter((rule) => {
+      if (actionFilter !== 'ALL' && rule.action !== actionFilter) return false;
+      if (!ruleSearch.trim()) return true;
+      const q = ruleSearch.toLowerCase();
+      return (
+        (rule.port && rule.port.toLowerCase().includes(q)) ||
+        (rule.protocol && rule.protocol.toLowerCase().includes(q)) ||
+        (rule.source && rule.source.toLowerCase().includes(q)) ||
+        (rule.comment && rule.comment.toLowerCase().includes(q)) ||
+        (rule.direction && rule.direction.toLowerCase().includes(q))
+      );
+    });
+  }, [firewallInfo?.rules, actionFilter, ruleSearch]);
+
+  // Handle Rule Deletion
+  const handleConfirmDelete = async () => {
+    if (!ruleToDelete || !firewallInfo) return;
+    setDeletingRule(true);
+    setDeleteError(null);
+    try {
+      const res = await deleteLinuxFirewallRule(
+        server.id,
+        ruleToDelete,
+        firewallInfo.activeZone,
+        ephemeralPassword
+      );
+      if (res.success) {
+        if (res.info) {
+          setFirewallInfo(res.info);
+        } else {
+          loadData();
+        }
+        setRuleToDelete(null);
+      } else {
+        setDeleteError(res.error || (isEn ? 'Failed to delete rule' : 'خطا در حذف قانون'));
+      }
+    } catch (err: any) {
+      setDeleteError(err?.message || (isEn ? 'Network error' : 'خطای ارتباط با سرور'));
+    } finally {
+      setDeletingRule(false);
+    }
+  };
 
   const getBackendBadgeColor = (backend: string) => {
     switch (backend) {
@@ -99,34 +162,26 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Header Card */}
+    <div className="space-y-6" dir={isEn ? 'ltr' : 'rtl'}>
+      {/* Header Bar */}
       <div
-        className={`p-5 rounded-2xl border transition-all ${
-          isLightMode ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-900/60 border-slate-800'
+        className={`p-5 rounded-2xl border ${
+          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
         }`}
       >
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div
-              className={`p-3 rounded-2xl border ${
-                firewallInfo?.active
-                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                  : 'bg-amber-500/15 border-amber-500/30 text-amber-400'
-              }`}
-            >
-              <Shield className="w-7 h-7" />
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-2xl bg-purple-500/15 text-purple-400 border border-purple-500/20">
+              <Shield className="w-6 h-6" />
             </div>
-
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base font-bold text-slate-100">
-                  {isEn ? 'Linux Firewall & Network Security' : 'فایروال و امنیت شبکه لینوکس'}
+                <h3 className="text-base font-bold">
+                  {isEn ? 'Linux Firewall Engine & Security Rules' : 'موتور فایروال لینوکس و قوانین امنیتی'}
                 </h3>
-                {firewallInfo && getStatusBadge(firewallInfo.status, firewallInfo.active)}
                 {firewallInfo && (
                   <span
-                    className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg border ${getBackendBadgeColor(
+                    className={`text-xs font-mono px-2.5 py-0.5 rounded-full border font-semibold uppercase ${getBackendBadgeColor(
                       firewallInfo.backend
                     )}`}
                   >
@@ -148,8 +203,8 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
 
               <p className="text-xs text-slate-400 mt-1">
                 {isEn
-                  ? 'Real-time inspection of active packet filter rules, policies, and listening ports.'
-                  : 'پایش بلادرنگ قوانین فیلترینگ، سیاست‌های پیش‌فرض و تطبیق با پورت‌های فعال سرور.'}
+                  ? 'Real-time inspection and management of active packet filter rules, policies, and listening ports.'
+                  : 'پایش و مدیریت بلادرنگ قوانین فیلترینگ، سیاست‌های پیش‌فرض و تطبیق با پورت‌های فعال سرور.'}
               </p>
             </div>
           </div>
@@ -166,8 +221,19 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
               }`}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
-              <span>{loading ? (isEn ? 'Probing Server...' : 'در حال بررسی...') : (isEn ? 'Refresh Status' : 'بروزرسانی وضعیت')}</span>
+              <span>{loading ? (isEn ? 'Probing...' : 'در حال بررسی...') : (isEn ? 'Refresh' : 'بروزرسانی')}</span>
             </button>
+
+            {firewallInfo && firewallInfo.backend !== 'none' && (
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(true)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-500 hover:bg-purple-400 text-slate-950 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Add Rule' : 'افزودن قانون'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -180,117 +246,101 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
         )}
       </div>
 
-      {/* Loading Skeleton */}
-      {loading && !firewallInfo && (
-        <div
-          className={`p-10 rounded-2xl border text-center space-y-3 ${
-            isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
-          }`}
-        >
-          <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mx-auto" />
-          <p className="text-xs font-semibold text-slate-300">
-            {isEn ? 'Inspecting remote server firewall daemon and filtering tables...' : 'در حال کاوش دیمون فایروال و جداول فیلترینگ سرور...'}
-          </p>
-        </div>
-      )}
-
-      {/* Firewall Details Cards */}
+      {/* Main Firewall Metrics & Policy Cards */}
       {firewallInfo && (
         <>
-          {/* Key Metrics Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Backend & Service */}
+            {/* Status Card */}
             <div
-              className={`p-4 rounded-xl border space-y-2 ${
+              className={`p-4 rounded-2xl border space-y-2 ${
                 isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400">
-                <span className="text-xs font-bold uppercase tracking-wider">{isEn ? 'Firewall Engine' : 'موتور فایروال'}</span>
-                <Layers className="w-4 h-4 text-cyan-400" />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400 font-semibold">{isEn ? 'Status' : 'وضعیت سرویس'}</span>
+                <Cpu className="w-4 h-4 text-slate-400" />
               </div>
-              <div className="text-lg font-black font-mono text-slate-100">
-                {firewallInfo.backend === 'none' ? (isEn ? 'None Active' : 'غیرفعال') : firewallInfo.backend.toUpperCase()}
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono truncate">
-                {isEn ? 'Service:' : 'سرویس:'} {firewallInfo.serviceName || 'none'}
+              <div>{getStatusBadge(firewallInfo.status, firewallInfo.active)}</div>
+              <div className="text-[11px] text-slate-500 font-mono">
+                Daemon: {firewallInfo.serviceName || 'none'}
               </div>
             </div>
 
-            {/* Default Incoming Policy */}
+            {/* Backend & Zone */}
             <div
-              className={`p-4 rounded-xl border space-y-2 ${
+              className={`p-4 rounded-2xl border space-y-2 ${
                 isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400">
-                <span className="text-xs font-bold uppercase tracking-wider">{isEn ? 'Incoming Policy' : 'سیاست ورودی'}</span>
-                {firewallInfo.defaultPolicies.incoming === 'DENY' || firewallInfo.defaultPolicies.incoming === 'DROP' ? (
-                  <Lock className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <Unlock className="w-4 h-4 text-amber-400" />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400 font-semibold">{isEn ? 'Technology & Zone' : 'فناوری و ناحیه'}</span>
+                <Layers className="w-4 h-4 text-slate-400" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold font-mono text-slate-200">
+                  {firewallInfo.backend.toUpperCase()}
+                </span>
+                {firewallInfo.activeZone && (
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-400 border border-slate-700">
+                    {firewallInfo.activeZone}
+                  </span>
                 )}
               </div>
-              <div className="text-lg font-black font-mono">
-                <span
-                  className={
-                    firewallInfo.defaultPolicies.incoming === 'DENY' || firewallInfo.defaultPolicies.incoming === 'DROP' || firewallInfo.defaultPolicies.incoming === 'REJECT'
-                      ? 'text-emerald-400'
-                      : 'text-amber-400'
-                  }
-                >
-                  {firewallInfo.defaultPolicies.incoming}
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                {firewallInfo.defaultPolicies.incoming === 'DENY' || firewallInfo.defaultPolicies.incoming === 'DROP'
-                  ? isEn
-                    ? 'Default Deny (Recommended)'
-                    : 'مسدودسازی پیش‌فرض (پیشنهادی)'
-                  : isEn
-                  ? 'All Incoming Allowed (Open)'
-                  : 'ورودی کاملاً باز (غیرامن)'}
+              <div className="text-[11px] text-slate-500 font-mono">
+                {firewallInfo.version ? `v${firewallInfo.version}` : isEn ? 'Native Kernel Driver' : 'درایور کرنل'}
               </div>
             </div>
 
-            {/* Default Outgoing Policy */}
+            {/* Default Policies */}
             <div
-              className={`p-4 rounded-xl border space-y-2 ${
+              className={`p-4 rounded-2xl border space-y-2 sm:col-span-2 ${
                 isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
               }`}
             >
-              <div className="flex items-center justify-between text-slate-400">
-                <span className="text-xs font-bold uppercase tracking-wider">{isEn ? 'Outgoing Policy' : 'سیاست خروجی'}</span>
-                <Activity className="w-4 h-4 text-cyan-400" />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400 font-semibold">{isEn ? 'Default System Policies' : 'سیاست‌های پیش‌فرض'}</span>
+                <Shield className="w-4 h-4 text-slate-400" />
               </div>
-              <div className="text-lg font-black font-mono text-cyan-300">
-                {firewallInfo.defaultPolicies.outgoing}
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                {isEn ? 'Forward Policy:' : 'سیاست هدایت:'} {firewallInfo.defaultPolicies.forward || 'DROP'}
-              </div>
-            </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-2 rounded-xl bg-slate-950/50 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block">{isEn ? 'Incoming (IN)' : 'ورودی (IN)'}</span>
+                  <span
+                    className={`font-mono text-xs font-bold ${
+                      firewallInfo.defaultPolicies.incoming.includes('DENY') ||
+                      firewallInfo.defaultPolicies.incoming.includes('DROP')
+                        ? 'text-emerald-400'
+                        : 'text-amber-400'
+                    }`}
+                  >
+                    {firewallInfo.defaultPolicies.incoming}
+                  </span>
+                </div>
 
-            {/* Total Rules Count */}
-            <div
-              className={`p-4 rounded-xl border space-y-2 ${
-                isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-              }`}
-            >
-              <div className="flex items-center justify-between text-slate-400">
-                <span className="text-xs font-bold uppercase tracking-wider">{isEn ? 'Active Rules' : 'قوانین فعال'}</span>
-                <Cpu className="w-4 h-4 text-purple-400" />
-              </div>
-              <div className="text-lg font-black font-mono text-purple-300">
-                {firewallInfo.rulesCount} {isEn ? 'Rules' : 'قانون'}
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                {firewallInfo.activeZone ? `${isEn ? 'Zone:' : 'منطقه:'} ${firewallInfo.activeZone}` : isEn ? 'Standard Table' : 'جدول استاندارد'}
+                <div className="p-2 rounded-xl bg-slate-950/50 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block">{isEn ? 'Outgoing (OUT)' : 'خروجی (OUT)'}</span>
+                  <span
+                    className={`font-mono text-xs font-bold ${
+                      firewallInfo.defaultPolicies.outgoing.includes('ALLOW') ||
+                      firewallInfo.defaultPolicies.outgoing.includes('ACCEPT')
+                        ? 'text-emerald-400'
+                        : 'text-amber-400'
+                    }`}
+                  >
+                    {firewallInfo.defaultPolicies.outgoing}
+                  </span>
+                </div>
+
+                <div className="p-2 rounded-xl bg-slate-950/50 border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block">{isEn ? 'Forward (FWD)' : 'هدایت (FWD)'}</span>
+                  <span className="font-mono text-xs font-bold text-slate-300">
+                    {firewallInfo.defaultPolicies.forward}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Listening Sockets & Firewall Protection Status */}
+          {/* Listening Sockets Correlation Section */}
           {firewallInfo.listeningPortsSummary && firewallInfo.listeningPortsSummary.length > 0 && (
             <div
               className={`p-5 rounded-2xl border space-y-4 ${
@@ -379,7 +429,7 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
               isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
             }`}
           >
-            <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-xl bg-purple-500/15 text-purple-400">
                   <Layers className="w-4 h-4" />
@@ -396,30 +446,73 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">
-                  {firewallInfo.rules.length} {isEn ? 'Total Rules' : 'قانون ثبت‌شده'}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Search Box */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder={isEn ? 'Filter rules...' : 'جستجوی قوانین...'}
+                    value={ruleSearch}
+                    onChange={(e) => setRuleSearch(e.target.value)}
+                    className={`pl-8 pr-3 py-1.5 rounded-xl text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
+                      isLightMode ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-slate-950 border-slate-800 text-white'
+                    }`}
+                  />
+                </div>
+
+                {/* Action Filter */}
+                <select
+                  value={actionFilter}
+                  onChange={(e) => setActionFilter(e.target.value as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
+                    isLightMode ? 'bg-slate-50 border-slate-300 text-slate-800' : 'bg-slate-950 border-slate-800 text-white'
+                  }`}
+                >
+                  <option value="ALL">{isEn ? 'All Actions' : 'تمامی عملیات‌ها'}</option>
+                  <option value="ALLOW">ALLOW</option>
+                  <option value="DENY">DENY</option>
+                  <option value="REJECT">REJECT</option>
+                </select>
+
+                <span className="text-xs font-mono px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 border border-slate-700">
+                  {filteredRules.length} / {firewallInfo.rules.length} {isEn ? 'Rules' : 'قانون'}
                 </span>
+
+                {firewallInfo.backend !== 'none' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-purple-500 hover:bg-purple-400 text-slate-950 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Add' : 'افزودن'}</span>
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Rules Cards List */}
-            {firewallInfo.rules.length === 0 ? (
+            {filteredRules.length === 0 ? (
               <div className="p-8 rounded-xl border border-dashed border-slate-700 text-center space-y-2">
                 <Shield className="w-8 h-8 text-slate-500 mx-auto" />
                 <p className="text-xs font-semibold text-slate-400">
-                  {firewallInfo.active
-                    ? isEn
-                      ? 'No explicit rules defined. Default policies are enforcing.'
-                      : 'قانون اختصاصی ثبت نشده است. سیاست‌های پیش‌فرض در حال اعمال هستند.'
+                  {firewallInfo.rules.length === 0
+                    ? firewallInfo.active
+                      ? isEn
+                        ? 'No explicit rules defined. Default policies are enforcing.'
+                        : 'قانون اختصاصی ثبت نشده است. سیاست‌های پیش‌فرض در حال اعمال هستند.'
+                      : isEn
+                      ? 'Firewall daemon is not active on this server.'
+                      : 'سرویس فایروال روی این سرور فعال نیست.'
                     : isEn
-                    ? 'Firewall daemon is not active on this server.'
-                    : 'سرویس فایروال روی این سرور فعال نیست.'}
+                    ? 'No rules match your filter.'
+                    : 'هیچ قانونی با عبارت جستجو مطابقت ندارد.'}
                 </p>
               </div>
             ) : (
               <div className="space-y-2">
-                {firewallInfo.rules.map((rule) => (
+                {filteredRules.map((rule) => (
                   <div
                     key={rule.id}
                     className={`p-3.5 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
@@ -470,12 +563,21 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3 self-end md:self-auto">
                       {rule.comment && (
                         <span className="text-xs text-slate-400 italic bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700 max-w-xs truncate">
                           {rule.comment}
                         </span>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => setRuleToDelete(rule)}
+                        title={isEn ? 'Delete Rule' : 'حذف قانون'}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -516,6 +618,110 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
             )}
           </div>
         </>
+      )}
+
+      {/* Add Rule Modal */}
+      {firewallInfo && (
+        <LinuxAddFirewallRuleModal
+          isOpen={isAddModalOpen}
+          server={server}
+          backend={firewallInfo.backend}
+          activeZone={firewallInfo.activeZone}
+          existingRules={firewallInfo.rules}
+          ephemeralPassword={ephemeralPassword}
+          onClose={() => setIsAddModalOpen(false)}
+          onSuccess={(updatedInfo) => {
+            if (updatedInfo) {
+              setFirewallInfo(updatedInfo);
+            } else {
+              loadData();
+            }
+          }}
+          isLightMode={isLightMode}
+          isEn={isEn}
+        />
+      )}
+
+      {/* Delete Rule Confirmation Modal */}
+      {ruleToDelete && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div
+            className={`w-full max-w-md rounded-2xl border shadow-2xl p-5 space-y-4 ${
+              isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+            }`}
+          >
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/20">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold">
+                {isEn ? 'Delete Firewall Rule' : 'تایید حذف قانون فایروال'}
+              </h3>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              {isEn
+                ? 'Are you sure you want to permanently remove this packet filter rule from the Linux firewall?'
+                : 'آیا از حذف دائمی این قانون فیلترینگ از فایروال لینوکس اطمینان دارید؟'}
+            </p>
+
+            <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 space-y-1.5 font-mono text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">{isEn ? 'Action / Direction:' : 'عملیات / جهت:'}</span>
+                <span className="font-bold text-cyan-400">{ruleToDelete.action} ({ruleToDelete.direction})</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">{isEn ? 'Port / Protocol:' : 'پورت / پروتکل:'}</span>
+                <span className="text-slate-200">{ruleToDelete.port || 'Any'} / {ruleToDelete.protocol.toUpperCase()}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400">{isEn ? 'Source:' : 'آدرس مبدا:'}</span>
+                <span className="text-slate-300">{ruleToDelete.source || 'Any'}</span>
+              </div>
+            </div>
+
+            {/* SSH Lockout Warning */}
+            {ruleToDelete.port === '22' && (
+              <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>
+                  {isEn
+                    ? 'Caution: Deleting an SSH allow rule might immediately disconnect your active management session if the default policy is DROP/DENY!'
+                    : 'توجه: حذف قانون دسترسی SSH ممکن است در صورت مسدود بودن سیاست پیش‌فرض، بلافاصله ارتباط مدیریتی فعلی شما را قطع کند!'}
+                </span>
+              </div>
+            )}
+
+            {deleteError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-mono">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setRuleToDelete(null);
+                  setDeleteError(null);
+                }}
+                disabled={deletingRule}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700 hover:bg-slate-800 text-slate-300 transition cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'انصراف'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deletingRule}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Trash2 className={`w-3.5 h-3.5 ${deletingRule ? 'animate-spin' : ''}`} />
+                <span>{deletingRule ? (isEn ? 'Deleting...' : 'در حال حذف...') : (isEn ? 'Confirm Delete' : 'تایید و حذف قانون')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

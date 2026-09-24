@@ -118,6 +118,8 @@ import {
 } from './linuxNetworkManager';
 import {
   detectLinuxFirewall,
+  addFirewallRule,
+  deleteFirewallRule,
 } from './linuxFirewallManager';
 import {
   fetchLinuxPackageOverview,
@@ -2755,6 +2757,85 @@ const handleLinuxServerFirewall = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/firewall', handleLinuxServerFirewall);
 apiRouter.post('/remote-servers/:id/firewall', handleLinuxServerFirewall);
+
+// POST /api/remote-servers/:id/firewall/rule - Add a firewall rule
+apiRouter.post('/remote-servers/:id/firewall/rule', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rule, backend, activeZone, password } = req.body;
+
+    if (!rule || !backend) {
+      return res.status(400).json({ success: false, error: 'Rule payload and backend are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await addFirewallRule(server, rule, backend, activeZone, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Firewall Rule Added (${rule.action} ${rule.port || rule.protocol})`,
+      category: 'security',
+      target: `${server.name || server.ip} (${backend.toUpperCase()})`,
+      status: result.success ? 'success' : 'error',
+      details: `${result.message} ${result.error || ''}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFirewall Add Rule Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to add firewall rule',
+    });
+  }
+});
+
+// DELETE / POST /api/remote-servers/:id/firewall/rule/delete - Delete a firewall rule
+const handleFirewallDeleteRule = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rule, activeZone, password } = req.body;
+
+    if (!rule) {
+      return res.status(400).json({ success: false, error: 'Rule object is required for deletion' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deleteFirewallRule(server, rule, activeZone, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Firewall Rule Deleted (${rule.action} ${rule.port || rule.protocol})`,
+      category: 'security',
+      target: `${server.name || server.ip} (${rule.backend.toUpperCase()})`,
+      status: result.success ? 'success' : 'error',
+      details: `${result.message} ${result.error || ''}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFirewall Delete Rule Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete firewall rule',
+    });
+  }
+};
+
+apiRouter.delete('/remote-servers/:id/firewall/rule', handleFirewallDeleteRule);
+apiRouter.post('/remote-servers/:id/firewall/rule/delete', handleFirewallDeleteRule);
 
 // POST /api/remote-servers/:id/proxy-action - Configure or clear persistent system proxy
 apiRouter.post('/remote-servers/:id/proxy-action', async (req: Request, res: Response) => {

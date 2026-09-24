@@ -1025,3 +1025,90 @@ export function getFirewallProvider(backend: LinuxFirewallBackend): FirewallProv
       return new NoFirewallProvider();
   }
 }
+
+/**
+ * Add a firewall rule to the remote server using the detected provider
+ */
+export async function addFirewallRule(
+  server: RemoteServer,
+  rule: LinuxFirewallRulePayload,
+  backend: LinuxFirewallBackend,
+  activeZone?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; info?: LinuxFirewallInfo; error?: string }> {
+  // Input Validation
+  if (rule.port && !/^[0-9,:-]+$/.test(rule.port.trim())) {
+    return { success: false, message: 'Invalid port specification', error: 'Port must be numeric or a range (e.g. 80, 80,443, 1000-2000)' };
+  }
+
+  if (rule.source && rule.source.trim().toLowerCase() !== 'any') {
+    const cleanSrc = rule.source.trim();
+    if (!/^[0-9a-fA-F.:/]+$/.test(cleanSrc)) {
+      return { success: false, message: 'Invalid source address', error: 'Source must be "Any" or a valid IP/CIDR (e.g. 192.168.1.0/24)' };
+    }
+  }
+
+  const provider = getFirewallProvider(backend);
+  if (provider.backend === 'none') {
+    return { success: false, message: 'No active firewall daemon', error: 'No active firewall backend is available to add rules to' };
+  }
+
+  const cmd = provider.buildAddRuleCommand(rule, activeZone);
+  const out = await runAdaptiveSshCommand(server, cmd, ephemeralPassword);
+
+  // Check if command succeeded
+  const lower = out.toLowerCase();
+  if (lower.includes('error') || lower.includes('invalid') || lower.includes('failed') || lower.includes('command not found')) {
+    return {
+      success: false,
+      message: 'Firewall command failed',
+      error: out.trim() || 'Command returned an error state',
+    };
+  }
+
+  // Re-detect live state to verify new rule
+  const updatedInfo = await detectLinuxFirewall(server, ephemeralPassword);
+
+  return {
+    success: true,
+    message: `Rule successfully applied to ${provider.displayName}`,
+    info: updatedInfo,
+  };
+}
+
+/**
+ * Delete a firewall rule from the remote server
+ */
+export async function deleteFirewallRule(
+  server: RemoteServer,
+  rule: LinuxFirewallRule,
+  activeZone?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; info?: LinuxFirewallInfo; error?: string }> {
+  const provider = getFirewallProvider(rule.backend);
+  if (provider.backend === 'none') {
+    return { success: false, message: 'No active firewall daemon', error: 'No active firewall backend is available' };
+  }
+
+  const cmd = provider.buildDeleteRuleCommand(rule, activeZone);
+  const out = await runAdaptiveSshCommand(server, cmd, ephemeralPassword);
+
+  const lower = out.toLowerCase();
+  if (lower.includes('error') && !lower.includes('0 errors') && !lower.includes('error: rule does not exist')) {
+    return {
+      success: false,
+      message: 'Failed to delete rule',
+      error: out.trim(),
+    };
+  }
+
+  // Re-detect live state to verify rule deletion
+  const updatedInfo = await detectLinuxFirewall(server, ephemeralPassword);
+
+  return {
+    success: true,
+    message: `Rule deleted from ${provider.displayName}`,
+    info: updatedInfo,
+  };
+}
+

@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.137.0';
+export const APP_VERSION = '1.138.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.138.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'مودال پیشرفته افزودن و حذف قوانین فایروال (Add Firewall Rule Modal) با تشخیص تداخل و الگوهای سریع',
+    title_en: 'Advanced Firewall Rule Creation & Deletion Modal with Collision Detection & Service Presets',
+    changes: [
+      'طراحی و استقرار کامل مودال Configure & Add Firewall Rule مطابق با ۵ استاندارد جامع معماری مودال‌ها (بستن، مینیمایز در داک، فول‌اسکرین با حفظ حریم فوتر، تم روشن/تیره و پشتیبانی صددرصد دو زبانه).',
+      'افزودن کلیدهای انتخاب الگوهای سریع سرویس‌های رایج شبکه (SSH 22، HTTP 80، HTTPS 443، DNS 53، MySQL 3306، PostgreSQL 5432، Redis 6379، WireGuard 51820) جهت تسریع تنظیمات.',
+      'پیاده‌سازی موتور هوشمند تشخیص تداخل قوانین (Rule Conflict Detection) جهت اعلام هشدار در صورت ثبت قوانین تکراری یا متناقض بر روی یک پورت مشترک.',
+      'پیش‌نمایش زنده و تفکیک‌شده دستورات واقعی سیستم‌عامل (Target System Command Preview) پیش از اجرا بر روی سرور برای انواع پشته‌های UFW، firewalld، nftables و iptables.',
+      'امکان فیلتر و جستجوی آنی قوانین فعال فایروال بر اساس شماره پورت، پروتکل، جهت و آدرس مبدا.',
+      'تجهیز دکمه حذف قوانین به دیالوگ تایید ایمن به همراه هشدار قفل شدن دسترسی (Lockout Warning) در صورت اقدام به حذف پورت فعال SSH.',
+    ],
+    changes_en: [
+      'Engineered LinuxAddFirewallRuleModal complying with all 5 mandatory modal standards (Close, Dock Minimize, Fullscreen with bottom-8 footer clearance, dark/light contrast, strict i18n).',
+      'Added one-click common service presets for SSH (22), HTTP (80), HTTPS (443), DNS (53), MySQL (3306), PostgreSQL (5432), Redis (6379), and WireGuard (51820).',
+      'Integrated real-time Rule Conflict Detection warning users when duplicate or contradictory policies are targeted at the same port and protocol.',
+      'Provided real-time Target System Command Preview displaying exact terminal commands dispatched for UFW, firewalld, nftables, or iptables.',
+      'Implemented instant client-side filtering and search across port numbers, protocols, comments, and traffic directions.',
+      'Equipped rule deletion with safety confirmation modal and explicit SSH lockout warning when attempting to remove active SSH access rules.',
+    ],
+  },
   {
     version: '1.137.0',
     releaseDate: '2026-09-24',

@@ -2988,6 +2988,36 @@ export async function fetchLinuxFirewallInfo(
   return res.json().catch(() => ({ success: false, error: 'Failed to fetch firewall details' }));
 }
 
+export async function addLinuxFirewallRule(
+  serverId: string,
+  rule: LinuxFirewallRulePayload,
+  backend: string,
+  activeZone?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; info?: LinuxFirewallInfo; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/firewall/rule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rule, backend, activeZone, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, message: 'Network error', error: 'Failed to add firewall rule' }));
+}
+
+export async function deleteLinuxFirewallRule(
+  serverId: string,
+  rule: LinuxFirewallRule,
+  activeZone?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; info?: LinuxFirewallInfo; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/firewall/rule/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rule, activeZone, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, message: 'Network error', error: 'Failed to delete firewall rule' }));
+}
+
+
 
 
 
