@@ -703,7 +703,13 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     if (!config) {
       console.warn(`[RemoteDesktop] Connection rejected: token not found or expired (${token})`);
       if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(encodeGuacInstruction('error', 'Invalid, expired, or consumed session token.', '519'));
+        const payload = {
+          category: 'TOKEN_INVALID_OR_EXPIRED',
+          message_en: 'Invalid, expired, or consumed session token. Please reconnect.',
+          message_fa: 'توکن نشست نامعتبر، منقضی شده یا قبلاً استفاده شده است. لطفاً مجدداً متصل شوید.',
+          code: '519',
+        };
+        clientWs.send(encodeGuacInstruction('error', JSON.stringify(payload), '519'));
       }
       clientWs.close(4401, 'Unauthorized token');
       return;
@@ -739,10 +745,16 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     if (!isGuacdLive) {
       console.warn(`[RemoteDesktop] guacd daemon is offline on host ${guacdHost}:${guacdPort}`);
       if (clientWs.readyState === WebSocket.OPEN) {
+        const payload = {
+          category: 'GUACD_SERVICE_OFFLINE',
+          message_en: `Apache Guacamole daemon (guacd) is offline on host ${guacdHost}:${guacdPort}. Please install or start guacd.`,
+          message_fa: `سرویس آپاچی گوآکامولی (guacd) روی هاست ${guacdHost}:${guacdPort} فعال نیست. لطفاً سرویس guacd را نصب یا اجرا نمایید.`,
+          code: '519',
+        };
         clientWs.send(
           encodeGuacInstruction(
             'error',
-            `Apache Guacamole daemon (guacd) is offline on host ${guacdHost}:${guacdPort}. Please install or start guacd.`,
+            JSON.stringify(payload),
             '519'
           )
         );
@@ -830,7 +842,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             console.warn(`[RemoteDesktop] guacd error during handshake: ${rawErrMsg}`);
             const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port, config.domain);
             if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(encodeGuacInstruction('error', structured.message_en, structured.code));
+              clientWs.send(encodeGuacInstruction('error', JSON.stringify(structured), structured.code));
             }
           }
         } else {
@@ -857,17 +869,33 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     guacdSocket.on('error', (err: Error) => {
       console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
       if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.send(encodeGuacInstruction('error', `Gateway connection error: ${err.message}`, '516'));
+        const payload = {
+          category: 'GATEWAY_SOCKET_ERROR',
+          message_en: `Gateway connection error with guacd: ${err.message}`,
+          message_fa: `خطای اتصال گیت‌وی با guacd: ${err.message}`,
+          code: '516',
+        };
+        clientWs.send(encodeGuacInstruction('error', JSON.stringify(payload), '516'));
       }
     });
 
     guacdSocket.on('close', () => {
       if (clientWs.readyState === WebSocket.OPEN) {
         const isEstablished = handshakeState === 'READY';
-        const errDetail = isEstablished
-          ? 'Target server closed the remote desktop connection.'
-          : `Failed to connect to ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). Server may be offline, port closed, or NLA authentication failed.`;
-        clientWs.send(encodeGuacInstruction('error', errDetail, '516'));
+        const payload = isEstablished
+          ? {
+              category: 'SESSION_CLOSED',
+              message_en: 'Target server closed the remote desktop connection.',
+              message_fa: 'ارتباط ریموت دسکتاپ توسط سرور مقصد قطع شد.',
+              code: '516',
+            }
+          : {
+              category: 'RDP_UNREACHABLE_OR_FAILED',
+              message_en: `Failed to connect to ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). Server is unreachable or port is blocked by firewall.`,
+              message_fa: `عدم برقراری ارتباط با ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). سرور در دسترس نیست یا پورت توسط فایروال مسدود شده است.`,
+              code: '516',
+            };
+        clientWs.send(encodeGuacInstruction('error', JSON.stringify(payload), '516'));
         setTimeout(() => {
           try {
             if (clientWs.readyState === WebSocket.OPEN) {

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.5';
+export const APP_VERSION = '1.152.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.6',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'ارسال ساختاریافته JSON خطاهای ریموت دسکتاپ، اعتبارسنجی شفاف عدم دسترسی شبکه و انطباق کدهای پروتکل Guacamole',
+    title_en: 'Structured Guacamole JSON Error Payloads, Explicit Target Reachability & Protocol Code Alignment',
+    changes: [
+      'ارسال تمام خطاهای guacd و گیت‌وی به صورت JSON کامل شامل category، message_en، message_fa و code.',
+      'پارسیبنگ هوشمند خطاهای ساختاریافته در کلاینت مرورگر و نمایش پیام دو زبانه متناسب با زبان فعال پنل و فالبک در صورت پیام خام.',
+      'اجرای اعتبارسنجی پیش‌پرواز اتصال شبکه به سرور ویندوز و نمایش علت دقیق قطعی در صورت عدم دسترسی شبکه یا فایروال.',
+      'هماهنگ‌سازی کدهای هگزادسیمال وضعیت guacd در فرانت‌اند با مشخصات رسمی پروتکل Apache Guacamole (کدهای 0x0200 تا 0x03FF).',
+      'بررسی و تایید عدم افشای رمز عبورهای win_password و sessionPassword در لاگ‌ها، وقایع audit و پاسخ‌های API.',
+    ],
+    changes_en: [
+      'Dispatched comprehensive JSON structured error payloads (category, message_en, message_fa, code) across all guacd WebSocket gateway pathways.',
+      'Implemented bilingual JSON error parsing in InBrowserRemoteDesktopModal with language-adaptive rendering and graceful raw message fallback.',
+      'Added pre-flight target reachability validation providing explicit network/firewall failure diagnostics instead of generic tips.',
+      'Harmonized frontend hexadecimal Guacamole status codes with the official Apache Guacamole protocol specification (0x0200 to 0x03FF).',
+      'Audited and verified zero-leak confidentiality for win_password, vnc_password, and sessionPassword across logs, audits, and API responses.',
+    ],
+  },
   {
     version: '1.152.5',
     releaseDate: '2026-09-24',

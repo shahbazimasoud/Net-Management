@@ -41,6 +41,35 @@ interface InBrowserRemoteDesktopModalProps {
 
 type ScalingMode = 'fit' | 'native';
 
+interface StructuredGuacErrorPayload {
+  category?: string;
+  message_en?: string;
+  message_fa?: string;
+  code?: string;
+}
+
+function parseGuacErrorMessage(rawMsg: any, isEn: boolean): string | null {
+  if (!rawMsg) return null;
+  if (typeof rawMsg === 'object' && (rawMsg.message_en || rawMsg.message_fa)) {
+    return isEn ? (rawMsg.message_en || rawMsg.message_fa) : (rawMsg.message_fa || rawMsg.message_en);
+  }
+  if (typeof rawMsg === 'string') {
+    const trimmed = rawMsg.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed: StructuredGuacErrorPayload = JSON.parse(trimmed);
+        if (parsed && (parsed.message_en || parsed.message_fa)) {
+          return isEn ? (parsed.message_en || parsed.message_fa) : (parsed.message_fa || parsed.message_en);
+        }
+      } catch {
+        // Fall back to raw string
+      }
+    }
+    return trimmed;
+  }
+  return null;
+}
+
 export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalProps> = ({
   isOpen,
   server,
@@ -258,23 +287,28 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       }
 
       const translateGuacError = (status: any) => {
-        const code = status?.code;
-        const msg = status?.message;
-        if (msg && typeof msg === 'string' && msg.length > 3) return msg;
+        const rawMsg = status?.message;
+        const parsedMsg = parseGuacErrorMessage(rawMsg, isEn);
+        if (parsedMsg && parsedMsg.length > 3) return parsedMsg;
+
+        const rawCode = status?.code;
+        const code = typeof rawCode === 'string'
+          ? (rawCode.startsWith('0x') ? parseInt(rawCode, 16) : parseInt(rawCode, 10))
+          : rawCode;
 
         switch (code) {
           case 0x0200:
             return isEn ? 'Connection completed.' : 'ارتباط برقرار شد.';
           case 0x0201:
-            return isEn ? 'Protocol unsupported by target host or gateway.' : 'پروتکل توسط هاست یا گیت‌وی پشتیبانی نمی‌شود.';
+            return isEn ? 'Protocol or operation unsupported by target host or gateway.' : 'پروتکل یا عملیات توسط هاست یا گیت‌وی پشتیبانی نمی‌شود.';
           case 0x0202:
-            return isEn ? 'Server error occurred during remote desktop stream.' : 'خطای سرور در حین ارتباط با ریموت دسکتاپ رخ داد.';
+            return isEn ? 'Internal server error occurred on remote desktop gateway.' : 'خطای داخلی در سرور گیت‌وی رخ داد.';
           case 0x0203:
             return isEn ? 'Remote server is busy. Try again shortly.' : 'سرور مقصد مشغول است. لطفاً کمی بعد مجدداً تلاش کنید.';
           case 0x0204:
-            return isEn ? `Connection timed out. Host ${server?.ip || ''} took too long to respond.` : `زمان انتظار به پایان رسید. هاست ${server?.ip || ''} پاسخ نداد.`;
+            return isEn ? `Connection timed out. Target host ${server?.ip || ''}:${defaultPort} took too long to respond.` : `زمان انتظار به پایان رسید. هاست ${server?.ip || ''}:${defaultPort} پاسخ نداد.`;
           case 0x0205:
-            return isEn ? `Remote host ${server?.ip || ''} closed connection or refused RDP security negotiation.` : `هاست ${server?.ip || ''} ارتباط را قطع کرد یا پروتکل RDP را رد نمود.`;
+            return isEn ? `Remote host ${server?.ip || ''} encountered an upstream error or closed connection.` : `هاست ${server?.ip || ''} با خطای داخلی مواجه شد یا ارتباط را قطع کرد.`;
           case 0x0206:
             return isEn ? 'Target remote session resource not found.' : 'منبع نشست ریموت دسکتاپ یافت نشد.';
           case 0x0207:
@@ -282,17 +316,20 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           case 0x0208:
             return isEn ? 'Remote desktop session was closed by the host.' : 'نشست ریموت دسکتاپ توسط هاست بسته شد.';
           case 0x0209:
-            return isEn ? `Remote host ${server?.ip || ''} is unreachable on port ${defaultPort}. Check network and firewall.` : `سرور ${server?.ip || ''} روی پورت ${defaultPort} در دسترس نیست. فایروال و شبکه را بررسی کنید.`;
+            return isEn ? `Upstream host not found. Target ${server?.ip || ''} is unreachable or DNS lookup failed.` : `سرور مقصد یافت نشد. هاست ${server?.ip || ''} در دسترس نیست یا تحلیل نام DNS ناموفق بود.`;
           case 0x020a:
-            return isEn ? 'Authentication failed. Check username, password, or NLA security settings.' : 'احراز هویت ناموفق بود. نام کاربری، رمز عبور یا تنظیمات NLA را بررسی کنید.';
+            return isEn ? `Upstream host unavailable. Target ${server?.ip || ''}:${defaultPort} refused connection or is offline.` : `سرور مقصد در دسترس نیست. هاست ${server?.ip || ''}:${defaultPort} اتصال را رد کرد یا خاموش است.`;
           case 0x020b:
-            return isEn ? 'Disconnected due to upstream inactivity.' : 'قطع ارتباط به دلیل عدم فعالیت در سرور.';
+            return isEn ? 'Disconnected due to upstream session inactivity.' : 'قطع ارتباط به دلیل عدم فعالیت در نشست سرور مقصد.';
+          case 0x020c:
+            return isEn ? 'Upstream remote desktop session closed.' : 'نشست ریموت در سرور مقصد بسته شد.';
+          case 0x020d:
           case 0x0300:
             return isEn ? 'Invalid client parameters sent to gateway.' : 'پارامترهای ارسالی به گیت‌وی نامعتبر است.';
           case 0x0301:
-            return isEn ? 'Unauthorized remote session access.' : 'عدم دسترسی مجاز به نشست ریموت.';
+            return isEn ? 'Authentication failed. Check username, password, or NLA security settings.' : 'احراز هویت ناموفق بود. نام کاربری، رمز عبور یا تنظیمات NLA را بررسی کنید.';
           case 0x0303:
-            return isEn ? 'Remote desktop access forbidden.' : 'دسترسی به ریموت دسکتاپ ممنوع است.';
+            return isEn ? 'Remote desktop access forbidden for this account.' : 'دسترسی ریموت دسکتاپ برای این حساب کاربری مجاز نیست.';
           case 0x0308:
             return isEn ? 'Client connection timeout.' : 'زمان اتصال کلاینت منقضی شد.';
           default:
@@ -479,14 +516,39 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const initiateConnection = useCallback(async () => {
     if (!server) return;
     cleanupConnection();
-    setConnectionStatus('requesting_token');
+    setConnectionStatus('validating_target');
     setErrorMessage(null);
 
     const [width, height] = displayResolution.split('x').map(Number);
     const authToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
 
     try {
-      // 1. Verify guacd gateway status
+      // 1. Pre-flight reachability & environment validation
+      const valRes = await fetch('/api/remote-desktop/validate-target', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ serverId: server.id }),
+      }).catch(() => null);
+
+      if (valRes && valRes.ok) {
+        const valData = await valRes.json();
+        setTargetValidationInfo(valData);
+        if (valData.reachable === false) {
+          setConnectionStatus('error');
+          const errMsg = isEn
+            ? `Target Windows Server ${server.name} (${valData.targetHost}:${valData.targetPort}) is completely unreachable (${valData.error || 'Connection timed out'}). Verify the server is powered on, IP routing and VPN tunnel are operational, and port ${valData.targetPort} is open in the firewall.`
+            : `سرور ویندوزی مقصد ${server.name} (${valData.targetHost}:${valData.targetPort}) به هیچ وجه در دسترس نیست (${valData.error || 'پایان مهلت انتظار / تایم‌اوت'}). وضعیت روشن بودن سرور، روتینگ شبکه یا تونل VPN و باز بودن پورت ${valData.targetPort} در فایروال را بررسی نمایید.`;
+          setErrorMessage(errMsg);
+          return;
+        }
+      }
+
+      setConnectionStatus('requesting_token');
+
+      // 2. Verify guacd gateway status
       const statusRes = await fetch('/api/remote-desktop/status', {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
       }).catch(() => null);
@@ -500,7 +562,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
       }
 
-      // 2. Request single-use connection token
+      // 3. Request single-use connection token
       const resp = await fetch('/api/remote-desktop/token', {
         method: 'POST',
         headers: {
@@ -1287,27 +1349,55 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                     <span className="text-slate-200">{server?.win_username || 'Administrator'}</span>
                   </div>
                   <div>
+                    <span className="text-slate-400">{isEn ? 'Reachability:' : 'وضعیت ارتباط:'}</span>{' '}
+                    <span className={targetValidationInfo?.reachable ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                      {targetValidationInfo?.reachable === true
+                        ? (isEn ? `Online (${targetValidationInfo.latencyMs}ms)` : `در دسترس (${targetValidationInfo.latencyMs}ms)`)
+                        : targetValidationInfo?.reachable === false
+                        ? (isEn ? `Unreachable (${targetValidationInfo.error || 'Timeout'})` : `عدم دسترسی (${targetValidationInfo.error || 'تایم‌اوت'})`)
+                        : (isEn ? 'Untested' : 'نامشخص')}
+                    </span>
+                  </div>
+                  <div>
                     <span className="text-slate-400">{isEn ? 'Gateway Daemon:' : 'وضعیت guacd:'}</span>{' '}
-                    <span className="text-emerald-400 font-bold">guacd active (4822)</span>
+                    <span className={targetValidationInfo?.guacdRunning || guacdSetupInfo?.guacdRunning ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                      {targetValidationInfo?.guacdRunning || guacdSetupInfo?.guacdRunning
+                        ? (isEn ? 'Active (4822)' : 'فعال (۴۸۲۲)')
+                        : (isEn ? 'Offline' : 'غیرفعال')}
+                    </span>
                   </div>
                 </div>
-                <ul className="list-disc list-inside text-[11px] text-slate-400 space-y-1 pt-1">
-                  <li>
-                    {isEn
-                      ? 'Ensure target Windows Server has Remote Desktop enabled.'
-                      : 'از فعال بودن Remote Desktop در تنظیمات ویندوز سرور مقصد اطمینان حاصل کنید.'}
-                  </li>
-                  <li>
-                    {isEn
-                      ? 'Verify firewall allows incoming connections on port 3389.'
-                      : 'فایروال ویندوز سرور و شبکه باید پورت ۳۳۸۹ را باز نگه داشته باشند.'}
-                  </li>
-                  <li>
-                    {isEn
-                      ? 'If Network Level Authentication (NLA) is strictly required, ensure valid password is provided.'
-                      : 'اگر NLA در سرور اجباری است، حتماً نام کاربری و رمز عبور صحیح وارد نمایید.'}
-                  </li>
-                </ul>
+                {targetValidationInfo?.reachable === false ? (
+                  <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-800/50 text-[11px] text-rose-200 space-y-1">
+                    <div className="font-bold flex items-center gap-1 text-rose-300">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                      {isEn ? 'Network Route / Firewall Failure' : 'خطای مسیر شبکه یا فایروال'}
+                    </div>
+                    <p className="text-[10px] text-rose-300/80 leading-relaxed">
+                      {isEn
+                        ? `Target host ${server?.ip || ''}:${defaultPort} did not respond to TCP probe (${targetValidationInfo?.error || 'ETIMEDOUT'}). This indicates network isolation, absent VPN tunnel, or Windows Firewall blocking port ${defaultPort}.`
+                        : `میزبان مقصد ${server?.ip || ''}:${defaultPort} به کاوشگر TCP پاسخ نداد (${targetValidationInfo?.error || 'ETIMEDOUT'}). این نشان‌دهنده عدم دسترسی شبکه، نبود تونل VPN یا مسدود بودن پورت ${defaultPort} در فایروال است.`}
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="list-disc list-inside text-[11px] text-slate-400 space-y-1 pt-1">
+                    <li>
+                      {isEn
+                        ? 'Ensure target Windows Server has Remote Desktop enabled in System Properties.'
+                        : 'از فعال بودن Remote Desktop در تنظیمات سیستم ویندوز سرور اطمینان حاصل نمایید.'}
+                    </li>
+                    <li>
+                      {isEn
+                        ? 'Verify Windows Firewall permits inbound connections on TCP port 3389.'
+                        : 'بررسی کنید پورت TCP ۳۳۸۹ در فایروال ویندوز سرور باز باشد.'}
+                    </li>
+                    <li>
+                      {isEn
+                        ? 'For Active Directory domains, ensure the account is in Remote Desktop Users and domain is correct.'
+                        : 'در شبکه‌های اکتیو دایرکتوری، مطمئن شوید کاربر عضو Remote Desktop Users بوده و نام دامین صحیح است.'}
+                    </li>
+                  </ul>
+                )}
               </div>
 
               <div className="flex items-center gap-3">
