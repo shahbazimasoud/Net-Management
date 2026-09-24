@@ -110,6 +110,7 @@ import {
   createLinuxVolumeGroupSSH,
   executeServerRestartSSH,
 } from './linuxServerMonitor';
+import { detectLinuxNetworkStack } from './linuxNetworkManager';
 import {
   fetchLinuxPackageOverview,
   startPackageUpdateJob,
@@ -2558,6 +2559,45 @@ const handleLinuxServerSysConfig = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/sysconfig', handleLinuxServerSysConfig);
 apiRouter.post('/remote-servers/:id/sysconfig', handleLinuxServerSysConfig);
+
+// GET / POST /api/remote-servers/:id/network-stack - Detect Linux distribution, networking stack, and interfaces
+const handleLinuxServerNetworkStack = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    if (server.os_type !== 'linux') {
+      return res.status(400).json({ success: false, error: 'Network stack discovery is designed for Linux remote servers.' });
+    }
+
+    const ephemeralPassword = (req.body?.password || req.query?.password) as string | undefined;
+    if (server.prompt_password_on_connect && !ephemeralPassword && !server.ssh_password) {
+      return res.status(401).json({
+        success: false,
+        requires_password: true,
+        error: 'Password prompt required for this server (Zero-storage policy enabled).'
+      });
+    }
+
+    const data = await detectLinuxNetworkStack(server, ephemeralPassword);
+    return res.json({
+      success: true,
+      ...data,
+    });
+  } catch (err: any) {
+    console.error(`[LinuxNetworkStack API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to detect network stack from remote server',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/network-stack', handleLinuxServerNetworkStack);
+apiRouter.post('/remote-servers/:id/network-stack', handleLinuxServerNetworkStack);
 
 // POST /api/remote-servers/:id/network-action - Configure Linux network interface
 apiRouter.post('/remote-servers/:id/network-action', async (req: Request, res: Response) => {

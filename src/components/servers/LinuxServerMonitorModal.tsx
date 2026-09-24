@@ -42,14 +42,27 @@ import {
   FolderCog,
   FileText,
   PackageCheck,
+  Router,
+  Compass,
+  ArrowDownCircle,
+  ArrowUpCircle,
 } from 'lucide-react';
-import { RemoteServer, LinuxServerLiveMetrics, LinuxServerProcessMetric, LinuxSystemService, LinuxNetworkInterfaceDetail, LinuxSystemDetailedInfo } from '../../types';
+import {
+  RemoteServer,
+  LinuxServerLiveMetrics,
+  LinuxServerProcessMetric,
+  LinuxSystemService,
+  LinuxNetworkInterfaceDetail,
+  LinuxNetworkStackInfo,
+  LinuxSystemDetailedInfo,
+} from '../../types';
 import {
   fetchLinuxServerLiveMetrics,
   fetchLinuxServerServices,
   controlLinuxServerService,
   controlLinuxServerProcess,
   fetchLinuxServerSysConfig,
+  fetchLinuxNetworkStack,
   unmountLinuxFilesystem,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -59,6 +72,7 @@ import { LinuxSysConfigTab } from './LinuxSysConfigTab';
 import { LinuxLogsTab } from './LinuxLogsTab';
 import { LinuxPackageUpdateTab } from './LinuxPackageUpdateTab';
 import { LinuxNetworkConfigModal } from './LinuxNetworkConfigModal';
+import { LinuxNetworkInterfacesTab } from './LinuxNetworkInterfacesTab';
 import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
 import { LinuxDirectoryPolicyTab } from './LinuxDirectoryPolicyTab';
@@ -108,6 +122,8 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [selectedInterfaceForConfig, setSelectedInterfaceForConfig] = useState<LinuxNetworkInterfaceDetail | null>(null);
   const [detailedInterfaces, setDetailedInterfaces] = useState<LinuxNetworkInterfaceDetail[]>([]);
   const [sysInfo, setSysInfo] = useState<LinuxSystemDetailedInfo | null>(null);
+  const [networkStackInfo, setNetworkStackInfo] = useState<LinuxNetworkStackInfo | null>(null);
+  const [networkLoading, setNetworkLoading] = useState(false);
 
   // Watchdog & Auto-Recovery Modal State
   const [isWatchdogModalOpen, setIsWatchdogModalOpen] = useState(false);
@@ -246,19 +262,41 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     }
   }, [server, ephemeralPassword]);
 
+  // Fetch Linux distribution, networking stack, and interfaces
+  const loadNetworkStack = useCallback(async (customPassword?: string) => {
+    if (!server) return;
+    const pwdToUse = customPassword !== undefined ? customPassword : ephemeralPassword;
+    setNetworkLoading(true);
+    try {
+      const res = await fetchLinuxNetworkStack(server.id, pwdToUse);
+      if (res && res.success) {
+        if (res.stackInfo) setNetworkStackInfo(res.stackInfo);
+        if (res.interfaces && res.interfaces.length > 0) {
+          setDetailedInterfaces(res.interfaces);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load network stack', err);
+    } finally {
+      setNetworkLoading(false);
+    }
+  }, [server, ephemeralPassword]);
+
   // Initial load and periodic polling
   useEffect(() => {
     if (isOpen && server) {
       fetchMetrics();
       loadSysConfig();
+      loadNetworkStack();
     } else {
       setMetrics(null);
       setError(null);
       setHistory([]);
       setSysInfo(null);
       setDetailedInterfaces([]);
+      setNetworkStackInfo(null);
     }
-  }, [isOpen, server?.id, fetchMetrics, loadSysConfig]);
+  }, [isOpen, server?.id, fetchMetrics, loadSysConfig, loadNetworkStack]);
 
   useEffect(() => {
     // Only poll automatically if on telemetry tabs to avoid disrupting configuration tabs (SysConfig, Users, Logs)
@@ -1734,103 +1772,37 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               )}
 
               {/* TAB 3: NETWORK INTERFACES */}
-              {activeTab === 'network' && metrics && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-bold">{isEn ? 'Network Interfaces & Throughput' : 'کارت‌های شبکه و ترافیک'}</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {isEn
-                          ? 'Physical and virtual network device statistics extracted directly from /proc/net/dev.'
-                          : 'آمار ترافیک دریافتی و ارسالی کارت‌های شبکه استخراج شده از /proc/net/dev.'}
-                      </p>
-                    </div>
-                    <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                      {metrics.networks.length} {isEn ? 'Interfaces' : 'اینترفیس'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {metrics.networks.map((net) => (
-                      <div
-                        key={net.interface}
-                        className={`p-4 rounded-xl border space-y-3 ${
-                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="p-2 rounded-lg bg-cyan-500/15 text-cyan-400 font-mono font-bold text-xs">
-                              {net.interface}
-                            </div>
-                            <div>
-                              <span className="text-xs font-bold">{net.interface}</span>
-                              <span className="text-[10px] text-slate-400 block font-mono">
-                                Total Packets: {(net.rxPackets + net.txPackets).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                              UP
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const detailed = detailedInterfaces.find((i) => i.name === net.interface);
-                                setSelectedInterfaceForConfig(
-                                  detailed || {
-                                    name: net.interface,
-                                    state: 'UP',
-                                    mac: '',
-                                    ipv4: '',
-                                    netmask: '',
-                                    cidr: 24,
-                                    ipv6: '',
-                                    gateway: '',
-                                    mtu: 1500,
-                                    rxBytes: net.rxBytes,
-                                    txBytes: net.txBytes,
-                                  }
-                                );
-                              }}
-                              className="px-2 py-0.5 rounded bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-400 border border-cyan-500/30 text-[11px] font-bold transition cursor-pointer flex items-center gap-1"
-                            >
-                              <Edit3 className="w-3 h-3" />
-                              <span>{isEn ? 'Configure' : 'پیکربندی'}</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3 font-mono text-xs pt-1">
-                          <div
-                            className={`p-2.5 rounded-lg border ${
-                              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-white/5'
-                            }`}
-                          >
-                            <span className="text-[10px] text-slate-400 block">{isEn ? 'Received (RX)' : 'دریافتی (RX)'}</span>
-                            <span className="text-sm font-bold text-emerald-400 block mt-0.5">{net.rxHuman}</span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">
-                              {net.rxPackets.toLocaleString()} pkts
-                            </span>
-                          </div>
-
-                          <div
-                            className={`p-2.5 rounded-lg border ${
-                              isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/40 border-white/5'
-                            }`}
-                          >
-                            <span className="text-[10px] text-slate-400 block">{isEn ? 'Transmitted (TX)' : 'ارسالی (TX)'}</span>
-                            <span className="text-sm font-bold text-cyan-400 block mt-0.5">{net.txHuman}</span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">
-                              {net.txPackets.toLocaleString()} pkts
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {activeTab === 'network' && (
+                <LinuxNetworkInterfacesTab
+                  server={server}
+                  ephemeralPassword={ephemeralPassword}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                  networkStackInfo={networkStackInfo}
+                  interfaces={
+                    detailedInterfaces.length > 0
+                      ? detailedInterfaces
+                      : (metrics?.networks || []).map((net) => ({
+                          name: net.interface,
+                          state: 'UP',
+                          mac: '',
+                          ipv4: '',
+                          netmask: '',
+                          cidr: 24,
+                          ipv6: '',
+                          gateway: '',
+                          mtu: 1500,
+                          type: net.interface === 'lo' ? 'loopback' : 'physical',
+                          rxBytes: net.rxBytes,
+                          txBytes: net.txBytes,
+                          rxPackets: net.rxPackets,
+                          txPackets: net.txPackets,
+                        }))
+                  }
+                  loading={networkLoading}
+                  onRefresh={() => loadNetworkStack()}
+                  onConfigureInterface={(iface) => setSelectedInterfaceForConfig(iface)}
+                />
               )}
 
               {/* TAB 4: PROCESSES */}

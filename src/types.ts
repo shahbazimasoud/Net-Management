@@ -1599,19 +1599,100 @@ export interface LinuxLoggedInUser {
   what: string;
 }
 
+export type LinuxNetworkStackType =
+  | 'networkmanager'
+  | 'netplan'
+  | 'systemd-networkd'
+  | 'ifupdown'
+  | 'network-scripts'
+  | 'wicked'
+  | 'ip-fallback'
+  | 'unknown';
+
+export type LinuxDnsManagerType =
+  | 'systemd-resolved'
+  | 'resolvconf'
+  | 'networkmanager'
+  | 'static-resolv-conf'
+  | 'unknown';
+
+export type LinuxNetworkInterfaceType =
+  | 'physical'
+  | 'virtual'
+  | 'bridge'
+  | 'bond'
+  | 'vlan'
+  | 'tunnel'
+  | 'loopback'
+  | 'other';
+
+export interface LinuxNetworkAddressEntry {
+  ip: string;
+  cidr: number;
+  scope?: string;
+  broadcast?: string;
+  dynamic?: boolean;
+}
+
 export interface LinuxNetworkInterfaceDetail {
   name: string;
   state: 'UP' | 'DOWN' | 'UNKNOWN';
+  linkState?: 'carrier' | 'no-carrier' | 'dormant' | 'unknown';
+  type?: LinuxNetworkInterfaceType;
   mac: string;
   ipv4: string;
+  ipv4List?: LinuxNetworkAddressEntry[];
   netmask: string;
   cidr: number;
   ipv6: string;
+  ipv6List?: LinuxNetworkAddressEntry[];
   gateway: string;
+  dns?: string[];
+  ipMode?: 'dhcp' | 'static' | 'unconfigured';
   mtu: number;
   speed?: string;
+  duplex?: string;
   rxBytes: number;
   txBytes: number;
+  rxPackets?: number;
+  txPackets?: number;
+  rxErrors?: number;
+  txErrors?: number;
+  rxDropped?: number;
+  txDropped?: number;
+  isManagement?: boolean;
+  isDefaultRoute?: boolean;
+  driver?: string;
+}
+
+export interface LinuxNetworkStackInfo {
+  distroId: string;
+  distroName: string;
+  distroVersion: string;
+  initSystem: string;
+  activeStack: LinuxNetworkStackType;
+  availableStacks: LinuxNetworkStackType[];
+  activeService: string;
+  dnsManager: LinuxDnsManagerType;
+  configuredDns: string[];
+  effectiveDns: string[];
+  defaultGateway: string;
+  defaultInterface: string;
+  managementInterface: string;
+  managementClientIp: string;
+  configFiles: string[];
+}
+
+export interface LinuxInterfaceConfigPayload {
+  ipMode: 'dhcp' | 'static';
+  ipv4?: string;
+  cidr?: number;
+  gateway?: string;
+  dns?: string[];
+  mtu?: number;
+  ipv6Mode?: 'disabled' | 'auto' | 'static';
+  ipv6?: string;
+  ipv6Prefix?: number;
 }
 
 export interface LinuxSystemDetailedInfo {

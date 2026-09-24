@@ -20,6 +20,8 @@ import {
   LinuxUserSecurityInfo,
   LinuxLoggedInUser,
   LinuxNetworkInterfaceDetail,
+  LinuxNetworkStackInfo,
+  LinuxInterfaceConfigPayload,
   LinuxSystemDetailedInfo,
   LinuxProxyConfig,
   LinuxBlockDevice,
@@ -1976,6 +1978,31 @@ export async function fetchLinuxServerSysConfig(
   requires_password?: boolean;
 }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/sysconfig`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchLinuxNetworkStack(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  stackInfo: LinuxNetworkStackInfo;
+  interfaces: LinuxNetworkInterfaceDetail[];
+  error?: string;
+  requires_password?: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/network-stack`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: ephemeralPassword }),

@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.134.0';
+export const APP_VERSION = '1.135.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.135.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'سیستم تشخیص توزیع و پشته شبکه لینوکس (Distribution & Network Stack Discovery) و کارت‌های تفصیلی اینترفیس‌ها',
+    title_en: 'Linux Distribution & Network Stack Discovery Architecture with Comprehensive Interface Hardware & Routing Cards',
+    changes: [
+      'پیاده‌سازی ماژول عمیق تشخیص توزیع و معماری شبکه لینوکس (/server/linuxNetworkManager.ts) با شناسایی دقیق نسخه سیستم‌عامل (Debian، Ubuntu، RHEL، Rocky، CentOS، Fedora، SUSE)، مدیر سیستم (systemd/sysvinit)، پشته فعال شبکه (NetworkManager، Netplan، systemd-networkd، ifupdown)، مدیر DNS (systemd-resolved، NetworkManager، resolvconf) و اینترفیس نشست فعال SSH.',
+      'افزودن اندپوینت‌های اختصاصی بک‌اند (/api/remote-servers/:id/network-stack) جهت استخراج بدون مداخله و مطمئن داده‌های ساختاریافته JSON از ip -j addr و ip -j -s link و لایه‌های مسیریابی.',
+      'طراحی و استقرار کامپوننت اختصاصی LinuxNetworkInterfacesTab به عنوان جایگزین ساختار پیشین در مودال مدیریت سرور لینوکس.',
+      'افزودن کارت هوشمند پشته شبکه و توزیع در بالای صفحه با نمایش وضعیت سرویس فعال، مدیر DNS، آدرس پیش‌فرض Gateway، و بنر هشدار محافظتی در صورت قرار گرفتن اینترفیس روی مسیر اتصال زنده SSH.',
+      'ارائه مشخصات جامع سخت‌افزاری و نرم‌افزاری هر کارت شبکه شامل MAC، وضعیت حامل (Carrier)، IPv4، IPv6، متد IP (استاتیک / DHCP)، MTU، سرعت و Duplex لینک، درایور، و آمار تفکیک‌شده ترافیک، پکت‌ها و خطاهای RX/TX.',
+      'تجهیز به فیلترهای تفکیک‌شده (همه، UP، DOWN، فیزیکی، مجازی)، جستجوی بلادرنگ، راهنمای ۳ بخشی FieldInfoTooltip، و انطباق کامل با استانداردهای دوزبانه (فارسی/انگلیسی) و تم‌های روشن و تیره.',
+    ],
+    changes_en: [
+      'Implemented native Linux distribution and network stack discovery module (/server/linuxNetworkManager.ts) accurately detecting OS distro and version (Debian, Ubuntu, RHEL, Rocky, CentOS, Fedora, SUSE), init system (systemd/sysvinit), active network stack (NetworkManager, Netplan, systemd-networkd, ifupdown), DNS manager (systemd-resolved, NetworkManager, resolvconf), and active SSH management route.',
+      'Added dedicated backend endpoints (/api/remote-servers/:id/network-stack) for safe, non-intrusive extraction of structured JSON telemetry from ip -j addr, ip -j -s link, and routing tables.',
+      'Designed and deployed modular LinuxNetworkInterfacesTab component in the Server Management modal, replacing the previous minimal throughput-only view.',
+      'Added high-visibility Network Stack Overview card displaying active network service, DNS manager, default gateway, and dynamic SSH session warning banner when viewing the management interface.',
+      'Exposed detailed hardware and protocol attributes per interface: MAC address, carrier link status, IPv4/IPv6 addresses, IP mode (Static vs DHCP), MTU, link speed/duplex, driver, and RX/TX traffic, packet, and error metrics.',
+      'Equipped with multi-state filters (All, UP, DOWN, Physical, Virtual), live search, 3-part boundary-safe FieldInfoTooltip, and strict bilingual English/Persian adherence with dark/light mode ergonomics.',
+    ],
+  },
   {
     version: '1.134.0',
     releaseDate: '2026-09-23',
