@@ -89,6 +89,111 @@ function encodeGuacInstruction(...args: (string | number)[]): string {
 }
 
 /**
+ * Normalize Active Directory / Windows user credentials:
+ * Handles:
+ * 1. Administrator + CORP -> username="Administrator", domain="CORP"
+ * 2. CORP\\Administrator -> username="Administrator", domain="CORP"
+ * 3. Administrator@corp.internal -> username="Administrator", domain="corp.internal"
+ */
+export function normalizeRdpCredentials(rawUsername?: string, rawDomain?: string): { username: string; domain: string } {
+  let username = (rawUsername || '').trim();
+  let domain = (rawDomain || '').trim();
+
+  if (username.includes('\\')) {
+    const parts = username.split('\\');
+    domain = parts[0].trim();
+    username = parts.slice(1).join('\\').trim();
+  } else if (username.includes('@')) {
+    const parts = username.split('@');
+    username = parts[0].trim();
+    if (!domain) {
+      domain = parts[1].trim();
+    }
+  }
+
+  return { username, domain };
+}
+
+/**
+ * Perform a lightweight non-invasive pre-flight TCP reachability check
+ */
+export function checkTcpReachability(host: string, port: number, timeoutMs: number = 2500): Promise<{ reachable: boolean; latencyMs: number; error?: string }> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const socket = new net.Socket();
+    socket.setTimeout(timeoutMs);
+
+    socket.once('connect', () => {
+      const latencyMs = Date.now() - start;
+      socket.destroy();
+      resolve({ reachable: true, latencyMs });
+    });
+
+    socket.once('timeout', () => {
+      socket.destroy();
+      resolve({ reachable: false, latencyMs: timeoutMs, error: 'ETIMEDOUT' });
+    });
+
+    socket.once('error', (err: any) => {
+      socket.destroy();
+      resolve({ reachable: false, latencyMs: Date.now() - start, error: err.code || err.message });
+    });
+
+    socket.connect(port, host);
+  });
+}
+
+/**
+ * Translate low-level Guacamole & FreeRDP handshake errors into structured diagnostic categories
+ */
+export function parseStructuredGuacError(errMsg: string, host: string, port: number): { category: string; message_en: string; message_fa: string; code: string } {
+  const lower = (errMsg || '').toLowerCase();
+
+  if (lower.includes('logon failure') || lower.includes('authentication') || lower.includes('credentials') || lower.includes('password') || lower.includes('0x2000c') || lower.includes('0x00000002') || lower.includes('account')) {
+    return {
+      category: 'RDP_AUTH_FAILED',
+      message_en: `Authentication failed on target host ${host}:${port}. The Windows server rejected the supplied username or password. Verify the Domain and username credentials.`,
+      message_fa: `احراز هویت در هاست مقصد ${host}:${port} ناموفق بود. ویندوز سرور نام کاربری یا رمز عبور را رد کرد. تنظیمات دامین و کاربر را بررسی نمایید.`,
+      code: '517',
+    };
+  }
+
+  if (lower.includes('nla') || lower.includes('credssp') || lower.includes('security negotiation')) {
+    return {
+      category: 'RDP_NLA_FAILED',
+      message_en: `Windows rejected the NLA (Network Level Authentication) handshake on ${host}:${port}. Verify username, password, and domain membership.`,
+      message_fa: `احراز هویت لایه شبکه (NLA) توسط ویندوز در ${host}:${port} رد شد. از صحت نام کاربری، رمز عبور و دامین اطمینان حاصل فرمایید.`,
+      code: '517',
+    };
+  }
+
+  if (lower.includes('refused') || lower.includes('econnrefused')) {
+    return {
+      category: 'RDP_CONNECTION_REFUSED',
+      message_en: `The Windows server (${host}:${port}) actively refused the RDP connection. Verify Remote Desktop service is enabled and listening on port ${port}.`,
+      message_fa: `ویندوز سرور (${host}:${port}) اتصال RDP را رد کرد. بررسی کنید سرویس Remote Desktop فعال و روی پورت ${port} در حال گوش دادن باشد.`,
+      code: '516',
+    };
+  }
+
+  if (lower.includes('timeout') || lower.includes('etimedout')) {
+    return {
+      category: 'RDP_TIMEOUT',
+      message_en: `The RDP endpoint (${host}:${port}) timed out without responding. Check firewall rules and network routing.`,
+      message_fa: `پایانه RDP (${host}:${port}) در زمان مقرر پاسخ نداد. قوانین فایروال و مسیریابی شبکه را بررسی نمایید.`,
+      code: '516',
+    };
+  }
+
+  return {
+    category: 'RDP_PROTOCOL_ERROR',
+    message_en: errMsg || `RDP connection failed on target ${host}:${port}`,
+    message_fa: errMsg || `برقراری اتصال RDP به مقصد ${host}:${port} با خطا مواجه شد`,
+    code: '516',
+  };
+}
+
+/**
  * Check if guacd daemon is listening on port 4822
  */
 function checkGuacdHealth(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
@@ -295,6 +400,48 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     }
   });
 
+  // REST API: Pre-flight reachability validation
+  app.post('/api/remote-desktop/validate-target', async (req: Request, res: Response) => {
+    const { serverId } = req.body;
+    if (!serverId) return res.status(400).json({ error: 'Missing serverId' });
+
+    let serverRecord: any = null;
+    try {
+      const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
+      if (fs.existsSync(storePath)) {
+        const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+        serverRecord = (store.remote_servers || []).find((s: any) => s.id === serverId || s.name === serverId);
+      }
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!serverRecord) return res.status(404).json({ error: 'Server not found' });
+
+    const isRdp = serverRecord.os_type === 'windows';
+    const targetPort = isRdp ? (serverRecord.win_port || 3389) : (serverRecord.vnc_port || 5900);
+    const targetHost = serverRecord.ip;
+
+    const { reachable, latencyMs, error } = await checkTcpReachability(targetHost, targetPort, 2500);
+    const guacdRunning = await checkGuacdHealth(guacdHost, guacdPort);
+    const norm = normalizeRdpCredentials(serverRecord.win_username, serverRecord.win_domain);
+
+    res.json({
+      success: true,
+      serverId: serverRecord.id,
+      serverName: serverRecord.name,
+      targetHost,
+      targetPort,
+      reachable,
+      latencyMs,
+      error: error || null,
+      guacdRunning,
+      normalizedUser: norm.username,
+      normalizedDomain: norm.domain,
+      hasPasswordConfigured: Boolean(serverRecord.win_password || serverRecord.vnc_password),
+    });
+  });
+
   // REST API: Request Token for Remote Desktop Session
   // Requires RBAC authentication and keeps credentials 100% on the server
   app.post('/api/remote-desktop/token', async (req: Request, res: Response) => {
@@ -343,13 +490,16 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     // Resolve credentials strictly on server-side
     const isRdp = protocol === 'rdp' || serverRecord.os_type === 'windows';
     const chosenProtocol = isRdp ? 'rdp' : 'vnc';
-    const targetPort = isRdp ? serverRecord.win_port || 3389 : serverRecord.vnc_port || 5900;
-    const targetUsername = isRdp ? serverRecord.win_username || 'Administrator' : serverRecord.vnc_username || '';
+    const targetPort = isRdp ? (serverRecord.win_port || 3389) : (serverRecord.vnc_port || 5900);
+    const rawUsername = isRdp ? (serverRecord.win_username || 'Administrator') : (serverRecord.vnc_username || '');
+    const rawDomain = isRdp ? (serverRecord.win_domain || '') : '';
+    const normalized = normalizeRdpCredentials(rawUsername, rawDomain);
+    const targetUsername = normalized.username;
+    const targetDomain = normalized.domain;
     const isEphemeralAuth = typeof sessionPassword === 'string' && sessionPassword.length > 0;
     const targetPassword = isEphemeralAuth
       ? sessionPassword
       : (isRdp ? serverRecord.win_password || '' : serverRecord.vnc_password || '');
-    const targetDomain = isRdp ? serverRecord.win_domain || '' : '';
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const sessionId = `rdp-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
@@ -400,6 +550,8 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       serverIp: serverRecord.ip,
       protocol: chosenProtocol,
       port: targetPort,
+      username: targetUsername,
+      domain: targetDomain,
       concurrentSessionsOnTarget: concurrentCount,
       expiresInSec: Math.round(TOKEN_TTL_MS / 1000),
     });
@@ -647,10 +799,11 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             }
             handshakeState = 'READY';
           } else if (opcode === 'error') {
-            const errMsg = parsed[1] || 'Remote server connection error';
-            console.warn(`[RemoteDesktop] guacd error during handshake: ${errMsg}`);
+            const rawErrMsg = parsed[1] || 'Remote server connection error';
+            console.warn(`[RemoteDesktop] guacd error during handshake: ${rawErrMsg}`);
+            const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port);
             if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(instructionStr + ';');
+              clientWs.send(encodeGuacInstruction('error', structured.message_en, structured.code));
             }
           }
         } else {

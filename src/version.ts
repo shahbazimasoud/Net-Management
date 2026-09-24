@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.2';
+export const APP_VERSION = '1.152.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.152.3',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'اصلاح جریان نشست و پروتکل guacd در بک‌اند، نرمال‌سازی نام کاربری/دامین و اعتبارسنجی پیش‌پرواز TCP',
+    title_en: 'Correct guacd Session & Protocol Flow, Domain Normalization, and Pre-flight TCP Validation',
+    changes: [
+      'پیاده‌سازی تابع normalizeRdpCredentials جهت پشتیبانی هم‌زمان از ساختارهای DOMAIN\\User، User@domain و تفکیک دامین.',
+      'افزودن تابع اعتبارسنجی پیش‌پرواز checkTcpReachability و اندپوینت /api/remote-desktop/validate-target جهت تست در دسترس بودن پورت سرور ویندوز پیش از استارت نشست.',
+      'اصلاح تفکیک خطاهای هندشیک guacd و ارسال خطاهای ساختاریافته معنادار (RDP_AUTH_FAILED، RDP_NLA_FAILED، RDP_CONNECTION_REFUSED).',
+      'تضمین حفظ حریم امنیتی و عدم نشت رمز عبور در پاسخ‌های API و توکن‌های نشست.',
+    ],
+    changes_en: [
+      'Engineered normalizeRdpCredentials to accurately parse DOMAIN\\User, UPN user@domain, and distinct domain inputs.',
+      'Introduced checkTcpReachability helper and /api/remote-desktop/validate-target endpoint to verify target TCP port reachability before launching RDP handshake.',
+      'Transformed raw guacd handshake error packets into structured diagnostics (RDP_AUTH_FAILED, RDP_NLA_FAILED, RDP_CONNECTION_REFUSED).',
+      'Guaranteed zero password exposure in client API tokens and response payloads.',
+    ],
+  },
   {
     version: '1.152.2',
     releaseDate: '2026-09-24',
