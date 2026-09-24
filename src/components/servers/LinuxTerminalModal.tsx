@@ -2489,12 +2489,12 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                         <span className="text-slate-400">{isEn ? 'CPU & Memory' : 'پردازنده و رم'}</span>
                         <span className="font-mono text-slate-200">
-                          {server.cpu_cores || 8} vCPU • {server.ram_gb || 32} GB
+                          {server.cpu_cores ? `${server.cpu_cores} vCPU` : '—'} • {server.ram_gb ? `${server.ram_gb} GB` : '—'}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-slate-400">{isEn ? 'Disk Storage' : 'فضای ذخیره‌سازی'}</span>
-                        <span className="font-mono text-slate-200">{server.disk_gb || 500} GB NVMe</span>
+                        <span className="font-mono text-slate-200">{server.disk_gb ? `${server.disk_gb} GB` : '—'}</span>
                       </div>
                     </div>
 

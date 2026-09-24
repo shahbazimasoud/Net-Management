@@ -109,6 +109,7 @@ import {
   createLinuxPvSSH,
   createLinuxVolumeGroupSSH,
   executeServerRestartSSH,
+  runAdaptiveSshCommand,
 } from './linuxServerMonitor';
 import {
   detectLinuxNetworkStack,
@@ -1171,13 +1172,54 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
 
     let resolved = false;
 
-    socket.connect(targetPort, targetHost, () => {
+    socket.connect(targetPort, targetHost, async () => {
       if (resolved) return;
       resolved = true;
       const latency = Date.now() - start;
       socket.destroy();
-      // Update status to online in background
-      updateRemoteServer(server.id, { status: 'online' }).catch(() => {});
+
+      const hardwareUpdates: { cpu_cores?: number; ram_gb?: number; disk_gb?: number; uptime_str?: string } = {};
+
+      if (server.os_type === 'linux' && (server.ssh_password || server.ssh_key_path)) {
+        try {
+          const hwScript = `export LC_ALL=C
+echo "---HW---"
+nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo ""
+awk '/MemTotal/{printf "%.1f", $2/1048576}' /proc/meminfo 2>/dev/null || echo ""
+df -BG -P / 2>/dev/null | awk 'NR==2{sub(/G/,"",$2); print $2}' || df -k -P / 2>/dev/null | awk 'NR==2{print int($2/1048576)}' || echo ""
+uptime -p 2>/dev/null || uptime 2>/dev/null || echo ""
+echo "---END---"`;
+          const rawHw = await runAdaptiveSshCommand(server, hwScript, undefined, 3000);
+          if (rawHw && rawHw.includes('---HW---')) {
+            const hwPart = rawHw.split('---HW---')[1]?.split('---END---')[0]?.trim();
+            if (hwPart) {
+              const hwLines = hwPart.split('\n').map((l: string) => l.trim());
+              const coresVal = parseInt(hwLines[0], 10);
+              const ramVal = parseFloat(hwLines[1]);
+              const diskVal = parseInt(hwLines[2], 10);
+              const uptimeVal = hwLines[3];
+
+              if (!isNaN(coresVal) && coresVal > 0) hardwareUpdates.cpu_cores = coresVal;
+              if (!isNaN(ramVal) && ramVal > 0) hardwareUpdates.ram_gb = Math.round(ramVal * 10) / 10;
+              if (!isNaN(diskVal) && diskVal > 0) hardwareUpdates.disk_gb = diskVal;
+              if (uptimeVal) hardwareUpdates.uptime_str = uptimeVal;
+            }
+          }
+        } catch {
+          // Keep existing registered specs if SSH probe times out
+        }
+      }
+
+      let updatedServer = server;
+      try {
+        updatedServer = await updateRemoteServer(server.id, {
+          status: 'online',
+          ...hardwareUpdates,
+        });
+      } catch {
+        updatedServer = { ...server, status: 'online', ...hardwareUpdates };
+      }
+
       res.json({
         success: true,
         reachable: true,
@@ -1185,7 +1227,14 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
         port: targetPort,
         latency_ms: latency,
         protocol: server.os_type === 'linux' ? 'SSH' : (server.win_protocol?.toUpperCase() || 'RDP'),
-        message: `Connection successful to ${targetHost}:${targetPort} in ${latency}ms`
+        message: `Connection successful to ${targetHost}:${targetPort} in ${latency}ms`,
+        server: updatedServer,
+        hardware: {
+          cpu_cores: updatedServer.cpu_cores,
+          ram_gb: updatedServer.ram_gb,
+          disk_gb: updatedServer.disk_gb,
+          uptime_str: updatedServer.uptime_str,
+        },
       });
     });
 
@@ -1202,7 +1251,14 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
         port: targetPort,
         latency_ms: latency,
         error: err.message,
-        message: `Port unreachable or connection refused: ${err.message}`
+        message: `Port unreachable or connection refused: ${err.message}`,
+        server: { ...server, status: 'offline' },
+        hardware: {
+          cpu_cores: server.cpu_cores,
+          ram_gb: server.ram_gb,
+          disk_gb: server.disk_gb,
+          uptime_str: server.uptime_str,
+        },
       });
     });
 
@@ -1216,8 +1272,16 @@ apiRouter.post('/remote-servers/:id/test-connection', async (req: Request, res: 
         reachable: false,
         host: targetHost,
         port: targetPort,
+        latency_ms: 3500,
         error: 'Connection timeout',
-        message: `Connection timed out after 3500ms to ${targetHost}:${targetPort}`
+        message: `Connection timed out after 3500ms to ${targetHost}:${targetPort}`,
+        server: { ...server, status: 'offline' },
+        hardware: {
+          cpu_cores: server.cpu_cores,
+          ram_gb: server.ram_gb,
+          disk_gb: server.disk_gb,
+          uptime_str: server.uptime_str,
+        },
       });
     });
   } catch (err: any) {
@@ -1251,8 +1315,22 @@ const handleLinuxServerMonitor = async (req: Request, res: Response) => {
 
     const metrics = await executeLinuxTelemetrySSH(server, ephemeralPassword);
     
-    // Automatically update server status to online
-    updateRemoteServer(server.id, { status: 'online' }).catch(() => {});
+    // Automatically persist real discovered hardware specs to database
+    const rootDisk = metrics.disks.find((d: any) => d.mount === '/') || metrics.disks[0];
+    const disk_gb = rootDisk && rootDisk.sizeBytes > 0 
+      ? Math.round(rootDisk.sizeBytes / (1024 * 1024 * 1024)) 
+      : server.disk_gb;
+    const ram_gb = metrics.memory?.totalBytes > 0 
+      ? Math.round((metrics.memory.totalBytes / (1024 * 1024 * 1024)) * 10) / 10 
+      : server.ram_gb;
+
+    updateRemoteServer(server.id, { 
+      status: 'online',
+      cpu_cores: metrics.cpu?.cores || server.cpu_cores,
+      ram_gb,
+      disk_gb,
+      uptime_str: metrics.uptime?.human || server.uptime_str,
+    }).catch(() => {});
 
     return res.json({
       success: true,

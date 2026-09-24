@@ -1196,6 +1196,13 @@ export async function testRemoteServerConnection(id: string): Promise<{
   protocol?: string;
   error?: string;
   message: string;
+  server?: RemoteServer;
+  hardware?: {
+    cpu_cores?: number;
+    ram_gb?: number;
+    disk_gb?: number;
+    uptime_str?: string;
+  };
 }> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/test-connection`, {
     method: 'POST',

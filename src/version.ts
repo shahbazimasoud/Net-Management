@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.138.1';
+export const APP_VERSION = '1.138.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.138.2',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'اصلاح نمایش مشخصات سخت‌افزاری (رم، پردازنده و هارد) در تست Keepalive ناوگان سرورها',
+    title_en: 'Fix Server Hardware Specs (RAM, CPU, and Disk) Display During Fleet Keepalive Test',
+    changes: [
+      'اصلاح و یکپارچه‌سازی نمایش مشخصات سخت‌افزاری سرورها شامل پردازنده (vCPU)، توتال رم (RAM) و فضای ذخیره‌سازی هارد دیسک (Disk) در زیر نام سرور در نماهای لیستی، جدولی و کارتی ناوگان سرورها.',
+      'افزودن قابلیت ارزیابی و استخراج خودکار مشخصات سخت‌افزاری واقعی در تست پینگ و Keepalive سرورهای ریموت لینوکس از طریق اجرای امن و سریع فرمان‌های سخت‌افزاری و ذخیره در دیتابیس.',
+      'همگام‌سازی بلادرنگ استیت سرورها با مشخصات دریافتی از تست Keepalive در تمامی حالت‌های تست تکی، تست دسته‌ای (Bulk Ping) و تست سراسری کل ناوگان (Ping All).',
+      'حذف مقادیر فرضی هاردکد شده (|| 4 و || 16) و جایگزینی با نمایش دقیق مقادیر واقعی سخت‌افزار یا خط تیره در صورت عدم اتصال.',
+      'رعایت کامل استانداردهای دو زبانه (فارسی و انگلیسی) در نمایش برچسب‌های سخت‌افزاری.',
+    ],
+    changes_en: [
+      'Fixed and unified the hardware specifications display under server names, including vCPU cores, total RAM, and Hard Disk storage across List, Table, and Grid fleet views.',
+      'Integrated real-time genuine hardware telemetry extraction during keepalive ping checks over SSH, persisting discovered CPU, RAM, and Disk capacity to the server database.',
+      'Synced real-time client state updates during single server keepalive, bulk keepalive ping, and fleet-wide ping sweeps.',
+      'Eliminated hardcoded fallback defaults (|| 4 and || 16), ensuring authentic metrics are rendered with clean non-available placeholders when disconnected.',
+      'Strictly enforced bilingual localization for hardware metric units in both Persian and English modes.',
+    ],
+  },
   {
     version: '1.138.1',
     releaseDate: '2026-09-24',

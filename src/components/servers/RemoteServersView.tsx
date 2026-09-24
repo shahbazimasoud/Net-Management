@@ -60,6 +60,22 @@ export interface RemoteServersViewProps {
   isEn?: boolean;
 }
 
+export const formatServerHardwareSpecs = (server: RemoteServer, isEn: boolean = true) => {
+  const cpuText = server.cpu_cores
+    ? (isEn ? `${server.cpu_cores} vCPU` : `${server.cpu_cores} هسته vCPU`)
+    : (isEn ? '— vCPU' : '— پردازنده');
+
+  const ramText = server.ram_gb !== undefined && server.ram_gb !== null && server.ram_gb > 0
+    ? (isEn ? `${server.ram_gb} GB RAM` : `${server.ram_gb} گیگابایت رم`)
+    : (isEn ? '— RAM' : '— رم');
+
+  const diskText = server.disk_gb !== undefined && server.disk_gb !== null && server.disk_gb > 0
+    ? (isEn ? `${server.disk_gb} GB Disk` : `${server.disk_gb} گیگابایت هارد`)
+    : (isEn ? '— Disk' : '— هارد');
+
+  return `${cpuText} • ${ramText} • ${diskText}`;
+};
+
 interface MenuAnchor {
   id: string;
   top?: number;
@@ -338,6 +354,26 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setActiveTabFilter(initialFilter);
   }, [initialFilter]);
 
+  // Helper to sync updated server hardware metrics into state
+  const syncServerKeepaliveMetrics = (serverId: string, res: any) => {
+    if (!res) return;
+    setServers((prev) =>
+      prev.map((srv) => {
+        if (srv.id !== serverId) return srv;
+        const hw = res.hardware || {};
+        return {
+          ...srv,
+          status: res.reachable ? 'online' : (res.reachable === false ? 'offline' : srv.status),
+          ...(res.server || {}),
+          cpu_cores: hw.cpu_cores ?? res.server?.cpu_cores ?? srv.cpu_cores,
+          ram_gb: hw.ram_gb ?? res.server?.ram_gb ?? srv.ram_gb,
+          disk_gb: hw.disk_gb ?? res.server?.disk_gb ?? srv.disk_gb,
+          uptime_str: hw.uptime_str ?? res.server?.uptime_str ?? srv.uptime_str,
+        };
+      })
+    );
+  };
+
   // Trigger genuine live fleet ping
   const triggerLiveFleetPing = (fleetServers: RemoteServer[]) => {
     const allIds = fleetServers.map((s) => s.id);
@@ -361,6 +397,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               testing: false,
             },
           }));
+          syncServerKeepaliveMetrics(s.id, res);
         } catch {
           setReachabilityCache((prev) => ({
             ...prev,
@@ -632,6 +669,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           testing: false,
         },
       }));
+      syncServerKeepaliveMetrics(serverId, res);
     } catch {
       setReachabilityCache((prev) => ({
         ...prev,
@@ -669,6 +707,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               testing: false,
             },
           }));
+          syncServerKeepaliveMetrics(id, res);
         } catch {
           setReachabilityCache((prev) => ({
             ...prev,
@@ -705,6 +744,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               testing: false,
             },
           }));
+          syncServerKeepaliveMetrics(id, res);
         } catch {
           setReachabilityCache((prev) => ({
             ...prev,
@@ -1759,8 +1799,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                 <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono mt-0.5 truncate">
                                   <span>{server.hostname || server.ip}</span>
                                   <span>•</span>
-                                  <span>
-                                    {server.cpu_cores || 4} vCPU • {server.ram_gb || 16} GB
+                                  <span className="text-slate-300">
+                                    {formatServerHardwareSpecs(server, isEn)}
                                   </span>
                                 </div>
                               </div>
@@ -2154,8 +2194,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     isLightMode ? 'border-slate-200' : 'border-white/10'
                   }`}
                 >
-                  <div className="text-[11px] text-slate-400 font-mono">
-                    {server.cpu_cores || 4} vCPU • {server.ram_gb || 16} GB
+                  <div className="text-[11px] text-slate-300 font-mono">
+                    {formatServerHardwareSpecs(server, isEn)}
                   </div>
 
                   {isLinux ? (
@@ -2258,12 +2298,18 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                               <div className="group-hover/tblname:text-cyan-400 group-hover/tblname:underline transition-colors">
                                 {server.name}
                               </div>
-                              <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
+                              <div className="text-[10px] text-slate-400 font-normal font-mono flex items-center gap-1.5 truncate">
+                                {server.os_distro && <span>{server.os_distro} •</span>}
+                                <span className="text-slate-300">{formatServerHardwareSpecs(server, isEn)}</span>
+                              </div>
                             </button>
                           ) : (
                             <div>
                               <div>{server.name}</div>
-                              <div className="text-[10px] text-slate-400 font-normal">{server.os_distro}</div>
+                              <div className="text-[10px] text-slate-400 font-normal font-mono flex items-center gap-1.5 truncate">
+                                {server.os_distro && <span>{server.os_distro} •</span>}
+                                <span className="text-slate-300">{formatServerHardwareSpecs(server, isEn)}</span>
+                              </div>
                             </div>
                           )}
                         </td>
