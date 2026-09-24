@@ -46,6 +46,7 @@ import {
 import { AddEditServerModal } from './AddEditServerModal';
 import { LinuxTerminalModal } from './LinuxTerminalModal';
 import { LinuxServerMonitorModal } from './LinuxServerMonitorModal';
+import { LinuxFileExplorerModal } from './LinuxFileExplorerModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
@@ -292,6 +293,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Linux Resource & Telemetry Monitoring Modal
   const [monitorServer, setMonitorServer] = useState<RemoteServer | null>(null);
   const [isMonitorModalOpen, setIsMonitorModalOpen] = useState(false);
+
+  // Linux SFTP File Explorer Modal
+  const [fileExplorerServer, setFileExplorerServer] = useState<RemoteServer | null>(null);
+  const [isFileExplorerModalOpen, setIsFileExplorerModalOpen] = useState(false);
 
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
@@ -607,6 +612,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     undockModal(`linux_mon_${server.id}`);
   };
 
+  // Handle Open Linux File Explorer
+  const handleOpenLinuxFileExplorer = (server: RemoteServer) => {
+    setMenuAnchor(null);
+    setFileExplorerServer(server);
+    setIsFileExplorerModalOpen(true);
+    undockModal(`linux_fs_${server.id}`);
+  };
+
   // Handle Open Windows Remote
   const handleOpenWindowsRemote = (server: RemoteServer) => {
     setWindowsModalServer(server);
@@ -855,6 +868,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onClose: () => {
           setIsMonitorModalOpen(false);
           undockModal(`linux_mon_${monitorServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizeFileExplorer = () => {
+    setIsFileExplorerModalOpen(false);
+    if (fileExplorerServer) {
+      dockModal({
+        id: `linux_fs_${fileExplorerServer.id}`,
+        labelEn: `${fileExplorerServer.name} - File Explorer`,
+        labelFa: `کاوشگر فایل ${fileExplorerServer.name}`,
+        badge: 'SFTP',
+        category: 'tools',
+        onRestore: () => setIsFileExplorerModalOpen(true),
+        onClose: () => {
+          setIsFileExplorerModalOpen(false);
+          undockModal(`linux_fs_${fileExplorerServer.id}`);
         },
       });
     }
@@ -2311,6 +2342,15 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </button>
                       <button
                         type="button"
+                        onClick={() => handleOpenLinuxFileExplorer(server)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 shadow-md transition-all cursor-pointer"
+                        title={isEn ? 'Open File Explorer' : 'کاوشگر فایل و دایرکتوری‌ها'}
+                      >
+                        <FolderTree className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Files' : 'فایل‌ها'}</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleOpenLinuxTerminal(server, 'bash')}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 shadow-md transition-all cursor-pointer"
                       >
@@ -2500,6 +2540,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={() => handleOpenLinuxFileExplorer(server)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-400 text-slate-950 hover:bg-amber-300 cursor-pointer shadow-sm"
+                                  title={isEn ? 'Open File Explorer' : 'کاوشگر فایل'}
+                                >
+                                  {isEn ? 'Files' : 'فایل‌ها'}
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() =>
                                     handleOpenLinuxTerminal(server, 'bash')
                                   }
@@ -2630,6 +2678,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       <div className="flex flex-col">
                         <span>{isEn ? 'Server Management' : 'مدیریت سرور'}</span>
                         <span className="text-[10px] text-cyan-400/80 font-mono">Overview, Storage, Services & Config</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const s = menuAnchor.server;
+                        handleOpenLinuxFileExplorer(s);
+                      }}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-300 transition cursor-pointer ${
+                        isEn ? 'text-left' : 'text-right'
+                      } ${isLightMode ? 'hover:bg-amber-50' : 'hover:bg-amber-500/15'}`}
+                    >
+                      <FolderTree className="w-4 h-4 text-amber-400 shrink-0" />
+                      <div className="flex flex-col">
+                        <span>{isEn ? 'File Explorer' : 'کاوشگر فایل'}</span>
+                        <span className="text-[10px] text-amber-400/80 font-mono">SFTP, Directory Tree & Editor</span>
                       </div>
                     </button>
 
@@ -2888,6 +2953,21 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           setMonitorServer(null);
         }}
         onMinimize={handleMinimizeMonitor}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 12.6 Linux Remote SFTP File Explorer Modal */}
+      <LinuxFileExplorerModal
+        isOpen={isFileExplorerModalOpen}
+        server={fileExplorerServer}
+        sessionPassword={ephemeralTerminalPassword}
+        onClose={() => {
+          setIsFileExplorerModalOpen(false);
+          if (fileExplorerServer) undockModal(`linux_fs_${fileExplorerServer.id}`);
+          setFileExplorerServer(null);
+        }}
+        onMinimize={handleMinimizeFileExplorer}
         isLightMode={isLightMode}
         isEn={isEn}
       />

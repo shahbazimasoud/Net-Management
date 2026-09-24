@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.140.0';
+export const APP_VERSION = '1.140.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.140.1',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'یکپارچه‌سازی مودال کاوشگر فایل در منوی ۳ نقطه و نماهای سرورهای لینوکس (فاز ۳)',
+    title_en: 'Integrate File Explorer Modal in Linux Server 3-Dot Action Menu & Views (Phase 3)',
+    changes: [
+      'افزودن آیتم "کاوشگر فایل" (File Explorer) به منوی ۳ نقطه شناور سرورهای لینوکس با آیکون FolderTree و توضیحات تخصصی.',
+      'افزودن دکمه دسترسی سریع "فایل‌ها" (Files) در کارت‌های سرور و ردیف‌های جدول سرورهای ریموت لینوکس.',
+      'یکپارچه‌سازی کامل با داک نوار ابزار پایین (Modal Dock) و حفظ استیت هنگام مینیمایز با برچسب SFTP.',
+      'رعایت اصل عدم ذخیره رمزهای عبور (Zero-Storage Policy) با انتقال اختیاری سشن‌های احراز هویت.',
+    ],
+    changes_en: [
+      'Added "File Explorer" action item to the 3-dot floating action menu for all Linux servers with FolderTree iconography and dedicated badges.',
+      'Added quick "Files" action buttons directly on Linux server cards and data table rows for rapid one-click access.',
+      'Seamless integration with bottom Tools Dock supporting minimize/restore lifecycle with "SFTP" tool badges.',
+      'Maintained strict Zero-Storage credential security policies with on-demand session pass-through.',
+    ],
+  },
   {
     version: '1.140.0',
     releaseDate: '2026-09-24',
