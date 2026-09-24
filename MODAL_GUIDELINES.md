@@ -17,26 +17,29 @@
 - **دکمه تمام‌صفحه و بازگشت (`Fullscreen / Restore` - آیکون‌های `Maximize2` و `Minimize2` از `lucide-react`)**: جهت تغییر وضعیت بین اندازه استاندارد و تمام‌صفحه (`isMaximized`).
 > **توصیه معماری**: برای راحتی و استانداردسازی، از کامپوننت آماده `<ModalHeaderControls />` یا `<ModalHeader />` از مسیر `src/components/common/` استفاده کنید.
 
-### ۲. رفتار دقیق حالت تمام‌صفحه و حفظ مرز فوتر (Footer Clearance)
-هنگامی که مودال در حالت تمام‌صفحه (`isMaximized === true`) قرار می‌گیرد:
-- لبه پایینی مودال باید **دقیقاً تا لبه بالایی فوتر (فاصله `bottom-8` از پایین صفحه)** امتداد یابد.
-- مودال به هیچ وجه نباید زیر فوتر برود یا روی نوار داک ابزارها بیفتد و نباید از کادر دید خارج شود.
-- استایل‌های پیشنهادی برای کانتینر اصلی مودال در حالت تمام‌صفحه:
-  ```tsx
-  // کانتینر بیرونی overlay / wrapper:
-  className={`fixed z-50 transition-all duration-200 ${
-    isMaximized
-      ? 'top-0 left-0 right-0 bottom-8 p-0'
-      : 'inset-0 p-3 sm:p-6 flex items-center justify-center bg-black/60 backdrop-blur-sm'
-  }`}
+### ۲. رفتار دقیق حالت تمام‌صفحه و عادی، حفظ مرز فوتر و اولویت مطلق منوی ابزارها (Universal Footer Clearance & Tools Menu Priority)
+- **حفظ حریم فوتر در تمامی حالات (هم عادی و هم تمام‌صفحه)**:
+  - کانتینر اصلی، overlay و پوشش پس‌زمینه تیره (backdrop) هر مودال چه در حالت عادی و چه در حالت تمام‌صفحه باید به فاصله **`bottom-8`** از پایین صفحه محدود شود.
+  - مودال یا پس‌زمینه کدر آن به هیچ وجه نباید روی فوتر یا نوار داک ابزارها (`ToolsDock`) بیفتد یا آن را تیره و غیرقابل دسترس کند. فوتر همیشه باید به صورت کامل، شفاف و کلیک‌پذیر در بالاترین دید قرار داشته باشد.
+  - استایل‌های استاندارد کانتینر مودال:
+    ```tsx
+    // کانتینر بیرونی overlay / wrapper:
+    className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col items-center justify-center transition-all duration-200 ${
+      isMaximized
+        ? 'p-0'
+        : 'p-3 sm:p-6 bg-black/75 backdrop-blur-sm'
+    }`}
 
-  // پنجره مودال داخلی:
-  className={`flex flex-col transition-all duration-200 ${
-    isMaximized
-      ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
-      : 'w-full max-w-4xl max-h-[88vh] rounded-2xl border shadow-2xl'
-  }`}
-  ```
+    // پنجره مودال داخلی:
+    className={`flex flex-col transition-all duration-200 ${
+      isMaximized
+        ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
+        : 'w-full max-w-4xl max-h-[88vh] rounded-2xl border shadow-2xl'
+    }`}
+    ```
+- **اولویت مطلق بازگشایی منوی ابزارها (Tools Menu Above All Modals)**:
+  - منوی ابزارها (`NetworkToolsMenu`) که از دکمه `tools` فوتر باز می‌شود، باید همواره بالاتر از تمامی پنجره‌ها و مودال‌ها (حتی زمانی که ترمینال یا فایل اکسپلورر در حالت تمام‌صفحه هستند) باز شود.
+  - این منو به صورت مستقیم با `createPortal(..., document.body)` و با بالاترین لایه استکینگ `z-[999999]` رندر می‌شود تا هیچ پنجره یا کادر تمام‌صفحه‌ای نتواند روی آن بیفتد.
 
 ### ۳. انطباق کامل با تم‌های تیره و روشن (Dark / Light Theme Adaptability)
 - ظاهر مودال، هدر، بدنه، کارت‌ها، فیلدهای ورودی و فوتر آن باید با تم فعال سیستم (`isLightMode`) ۱۰۰٪ سازگار و منطبق باشد.

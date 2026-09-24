@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.150.0';
+export const APP_VERSION = '1.151.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.151.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'تصویب و ثبت قانون اجباری مهار حریم فوتر و اولویت مطلق منوی ابزارها در قوانین هوش مصنوعی و دستورالعمل مودال‌ها',
+    title_en: 'Codified Mandatory Universal Footer Clearance & Tools Menu Super-Priority in Modal Rules & Directives',
+    changes: [
+      'تصویب و ثبت رسمی قانون الزامی حفظ حریم فوتر در بخش ۷ دستورالعمل‌های AGENTS.md و GEMINI.md و بخش ۲ فایل MODAL_GUIDELINES.md.',
+      'الزام کلیه هوش‌های مصنوعی و توسعه‌دهندگان به مهار کانتینر و بک‌دراپ مودال‌ها به فاصله bottom-8 در هر دو حالت عادی و تمام‌صفحه.',
+      'ممنوعیت قطعی افتادن هرگونه مودال یا پس‌زمینه کدر بر روی فوتر و نوار داک پایین (ToolsDock).',
+      'الزام به رندر مستقیم منوی ابزارها (Tools Menu) در پورتال document.body با بالاترین لایه z-[999999] جهت دیده‌شدن بر فراز تمام پنجره‌ها.',
+    ],
+    changes_en: [
+      'Formally codified mandatory universal footer clearance rule into Section 7 of AGENTS.md, GEMINI.md, and Section 2 of MODAL_GUIDELINES.md.',
+      'Mandated that all AI agents and developers strictly bound modal wrappers and dark backdrops to bottom-8 across both normal and fullscreen states.',
+      'Explicitly prohibited modals and overlay backdrops from eclipsing, dimming, or obscuring the bottom status bar and ToolsDock.',
+      'Enforced document.body top-level portal rendering with z-[999999] for the footer tools menu to guarantee unoccluded visibility over all windows.',
+    ],
+  },
   {
     version: '1.150.0',
     releaseDate: '2026-09-24',
