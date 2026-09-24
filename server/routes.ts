@@ -181,6 +181,7 @@ import {
   getLinuxSystemUsersAndGroups,
   pasteLinuxItems,
   compressLinuxItems,
+  extractLinuxArchive,
 } from './linuxFileExplorer';
 
 export const apiRouter = Router();
@@ -4305,6 +4306,38 @@ apiRouter.post('/remote-servers/:id/fs/compress', async (req: Request, res: Resp
   } catch (err: any) {
     console.error(`[LinuxFS compress error on server ${req.params.id}]:`, err?.message || err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to compress items' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/extract - Extract archive on remote server
+apiRouter.post('/remote-servers/:id/fs/extract', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { archivePath, destinationDir, createSubfolder, overwrite, deleteArchiveAfterExtract, password } = req.body;
+
+    if (!archivePath) {
+      return res.status(400).json({ success: false, error: 'archivePath is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await extractLinuxArchive(
+      server,
+      {
+        archivePath,
+        destinationDir: destinationDir || '/',
+        createSubfolder: Boolean(createSubfolder),
+        overwrite: overwrite !== false,
+        deleteArchiveAfterExtract: Boolean(deleteArchiveAfterExtract),
+      },
+      password
+    );
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFS extract error on server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to extract archive' });
   }
 });
 

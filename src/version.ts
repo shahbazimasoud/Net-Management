@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.146.0';
+export const APP_VERSION = '1.147.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.147.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'امکان استخراج فایل‌های فشرده (Extract) در مسیر جاری یا دلخواه در کاوشگر لینوکس',
+    title_en: 'Universal Archive Extraction Suite (Current & Custom Paths) in Linux File Explorer',
+    changes: [
+      'افزودن امکان استخراج سریع در پوشه جاری (Extract Here) با یک کلیک در منوی راست‌کلیک انواع فایل‌های فشرده.',
+      'افزودن پنجره پیشرفته استخراج (Extract Archive Dialog) جهت تعیین دقیق مسیر دایرکتوری مقصد در سرور لینوکس.',
+      'امکان ساخت پوشه اختصاصی همنام با آرشیو (Extract to Subfolder) جهت پیشگیری از پخش شدن فایل‌ها.',
+      'امکان فعال/غیرفعال‌سازی بازنویسی فایل‌های موجود (Overwrite) جهت اعمال بروزرسانی‌های امن و دقیق.',
+      'امکان حذف خودکار فایل فشرده پس از استخراج موفق (Delete Archive After Extraction) جهت مدیریت بهینه فضای ذخیره‌سازی.',
+      'پشتیبانی از انواع فرمت‌های zip، tar.gz، tgz، tar.bz2، tbz2، tar.xz، txz، tar، 7z و rar با مکانیزم فال‌بک خودکار پایتون در صورت عدم نصب ابزار unzip.',
+      'رعایت استانداردهای پنج‌گانه معماری مودال (دکمه‌های سه‌گانه، انطباق کامل تم تیره/روشن، عدم کاراکتر فارسی در حالت انگلیسی، حفظ فاصله bottom-8 و راهنماهای سه‌بخشی FieldInfoTooltip).',
+    ],
+    changes_en: [
+      'Added instant one-click "Extract Here (Current Folder)" action in context menu for all recognized archive formats.',
+      'Added comprehensive "Extract Archive..." modal dialog with custom target destination path support.',
+      'Optional automatic subfolder creation named after the archive to keep directories tidy.',
+      'Granular control over overwriting existing files in destination directory.',
+      'Automated deletion of original compressed archive upon successful extraction to free server storage.',
+      'Broad archive format support covering .zip, .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.xz, .txz, .tar, .7z, and .rar with seamless python3 fallback when unzip CLI is absent.',
+      'Strict compliance with universal modal architectural rules (triple header controls, light/dark themes, bilingual localization, bottom-8 clearance, and 3-part FieldInfoTooltips).',
+    ],
+  },
   {
     version: '1.146.0',
     releaseDate: '2026-09-24',

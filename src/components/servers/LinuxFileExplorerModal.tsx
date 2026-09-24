@@ -69,8 +69,29 @@ import {
   fetchLinuxSystemUsersAndGroups,
   pasteLinuxItems,
   compressLinuxRemoteItems,
+  extractLinuxRemoteArchive,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+
+function isArchiveItem(item?: LinuxFsItem | null): boolean {
+  if (!item || item.type !== 'file') return false;
+  const name = item.name.toLowerCase();
+  return (
+    name.endsWith('.zip') ||
+    name.endsWith('.tar.gz') ||
+    name.endsWith('.tgz') ||
+    name.endsWith('.tar.bz2') ||
+    name.endsWith('.tbz2') ||
+    name.endsWith('.tar.xz') ||
+    name.endsWith('.txz') ||
+    name.endsWith('.tar') ||
+    name.endsWith('.7z') ||
+    name.endsWith('.rar') ||
+    name.endsWith('.gz') ||
+    name.endsWith('.bz2') ||
+    name.endsWith('.xz')
+  );
+}
 
 export interface LinuxFileExplorerModalProps {
   isOpen: boolean;
@@ -265,6 +286,19 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     compressionLevel: number;
     deleteSource: boolean;
     destinationDir: string;
+    loading: boolean;
+    error: string | null;
+    isMaximized?: boolean;
+  } | null>(null);
+
+  // Extraction Modal State
+  const [extractModal, setExtractModal] = useState<{
+    isOpen: boolean;
+    item: LinuxFsItem;
+    destinationDir: string;
+    createSubfolder: boolean;
+    overwrite: boolean;
+    deleteArchiveAfterExtract: boolean;
     loading: boolean;
     error: string | null;
     isMaximized?: boolean;
@@ -1188,6 +1222,91 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       }
     } catch (err: any) {
       setCompressModal((prev) => (prev ? { ...prev, loading: false, error: err?.message || 'Connection error' } : null));
+    }
+  };
+
+  // Open Extract Modal
+  const handleOpenExtract = (item: LinuxFsItem) => {
+    setExtractModal({
+      isOpen: true,
+      item,
+      destinationDir: currentPath,
+      createSubfolder: true,
+      overwrite: true,
+      deleteArchiveAfterExtract: false,
+      loading: false,
+      error: null,
+      isMaximized: false,
+    });
+    setContextMenu(null);
+  };
+
+  // Quick Extract into Current Directory
+  const handleQuickExtractCurrentDir = async (item: LinuxFsItem) => {
+    if (!server) return;
+    setContextMenu(null);
+    showToast(
+      isEn
+        ? `Extracting "${item.name}" into current directory...`
+        : `در حال استخراج "${item.name}" در مسیر جاری...`,
+      'info'
+    );
+    try {
+      const res = await extractLinuxRemoteArchive(server.id, {
+        archivePath: item.path,
+        destinationDir: currentPath,
+        createSubfolder: false,
+        overwrite: true,
+        deleteArchiveAfterExtract: false,
+        password: ephemeralPassword,
+      });
+
+      if (res.success) {
+        showToast(
+          isEn
+            ? `Extracted successfully into "${res.extractedTo || currentPath}"`
+            : `استخراج با موفقیت در پوشه "${res.extractedTo || currentPath}" انجام شد`,
+          'success'
+        );
+        loadDirectory(currentPath, ephemeralPassword, false);
+      } else {
+        showToast(res.error || (isEn ? 'Failed to extract archive' : 'خطا در استخراج فایل فشرده'), 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.message || (isEn ? 'Connection error' : 'خطای ارتباط با سرور'), 'error');
+    }
+  };
+
+  // Execute Extract from Modal
+  const handleExecuteExtract = async () => {
+    if (!server || !extractModal) return;
+    setExtractModal((prev) => (prev ? { ...prev, loading: true, error: null } : null));
+
+    try {
+      const res = await extractLinuxRemoteArchive(server.id, {
+        archivePath: extractModal.item.path,
+        destinationDir: extractModal.destinationDir || currentPath,
+        createSubfolder: extractModal.createSubfolder,
+        overwrite: extractModal.overwrite,
+        deleteArchiveAfterExtract: extractModal.deleteArchiveAfterExtract,
+        password: ephemeralPassword,
+      });
+
+      if (res.success) {
+        const dest = res.extractedTo || extractModal.destinationDir || currentPath;
+        setExtractModal(null);
+        showToast(
+          isEn
+            ? `Extracted successfully into "${dest}"`
+            : `استخراج با موفقیت در پوشه "${dest}" انجام شد`,
+          'success'
+        );
+        loadDirectory(currentPath, ephemeralPassword, false);
+      } else {
+        setExtractModal((prev) => (prev ? { ...prev, loading: false, error: res.error || 'Failed to extract' } : null));
+      }
+    } catch (err: any) {
+      setExtractModal((prev) => (prev ? { ...prev, loading: false, error: err?.message || 'Connection error' } : null));
     }
   };
 
@@ -4113,6 +4232,394 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
           )}
 
         {/* ======================================================== */}
+        {/* EXTRACTION MODAL (PORTAL)                                */}
+        {/* ======================================================== */}
+        {extractModal?.isOpen &&
+          createPortal(
+            <div
+              className={
+                extractModal.isMaximized
+                  ? 'fixed top-0 left-0 right-0 bottom-8 z-[99999] p-0 flex flex-col'
+                  : 'fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150'
+              }
+            >
+              <div
+                className={`flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${
+                  extractModal.isMaximized
+                    ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
+                    : 'w-full max-w-lg rounded-2xl border max-h-[90vh]'
+                } ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 text-slate-800'
+                    : 'bg-slate-950 border-slate-800 text-slate-100'
+                }`}
+              >
+                {/* Header with 3 control buttons: Close, Minimize, Fullscreen */}
+                <div
+                  className={`px-5 py-3.5 border-b flex items-center justify-between shrink-0 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                      <Archive className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm">
+                        {isEn ? 'Extract Archive' : 'استخراج از حالت فشرده'}
+                      </h3>
+                      <p className="text-[11px] text-slate-400 truncate max-w-xs font-mono">
+                        {extractModal.item.name}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Header 3 Controls: Close (X), Minimize (Minus), Fullscreen (Maximize2/Minimize2) */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExtractModal((prev) =>
+                          prev ? { ...prev, isMaximized: !prev.isMaximized } : null
+                        )
+                      }
+                      title={
+                        extractModal.isMaximized
+                          ? isEn
+                            ? 'Exit Fullscreen'
+                            : 'خروج از تمام‌صفحه'
+                          : isEn
+                          ? 'Fullscreen'
+                          : 'تمام‌صفحه'
+                      }
+                      className={`p-1.5 rounded-lg transition cursor-pointer ${
+                        isLightMode
+                          ? 'hover:bg-slate-200 text-slate-600'
+                          : 'hover:bg-white/10 text-slate-400'
+                      }`}
+                    >
+                      {extractModal.isMaximized ? (
+                        <Minimize2 className="w-4 h-4" />
+                      ) : (
+                        <Maximize2 className="w-4 h-4" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExtractModal(null)}
+                      title={isEn ? 'Minimize' : 'کوچک‌سازی (بستن پنجره)'}
+                      className={`p-1.5 rounded-lg transition cursor-pointer ${
+                        isLightMode
+                          ? 'hover:bg-slate-200 text-slate-600'
+                          : 'hover:bg-white/10 text-slate-400'
+                      }`}
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExtractModal(null)}
+                      title={isEn ? 'Close' : 'بستن'}
+                      className={`p-1.5 rounded-lg transition cursor-pointer ${
+                        isLightMode
+                          ? 'hover:bg-rose-100 text-rose-600'
+                          : 'hover:bg-rose-500/20 text-rose-400'
+                      }`}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Body Content */}
+                <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+                  {/* Archive Item Details Banner */}
+                  <div
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
+                      isLightMode
+                        ? 'bg-amber-50/60 border-amber-200/80 text-amber-900'
+                        : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Archive className="w-5 h-5 text-amber-400 shrink-0" />
+                      <div className="truncate">
+                        <span className="font-semibold block truncate">{extractModal.item.name}</span>
+                        <span className="text-[10px] opacity-75 font-mono truncate block">
+                          {extractModal.item.path}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-xs font-mono font-bold shrink-0">
+                      {extractModal.item.sizeHuman || ''}
+                    </span>
+                  </div>
+
+                  {/* Destination Directory */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <label className="font-semibold text-slate-300">
+                          {isEn ? 'Destination Directory' : 'دایرکتوری مقصد جهت استخراج'}
+                        </label>
+                        <FieldInfoTooltip
+                          fieldName={isEn ? 'Destination Directory' : 'دایرکتوری مقصد'}
+                          whatIsIt={
+                            isEn
+                              ? 'The target directory where the archive contents will be extracted on the remote server.'
+                              : 'مسیر پوشه مقصدی که محتویات فایل فشرده در آن استخراج و باز خواهد شد.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Allows choosing between unpacking in the current folder or sending files directly to an application path.'
+                              : 'امکان انتخاب بین استخراج در همان پوشه جاری یا سازمان‌دهی فایل‌ها در مسیر مشخص و سفارشی.'
+                          }
+                          practicalExample={
+                            isEn ? '/var/www/html or /opt/app' : '/var/www/html یا مسیر جاری دایرکتوری'
+                          }
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExtractModal((prev) =>
+                            prev ? { ...prev, destinationDir: currentPath } : null
+                          )
+                        }
+                        className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+                      >
+                        {isEn ? 'Use Current Path' : 'مسیر جاری'}
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Folder className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={extractModal.destinationDir}
+                        onChange={(e) =>
+                          setExtractModal((prev) =>
+                            prev ? { ...prev, destinationDir: e.target.value } : null
+                          )
+                        }
+                        placeholder={currentPath}
+                        className={`w-full pl-9 pr-3 py-2 rounded-xl border text-xs font-mono transition focus:outline-none focus:ring-2 focus:ring-amber-500/50 ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-800'
+                            : 'bg-slate-900 border-slate-700 text-slate-100'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Create Subfolder checkbox */}
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        : 'bg-slate-900/50 border-slate-800 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={extractModal.createSubfolder}
+                      onChange={(e) =>
+                        setExtractModal((prev) =>
+                          prev ? { ...prev, createSubfolder: e.target.checked } : null
+                        )
+                      }
+                      className="mt-0.5 rounded border-slate-700 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <div className="flex-1 space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-slate-200">
+                          {isEn ? 'Extract to Subfolder' : 'استخراج درون پوشه‌ای به نام فایل'}
+                        </span>
+                        <FieldInfoTooltip
+                          fieldName={isEn ? 'Extract to Subfolder' : 'استخراج درون پوشه اختصاصی'}
+                          whatIsIt={
+                            isEn
+                              ? 'Creates a subfolder named after the archive and places all extracted contents inside it.'
+                              : 'یک پوشه جدید هم‌نام با فایل آرشیو ساخته و محتویات را درون آن پوشه استخراج می‌کند.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Prevents cluttering the target folder if the archive does not contain an enclosing top-level folder.'
+                              : 'از شلوغ شدن و پراکنده شدن صدها فایل آزاد در پوشه مقصد در صورتی که آرشیو فاقد پوشه ریشه باشد جلوگیری می‌کند.'
+                          }
+                          practicalExample={
+                            isEn
+                              ? 'Recommended for unpacking site_backup.tar.gz into site_backup/'
+                              : 'پیشنهاد می‌شود تا محتویات به جای پخش شدن، در یک پوشه مرتب جمع شوند'
+                          }
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        {isEn
+                          ? 'Creates a new directory matching the archive name so contents stay grouped.'
+                          : 'پوشه‌ای اختصاصی همنام با آرشیو ایجاد می‌کند تا فایل‌ها منظم بمانند.'}
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Overwrite Existing Files checkbox */}
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        : 'bg-slate-900/50 border-slate-800 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={extractModal.overwrite}
+                      onChange={(e) =>
+                        setExtractModal((prev) =>
+                          prev ? { ...prev, overwrite: e.target.checked } : null
+                        )
+                      }
+                      className="mt-0.5 rounded border-slate-700 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <div className="flex-1 space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-slate-200">
+                          {isEn ? 'Overwrite Existing Files' : 'بازنویسی فایل‌های موجود (Overwrite)'}
+                        </span>
+                        <FieldInfoTooltip
+                          fieldName={isEn ? 'Overwrite Existing' : 'بازنویسی فایل‌های موجود'}
+                          whatIsIt={
+                            isEn
+                              ? 'Automatically replaces existing files with the same name during extraction.'
+                              : 'در صورت وجود فایل‌های هم‌نام در پوشه مقصد، فایل‌های استخراج شده را جایگزین فایل‌های قبلی می‌کند.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Required when deploying software updates or replacing corrupted configuration files.'
+                              : 'هنگام آپدیت نرم‌افزارها، قالب‌ها یا جایگزینی فایل‌های پیکربندی قبلی کاربرد دارد.'
+                          }
+                          practicalExample={
+                            isEn ? 'Keep enabled for clean updates' : 'فعال برای به‌روزرسانی بی‌نقص فایل‌ها'
+                          }
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        {isEn
+                          ? 'Replace existing files if duplicates are found in the target directory.'
+                          : 'در صورت برخورد با فایل تکراری در پوشه مقصد، فایل جدید جایگزین می‌شود.'}
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Delete Archive After Extraction */}
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        : 'bg-slate-900/50 border-slate-800 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={extractModal.deleteArchiveAfterExtract}
+                      onChange={(e) =>
+                        setExtractModal((prev) =>
+                          prev ? { ...prev, deleteArchiveAfterExtract: e.target.checked } : null
+                        )
+                      }
+                      className="mt-0.5 rounded border-slate-700 text-rose-500 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <div className="flex-1 space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-slate-200">
+                          {isEn
+                            ? 'Delete Archive After Extraction'
+                            : 'حذف فایل فشرده پس از استخراج موفق'}
+                        </span>
+                        <FieldInfoTooltip
+                          fieldName={
+                            isEn ? 'Delete Archive After Extract' : 'حذف فایل فشرده پس از استخراج'
+                          }
+                          whatIsIt={
+                            isEn
+                              ? 'Permanently deletes the original compressed archive file once extraction completes.'
+                              : 'پس از اتمام موفق استخراج، فایل آرشیو اولیه را از سرور پاک می‌کند.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Frees disk space on the server after unpacking installation packages or backups.'
+                              : 'با حذف فایل فشرده موقت پس از بازگشایی، باعث آزادسازی فضای ذخیره‌سازی سرور می‌شود.'
+                          }
+                          practicalExample={
+                            isEn
+                              ? 'Useful when server has tight disk quota'
+                              : 'مفید در سرورهایی با محدودیت فضای دیسک'
+                          }
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <p className="text-[11px] text-rose-400/80">
+                        {isEn
+                          ? 'Warning: The archive file will be erased from server after unpacking.'
+                          : 'هشدار: فایل فشرده پس از استخراج به طور دائم از روی سرور حذف خواهد شد.'}
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Error banner */}
+                  {extractModal.error && (
+                    <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-mono flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                      <span>{extractModal.error}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Controls */}
+                <div
+                  className={`px-5 py-3 border-t flex items-center justify-between shrink-0 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExtractModal(null)}
+                    disabled={extractModal.loading}
+                    className="px-4 py-2 rounded-xl border border-slate-700 text-xs font-medium hover:bg-white/10 transition cursor-pointer text-slate-300"
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExecuteExtract}
+                    disabled={extractModal.loading || !extractModal.destinationDir.trim()}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {extractModal.loading ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>{isEn ? 'Extracting on Server...' : 'در حال استخراج روی سرور...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Archive className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Extract Archive Now' : 'شروع استخراج فایل'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+        {/* ======================================================== */}
         {/* ITEM / EMPTY SPACE CONTEXT MENU (PORTAL)                  */}
         {/* ======================================================== */}
         {contextMenu?.isOpen &&
@@ -4490,6 +4997,35 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                     <FileArchive className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                     <span>{isEn ? 'Compress / Archive...' : 'فشرده‌سازی (Compress)...'}</span>
                   </button>
+
+                  {/* Extract Archive (if file is an archive) */}
+                  {isArchiveItem(contextMenu.item) && (
+                    <>
+                      {/* Extract in Current Folder */}
+                      <button
+                        type="button"
+                        onClick={() => handleQuickExtractCurrentDir(contextMenu.item!)}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                          isLightMode ? 'hover:bg-amber-50 text-amber-700 font-semibold' : 'hover:bg-amber-500/15 text-amber-300 font-semibold'
+                        }`}
+                      >
+                        <Archive className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>{isEn ? 'Extract Here (Current Folder)' : 'استخراج در همین پوشه'}</span>
+                      </button>
+
+                      {/* Extract to Custom Directory */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenExtract(contextMenu.item!)}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                          isLightMode ? 'hover:bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-500/15 text-amber-300 font-medium'
+                        }`}
+                      >
+                        <Archive className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>{isEn ? 'Extract Archive...' : 'استخراج به مسیر دلخواه (Extract)...'}</span>
+                      </button>
+                    </>
+                  )}
 
                   {/* Copy Path */}
                   <button

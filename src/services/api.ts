@@ -3202,6 +3202,29 @@ export async function compressLinuxRemoteItems(
   }
 }
 
+export async function extractLinuxRemoteArchive(
+  serverId: string,
+  options: {
+    archivePath: string;
+    destinationDir: string;
+    createSubfolder?: boolean;
+    overwrite?: boolean;
+    deleteArchiveAfterExtract?: boolean;
+    password?: string;
+  }
+): Promise<{ success: boolean; extractedTo?: string; message?: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+    return await res.json().catch(() => ({ success: false, error: 'Failed to extract archive' }));
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to extract archive' };
+  }
+}
+
 export async function deleteLinuxRemoteItem(
   serverId: string,
   path: string,

@@ -1632,4 +1632,146 @@ zf.close()`;
   }
 }
 
+export interface LinuxExtractOptions {
+  archivePath: string;
+  destinationDir: string;
+  createSubfolder?: boolean;
+  overwrite?: boolean;
+  deleteArchiveAfterExtract?: boolean;
+}
+
+/**
+ * Extract an archive file on remote Linux server (tar.gz, zip, tar.bz2, tar.xz, tar, 7z, rar, etc.)
+ */
+export async function extractLinuxArchive(
+  server: RemoteServer,
+  options: LinuxExtractOptions,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; extractedTo: string; message: string }> {
+  const cleanArchive = (options.archivePath || '').trim();
+  if (!cleanArchive) {
+    throw new Error('Archive path is required.');
+  }
+
+  // Prevent extracting to or deleting root
+  if (cleanArchive === '/' || cleanArchive === '/root' || cleanArchive === '/etc') {
+    throw new Error(`Invalid archive path: "${cleanArchive}".`);
+  }
+
+  let destDir = (options.destinationDir || '').trim().replace(/\/+$/, '') || '/';
+  if (destDir === '') destDir = '/';
+
+  // If createSubfolder is enabled, create a folder named after the archive
+  if (options.createSubfolder) {
+    const archiveFileName = cleanArchive.split('/').filter(Boolean).pop() || 'archive';
+    let baseFolderName = archiveFileName;
+    const knownExts = [
+      '.tar.gz',
+      '.tgz',
+      '.tar.bz2',
+      '.tbz2',
+      '.tar.xz',
+      '.txz',
+      '.tar',
+      '.zip',
+      '.7z',
+      '.rar',
+      '.gz',
+      '.bz2',
+      '.xz',
+    ];
+    for (const ext of knownExts) {
+      if (baseFolderName.toLowerCase().endsWith(ext)) {
+        baseFolderName = baseFolderName.substring(0, baseFolderName.length - ext.length);
+        break;
+      }
+    }
+    destDir = destDir === '/' ? `/${baseFolderName}` : `${destDir}/${baseFolderName}`;
+  }
+
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+
+  try {
+    // Ensure destination directory exists
+    await executeExecCommand(client, `mkdir -p "${destDir}"`, 10000).catch(async () => {
+      if ((server.ssh_username || 'root') !== 'root') {
+        await executeExecCommand(client, `sudo -n mkdir -p "${destDir}"`, 10000);
+      }
+    });
+
+    const lowerArchive = cleanArchive.toLowerCase();
+    const overwrite = options.overwrite !== false; // default true
+    let extractCmd = '';
+
+    if (lowerArchive.endsWith('.zip')) {
+      const pyScript = `import sys, zipfile, os
+arc = sys.argv[1]
+dest = sys.argv[2]
+ov = sys.argv[3] == "true"
+with zipfile.ZipFile(arc, "r") as zf:
+    for m in zf.infolist():
+        p = os.path.join(dest, m.filename)
+        if not ov and os.path.exists(p):
+            continue
+        zf.extract(m, dest)`;
+      extractCmd = `command -v unzip >/dev/null 2>&1 && unzip -q ${overwrite ? '-o' : '-n'} "${cleanArchive}" -d "${destDir}" || python3 -c '${pyScript}' "${cleanArchive}" "${destDir}" "${overwrite}"`;
+    } else if (lowerArchive.endsWith('.tar.gz') || lowerArchive.endsWith('.tgz')) {
+      const ovFlag = overwrite ? '--overwrite' : '--skip-old-files';
+      extractCmd = `tar -xzf "${cleanArchive}" -C "${destDir}" ${ovFlag} 2>/dev/null || tar -xzf "${cleanArchive}" -C "${destDir}"`;
+    } else if (lowerArchive.endsWith('.tar.bz2') || lowerArchive.endsWith('.tbz2')) {
+      const ovFlag = overwrite ? '--overwrite' : '--skip-old-files';
+      extractCmd = `tar -xjf "${cleanArchive}" -C "${destDir}" ${ovFlag} 2>/dev/null || tar -xjf "${cleanArchive}" -C "${destDir}"`;
+    } else if (lowerArchive.endsWith('.tar.xz') || lowerArchive.endsWith('.txz')) {
+      const ovFlag = overwrite ? '--overwrite' : '--skip-old-files';
+      extractCmd = `tar -xJf "${cleanArchive}" -C "${destDir}" ${ovFlag} 2>/dev/null || tar -xJf "${cleanArchive}" -C "${destDir}"`;
+    } else if (lowerArchive.endsWith('.tar')) {
+      const ovFlag = overwrite ? '--overwrite' : '--skip-old-files';
+      extractCmd = `tar -xf "${cleanArchive}" -C "${destDir}" ${ovFlag} 2>/dev/null || tar -xf "${cleanArchive}" -C "${destDir}"`;
+    } else if (lowerArchive.endsWith('.7z')) {
+      extractCmd = `7z x -y "${cleanArchive}" -o"${destDir}"`;
+    } else if (lowerArchive.endsWith('.rar')) {
+      extractCmd = `unrar x -o+ "${cleanArchive}" "${destDir}"`;
+    } else {
+      // General fallback using universal tar auto-compression detection
+      extractCmd = `tar -xf "${cleanArchive}" -C "${destDir}"`;
+    }
+
+    try {
+      await executeExecCommand(client, extractCmd, 60000);
+    } catch (cmdErr: any) {
+      if ((server.ssh_username || 'root') !== 'root') {
+        const sudoExtractCmd = `sudo -n sh -c '${extractCmd.replace(/'/g, "'\\''")}'`;
+        await executeExecCommand(client, sudoExtractCmd, 60000);
+      } else {
+        throw cmdErr;
+      }
+    }
+
+    // If deleteArchiveAfterExtract is set, remove the archive file
+    if (options.deleteArchiveAfterExtract) {
+      try {
+        await executeExecCommand(client, `rm -f "${cleanArchive}"`, 10000).catch(async () => {
+          if ((server.ssh_username || 'root') !== 'root') {
+            await executeExecCommand(client, `sudo -n rm -f "${cleanArchive}"`, 10000);
+          }
+        });
+      } catch (delErr) {
+        console.warn(`[extractLinuxArchive deleteArchive warning on ${cleanArchive}]:`, delErr);
+      }
+    }
+
+    const archiveName = cleanArchive.split('/').pop() || 'archive';
+    return {
+      success: true,
+      extractedTo: destDir,
+      message: `Successfully extracted "${archiveName}" into "${destDir}"`,
+    };
+  } finally {
+    try {
+      client.end();
+    } catch {}
+  }
+}
+
+
 
