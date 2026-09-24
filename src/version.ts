@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.140.3';
+export const APP_VERSION = '1.141.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.141.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'امکان دانلود تکی و چندگانه فایل‌ها با آرشیو فشرده ZIP در کاوشگر فایل (فاز ۳)',
+    title_en: 'Single & Multi-File Download with ZIP Archiving in Linux File Explorer (Phase 3)',
+    changes: [
+      'امکان دانلود مستقیم تک فایل با راست‌کلیک روی فایل و انتخاب گزینه دانلود.',
+      'امکان انتخاب چندگانه فایل‌ها و پوشه‌ها با کلید Ctrl/Command (Multi-selection) و نمایش هایلایت بصری واضح.',
+      'امکان دانلود یکجای تمام موارد انتخابی در قالب یک فایل فشرده ZIP استاندارد با استریم سمت سرور و پشتیبانی از پوشه‌ها.',
+      'افزودن دکمه دانلود سریع در نوار ابزار و اعلان پیشرفت دانلود با انیمیشن روان.',
+    ],
+    changes_en: [
+      'Added direct single-file download via right-click context menu on any file.',
+      'Enabled multi-file and folder selection via Ctrl/Command key with distinct visual highlights in table and grid views.',
+      'Added bulk download capability archiving all selected files and folders into a compressed ZIP stream.',
+      'Integrated quick toolbar download action and floating live download status toast indicator.',
+    ],
+  },
   {
     version: '1.140.3',
     releaseDate: '2026-09-24',

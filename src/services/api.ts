@@ -3172,6 +3172,49 @@ export async function deleteLinuxRemoteItem(
   }
 }
 
+export async function downloadLinuxFiles(
+  serverId: string,
+  paths: string[],
+  ephemeralPassword?: string,
+  forceArchive: boolean = false
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, password: ephemeralPassword, archive: forceArchive }),
+    });
+
+    if (!res.ok) {
+      const errorJson = await res.json().catch(() => null);
+      return { success: false, error: errorJson?.error || `Download failed with HTTP ${res.status}` };
+    }
+
+    const disposition = res.headers.get('Content-Disposition');
+    let filename = paths.length === 1 ? paths[0].split('/').filter(Boolean).pop() || 'download' : 'archive.zip';
+    if (disposition && disposition.includes('filename=')) {
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      if (match && match[1]) {
+        filename = decodeURIComponent(match[1]);
+      }
+    }
+
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(blobUrl);
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to download file(s)' };
+  }
+}
+
 
 
 

@@ -42,6 +42,8 @@ import {
   Layers,
   FolderTree,
   MoreVertical,
+  Download,
+  Archive,
 } from 'lucide-react';
 import { RemoteServer, LinuxFsItem, LinuxFsListResult, LinuxQuickDir, LinuxFileContentResult } from '../../types';
 import {
@@ -53,6 +55,7 @@ import {
   createLinuxRemoteEmptyFile,
   renameLinuxRemoteItem,
   deleteLinuxRemoteItem,
+  downloadLinuxFiles,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -216,6 +219,11 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     passwordInput: '',
   });
 
+  // Multi-selection & Download State
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
+
   // Context Menu State for Right-Click Actions
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -244,9 +252,18 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
   const handleItemContextMenu = (e: React.MouseEvent, item: LinuxFsItem) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // If item was already part of multi-selection, keep selection, else select only this item
+    setSelectedPaths((prev) => {
+      if (prev.has(item.path) && prev.size > 1) {
+        return prev;
+      }
+      return new Set([item.path]);
+    });
     setSelectedItem(item);
-    const menuWidth = 210;
-    const menuHeight = 220;
+
+    const menuWidth = 250;
+    const menuHeight = 280;
     const x = Math.max(12, Math.min(e.clientX, window.innerWidth - menuWidth - 12));
     const y = Math.max(12, Math.min(e.clientY, window.innerHeight - menuHeight - 12));
     setContextMenu({
@@ -255,6 +272,52 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       y,
       item,
     });
+  };
+
+  const handleDownload = async (pathsToDownload?: string[], forceArchive: boolean = false) => {
+    if (!server) return;
+    const paths =
+      pathsToDownload && pathsToDownload.length > 0
+        ? pathsToDownload
+        : selectedPaths.size > 0
+        ? Array.from(selectedPaths)
+        : selectedItem
+        ? [selectedItem.path]
+        : [];
+
+    if (paths.length === 0) return;
+
+    try {
+      setIsDownloading(true);
+      setDownloadNotice(
+        isEn
+          ? paths.length > 1 || forceArchive
+            ? 'Archiving and downloading ZIP...'
+            : 'Downloading file...'
+          : paths.length > 1 || forceArchive
+          ? 'در حال فشرده‌سازی و دانلود فایل ZIP...'
+          : 'در حال دریافت فایل...'
+      );
+      const res = await downloadLinuxFiles(
+        server.id,
+        paths,
+        ephemeralPassword || sessionPassword,
+        forceArchive || paths.length > 1
+      );
+      if (!res.success) {
+        setDownloadNotice(res.error || (isEn ? 'Download failed' : 'خطا در دانلود'));
+        setTimeout(() => setDownloadNotice(null), 4000);
+      } else {
+        setDownloadNotice(isEn ? 'Download started' : 'دانلود با موفقیت آغاز شد');
+        setTimeout(() => setDownloadNotice(null), 2500);
+      }
+    } catch (err: any) {
+      setDownloadNotice(err?.message || (isEn ? 'Download error' : 'خطا در دانلود'));
+      setTimeout(() => setDownloadNotice(null), 4000);
+    } finally {
+      setIsDownloading(false);
+      setContextMenu(null);
+    }
   };
 
   const pathInputRef = useRef<HTMLInputElement>(null);
@@ -288,6 +351,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       setLoading(true);
       setError(null);
       setSelectedItem(null);
+      setSelectedPaths(new Set());
 
       const pwdToUse = customPassword !== undefined ? customPassword : ephemeralPassword;
 
@@ -373,9 +437,23 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     loadDirectory(target, ephemeralPassword, true);
   };
 
-  // Handle Double Click on Item
-  const handleItemClick = (item: LinuxFsItem) => {
-    setSelectedItem(item);
+  // Handle Item Click (with Ctrl/Meta multi-selection support)
+  const handleItemClick = (item: LinuxFsItem, e?: React.MouseEvent) => {
+    if (e && (e.ctrlKey || e.metaKey)) {
+      setSelectedPaths((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.path)) {
+          next.delete(item.path);
+        } else {
+          next.add(item.path);
+        }
+        return next;
+      });
+      setSelectedItem(item);
+    } else {
+      setSelectedPaths(new Set([item.path]));
+      setSelectedItem(item);
+    }
   };
 
   const handleItemDoubleClick = (item: LinuxFsItem) => {
@@ -1036,6 +1114,32 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                   {viewMode === 'table' ? <LayoutGrid className="w-3.5 h-3.5" /> : <ListIcon className="w-3.5 h-3.5" />}
                 </button>
 
+                {/* Download Selected */}
+                {selectedPaths.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(Array.from(selectedPaths), selectedPaths.size > 1)}
+                    disabled={isDownloading}
+                    title={
+                      isEn
+                        ? `Download selected (${selectedPaths.size})`
+                        : `دانلود موارد انتخابی (${selectedPaths.size})`
+                    }
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 text-xs font-semibold cursor-pointer transition animate-in fade-in"
+                  >
+                    {isDownloading ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : selectedPaths.size > 1 ? (
+                      <Archive className="w-3.5 h-3.5" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {isEn ? `Download (${selectedPaths.size})` : `دانلود (${selectedPaths.size})`}
+                    </span>
+                  </button>
+                )}
+
                 {/* Create Folder */}
                 <button
                   type="button"
@@ -1204,19 +1308,19 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                       {displayItems.map((item) => {
                         const iconInfo = getFileIconInfo(item);
                         const IconComp = iconInfo.icon;
-                        const isSelected = selectedItem?.path === item.path;
+                        const isSelected = selectedPaths.has(item.path);
 
                         return (
                           <tr
                             key={item.path}
-                            onClick={() => handleItemClick(item)}
+                            onClick={(e) => handleItemClick(item, e)}
                             onDoubleClick={() => handleItemDoubleClick(item)}
                             onContextMenu={(e) => handleItemContextMenu(e, item)}
                             className={`transition cursor-pointer select-none ${
                               isSelected
                                 ? isLightMode
-                                ? 'bg-amber-100/70 text-slate-900 font-semibold'
-                                : 'bg-amber-500/20 text-white font-semibold'
+                                  ? 'bg-cyan-100/90 text-slate-950 font-semibold ring-1 ring-cyan-500/40'
+                                  : 'bg-cyan-500/25 text-white font-semibold ring-1 ring-cyan-500/50'
                                 : isLightMode
                                 ? 'hover:bg-slate-100 text-slate-700'
                                 : 'hover:bg-slate-900/60 text-slate-200'
@@ -1302,17 +1406,19 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                   {displayItems.map((item) => {
                     const iconInfo = getFileIconInfo(item);
                     const IconComp = iconInfo.icon;
-                    const isSelected = selectedItem?.path === item.path;
+                    const isSelected = selectedPaths.has(item.path);
 
                     return (
                       <div
                         key={item.path}
-                        onClick={() => handleItemClick(item)}
+                        onClick={(e) => handleItemClick(item, e)}
                         onDoubleClick={() => handleItemDoubleClick(item)}
                         onContextMenu={(e) => handleItemContextMenu(e, item)}
                         className={`p-3 rounded-xl border flex flex-col items-center text-center transition cursor-pointer relative group select-none ${
                           isSelected
-                            ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-semibold'
+                            ? isLightMode
+                              ? 'bg-cyan-50 border-cyan-500/60 text-cyan-950 font-semibold ring-2 ring-cyan-400'
+                              : 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200 font-semibold ring-2 ring-cyan-400/60'
                             : isLightMode
                             ? 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-md text-slate-800'
                             : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900 text-slate-200'
@@ -1725,86 +1831,189 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
           createPortal(
             <div
               style={{ top: contextMenu.y, left: contextMenu.x }}
-              className={`fixed z-[9999] w-52 rounded-xl border shadow-2xl p-1.5 text-xs font-sans select-none animate-in fade-in zoom-in-95 duration-100 ${
+              className={`fixed z-[9999] w-60 rounded-xl border shadow-2xl p-1.5 text-xs font-sans select-none animate-in fade-in zoom-in-95 duration-100 ${
                 isLightMode
                   ? 'bg-white border-slate-200 text-slate-800 shadow-slate-300/50'
                   : 'bg-slate-900 border-slate-800 text-slate-100 shadow-black/80'
               }`}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Header Info */}
-              <div className="px-2.5 py-1.5 mb-1 border-b border-white/10 flex items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="font-mono font-bold truncate text-[11px] text-cyan-400">
-                    {contextMenu.item.name}
-                  </p>
-                  <p className="text-[10px] text-slate-400 font-mono">
-                    {contextMenu.item.type === 'directory' ? (isEn ? 'Folder' : 'پوشه') : contextMenu.item.sizeHuman}
-                  </p>
-                </div>
-              </div>
+              {selectedPaths.size > 1 ? (
+                <>
+                  {/* Multi-selection Header */}
+                  <div className="px-2.5 py-1.5 mb-1 border-b border-white/10 flex items-center justify-between">
+                    <span className="font-bold text-xs text-cyan-400">
+                      {isEn ? `${selectedPaths.size} items selected` : `${selectedPaths.size} مورد انتخاب شده`}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Ctrl+Click
+                    </span>
+                  </div>
 
-              {/* Copy Path */}
-              <button
-                type="button"
-                onClick={() => {
-                  handleCopyPath(contextMenu.item.path);
-                  setContextMenu(null);
-                }}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
-                  isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-white/10 text-slate-200'
-                }`}
-              >
-                <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>{isEn ? 'Copy Full Path' : 'کپی مسیر کامل'}</span>
-              </button>
+                  {/* Download All as ZIP */}
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(Array.from(selectedPaths), true)}
+                    disabled={isDownloading}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-cyan-50 text-cyan-700 font-semibold' : 'hover:bg-cyan-500/15 text-cyan-300 font-semibold'
+                    }`}
+                  >
+                    <Archive className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span>{isEn ? 'Download as ZIP (.zip)' : 'دانلود در قالب فایل فشرده (ZIP)'}</span>
+                  </button>
 
-              {/* Rename */}
-              <button
-                type="button"
-                onClick={() => {
-                  setRenameDialog({
-                    isOpen: true,
-                    item: contextMenu.item,
-                    newName: contextMenu.item.name,
-                    loading: false,
-                    error: null,
-                  });
-                  setContextMenu(null);
-                }}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
-                  isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-white/10 text-slate-200'
-                }`}
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>{isEn ? 'Rename' : 'تغییر نام'}</span>
-              </button>
+                  {/* Copy All Paths */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCopyPath(Array.from(selectedPaths).join('\n'));
+                      setContextMenu(null);
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-white/10 text-slate-200'
+                    }`}
+                  >
+                    <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>{isEn ? 'Copy Selected Paths' : 'کپی مسیر موارد انتخابی'}</span>
+                  </button>
 
-              <div className="my-1 border-t border-white/10" />
+                  <div className="my-1 border-t border-white/10" />
 
-              {/* Delete */}
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteDialog({
-                    isOpen: true,
-                    item: contextMenu.item,
-                    isRecursive: contextMenu.item.type === 'directory',
-                    loading: false,
-                    error: null,
-                  });
-                  setContextMenu(null);
-                }}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-rose-400 text-start ${
-                  isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/15'
-                }`}
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                <span>{isEn ? 'Delete' : 'حذف'}</span>
-              </button>
+                  {/* Delete Selected Items */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteDialog({
+                        isOpen: true,
+                        item: contextMenu.item,
+                        isRecursive: true,
+                        loading: false,
+                        error: null,
+                      });
+                      setContextMenu(null);
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-rose-400 text-start ${
+                      isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/15'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>{isEn ? `Delete (${selectedPaths.size}) Items` : `حذف (${selectedPaths.size}) مورد`}</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Single Item Header */}
+                  <div className="px-2.5 py-1.5 mb-1 border-b border-white/10 flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono font-bold truncate text-[11px] text-cyan-400">
+                        {contextMenu.item.name}
+                      </p>
+                      <p className="text-[10px] text-slate-400 font-mono">
+                        {contextMenu.item.type === 'directory' ? (isEn ? 'Folder' : 'پوشه') : contextMenu.item.sizeHuman}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Download Single File or Folder */}
+                  <button
+                    type="button"
+                    onClick={() => handleDownload([contextMenu.item.path], contextMenu.item.type === 'directory')}
+                    disabled={isDownloading}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-cyan-50 text-cyan-700 font-medium' : 'hover:bg-cyan-500/15 text-cyan-300 font-medium'
+                    }`}
+                  >
+                    {contextMenu.item.type === 'directory' ? (
+                      <>
+                        <Archive className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span>{isEn ? 'Download as ZIP' : 'دانلود در قالب فایل ZIP'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                        <span>{isEn ? 'Download File' : 'دانلود فایل'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Copy Path */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCopyPath(contextMenu.item.path);
+                      setContextMenu(null);
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-white/10 text-slate-200'
+                    }`}
+                  >
+                    <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>{isEn ? 'Copy Full Path' : 'کپی مسیر کامل'}</span>
+                  </button>
+
+                  {/* Rename */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenameDialog({
+                        isOpen: true,
+                        item: contextMenu.item,
+                        newName: contextMenu.item.name,
+                        loading: false,
+                        error: null,
+                      });
+                      setContextMenu(null);
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-start ${
+                      isLightMode ? 'hover:bg-slate-100 text-slate-700' : 'hover:bg-white/10 text-slate-200'
+                    }`}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>{isEn ? 'Rename' : 'تغییر نام'}</span>
+                  </button>
+
+                  <div className="my-1 border-t border-white/10" />
+
+                  {/* Delete */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteDialog({
+                        isOpen: true,
+                        item: contextMenu.item,
+                        isRecursive: contextMenu.item.type === 'directory',
+                        loading: false,
+                        error: null,
+                      });
+                      setContextMenu(null);
+                    }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer text-rose-400 text-start ${
+                      isLightMode ? 'hover:bg-rose-50' : 'hover:bg-rose-500/15'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>{isEn ? 'Delete' : 'حذف'}</span>
+                  </button>
+                </>
+              )}
             </div>,
             document.body
           )}
+
+        {/* ======================================================== */}
+        {/* DOWNLOAD NOTIFICATION TOAST                              */}
+        {/* ======================================================== */}
+        {downloadNotice && (
+          <div className="fixed bottom-12 right-6 z-[99999] px-4 py-2.5 rounded-xl border border-cyan-500/40 bg-slate-900/95 text-white shadow-2xl backdrop-blur-md flex items-center gap-2 text-xs font-mono animate-in slide-in-from-bottom-2">
+            {isDownloading ? (
+              <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin shrink-0" />
+            ) : (
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            )}
+            <span>{downloadNotice}</span>
+          </div>
+        )}
       </div>
     </div>
   );

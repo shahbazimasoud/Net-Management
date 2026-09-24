@@ -173,6 +173,8 @@ import {
   createLinuxEmptyFile,
   renameLinuxItem,
   deleteLinuxItem,
+  downloadLinuxSingleFile,
+  downloadLinuxArchive,
 } from './linuxFileExplorer';
 
 export const apiRouter = Router();
@@ -4237,6 +4239,60 @@ apiRouter.post('/remote-servers/:id/fs/delete', async (req: Request, res: Respon
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'Failed to delete item' });
+  }
+});
+
+// POST & GET /api/remote-servers/:id/fs/download - Download file or compressed archive of multiple files/directories
+apiRouter.all('/remote-servers/:id/fs/download', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const password = (req.body?.password || req.query?.password) as string | undefined;
+
+    // Support single path or array of paths
+    let paths: string[] = [];
+    if (Array.isArray(req.body?.paths)) {
+      paths = req.body.paths;
+    } else if (typeof req.body?.path === 'string') {
+      paths = [req.body.path];
+    } else if (typeof req.query?.path === 'string') {
+      paths = [req.query.path as string];
+    } else if (Array.isArray(req.query?.paths)) {
+      paths = req.query.paths as string[];
+    }
+
+    const cleanPaths = paths.map((p) => p.trim()).filter(Boolean);
+    if (cleanPaths.length === 0) {
+      return res.status(400).json({ success: false, error: 'At least one file or folder path is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    if (cleanPaths.length === 1) {
+      const singlePath = cleanPaths[0];
+      const forceArchive = req.body?.archive === true || req.query?.archive === 'true';
+      if (forceArchive) {
+        const base = singlePath.split('/').filter(Boolean).pop() || 'folder';
+        await downloadLinuxArchive(server, [singlePath], `${base}.zip`, res, password);
+      } else {
+        try {
+          await downloadLinuxSingleFile(server, singlePath, res, password);
+        } catch (singleErr: any) {
+          if (!res.headersSent) {
+            const base = singlePath.split('/').filter(Boolean).pop() || 'archive';
+            await downloadLinuxArchive(server, [singlePath], `${base}.zip`, res, password);
+          }
+        }
+      }
+    } else {
+      const archiveName = req.body?.archiveName || `server-files-${Date.now()}.zip`;
+      await downloadLinuxArchive(server, cleanPaths, archiveName, res, password);
+    }
+  } catch (err: any) {
+    console.error(`[LinuxFS download error on server ${req.params.id}]:`, err?.message || err);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, error: err.message || 'Failed to download files' });
+    }
   }
 });
 

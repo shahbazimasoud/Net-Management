@@ -1,4 +1,6 @@
 import { Client, ConnectConfig, SFTPWrapper } from 'ssh2';
+import { Response } from 'express';
+import { ZipArchive } from 'archiver';
 import { RemoteServer } from '../src/types';
 
 export interface LinuxFsItem {
@@ -783,4 +785,196 @@ export async function deleteLinuxItem(
       client.end();
     } catch {}
   }
+}
+
+/**
+ * Stream a single remote file directly to the HTTP response.
+ */
+export async function downloadLinuxSingleFile(
+  server: RemoteServer,
+  filePath: string,
+  res: Response,
+  ephemeralPassword?: string
+): Promise<void> {
+  const cleanPath = filePath.trim();
+  const filename = cleanPath.split('/').filter(Boolean).pop() || 'downloaded-file';
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+
+  return new Promise((resolve, reject) => {
+    client.sftp((err, sftp) => {
+      if (err || !sftp) {
+        // Fallback to cat stream
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+
+        client.exec(`cat "${cleanPath}"`, (execErr, stream) => {
+          if (execErr) {
+            try { client.end(); } catch {}
+            if (!res.headersSent) {
+              res.status(500).json({ success: false, error: execErr.message });
+            }
+            return reject(execErr);
+          }
+
+          stream.pipe(res);
+          stream.on('close', () => {
+            try { client.end(); } catch {}
+            resolve();
+          });
+          stream.stderr?.on('data', (data) => {
+            console.warn(`[cat download stderr]: ${data}`);
+          });
+        });
+        return;
+      }
+
+      sftp.stat(cleanPath, (statErr, stats) => {
+        if (statErr) {
+          try { client.end(); } catch {}
+          if (!res.headersSent) {
+            res.status(404).json({ success: false, error: `File not found: ${cleanPath}` });
+          }
+          return reject(statErr);
+        }
+
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        if (stats.size) {
+          res.setHeader('Content-Length', stats.size.toString());
+        }
+
+        const readStream = sftp.createReadStream(cleanPath);
+        readStream.pipe(res);
+
+        readStream.on('close', () => {
+          try { client.end(); } catch {}
+          resolve();
+        });
+
+        readStream.on('error', (streamErr) => {
+          try { client.end(); } catch {}
+          if (!res.headersSent) {
+            res.status(500).json({ success: false, error: streamErr.message });
+          }
+          reject(streamErr);
+        });
+      });
+    });
+  });
+}
+
+/**
+ * Stream multiple files and/or directories as a compressed ZIP archive.
+ */
+export async function downloadLinuxArchive(
+  server: RemoteServer,
+  paths: string[],
+  archiveName: string,
+  res: Response,
+  ephemeralPassword?: string
+): Promise<void> {
+  const cleanPaths = paths.map((p) => p.trim()).filter(Boolean);
+  if (cleanPaths.length === 0) {
+    throw new Error('At least one path is required for archive creation.');
+  }
+
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+  const zip = new ZipArchive({ zlib: { level: 6 } });
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(archiveName || 'archive.zip')}"`);
+
+  zip.pipe(res);
+
+  return new Promise((resolve, reject) => {
+    client.sftp(async (err, sftp) => {
+      if (err || !sftp) {
+        // Fallback: use Python on remote server to create stream
+        const escapedPaths = cleanPaths.map((p) => `"${p}"`).join(' ');
+        const pyScript = `import sys, zipfile, os; zf = zipfile.ZipFile(sys.stdout.buffer, 'w', zipfile.ZIP_DEFLATED);
+for arg in sys.argv[1:]:
+    p = os.path.abspath(arg)
+    if os.path.isfile(p):
+        zf.write(p, arcname=os.path.basename(p))
+    elif os.path.isdir(p):
+        parent = os.path.dirname(p)
+        for root, dirs, files in os.walk(p):
+            for f in files:
+                fp = os.path.join(root, f)
+                zf.write(fp, arcname=os.path.relpath(fp, parent))
+zf.close()`;
+
+        client.exec(`python3 -c '${pyScript}' ${escapedPaths} 2>/dev/null`, (pyErr, stream) => {
+          if (pyErr) {
+            try { client.end(); } catch {}
+            return reject(pyErr);
+          }
+          stream.pipe(res);
+          stream.on('close', () => {
+            try { client.end(); } catch {}
+            resolve();
+          });
+        });
+        return;
+      }
+
+      // Helper to add file or directory recursively to zip
+      const addPath = async (remotePath: string, zipPrefix: string): Promise<void> => {
+        return new Promise((resPath) => {
+          sftp.stat(remotePath, async (statErr, stats) => {
+            if (statErr) {
+              console.warn(`[Archive skip missing]: ${remotePath}`);
+              return resPath();
+            }
+
+            const isDir = (stats.mode & 0o040000) === 0o040000;
+            if (isDir) {
+              sftp.readdir(remotePath, async (readErr, entries) => {
+                if (readErr || !entries) {
+                  return resPath();
+                }
+                for (const entry of entries) {
+                  if (entry.filename === '.' || entry.filename === '..') continue;
+                  const childRemote = `${remotePath.replace(/\/+$/, '')}/${entry.filename}`;
+                  const childZip = zipPrefix ? `${zipPrefix}/${entry.filename}` : entry.filename;
+                  await addPath(childRemote, childZip);
+                }
+                resPath();
+              });
+            } else {
+              const fileStream = sftp.createReadStream(remotePath);
+              zip.append(fileStream, { name: zipPrefix });
+              fileStream.on('end', () => resPath());
+              fileStream.on('error', (e) => {
+                console.warn(`[Archive stream error on ${remotePath}]: ${e.message}`);
+                resPath();
+              });
+            }
+          });
+        });
+      };
+
+      try {
+        for (const itemPath of cleanPaths) {
+          const baseName = itemPath.split('/').filter(Boolean).pop() || 'item';
+          await addPath(itemPath, baseName);
+        }
+
+        zip.on('end', () => {
+          try { client.end(); } catch {}
+          resolve();
+        });
+
+        zip.on('error', (zErr) => {
+          try { client.end(); } catch {}
+          reject(zErr);
+        });
+
+        zip.finalize();
+      } catch (loopErr) {
+        try { client.end(); } catch {}
+        reject(loopErr);
+      }
+    });
+  });
 }
