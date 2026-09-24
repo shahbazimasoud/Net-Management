@@ -1414,7 +1414,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       className={
         isMaximized
           ? 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-0 flex flex-col'
-          : 'fixed inset-0 z-[9999] p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
+          : 'fixed top-0 left-0 right-0 bottom-8 z-[9999] p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
       }
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -2374,7 +2374,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {/* NEW FOLDER DIALOG                                        */}
         {/* ======================================================== */}
         {newDirDialog.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <form
               onSubmit={handleCreateDirectory}
               className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 ${
@@ -2445,7 +2445,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {/* NEW FILE DIALOG                                          */}
         {/* ======================================================== */}
         {newFileDialog.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <form
               onSubmit={handleCreateFile}
               className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 ${
@@ -2516,7 +2516,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {/* RENAME DIALOG                                            */}
         {/* ======================================================== */}
         {renameDialog.isOpen && renameDialog.item && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <form
               onSubmit={handleRenameItem}
               className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 ${
@@ -2588,7 +2588,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {deleteDialog.isOpen && deleteDialog.items.length > 0 &&
           createPortal(
             <div
-              className={`fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs transition-all ${
+              className={`fixed top-0 left-0 right-0 bottom-8 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs transition-all ${
                 deleteDialog.isMaximized ? 'p-0' : ''
               }`}
             >
@@ -2622,7 +2622,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                           : 'تأیید حذف آیتم'}
                       </h3>
                       <p className="text-[11px] text-slate-400 font-mono">
-                        {server?.name || server?.ip_address}
+                        {server?.name || server?.ip}
                       </p>
                     </div>
                   </div>
@@ -2871,7 +2871,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {/* PASSWORD REQUIRED PROMPT MODAL (Zero-Storage Policy)    */}
         {/* ======================================================== */}
         {passwordModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <form
               onSubmit={handlePasswordSubmit}
               className={`w-full max-w-md p-5 rounded-2xl border shadow-2xl space-y-4 ${
@@ -2938,7 +2938,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {/* FILE UPLOAD MODAL DIALOG                                  */}
         {/* ======================================================== */}
         {uploadModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
             <div
               className={`w-full max-w-lg p-5 rounded-2xl border shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 ${
                 isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-100'
@@ -3171,7 +3171,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         {/* ======================================================== */}
         {propertiesModal.isOpen &&
           createPortal(
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs select-none animate-in fade-in duration-150">
+            <div className="fixed top-0 left-0 right-0 bottom-8 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs select-none animate-in fade-in duration-150">
               <div
                 className={`w-full max-w-xl rounded-2xl border shadow-2xl flex flex-col max-h-[92vh] overflow-hidden ${
                   isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-slate-100'
@@ -3985,7 +3985,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
               className={
                 compressModal.isMaximized
                   ? 'fixed top-0 left-0 right-0 bottom-8 z-[99999] p-0 flex flex-col'
-                  : 'fixed inset-0 z-[99999] p-3 sm:p-4 bg-black/75 backdrop-blur-xs flex items-center justify-center'
+                  : 'fixed top-0 left-0 right-0 bottom-8 z-[99999] p-3 sm:p-4 bg-black/75 backdrop-blur-xs flex items-center justify-center'
               }
               dir={isEn ? 'ltr' : 'rtl'}
               onClick={() => {
@@ -4500,7 +4500,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
               className={
                 extractModal.isMaximized
                   ? 'fixed top-0 left-0 right-0 bottom-8 z-[99999] p-0 flex flex-col'
-                  : 'fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150'
+                  : 'fixed top-0 left-0 right-0 bottom-8 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150'
               }
             >
               <div

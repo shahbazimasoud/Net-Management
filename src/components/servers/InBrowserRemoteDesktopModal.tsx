@@ -617,7 +617,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       className={`fixed z-[9999] flex flex-col items-center justify-center ${
         isMaximized
           ? 'top-0 left-0 right-0 bottom-8 p-0'
-          : 'inset-0 p-3 md:p-6 bg-black/80 backdrop-blur-md'
+          : 'top-0 left-0 right-0 bottom-8 p-3 md:p-6 bg-black/80 backdrop-blur-md'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
       onClick={registerActivity}

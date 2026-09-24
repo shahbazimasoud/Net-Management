@@ -825,7 +825,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
       className={
         isMaximized
           ? 'fixed top-0 left-0 right-0 bottom-8 z-50 p-0 flex flex-col'
-          : 'fixed inset-0 z-50 p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
+          : 'fixed top-0 left-0 right-0 bottom-8 z-50 p-2 sm:p-4 bg-black/80 backdrop-blur-sm flex items-center justify-center'
       }
       dir={isEn ? 'ltr' : 'rtl'}
     >

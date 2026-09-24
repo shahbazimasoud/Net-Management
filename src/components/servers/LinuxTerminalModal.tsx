@@ -1706,8 +1706,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   return createPortal(
     <div
-      className={`fixed z-[9999] flex flex-col items-center justify-center ${
-        isMaximized ? 'top-0 left-0 right-0 bottom-8 p-0' : 'inset-0 p-2 sm:p-4 bg-black/80 backdrop-blur-sm'
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col items-center justify-center ${
+        isMaximized ? 'p-0' : 'p-2 sm:p-4 bg-black/80 backdrop-blur-sm'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -2559,7 +2559,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         {/* Server Picker Modal Dialog for Split View */}
         {isServerPickerOpen && (
           <div
-            className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+            className="fixed top-0 left-0 right-0 bottom-8 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
             onClick={() => setIsServerPickerOpen(false)}
           >
             <div

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.148.0';
+export const APP_VERSION = '1.149.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.149.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'تضمین دیده‌شدن و قرارگیری همیشگی فوتر و نوار ابزار پایین روی کلیه پنجره‌ها و مودال‌های لینوکس',
+    title_en: 'Guaranteed Universal Footer Visibility & Bottom-8 Modal Clearance for Linux Terminal and Explorer',
+    changes: [
+      'حل قطعی مشکل پوشیده شدن فوتر توسط پس‌زمینه و کادر ترمینال لینوکس (LinuxTerminalModal) و کاوشگر فایل (LinuxFileExplorerModal) در هر دو حالت عادی و تمام‌صفحه.',
+      'اصلاح محدوده قرارگیری مودال‌ها به فاصله استاندارد bottom-8 در تمامی حالت‌ها تا کادر و بک‌دراپ مودال هرگز روی فوتر ننشیند.',
+      'ارتقای لایه چیدمان (z-index) فوتر و نوار ابزار پایین (ToolsDock) به z-[10000] جهت اطمینان از کلیک‌پذیری و دسترسی بی‌وقفه به اطلاعات وضعیت شبکه و ابزارها.',
+      'اعمال مرز دقیق bottom-8 بر روی کلیه زیرپنجره‌ها و دیالوگ‌های داخلی (دیالوگ حذف، ساخت پوشه، ساخت فایل، تغییر نام، استخراج و فشرده‌سازی).',
+    ],
+    changes_en: [
+      'Resolved footer obstruction: ensured the application footer and status bar remain 100% visible and interactive above Linux Terminal and Linux File Explorer backdrops.',
+      'Enforced strict bottom-8 clearance for all modal overlays and wrappers across both standard and maximized states, eliminating backdrop overlaps.',
+      'Elevated z-index stacking of footer and ToolsDock to z-[10000] for persistent accessibility to network telemetry and minimized task pills.',
+      'Standardized bottom-8 boundary across all nested subdialogs (Delete, Create Folder, Create File, Rename, Compress, Extract, Properties).',
+    ],
+  },
   {
     version: '1.148.0',
     releaseDate: '2026-09-24',

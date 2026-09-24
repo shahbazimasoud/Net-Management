@@ -419,7 +419,7 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
   const themeColor = isRestart ? 'amber' : 'rose';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
       <div
         className={`flex flex-col border shadow-2xl transition-all duration-200 overflow-hidden ${
           isMaximized

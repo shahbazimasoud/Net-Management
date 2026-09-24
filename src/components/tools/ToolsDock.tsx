@@ -338,7 +338,7 @@ export const ToolsDock: React.FC<ToolsDockProps> = ({
       id="global-minimized-modals-dock"
       className={`fixed bottom-9 sm:bottom-10 ${
         isRtl ? 'right-4' : 'left-4'
-      } z-[1200] flex items-center gap-1.5 sm:gap-2 select-none max-w-[calc(100vw-24px)] sm:max-w-[calc(100vw-36px)] md:max-w-[calc(100vw-48px)] transition-all duration-300`}
+      } z-[10000] flex items-center gap-1.5 sm:gap-2 select-none max-w-[calc(100vw-24px)] sm:max-w-[calc(100vw-36px)] md:max-w-[calc(100vw-48px)] transition-all duration-300`}
       dir={isRtl ? 'rtl' : 'ltr'}
     >
       {/* Category Filter / Minimization Dropdown Pill */}
@@ -398,7 +398,7 @@ export const ToolsDock: React.FC<ToolsDockProps> = ({
             <div
               className={`absolute bottom-full mb-2 ${
                 isRtl ? 'right-0' : 'left-0'
-              } w-72 sm:w-80 p-2.5 rounded-2xl border shadow-2xl backdrop-blur-2xl z-[1300] animate-in fade-in zoom-in-95 ${
+              } w-72 sm:w-80 p-2.5 rounded-2xl border shadow-2xl backdrop-blur-2xl z-[10100] animate-in fade-in zoom-in-95 ${
                 isLightMode
                   ? 'bg-white/95 border-slate-200 text-slate-800 shadow-slate-300'
                   : 'bg-slate-900/95 border-slate-700 text-slate-200 shadow-black'
