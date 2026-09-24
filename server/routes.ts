@@ -1329,7 +1329,7 @@ const handleLinuxServerMonitor = async (req: Request, res: Response) => {
       cpu_cores: metrics.cpu?.cores || server.cpu_cores,
       ram_gb,
       disk_gb,
-      uptime_str: metrics.uptime?.human || server.uptime_str,
+      uptime_str: metrics.uptimeFormatted || (metrics as any).uptime?.human || server.uptime_str,
     }).catch(() => {});
 
     return res.json({

@@ -20,6 +20,7 @@ import {
   List,
   Table as TableIcon,
   Columns3,
+  Clock,
   Cpu,
   Zap,
   Sliders,
@@ -100,6 +101,7 @@ export const SERVER_COLUMNS: ServerColumnDef[] = [
   { key: 'ip', labelEn: 'IP Address & Port', labelFa: 'آدرس IP و پورت' },
   { key: 'role', labelEn: 'Role & Environment', labelFa: 'محیط و دسته‌بندی' },
   { key: 'status', labelEn: 'Live Status / Ping', labelFa: 'وضعیت لحظه‌ای و پینگ' },
+  { key: 'uptime', labelEn: 'Server Uptime', labelFa: 'مدت کارکرد (Uptime)' },
   { key: 'tags', labelEn: 'Automation Tags', labelFa: 'تگ‌های اتوماسیون' },
   { key: 'actions', labelEn: 'Actions', labelFa: 'عملیات' },
 ];
@@ -129,7 +131,11 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     try {
       const saved = localStorage.getItem('remote_servers_visible_columns');
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed.uptime === undefined) {
+          parsed.uptime = true;
+        }
+        return parsed;
       }
     } catch {
       // fallback
@@ -141,6 +147,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       ip: true,
       role: true,
       status: true,
+      uptime: true,
       tags: true,
       actions: true,
     };
@@ -218,6 +225,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       ip: true,
       role: true,
       status: true,
+      uptime: true,
       tags: true,
       actions: true,
     };
@@ -1687,6 +1695,18 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       {isEn ? 'Live Status' : 'وضعیت لحظه‌ای'}
                     </th>
                   )}
+                  {visibleColumns.uptime && (
+                    <th
+                      className={`p-3.5 ${
+                        isEn ? 'border-r' : 'border-l'
+                      } ${isLightMode ? 'border-slate-200' : 'border-white/15'}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{isEn ? 'Uptime' : 'مدت کارکرد (Uptime)'}</span>
+                      </div>
+                    </th>
+                  )}
                   {visibleColumns.tags && (
                     <th
                       className={`p-3.5 ${
@@ -1802,6 +1822,18 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                   <span className="text-slate-300">
                                     {formatServerHardwareSpecs(server, isEn)}
                                   </span>
+                                  {server.uptime_str && (
+                                    <>
+                                      <span>•</span>
+                                      <span
+                                        className="text-cyan-400/90 inline-flex items-center gap-1"
+                                        title={isEn ? `Server Uptime: ${server.uptime_str}` : `مدت زمان کارکرد: ${server.uptime_str}`}
+                                      >
+                                        <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
+                                        <span>{server.uptime_str}</span>
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1960,6 +1992,45 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                 <Zap className="w-3 h-3" />
                               </button>
                             </div>
+                            {server.uptime_str && (
+                              <div
+                                className={`flex items-center gap-1 text-[10px] font-mono mt-1 ${
+                                  isLightMode ? 'text-slate-600' : 'text-slate-400'
+                                }`}
+                                title={isEn ? `Server Uptime: ${server.uptime_str}` : `مدت زمان کارکرد: ${server.uptime_str}`}
+                              >
+                                <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
+                                <span className="text-cyan-400/80 font-medium">{isEn ? 'Up:' : 'آپ‌تایم:'}</span>
+                                <span className="truncate">{server.uptime_str}</span>
+                              </div>
+                            )}
+                          </td>
+                        )}
+
+                        {/* Server Uptime Column */}
+                        {visibleColumns.uptime && (
+                          <td
+                            className={`p-3.5 ${
+                              isEn ? 'border-r' : 'border-l'
+                            } ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}
+                          >
+                            {server.uptime_str ? (
+                              <div className="flex items-center gap-1.5 font-mono text-xs">
+                                <span
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${
+                                    isLightMode
+                                      ? 'bg-slate-100 text-slate-700 border-slate-300'
+                                      : 'bg-cyan-950/40 text-cyan-300 border-cyan-500/30 shadow-xs'
+                                  }`}
+                                  title={isEn ? `Server Uptime: ${server.uptime_str}` : `مدت زمان کارکرد سرور: ${server.uptime_str}`}
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                  <span>{server.uptime_str}</span>
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-500 font-mono text-[11px]">—</span>
+                            )}
                           </td>
                         )}
 
@@ -2194,8 +2265,17 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     isLightMode ? 'border-slate-200' : 'border-white/10'
                   }`}
                 >
-                  <div className="text-[11px] text-slate-300 font-mono">
-                    {formatServerHardwareSpecs(server, isEn)}
+                  <div className="flex flex-col gap-0.5 text-[11px] text-slate-300 font-mono">
+                    <div>{formatServerHardwareSpecs(server, isEn)}</div>
+                    {server.uptime_str && (
+                      <div
+                        className="flex items-center gap-1 text-[10px] text-cyan-400 font-medium"
+                        title={isEn ? `Server Uptime: ${server.uptime_str}` : `مدت زمان کارکرد: ${server.uptime_str}`}
+                      >
+                        <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
+                        <span>{isEn ? `Up: ${server.uptime_str}` : `آپ‌تایم: ${server.uptime_str}`}</span>
+                      </div>
+                    )}
                   </div>
 
                   {isLinux ? (
@@ -2257,6 +2337,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   {visibleColumns.ip && <th className="p-3">IP / Port</th>}
                   {visibleColumns.role && <th className="p-3">{isEn ? 'Category' : 'دسته'}</th>}
                   {visibleColumns.role && <th className="p-3">{isEn ? 'Env' : 'محیط'}</th>}
+                  {visibleColumns.uptime && <th className="p-3">{isEn ? 'Uptime' : 'آپ‌تایم'}</th>}
                   {visibleColumns.tags && <th className="p-3">{isEn ? 'Tags' : 'تگ‌ها'}</th>}
                   {visibleColumns.actions && <th className="p-3 text-right">{isEn ? 'Actions' : 'عملیات'}</th>}
                 </tr>
@@ -2331,6 +2412,21 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           >
                             {server.environment}
                           </span>
+                        </td>
+                      )}
+                      {visibleColumns.uptime && (
+                        <td className="p-3 font-mono text-cyan-300 text-xs">
+                          {server.uptime_str ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-[11px]"
+                              title={isEn ? `Server Uptime: ${server.uptime_str}` : `مدت کارکرد: ${server.uptime_str}`}
+                            >
+                              <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
+                              <span>{server.uptime_str}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">—</span>
+                          )}
                         </td>
                       )}
                       {visibleColumns.tags && (

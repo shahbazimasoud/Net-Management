@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.138.2';
+export const APP_VERSION = '1.138.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.138.3',
+    releaseDate: '2026-09-24',
+    type: 'patch',
+    title: 'نمایش مدت زمان کارکرد (Uptime) در لیست و جدول ناوگان سرورها',
+    title_en: 'Display Server Uptime in Fleet Server List and Table Views',
+    changes: [
+      'افزودن نمایش آپ‌تایم و مدت زمان کارکرد سرور (Uptime) در نمای لیستی ناوگان سرورها، زیر نام هاست، ستون وضعیت لحظه‌ای و ستون اختصاصی Uptime.',
+      'تعبیه ستون جدید Uptime در بخش انتخاب و سفارشی‌سازی ستون‌های جدول با قابلیت فعال/غیرفعال‌سازی و ذخیره در LocalStorage.',
+      'پشتیبانی از نمایش مقدار Uptime در تمامی نماهای لیستی (List View)، کارتی (Grid View) و جدولی متراکم (Table View).',
+    ],
+    changes_en: [
+      'Added server uptime display across fleet server views under host specs, live status column, and as a dedicated Uptime column.',
+      'Integrated new Uptime column in table column picker customization with persistence in LocalStorage.',
+      'Supported uptime metrics visualization in List View, Grid Cards View, and Dense Table View.',
+    ],
+  },
   {
     version: '1.138.2',
     releaseDate: '2026-09-24',
