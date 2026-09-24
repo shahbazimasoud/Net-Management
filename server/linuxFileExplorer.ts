@@ -155,28 +155,34 @@ export function formatBytes(bytes: number, decimals: number = 1): string {
   return `${parseFloat((bytes / Math.pow(k, safeI)).toFixed(dm))} ${sizes[safeI]}`;
 }
 
-export function parseOctalPermissions(mode: number): { octal: string; stringFormat: string } {
+export function parseOctalPermissions(mode: number): { octal: string; stringFormat: string; suid: boolean; sgid: boolean; sticky: boolean } {
   const isDir = (mode & 0o040000) === 0o040000;
   const isSymlink = (mode & 0o120000) === 0o120000;
 
   const typeChar = isDir ? 'd' : isSymlink ? 'l' : '-';
 
+  const isSuid = Boolean(mode & 0o4000);
+  const isSgid = Boolean(mode & 0o2000);
+  const isSticky = Boolean(mode & 0o1000);
+
   const userR = mode & 0o400 ? 'r' : '-';
   const userW = mode & 0o200 ? 'w' : '-';
-  const userX = mode & 0o100 ? (mode & 0o4000 ? 's' : 'x') : mode & 0o4000 ? 'S' : '-';
+  const userX = mode & 0o100 ? (isSuid ? 's' : 'x') : isSuid ? 'S' : '-';
 
   const groupR = mode & 0o040 ? 'r' : '-';
   const groupW = mode & 0o020 ? 'w' : '-';
-  const groupX = mode & 0o010 ? (mode & 0o2000 ? 's' : 'x') : mode & 0o2000 ? 'S' : '-';
+  const groupX = mode & 0o010 ? (isSgid ? 's' : 'x') : isSgid ? 'S' : '-';
 
   const otherR = mode & 0o004 ? 'r' : '-';
   const otherW = mode & 0o002 ? 'w' : '-';
-  const otherX = mode & 0o001 ? (mode & 0o1000 ? 't' : 'x') : mode & 0o1000 ? 'T' : '-';
+  const otherX = mode & 0o001 ? (isSticky ? 't' : 'x') : isSticky ? 'T' : '-';
 
-  const octal = (mode & 0o777).toString(8).padStart(3, '0');
+  const specialBits = ((mode >> 9) & 0o7);
+  const octalStandard = (mode & 0o777).toString(8).padStart(3, '0');
+  const octal = `${specialBits}${octalStandard}`;
   const stringFormat = `${typeChar}${userR}${userW}${userX}${groupR}${groupW}${groupX}${otherR}${otherW}${otherX}`;
 
-  return { octal, stringFormat };
+  return { octal, stringFormat, suid: isSuid, sgid: isSgid, sticky: isSticky };
 }
 
 export function getFileExtension(filename: string): string {
@@ -1042,6 +1048,9 @@ export interface LinuxItemProperties {
   statusChangeTime?: string;
   symlinkTarget?: string;
   itemCount?: number;
+  suid?: boolean;
+  sgid?: boolean;
+  sticky?: boolean;
 }
 
 /**
@@ -1068,12 +1077,18 @@ export async function getLinuxItemProperties(
         const ownerUid = parseInt(parts[4], 10) || 0;
         const groupName = parts[5] || 'unknown';
         const groupGid = parseInt(parts[6], 10) || 0;
-        const octal = (parts[7] || '').padStart(3, '0');
+        const rawOctal = (parts[7] || '').trim();
         const permString = parts[8] || '-';
         const mtime = parts[9] || new Date().toISOString();
         const atime = parts[10] || new Date().toISOString();
         const wtime = parts[11] && parts[11] !== '-' ? parts[11] : undefined;
         const ztime = parts[12] && parts[12] !== '-' ? parts[12] : undefined;
+
+        const formattedOctal = rawOctal.length <= 3 ? rawOctal.padStart(4, '0') : rawOctal;
+        const specialDigit = parseInt(formattedOctal[0], 10) || 0;
+        const suid = Boolean(specialDigit & 4) || permString[3] === 's' || permString[3] === 'S';
+        const sgid = Boolean(specialDigit & 2) || permString[6] === 's' || permString[6] === 'S';
+        const sticky = Boolean(specialDigit & 1) || permString[9] === 't' || permString[9] === 'T';
 
         let type: 'directory' | 'file' | 'symlink' | 'other' = 'file';
         if (rawType.includes('directory')) type = 'directory';
@@ -1112,7 +1127,7 @@ export async function getLinuxItemProperties(
           size,
           sizeHuman: formatBytes(size),
           permissions: permString,
-          octalPermissions: octal,
+          octalPermissions: formattedOctal,
           ownerUser,
           ownerUid,
           groupName,
@@ -1123,6 +1138,9 @@ export async function getLinuxItemProperties(
           statusChangeTime: ztime,
           symlinkTarget,
           itemCount,
+          suid,
+          sgid,
+          sticky,
         };
       }
     } catch {}
@@ -1143,7 +1161,7 @@ export async function getLinuxItemProperties(
           const isSymlink = (mode & 0o120000) === 0o120000;
           const type = isDir ? 'directory' : isSymlink ? 'symlink' : 'file';
           const size = stats.size || 0;
-          const { octal, stringFormat } = parseOctalPermissions(mode);
+          const { octal, stringFormat, suid, sgid, sticky } = parseOctalPermissions(mode);
           const mtime = stats.mtime ? new Date(stats.mtime * 1000).toISOString() : new Date().toISOString();
           const atime = stats.atime ? new Date(stats.atime * 1000).toISOString() : new Date().toISOString();
           const name = cleanPath === '/' ? '/' : cleanPath.substring(cleanPath.lastIndexOf('/') + 1);
@@ -1165,10 +1183,140 @@ export async function getLinuxItemProperties(
             groupGid: stats.gid ?? 0,
             modifiedTime: mtime,
             accessTime: atime,
+            suid,
+            sgid,
+            sticky,
           });
         });
       });
     });
+  } finally {
+    try {
+      client.end();
+    } catch {}
+  }
+}
+
+/**
+ * Fetch real system users and groups from remote Linux server.
+ */
+export async function getLinuxSystemUsersAndGroups(
+  server: RemoteServer,
+  ephemeralPassword?: string
+): Promise<{ users: string[]; groups: string[] }> {
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+  try {
+    const usersCmd = `getent passwd 2>/dev/null | cut -d: -f1 || cut -d: -f1 /etc/passwd`;
+    const groupsCmd = `getent group 2>/dev/null | cut -d: -f1 || cut -d: -f1 /etc/group`;
+    const [rawUsers, rawGroups] = await Promise.all([
+      executeExecCommand(client, usersCmd, 5000).catch(() => ''),
+      executeExecCommand(client, groupsCmd, 5000).catch(() => ''),
+    ]);
+    const users = Array.from(new Set(rawUsers.split('\n').map((s) => s.trim()).filter(Boolean))).sort();
+    const groups = Array.from(new Set(rawGroups.split('\n').map((s) => s.trim()).filter(Boolean))).sort();
+    return { users, groups };
+  } finally {
+    try {
+      client.end();
+    } catch {}
+  }
+}
+
+export interface UpdateLinuxAttributesOptions {
+  path: string;
+  mode?: string;
+  owner?: string;
+  group?: string;
+  recursive?: boolean;
+}
+
+/**
+ * Update file/directory permissions (chmod) and ownership (chown) on remote Linux server.
+ */
+export async function updateLinuxItemAttributes(
+  server: RemoteServer,
+  options: UpdateLinuxAttributesOptions,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; properties?: LinuxItemProperties }> {
+  const cleanPath = (options.path || '').trim();
+  if (!cleanPath || cleanPath === '') {
+    throw new Error('Target path is required.');
+  }
+  if (cleanPath === '/' && options.recursive) {
+    throw new Error('Recursive attribute modification on root "/" is strictly prohibited.');
+  }
+
+  const client = await getAdaptiveSshClient(server, ephemeralPassword);
+  const recursiveFlag = options.recursive ? '-R ' : '';
+
+  try {
+    const executedCommands: string[] = [];
+
+    // 1. Chmod if mode is provided
+    if (options.mode) {
+      const trimmedMode = options.mode.trim();
+      if (!/^[0-7]{3,4}$/.test(trimmedMode)) {
+        throw new Error(
+          `Invalid octal permissions format: "${trimmedMode}". Must be 3 or 4 octal digits (e.g. 0755, 644, 4755).`
+        );
+      }
+      const chmodCmd = `chmod ${recursiveFlag}${trimmedMode} "${cleanPath}"`;
+      try {
+        await executeExecCommand(client, chmodCmd, 10000);
+        executedCommands.push(chmodCmd);
+      } catch (err: any) {
+        if ((server.ssh_username || 'root') !== 'root') {
+          const sudoCmd = `sudo -n chmod ${recursiveFlag}${trimmedMode} "${cleanPath}"`;
+          await executeExecCommand(client, sudoCmd, 10000);
+          executedCommands.push(sudoCmd);
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    // 2. Chown if owner or group is provided
+    if (options.owner !== undefined || options.group !== undefined) {
+      const sanitizedOwner = (options.owner || '').trim().replace(/[^a-zA-Z0-9_\-\.]/g, '');
+      const sanitizedGroup = (options.group || '').trim().replace(/[^a-zA-Z0-9_\-\.]/g, '');
+
+      let chownTarget = '';
+      if (sanitizedOwner && sanitizedGroup) {
+        chownTarget = `${sanitizedOwner}:${sanitizedGroup}`;
+      } else if (sanitizedOwner) {
+        chownTarget = `${sanitizedOwner}`;
+      } else if (sanitizedGroup) {
+        chownTarget = `:${sanitizedGroup}`;
+      }
+
+      if (chownTarget) {
+        const chownCmd = `chown ${recursiveFlag}${chownTarget} "${cleanPath}"`;
+        try {
+          await executeExecCommand(client, chownCmd, 10000);
+          executedCommands.push(chownCmd);
+        } catch (err: any) {
+          if ((server.ssh_username || 'root') !== 'root') {
+            const sudoCmd = `sudo -n chown ${recursiveFlag}${chownTarget} "${cleanPath}"`;
+            await executeExecCommand(client, sudoCmd, 10000);
+            executedCommands.push(sudoCmd);
+          } else {
+            throw err;
+          }
+        }
+      }
+    }
+
+    // 3. Fetch updated properties directly
+    let updatedProperties: LinuxItemProperties | undefined;
+    try {
+      updatedProperties = await getLinuxItemProperties(server, cleanPath, ephemeralPassword);
+    } catch {}
+
+    return {
+      success: true,
+      message: `Attributes updated successfully (${executedCommands.join('; ') || 'no changes'})`,
+      properties: updatedProperties,
+    };
   } finally {
     try {
       client.end();

@@ -48,6 +48,7 @@ import {
   Calendar,
   User,
   Users,
+  Save,
 } from 'lucide-react';
 import { RemoteServer, LinuxFsItem, LinuxFsListResult, LinuxQuickDir, LinuxFileContentResult, LinuxItemProperties } from '../../types';
 import {
@@ -62,6 +63,8 @@ import {
   downloadLinuxFiles,
   uploadLinuxFile,
   fetchLinuxItemProperties,
+  updateLinuxItemAttributes,
+  fetchLinuxSystemUsersAndGroups,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -266,6 +269,50 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     error: null,
   });
 
+  // Permissions & Ownership Interactive Editor State
+  const [permEdit, setPermEdit] = useState<{
+    octal: string;
+    ownerRead: boolean;
+    ownerWrite: boolean;
+    ownerExec: boolean;
+    groupRead: boolean;
+    groupWrite: boolean;
+    groupExec: boolean;
+    othersRead: boolean;
+    othersWrite: boolean;
+    othersExec: boolean;
+    suid: boolean;
+    sgid: boolean;
+    sticky: boolean;
+    owner: string;
+    group: string;
+    recursive: boolean;
+  }>({
+    octal: '0755',
+    ownerRead: true,
+    ownerWrite: true,
+    ownerExec: true,
+    groupRead: true,
+    groupWrite: false,
+    groupExec: true,
+    othersRead: true,
+    othersWrite: false,
+    othersExec: true,
+    suid: false,
+    sgid: false,
+    sticky: false,
+    owner: 'root',
+    group: 'root',
+    recursive: false,
+  });
+
+  const [isSavingAttributes, setIsSavingAttributes] = useState(false);
+  const [attributeSaveSuccess, setAttributeSaveSuccess] = useState<string | null>(null);
+  const [attributeSaveError, setAttributeSaveError] = useState<string | null>(null);
+  const [systemUsers, setSystemUsers] = useState<string[]>([]);
+  const [systemGroups, setSystemGroups] = useState<string[]>([]);
+  const [isLoadingUsersGroups, setIsLoadingUsersGroups] = useState(false);
+
   // Context Menu State for Right-Click Actions (item can be null for empty space)
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -412,16 +459,69 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       error: null,
     });
     setContextMenu(null);
+    setAttributeSaveSuccess(null);
+    setAttributeSaveError(null);
+
+    // Fetch live system users & groups if not already loaded
+    if (systemUsers.length === 0) {
+      setIsLoadingUsersGroups(true);
+      fetchLinuxSystemUsersAndGroups(server.id, ephemeralPassword || sessionPassword)
+        .then((ugRes) => {
+          if (ugRes.success) {
+            if (ugRes.users) setSystemUsers(ugRes.users);
+            if (ugRes.groups) setSystemGroups(ugRes.groups);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setIsLoadingUsersGroups(false));
+    }
 
     fetchLinuxItemProperties(server.id, targetPath, ephemeralPassword || sessionPassword)
       .then((res) => {
         if (res.success && res.properties) {
+          const props = res.properties;
           setPropertiesModal((prev) => ({
             ...prev,
-            data: res.properties!,
+            data: props,
             loading: false,
             error: null,
           }));
+
+          const rawOct = (props.octalPermissions || '0755').replace(/[^0-7]/g, '');
+          let s = 0;
+          let u = 7;
+          let g = 5;
+          let o = 5;
+          if (rawOct.length === 4) {
+            s = parseInt(rawOct[0], 10) || 0;
+            u = parseInt(rawOct[1], 10) || 0;
+            g = parseInt(rawOct[2], 10) || 0;
+            o = parseInt(rawOct[3], 10) || 0;
+          } else if (rawOct.length === 3) {
+            s = 0;
+            u = parseInt(rawOct[0], 10) || 0;
+            g = parseInt(rawOct[1], 10) || 0;
+            o = parseInt(rawOct[2], 10) || 0;
+          }
+
+          setPermEdit({
+            octal: `${s}${u}${g}${o}`,
+            ownerRead: Boolean(u & 4),
+            ownerWrite: Boolean(u & 2),
+            ownerExec: Boolean(u & 1),
+            groupRead: Boolean(g & 4),
+            groupWrite: Boolean(g & 2),
+            groupExec: Boolean(g & 1),
+            othersRead: Boolean(o & 4),
+            othersWrite: Boolean(o & 2),
+            othersExec: Boolean(o & 1),
+            suid: Boolean(s & 4) || Boolean(props.suid),
+            sgid: Boolean(s & 2) || Boolean(props.sgid),
+            sticky: Boolean(s & 1) || Boolean(props.sticky),
+            owner: props.ownerUser || 'root',
+            group: props.groupName || 'root',
+            recursive: false,
+          });
         } else {
           setPropertiesModal((prev) => ({
             ...prev,
@@ -437,6 +537,127 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
           error: err?.message || (isEn ? 'Connection error' : 'خطای ارتباط با سرور'),
         }));
       });
+  };
+
+  // Toggle individual permission bit and recompute octal
+  const handleTogglePerm = (key: keyof typeof permEdit) => {
+    setPermEdit((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      const s = (next.suid ? 4 : 0) + (next.sgid ? 2 : 0) + (next.sticky ? 1 : 0);
+      const u = (next.ownerRead ? 4 : 0) + (next.ownerWrite ? 2 : 0) + (next.ownerExec ? 1 : 0);
+      const g = (next.groupRead ? 4 : 0) + (next.groupWrite ? 2 : 0) + (next.groupExec ? 1 : 0);
+      const o = (next.othersRead ? 4 : 0) + (next.othersWrite ? 2 : 0) + (next.othersExec ? 1 : 0);
+      next.octal = `${s}${u}${g}${o}`;
+      return next;
+    });
+  };
+
+  // Update permissions directly from manual octal input (3 or 4 digits)
+  const handleOctalInputChange = (val: string) => {
+    const digits = val.replace(/[^0-7]/g, '').slice(0, 4);
+    setPermEdit((prev) => {
+      let s = 0;
+      let u = 0;
+      let g = 0;
+      let o = 0;
+      if (digits.length === 4) {
+        s = parseInt(digits[0], 10) || 0;
+        u = parseInt(digits[1], 10) || 0;
+        g = parseInt(digits[2], 10) || 0;
+        o = parseInt(digits[3], 10) || 0;
+      } else if (digits.length === 3) {
+        s = 0;
+        u = parseInt(digits[0], 10) || 0;
+        g = parseInt(digits[1], 10) || 0;
+        o = parseInt(digits[2], 10) || 0;
+      } else {
+        return { ...prev, octal: digits };
+      }
+
+      return {
+        ...prev,
+        octal: digits,
+        ownerRead: Boolean(u & 4),
+        ownerWrite: Boolean(u & 2),
+        ownerExec: Boolean(u & 1),
+        groupRead: Boolean(g & 4),
+        groupWrite: Boolean(g & 2),
+        groupExec: Boolean(g & 1),
+        othersRead: Boolean(o & 4),
+        othersWrite: Boolean(o & 2),
+        othersExec: Boolean(o & 1),
+        suid: Boolean(s & 4),
+        sgid: Boolean(s & 2),
+        sticky: Boolean(s & 1),
+      };
+    });
+  };
+
+  // Apply quick permission presets
+  const handleApplyPreset = (presetOctal: string) => {
+    handleOctalInputChange(presetOctal);
+  };
+
+  // Live preview string (e.g. -rwxr-xr-x or drwxrwsr-x)
+  const computedPreviewPerms = useMemo(() => {
+    const isDir = propertiesModal.data?.type === 'directory' || propertiesModal.item?.type === 'directory';
+    const typeChar = isDir ? 'd' : '-';
+    const uR = permEdit.ownerRead ? 'r' : '-';
+    const uW = permEdit.ownerWrite ? 'w' : '-';
+    const uX = permEdit.ownerExec ? (permEdit.suid ? 's' : 'x') : (permEdit.suid ? 'S' : '-');
+    const gR = permEdit.groupRead ? 'r' : '-';
+    const gW = permEdit.groupWrite ? 'w' : '-';
+    const gX = permEdit.groupExec ? (permEdit.sgid ? 's' : 'x') : (permEdit.sgid ? 'S' : '-');
+    const oR = permEdit.othersRead ? 'r' : '-';
+    const oW = permEdit.othersWrite ? 'w' : '-';
+    const oX = permEdit.othersExec ? (permEdit.sticky ? 't' : 'x') : (permEdit.sticky ? 'T' : '-');
+    return `${typeChar}${uR}${uW}${uX}${gR}${gW}${gX}${oR}${oW}${oX}`;
+  }, [permEdit, propertiesModal.data?.type, propertiesModal.item?.type]);
+
+  // Save changes to permissions and ownership via SSH
+  const handleSaveAttributes = async () => {
+    if (!server) return;
+    const targetPath = propertiesModal.data?.path || propertiesModal.targetPath;
+    if (!targetPath) return;
+
+    setIsSavingAttributes(true);
+    setAttributeSaveSuccess(null);
+    setAttributeSaveError(null);
+
+    try {
+      const res = await updateLinuxItemAttributes(server.id, {
+        path: targetPath,
+        mode: permEdit.octal,
+        owner: permEdit.owner.trim() || undefined,
+        group: permEdit.group.trim() || undefined,
+        recursive: permEdit.recursive,
+        password: ephemeralPassword || sessionPassword,
+      });
+
+      if (res.success) {
+        setAttributeSaveSuccess(
+          isEn
+            ? 'Permissions & ownership updated successfully!'
+            : 'سطح دسترسی و مالکیت با موفقیت اعمال و ذخیره شد!'
+        );
+        if (res.properties) {
+          setPropertiesModal((prev) => ({
+            ...prev,
+            data: res.properties!,
+          }));
+        }
+        // Refresh directory listing so the file list immediately reflects new permissions
+        loadDirectory(currentPath, ephemeralPassword, false);
+      } else {
+        setAttributeSaveError(
+          res.error || (isEn ? 'Failed to update attributes' : 'خطا در اعمال تغییرات دسترسی و مالکیت')
+        );
+      }
+    } catch (err: any) {
+      setAttributeSaveError(err?.message || (isEn ? 'Connection error' : 'خطای ارتباط با سرور'));
+    } finally {
+      setIsSavingAttributes(false);
+    }
   };
 
   const handleDownload = async (pathsToDownload?: string[], forceArchive: boolean = false) => {
@@ -2416,135 +2637,508 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Section 2: Ownership & Access Permissions */}
+                      {/* Section 2: Ownership & Access Permissions (Interactive Editor) */}
                       <div
-                        className={`p-3.5 rounded-xl border space-y-3 ${
+                        className={`p-3.5 rounded-xl border space-y-3.5 ${
                           isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                            <Lock className="w-3.5 h-3.5 text-amber-400" />
-                            <span>{isEn ? 'Ownership & Permissions' : 'مالکیت و سطح دسترسی'}</span>
+                        {/* Section Header */}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <Lock className="w-4 h-4 text-amber-400" />
+                            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                              {isEn ? 'Ownership & Permissions' : 'مالکیت و سطح دسترسی'}
+                            </span>
+                            <FieldInfoTooltip
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                              title={isEn ? 'Linux File Permissions' : 'مجوزهای دسترسی لینوکس'}
+                              infoWhatEn="Controls POSIX read, write, and execute permissions across Owner, Group, and Others, alongside SUID/SGID/Sticky special modes."
+                              infoWhatFa="کنترل مجوزهای خواندن، نوشتن و اجرای لینوکس برای مالک، گروه و سایرین به همراه بیت‌های خاص SUID و SGID و Sticky."
+                              infoWhyEn="Protects sensitive data from unauthorized tampering and grants appropriate privileges to system services."
+                              infoWhyFa="محافظت از فایل‌های سیستمی و داده‌های محرمانه در برابر تغییر غیرمجاز و تخصیص سطح دسترسی به سرویس‌ها."
+                              infoExampleEn="chmod 0755 script.sh or chown www-data:www-data /var/www"
+                              infoExampleFa="دستورات chmod 0755 و chown www-data:www-data"
+                            />
                           </div>
+
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
-                              {propertiesModal.data?.octalPermissions || propertiesModal.item?.octalPermissions || '0755'}
-                            </span>
-                            <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-slate-800 text-cyan-300 border border-slate-700">
-                              {propertiesModal.data?.permissions || propertiesModal.item?.permissions || 'drwxr-xr-x'}
+                            {/* Octal editable badge/input */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                {isEn ? 'Octal:' : 'اکتال:'}
+                              </span>
+                              <input
+                                type="text"
+                                maxLength={4}
+                                value={permEdit.octal}
+                                onChange={(e) => handleOctalInputChange(e.target.value)}
+                                className={`font-mono text-xs w-16 px-2 py-0.5 rounded-md border text-center font-bold outline-none transition ${
+                                  isLightMode
+                                    ? 'bg-amber-50 border-amber-300 text-amber-700 focus:border-amber-500'
+                                    : 'bg-amber-500/15 border-amber-500/30 text-amber-300 focus:border-amber-400'
+                                }`}
+                                title={isEn ? 'Edit Octal Mode (e.g. 0755)' : 'ویرایش مد اکتال (مثلاً 0755)'}
+                              />
+                            </div>
+                            {/* Preview String Badge */}
+                            <span className="font-mono text-xs px-2.5 py-0.5 rounded-md bg-slate-800 text-cyan-300 border border-slate-700 font-bold select-all">
+                              {computedPreviewPerms}
                             </span>
                           </div>
                         </div>
 
-                        {/* Owner & Group Info */}
-                        <div className="grid grid-cols-2 gap-3 text-xs pt-1">
-                          <div className="flex items-center gap-2 p-2 rounded-lg bg-black/20 border border-white/5">
-                            <User className="w-4 h-4 text-cyan-400 shrink-0" />
-                            <div className="min-w-0">
-                              <span className="text-[10px] text-slate-400 block">
-                                {isEn ? 'Owner (User / UID)' : 'کاربر مالک (User / UID)'}
-                              </span>
-                              <span className="font-mono font-bold text-slate-200 truncate block">
-                                {propertiesModal.data?.ownerUser || String(propertiesModal.item?.owner ?? 'root')}{' '}
-                                <span className="text-[10px] text-slate-400 font-normal">
-                                  (UID: {propertiesModal.data?.ownerUid ?? propertiesModal.item?.owner ?? 0})
+                        {/* Owner & Group Editable Fields */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          {/* Owner User */}
+                          <div
+                            className={`p-2.5 rounded-lg border flex flex-col gap-1.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-black/20 border-white/5'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-cyan-400" />
+                                <span className="text-[11px] font-semibold text-slate-300">
+                                  {isEn ? 'Owner (User)' : 'کاربر مالک (Owner)'}
                                 </span>
-                              </span>
+                              </div>
+                              <FieldInfoTooltip
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                                title={isEn ? 'File Owner' : 'کاربر مالک فایل'}
+                                infoWhatEn="The Linux user account that owns this item and is governed by Owner (u) permissions."
+                                infoWhatFa="نام حساب کاربری لینوکس که مالکیت فایل را بر عهده دارد و قوانین دسترسی مالک (u) روی آن اعمال می‌شود."
+                                infoWhyEn="Determines who has direct management rights and owner privileges over the file or directory."
+                                infoWhyFa="تعیین‌کننده اختیارات مدیریتی و دسترسی‌های مستقیم مالک فایل."
+                                infoExampleEn="root, www-data, nginx, ubuntu, or numeric UID like 1000"
+                                infoExampleFa="root یا www-data یا nginx یا ubuntu یا شناسه UID عددی"
+                              />
                             </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                list="linux-users-datalist"
+                                value={permEdit.owner}
+                                onChange={(e) => setPermEdit((prev) => ({ ...prev, owner: e.target.value }))}
+                                placeholder="root"
+                                className={`w-full px-2.5 py-1 text-xs font-mono rounded-lg border outline-none transition ${
+                                  isLightMode
+                                    ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-cyan-500'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-cyan-400'
+                                }`}
+                              />
+                            </div>
+                            <datalist id="linux-users-datalist">
+                              {systemUsers.map((u) => (
+                                <option key={u} value={u} />
+                              ))}
+                            </datalist>
                           </div>
 
-                          <div className="flex items-center gap-2 p-2 rounded-lg bg-black/20 border border-white/5">
-                            <Users className="w-4 h-4 text-purple-400 shrink-0" />
-                            <div className="min-w-0">
-                              <span className="text-[10px] text-slate-400 block">
-                                {isEn ? 'Group (Group / GID)' : 'گروه کاربری (Group / GID)'}
-                              </span>
-                              <span className="font-mono font-bold text-slate-200 truncate block">
-                                {propertiesModal.data?.groupName || String(propertiesModal.item?.group ?? 'root')}{' '}
-                                <span className="text-[10px] text-slate-400 font-normal">
-                                  (GID: {propertiesModal.data?.groupGid ?? propertiesModal.item?.group ?? 0})
+                          {/* Group */}
+                          <div
+                            className={`p-2.5 rounded-lg border flex flex-col gap-1.5 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-black/20 border-white/5'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <Users className="w-3.5 h-3.5 text-purple-400" />
+                                <span className="text-[11px] font-semibold text-slate-300">
+                                  {isEn ? 'Group' : 'گروه کاربری (Group)'}
                                 </span>
-                              </span>
+                              </div>
+                              <FieldInfoTooltip
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                                title={isEn ? 'File Group' : 'گروه کاربری فایل'}
+                                infoWhatEn="The primary system group assigned to this item, governed by Group (g) permissions."
+                                infoWhatFa="گروه کاربری سیستمی که به این فایل یا پوشه اختصاص داده شده است."
+                                infoWhyEn="Allows multiple users belonging to the same group to share read or write privileges."
+                                infoWhyFa="امکان دسترسی مشترک اعضای گروه به فایل بدون اعطای مجوز دسترسی همگانی."
+                                infoExampleEn="root, www-data, docker, wheel, or numeric GID like 1000"
+                                infoExampleFa="root یا www-data یا docker یا wheel یا شناسه عددی GID"
+                              />
                             </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                list="linux-groups-datalist"
+                                value={permEdit.group}
+                                onChange={(e) => setPermEdit((prev) => ({ ...prev, group: e.target.value }))}
+                                placeholder="root"
+                                className={`w-full px-2.5 py-1 text-xs font-mono rounded-lg border outline-none transition ${
+                                  isLightMode
+                                    ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-purple-500'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-purple-400'
+                                }`}
+                              />
+                            </div>
+                            <datalist id="linux-groups-datalist">
+                              {systemGroups.map((g) => (
+                                <option key={g} value={g} />
+                              ))}
+                            </datalist>
                           </div>
                         </div>
 
-                        {/* Visual Permission Breakdown Matrix */}
-                        <div className="space-y-1 pt-1">
-                          <span className="text-[10px] text-slate-400 font-semibold block uppercase">
-                            {isEn ? 'Access Rights Breakdown' : 'تفکیک دسترسی‌های سه‌گانه'}
-                          </span>
+                        {/* Interactive Permission Checkbox Matrix */}
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-400 font-semibold block uppercase">
+                              {isEn ? 'Standard Access Rights (chmod)' : 'ماتریس دسترسی استاندارد (chmod)'}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {isEn ? 'Click any cell to toggle' : 'روی هر خانه برای تغییر کلیک کنید'}
+                            </span>
+                          </div>
+
                           <div className="border border-white/10 rounded-lg overflow-hidden font-mono text-[11px]">
                             <div className="grid grid-cols-4 bg-white/5 p-2 font-bold text-slate-300 border-b border-white/10">
                               <span>{isEn ? 'Role' : 'نقش'}</span>
-                              <span className="text-center">{isEn ? 'Read (r)' : 'خواندن (r)'}</span>
-                              <span className="text-center">{isEn ? 'Write (w)' : 'نوشتن (w)'}</span>
-                              <span className="text-center">{isEn ? 'Execute (x)' : 'اجرا (x)'}</span>
+                              <span className="text-center">{isEn ? 'Read (r / 4)' : 'خواندن (r / 4)'}</span>
+                              <span className="text-center">{isEn ? 'Write (w / 2)' : 'نوشتن (w / 2)'}</span>
+                              <span className="text-center">{isEn ? 'Execute (x / 1)' : 'اجرا (x / 1)'}</span>
                             </div>
-                            {(() => {
-                              const octal = (
-                                propertiesModal.data?.octalPermissions ||
-                                propertiesModal.item?.octalPermissions ||
-                                '755'
-                              )
-                                .slice(-3)
-                                .padStart(3, '0');
-                              const u = parseInt(octal[0], 10) || 0;
-                              const g = parseInt(octal[1], 10) || 0;
-                              const o = parseInt(octal[2], 10) || 0;
 
-                              const rows = [
-                                { label: isEn ? 'Owner' : 'مالک (Owner)', val: u },
-                                { label: isEn ? 'Group' : 'گروه (Group)', val: g },
-                                { label: isEn ? 'Others' : 'سایرین (Others)', val: o },
-                              ];
+                            {/* Owner Row */}
+                            <div className="grid grid-cols-4 p-2 items-center border-b border-white/5">
+                              <span className="font-sans font-medium text-cyan-300">
+                                {isEn ? 'Owner (u)' : 'مالک (u)'}
+                              </span>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('ownerRead')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.ownerRead
+                                      ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.ownerRead ? '✓ Read' : '—'}
+                                </button>
+                              </div>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('ownerWrite')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.ownerWrite
+                                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.ownerWrite ? '✓ Write' : '—'}
+                                </button>
+                              </div>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('ownerExec')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.ownerExec
+                                      ? 'bg-purple-500/25 text-purple-300 border border-purple-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.ownerExec ? '✓ Exec' : '—'}
+                                </button>
+                              </div>
+                            </div>
 
-                              return rows.map((r, i) => {
-                                const canR = Boolean(r.val & 4);
-                                const canW = Boolean(r.val & 2);
-                                const canX = Boolean(r.val & 1);
+                            {/* Group Row */}
+                            <div className="grid grid-cols-4 p-2 items-center bg-white/[0.02] border-b border-white/5">
+                              <span className="font-sans font-medium text-purple-300">
+                                {isEn ? 'Group (g)' : 'گروه (g)'}
+                              </span>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('groupRead')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.groupRead
+                                      ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.groupRead ? '✓ Read' : '—'}
+                                </button>
+                              </div>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('groupWrite')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.groupWrite
+                                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.groupWrite ? '✓ Write' : '—'}
+                                </button>
+                              </div>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('groupExec')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.groupExec
+                                      ? 'bg-purple-500/25 text-purple-300 border border-purple-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.groupExec ? '✓ Exec' : '—'}
+                                </button>
+                              </div>
+                            </div>
 
-                                return (
-                                  <div
-                                    key={r.label}
-                                    className={`grid grid-cols-4 p-2 items-center ${
-                                      i % 2 === 1 ? 'bg-white/[0.02]' : ''
-                                    } border-b last:border-b-0 border-white/5`}
-                                  >
-                                    <span className="font-sans font-medium text-slate-300">{r.label}</span>
-                                    <div className="flex justify-center">
-                                      {canR ? (
-                                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
-                                          ✓ Read
-                                        </span>
-                                      ) : (
-                                        <span className="text-slate-500 text-[10px]">—</span>
-                                      )}
-                                    </div>
-                                    <div className="flex justify-center">
-                                      {canW ? (
-                                        <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold text-[10px]">
-                                          ✓ Write
-                                        </span>
-                                      ) : (
-                                        <span className="text-slate-500 text-[10px]">—</span>
-                                      )}
-                                    </div>
-                                    <div className="flex justify-center">
-                                      {canX ? (
-                                        <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 font-bold text-[10px]">
-                                          ✓ Exec
-                                        </span>
-                                      ) : (
-                                        <span className="text-slate-500 text-[10px]">—</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              });
-                            })()}
+                            {/* Others Row */}
+                            <div className="grid grid-cols-4 p-2 items-center">
+                              <span className="font-sans font-medium text-slate-400">
+                                {isEn ? 'Others (o)' : 'سایرین (o)'}
+                              </span>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('othersRead')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.othersRead
+                                      ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.othersRead ? '✓ Read' : '—'}
+                                </button>
+                              </div>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('othersWrite')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.othersWrite
+                                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.othersWrite ? '✓ Write' : '—'}
+                                </button>
+                              </div>
+                              <div className="flex justify-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePerm('othersExec')}
+                                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition cursor-pointer ${
+                                    permEdit.othersExec
+                                      ? 'bg-purple-500/25 text-purple-300 border border-purple-500/40'
+                                      : 'bg-white/5 text-slate-500 hover:text-slate-300'
+                                  }`}
+                                >
+                                  {permEdit.othersExec ? '✓ Exec' : '—'}
+                                </button>
+                              </div>
+                            </div>
                           </div>
+                        </div>
+
+                        {/* Quick Presets */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="text-[10px] text-slate-400 font-semibold mr-1">
+                            {isEn ? 'Quick Presets:' : 'الگوهای سریع:'}
+                          </span>
+                          {[
+                            { octal: '0755', label: '755 (rwxr-xr-x)', hint: isEn ? 'Standard Exec / Dir' : 'پوشه و فایل اجرایی' },
+                            { octal: '0644', label: '644 (rw-r--r--)', hint: isEn ? 'Standard File' : 'فایل استاندارد' },
+                            { octal: '0700', label: '700 (rwx------)', hint: isEn ? 'Private Dir' : 'پوشه اختصاصی' },
+                            { octal: '0600', label: '600 (rw-------)', hint: isEn ? 'Secret Key' : 'کلید خصوصی / راز' },
+                            { octal: '0777', label: '777 (rwxrwxrwx)', hint: isEn ? 'Full Access' : 'دسترسی همگانی' },
+                          ].map((preset) => (
+                            <button
+                              key={preset.octal}
+                              type="button"
+                              onClick={() => handleApplyPreset(preset.octal)}
+                              title={preset.hint}
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono transition cursor-pointer border ${
+                                permEdit.octal.endsWith(preset.octal.slice(-3))
+                                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold'
+                                  : isLightMode
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                                  : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Special Permissions (SUID, SGID, Sticky) */}
+                        <div
+                          className={`p-2.5 rounded-lg border space-y-2 ${
+                            isLightMode ? 'bg-amber-50/50 border-amber-200' : 'bg-black/30 border-amber-500/20'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-amber-400 flex items-center gap-1.5">
+                              <span>⚡</span>
+                              <span>{isEn ? 'Special Permission Bits' : 'بیت‌های دسترسی خاص (Special Bits)'}</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              SUID (4) / SGID (2) / Sticky (1)
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {/* SUID */}
+                            <label className="flex items-center justify-between p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:bg-white/5 transition">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={permEdit.suid}
+                                  onChange={() => handleTogglePerm('suid')}
+                                  className="w-3.5 h-3.5 rounded text-amber-500 cursor-pointer"
+                                />
+                                <span className="text-[11px] font-mono text-slate-200 font-medium">
+                                  SUID (4000)
+                                </span>
+                              </div>
+                              <FieldInfoTooltip
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                                title={isEn ? 'SUID (Set User ID)' : 'بیت SUID (Set User ID)'}
+                                infoWhatEn="Executes file with the owner's privileges instead of the executing user."
+                                infoWhatFa="فایل اجرایی را با اختیارات کاربر مالک (مانند root) به جای کاربر اجراکننده اجرا می‌کند."
+                                infoWhyEn="Required for administrative utilities that need elevated root access (e.g. /usr/bin/passwd)."
+                                infoWhyFa="برای ابزارهایی که کاربران عادی باید با سطح دسترسی ارتقایافته اجرا کنند ضروری است."
+                                infoExampleEn="chmod u+s /usr/local/bin/my_tool (Octal: 4755)"
+                                infoExampleFa="دستور chmod u+s یا اکتال 4755"
+                              />
+                            </label>
+
+                            {/* SGID */}
+                            <label className="flex items-center justify-between p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:bg-white/5 transition">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={permEdit.sgid}
+                                  onChange={() => handleTogglePerm('sgid')}
+                                  className="w-3.5 h-3.5 rounded text-amber-500 cursor-pointer"
+                                />
+                                <span className="text-[11px] font-mono text-slate-200 font-medium">
+                                  SGID (2000)
+                                </span>
+                              </div>
+                              <FieldInfoTooltip
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                                title={isEn ? 'SGID (Set Group ID)' : 'بیت SGID (Set Group ID)'}
+                                infoWhatEn="Files inherit group privileges; directories inherit parent group for new child items."
+                                infoWhatFa="روی فایل‌ها با مجوز گروه اجرا می‌شود؛ روی پوشه‌ها باعث ارث‌بری خودکار گروه توسط فایل‌های جدید می‌گردد."
+                                infoWhyEn="Essential for shared collaborative team folders (e.g. /var/www)."
+                                infoWhyFa="برای پوشه‌های اشتراکی گروهی وب‌سرور یا تیم‌های کاری بسیار حیاتی است."
+                                infoExampleEn="chmod g+s /var/www/shared (Octal: 2775)"
+                                infoExampleFa="دستور chmod g+s یا اکتال 2775"
+                              />
+                            </label>
+
+                            {/* Sticky Bit */}
+                            <label className="flex items-center justify-between p-2 rounded bg-black/20 border border-white/5 cursor-pointer hover:bg-white/5 transition">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={permEdit.sticky}
+                                  onChange={() => handleTogglePerm('sticky')}
+                                  className="w-3.5 h-3.5 rounded text-amber-500 cursor-pointer"
+                                />
+                                <span className="text-[11px] font-mono text-slate-200 font-medium">
+                                  Sticky (1000)
+                                </span>
+                              </div>
+                              <FieldInfoTooltip
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                                title={isEn ? 'Sticky Bit (+t)' : 'بیت چسبنده (Sticky Bit)'}
+                                infoWhatEn="Restricts deletion so only the file owner or root can delete files inside the directory."
+                                infoWhatFa="حق حذف فایل در پوشه عمومی را فقط به مالک خود فایل یا کاربر root محدود می‌سازد."
+                                infoWhyEn="Prevents users from maliciously deleting each other's files in public folders like /tmp."
+                                infoWhyFa="مانع از حذف یا تغییر نام تصادفی یا مخرب فایل‌های کاربران توسط یکدیگر در پوشه /tmp می‌شود."
+                                infoExampleEn="chmod +t /tmp (Octal: 1777)"
+                                infoExampleFa="دستور chmod +t /tmp یا اکتال 1777"
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Recursive Option (if directory) */}
+                        {(propertiesModal.data?.type === 'directory' || propertiesModal.item?.type === 'directory') && (
+                          <div className="p-2.5 rounded-lg bg-black/20 border border-white/5 flex items-center justify-between">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={permEdit.recursive}
+                                onChange={(e) => setPermEdit((prev) => ({ ...prev, recursive: e.target.checked }))}
+                                className="w-4 h-4 rounded text-cyan-500 cursor-pointer"
+                              />
+                              <span className="text-xs font-medium text-slate-200">
+                                {isEn
+                                  ? 'Apply changes recursively to all subdirectories & files (-R)'
+                                  : 'اعمال سلسله‌مراتبی و بازگشتی تغییرات به تمامی زیرپوشه‌ها و فایل‌ها (-R)'}
+                              </span>
+                            </label>
+                            <FieldInfoTooltip
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                              title={isEn ? 'Recursive Attribute Application' : 'اعمال بازگشتی صفات (-R)'}
+                              infoWhatEn="Propagates permissions and ownership to every nested child file and directory."
+                              infoWhatFa="تنظیمات دسترسی و مالکیت را به تمام فایل‌ها و زیرشاخه‌های درونی تعمیم می‌دهد."
+                              infoWhyEn="Saves manual effort when configuring entire site trees or project folders."
+                              infoWhyFa="صرفه‌جویی در زمان هنگام تغییر سطح دسترسی یا مالک کل پروژه."
+                              infoExampleEn="chmod -R 0755 /var/www && chown -R www-data:www-data /var/www"
+                              infoExampleFa="دستور chmod -R 0755 /var/www"
+                            />
+                          </div>
+                        )}
+
+                        {/* Attribute Save Feedback */}
+                        {attributeSaveSuccess && (
+                          <div className="p-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 animate-in fade-in">
+                            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <span>{attributeSaveSuccess}</span>
+                          </div>
+                        )}
+
+                        {attributeSaveError && (
+                          <div className="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2 animate-in fade-in">
+                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>{attributeSaveError}</span>
+                          </div>
+                        )}
+
+                        {/* Save Actions Row inside Section */}
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleSaveAttributes}
+                            disabled={isSavingAttributes}
+                            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition cursor-pointer shadow-lg ${
+                              isSavingAttributes
+                                ? 'bg-amber-600/50 text-white/70 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold shadow-amber-500/20'
+                            }`}
+                          >
+                            {isSavingAttributes ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>{isEn ? 'Applying Changes...' : 'در حال اعمال تغییرات...'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Save className="w-3.5 h-3.5 text-slate-950" />
+                                <span>{isEn ? 'Save & Apply Attributes' : 'ذخیره و اعمال تغییرات'}</span>
+                              </>
+                            )}
+                          </button>
                         </div>
                       </div>
 
@@ -2598,7 +3192,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
                 {/* Footer Controls */}
                 <div
-                  className={`px-5 py-3 border-t flex items-center justify-between shrink-0 ${
+                  className={`px-5 py-3 border-t flex flex-wrap items-center justify-between gap-2 shrink-0 ${
                     isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/80 border-slate-800'
                   }`}
                 >
@@ -2614,7 +3208,7 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const oct = propertiesModal.data?.octalPermissions || propertiesModal.item?.octalPermissions || '755';
+                        const oct = permEdit.octal || '0755';
                         const p = propertiesModal.data?.path || propertiesModal.targetPath;
                         handleCopyPath(`chmod ${oct} "${p}"`);
                       }}
@@ -2623,24 +3217,61 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
                       <Lock className="w-3.5 h-3.5 text-amber-400" />
                       <span>{isEn ? 'Copy Chmod' : 'کپی دستور Chmod'}</span>
                     </button>
+                    {permEdit.owner && permEdit.group && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const p = propertiesModal.data?.path || propertiesModal.targetPath;
+                          handleCopyPath(`chown ${permEdit.owner}:${permEdit.group} "${p}"`);
+                        }}
+                        className="px-3 py-1.5 rounded-xl border border-slate-700 text-xs font-medium hover:bg-white/10 flex items-center gap-1.5 cursor-pointer text-slate-300"
+                      >
+                        <User className="w-3.5 h-3.5 text-purple-400" />
+                        <span>{isEn ? 'Copy Chown' : 'کپی دستور Chown'}</span>
+                      </button>
+                    )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPropertiesModal({
-                        isOpen: false,
-                        item: null,
-                        targetPath: '',
-                        data: null,
-                        loading: false,
-                        error: null,
-                      })
-                    }
-                    className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium text-xs transition cursor-pointer"
-                  >
-                    {isEn ? 'Close' : 'بستن'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPropertiesModal({
+                          isOpen: false,
+                          item: null,
+                          targetPath: '',
+                          data: null,
+                          loading: false,
+                          error: null,
+                        })
+                      }
+                      className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium text-xs transition cursor-pointer"
+                    >
+                      {isEn ? 'Close' : 'بستن'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveAttributes}
+                      disabled={isSavingAttributes}
+                      className={`px-4 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md ${
+                        isSavingAttributes
+                          ? 'bg-amber-600/50 text-white/70 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold'
+                      }`}
+                    >
+                      {isSavingAttributes ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>{isEn ? 'Saving...' : 'در حال ذخیره...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5 text-slate-950" />
+                          <span>{isEn ? 'Save' : 'ذخیره تغییرات'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>,

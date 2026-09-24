@@ -3287,6 +3287,63 @@ export async function fetchLinuxItemProperties(
   }
 }
 
+export async function updateLinuxItemAttributes(
+  serverId: string,
+  payload: {
+    path: string;
+    mode?: string;
+    owner?: string;
+    group?: string;
+    recursive?: boolean;
+    password?: string;
+  }
+): Promise<{ success: boolean; message?: string; error?: string; properties?: LinuxItemProperties }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/update-attributes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse response from server',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to update file attributes' };
+  }
+}
+
+export async function fetchLinuxSystemUsersAndGroups(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; users?: string[]; groups?: string[]; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/fs/users-groups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword }),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse users and groups response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to fetch users and groups' };
+  }
+}
+
 
 
 

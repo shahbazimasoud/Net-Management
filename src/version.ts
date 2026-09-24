@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.143.1';
+export const APP_VERSION = '1.144.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.144.0',
+    releaseDate: '2026-09-24',
+    type: 'minor',
+    title: 'ویرایش زنده مجوزها، مالکیت و بیت‌های دسترسی خاص در پنجره Properties کاوشگر لینوکس',
+    title_en: 'Live Permissions (chmod), Ownership (chown), and Special Bits Editing in Linux Properties Dialog',
+    changes: [
+      'امکان تغییر بلادرنگ و مستقیم سطح دسترسی (chmod) از داخل مودال مشخصات و اینفو با ماتریس چک‌باکس‌های بصری Read/Write/Execute برای مالک، گروه و سایرین.',
+      'پشتیبانی کامل از وارد کردن دستی مد عددی اکتال (مانند 0755 یا 0644) با همگام‌سازی دوطرفه خودکار بین ورودی عددی، چک‌باکس‌ها و رشته متنی.',
+      'افزودن دکمه‌های الگوهای سریع دسترسی (0755, 0644, 0700, 0600, 0777) برای تنظیم آسان مجوزها با یک کلیک.',
+      'تجهیز به چک‌باکس‌های بیت‌های دسترسی پیشرفته لینوکس شامل SUID (4000)، SGID (2000) و بیت چسبنده Sticky (1000) به همراه کادرهای راهنمای سه‌بخشی استاندارد (این چیست، چرا لازم است، مثال کاربردی).',
+      'امکان تغییر مالک (chown) و گروه کاربری با پیشنهاد خودکار فهرست کاربران و گروه‌های واقعی سرور لینوکس واکشی‌شده از /etc/passwd و /etc/group.',
+      'گزینه اعمال بازگشتی تغییرات به زیرپوشه‌ها و فایل‌ها (-R) برای دایرکتوری‌ها.',
+      'اجرای امن در بک‌اند از طریق SSH با دستورات استاندارد chmod و chown و فالبک خودکار sudo در صورت نیاز به اختیارات مدیریتی.',
+    ],
+    changes_en: [
+      'Direct, live editing of access permissions (chmod) directly within the Properties dialog via interactive Read/Write/Execute toggles for Owner, Group, and Others.',
+      'Full two-way synchronization between manual octal numeric input (e.g. 0755, 0644), permission checkboxes, and human-readable string preview.',
+      'Included one-click quick presets for common modes (0755, 0644, 0700, 0600, 0777) for instant assignment.',
+      'Full support for advanced Linux special permission bits: SUID (4000), SGID (2000), and Sticky Bit (1000) with compliant 3-part informational tooltips.',
+      'Interactive Ownership (chown) and Group editor with datalist autocompletion populated from live remote server /etc/passwd and /etc/group accounts.',
+      'Recursive modification toggle (-R) for directories to propagate attributes across child trees.',
+      'Secure backend execution via remote SSH session using chmod/chown with automatic elevated sudo fallback when administrative privileges are required.',
+    ],
+  },
   {
     version: '1.143.1',
     releaseDate: '2026-09-24',

@@ -177,6 +177,8 @@ import {
   downloadLinuxArchive,
   uploadLinuxFile,
   getLinuxItemProperties,
+  updateLinuxItemAttributes,
+  getLinuxSystemUsersAndGroups,
 } from './linuxFileExplorer';
 
 export const apiRouter = Router();
@@ -4353,6 +4355,66 @@ apiRouter.all('/remote-servers/:id/fs/properties', async (req: Request, res: Res
   } catch (err: any) {
     console.error(`[LinuxFS properties error on server ${req.params.id}]:`, err?.message || err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to inspect file properties' });
+  }
+});
+
+// POST /api/remote-servers/:id/fs/update-attributes - Update permissions (chmod) and ownership (chown)
+apiRouter.post('/remote-servers/:id/fs/update-attributes', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { path, mode, owner, group, recursive, password } = req.body;
+
+    if (!path || typeof path !== 'string') {
+      return res.status(400).json({ success: false, error: 'Target path is required' });
+    }
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await updateLinuxItemAttributes(
+      server,
+      {
+        path,
+        mode: mode ? String(mode).trim() : undefined,
+        owner: owner ? String(owner).trim() : undefined,
+        group: group ? String(group).trim() : undefined,
+        recursive: Boolean(recursive),
+      },
+      password
+    );
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Linux File Attributes Updated',
+      category: 'file_system',
+      target: `Server ${server.name || server.ip}: ${path}`,
+      status: 'success',
+      details: `Permissions/Ownership updated on "${path}" (Mode: ${mode || '—'}, Owner: ${owner || '—'}, Group: ${group || '—'}, Recursive: ${Boolean(recursive)})`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFS update-attributes error on server ${req.params.id}]:`, err?.message || err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to update file attributes' });
+  }
+});
+
+// GET & POST /api/remote-servers/:id/fs/users-groups - Fetch real system user accounts and groups
+apiRouter.all('/remote-servers/:id/fs/users-groups', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const password = (req.body?.password || req.query?.password) as string | undefined;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const result = await getLinuxSystemUsersAndGroups(server, password);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[LinuxFS users-groups error on server ${req.params.id}]:`, err?.message || err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to fetch users and groups' });
   }
 });
 

@@ -2309,4 +2309,7 @@ export interface LinuxItemProperties {
   statusChangeTime?: string;
   symlinkTarget?: string;
   itemCount?: number;
+  suid?: boolean;
+  sgid?: boolean;
+  sticky?: boolean;
 }
