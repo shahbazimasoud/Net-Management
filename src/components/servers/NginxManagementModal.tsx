@@ -42,12 +42,16 @@ import {
   NginxConfigFileNode,
   NginxSitesSummary,
   NginxServerBlock,
+  NginxProxySummary,
+  NginxUpstreamPool,
+  NginxReverseProxyRoute,
 } from '../../types';
 import {
   controlLinuxServerService,
   discoverNginxTopology,
   fetchNginxConfigTopology,
   fetchNginxSites,
+  fetchNginxProxy,
   sshExecute,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -100,6 +104,36 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   const [selectedSite, setSelectedSite] = useState<NginxServerBlock | null>(null);
   const [sitesSearchQuery, setSitesSearchQuery] = useState('');
   const [sitesFilter, setSitesFilter] = useState<'all' | 'active' | 'disabled' | 'ssl' | 'proxy'>('all');
+
+  // Phase 4: Upstreams & Reverse Proxy Model
+  const [proxyData, setProxyData] = useState<NginxProxySummary | null>(null);
+  const [proxyLoading, setProxyLoading] = useState(false);
+  const [proxyViewMode, setProxyViewMode] = useState<'upstreams' | 'routes'>('upstreams');
+  const [selectedUpstream, setSelectedUpstream] = useState<NginxUpstreamPool | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<NginxReverseProxyRoute | null>(null);
+  const [proxySearchQuery, setProxySearchQuery] = useState('');
+
+  // Fetch full proxy & upstreams architecture
+  const fetchProxyArchitecture = useCallback(async () => {
+    if (!server) return;
+    setProxyLoading(true);
+    try {
+      const res = await fetchNginxProxy(server.id, sessionPassword || server.ssh_password);
+      if (res && res.success && res.proxy) {
+        setProxyData(res.proxy);
+        if (res.proxy.upstreams.length > 0) {
+          setSelectedUpstream(res.proxy.upstreams[0]);
+        }
+        if (res.proxy.proxyRoutes.length > 0) {
+          setSelectedRoute(res.proxy.proxyRoutes[0]);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Failed to fetch Nginx proxy architecture]:', err);
+    } finally {
+      setProxyLoading(false);
+    }
+  }, [server, sessionPassword]);
 
   // Fetch full virtual hosts and server blocks
   const fetchSites = useCallback(async () => {
@@ -195,6 +229,12 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       fetchSites();
     }
   }, [isOpen, server, activeTab, sitesData, sitesLoading, fetchSites]);
+
+  useEffect(() => {
+    if (isOpen && server && activeTab === 'proxy' && !proxyData && !proxyLoading) {
+      fetchProxyArchitecture();
+    }
+  }, [isOpen, server, activeTab, proxyData, proxyLoading, fetchProxyArchitecture]);
 
   // Execute Service Action (Start, Stop, Restart, Reload) using discovered service name
   const handleServiceAction = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
@@ -1422,45 +1462,429 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
           {/* TAB 3: REVERSE PROXY & UPSTREAMS */}
           {activeTab === 'proxy' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h3 className="text-sm font-bold flex items-center gap-2">
                     <Network className="w-4 h-4 text-emerald-400" />
                     <span>{isEn ? 'Reverse Proxy & Load Balancing Upstreams' : 'پروکسی معکوس و آپ‌استریم‌های لود بالانسر'}</span>
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
                     {isEn
-                      ? 'Configure backend pools, WebSocket headers, proxy passes, and failover parameters.'
-                      : 'تنظیم استخرهای بک‌اند، هدرهای وب‌سوکت، هدایت درخواست‌ها (proxy_pass) و پارامترهای failover.'}
+                      ? `Upstream Pools: ${proxyData?.totalUpstreams ?? 0} (${proxyData?.totalUpstreamServers ?? 0} backend targets) • Active Proxy Routes: ${proxyData?.totalProxyRoutes ?? 0} (WebSockets: ${proxyData?.websocketRoutesCount ?? 0})`
+                      : `استخرهای بالادستی: ${proxyData?.totalUpstreams ?? 0} (${proxyData?.totalUpstreamServers ?? 0} تارگت بک‌اند) • روت‌های پروکسی فعال: ${proxyData?.totalProxyRoutes ?? 0} (وب‌سوکت: ${proxyData?.websocketRoutesCount ?? 0})`}
                   </p>
                 </div>
-                <FieldInfoTooltip
-                  fieldName="Nginx Upstream Pool"
-                  infoWhatEn="A group of internal backend server addresses that Nginx balances incoming web traffic across."
-                  infoWhatFa="گروهی از آدرس‌های سرورهای بک‌اند که Nginx ترافیک ورودی را بین آنها توزیع می‌کند."
-                  infoWhyEn="Essential for microservices, Node.js/Python backend apps, high availability, and horizontal scaling."
-                  infoWhyFa="ضروری برای میکروسرویس‌ها، برنامه‌های نود و پایتون، افزونگی و مقیاس‌پذیری افقی."
-                  infoExampleEn="upstream backend_pool { server 127.0.0.1:3000; server 127.0.0.1:3001; }"
-                  infoExampleFa="upstream backend_pool { server 127.0.0.1:3000; server 127.0.0.1:3001; }"
-                  isEn={isEn}
-                  isLightMode={isLightMode}
-                />
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={fetchProxyArchitecture}
+                    disabled={proxyLoading}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${proxyLoading ? 'animate-spin' : ''}`} />
+                    <span>{proxyLoading ? (isEn ? 'Parsing Proxy...' : 'در حال بارگذاری...') : (isEn ? 'Refresh Proxy' : 'بروزرسانی پروکسی')}</span>
+                  </button>
+
+                  <FieldInfoTooltip
+                    fieldName="Nginx Upstream Pool & Reverse Proxy"
+                    infoWhatEn="A group of internal backend server addresses that Nginx balances incoming web traffic across, mapped with proxy_pass directives."
+                    infoWhatFa="گروهی از آدرس‌های سرورهای بک‌اند که Nginx ترافیک ورودی را بین آنها توزیع می‌کند و با دستورات proxy_pass نگاشت می‌شوند."
+                    infoWhyEn="Essential for microservices, Node.js/Python backend apps, high availability, and horizontal scaling."
+                    infoWhyFa="ضروری برای میکروسرویس‌ها، برنامه‌های نود و پایتون، افزونگی و مقیاس‌پذیری افقی."
+                    infoExampleEn="upstream backend_pool { server 127.0.0.1:3000; server 127.0.0.1:3001; }"
+                    infoExampleFa="upstream backend_pool { server 127.0.0.1:3000; server 127.0.0.1:3001; }"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
               </div>
 
-              <div
-                className={`p-6 rounded-xl border text-center ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
-                }`}
-              >
-                <Network className="w-10 h-10 text-cyan-400/60 mx-auto mb-3" />
-                <h4 className="text-sm font-bold">
-                  {isEn ? 'Reverse Proxy Configuration' : 'پیکربندی پروکسی معکوس'}
-                </h4>
-                <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
-                  {isEn
-                    ? 'Manages proxy_pass directives, X-Forwarded headers, and upstream backend pools on this Linux server.'
-                    : 'مدیریت دستورات proxy_pass، هدرهای X-Forwarded و استخرهای بک‌اند بر روی این سرور لینوکسی.'}
-                </p>
+              {/* Proxy Telemetry Cards */}
+              {proxyData && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Upstream Pools' : 'استخرهای آپ‌استریم'}</span>
+                    <div className="text-base font-bold text-amber-400 mt-1">{proxyData.totalUpstreams}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Backend Targets' : 'تارگت‌های بک‌اند'}</span>
+                    <div className="text-base font-bold text-cyan-400 mt-1">{proxyData.totalUpstreamServers}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Proxy Routes' : 'مسیرهای Proxy Pass'}</span>
+                    <div className="text-base font-bold text-emerald-400 mt-1">{proxyData.totalProxyRoutes}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'WebSocket Routes' : 'پشتیبانی وب‌سوکت'}</span>
+                    <div className="text-base font-bold text-purple-400 mt-1">{proxyData.websocketRoutesCount}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* View Switcher: Upstream Pools vs Proxy Routes */}
+              <div className="flex items-center justify-between gap-2 border-b pb-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setProxyViewMode('upstreams')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                      proxyViewMode === 'upstreams'
+                        ? 'bg-amber-500 text-slate-950 font-bold'
+                        : isLightMode
+                        ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    <Server className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Upstream Pools' : 'استخرهای بالادستی'} ({proxyData?.totalUpstreams ?? 0})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setProxyViewMode('routes')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                      proxyViewMode === 'routes'
+                        ? 'bg-emerald-500 text-slate-950 font-bold'
+                        : isLightMode
+                        ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    <Network className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Reverse Proxy Routes' : 'مسیرهای پروکسی'} ({proxyData?.totalProxyRoutes ?? 0})</span>
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative min-w-[200px]">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={proxySearchQuery}
+                    onChange={(e) => setProxySearchQuery(e.target.value)}
+                    placeholder={
+                      proxyViewMode === 'upstreams'
+                        ? isEn ? 'Search upstreams, servers...' : 'جستجوی استخرها و سرورها...'
+                        : isEn ? 'Search proxy targets, locations...' : 'جستجوی اهداف پروکسی...'
+                    }
+                    className={`w-full pl-8 pr-3 py-1 text-xs rounded-lg border outline-none font-mono transition ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white focus:border-emerald-500 text-slate-800'
+                        : 'border-slate-800 bg-slate-950/60 focus:border-emerald-500/50 text-slate-100'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Two-Pane Explorer */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                {/* Left/Right List Column */}
+                <div
+                  className={`lg:col-span-5 p-3 rounded-xl border flex flex-col space-y-2 max-h-[500px] overflow-hidden ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                    {proxyLoading ? (
+                      <div className="p-8 text-center text-xs text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-emerald-400" />
+                        <span>{isEn ? 'Discovering Proxy & Upstreams...' : 'در حال استخراج پروکسی‌ها و آپ‌استریم‌ها...'}</span>
+                      </div>
+                    ) : proxyViewMode === 'upstreams' ? (
+                      // UPSTREAMS LIST
+                      !proxyData || proxyData.upstreams.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-slate-400">
+                          <Server className="w-6 h-6 mx-auto mb-2 text-slate-500" />
+                          <span>{isEn ? 'No upstream pools defined in Nginx configs' : 'هیچ استخر آپ‌استریمی تعریف نشده است'}</span>
+                        </div>
+                      ) : (
+                        proxyData.upstreams
+                          .filter((u) => {
+                            if (!proxySearchQuery) return true;
+                            const q = proxySearchQuery.toLowerCase();
+                            return (
+                              u.name.toLowerCase().includes(q) ||
+                              u.fileRelativePath.toLowerCase().includes(q) ||
+                              u.servers.some((s) => s.address.toLowerCase().includes(q))
+                            );
+                          })
+                          .map((u) => {
+                            const isSelected = selectedUpstream?.id === u.id;
+                            return (
+                              <button
+                                key={u.id}
+                                type="button"
+                                onClick={() => setSelectedUpstream(u)}
+                                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer flex flex-col space-y-1.5 ${
+                                  isSelected
+                                    ? 'border-amber-500/50 bg-amber-500/15 text-amber-200 shadow-sm'
+                                    : isLightMode
+                                    ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                                    : 'border-slate-800/80 bg-slate-950/40 hover:bg-slate-800/40 text-slate-200'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <Server className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-amber-400' : 'text-slate-400'}`} />
+                                    <span className="font-bold text-xs font-mono truncate">{u.name}</span>
+                                  </div>
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono border border-amber-500/30 shrink-0">
+                                    {u.algorithm}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+                                  <span>{u.servers.length} {isEn ? 'target servers' : 'سرور مقصد'}</span>
+                                  <span className="text-[10px] text-slate-500 truncate">{u.fileRelativePath}</span>
+                                </div>
+                              </button>
+                            );
+                          })
+                      )
+                    ) : (
+                      // PROXY ROUTES LIST
+                      !proxyData || proxyData.proxyRoutes.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-slate-400">
+                          <Network className="w-6 h-6 mx-auto mb-2 text-slate-500" />
+                          <span>{isEn ? 'No proxy_pass directives detected' : 'هیچ دستور proxy_pass در کانفیگ‌ها یافت نشد'}</span>
+                        </div>
+                      ) : (
+                        proxyData.proxyRoutes
+                          .filter((r) => {
+                            if (!proxySearchQuery) return true;
+                            const q = proxySearchQuery.toLowerCase();
+                            return (
+                              r.locationPath.toLowerCase().includes(q) ||
+                              r.proxyPassTarget.toLowerCase().includes(q) ||
+                              r.sitePrimaryDomain.toLowerCase().includes(q)
+                            );
+                          })
+                          .map((r) => {
+                            const isSelected = selectedRoute?.id === r.id;
+                            return (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => setSelectedRoute(r)}
+                                className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer flex flex-col space-y-1.5 ${
+                                  isSelected
+                                    ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200 shadow-sm'
+                                    : isLightMode
+                                    ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                                    : 'border-slate-800/80 bg-slate-950/40 hover:bg-slate-800/40 text-slate-200'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <Network className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-emerald-400' : 'text-slate-400'}`} />
+                                    <span className="font-bold text-xs font-mono truncate">{r.locationPath}</span>
+                                  </div>
+                                  {r.websocketEnabled && (
+                                    <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 text-[10px] font-mono border border-purple-500/30 shrink-0">
+                                      WS
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="text-[11px] font-mono text-cyan-400 truncate">
+                                  {r.proxyPassTarget}
+                                </div>
+
+                                <div className="text-[10px] text-slate-500 font-mono truncate">
+                                  {r.siteFileRelativePath}
+                                </div>
+                              </button>
+                            );
+                          })
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Details Column */}
+                <div
+                  className={`lg:col-span-7 p-4 rounded-xl border flex flex-col space-y-3 max-h-[500px] overflow-hidden ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  {proxyViewMode === 'upstreams' ? (
+                    selectedUpstream ? (
+                      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                        <div className="flex items-start justify-between border-b pb-3 gap-2">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-sm font-bold font-mono text-amber-400">
+                                upstream {selectedUpstream.name}
+                              </h4>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                {selectedUpstream.algorithm}
+                              </span>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                {selectedUpstream.context}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 font-mono mt-1">
+                              File: <strong className="text-slate-300">{selectedUpstream.definedInFile}</strong>
+                              {selectedUpstream.keepalive && ` • Keepalive: ${selectedUpstream.keepalive}`}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Servers List in Pool */}
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">
+                            {isEn ? `Backend Servers (${selectedUpstream.servers.length})` : `سرورهای بک‌اند (${selectedUpstream.servers.length})`}
+                          </span>
+
+                          <div className="space-y-1.5 font-mono text-xs">
+                            {selectedUpstream.servers.map((srv, idx) => (
+                              <div
+                                key={idx}
+                                className="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 flex items-center justify-between gap-2 flex-wrap"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Server className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                  <span className="font-bold text-slate-100 truncate">
+                                    {srv.address}:{srv.port || 80}
+                                  </span>
+                                  {srv.isUnixSocket && (
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                                      UNIX Socket
+                                    </span>
+                                  )}
+                                  {srv.isResolvingDomain && (
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300">
+                                      DNS Domain
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 text-[11px]">
+                                  {srv.weight && (
+                                    <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
+                                      weight={srv.weight}
+                                    </span>
+                                  )}
+                                  {srv.maxFails && (
+                                    <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                                      max_fails={srv.maxFails}
+                                    </span>
+                                  )}
+                                  {srv.isBackup && (
+                                    <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300">
+                                      backup
+                                    </span>
+                                  )}
+                                  {srv.isDown && (
+                                    <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-400">
+                                      down
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Raw Code Snippet */}
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">
+                            {isEn ? 'Upstream Code Block' : 'بلوک کد آپ‌استریم'}
+                          </span>
+                          <pre className="font-mono text-xs p-3 rounded-lg bg-black/70 text-slate-200 overflow-x-auto whitespace-pre">
+                            {selectedUpstream.rawSnippet}
+                          </pre>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
+                        <span>{isEn ? 'Select an upstream pool to inspect' : 'یک استخر آپ‌استریم را برای بررسی انتخاب کنید'}</span>
+                      </div>
+                    )
+                  ) : (
+                    selectedRoute ? (
+                      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                        <div className="flex items-start justify-between border-b pb-3 gap-2">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-sm font-bold font-mono text-emerald-400">
+                                location {selectedRoute.locationPath}
+                              </h4>
+                              {selectedRoute.isUpstream && (
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  Pool: {selectedRoute.matchedUpstreamName}
+                                </span>
+                              )}
+                              {selectedRoute.websocketEnabled && (
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                  WebSocket Enabled
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 font-mono mt-1">
+                              File: <strong className="text-slate-300">{selectedRoute.siteFileRelativePath}</strong>
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Target URL */}
+                        <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/60 space-y-1">
+                          <span className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                            {isEn ? 'Proxy Target Directive' : 'تارگت دستور proxy_pass'}
+                          </span>
+                          <div className="text-sm font-bold font-mono text-cyan-300">
+                            {selectedRoute.proxyPassTarget}
+                          </div>
+                        </div>
+
+                        {/* Forwarded Headers */}
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">
+                            {isEn ? 'Forwarded Headers (proxy_set_header)' : 'هدرهای ارسالی (proxy_set_header)'}
+                          </span>
+                          {Object.keys(selectedRoute.proxySetHeaders).length === 0 ? (
+                            <div className="text-xs text-slate-500 italic font-mono p-2">
+                              {isEn ? 'Default Nginx headers applied' : 'هدرهای پیش‌فرض Nginx اعمال می‌شوند'}
+                            </div>
+                          ) : (
+                            <div className="space-y-1 font-mono text-xs">
+                              {Object.entries(selectedRoute.proxySetHeaders).map(([k, v], idx) => (
+                                <div
+                                  key={idx}
+                                  className="px-2.5 py-1.5 rounded border border-slate-800 bg-slate-950/40 flex items-center justify-between"
+                                >
+                                  <span className="text-slate-400 font-bold">{k}:</span>
+                                  <span className="text-emerald-400">{v}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Timeouts */}
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <div className="p-2.5 rounded-lg border border-slate-800 bg-slate-950/40">
+                            <span className="text-[10px] text-slate-400 font-sans font-bold uppercase">{isEn ? 'Read Timeout' : 'تایم‌اوت خواندن'}</span>
+                            <div className="text-slate-200 font-bold mt-0.5">{selectedRoute.proxyReadTimeout || '60s (default)'}</div>
+                          </div>
+                          <div className="p-2.5 rounded-lg border border-slate-800 bg-slate-950/40">
+                            <span className="text-[10px] text-slate-400 font-sans font-bold uppercase">{isEn ? 'Connect Timeout' : 'تایم‌اوت اتصال'}</span>
+                            <div className="text-slate-200 font-bold mt-0.5">{selectedRoute.proxyConnectTimeout || '60s (default)'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
+                        <span>{isEn ? 'Select a reverse proxy route to inspect' : 'یک مسیر پروکسی را برای بررسی انتخاب کنید'}</span>
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             </div>
           )}

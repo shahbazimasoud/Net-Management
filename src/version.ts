@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.163.0';
+export const APP_VERSION = '1.164.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.164.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۴ مدیریت انجین‌ایکس: پیاده‌سازی معماری استخرهای آپ‌استریم (Upstream Pools) و مسیرهای پروکسی معکوس (Reverse Proxy Routes)',
+    title_en: 'Nginx Management Phase 4: Upstream Backend Pools AST Extraction, Load Balancing Algorithms & Reverse Proxy Routing Explorer',
+    changes: [
+      'پیاده‌سازی ماژول اختصاصی استخراج استخرهای آپ‌استریم و مسیرهای پروکسی (/server/nginxProxyManager.ts).',
+      'تشخیص هوشمند الگوریتم‌های لود بالانسینگ Nginx (شامل round-robin, least_conn, ip_hash, hash, random) و پارامتر keepalive.',
+      'استخراج مشخصات سرورهای مقصد آپ‌استریم شامل پورت، وزن (weight)، خطاهای مجاز (max_fails)، تایم‌اوت، سوکت‌های UNIX و نشانگرهای backup/down.',
+      'نگاشت کامل دستورات proxy_pass، هدرهای ارسالی proxy_set_header، تشخیص خودکار ارتقای پروتکل وب‌سوکت (WebSocket) و تایم‌اوت‌های شبکه.',
+      'تجهیز تب Reverse Proxy & Upstreams در مودال به رابط کاربری دوگانه: مدیریت و بررسی استخرها در کنار کاوشگر مسیرهای پروکسی معکوس.',
+      'ایجاد اندپوینت اختصاصی POST /api/remote-servers/:id/nginx-proxy و متد fetchNginxProxy در API کلاینت.',
+      'رعایت استانداردهای کامل چندزبانگی (عدم نمایش متن فارسی در حالت انگلیسی) و سازگاری با تم‌های روشن و تیره.'
+    ],
+    changes_en: [
+      'Engineered dedicated Nginx upstream pools and reverse proxy parser module (/server/nginxProxyManager.ts).',
+      'Discovered load balancing algorithms (round-robin, least_conn, ip_hash, hash, random) and keepalive directives.',
+      'Extracted backend target parameters including port, weight, max_fails, fail_timeout, UNIX domain sockets, and backup/down flags.',
+      'Mapped proxy_pass routes, proxy_set_header directives, automated WebSocket upgrade detection, and timeout settings.',
+      'Revitalized Reverse Proxy & Upstreams tab with a dual-mode interactive explorer for upstream pools and proxy routes.',
+      'Added dedicated backend endpoint POST /api/remote-servers/:id/nginx-proxy and fetchNginxProxy client method.',
+      'Strictly enforced bilingual localization rules and theme responsiveness.'
+    ]
+  },
   {
     version: '1.163.0',
     releaseDate: '2026-09-25',

@@ -200,6 +200,7 @@ import {
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
+import { discoverNginxProxyArchitecture } from './nginxProxyManager';
 
 export const apiRouter = Router();
 
@@ -1937,6 +1938,28 @@ apiRouter.post('/remote-servers/:id/nginx-sites', async (req: Request, res: Resp
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to extract Nginx virtual hosts',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-proxy - Discovers upstream pools and reverse proxy paths
+apiRouter.post('/remote-servers/:id/nginx-proxy', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const proxyData = await discoverNginxProxyArchitecture(server, password);
+    return res.json({ success: true, proxy: proxyData });
+  } catch (err: any) {
+    console.error(`[NginxProxy API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to extract Nginx upstreams and proxy rules',
     });
   }
 });

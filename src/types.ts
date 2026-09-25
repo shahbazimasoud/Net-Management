@@ -1536,6 +1536,56 @@ export interface NginxSitesSummary {
   warnings: string[];
 }
 
+export interface NginxUpstreamServer {
+  address: string;
+  port?: number;
+  weight?: number;
+  maxFails?: number;
+  failTimeout?: string;
+  isBackup?: boolean;
+  isDown?: boolean;
+  isUnixSocket?: boolean;
+  isResolvingDomain?: boolean;
+}
+
+export interface NginxUpstreamPool {
+  id: string;
+  name: string;
+  context: 'http' | 'stream';
+  algorithm: 'round-robin' | 'least_conn' | 'ip_hash' | 'hash' | 'random' | 'unknown';
+  hashKey?: string;
+  keepalive?: number;
+  servers: NginxUpstreamServer[];
+  definedInFile: string;
+  fileRelativePath: string;
+  rawSnippet: string;
+}
+
+export interface NginxReverseProxyRoute {
+  id: string;
+  sitePrimaryDomain: string;
+  siteFileRelativePath: string;
+  locationPath: string;
+  proxyPassTarget: string;
+  matchedUpstreamName?: string;
+  isUpstream: boolean;
+  websocketEnabled: boolean;
+  proxySetHeaders: { [key: string]: string };
+  proxyReadTimeout?: string;
+  proxyConnectTimeout?: string;
+  sslVerify: boolean;
+}
+
+export interface NginxProxySummary {
+  totalUpstreams: number;
+  totalUpstreamServers: number;
+  totalProxyRoutes: number;
+  websocketRoutesCount: number;
+  upstreams: NginxUpstreamPool[];
+  proxyRoutes: NginxReverseProxyRoute[];
+  warnings: string[];
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;
