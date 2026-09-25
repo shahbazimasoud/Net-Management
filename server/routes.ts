@@ -198,6 +198,7 @@ import {
   runLinuxCronJobNowSSH,
 } from './linuxCronManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
+import { discoverNginxConfigTopology } from './nginxConfigParser';
 
 export const apiRouter = Router();
 
@@ -1891,6 +1892,28 @@ apiRouter.post('/remote-servers/:id/nginx-discovery', async (req: Request, res: 
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to discover Nginx installation topology',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-config-topology - Scans include tree and builds configuration graph
+apiRouter.post('/remote-servers/:id/nginx-config-topology', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, confPath, prefixPath } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const topology = await discoverNginxConfigTopology(server, password, confPath, prefixPath);
+    return res.json({ success: true, topology });
+  } catch (err: any) {
+    console.error(`[NginxConfigTopology API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to parse Nginx configuration tree',
     });
   }
 });

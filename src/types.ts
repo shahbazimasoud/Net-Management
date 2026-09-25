@@ -1447,6 +1447,43 @@ export interface NginxInstallationDetails {
   configTestOutput?: string;
 }
 
+export interface NginxConfigFileNode {
+  filePath: string;
+  relativePath: string;
+  sizeBytes: number;
+  lineCount: number;
+  permissions?: string;
+  owner?: string;
+  includedFrom?: string;
+  level: number;
+  includesCount: number;
+  serverBlocksCount: number;
+  upstreamsCount: number;
+  hasHttpBlock: boolean;
+  hasStreamBlock: boolean;
+  hasEventsBlock: boolean;
+  contentSnippet?: string;
+  fullContent?: string;
+  error?: string;
+}
+
+export interface NginxConfigTopologyTree {
+  mainConfigPath: string;
+  prefixPath: string;
+  totalFiles: number;
+  totalLines: number;
+  files: NginxConfigFileNode[];
+  detectedContexts: {
+    hasEvents: boolean;
+    hasHttp: boolean;
+    hasStream: boolean;
+    totalServerBlocks: number;
+    totalUpstreams: number;
+    totalLocations: number;
+  };
+  warnings: string[];
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;

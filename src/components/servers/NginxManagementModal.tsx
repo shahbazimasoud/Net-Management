@@ -28,9 +28,15 @@ import {
   Flame,
   Check,
   Info,
+  ChevronRight,
+  ChevronDown,
+  FileCheck,
+  Search,
+  ExternalLink,
+  Code2,
 } from 'lucide-react';
-import { RemoteServer, NginxInstallationDetails } from '../../types';
-import { controlLinuxServerService, discoverNginxTopology, sshExecute } from '../../services/api';
+import { RemoteServer, NginxInstallationDetails, NginxConfigTopologyTree, NginxConfigFileNode } from '../../types';
+import { controlLinuxServerService, discoverNginxTopology, fetchNginxConfigTopology, sshExecute } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface NginxManagementModalProps {
@@ -68,6 +74,36 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
 
   // Phase 1: Real Topology Discovery Model
   const [discovery, setDiscovery] = useState<NginxInstallationDetails | null>(null);
+
+  // Phase 2: Configuration Tree & Include Topology Model
+  const [configTopology, setConfigTopology] = useState<NginxConfigTopologyTree | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [selectedConfigFile, setSelectedConfigFile] = useState<NginxConfigFileNode | null>(null);
+  const [configSearchQuery, setConfigSearchQuery] = useState('');
+
+  // Fetch full configuration tree topology
+  const fetchConfigTree = useCallback(async () => {
+    if (!server) return;
+    setConfigLoading(true);
+    try {
+      const res = await fetchNginxConfigTopology(
+        server.id,
+        sessionPassword || server.ssh_password,
+        discovery?.confPath,
+        discovery?.prefixPath
+      );
+      if (res && res.success && res.topology) {
+        setConfigTopology(res.topology);
+        if (res.topology.files && res.topology.files.length > 0) {
+          setSelectedConfigFile(res.topology.files[0]);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Failed to fetch Nginx config topology]:', err);
+    } finally {
+      setConfigLoading(false);
+    }
+  }, [server, sessionPassword, discovery?.confPath, discovery?.prefixPath]);
 
   // Fetch full dynamic distribution-aware discovery
   const fetchDiscovery = useCallback(async () => {
@@ -108,6 +144,12 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       fetchDiscovery();
     }
   }, [isOpen, server, fetchDiscovery]);
+
+  useEffect(() => {
+    if (isOpen && server && (activeTab === 'config' || activeTab === 'vhosts' || activeTab === 'proxy') && !configTopology && !configLoading) {
+      fetchConfigTree();
+    }
+  }, [isOpen, server, activeTab, configTopology, configLoading, fetchConfigTree]);
 
   // Execute Service Action (Start, Stop, Restart, Reload) using discovered service name
   const handleServiceAction = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
@@ -1021,37 +1063,198 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
             </div>
           )}
 
-          {/* TAB 4: CONFIGURATION TREE */}
+          {/* TAB 4: CONFIGURATION TREE & AST TOPOLOGY */}
           {activeTab === 'config' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h3 className="text-sm font-bold flex items-center gap-2">
-                    <FileCode className="w-4 h-4 text-emerald-400" />
-                    <span>{isEn ? 'Configuration Files & Architecture' : 'فایل‌ها و ساختار پیکربندی'}</span>
+                    <FolderTree className="w-4 h-4 text-emerald-400" />
+                    <span>{isEn ? 'Configuration Files & Include Hierarchy Graph' : 'گراف سلسله‌مراتبی فایل‌های کانفیگ و Includeها'}</span>
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
                     {isEn
-                      ? `Root config path: ${discovery?.confPath || '/etc/nginx/nginx.conf'}`
-                      : `مسیر فایل اصلی: ${discovery?.confPath || '/etc/nginx/nginx.conf'}`}
+                      ? `Root: ${configTopology?.mainConfigPath || discovery?.confPath || '/etc/nginx/nginx.conf'} • Discovered: ${configTopology?.totalFiles ?? 0} files (${configTopology?.totalLines ?? 0} lines)`
+                      : `ریشه: ${configTopology?.mainConfigPath || discovery?.confPath || '/etc/nginx/nginx.conf'} • کشف‌شده: ${configTopology?.totalFiles ?? 0} فایل (${configTopology?.totalLines ?? 0} خط)`}
                   </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={fetchConfigTree}
+                    disabled={configLoading}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${configLoading ? 'animate-spin' : ''}`} />
+                    <span>{configLoading ? (isEn ? 'Traversing...' : 'در حال پیمایش...') : (isEn ? 'Refresh Tree' : 'بروزرسانی درخت')}</span>
+                  </button>
+
+                  <FieldInfoTooltip
+                    fieldName="Nginx Include Hierarchy"
+                    infoWhatEn="Nginx configurations are dynamically composed via 'include' directives pointing to individual files or wildcard glob paths."
+                    infoWhatFa="تنظیمات Nginx از طریق دایرکتیوهای include و پترن‌های glob به‌صورت درختی و تو در تو بارگذاری می‌شوند."
+                    infoWhyEn="Eliminates assumptions about Ubuntu's sites-available and maps the exact configuration layout used on this server."
+                    infoWhyFa="وابستگی به ساختار پیش‌فرض اوبونتو را از بین برده و معماری واقعی اعمال‌شده بر روی این سرور را نشان می‌دهد."
+                    infoExampleEn="include /etc/nginx/conf.d/*.conf;"
+                    infoExampleFa="include /etc/nginx/conf.d/*.conf;"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
                 </div>
               </div>
 
-              <div
-                className={`p-6 rounded-xl border text-center ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
-                }`}
-              >
-                <FileCode className="w-10 h-10 text-emerald-400/60 mx-auto mb-3" />
-                <h4 className="text-sm font-bold">
-                  {isEn ? 'Nginx Configuration Hub' : 'مرکز پیکربندی Nginx'}
-                </h4>
-                <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
-                  {isEn
-                    ? 'Ready for viewing, recursive include traversal, and safe syntax validation in Phase 2.'
-                    : 'آماده برای تحلیل گراف Includeها و اعتبارسنجی در فاز ۲.'}
-                </p>
+              {/* Topology Summary Cards */}
+              {configTopology && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Scanned Files' : 'فایل‌های پویش‌شده'}</span>
+                    <div className="text-base font-bold text-emerald-400 mt-1">{configTopology.totalFiles}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Server Blocks' : 'بلوک‌های سرور'}</span>
+                    <div className="text-base font-bold text-cyan-400 mt-1">{configTopology.detectedContexts.totalServerBlocks}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Upstream Pools' : 'استخرهای بالادستی'}</span>
+                    <div className="text-base font-bold text-amber-400 mt-1">{configTopology.detectedContexts.totalUpstreams}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Contexts Detected' : 'کانتکست‌های کشف‌شده'}</span>
+                    <div className="text-xs font-bold text-slate-200 mt-1.5 flex gap-1">
+                      {configTopology.detectedContexts.hasHttp && <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">HTTP</span>}
+                      {configTopology.detectedContexts.hasStream && <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">STREAM</span>}
+                      {configTopology.detectedContexts.hasEvents && <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">EVENTS</span>}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Two-Pane Viewer: Tree List on Left/Right, Code Viewer on Other */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                {/* File Tree Column */}
+                <div
+                  className={`lg:col-span-5 p-3 rounded-xl border flex flex-col space-y-2 max-h-[500px] overflow-hidden ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  {/* Search / Filter Input */}
+                  <div className="relative shrink-0">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={configSearchQuery}
+                      onChange={(e) => setConfigSearchQuery(e.target.value)}
+                      placeholder={isEn ? 'Filter config files...' : 'جستجوی فایل‌های کانفیگ...'}
+                      className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border outline-none font-mono transition ${
+                        isLightMode
+                          ? 'border-slate-300 bg-slate-50 focus:border-emerald-500 text-slate-800'
+                          : 'border-slate-800 bg-slate-950/60 focus:border-emerald-500/50 text-slate-100'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Files List with Indentation & Level Badges */}
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                    {configLoading ? (
+                      <div className="p-8 text-center text-xs text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-emerald-400" />
+                        <span>{isEn ? 'Traversing Include Hierarchy...' : 'در حال پویش بازگشتی دایرکتیوهای Include...'}</span>
+                      </div>
+                    ) : !configTopology || configTopology.files.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        <FileCode className="w-6 h-6 mx-auto mb-2 text-slate-500" />
+                        <span>{isEn ? 'No configuration files discovered' : 'هیچ فایلی کشف نشد'}</span>
+                      </div>
+                    ) : (
+                      configTopology.files
+                        .filter((f) =>
+                          !configSearchQuery ||
+                          f.filePath.toLowerCase().includes(configSearchQuery.toLowerCase()) ||
+                          f.relativePath.toLowerCase().includes(configSearchQuery.toLowerCase())
+                        )
+                        .map((f, idx) => {
+                          const isSelected = selectedConfigFile?.filePath === f.filePath;
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setSelectedConfigFile(f)}
+                              style={{ paddingLeft: `${Math.max(8, f.level * 16 + 8)}px` }}
+                              className={`w-full text-left py-2 pr-2.5 rounded-lg border transition cursor-pointer flex items-center justify-between gap-2 text-xs font-mono ${
+                                isSelected
+                                  ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 shadow-sm'
+                                  : isLightMode
+                                  ? 'border-transparent hover:bg-slate-100 text-slate-700'
+                                  : 'border-transparent hover:bg-slate-800/50 text-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <FileCode className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-emerald-400' : 'text-slate-400'}`} />
+                                <div className="truncate">
+                                  <div className="font-bold truncate text-[11px]">{f.relativePath}</div>
+                                  <div className="text-[9px] text-slate-500 truncate">{f.filePath}</div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0 text-[10px]">
+                                {f.serverBlocksCount > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30" title="Server Blocks">
+                                    {f.serverBlocksCount} srv
+                                  </span>
+                                )}
+                                {f.upstreamsCount > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30" title="Upstream Pools">
+                                    {f.upstreamsCount} ups
+                                  </span>
+                                )}
+                                <span className="text-slate-500">{f.lineCount}L</span>
+                              </div>
+                            </button>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+
+                {/* File Preview & Details Column */}
+                <div
+                  className={`lg:col-span-7 p-4 rounded-xl border flex flex-col space-y-3 max-h-[500px] overflow-hidden ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  {selectedConfigFile ? (
+                    <>
+                      <div className="flex items-center justify-between border-b pb-2.5 shrink-0">
+                        <div className="min-w-0">
+                          <h4 className="text-xs font-bold font-mono text-emerald-400 truncate">
+                            {selectedConfigFile.filePath}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            {selectedConfigFile.sizeBytes} bytes • {selectedConfigFile.lineCount} lines • Includes: {selectedConfigFile.includesCount}
+                            {selectedConfigFile.includedFrom && ` • Included from: ${selectedConfigFile.includedFrom}`}
+                          </p>
+                        </div>
+                        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
+                          Level {selectedConfigFile.level}
+                        </span>
+                      </div>
+
+                      {/* Code Snippet / Content */}
+                      <div className="flex-1 overflow-auto rounded-lg bg-black/70 border border-slate-800/80 p-3 font-mono text-xs text-slate-200 whitespace-pre">
+                        {selectedConfigFile.fullContent || selectedConfigFile.contentSnippet || '# Empty configuration file'}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
+                      <span>{isEn ? 'Select a file to inspect content' : 'یک فایل را برای مشاهده محتوا انتخاب کنید'}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

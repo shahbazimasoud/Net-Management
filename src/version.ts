@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.161.0';
+export const APP_VERSION = '1.162.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.162.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۲ مدیریت انجین‌ایکس: پیاده‌سازی موتور تحلیل سلسله‌مراتبی پیکربندی Nginx و گراف درخت فایل‌ها و دایرکتیوهای Include',
+    title_en: 'Nginx Management Phase 2: Configuration Include Hierarchy Traversal, Recursive Glob Resolving & AST Topology Tree Graph',
+    changes: [
+      'پیاده‌سازی ماژول اختصاصی تحلیل و پیمایش سلسله‌مراتبی فایل‌های کانفیگ Nginx (/server/nginxConfigParser.ts) با قابلیت حل پترن‌های glob و ریشه prefix.',
+      'ردیابی زنجیره بازگشتی includeها از فایل اصلی nginx.conf به همراه شمارش بلوک‌های server، استخرهای upstream و کانتکست‌های http/stream/events.',
+      'تجهیز مودال Nginx به تب نوسازی‌شده Configuration Files & Include Hierarchy Graph همراه با کارت‌های خلاصه وضعیت و کانتکست‌های کشف‌شده.',
+      'ارائه نمای دو ستونه تعاملی: لیست درختی فایل‌ها با نمایش تورفتگی سلسله‌مراتبی، عمق سطح، تعداد خطوط و تعداد بلوک‌های سرور در یک سو و پیش‌نمایش محتوای کد با استایل ترمینال در سوی دیگر.',
+      'قابلیت جستجو و فیلتر زنده فایل‌های کانفیگ کشف‌شده بر اساس مسیر و نام فایل.',
+      'ایجاد اندپوینت جدید POST /api/remote-servers/:id/nginx-config-topology و متد کلاینت fetchNginxConfigTopology در api.ts.',
+      'رعایت صددرصدی قوانین دو زبانگی (عدم نمایش متن فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Implemented dedicated Nginx configuration parser and traversal engine (/server/nginxConfigParser.ts) supporting recursive wildcard glob expansions and prefix path resolution.',
+      'Tracked full hierarchical include chains starting from discovered root nginx.conf, parsing server blocks, upstream pools, and http/stream/events contexts.',
+      'Equipped Nginx modal with revitalized Configuration Files & Include Hierarchy Graph tab featuring topology summary telemetry.',
+      'Designed interactive two-pane explorer: hierarchical tree list with level indentations, line counts, and server block badges alongside a monospace dark-mode code viewer.',
+      'Integrated real-time live search filter for discovered configuration files by filename and path.',
+      'Added dedicated backend endpoint POST /api/remote-servers/:id/nginx-config-topology and client API fetchNginxConfigTopology.',
+      'Strictly maintained bilingual localization standards with zero Persian text in English mode.'
+    ]
+  },
   {
     version: '1.161.0',
     releaseDate: '2026-09-25',
