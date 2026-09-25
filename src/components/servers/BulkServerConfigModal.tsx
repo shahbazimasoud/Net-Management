@@ -32,8 +32,10 @@ import {
   AlertCircle,
   FolderArchive,
   ShieldCheck,
-  Wand2
+  Wand2,
+  FileText
 } from 'lucide-react';
+import { BulkServerReportsTab } from './BulkServerReportsTab';
 import {
   RemoteServer,
   BulkServerTemplate,
@@ -120,6 +122,7 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
   const [logFilter, setLogFilter] = useState<'all' | 'error' | 'warning' | 'info' | 'success'>('all');
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
+  const [mainTopTab, setMainTopTab] = useState<'config' | 'reports'>('config');
 
   const logsEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -552,8 +555,58 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
         </div>
 
         {/* ========================================================= */}
-        {/* MULTI-STEP NAVIGATION BAR (Configure -> Preview -> Exec)   */}
+        {/* TOP-LEVEL TABS (Configuration vs Reports & Audit Trail)   */}
         {/* ========================================================= */}
+        <div
+          className={`flex items-center gap-2 px-5 py-2 border-b shrink-0 ${
+            isLightMode ? 'bg-slate-200/70 border-slate-300' : 'bg-slate-950/90 border-white/10'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => setMainTopTab('config')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer ${
+              mainTopTab === 'config'
+                ? 'bg-gradient-to-r from-cyan-600/30 to-teal-600/30 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <Sliders className="w-4 h-4 text-cyan-400" />
+            <span>{isEn ? 'Bulk Linux Server Configuration' : 'پیکربندی گروهی سرورهای لینوکس'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMainTopTab('reports')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold transition cursor-pointer ${
+              mainTopTab === 'reports'
+                ? 'bg-gradient-to-r from-cyan-600/30 to-teal-600/30 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-amber-400" />
+            <span>{isEn ? 'Execution Reports & Audit History' : 'گزارش‌ها و تاریخچه ممیزی اجرا'}</span>
+          </button>
+        </div>
+
+        {mainTopTab === 'reports' ? (
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <BulkServerReportsTab
+              isLightMode={isLightMode}
+              isEn={isEn}
+              onSelectTemplateToRerun={(tplId, params) => {
+                setSelectedTemplateId(tplId);
+                setParameters(params);
+                setMainTopTab('config');
+                setActiveStep('configure');
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            {/* ========================================================= */}
+            {/* MULTI-STEP NAVIGATION BAR (Configure -> Preview -> Exec)   */}
+            {/* ========================================================= */}
         <div
           className={`flex items-center justify-between px-6 py-2.5 border-b text-xs font-mono shrink-0 ${
             isLightMode ? 'bg-slate-200/50 border-slate-300' : 'bg-slate-950/40 border-white/5'
@@ -1980,8 +2033,10 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
             )}
           </div>
         </div>
-      </div>
-    </div>,
+      </>
+    )}
+  </div>
+</div>,
     document.body
   );
 };

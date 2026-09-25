@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.156.0';
+export const APP_VERSION = '1.157.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.157.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'افزودن تب گزارش‌ها و تاریخچه ممیزی اجرا (Execution Reports & Audit Trail) در ابزار Bulk Linux Server Configuration با رهگیری مسیرهای تغییریافته و فایل‌های ایجاد شده',
+    title_en: 'Execution Reports & Audit History Tab in Bulk Linux Server Configuration with Filesystem Change Tracking, Operator Attribution, and Drill-Down Terminal Logs',
+    changes: [
+      'افزودن نوار تب‌های اصلی در بالای مودال Bulk Linux Server Configuration شامل دو تب تفکیک‌شده: تب اول «پیکربندی گروهی ناوگان» و تب دوم «گزارش‌ها و تاریخچه ممیزی اجرا».',
+      'طراحی و پیاده‌سازی ماژول کامل BulkServerReportsTab همراه با کارت‌های آماری جامع (تعداد کل اجراها، درصد موفقیت ناوگان، تعداد خطای نودها، کل سرورهای هدف).',
+      'ثبت خودکار گزارش‌های تفصیلی پس از اتمام هر جاب شامل: نام کاربر مجری (Operator User)، شناسه جاب، زمان شروع و پایان، مدت زمان میلی‌ثانیه‌ای، و تفکیک وضعیت هر سرور.',
+      'رهگیری دقیق فایل‌ها و مسیرهای سیستم‌عامل تحت تاثیر شامل: فایل‌های ایجاد شده (+ Created Files)، مسیرهای پیکربندی ویرایش‌شده (~ Modified Configs)، پوشه‌های هدف، و آثار امنیتی متناسب با هر تمپلیت.',
+      'طراحی مودال اختصاصی جزئیات و Drill-Down با دکمه‌های سه‌گانه استاندارد (بستن، مینیمایز، تمام‌صفحه)، اسنپ‌شات کامل پارامترها و آکاردئون مشاهده لاگ‌های خام ترمینال (stdout/stderr) به تفکیک هر سرور.',
+      'پشتیبانی از جستجوی بلادرنگ، فیلتر وضعیت چندگانه (موفق، جزئی، ناموفق)، فیلتر دسته‌بندی، خروجی کامل JSON گزارش، و دکمه‌های پاکسازی با تاییدیه دو مرحله‌ای.',
+      'رعایت صددرصدی قوانین مودال (حفظ حریم فوتر bottom-8، انطباق کامل تم تیره و روشن، بدون هیچ‌گونه داده شبیه‌سازی‌شده و رعایت دقیق عدم نمایش متون فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Added top-level tab switcher to Bulk Linux Server Configuration modal with two distinct views: "Bulk Linux Server Configuration" and "Execution Reports & Audit History".',
+      'Engineered dedicated BulkServerReportsTab component featuring executive metric counters (total jobs, fleet success rate, node errors, and aggregate servers configured).',
+      'Automated recording of detailed execution audit reports including operator user attribution, job ID, timestamps, millisecond duration, and per-server completion status.',
+      'Fine-grained filesystem change tracking: created files (+ Created Files), modified system configs (~ Modified Configs), affected target paths, and template-aware security implications.',
+      'Built interactive drill-down inspection modal with full standard triad controls (Close/Minimize/Fullscreen), parameter snapshot, and per-server accordion for raw terminal stdout/stderr inspection.',
+      'Included real-time search, multi-tier status and category filters, 1-click JSON export, and guarded history clear actions with dual-step confirmation.',
+      'Strictly aligned with universal modal specifications: bottom-8 footer clearance, dark/light theme contrast, authentic non-simulated live device data, and zero Persian text in English mode.'
+    ]
+  },
   {
     version: '1.156.0',
     releaseDate: '2026-09-25',

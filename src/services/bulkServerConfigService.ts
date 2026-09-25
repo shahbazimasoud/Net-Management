@@ -1,7 +1,8 @@
 import {
   BulkServerTemplate,
   BulkServerPreviewItem,
-  BulkServerJobStatus
+  BulkServerJobStatus,
+  BulkServerExecutionReport
 } from '../types';
 
 export async function fetchBulkServerTemplates(): Promise<BulkServerTemplate[]> {
@@ -73,4 +74,43 @@ export async function cancelBulkServerJob(jobId: string): Promise<boolean> {
   }
   const data = await res.json();
   return data.cancelled || false;
+}
+
+export async function fetchBulkServerReports(): Promise<BulkServerExecutionReport[]> {
+  const res = await fetch('/api/bulk-server-config/reports');
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Failed to fetch execution reports (${res.status})`);
+  }
+  const data = await res.json();
+  return data.reports || [];
+}
+
+export async function fetchBulkServerReportDetails(reportId: string): Promise<BulkServerExecutionReport | null> {
+  const res = await fetch(`/api/bulk-server-config/reports/${encodeURIComponent(reportId)}`);
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Failed to fetch report details (${res.status})`);
+  }
+  const data = await res.json();
+  return data.report || null;
+}
+
+export async function deleteBulkServerReport(reportId: string): Promise<boolean> {
+  const res = await fetch(`/api/bulk-server-config/reports/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) return false;
+  const data = await res.json().catch(() => ({}));
+  return data.deleted || false;
+}
+
+export async function clearAllBulkServerReports(): Promise<boolean> {
+  const res = await fetch('/api/bulk-server-config/reports', {
+    method: 'DELETE'
+  });
+  if (!res.ok) return false;
+  const data = await res.json().catch(() => ({}));
+  return data.cleared || false;
 }
