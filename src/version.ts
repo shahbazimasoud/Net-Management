@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.153.0';
+export const APP_VERSION = '1.153.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.153.1',
+    releaseDate: '2026-09-25',
+    type: 'patch',
+    title: 'تصویب قانون قطعی و تخطی‌ناپذیر برتری لایه‌ای و همیشگی مودال‌های تولز (Tools) بر فراز تمامی پنجره‌ها در دستورالعمل‌ها و معماری سیستم',
+    title_en: 'Codified Universal Mandatory Directive & Stacking Hierarchy Guaranteeing Tools Modals Super-Priority Over All Windows',
+    changes: [
+      'تصویب قانون قطعی و تخطی‌ناپذیر در قوانین هوش مصنوعی و توسعه‌دهندگان (AGENTS.md و GEMINI.md - بند ۲ ذیل قانون ۷) مبنی بر الزام باز شدن همیشگی تمامی مودال‌های فعلی و آینده بخش ابزارها بر فراز تمامی پنجره‌ها و مودال‌های دیگر (کاوشگر فایل، ترمینال لینوکس، ترمینال چندگانه، ریموت دسکتاپ و پنجره‌های تنظیمات).',
+      'ثبت استاندارد معماری در راهنمای طراحی مودال‌ها (MODAL_GUIDELINES.md) شامل الزام به رندر مستقیم مودال‌های ابزارها با createPortal در ریشه سند، اختصاص لایه پایه z-[999990]، لایه z-[999995] برای دیالوگ‌های داخلی، و ممنوعیت قطعی تعریف هرگونه پنجره یا مودال دیگر با z-index بالاتر از 99999.',
+      'تضمین حفظ ساختار و پایداری سیستم در توسعه‌های آتی به گونه‌ای که هیچ کامپوننت یا مودال جدیدی نتواند ابزارهای شبکه را بپوشاند یا به زیر لایه‌های دیگر بفرستد.',
+    ],
+    changes_en: [
+      'Formally codified mandatory architectural directive in AI and developer rules (AGENTS.md and GEMINI.md - clause 2 under Rule 7) requiring all current and future network tool modals to always open strictly above all other windows and modals (Linux File Explorer, Linux Terminal, Multi-Terminal Workspace, Remote Desktop, and configuration dialogs).',
+      'Documented universal architectural standards in MODAL_GUIDELINES.md mandating createPortal root rendering, base z-[999990] stacking for tools, z-[999995] for nested dialogs, and strictly prohibiting any regular or device modal with a z-index exceeding 99999.',
+      'Guaranteed architectural future-proofing ensuring no subsequent feature or modal addition can occlude network tool windows or cause them to fall beneath other layers.',
+    ],
+  },
   {
     version: '1.153.0',
     releaseDate: '2026-09-25',
