@@ -49,6 +49,9 @@ import {
   HardDrive,
   TerminalSquare,
   Eye,
+  Plus,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -78,8 +81,11 @@ import {
   fetchNginxCertificates,
   fetchNginxLogsDiscovery,
   fetchNginxLogStream,
+  toggleNginxSite,
+  deleteNginxSite,
   sshExecute,
 } from '../../services/api';
+import { NginxSiteWizardModal } from './NginxSiteWizardModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface NginxManagementModalProps {
@@ -146,6 +152,64 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   const [sslSearchQuery, setSslSearchQuery] = useState('');
   const [sslFilter, setSslFilter] = useState<'all' | 'valid' | 'expiring_soon' | 'expired' | 'self_signed' | 'error'>('all');
   const [copiedCertText, setCopiedCertText] = useState<string | null>(null);
+
+  // Phase 7: Safe Site Creation & Reverse Proxy Wizard
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [togglingSitePath, setTogglingSitePath] = useState<string | null>(null);
+  const [deletingSitePath, setDeletingSitePath] = useState<string | null>(null);
+
+  const handleToggleSite = async (site: NginxServerBlock) => {
+    if (!server || !site.definedInFile) return;
+    setTogglingSitePath(site.definedInFile);
+    try {
+      const res = await toggleNginxSite(
+        server.id,
+        site.definedInFile,
+        !site.isEnabled,
+        sessionPassword || server.ssh_password
+      );
+      if (res && res.success) {
+        await fetchSites();
+        await fetchConfigTree();
+      } else {
+        alert(res?.error || res?.message || 'Failed to toggle site status');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to toggle site status');
+    } finally {
+      setTogglingSitePath(null);
+    }
+  };
+
+  const handleDeleteSite = async (site: NginxServerBlock) => {
+    if (!server || !site.definedInFile) return;
+    const confirmMsg = isEn
+      ? `Are you sure you want to permanently delete virtual host "${site.primaryDomain}" (${site.definedInFile})?`
+      : `آیا از حذف دائمی هاست مجازی "${site.primaryDomain}" (${site.definedInFile}) اطمینان دارید؟`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingSitePath(site.definedInFile);
+    try {
+      const res = await deleteNginxSite(
+        server.id,
+        site.definedInFile,
+        sessionPassword || server.ssh_password
+      );
+      if (res && res.success) {
+        if (selectedSite?.id === site.id) {
+          setSelectedSite(null);
+        }
+        await fetchSites();
+        await fetchConfigTree();
+      } else {
+        alert(res?.error || res?.message || 'Failed to delete site configuration');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete site configuration');
+    } finally {
+      setDeletingSitePath(null);
+    }
+  };
 
   const handleCopyCertText = (text: string, id: string) => {
     try {
@@ -1283,6 +1347,15 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => setIsWizardOpen(true)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'New Virtual Host / Proxy' : 'ایجاد سایت / پروکسی جدید'}</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={fetchSites}
                     disabled={sitesLoading}
                     className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
@@ -1508,6 +1581,54 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
                           <p className="text-[11px] text-slate-400 font-mono mt-1">
                             Defined in: <strong className="text-slate-300">{selectedSite.definedInFile}</strong>
                           </p>
+                        </div>
+
+                        {/* Site Action Buttons */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Toggle Active / Disabled */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSite(selectedSite)}
+                            disabled={togglingSitePath === selectedSite.definedInFile}
+                            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                              selectedSite.isEnabled
+                                ? 'border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300'
+                                : 'border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300'
+                            }`}
+                            title={
+                              selectedSite.isEnabled
+                                ? isEn ? 'Disable this virtual host' : 'غیرفعال‌سازی این هاست مجازی'
+                                : isEn ? 'Enable this virtual host' : 'فعال‌سازی این هاست مجازی'
+                            }
+                          >
+                            {togglingSitePath === selectedSite.definedInFile ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : selectedSite.isEnabled ? (
+                              <ToggleRight className="w-3.5 h-3.5" />
+                            ) : (
+                              <ToggleLeft className="w-3.5 h-3.5" />
+                            )}
+                            <span>
+                              {selectedSite.isEnabled
+                                ? isEn ? 'Disable' : 'غیرفعال‌سازی'
+                                : isEn ? 'Enable' : 'فعال‌سازی'}
+                            </span>
+                          </button>
+
+                          {/* Delete Site */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSite(selectedSite)}
+                            disabled={deletingSitePath === selectedSite.definedInFile}
+                            className="p-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition cursor-pointer disabled:opacity-50"
+                            title={isEn ? 'Delete virtual host file' : 'حذف فایل هاست مجازی'}
+                          >
+                            {deletingSitePath === selectedSite.definedInFile ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
                         </div>
                       </div>
 
@@ -3891,6 +4012,26 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Phase 7: Safe Site Creation & Reverse Proxy Wizard Modal */}
+      <NginxSiteWizardModal
+        isOpen={isWizardOpen}
+        server={server}
+        sessionPassword={sessionPassword}
+        onClose={() => setIsWizardOpen(false)}
+        onMinimize={() => {
+          setIsWizardOpen(false);
+          onMinimize();
+        }}
+        onSuccess={async (deployedPath) => {
+          setIsWizardOpen(false);
+          await fetchSites();
+          await fetchConfigTree();
+          await fetchDiscovery();
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
     </div>,
     document.body
   );

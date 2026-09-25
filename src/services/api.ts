@@ -1500,6 +1500,88 @@ export async function fetchNginxLogStream(
   return data;
 }
 
+export async function testNginxSite(
+  serverId: string,
+  config: import('../types').NginxNewSiteConfig,
+  ephemeralPassword?: string
+): Promise<import('../types').NginxSiteTestResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-site-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      config,
+      password: ephemeralPassword,
+    }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    isValid: false,
+    testOutput: 'Failed to parse response from server',
+    generatedConfig: '',
+    targetFilePath: '',
+    error: 'Failed to parse response',
+  }));
+  return data;
+}
+
+export async function deployNginxSite(
+  serverId: string,
+  config: import('../types').NginxNewSiteConfig,
+  ephemeralPassword?: string
+): Promise<import('../types').NginxSiteDeployResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-site-deploy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      config,
+      password: ephemeralPassword,
+    }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    deployedFilePath: '',
+    syntaxTestPassed: false,
+    syntaxOutput: 'Failed to parse server response',
+    serviceReloaded: false,
+    error: 'Failed to parse response',
+  }));
+  return data;
+}
+
+export async function toggleNginxSite(
+  serverId: string,
+  siteFilePath: string,
+  enable: boolean,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; isEnabled?: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-site-toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      siteFilePath,
+      enable,
+      password: ephemeralPassword,
+    }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
+export async function deleteNginxSite(
+  serverId: string,
+  siteFilePath: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-site-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      siteFilePath,
+      password: ephemeralPassword,
+    }),
+  });
+  return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
+}
+
 export async function fetchLinuxServiceWatchdogs(
   serverId: string,
   ephemeralPassword?: string

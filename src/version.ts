@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.166.0';
+export const APP_VERSION = '1.167.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.167.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۷ مدیریت انجین‌ایکس: ویزارد بصری و امن ایجاد سایت و پروکسی معکوس (Safe Site Creation & Reverse Proxy Wizard)',
+    title_en: 'Nginx Management Phase 7: Safe Site Creation & Reverse Proxy Wizard with Remote Syntax Verification and Atomic Rollback',
+    changes: [
+      'پیاده‌سازی ماژول اختصاصی نگارش و استقرار امن پیکربندی Nginx (/server/nginxSiteWriter.ts).',
+      'ایجاد مودال ویزارد ۴ مرحله‌ای حرفه‌ای با رعایت کامل استانداردهای پنج‌گانه مودال‌ها و قابلیت مینیمایز به داک (/src/components/servers/NginxSiteWizardModal.tsx).',
+      'مرحله ۱ (دامنه و شبکه): تنظیم دامنه اصلی (FQDN)، دامنه‌های مستعار، پورت‌های شنود، سرور پیش‌فرض، فعال‌سازی SSL/TLS و هدایت خودکار ۳۰۱ از HTTP به HTTPS.',
+      'مرحله ۲ (هاستینگ و بک‌اند): تفکیک هوشمند هاستینگ معکوس (Reverse Proxy) با پشتیبانی کامل از وب‌سوکت، هدرهای استاندارد (X-Real-IP, Host, X-Forwarded-For)، تایم‌اوت‌ها، و هاستینگ فایل‌های استاتیک با دایرکتوری ریشه، ایندکس و هدایت تک‌صفحه‌ای (SPA Fallback).',
+      'مرحله ۳ (امنیت و بهینه‌سازی): تنظیم سقف حجم بادی درخواست (client_max_body_size)، فشرده‌سازی Gzip و هدرهای امنیتی (X-Frame-Options, nosniff, X-XSS-Protection).',
+      'مرحله ۴ (پیش‌نمایش، اعتبارسنجی و استقرار): تولید کد بهینه، امکان ویرایش دستی، اجرای تست درای‌ران سینتکس از راه دور (Isolated Remote Syntax Test) و نمایش خروجی دقیق خطای کامپایلر Nginx.',
+      'مکانیزم استقرار امن و رول‌بک اتمیک: نگارش در پوشه‌های استاندارد توزیع (/etc/nginx/sites-available با ایجاد خودکار Symlink در sites-enabled یا conf.d)، اعتبارسنجی نهایی با nginx -t و رول‌بک فوری در صورت بروز هرگونه خطا.',
+      'افزودن امکان فعال‌سازی/غیرفعال‌سازی سریع (Enable/Disable) و حذف ایمن هاست‌های مجازی موجود از پنل مدیریت.',
+      'تجهیز تمامی فیلدها و تنظیمات به کادرهای راهنمای FieldInfoTooltip سه‌بخشی، انطباق کامل با تم‌های تیره/روشن و عدم استفاده از کلمات فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered dedicated safe Nginx configuration generator and deployment engine (/server/nginxSiteWriter.ts).',
+      'Built comprehensive 4-step Site Creation and Reverse Proxy Wizard modal compliant with universal modal standards and dock minimization (/src/components/servers/NginxSiteWizardModal.tsx).',
+      'Step 1 (Domain & Network): Configured FQDN primary domain, aliases, listen ports, default server catch-all, SSL/TLS certificates, and automatic HTTP-to-HTTPS permanent redirect (301).',
+      'Step 2 (Hosting & Backend): Provided seamless selection between Reverse Proxy Gateway (with WebSocket upgrades, standard proxy headers, and timeouts) and Static Web Files Hosting (with document root, index files, and SPA fallback routing).',
+      'Step 3 (Security & Optimization): Tuned client max body sizes, on-the-fly Gzip compression, and hardened HTTP security headers (X-Frame-Options, nosniff, Referrer-Policy).',
+      'Step 4 (Preview, Testing & Deploy): Real-time configuration preview with optional manual code editor, remote standalone dry-run syntax verification, and live compiler diagnostic output display.',
+      'Atomic Deployment & Rollback: Distribution-aware file targeting (/etc/nginx/sites-available with symlinks in sites-enabled or conf.d), automated nginx -t production validation, and immediate automatic rollback upon any syntax rejection.',
+      'Added instant live Enable/Disable toggle and safe site deletion actions directly on existing virtual host cards.',
+      'Equipped every option with 3-part boundary-safe FieldInfoTooltips, full dark/light theme contrast, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.166.0',
     releaseDate: '2026-09-25',

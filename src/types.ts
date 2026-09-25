@@ -1720,6 +1720,56 @@ export interface NginxLogsDiscoverySummary {
   warnings: string[];
 }
 
+export interface NginxNewSiteConfig {
+  domain: string;
+  serverNames?: string[];
+  port: number;
+  isDefaultServer?: boolean;
+  enableSsl?: boolean;
+  sslCertPath?: string;
+  sslKeyPath?: string;
+  forceHttpsRedirect?: boolean;
+  siteType: 'proxy' | 'static' | 'custom';
+  // Reverse Proxy options
+  proxyPassUrl?: string;
+  enableWebSocket?: boolean;
+  standardHeaders?: boolean;
+  proxyTimeoutSec?: number;
+  proxyBuffering?: boolean;
+  // Static options
+  documentRoot?: string;
+  indexFiles?: string;
+  enableSpaFallback?: boolean;
+  enableAutoindex?: boolean;
+  // Security & Performance
+  clientMaxBodySize?: string;
+  enableGzip?: boolean;
+  enableSecurityHeaders?: boolean;
+  customDirectives?: string;
+  customConfigSnippet?: string;
+  autoReloadService?: boolean;
+}
+
+export interface NginxSiteTestResult {
+  success: boolean;
+  isValid: boolean;
+  testOutput: string;
+  generatedConfig: string;
+  targetFilePath: string;
+  error?: string;
+}
+
+export interface NginxSiteDeployResult {
+  success: boolean;
+  deployedFilePath: string;
+  symlinkPath?: string;
+  syntaxTestPassed: boolean;
+  syntaxOutput: string;
+  serviceReloaded: boolean;
+  reloadOutput?: string;
+  error?: string;
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;

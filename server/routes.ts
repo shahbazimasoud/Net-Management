@@ -203,6 +203,12 @@ import { discoverNginxServerBlocks } from './nginxSitesManager';
 import { discoverNginxProxyArchitecture } from './nginxProxyManager';
 import { discoverNginxCertificates } from './nginxCertDiscovery';
 import { discoverNginxLogFiles, streamNginxLogFile } from './nginxLogManager';
+import {
+  testNginxSiteConfig,
+  deployNginxSite,
+  toggleNginxSiteStatus,
+  deleteNginxSite,
+} from './nginxSiteWriter';
 
 export const apiRouter = Router();
 
@@ -2043,6 +2049,116 @@ apiRouter.post('/remote-servers/:id/nginx-logs-stream', async (req: Request, res
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to stream Nginx log file',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-site-test - Dry-run syntax test for candidate Nginx site configuration
+apiRouter.post('/remote-servers/:id/nginx-site-test', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { config, password } = req.body || {};
+
+    if (!config || !config.domain) {
+      return res.status(400).json({ success: false, error: 'Valid site configuration with domain is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const testResult = await testNginxSiteConfig(server, config, password);
+    return res.json(testResult);
+  } catch (err: any) {
+    console.error(`[NginxSiteTest API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      isValid: false,
+      testOutput: err.message || 'Syntax test execution failed',
+      error: err.message || 'Failed to test Nginx site configuration',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-site-deploy - Safely deploys Nginx site with automatic atomic rollback
+apiRouter.post('/remote-servers/:id/nginx-site-deploy', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { config, password } = req.body || {};
+
+    if (!config || !config.domain) {
+      return res.status(400).json({ success: false, error: 'Valid site configuration with domain is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const deployResult = await deployNginxSite(server, config, password);
+    return res.json(deployResult);
+  } catch (err: any) {
+    console.error(`[NginxSiteDeploy API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      deployedFilePath: '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Deployment exception',
+      serviceReloaded: false,
+      error: err.message || 'Failed to deploy Nginx site',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-site-toggle - Toggles a site between enabled and disabled
+apiRouter.post('/remote-servers/:id/nginx-site-toggle', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { siteFilePath, enable, password } = req.body || {};
+
+    if (!siteFilePath) {
+      return res.status(400).json({ success: false, error: 'Site file path is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const toggleResult = await toggleNginxSiteStatus(server, siteFilePath, Boolean(enable), password);
+    return res.json(toggleResult);
+  } catch (err: any) {
+    console.error(`[NginxSiteToggle API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to toggle Nginx site status',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-site-delete - Safely removes a site configuration file
+apiRouter.post('/remote-servers/:id/nginx-site-delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { siteFilePath, password } = req.body || {};
+
+    if (!siteFilePath) {
+      return res.status(400).json({ success: false, error: 'Site file path is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const deleteResult = await deleteNginxSite(server, siteFilePath, password);
+    return res.json(deleteResult);
+  } catch (err: any) {
+    console.error(`[NginxSiteDelete API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete Nginx site',
     });
   }
 });
