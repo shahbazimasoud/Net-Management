@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.153.1';
+export const APP_VERSION = '1.153.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.153.2',
+    releaseDate: '2026-09-25',
+    type: 'patch',
+    title: 'رفع باگ تداخل گرادینت SVG آیکون پوشه‌ها در نمای شبکه‌ای کاوشگر فایل و تغییر رنگ همه پوشه‌ها با کلیک روی اولین پوشه',
+    title_en: 'Fix SVG LinearGradient ID Collision in File Explorer ModernFolderIcon Turning All Folders Blue on First Folder Click',
+    changes: [
+      'شناسایی و رفع ریشه‌ای تداخل شناسه گرادینت‌های SVG آیکون پوشه (ModernFolderIcon) در کاوشگر فایل لینوکس.',
+      'اختصاص شناسه‌های منحصر‌به‌فرد نمونه (Instance-Scoped Unique IDs) با استفاده از React.useId برای هر آیکون پوشه به جای شناسه‌های ثابت سراسری (Global Static IDs).',
+      'تضمین اینکه با کلیک و انتخاب اولین پوشه (یا هر پوشه دیگر) در نمای شبکه‌ای (Grid View)، تنها همان پوشه انتخاب‌شده به رنگ آبی درآمده و رنگ سایر پوشه‌ها به صورت مجزا در حالت پیش‌فرض (کهربایی/طلایی) باقی بماند.',
+    ],
+    changes_en: [
+      'Identified and resolved root-cause SVG linearGradient ID collision within ModernFolderIcon in Linux Remote File Explorer.',
+      'Replaced static global element IDs with instance-scoped unique identifiers generated via React.useId for every folder icon instance.',
+      'Guaranteed that clicking and selecting the first folder (or any specific folder) in Grid View strictly turns only that folder blue, while maintaining independent default amber/gold styling across all other unselected folders.',
+    ],
+  },
   {
     version: '1.153.1',
     releaseDate: '2026-09-25',
