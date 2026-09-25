@@ -131,6 +131,12 @@ export interface RemoteServer {
   vnc_username?: string;
   vnc_password?: string;
   prompt_password_on_connect?: boolean;
+  installed_web_servers?: ('apache' | 'nginx' | string)[];
+  installed_databases?: ('postgresql' | 'mysql' | string)[];
+  has_apache?: boolean;
+  has_nginx?: boolean;
+  has_postgresql?: boolean;
+  has_mysql?: boolean;
   status: 'online' | 'offline' | 'unreachable' | 'maintenance' | 'untested';
   cpu_cores?: number;
   ram_gb?: number;
@@ -601,6 +607,12 @@ export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [
     ssh_username: 'root',
     ssh_password: '',
     default_shell: 'bash',
+    installed_web_servers: ['nginx'],
+    installed_databases: [],
+    has_apache: false,
+    has_nginx: true,
+    has_postgresql: false,
+    has_mysql: false,
     status: 'untested',
     cpu_cores: 8,
     ram_gb: 32,
@@ -626,6 +638,12 @@ export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [
     ssh_username: 'root',
     ssh_password: '',
     default_shell: 'zsh',
+    installed_web_servers: [],
+    installed_databases: ['postgresql'],
+    has_apache: false,
+    has_nginx: false,
+    has_postgresql: true,
+    has_mysql: false,
     status: 'untested',
     cpu_cores: 16,
     ram_gb: 64,
@@ -1152,9 +1170,11 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
             win_protocol, win_port, win_username, win_domain,
             status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
+            prompt_password_on_connect,
+            installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
             created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
            ON CONFLICT (id) DO NOTHING`,
           [
             s.id,
@@ -1183,6 +1203,13 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             s.uptime_str || '',
             s.location || 'Datacenter A',
             s.notes || '',
+            Boolean(s.prompt_password_on_connect),
+            JSON.stringify(s.installed_web_servers || []),
+            JSON.stringify(s.installed_databases || []),
+            Boolean(s.has_apache),
+            Boolean(s.has_nginx),
+            Boolean(s.has_postgresql),
+            Boolean(s.has_mysql),
             s.created_at || new Date().toISOString(),
             s.updated_at || new Date().toISOString()
           ]
@@ -1439,6 +1466,12 @@ export async function initDatabase(): Promise<void> {
 
     try {
       await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS prompt_password_on_connect BOOLEAN DEFAULT FALSE');
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS installed_web_servers JSONB NOT NULL DEFAULT '[]'::jsonb");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS installed_databases JSONB NOT NULL DEFAULT '[]'::jsonb");
+      await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_apache BOOLEAN DEFAULT FALSE');
+      await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_nginx BOOLEAN DEFAULT FALSE');
+      await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_postgresql BOOLEAN DEFAULT FALSE');
+      await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_mysql BOOLEAN DEFAULT FALSE');
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -2952,6 +2985,16 @@ function rowToRemoteServer(r: any): RemoteServer {
     win_username: r.win_username || 'Administrator',
     win_domain: r.win_domain || 'CORP.INTERNAL',
     prompt_password_on_connect: Boolean(r.prompt_password_on_connect),
+    installed_web_servers: Array.isArray(r.installed_web_servers)
+      ? r.installed_web_servers
+      : (typeof r.installed_web_servers === 'string' ? JSON.parse(r.installed_web_servers || '[]') : []),
+    installed_databases: Array.isArray(r.installed_databases)
+      ? r.installed_databases
+      : (typeof r.installed_databases === 'string' ? JSON.parse(r.installed_databases || '[]') : []),
+    has_apache: Boolean(r.has_apache ?? (Array.isArray(r.installed_web_servers) ? r.installed_web_servers.includes('apache') : false)),
+    has_nginx: Boolean(r.has_nginx ?? (Array.isArray(r.installed_web_servers) ? r.installed_web_servers.includes('nginx') : false)),
+    has_postgresql: Boolean(r.has_postgresql ?? (Array.isArray(r.installed_databases) ? r.installed_databases.includes('postgresql') : false)),
+    has_mysql: Boolean(r.has_mysql ?? (Array.isArray(r.installed_databases) ? r.installed_databases.includes('mysql') : false)),
     status: (r.status || 'untested') as 'online' | 'offline' | 'unreachable' | 'untested',
     cpu_cores: r.cpu_cores !== undefined && r.cpu_cores !== null && Number(r.cpu_cores) > 0 ? Number(r.cpu_cores) : undefined,
     ram_gb: r.ram_gb !== undefined && r.ram_gb !== null && Number(r.ram_gb) > 0 ? Number(r.ram_gb) : undefined,
@@ -3070,6 +3113,22 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     vnc_username: data.vnc_username?.trim() || '',
     vnc_password: data.prompt_password_on_connect ? '' : (data.vnc_password || ''),
     prompt_password_on_connect: Boolean(data.prompt_password_on_connect),
+    installed_web_servers: Array.isArray(data.installed_web_servers) ? data.installed_web_servers : (
+      [
+        ...(data.has_apache ? ['apache'] : []),
+        ...(data.has_nginx ? ['nginx'] : [])
+      ]
+    ),
+    installed_databases: Array.isArray(data.installed_databases) ? data.installed_databases : (
+      [
+        ...(data.has_postgresql ? ['postgresql'] : []),
+        ...(data.has_mysql ? ['mysql'] : [])
+      ]
+    ),
+    has_apache: Boolean(data.has_apache ?? (Array.isArray(data.installed_web_servers) ? data.installed_web_servers.includes('apache') : false)),
+    has_nginx: Boolean(data.has_nginx ?? (Array.isArray(data.installed_web_servers) ? data.installed_web_servers.includes('nginx') : false)),
+    has_postgresql: Boolean(data.has_postgresql ?? (Array.isArray(data.installed_databases) ? data.installed_databases.includes('postgresql') : false)),
+    has_mysql: Boolean(data.has_mysql ?? (Array.isArray(data.installed_databases) ? data.installed_databases.includes('mysql') : false)),
     status: data.status || 'untested',
     cpu_cores: data.cpu_cores !== undefined && data.cpu_cores !== null && Number(data.cpu_cores) > 0 ? Number(data.cpu_cores) : undefined,
     ram_gb: data.ram_gb !== undefined && data.ram_gb !== null && Number(data.ram_gb) > 0 ? Number(data.ram_gb) : undefined,
@@ -3100,9 +3159,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           win_protocol, win_port, win_username, win_domain,
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
           prompt_password_on_connect,
+          installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -3130,6 +3190,12 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           location = EXCLUDED.location,
           notes = EXCLUDED.notes,
           prompt_password_on_connect = EXCLUDED.prompt_password_on_connect,
+          installed_web_servers = EXCLUDED.installed_web_servers,
+          installed_databases = EXCLUDED.installed_databases,
+          has_apache = EXCLUDED.has_apache,
+          has_nginx = EXCLUDED.has_nginx,
+          has_postgresql = EXCLUDED.has_postgresql,
+          has_mysql = EXCLUDED.has_mysql,
           updated_at = NOW()`,
         [
           newServer.id,
@@ -3159,6 +3225,12 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           newServer.location || '',
           newServer.notes || '',
           Boolean(newServer.prompt_password_on_connect),
+          JSON.stringify(newServer.installed_web_servers || []),
+          JSON.stringify(newServer.installed_databases || []),
+          Boolean(newServer.has_apache),
+          Boolean(newServer.has_nginx),
+          Boolean(newServer.has_postgresql),
+          Boolean(newServer.has_mysql),
           newServer.created_at,
           newServer.updated_at,
         ]
@@ -3181,15 +3253,12 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
   if (!Array.isArray(store.remote_servers)) {
     store.remote_servers = [];
   }
-
   let storeIdx = store.remote_servers.findIndex(
     (s) => s.id === cleanId || s.id.toLowerCase() === cleanId.toLowerCase() || (updates.ip && s.ip === updates.ip)
   );
-
   if (!current && storeIdx >= 0) {
     current = store.remote_servers[storeIdx];
   }
-
   if (!current) {
     const defaultFound = DEFAULT_REMOTE_SERVERS.find(
       (s) => s.id === cleanId || s.id.toLowerCase() === cleanId.toLowerCase() || (updates.ip && s.ip === updates.ip)
@@ -3240,6 +3309,34 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     prompt_password_on_connect: updates.prompt_password_on_connect !== undefined
       ? Boolean(updates.prompt_password_on_connect)
       : (current.prompt_password_on_connect ?? false),
+    installed_web_servers: updates.installed_web_servers !== undefined
+      ? updates.installed_web_servers
+      : (updates.has_apache !== undefined || updates.has_nginx !== undefined
+          ? [
+              ...((updates.has_apache ?? current.has_apache) ? ['apache'] : []),
+              ...((updates.has_nginx ?? current.has_nginx) ? ['nginx'] : [])
+            ]
+          : (current.installed_web_servers || [])),
+    installed_databases: updates.installed_databases !== undefined
+      ? updates.installed_databases
+      : (updates.has_postgresql !== undefined || updates.has_mysql !== undefined
+          ? [
+              ...((updates.has_postgresql ?? current.has_postgresql) ? ['postgresql'] : []),
+              ...((updates.has_mysql ?? current.has_mysql) ? ['mysql'] : [])
+            ]
+          : (current.installed_databases || [])),
+    has_apache: updates.has_apache !== undefined
+      ? Boolean(updates.has_apache)
+      : (Array.isArray(updates.installed_web_servers) ? updates.installed_web_servers.includes('apache') : (current.has_apache ?? false)),
+    has_nginx: updates.has_nginx !== undefined
+      ? Boolean(updates.has_nginx)
+      : (Array.isArray(updates.installed_web_servers) ? updates.installed_web_servers.includes('nginx') : (current.has_nginx ?? false)),
+    has_postgresql: updates.has_postgresql !== undefined
+      ? Boolean(updates.has_postgresql)
+      : (Array.isArray(updates.installed_databases) ? updates.installed_databases.includes('postgresql') : (current.has_postgresql ?? false)),
+    has_mysql: updates.has_mysql !== undefined
+      ? Boolean(updates.has_mysql)
+      : (Array.isArray(updates.installed_databases) ? updates.installed_databases.includes('mysql') : (current.has_mysql ?? false)),
     status: updates.status !== undefined ? updates.status : (current.status || 'untested'),
     cpu_cores: updates.cpu_cores !== undefined ? (updates.cpu_cores !== null && Number(updates.cpu_cores) > 0 ? Number(updates.cpu_cores) : undefined) : current.cpu_cores,
     ram_gb: updates.ram_gb !== undefined ? (updates.ram_gb !== null && Number(updates.ram_gb) > 0 ? Number(updates.ram_gb) : undefined) : current.ram_gb,
@@ -3275,9 +3372,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           win_protocol, win_port, win_username, win_domain,
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
           prompt_password_on_connect,
+          installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -3305,6 +3403,12 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           location = EXCLUDED.location,
           notes = EXCLUDED.notes,
           prompt_password_on_connect = EXCLUDED.prompt_password_on_connect,
+          installed_web_servers = EXCLUDED.installed_web_servers,
+          installed_databases = EXCLUDED.installed_databases,
+          has_apache = EXCLUDED.has_apache,
+          has_nginx = EXCLUDED.has_nginx,
+          has_postgresql = EXCLUDED.has_postgresql,
+          has_mysql = EXCLUDED.has_mysql,
           updated_at = NOW()`,
         [
           updated.id,
@@ -3334,6 +3438,12 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           updated.location,
           updated.notes,
           Boolean(updated.prompt_password_on_connect),
+          JSON.stringify(updated.installed_web_servers || []),
+          JSON.stringify(updated.installed_databases || []),
+          Boolean(updated.has_apache),
+          Boolean(updated.has_nginx),
+          Boolean(updated.has_postgresql),
+          Boolean(updated.has_mysql),
           updated.created_at || new Date().toISOString(),
           updated.updated_at,
         ]

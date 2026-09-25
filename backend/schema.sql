@@ -262,11 +262,23 @@ CREATE TABLE IF NOT EXISTS remote_servers (
     location VARCHAR(128) DEFAULT 'Datacenter A (Rack R-04)',
     notes TEXT,
     prompt_password_on_connect BOOLEAN DEFAULT FALSE,
+    installed_web_servers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    installed_databases JSONB NOT NULL DEFAULT '[]'::jsonb,
+    has_apache BOOLEAN DEFAULT FALSE,
+    has_nginx BOOLEAN DEFAULT FALSE,
+    has_postgresql BOOLEAN DEFAULT FALSE,
+    has_mysql BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS prompt_password_on_connect BOOLEAN DEFAULT FALSE;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS installed_web_servers JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS installed_databases JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_apache BOOLEAN DEFAULT FALSE;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_nginx BOOLEAN DEFAULT FALSE;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_postgresql BOOLEAN DEFAULT FALSE;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_mysql BOOLEAN DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_remote_servers_os_type ON remote_servers(os_type);
 CREATE INDEX IF NOT EXISTS idx_remote_servers_environment ON remote_servers(environment);

@@ -755,6 +755,42 @@
       "details": "User \"admin\" authenticated successfully via Local Database from IP 206.222.8.60",
       "ip_address": "206.222.8.60",
       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 OPR/136.0.0.0"
+    },
+    {
+      "id": "log-1790363582852-8dory",
+      "timestamp": "2026-09-25T19:13:02.852Z",
+      "user_name": "Admin",
+      "action": "Create Remote Server",
+      "category": "device",
+      "target": "Test Linux Web & DB Node (192.168.10.99)",
+      "status": "success",
+      "details": "Added new LINUX server with tags: none",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790363589515-iyn2u",
+      "timestamp": "2026-09-25T19:13:09.516Z",
+      "user_name": "Admin",
+      "action": "Update Remote Server",
+      "category": "device",
+      "target": "Test Linux Web & DB Node (192.168.10.99)",
+      "status": "success",
+      "details": "Updated server settings and tags: none",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1790363593026-pntql",
+      "timestamp": "2026-09-25T19:13:13.026Z",
+      "user_name": "Admin",
+      "action": "Delete Remote Server",
+      "category": "device",
+      "target": "Test Linux Web & DB Node (192.168.10.99)",
+      "status": "success",
+      "details": "Deleted server Test Linux Web & DB Node from inventory",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
     }
   ],
   "ad_config": {
@@ -1183,6 +1219,14 @@
       "ssh_username": "root",
       "ssh_password": "",
       "default_shell": "bash",
+      "installed_web_servers": [
+        "nginx"
+      ],
+      "installed_databases": [],
+      "has_apache": false,
+      "has_nginx": true,
+      "has_postgresql": false,
+      "has_mysql": false,
       "status": "untested",
       "cpu_cores": 8,
       "ram_gb": 32,
@@ -1215,6 +1259,14 @@
       "ssh_username": "root",
       "ssh_password": "",
       "default_shell": "zsh",
+      "installed_web_servers": [],
+      "installed_databases": [
+        "postgresql"
+      ],
+      "has_apache": false,
+      "has_nginx": false,
+      "has_postgresql": true,
+      "has_mysql": false,
       "status": "untested",
       "cpu_cores": 16,
       "ram_gb": 64,

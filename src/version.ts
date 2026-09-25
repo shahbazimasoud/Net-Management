@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.158.0';
+export const APP_VERSION = '1.159.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.159.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'افزودن گزینه‌های انتخابی وب‌سرورهای آپاچی و انجین‌ایکس و موتورهای دیتابیس پستگرس و مای‌اس‌کیوال در فرم ثبت سرور با ذخیره‌سازی کامل در پایگاه‌داده و نمایش بج‌ها در داشبورد',
+    title_en: 'Added Web Server (Apache, Nginx) and Database Engine (PostgreSQL, MySQL/MariaDB) Selection Checkboxes in Server Registration with Full Database Persistence and Fleet Badges',
+    changes: [
+      'تجهیز بخش Architecture & Operating System در مودال Register Remote Server به گزینه‌های اختصاصی استک نرم‌افزاری شامل وب‌سرورها (Apache HTTP Server و Nginx Reverse Proxy) و موتورهای دیتابیس (PostgreSQL و MySQL / MariaDB).',
+      'ذخیره‌سازی و پایداری کامل فیلدهای انتخابی (installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql) در هر دو لایه دیتابیس PostgreSQL و دیتابیس فایل‌استور محلی به صورت کامپکت و بولیَن.',
+      'افزودن دستورات میگریشن خودکار (ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS ...) و ارتقای متدهای createRemoteServer و updateRemoteServer جهت حفظ یکپارچگی اطلاعات ثبت و ویرایش سرور.',
+      'طراحی کارت‌های انتخابی ارگونومیک با آیکون‌های تفکیکی، برچسب پورت‌ها، چک‌باکس‌های تعاملی و راهنمای سه‌بخشی FieldInfoTooltip مطابق با استانداردهای پورتال.',
+      'نمایش نشان‌ها و بج‌های رنگی وب‌سرور و دیتابیس روی کارت‌های سرور و ردیف‌های جدول در RemoteServersView برای تشخیص بصری و فوری استک هر سرور.',
+      'رعایت کامل و دقیق قوانین دو زبانگی (عدم نمایش متن فارسی در حالت انگلیسی) و سازگاری با تم تاریک و روشن.'
+    ],
+    changes_en: [
+      'Enhanced the Architecture & Operating System section in Register Remote Server modal with dedicated software stack options: Web Servers (Apache, Nginx) and Database Engines (PostgreSQL, MySQL / MariaDB).',
+      'Engineered complete persistence for selection attributes (installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql) across both PostgreSQL and persistent file storage.',
+      'Added automated schema migrations (ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS ...) and updated createRemoteServer / updateRemoteServer persistence routines.',
+      'Built ergonomic interactive selection checkboxes with distinct icons, port badges, active states, and boundary-safe 3-part FieldInfoTooltip.',
+      'Rendered quick-glance colored service badges (Apache, Nginx, PostgreSQL, MySQL) on server overview cards and fleet table rows in RemoteServersView.',
+      'Maintained strict bilingual i18n localization (zero Persian text in English mode) and seamless light/dark mode contrast compatibility.'
+    ]
+  },
   {
     version: '1.158.0',
     releaseDate: '2026-09-25',

@@ -1913,11 +1913,33 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                                   {server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}
                                 </span>
                               </div>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                {isLinux
-                                  ? `Shell: /bin/${server.default_shell || 'bash'}`
-                                  : `Protocol: ${(server.win_protocol || 'rdp').toUpperCase()}`}
-                              </span>
+                              <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono flex-wrap">
+                                <span>
+                                  {isLinux
+                                    ? `Shell: /bin/${server.default_shell || 'bash'}`
+                                    : `Protocol: ${(server.win_protocol || 'rdp').toUpperCase()}`}
+                                </span>
+                                {(server.has_apache || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('apache'))) && (
+                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                    Apache
+                                  </span>
+                                )}
+                                {(server.has_nginx || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('nginx'))) && (
+                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                    Nginx
+                                  </span>
+                                )}
+                                {(server.has_postgresql || (Array.isArray(server.installed_databases) && server.installed_databases.includes('postgresql'))) && (
+                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                    PG
+                                  </span>
+                                )}
+                                {(server.has_mysql || (Array.isArray(server.installed_databases) && (server.installed_databases.includes('mysql') || server.installed_databases.includes('mariadb')))) && (
+                                  <span className="px-1 py-0.2 rounded text-[8px] font-mono font-bold bg-orange-500/15 text-orange-400 border border-orange-500/30">
+                                    MySQL
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </td>
                         )}
@@ -2200,10 +2222,42 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                             {server.name}
                           </h3>
                         )}
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5 truncate">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5 truncate flex-wrap">
                           <span>{server.os_distro || (isLinux ? 'Linux' : 'Windows Server')}</span>
                           <span>•</span>
                           <span className="font-mono">{server.category}</span>
+                          {(server.has_apache || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('apache'))) && (
+                            <span
+                              title={isEn ? 'Apache HTTP Server installed' : 'وب‌سرور آپاچی نصب‌شده'}
+                              className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 shrink-0"
+                            >
+                              Apache
+                            </span>
+                          )}
+                          {(server.has_nginx || (Array.isArray(server.installed_web_servers) && server.installed_web_servers.includes('nginx'))) && (
+                            <span
+                              title={isEn ? 'Nginx Web Server / Proxy installed' : 'وب‌سرور و پروکسی انجین‌ایکس نصب‌شده'}
+                              className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0"
+                            >
+                              Nginx
+                            </span>
+                          )}
+                          {(server.has_postgresql || (Array.isArray(server.installed_databases) && server.installed_databases.includes('postgresql'))) && (
+                            <span
+                              title={isEn ? 'PostgreSQL Database installed' : 'پایگاه داده پستگرس نصب‌شده'}
+                              className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30 shrink-0"
+                            >
+                              Postgres
+                            </span>
+                          )}
+                          {(server.has_mysql || (Array.isArray(server.installed_databases) && (server.installed_databases.includes('mysql') || server.installed_databases.includes('mariadb')))) && (
+                            <span
+                              title={isEn ? 'MySQL / MariaDB Database installed' : 'پایگاه داده مای‌اس‌کیوال نصب‌شده'}
+                              className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-orange-500/15 text-orange-400 border border-orange-500/30 shrink-0"
+                            >
+                              MySQL
+                            </span>
+                          )}
                           {server.prompt_password_on_connect && (
                             <span
                               title={isEn ? 'Zero-storage credential policy' : 'عدم ذخیره پسورد'}

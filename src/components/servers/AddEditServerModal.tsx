@@ -28,6 +28,7 @@ import {
   Lock,
   BookmarkPlus,
   Check,
+  Database,
 } from 'lucide-react';
 import { RemoteServer, ServerCategory } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -140,6 +141,12 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [sshPassword, setSshPassword] = useState('');
   const [defaultShell, setDefaultShell] = useState<'bash' | 'zsh' | 'sh'>('bash');
 
+  // Linux Web Server & Database Engine Checkboxes
+  const [hasApache, setHasApache] = useState(false);
+  const [hasNginx, setHasNginx] = useState(false);
+  const [hasPostgres, setHasPostgres] = useState(false);
+  const [hasMysql, setHasMysql] = useState(false);
+
   // Windows-specific
   const [winProtocol, setWinProtocol] = useState<'rdp' | 'powershell' | 'winrm' | 'ssh'>('rdp');
   const [winPort, setWinPort] = useState<number | string>(3389);
@@ -194,6 +201,13 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setCpuCores(serverToEdit.cpu_cores !== undefined && serverToEdit.cpu_cores !== null ? serverToEdit.cpu_cores : '');
         setRamGb(serverToEdit.ram_gb !== undefined && serverToEdit.ram_gb !== null ? serverToEdit.ram_gb : '');
         setDiskGb(serverToEdit.disk_gb !== undefined && serverToEdit.disk_gb !== null ? serverToEdit.disk_gb : '');
+
+        const wsList = Array.isArray(serverToEdit.installed_web_servers) ? serverToEdit.installed_web_servers : [];
+        const dbList = Array.isArray(serverToEdit.installed_databases) ? serverToEdit.installed_databases : [];
+        setHasApache(Boolean(serverToEdit.has_apache || wsList.includes('apache')));
+        setHasNginx(Boolean(serverToEdit.has_nginx || wsList.includes('nginx')));
+        setHasPostgres(Boolean(serverToEdit.has_postgresql || dbList.includes('postgresql')));
+        setHasMysql(Boolean(serverToEdit.has_mysql || dbList.includes('mysql') || dbList.includes('mariadb')));
       } else {
         // Defaults for new server
         setName('');
@@ -206,6 +220,10 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setDescription('');
         setTags(['prod']);
         setPromptPasswordOnConnect(false);
+        setHasApache(false);
+        setHasNginx(false);
+        setHasPostgres(false);
+        setHasMysql(false);
         setSshPort(22);
         setSshUsername('root');
         setSshPassword('');
@@ -270,6 +288,14 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
 
     setIsSaving(true);
     try {
+      const installedWebServers: string[] = [];
+      if (hasApache) installedWebServers.push('apache');
+      if (hasNginx) installedWebServers.push('nginx');
+
+      const installedDatabases: string[] = [];
+      if (hasPostgres) installedDatabases.push('postgresql');
+      if (hasMysql) installedDatabases.push('mysql');
+
       const payload: Partial<RemoteServer> = {
         id: serverToEdit?.id,
         name: name.trim(),
@@ -283,6 +309,12 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         notes: description.trim() || undefined,
         tags,
         prompt_password_on_connect: promptPasswordOnConnect,
+        installed_web_servers: osType === 'linux' ? installedWebServers : [],
+        installed_databases: osType === 'linux' ? installedDatabases : [],
+        has_apache: osType === 'linux' ? hasApache : false,
+        has_nginx: osType === 'linux' ? hasNginx : false,
+        has_postgresql: osType === 'linux' ? hasPostgres : false,
+        has_mysql: osType === 'linux' ? hasMysql : false,
         status: serverToEdit?.status || 'online',
         cpu_cores: cpuCores !== '' && Number(cpuCores) > 0 ? Number(cpuCores) : undefined,
         ram_gb: ramGb !== '' && Number(ramGb) > 0 ? Number(ramGb) : undefined,
@@ -545,6 +577,221 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                 </div>
               </button>
             </div>
+
+            {/* Linux Web Server & Database Stack Checkboxes */}
+            {osType === 'linux' && (
+              <div
+                className={`p-2.5 rounded-xl border space-y-2 mt-2 transition-all ${
+                  isLightMode ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800/90'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[11px] font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{isEn ? 'Installed Services & Engines' : 'سرویس‌ها و موتورهای نصب‌شده'}</span>
+                    </span>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Web Server & Database Engines' : 'وب‌سرورها و پایگاه‌های داده'}
+                      whatIsIt={
+                        isEn
+                          ? 'Identifies installed web servers (Apache, Nginx) and database engines (PostgreSQL, MySQL/MariaDB) running on this Linux host.'
+                          : 'مشخص‌کننده سرویس‌های وب‌سرور (آپاچی یا انجین‌ایکس) و موتورهای پایگاه داده (پستگرس یا مای‌اس‌کیوال/ماریا‌دی‌بی) فعال روی این سرور لینوکس.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Enables tailored service status inspection, watchdog rule configuration, database query routing, and automated dashboard badges.'
+                          : 'امکان پایش وضعیت سرویس‌ها، واچ‌داگ خودکار، مسیریابی کوئری‌ها و نمایش بج‌های تفکیکی در لیست سرورها را فراهم می‌سازد.'
+                      }
+                      example={isEn ? 'Nginx + PostgreSQL or Apache + MySQL' : 'Nginx + PostgreSQL یا Apache + MySQL'}
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-500">
+                    {isEn ? 'Linux Stack Selection' : 'انتخاب استک لینوکس'}
+                  </span>
+                </div>
+
+                {/* Web Servers Group */}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1 text-[10px] font-semibold text-slate-400">
+                    <Globe className="w-3 h-3 text-cyan-400" />
+                    <span>{isEn ? 'Web Server (HTTP / Reverse Proxy):' : 'وب‌سرور (HTTP / Reverse Proxy):'}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Apache Checkbox */}
+                    <label
+                      className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition-all ${
+                        hasApache
+                          ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20'
+                          : isLightMode
+                          ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                          : 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/50 text-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={hasApache}
+                        onChange={(e) => setHasApache(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                          hasApache
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : isLightMode
+                            ? 'border-slate-300 bg-slate-50'
+                            : 'border-slate-700 bg-slate-950'
+                        }`}
+                      >
+                        {hasApache && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <div className="font-semibold text-xs flex items-center gap-1">
+                          <span>{isEn ? 'Apache' : 'آپاچی (Apache)'}</span>
+                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            httpd
+                          </span>
+                        </div>
+                        <span className="text-[10px] opacity-70 truncate font-mono">
+                          {isEn ? 'Apache2 / HTTP Server' : 'وب‌سرور آپاچی'}
+                        </span>
+                      </div>
+                    </label>
+
+                    {/* Nginx Checkbox */}
+                    <label
+                      className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition-all ${
+                        hasNginx
+                          ? 'border-cyan-500/60 bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/20'
+                          : isLightMode
+                          ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                          : 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/50 text-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={hasNginx}
+                        onChange={(e) => setHasNginx(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                          hasNginx
+                            ? 'bg-cyan-500 border-cyan-500 text-white'
+                            : isLightMode
+                            ? 'border-slate-300 bg-slate-50'
+                            : 'border-slate-700 bg-slate-950'
+                        }`}
+                      >
+                        {hasNginx && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <div className="font-semibold text-xs flex items-center gap-1">
+                          <span>{isEn ? 'Nginx' : 'انجین‌ایکس (Nginx)'}</span>
+                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            proxy
+                          </span>
+                        </div>
+                        <span className="text-[10px] opacity-70 truncate font-mono">
+                          {isEn ? 'Reverse Proxy / Web Server' : 'وب‌سرور و پروکسی معکوس'}
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Database Engines Group */}
+                <div className="space-y-1 pt-1.5 border-t border-slate-700/20">
+                  <div className="flex items-center gap-1 text-[10px] font-semibold text-slate-400">
+                    <Database className="w-3 h-3 text-emerald-400" />
+                    <span>{isEn ? 'Database Engine (RDBMS):' : 'موتور پایگاه داده (دیتابیس):'}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* PostgreSQL Checkbox */}
+                    <label
+                      className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition-all ${
+                        hasPostgres
+                          ? 'border-blue-500/60 bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/20'
+                          : isLightMode
+                          ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                          : 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/50 text-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={hasPostgres}
+                        onChange={(e) => setHasPostgres(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                          hasPostgres
+                            ? 'bg-blue-500 border-blue-500 text-white'
+                            : isLightMode
+                            ? 'border-slate-300 bg-slate-50'
+                            : 'border-slate-700 bg-slate-950'
+                        }`}
+                      >
+                        {hasPostgres && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <div className="font-semibold text-xs flex items-center gap-1">
+                          <span>{isEn ? 'PostgreSQL' : 'پستگرس (PostgreSQL)'}</span>
+                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                            pgsql
+                          </span>
+                        </div>
+                        <span className="text-[10px] opacity-70 truncate font-mono">
+                          {isEn ? 'Port 5432 • Postgres' : 'پورت ۵۴۳۲ • پستگرس'}
+                        </span>
+                      </div>
+                    </label>
+
+                    {/* MySQL / MariaDB Checkbox */}
+                    <label
+                      className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition-all ${
+                        hasMysql
+                          ? 'border-amber-500/60 bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20'
+                          : isLightMode
+                          ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                          : 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/50 text-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={hasMysql}
+                        onChange={(e) => setHasMysql(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                          hasMysql
+                            ? 'bg-amber-500 border-amber-500 text-white'
+                            : isLightMode
+                            ? 'border-slate-300 bg-slate-50'
+                            : 'border-slate-700 bg-slate-950'
+                        }`}
+                      >
+                        {hasMysql && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <div className="font-semibold text-xs flex items-center gap-1">
+                          <span>{isEn ? 'MySQL / MariaDB' : 'مای‌اس‌کیوال (MySQL / MariaDB)'}</span>
+                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            mysql
+                          </span>
+                        </div>
+                        <span className="text-[10px] opacity-70 truncate font-mono">
+                          {isEn ? 'Port 3306 • MariaDB' : 'پورت ۳۳۰۶ • ماریا دی‌بی'}
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* General Server Details Card */}

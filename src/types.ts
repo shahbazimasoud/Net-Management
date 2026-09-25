@@ -1409,6 +1409,12 @@ export interface RemoteServer {
   location?: string;
   notes?: string;
   watchdogs?: LinuxServiceWatchdogRule[];
+  installed_web_servers?: ('apache' | 'nginx' | string)[];
+  installed_databases?: ('postgresql' | 'mysql' | string)[];
+  has_apache?: boolean;
+  has_nginx?: boolean;
+  has_postgresql?: boolean;
+  has_mysql?: boolean;
   created_at?: string;
   updated_at?: string;
 }
