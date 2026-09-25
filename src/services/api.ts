@@ -1305,7 +1305,7 @@ export async function fetchLinuxServerServices(
 export async function controlLinuxServerService(
   serverId: string,
   serviceName: string,
-  action: 'start' | 'stop' | 'restart' | 'enable' | 'disable',
+  action: 'start' | 'stop' | 'restart' | 'reload' | 'enable' | 'disable',
   ephemeralPassword?: string
 ): Promise<{
   success: boolean;

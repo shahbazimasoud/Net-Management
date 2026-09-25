@@ -886,7 +886,7 @@ export async function fetchLinuxServicesSSH(
 export async function executeLinuxServiceControl(
   server: RemoteServer,
   serviceName: string,
-  action: 'start' | 'stop' | 'restart' | 'enable' | 'disable',
+  action: 'start' | 'stop' | 'restart' | 'reload' | 'enable' | 'disable',
   ephemeralPassword?: string
 ): Promise<{ success: boolean; message: string }> {
   const cleanName = serviceName.trim().replace(/[^a-zA-Z0-9_@.-]/g, '');
@@ -894,7 +894,7 @@ export async function executeLinuxServiceControl(
     throw new Error('Invalid service name provided.');
   }
 
-  const validActions = ['start', 'stop', 'restart', 'enable', 'disable'];
+  const validActions = ['start', 'stop', 'restart', 'reload', 'enable', 'disable'];
   if (!validActions.includes(action)) {
     throw new Error(`Invalid service action: ${action}`);
   }

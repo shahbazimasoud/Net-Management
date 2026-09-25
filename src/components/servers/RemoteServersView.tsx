@@ -47,6 +47,7 @@ import { AddEditServerModal } from './AddEditServerModal';
 import { LinuxTerminalModal } from './LinuxTerminalModal';
 import { LinuxServerMonitorModal } from './LinuxServerMonitorModal';
 import { LinuxFileExplorerModal } from './LinuxFileExplorerModal';
+import { NginxManagementModal } from './NginxManagementModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
@@ -297,6 +298,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Linux SFTP File Explorer Modal
   const [fileExplorerServer, setFileExplorerServer] = useState<RemoteServer | null>(null);
   const [isFileExplorerModalOpen, setIsFileExplorerModalOpen] = useState(false);
+
+  // Linux Nginx Web Server Management Modal
+  const [nginxModalServer, setNginxModalServer] = useState<RemoteServer | null>(null);
+  const [isNginxModalOpen, setIsNginxModalOpen] = useState(false);
 
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
@@ -620,6 +625,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     undockModal(`linux_fs_${server.id}`);
   };
 
+  // Handle Open Nginx Management
+  const handleOpenNginxManagement = (server: RemoteServer) => {
+    setMenuAnchor(null);
+    setNginxModalServer(server);
+    setIsNginxModalOpen(true);
+    undockModal(`nginx_mgmt_${server.id}`);
+  };
+
   // Handle Open Windows Remote
   const handleOpenWindowsRemote = (server: RemoteServer) => {
     setWindowsModalServer(server);
@@ -886,6 +899,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onClose: () => {
           setIsFileExplorerModalOpen(false);
           undockModal(`linux_fs_${fileExplorerServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizeNginxManagement = () => {
+    setIsNginxModalOpen(false);
+    if (nginxModalServer) {
+      dockModal({
+        id: `nginx_mgmt_${nginxModalServer.id}`,
+        labelEn: `${nginxModalServer.name} - Nginx Management`,
+        labelFa: `مدیریت Nginx ${nginxModalServer.name}`,
+        badge: 'NGINX',
+        category: 'tools',
+        onRestore: () => setIsNginxModalOpen(true),
+        onClose: () => {
+          setIsNginxModalOpen(false);
+          undockModal(`nginx_mgmt_${nginxModalServer.id}`);
         },
       });
     }
@@ -2735,6 +2766,28 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </div>
                     </button>
 
+                    {/* Nginx Management (shown if server has_nginx is true or installed_web_servers includes 'nginx') */}
+                    {(menuAnchor.server.has_nginx || (Array.isArray(menuAnchor.server.installed_web_servers) && menuAnchor.server.installed_web_servers.includes('nginx'))) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const s = menuAnchor.server;
+                          handleOpenNginxManagement(s);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-emerald-300 transition cursor-pointer ${
+                          isEn ? 'text-left' : 'text-right'
+                        } ${isLightMode ? 'hover:bg-emerald-50 text-emerald-700' : 'hover:bg-emerald-500/15 text-emerald-300'}`}
+                      >
+                        <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <div className="flex flex-col">
+                          <span>{isEn ? 'Nginx Management' : 'مدیریت Nginx'}</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-emerald-600/80' : 'text-emerald-400/80'}`}>
+                            {isEn ? 'Web Server, Virtual Hosts & Proxy' : 'وب‌سرور، هاست‌های مجازی و پروکسی معکوس'}
+                          </span>
+                        </div>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => {
@@ -3022,6 +3075,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           setFileExplorerServer(null);
         }}
         onMinimize={handleMinimizeFileExplorer}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 12.7 Linux Nginx Management Modal */}
+      <NginxManagementModal
+        isOpen={isNginxModalOpen}
+        server={nginxModalServer}
+        sessionPassword={ephemeralTerminalPassword}
+        onClose={() => {
+          setIsNginxModalOpen(false);
+          if (nginxModalServer) undockModal(`nginx_mgmt_${nginxModalServer.id}`);
+          setNginxModalServer(null);
+        }}
+        onMinimize={handleMinimizeNginxManagement}
+        onOpenTerminal={(s) => {
+          handleOpenLinuxTerminal(s, 'bash');
+        }}
         isLightMode={isLightMode}
         isEn={isEn}
       />

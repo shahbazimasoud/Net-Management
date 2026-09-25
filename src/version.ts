@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.159.0';
+export const APP_VERSION = '1.160.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.160.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'توسعه ماژول و مودال اختصاصی مدیریت وب‌سرور Nginx برای سرورهای لینوکس با اضافه شدن آیتم Nginx Management به منوی سه‌نقطه در صورت فعال بودن چک‌باکس Nginx',
+    title_en: 'Engineered Dedicated Nginx Web Server Management Modal and Dynamic Context Action Item in Server 3-Dot Menu for Nginx-Enabled Linux Hosts',
+    changes: [
+      'افزودن شرط بررسی خودکار چک‌باکس و وضعیت فعال بودن انجین‌ایکس (has_nginx و آرایه installed_web_servers) در ردیف‌ها و کارت‌های سرورهای لینوکسی در RemoteServersView.',
+      'افزودن آیتم تعاملی "Nginx Management" به منوی سه‌نقطه سرور لینوکس همراه با نشان آیکون وب‌سرور و توضیحات دو زبانه.',
+      'طراحی و پیاده‌سازی مودال اختصاصی NginxManagementModal با استاندارد کامل مودال‌ها (دکمه‌های سه‌گانه Close، Minimize، Fullscreen، رعایت فاصله از فوتر و پشتیبانی از تم تاریک/روشن).',
+      'تجهیز مودال به تب‌های کاربردی شامل نمای کلی و وضعیت (Overview & Status)، هاست‌های مجازی (Virtual Hosts)، پروکسی معکوس (Reverse Proxy & Upstreams)، فایل‌های کانفیگ (Configuration) و لاگ‌ها (Logs).',
+      'پشتیبانی از دکمه‌های کنترل و عملیات سریع سرویس Nginx شامل تست سینتکس (nginx -t)، بارگذاری مجدد (Reload)، راه‌اندازی مجدد (Restart) و توقف/شروع با فراخوانی مستقیم API و SSH واقعی بدون داده‌های شبیه‌سازی‌شده.',
+      'یکپارچه‌سازی کامل با سیستم نگهداری تب‌ها و کوچک‌سازی به نوار ابزار فوتر (useModalDock) با نشان NGINX و بازگردانی سریع حالت مودال.',
+      'رعایت صددرصدی قوانین دو زبانگی (عدم نمایش متن فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Implemented conditional verification of the Nginx configuration flag (has_nginx and installed_web_servers) for Linux servers across cards and table listings.',
+      'Added dynamic "Nginx Management" option to the server 3-dot action menu with web server icon and bilingual description.',
+      'Architected comprehensive NginxManagementModal adhering strictly to universal modal standards (3-button header controls, footer clearance, dark/light theme adaptability).',
+      'Equipped modal with dedicated navigation tabs: Overview & Status, Virtual Hosts / Server Blocks, Reverse Proxy & Upstreams, Configuration Files, and Access/Error Logs.',
+      'Provided quick service action triggers including syntax validation (nginx -t), service reload, restart, start/stop with live real SSH execution and zero fake data.',
+      'Integrated seamless minimization into the footer ToolsDock (useModalDock) with custom NGINX badge and state preservation.',
+      'Enforced strict bilingual i18n localization with zero Persian text in English mode.'
+    ]
+  },
   {
     version: '1.159.0',
     releaseDate: '2026-09-25',
