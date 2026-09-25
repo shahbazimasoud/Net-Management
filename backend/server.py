@@ -1237,10 +1237,14 @@ def probe_device_reachability(ip):
 
 # HTTP Request Handler
 class NetworkAPIHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def _send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Connection", "close")
+        self.close_connection = True
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -1258,11 +1262,17 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
         return {}
 
     def _send_json(self, status_code, payload):
+        encoded = json.dumps(payload, ensure_ascii=False).encode('utf-8')
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
         self._send_cors_headers()
         self.end_headers()
-        self.wfile.write(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
+        try:
+            self.wfile.write(encoded)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, Exception):
+            pass
 
     def _handle_device_resources(self, path: str, body: Optional[Dict[str, Any]] = None):
         parts = path.split("/")

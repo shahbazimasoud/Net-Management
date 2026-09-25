@@ -74,17 +74,19 @@ function isPortActive(port: number): Promise<boolean> {
   });
 }
 
-function checkPythonHealth(port: number, timeoutMs = 800): Promise<boolean> {
+function checkPythonHealth(port: number, timeoutMs = 1200): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.request({
       hostname: '127.0.0.1',
       port,
       path: '/api/devices',
       method: 'GET',
+      headers: { Connection: 'close' },
+      agent: false,
       timeout: timeoutMs,
     }, (res) => {
       res.resume(); // drain response
-      resolve(true);
+      resolve(res.statusCode === 200);
     });
     req.on('error', () => resolve(false));
     req.on('timeout', () => {
@@ -97,7 +99,14 @@ function checkPythonHealth(port: number, timeoutMs = 800): Promise<boolean> {
 
 function killProcessOnPort(port: number): Promise<void> {
   return new Promise((resolve) => {
-    exec(`fuser -k ${port}/tcp || (command -v lsof >/dev/null && kill -9 $(lsof -t -i:${port}) || true)`, () => {
+    const cmd = `
+      pkill -9 -f "server\\.py.*${port}" 2>/dev/null || true;
+      PID=$(ss -tulpn 2>/dev/null | grep ":${port} " | grep -o 'pid=[0-9]*' | cut -d= -f2 | head -n1);
+      if [ -n "$PID" ]; then kill -9 "$PID" 2>/dev/null || true; fi;
+      (command -v fuser >/dev/null && fuser -k -9 ${port}/tcp 2>/dev/null) || true;
+      (command -v lsof >/dev/null && kill -9 $(lsof -t -i:${port}) 2>/dev/null) || true;
+    `;
+    exec(cmd, () => {
       resolve();
     });
   });
@@ -983,12 +992,15 @@ app.use('/api', (req: Request, res: Response) => {
   const headers: http.OutgoingHttpHeaders = { ...req.headers };
   delete headers['host'];
   delete headers['content-length'];
+  headers['connection'] = 'close';
 
   let bodyData: string | undefined;
   if (req.body && Object.keys(req.body).length > 0) {
     bodyData = JSON.stringify(req.body);
     headers['content-length'] = Buffer.byteLength(bodyData);
     headers['content-type'] = headers['content-type'] || 'application/json';
+  } else if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    headers['content-length'] = 0;
   }
 
   const options: http.RequestOptions = {
@@ -997,58 +1009,72 @@ app.use('/api', (req: Request, res: Response) => {
     path: req.originalUrl,
     method: req.method,
     headers,
+    agent: false,
     timeout: 30000,
   };
 
-  const proxyReq = http.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
-    proxyRes.pipe(res, { end: true });
-  });
+  const makeProxyRequest = (isRetry = false) => {
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
 
-  proxyReq.on('timeout', () => {
-    proxyReq.destroy(new Error('Proxy request timed out after 30s'));
-  });
+    proxyReq.on('timeout', () => {
+      proxyReq.destroy(new Error('Proxy request timed out after 30s'));
+    });
 
-  proxyReq.on('error', (err: any) => {
-    console.error(`[API Proxy Error] Unable to connect to Python backend: ${err.message}`);
-
-    // Self-healing: if socket hang up, ECONNREFUSED or ECONNRESET, trigger background health check & restart
-    if (err.message?.includes('socket hang up') || err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') {
-      startPythonBackend();
-    }
-
-    if (!res.headersSent) {
-      if (req.method === 'GET') {
-        const cleanPath = (req.path || '').replace(/\/$/, '');
-        if (cleanPath === '/topology' || cleanPath === '/api/topology' || req.originalUrl.startsWith('/api/topology')) {
-          const fallbackTopo = getLocalTopologyFallback();
-          if (fallbackTopo) {
-            console.log('[API Proxy Fallback] Served /api/topology from local network_data.json while Python backend warms up.');
-            return res.json(fallbackTopo);
-          }
-        }
-        if (cleanPath === '/devices' || cleanPath === '/api/devices' || req.originalUrl.startsWith('/api/devices')) {
-          const fallbackDevs = getLocalDevicesFallback();
-          if (fallbackDevs) {
-            console.log('[API Proxy Fallback] Served /api/devices from local network_data.json while Python backend warms up.');
-            return res.json(fallbackDevs);
-          }
-        }
+    proxyReq.on('error', (err: any) => {
+      // If it's the first attempt and failed with socket hang up or ECONNRESET or ECONNREFUSED, attempt single retry
+      if (!isRetry && !res.headersSent && (err.message?.includes('socket hang up') || err.code === 'ECONNRESET' || err.code === 'ECONNREFUSED')) {
+        console.warn(`[API Proxy Warning] Initial request to ${req.originalUrl} failed (${err.message}). Retrying once after ensuring Python backend...`);
+        startPythonBackend();
+        setTimeout(() => {
+          makeProxyRequest(true);
+        }, 500);
+        return;
       }
 
-      res.status(503).json({
-        error: 'Python backend is starting up or temporarily unavailable',
-        details: err.message,
-        engine: 'Python 3.10 Network Topology Engine'
-      });
+      console.error(`[API Proxy Error] Unable to connect to Python backend: ${err.message}`);
+
+      // Self-healing: if socket hang up, ECONNREFUSED or ECONNRESET, trigger background health check & restart
+      if (err.message?.includes('socket hang up') || err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') {
+        startPythonBackend();
+      }
+
+      if (!res.headersSent) {
+        if (req.method === 'GET') {
+          const cleanPath = (req.path || '').replace(/\/$/, '');
+          if (cleanPath === '/topology' || cleanPath === '/api/topology' || req.originalUrl.startsWith('/api/topology')) {
+            const fallbackTopo = getLocalTopologyFallback();
+            if (fallbackTopo) {
+              console.log('[API Proxy Fallback] Served /api/topology from local network_data.json while Python backend warms up.');
+              return res.json(fallbackTopo);
+            }
+          }
+          if (cleanPath === '/devices' || cleanPath === '/api/devices' || req.originalUrl.startsWith('/api/devices')) {
+            const fallbackDevs = getLocalDevicesFallback();
+            if (fallbackDevs) {
+              console.log('[API Proxy Fallback] Served /api/devices from local network_data.json while Python backend warms up.');
+              return res.json(fallbackDevs);
+            }
+          }
+        }
+
+        res.status(503).json({
+          error: 'Python backend is starting up or temporarily unavailable',
+          details: err.message,
+          engine: 'Python 3.10 Network Topology Engine'
+        });
+      }
+    });
+
+    if (bodyData) {
+      proxyReq.write(bodyData);
     }
-  });
+    proxyReq.end();
+  };
 
-  if (bodyData) {
-    proxyReq.write(bodyData);
-  }
-
-  proxyReq.end();
+  makeProxyRequest(false);
 });
 
 // Global Error Handler for API and Express

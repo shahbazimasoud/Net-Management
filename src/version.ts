@@ -10,9 +10,29 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.165.0';
+export const APP_VERSION = '1.165.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.165.1',
+    releaseDate: '2026-09-25',
+    type: 'patch',
+    title: 'رفع ریشه‌ای خطای قطع اتصال سوکت بک‌اند پایتون و ارتقای مکانیزم مدیریت پروسه و پروکسی API',
+    title_en: 'Root-Cause Resolution of Python Backend Socket Hang Up and API Proxy Resilience Enhancement',
+    changes: [
+      'اصلاح ریشه‌ای خطای socket hang up در ارتباط پروکسی Node.js به سرور HTTP پایتون با افزودن هدر Connection: close و Content-Length دقیق در پاسخ‌های پایتون.',
+      'افزودن هدر Content-Length برای درخواست‌های POST/PUT با بدنه خالی و غیرفعال‌سازی سوکت‌های Keep-Alive راکد در پروکسی داخلی.',
+      'ارتقای تابع شناسایی و خاتمه پروسه‌های راکد روی پورت (killProcessOnPort) با بهره‌گیری ترکیبی از pkill و جستجوی مستقیم PID از ابزار ss برای محیط‌های لینوکسی فاقد fuser و lsof.',
+      'پیاده‌سازی مکانیزم تاب‌آوری و تلاش مجدد خودکار (Automatic Retry on Socket Hang Up) جهت حذف کامل وقفه‌های موقت اتصال هنگام راه‌اندازی سرویس.'
+    ],
+    changes_en: [
+      'Diagnosed and eliminated the root cause of Python backend socket hang up errors in the Node.js API proxy.',
+      'Enforced explicit Connection: close and precise Content-Length headers in Python BaseHTTPRequestHandler responses to eliminate keep-alive socket desynchronization.',
+      'Configured agent: false and zero-length body handling for mutation requests in the internal proxy handler.',
+      'Enhanced killProcessOnPort with pkill and ss-based PID extraction to reliably terminate orphaned processes in containerized environments without fuser or lsof.',
+      'Implemented transparent single retry on transient socket reset/hang up during backend initialization.'
+    ]
+  },
   {
     version: '1.165.0',
     releaseDate: '2026-09-25',
