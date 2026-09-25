@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.157.0';
+export const APP_VERSION = '1.158.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.158.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'ذخیره‌سازی و ماندگاری کامل سوابق و گزارش‌های ممیزی ناوگان (Bulk Server Reports) در پایگاه‌داده رابطه‌ای PostgreSQL و فایل استور، همراه با قابلیت اجرای مجدد، درون‌ریزی و همگام‌سازی دیتابیس',
+    title_en: 'Complete Relational Database Persistence for Bulk Server Configuration Audit Reports in PostgreSQL and Persistent Store with Re-run, Import, and Database Sync Capabilities',
+    changes: [
+      'پیاده‌سازی و ساخت جدول رابطه‌ای اختصاصی bulk_server_reports در پایگاه‌داده PostgreSQL همراه با ایندکس‌های زمانی، شناسه جاب و تمپلیت جهت استعلام‌های سریع و امن.',
+      'افزودن متدهای ماندگاری دائمی (Persistence CRUD) در لایه سرور و پایگاه‌داده برای ذخیره، بازیابی، حذف و پاکسازی کلیه سوابق ممیزی و خروجی لاگ‌های هر سرور به صورت دوگانه در PostgreSQL و دیتابیس استور محلی.',
+      'توسعه اندپوئینت‌های RESTful برای ذخیره و ایمپورت گزارش‌ها (POST /api/bulk-server-config/reports) و استعلام وضعیت نوع ذخیره‌سازی و تعداد رکوردها (GET /api/bulk-server-config/reports-stats).',
+      'تجهیز کامپوننت BulkServerReportsTab به نشانگر زنده وضعیت ذخیره در پایگاه‌داده (Database Persisted Badge) همراه با راهنمای جامع FieldInfoTooltip.',
+      'افزودن دکمه‌های کاربردی اجرای مجدد پیکربندی (Rerun Configuration) روی کارت‌های گزارش و مودال جزئیات جهت اجرای سریع سناریو با پارامترهای ثبت‌شده در دیتابیس.',
+      'پشتیبانی از خروجی کلی (Export All JSON) و درون‌ریزی فایل‌های گزارش (Import JSON) با اعتبارسنجی ساختار و ذخیره مستقیم در پایگاه‌داده.',
+      'انطباق صددرصدی با تم تیره و روشن، رعایت دقیق استانداردهای چندزبانگی (عدم نمایش متن فارسی در حالت انگلیسی) و حفظ حریم همیشگی فوتر.'
+    ],
+    changes_en: [
+      'Implemented dedicated relational bulk_server_reports table in PostgreSQL schema with indexes on timestamps, job IDs, and templates for instant query performance.',
+      'Added comprehensive persistence CRUD layer in server/db.ts guaranteeing dual synchronization across PostgreSQL and local persistent JSON database store.',
+      'Engineered RESTful endpoints for saving and batch importing execution reports (POST /api/bulk-server-config/reports) and inspecting live storage engine status (GET /api/bulk-server-config/reports-stats).',
+      'Enhanced BulkServerReportsTab with a live Database Persisted status badge and explanatory boundary-safe FieldInfoTooltip.',
+      'Integrated 1-click "Rerun Configuration" action buttons on both report overview cards and drill-down modal to replay templates with recorded database parameters.',
+      'Added fleet-wide "Export All JSON" and "Import JSON" capabilities with format validation and immediate database persistence.',
+      'Maintained strict bilingual i18n discipline (zero Persian in English mode), dark/light mode ergonomic contrast, and universal footer clearance.'
+    ]
+  },
   {
     version: '1.157.0',
     releaseDate: '2026-09-25',

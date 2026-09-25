@@ -75,6 +75,8 @@ import {
   getBulkServerReportDetails,
   deleteBulkServerReportEntry,
   clearAllBulkServerReportsList,
+  saveBulkServerReportEntry,
+  getBulkServerReportsStats,
 } from './bulkServerConfig';
 import {
   executeLinuxTelemetrySSH,
@@ -4848,6 +4850,39 @@ apiRouter.delete('/bulk-server-config/reports', async (_req: Request, res: Respo
   try {
     const cleared = await clearAllBulkServerReportsList();
     res.json({ success: true, cleared });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/bulk-server-config/reports - Save or import report(s) into database
+apiRouter.post('/bulk-server-config/reports', async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    if (Array.isArray(body)) {
+      let count = 0;
+      for (const item of body) {
+        if (item && (item.id || item.jobId)) {
+          await saveBulkServerReportEntry(item);
+          count++;
+        }
+      }
+      return res.json({ success: true, imported: count, message: `${count} reports imported successfully.` });
+    } else if (body && (body.id || body.jobId)) {
+      await saveBulkServerReportEntry(body);
+      return res.json({ success: true, saved: true, reportId: body.id || body.jobId });
+    }
+    return res.status(400).json({ success: false, error: 'Invalid report data payload' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/bulk-server-config/reports-stats - Get database storage status & counts
+apiRouter.get('/bulk-server-config/reports-stats', async (_req: Request, res: Response) => {
+  try {
+    const stats = await getBulkServerReportsStats();
+    res.json({ success: true, stats });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

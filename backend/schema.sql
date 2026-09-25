@@ -321,3 +321,36 @@ END $$;
 -- Dynamic Alterations for Seamless Upgrades
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS winbox_port INT DEFAULT 8291;
 
+-- 16. Bulk Server Execution Reports & Fleet Audit History
+CREATE TABLE IF NOT EXISTS bulk_server_reports (
+    id VARCHAR(128) PRIMARY KEY,
+    job_id VARCHAR(128) NOT NULL,
+    template_id VARCHAR(128) NOT NULL,
+    template_title VARCHAR(255) NOT NULL,
+    template_title_en VARCHAR(255),
+    category VARCHAR(100),
+    icon VARCHAR(50),
+    status VARCHAR(50) NOT NULL,
+    operator_user VARCHAR(128) DEFAULT 'Administrator',
+    duration_ms INTEGER DEFAULT 0,
+    total_servers INTEGER DEFAULT 0,
+    success_count INTEGER DEFAULT 0,
+    failed_count INTEGER DEFAULT 0,
+    skipped_count INTEGER DEFAULT 0,
+    server_summaries JSONB NOT NULL DEFAULT '[]'::jsonb,
+    impact_analysis JSONB NOT NULL DEFAULT '{}'::jsonb,
+    parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+    results JSONB NOT NULL DEFAULT '{}'::jsonb,
+    logs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at BIGINT NOT NULL,
+    finished_at BIGINT NOT NULL,
+    created_at_dt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at_dt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_created ON bulk_server_reports(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_template ON bulk_server_reports(template_id);
+CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_status ON bulk_server_reports(status);
+CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_job_id ON bulk_server_reports(job_id);
+
+

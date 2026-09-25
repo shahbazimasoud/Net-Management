@@ -8,6 +8,7 @@ import {
   getBulkServerReportById,
   deleteBulkServerReport,
   clearAllBulkServerReports,
+  getBulkServerReportsStorageStats,
 } from './db';
 import {
   BulkServerExecutionReport,
@@ -3307,5 +3308,17 @@ export async function deleteBulkServerReportEntry(reportId: string): Promise<boo
 
 export async function clearAllBulkServerReportsList(): Promise<boolean> {
   return clearAllBulkServerReports();
+}
+
+export async function saveBulkServerReportEntry(report: any): Promise<void> {
+  return saveBulkServerReport(report);
+}
+
+export async function getBulkServerReportsStats(): Promise<{
+  storageType: 'postgresql' | 'json_store';
+  totalReports: number;
+  isPostgresReady: boolean;
+}> {
+  return getBulkServerReportsStorageStats();
 }
 

@@ -1394,5 +1394,6 @@
       "is_default": true
     }
   ],
-  "user_password_vault": []
+  "user_password_vault": [],
+  "bulk_server_reports": []
 }

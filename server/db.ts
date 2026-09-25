@@ -825,6 +825,9 @@ function loadFallbackStore(): FallbackStore {
   if (!Array.isArray(store.user_password_vault)) {
     store.user_password_vault = [];
   }
+  if (!Array.isArray(store.bulk_server_reports)) {
+    store.bulk_server_reports = [];
+  }
   if (!Array.isArray(store.audit_logs)) {
     store.audit_logs = [
       {
@@ -1299,6 +1302,88 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
     }
   } catch (err: any) {
     console.warn('[Database Sync Notice] User Password Vault sync notice:', err.message);
+  }
+
+  // 14. Sync Bulk Server Execution Reports & Fleet Audit History
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS bulk_server_reports (
+        id VARCHAR(128) PRIMARY KEY,
+        job_id VARCHAR(128) NOT NULL,
+        template_id VARCHAR(128) NOT NULL,
+        template_title VARCHAR(255) NOT NULL,
+        template_title_en VARCHAR(255),
+        category VARCHAR(100),
+        icon VARCHAR(50),
+        status VARCHAR(50) NOT NULL,
+        operator_user VARCHAR(128) DEFAULT 'Administrator',
+        duration_ms INTEGER DEFAULT 0,
+        total_servers INTEGER DEFAULT 0,
+        success_count INTEGER DEFAULT 0,
+        failed_count INTEGER DEFAULT 0,
+        skipped_count INTEGER DEFAULT 0,
+        server_summaries JSONB NOT NULL DEFAULT '[]'::jsonb,
+        impact_analysis JSONB NOT NULL DEFAULT '{}'::jsonb,
+        parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+        results JSONB NOT NULL DEFAULT '{}'::jsonb,
+        logs JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at BIGINT NOT NULL,
+        finished_at BIGINT NOT NULL,
+        created_at_dt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at_dt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_created ON bulk_server_reports(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_template ON bulk_server_reports(template_id);
+      CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_status ON bulk_server_reports(status);
+      CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_job_id ON bulk_server_reports(job_id);
+    `);
+
+    const countRes = await client.query('SELECT count(*) as count FROM bulk_server_reports');
+    if (parseInt(countRes.rows[0]?.count || '0', 10) === 0) {
+      const reportsToSeed = (Array.isArray(initialData.bulk_server_reports) && initialData.bulk_server_reports.length > 0)
+        ? initialData.bulk_server_reports
+        : [];
+      for (const r of reportsToSeed) {
+        if (!r || !r.id) continue;
+        await client.query(
+          `INSERT INTO bulk_server_reports (
+            id, job_id, template_id, template_title, template_title_en, category, icon,
+            status, operator_user, duration_ms, total_servers, success_count, failed_count, skipped_count,
+            server_summaries, impact_analysis, parameters, results, logs, created_at, finished_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            r.id,
+            r.jobId || r.id,
+            r.templateId || 'custom',
+            r.templateTitle || 'Bulk Configuration',
+            r.templateTitleEn || r.templateTitle || 'Bulk Configuration',
+            r.category || 'general',
+            r.icon || 'Server',
+            r.status || 'completed',
+            r.operatorUser || 'Administrator',
+            r.durationMs || 0,
+            r.totalServers || 0,
+            r.successCount || 0,
+            r.failedCount || 0,
+            r.skippedCount || 0,
+            JSON.stringify(r.serverSummaries || []),
+            JSON.stringify(r.impactAnalysis || {}),
+            JSON.stringify(r.parameters || {}),
+            JSON.stringify(r.results || {}),
+            JSON.stringify(r.logs || []),
+            r.createdAt || Date.now(),
+            r.finishedAt || Date.now()
+          ]
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Bulk Server Reports sync notice:', err.message);
   }
 }
 
@@ -3792,50 +3877,252 @@ export async function deleteUserVaultItem(id: string, userId: string): Promise<b
 
 export async function getBulkServerReports(): Promise<any[]> {
   const store = loadFallbackStore();
-  const reports = Array.isArray(store.bulk_server_reports) ? store.bulk_server_reports : [];
-  return [...reports].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const fallbackReports = Array.isArray(store.bulk_server_reports) ? store.bulk_server_reports : [];
+
+  if (pool) {
+    try {
+      const res = await pool.query(`
+        SELECT 
+          id,
+          job_id as "jobId",
+          template_id as "templateId",
+          template_title as "templateTitle",
+          template_title_en as "templateTitleEn",
+          category,
+          icon,
+          status,
+          operator_user as "operatorUser",
+          duration_ms as "durationMs",
+          total_servers as "totalServers",
+          success_count as "successCount",
+          failed_count as "failedCount",
+          skipped_count as "skippedCount",
+          server_summaries as "serverSummaries",
+          impact_analysis as "impactAnalysis",
+          parameters,
+          results,
+          logs,
+          created_at as "createdAt",
+          finished_at as "finishedAt"
+        FROM bulk_server_reports
+        ORDER BY created_at DESC
+        LIMIT 300
+      `);
+
+      if (res && res.rows && res.rows.length > 0) {
+        return res.rows;
+      }
+    } catch (e: any) {
+      console.error('[DB Error getBulkServerReports in PostgreSQL]', e.message);
+    }
+  }
+
+  return [...fallbackReports].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 }
 
 export async function getBulkServerReportById(id: string): Promise<any | null> {
+  if (pool) {
+    try {
+      const res = await pool.query(`
+        SELECT 
+          id,
+          job_id as "jobId",
+          template_id as "templateId",
+          template_title as "templateTitle",
+          template_title_en as "templateTitleEn",
+          category,
+          icon,
+          status,
+          operator_user as "operatorUser",
+          duration_ms as "durationMs",
+          total_servers as "totalServers",
+          success_count as "successCount",
+          failed_count as "failedCount",
+          skipped_count as "skippedCount",
+          server_summaries as "serverSummaries",
+          impact_analysis as "impactAnalysis",
+          parameters,
+          results,
+          logs,
+          created_at as "createdAt",
+          finished_at as "finishedAt"
+        FROM bulk_server_reports
+        WHERE id = $1 OR job_id = $1
+        LIMIT 1
+      `, [id]);
+
+      if (res && res.rows && res.rows.length > 0) {
+        return res.rows[0];
+      }
+    } catch (e: any) {
+      console.error('[DB Error getBulkServerReportById in PostgreSQL]', e.message);
+    }
+  }
+
   const store = loadFallbackStore();
   const reports = Array.isArray(store.bulk_server_reports) ? store.bulk_server_reports : [];
   return reports.find((r: any) => r.id === id || r.jobId === id) || null;
 }
 
 export async function saveBulkServerReport(report: any): Promise<void> {
+  if (!report || (!report.id && !report.jobId)) return;
+  const reportId = report.id || `report-${report.jobId || Date.now()}`;
+  const normalizedReport = {
+    ...report,
+    id: reportId,
+    jobId: report.jobId || reportId,
+    createdAt: report.createdAt || Date.now(),
+    finishedAt: report.finishedAt || Date.now(),
+  };
+
+  // 1. Persist to Fallback JSON store (backend/database_store.json)
   const store = loadFallbackStore();
   if (!Array.isArray(store.bulk_server_reports)) {
     store.bulk_server_reports = [];
   }
-  const idx = store.bulk_server_reports.findIndex((r: any) => r.id === report.id || r.jobId === report.jobId);
+  const idx = store.bulk_server_reports.findIndex((r: any) => r.id === reportId || r.jobId === normalizedReport.jobId);
   if (idx >= 0) {
-    store.bulk_server_reports[idx] = report;
+    store.bulk_server_reports[idx] = normalizedReport;
   } else {
-    store.bulk_server_reports.unshift(report);
+    store.bulk_server_reports.unshift(normalizedReport);
   }
-  if (store.bulk_server_reports.length > 150) {
-    store.bulk_server_reports = store.bulk_server_reports.slice(0, 150);
+  if (store.bulk_server_reports.length > 300) {
+    store.bulk_server_reports = store.bulk_server_reports.slice(0, 300);
   }
   saveFallbackStore(store);
+
+  // 2. Persist to relational PostgreSQL table if available
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO bulk_server_reports (
+          id, job_id, template_id, template_title, template_title_en, category, icon,
+          status, operator_user, duration_ms, total_servers, success_count, failed_count, skipped_count,
+          server_summaries, impact_analysis, parameters, results, logs, created_at, finished_at, updated_at_dt
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP)
+        ON CONFLICT (id) DO UPDATE SET
+          job_id = EXCLUDED.job_id,
+          template_id = EXCLUDED.template_id,
+          template_title = EXCLUDED.template_title,
+          template_title_en = EXCLUDED.template_title_en,
+          category = EXCLUDED.category,
+          icon = EXCLUDED.icon,
+          status = EXCLUDED.status,
+          operator_user = EXCLUDED.operator_user,
+          duration_ms = EXCLUDED.duration_ms,
+          total_servers = EXCLUDED.total_servers,
+          success_count = EXCLUDED.success_count,
+          failed_count = EXCLUDED.failed_count,
+          skipped_count = EXCLUDED.skipped_count,
+          server_summaries = EXCLUDED.server_summaries,
+          impact_analysis = EXCLUDED.impact_analysis,
+          parameters = EXCLUDED.parameters,
+          results = EXCLUDED.results,
+          logs = EXCLUDED.logs,
+          created_at = EXCLUDED.created_at,
+          finished_at = EXCLUDED.finished_at,
+          updated_at_dt = CURRENT_TIMESTAMP`,
+        [
+          reportId,
+          normalizedReport.jobId,
+          normalizedReport.templateId || 'custom',
+          normalizedReport.templateTitle || 'Bulk Configuration',
+          normalizedReport.templateTitleEn || normalizedReport.templateTitle || 'Bulk Configuration',
+          normalizedReport.category || 'general',
+          normalizedReport.icon || 'Server',
+          normalizedReport.status || 'completed',
+          normalizedReport.operatorUser || 'Administrator',
+          normalizedReport.durationMs || 0,
+          normalizedReport.totalServers || 0,
+          normalizedReport.successCount || 0,
+          normalizedReport.failedCount || 0,
+          normalizedReport.skippedCount || 0,
+          JSON.stringify(normalizedReport.serverSummaries || []),
+          JSON.stringify(normalizedReport.impactAnalysis || {}),
+          JSON.stringify(normalizedReport.parameters || {}),
+          JSON.stringify(normalizedReport.results || {}),
+          JSON.stringify(normalizedReport.logs || []),
+          normalizedReport.createdAt,
+          normalizedReport.finishedAt
+        ]
+      );
+    } catch (e: any) {
+      console.error('[DB Error saveBulkServerReport in PostgreSQL]', e.message);
+    }
+  }
 }
 
 export async function deleteBulkServerReport(id: string): Promise<boolean> {
   const store = loadFallbackStore();
-  if (!Array.isArray(store.bulk_server_reports)) return false;
-  const initialLen = store.bulk_server_reports.length;
-  store.bulk_server_reports = store.bulk_server_reports.filter((r: any) => r.id !== id && r.jobId !== id);
-  if (store.bulk_server_reports.length < initialLen) {
-    saveFallbackStore(store);
-    return true;
+  let deletedInFallback = false;
+  if (Array.isArray(store.bulk_server_reports)) {
+    const initialLen = store.bulk_server_reports.length;
+    store.bulk_server_reports = store.bulk_server_reports.filter((r: any) => r.id !== id && r.jobId !== id);
+    if (store.bulk_server_reports.length < initialLen) {
+      saveFallbackStore(store);
+      deletedInFallback = true;
+    }
   }
-  return false;
+
+  if (pool) {
+    try {
+      const res = await pool.query(
+        'DELETE FROM bulk_server_reports WHERE id = $1 OR job_id = $1',
+        [id]
+      );
+      return (res && (res.rowCount || 0) > 0) || deletedInFallback;
+    } catch (e: any) {
+      console.error('[DB Error deleteBulkServerReport in PostgreSQL]', e.message);
+    }
+  }
+
+  return deletedInFallback;
 }
 
 export async function clearAllBulkServerReports(): Promise<boolean> {
   const store = loadFallbackStore();
   store.bulk_server_reports = [];
   saveFallbackStore(store);
+
+  if (pool) {
+    try {
+      await pool.query('DELETE FROM bulk_server_reports');
+      return true;
+    } catch (e: any) {
+      console.error('[DB Error clearAllBulkServerReports in PostgreSQL]', e.message);
+    }
+  }
+
   return true;
+}
+
+export async function getBulkServerReportsStorageStats(): Promise<{
+  storageType: 'postgresql' | 'json_store';
+  totalReports: number;
+  isPostgresReady: boolean;
+}> {
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT count(*) as count FROM bulk_server_reports');
+      const count = parseInt(res.rows[0]?.count || '0', 10);
+      return {
+        storageType: 'postgresql',
+        totalReports: count,
+        isPostgresReady: true,
+      };
+    } catch (e: any) {
+      console.error('[DB Error getBulkServerReportsStorageStats]', e.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const reports = Array.isArray(store.bulk_server_reports) ? store.bulk_server_reports : [];
+  return {
+    storageType: 'json_store',
+    totalReports: reports.length,
+    isPostgresReady: false,
+  };
 }
 
 

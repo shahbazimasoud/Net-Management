@@ -114,3 +114,50 @@ export async function clearAllBulkServerReports(): Promise<boolean> {
   const data = await res.json().catch(() => ({}));
   return data.cleared || false;
 }
+
+export async function saveBulkServerReport(report: Partial<BulkServerExecutionReport>): Promise<boolean> {
+  const res = await fetch('/api/bulk-server-config/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report)
+  });
+  if (!res.ok) return false;
+  const data = await res.json().catch(() => ({}));
+  return data.saved || false;
+}
+
+export async function importBulkServerReports(reports: BulkServerExecutionReport[]): Promise<{ imported: number }> {
+  const res = await fetch('/api/bulk-server-config/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(reports)
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Failed to import execution reports (${res.status})`);
+  }
+  const data = await res.json();
+  return { imported: data.imported || 0 };
+}
+
+export async function fetchBulkServerReportsStats(): Promise<{
+  storageType: 'postgresql' | 'json_store';
+  totalReports: number;
+  isPostgresReady: boolean;
+}> {
+  const res = await fetch('/api/bulk-server-config/reports-stats');
+  if (!res.ok) {
+    return {
+      storageType: 'json_store',
+      totalReports: 0,
+      isPostgresReady: false,
+    };
+  }
+  const data = await res.json();
+  return data.stats || {
+    storageType: 'json_store',
+    totalReports: 0,
+    isPostgresReady: false,
+  };
+}
+
