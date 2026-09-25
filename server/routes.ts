@@ -184,6 +184,13 @@ import {
   compressLinuxItems,
   extractLinuxArchive,
 } from './linuxFileExplorer';
+import {
+  fetchLinuxCronOverviewSSH,
+  saveLinuxCronJobSSH,
+  toggleLinuxCronJobSSH,
+  deleteLinuxCronJobSSH,
+  runLinuxCronJobNowSSH,
+} from './linuxCronManager';
 
 export const apiRouter = Router();
 
@@ -4545,6 +4552,164 @@ apiRouter.all('/remote-servers/:id/fs/users-groups', async (req: Request, res: R
   } catch (err: any) {
     console.error(`[LinuxFS users-groups error on server ${req.params.id}]:`, err?.message || err);
     res.status(500).json({ success: false, error: err.message || 'Failed to fetch users and groups' });
+  }
+});
+
+// ==========================================
+// LINUX CRON JOBS MANAGEMENT ENDPOINTS
+// ==========================================
+
+// GET & POST /api/remote-servers/:id/cron-jobs - List cron jobs
+const handleFetchCronJobs = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const targetUser = (req.query?.user || req.body?.user) as string | undefined;
+    const password = (req.query?.password || req.body?.password || req.headers['x-server-password']) as string | undefined;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    const overview = await fetchLinuxCronOverviewSSH(server, password, targetUser);
+    return res.json({ success: true, ...overview });
+  } catch (err: any) {
+    console.error(`[Cron Overview Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch cron jobs from target Linux host',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/cron-jobs', handleFetchCronJobs);
+apiRouter.post('/remote-servers/:id/cron-jobs', handleFetchCronJobs);
+
+// POST /api/remote-servers/:id/cron-jobs/save - Create or edit cron job
+apiRouter.post('/remote-servers/:id/cron-jobs/save', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { payload, password } = req.body;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    if (!payload || !payload.schedule || !payload.command) {
+      return res.status(400).json({ success: false, error: 'Missing required payload (schedule, command)' });
+    }
+
+    const result = await saveLinuxCronJobSSH(server, payload, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: payload.originalCommand ? 'Cron Job Updated' : 'Cron Job Created',
+      category: 'operation',
+      target: `${server.name || server.ip} (${payload.user || 'root'})`,
+      status: 'success',
+      details: `Schedule: "${payload.schedule}", Command: "${payload.command}"`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Save Cron Job Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to save cron job on remote server',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/cron-jobs/toggle - Enable / Disable (pause/stop) cron job
+apiRouter.post('/remote-servers/:id/cron-jobs/toggle', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { payload, password } = req.body;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    if (!payload || !payload.command || !payload.schedule || typeof payload.enable !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Invalid toggle parameters' });
+    }
+
+    const result = await toggleLinuxCronJobSSH(server, payload, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: payload.enable ? 'Cron Job Resumed/Enabled' : 'Cron Job Paused/Stopped',
+      category: 'operation',
+      target: `${server.name || server.ip} (${payload.user || 'root'})`,
+      status: 'success',
+      details: `Command: "${payload.command}"`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Toggle Cron Job Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to toggle cron job state',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/cron-jobs/delete - Delete cron job
+apiRouter.post('/remote-servers/:id/cron-jobs/delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { payload, password } = req.body;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    if (!payload || !payload.command) {
+      return res.status(400).json({ success: false, error: 'Missing required cron command for deletion' });
+    }
+
+    const result = await deleteLinuxCronJobSSH(server, payload, password);
+
+    await addAuditLog({
+      userName: 'Administrator',
+      action: 'Cron Job Deleted',
+      category: 'operation',
+      target: `${server.name || server.ip} (${payload.user || 'root'})`,
+      status: 'success',
+      details: `Removed command: "${payload.command}"`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[Delete Cron Job Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete cron job',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/cron-jobs/run-now - Execute cron job command immediately
+apiRouter.post('/remote-servers/:id/cron-jobs/run-now', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { payload, password } = req.body;
+
+    const { server, error, status, requires_password } = await getValidatedServer(id, password);
+    if (!server) return res.status(status || 400).json({ success: false, error, requires_password });
+
+    if (!payload || !payload.command) {
+      return res.status(400).json({ success: false, error: 'Missing command to run' });
+    }
+
+    const result = await runLinuxCronJobNowSSH(server, payload, password);
+
+    return res.json({ success: true, result });
+  } catch (err: any) {
+    console.error(`[Run Cron Job Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute cron job command',
+    });
   }
 });
 

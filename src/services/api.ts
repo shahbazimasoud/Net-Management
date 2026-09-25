@@ -57,6 +57,10 @@ import {
   LinuxQuickDir,
   LinuxFileContentResult,
   LinuxItemProperties,
+  LinuxCronJob,
+  LinuxCronJobPayload,
+  LinuxCronOverview,
+  LinuxCronExecutionResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -3438,6 +3442,148 @@ export async function fetchLinuxSystemUsersAndGroups(
     return { success: false, error: err?.message || 'Failed to fetch users and groups' };
   }
 }
+
+// ==========================================
+// LINUX CRON JOBS API CLIENT METHODS
+// ==========================================
+
+export async function fetchLinuxCronOverview(
+  serverId: string,
+  ephemeralPassword?: string,
+  targetUser?: string
+): Promise<LinuxCronOverview & { success: boolean; error?: string; requires_password?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/cron-jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: ephemeralPassword, user: targetUser }),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse cron response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      jobs: [],
+      systemUsers: [],
+      cronDaemonStatus: { serviceName: 'cron', active: false, running: false, enabled: false },
+      currentUser: 'root',
+      error: err?.message || 'Failed to contact server',
+    };
+  }
+}
+
+export async function saveLinuxCronJob(
+  serverId: string,
+  payload: LinuxCronJobPayload,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/cron-jobs/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload, password: ephemeralPassword }),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      message: 'Failed to parse response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = data.message || `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network request failed', error: err?.message };
+  }
+}
+
+export async function toggleLinuxCronJob(
+  serverId: string,
+  payload: { user: string; schedule: string; command: string; enable: boolean },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/cron-jobs/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload, password: ephemeralPassword }),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      message: 'Failed to parse response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = data.message || `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network request failed', error: err?.message };
+  }
+}
+
+export async function deleteLinuxCronJob(
+  serverId: string,
+  payload: { user: string; schedule: string; command: string },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/cron-jobs/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload, password: ephemeralPassword }),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      message: 'Failed to parse response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = data.message || `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network request failed', error: err?.message };
+  }
+}
+
+export async function runLinuxCronJobNow(
+  serverId: string,
+  payload: { user: string; command: string },
+  ephemeralPassword?: string
+): Promise<{ success: boolean; result?: LinuxCronExecutionResult; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/cron-jobs/run-now`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload, password: ephemeralPassword }),
+    });
+
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: 'Failed to parse execution response',
+    }));
+
+    if (!res.ok && !data.error) {
+      data.error = `HTTP Error ${res.status}`;
+    }
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to trigger cron execution' };
+  }
+}
+
 
 
 

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.153.2';
+export const APP_VERSION = '1.154.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.154.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'توسعه موتور و اندپوینت‌های مدیریت جاب‌های زمان‌بندی‌شده (Cron Jobs) لینوکس از طریق SSH واقعی',
+    title_en: 'Linux Cron Jobs Backend Engine & REST API Endpoints with Real SSH Execution',
+    changes: [
+      'پیاده‌سازی موتور جامع linuxCronManager.ts برای واکشی و آنالیز کرون‌جاب‌های کاربران و فایل‌های سیستمی (/etc/crontab و /etc/cron.d/*) بدون هیچ‌گونه داده شبیه‌سازی‌شده یا فیک.',
+      'افزودن اندپوینت‌های کامل REST API شامل فهرست‌بندی جاب‌ها، ایجاد و ویرایش، غیرفعال‌سازی موقت/توقف (Pause/Stop با کامنت ساختاریافته)، حذف و اجرای زنده (Run Now) جهت اعتبارسنجی خروجی اسکریپت.',
+      'پشتیبانی از تشخیص وضعیت دیمن cron/crond و فهرست کاربران واقعی سرور جهت مدیریت هدفمند تسک‌های زمان‌بندی‌شده.',
+    ],
+    changes_en: [
+      'Implemented comprehensive linuxCronManager.ts engine to authentically read and parse user crontabs and system cron definitions (/etc/crontab and /etc/cron.d/*) via real SSH commands with zero fake data.',
+      'Added full REST API endpoints for listing cron jobs, creating/updating schedules, pausing/stopping (commenting out preserved jobs), deleting, and manual test execution (Run Now) with real exit codes and stdout/stderr capture.',
+      'Added automated cron/crond daemon health inspection and live system users enumeration for targeted scheduling.',
+    ],
+  },
   {
     version: '1.153.2',
     releaseDate: '2026-09-25',

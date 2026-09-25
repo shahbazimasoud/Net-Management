@@ -2313,3 +2313,57 @@ export interface LinuxItemProperties {
   sgid?: boolean;
   sticky?: boolean;
 }
+
+// ========================================================
+// LINUX CRON JOBS MANAGEMENT INTERFACES
+// ========================================================
+
+export type LinuxCronSpecialSchedule = '@reboot' | '@yearly' | '@annually' | '@monthly' | '@weekly' | '@daily' | '@midnight' | '@hourly';
+
+export interface LinuxCronJob {
+  id: string;
+  user: string;
+  schedule: string;
+  command: string;
+  comment?: string;
+  isEnabled: boolean;
+  source: 'user_crontab' | 'etc_crontab' | 'cron_d' | 'cron_daily' | 'cron_hourly' | 'cron_weekly' | 'cron_monthly';
+  sourceFile?: string;
+  rawLine: string;
+  lineNumber?: number;
+  environmentVars?: Record<string, string>;
+}
+
+export interface LinuxCronJobPayload {
+  id?: string;
+  originalSchedule?: string;
+  originalCommand?: string;
+  user: string;
+  schedule: string;
+  command: string;
+  comment?: string;
+  isEnabled: boolean;
+  environmentVars?: Record<string, string>;
+}
+
+export interface LinuxCronOverview {
+  jobs: LinuxCronJob[];
+  systemUsers: string[];
+  cronDaemonStatus: {
+    serviceName: string;
+    active: boolean;
+    running: boolean;
+    enabled: boolean;
+  };
+  currentUser: string;
+}
+
+export interface LinuxCronExecutionResult {
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  success: boolean;
+}
+
