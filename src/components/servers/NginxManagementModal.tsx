@@ -34,6 +34,12 @@ import {
   Search,
   ExternalLink,
   Code2,
+  ShieldAlert,
+  Lock,
+  Calendar,
+  Clock,
+  Copy,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -45,6 +51,8 @@ import {
   NginxProxySummary,
   NginxUpstreamPool,
   NginxReverseProxyRoute,
+  NginxSslSummary,
+  NginxCertificateDetails,
 } from '../../types';
 import {
   controlLinuxServerService,
@@ -52,6 +60,7 @@ import {
   fetchNginxConfigTopology,
   fetchNginxSites,
   fetchNginxProxy,
+  fetchNginxCertificates,
   sshExecute,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -67,7 +76,7 @@ export interface NginxManagementModalProps {
   isEn?: boolean;
 }
 
-type NginxTab = 'overview' | 'vhosts' | 'proxy' | 'config' | 'logs';
+type NginxTab = 'overview' | 'vhosts' | 'proxy' | 'ssl' | 'config' | 'logs';
 
 export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   isOpen,
@@ -112,6 +121,43 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   const [selectedUpstream, setSelectedUpstream] = useState<NginxUpstreamPool | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<NginxReverseProxyRoute | null>(null);
   const [proxySearchQuery, setProxySearchQuery] = useState('');
+
+  // Phase 5: SSL / TLS & Certificate Inspector Model
+  const [sslData, setSslData] = useState<NginxSslSummary | null>(null);
+  const [sslLoading, setSslLoading] = useState(false);
+  const [selectedCert, setSelectedCert] = useState<NginxCertificateDetails | null>(null);
+  const [sslSearchQuery, setSslSearchQuery] = useState('');
+  const [sslFilter, setSslFilter] = useState<'all' | 'valid' | 'expiring_soon' | 'expired' | 'self_signed' | 'error'>('all');
+  const [copiedCertText, setCopiedCertText] = useState<string | null>(null);
+
+  const handleCopyCertText = (text: string, id: string) => {
+    try {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text);
+        setCopiedCertText(id);
+        setTimeout(() => setCopiedCertText(null), 2000);
+      }
+    } catch {}
+  };
+
+  // Fetch full SSL/TLS certificates and expiration details
+  const fetchCertificates = useCallback(async () => {
+    if (!server) return;
+    setSslLoading(true);
+    try {
+      const res = await fetchNginxCertificates(server.id, sessionPassword || server.ssh_password);
+      if (res && res.success && res.ssl) {
+        setSslData(res.ssl);
+        if (res.ssl.certificates.length > 0) {
+          setSelectedCert(res.ssl.certificates[0]);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Failed to fetch Nginx certificates]:', err);
+    } finally {
+      setSslLoading(false);
+    }
+  }, [server, sessionPassword]);
 
   // Fetch full proxy & upstreams architecture
   const fetchProxyArchitecture = useCallback(async () => {
@@ -235,6 +281,12 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       fetchProxyArchitecture();
     }
   }, [isOpen, server, activeTab, proxyData, proxyLoading, fetchProxyArchitecture]);
+
+  useEffect(() => {
+    if (isOpen && server && activeTab === 'ssl' && !sslData && !sslLoading) {
+      fetchCertificates();
+    }
+  }, [isOpen, server, activeTab, sslData, sslLoading, fetchCertificates]);
 
   // Execute Service Action (Start, Stop, Restart, Reload) using discovered service name
   const handleServiceAction = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
@@ -723,6 +775,24 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
           >
             <Network className="w-3.5 h-3.5" />
             <span>{isEn ? 'Reverse Proxy & Upstreams' : 'پروکسی معکوس و آپ‌استریم'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('ssl')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+              activeTab === 'ssl'
+                ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                : isLightMode
+                ? 'text-slate-600 hover:bg-slate-100'
+                : 'text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Certificates & SSL' : 'گواهینامه‌ها و SSL/TLS'}</span>
+            {sslData && (sslData.expiringSoonCertificates > 0 || sslData.expiredCertificates > 0) && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            )}
           </button>
 
           <button
@@ -1889,7 +1959,592 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
             </div>
           )}
 
-          {/* TAB 4: CONFIGURATION TREE & AST TOPOLOGY */}
+          {/* TAB 4: CERTIFICATES & SSL / TLS INSPECTOR */}
+          {activeTab === 'ssl' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>{isEn ? 'SSL / TLS Certificates & Security Inspector' : 'کاوش و تحلیل زنده گواهینامه‌های امنیتی SSL / TLS'}</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                    {isEn
+                      ? `Discovered: ${sslData?.totalCertificates ?? 0} • Valid: ${sslData?.validCertificates ?? 0} • Expiring Soon: ${sslData?.expiringSoonCertificates ?? 0} • Expired: ${sslData?.expiredCertificates ?? 0}`
+                      : `گواهینامه‌های کشف‌شده: ${sslData?.totalCertificates ?? 0} • معتبر: ${sslData?.validCertificates ?? 0} • در آستانه انقضا: ${sslData?.expiringSoonCertificates ?? 0} • منقضی: ${sslData?.expiredCertificates ?? 0}`}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={fetchCertificates}
+                    disabled={sslLoading}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${sslLoading ? 'animate-spin' : ''}`} />
+                    <span>{sslLoading ? (isEn ? 'Inspecting Certificates...' : 'در حال بررسی گواهینامه‌ها...') : (isEn ? 'Refresh Certificates' : 'بروزرسانی گواهینامه‌ها')}</span>
+                  </button>
+
+                  <FieldInfoTooltip
+                    fieldName="Nginx SSL / TLS Certificate Inspector"
+                    infoWhatEn="Scans and analyzes real X.509 SSL/TLS certificates and keys referenced in Nginx configurations directly from server storage using OpenSSL."
+                    infoWhatFa="پایش و بررسی دقیق گواهینامه‌های واقعی X.509 و کلیدهای استفاده‌شده در کانفیگ‌های Nginx مستقیماً از روی سرور با ابزار استاندارد OpenSSL."
+                    infoWhyEn="Critical for preventing sudden HTTPS downtime, detecting expirations before they affect users, and validating domain coverage (SANs)."
+                    infoWhyFa="حیاتی برای جلوگیری از قطع ناگهانی پروتکل HTTPS، تشخیص زودهنگام انقضای گواهینامه‌ها و بررسی دامنه‌های تحت پوشش (SANs)."
+                    infoExampleEn="ssl_certificate /etc/letsencrypt/live/domain.com/fullchain.pem; ssl_certificate_key /etc/letsencrypt/live/domain.com/privkey.pem;"
+                    infoExampleFa="ssl_certificate /etc/letsencrypt/live/domain.com/fullchain.pem; ssl_certificate_key /etc/letsencrypt/live/domain.com/privkey.pem;"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
+              </div>
+
+              {/* SSL Telemetry Metric Cards */}
+              {sslData && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Total Certs' : 'کل گواهینامه‌ها'}</span>
+                    <div className="text-base font-bold text-slate-200 mt-1">{sslData.totalCertificates}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Valid & Active' : 'معتبر و فعال'}</span>
+                    <div className="text-base font-bold text-emerald-400 mt-1 flex items-center gap-1.5">
+                      <span>{sslData.validCertificates}</span>
+                      {sslData.validCertificates > 0 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                    </div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'} ${
+                    sslData.expiringSoonCertificates > 0 ? (isLightMode ? 'border-amber-300 bg-amber-50/50' : 'border-amber-500/40 bg-amber-500/10') : ''
+                  }`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Expiring Soon (<=30d)' : 'آستانه انقضا (کمتر از ۳۰ روز)'}</span>
+                    <div className="text-base font-bold text-amber-400 mt-1 flex items-center gap-1.5">
+                      <span>{sslData.expiringSoonCertificates}</span>
+                      {sslData.expiringSoonCertificates > 0 && <AlertTriangle className="w-3.5 h-3.5 text-amber-400 animate-pulse" />}
+                    </div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'} ${
+                    (sslData.expiredCertificates + sslData.missingOrUnreadableCertificates) > 0 ? (isLightMode ? 'border-rose-300 bg-rose-50/50' : 'border-rose-500/40 bg-rose-500/10') : ''
+                  }`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Expired / Errors' : 'منقضی / خطا'}</span>
+                    <div className="text-base font-bold text-rose-400 mt-1 flex items-center gap-1.5">
+                      <span>{sslData.expiredCertificates + sslData.missingOrUnreadableCertificates}</span>
+                      {(sslData.expiredCertificates + sslData.missingOrUnreadableCertificates) > 0 && <AlertCircle className="w-3.5 h-3.5 text-rose-400" />}
+                    </div>
+                  </div>
+                  <div className={`p-3 rounded-xl border col-span-2 sm:col-span-1 ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Self-Signed' : 'خودامضا (Self-Signed)'}</span>
+                    <div className="text-base font-bold text-blue-400 mt-1">{sslData.selfSignedCertificates}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Expiring Soon / Expired Alert Banner */}
+              {sslData && (sslData.expiringSoonCertificates > 0 || sslData.expiredCertificates > 0) && (
+                <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs ${
+                  sslData.expiredCertificates > 0
+                    ? isLightMode ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-rose-950/40 border-rose-800 text-rose-300'
+                    : isLightMode ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-amber-950/40 border-amber-800 text-amber-300'
+                }`}>
+                  <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${sslData.expiredCertificates > 0 ? 'text-rose-400' : 'text-amber-400'}`} />
+                  <div className="flex-1">
+                    <span className="font-bold">
+                      {isEn ? 'Certificate Action Required:' : 'اقدام فوری جهت تمدید گواهینامه:'}
+                    </span>{' '}
+                    <span>
+                      {isEn
+                        ? `Attention! ${sslData.expiredCertificates > 0 ? `${sslData.expiredCertificates} certificate(s) have EXPIRED, and ` : ''}${sslData.expiringSoonCertificates} certificate(s) will expire within the next 30 days. Renew them via Certbot/ACME or your Certificate Authority to prevent service degradation.`
+                        : `توجه! ${sslData.expiredCertificates > 0 ? `${sslData.expiredCertificates} گواهینامه منقضی شده و ` : ''}${sslData.expiringSoonCertificates} گواهینامه در کمتر از ۳۰ روز آینده منقضی خواهند شد. لطفاً پیش از بروز اختلال در دسترسی کاربران آنها را تمدید فرمایید.`}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Filter and Search Bar */}
+              <div className="flex items-center justify-between gap-2 border-b pb-3 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(
+                    [
+                      { id: 'all', labelEn: 'All Certificates', labelFa: 'همه گواهینامه‌ها', count: sslData?.totalCertificates ?? 0 },
+                      { id: 'valid', labelEn: 'Valid', labelFa: 'معتبر', count: sslData?.validCertificates ?? 0 },
+                      { id: 'expiring_soon', labelEn: 'Expiring Soon', labelFa: 'در آستانه انقضا', count: sslData?.expiringSoonCertificates ?? 0 },
+                      { id: 'expired', labelEn: 'Expired', labelFa: 'منقضی شده', count: sslData?.expiredCertificates ?? 0 },
+                      { id: 'self_signed', labelEn: 'Self-Signed', labelFa: 'خودامضا', count: sslData?.selfSignedCertificates ?? 0 },
+                      { id: 'error', labelEn: 'Missing / Unreadable', labelFa: 'فایل مفقود / خطا', count: sslData?.missingOrUnreadableCertificates ?? 0 },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setSslFilter(tab.id)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                        sslFilter === tab.id
+                          ? 'bg-emerald-500 text-slate-950 font-bold'
+                          : isLightMode
+                          ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      <span>{isEn ? tab.labelEn : tab.labelFa}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                        sslFilter === tab.id ? 'bg-slate-950/20 text-slate-950' : 'bg-black/20 text-slate-400'
+                      }`}>
+                        {tab.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="relative min-w-[200px]">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={sslSearchQuery}
+                    onChange={(e) => setSslSearchQuery(e.target.value)}
+                    placeholder={isEn ? 'Filter by domain, issuer, or path...' : 'فیلتر بر اساس دامنه، صادرکننده، مسیر...'}
+                    className={`w-full pl-8 pr-3 py-1 text-xs rounded-lg border font-mono transition focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                      isLightMode
+                        ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                        : 'bg-slate-950/80 border-slate-800 text-slate-200 placeholder:text-slate-500'
+                    }`}
+                  />
+                  {sslSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSslSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 text-xs cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Master-Detail Certificates View */}
+              {sslLoading && !sslData ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3">
+                  <ShieldCheck className="w-8 h-8 text-emerald-400 animate-spin" />
+                  <p className="text-xs text-slate-400 font-mono">
+                    {isEn ? 'Running OpenSSL certificate inspector on remote server...' : 'در حال اجرای ماژول بررسی گواهینامه‌های OpenSSL بر روی سرور...'}
+                  </p>
+                </div>
+              ) : !sslData || sslData.certificates.length === 0 ? (
+                <div className={`p-8 rounded-xl border text-center space-y-3 ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
+                }`}>
+                  <ShieldAlert className="w-10 h-10 text-amber-400 mx-auto" />
+                  <h4 className="text-sm font-bold text-slate-200">
+                    {isEn ? 'No SSL / TLS Certificates Found in Nginx' : 'هیچ گواهینامه SSL / TLS در فایل‌های کانفیگ Nginx یافت نشد'}
+                  </h4>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    {isEn
+                      ? 'Nginx does not appear to have any active ssl_certificate directives configured yet. You can enable HTTPS using Let\'s Encrypt (Certbot) or by provisioning custom SSL certificates.'
+                      : 'به نظر می‌رسد دستور فعال ssl_certificate در فایل‌های پیکربندی Nginx وجود ندارد. می‌توانید پروتکل امن HTTPS را با Certbot یا نصب گواهینامه‌های اختصاصی فعال فرمایید.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                  {/* Left Column: Certificates List */}
+                  <div className="lg:col-span-5 space-y-2 max-h-[580px] overflow-y-auto pr-1">
+                    {(() => {
+                      const filtered = sslData.certificates.filter((cert) => {
+                        if (sslFilter === 'valid' && cert.status !== 'valid') return false;
+                        if (sslFilter === 'expiring_soon' && cert.status !== 'expiring_soon') return false;
+                        if (sslFilter === 'expired' && cert.status !== 'expired') return false;
+                        if (sslFilter === 'self_signed' && !cert.isSelfSigned) return false;
+                        if (sslFilter === 'error' && cert.status !== 'missing' && cert.status !== 'unreadable') return false;
+
+                        if (sslSearchQuery.trim()) {
+                          const q = sslSearchQuery.toLowerCase();
+                          const matchPrimary = cert.primaryDomain.toLowerCase().includes(q);
+                          const matchAll = cert.allDomains.some(d => d.toLowerCase().includes(q));
+                          const matchIssuer = cert.issuer.toLowerCase().includes(q);
+                          const matchCertPath = cert.certPath.toLowerCase().includes(q);
+                          const matchSites = cert.associatedSites.some(s => s.serverName.toLowerCase().includes(q) || s.definedInFile.toLowerCase().includes(q));
+                          if (!matchPrimary && !matchAll && !matchIssuer && !matchCertPath && !matchSites) {
+                            return false;
+                          }
+                        }
+                        return true;
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="p-6 text-center text-xs text-slate-400 font-mono">
+                            {isEn ? 'No certificates match current filter or search criteria.' : 'گواهینامه‌ای با فیلتر یا عبارت جستجوی فعلی همخوانی ندارد.'}
+                          </div>
+                        );
+                      }
+
+                      return filtered.map((cert) => {
+                        const isSelected = selectedCert?.id === cert.id;
+                        return (
+                          <div
+                            key={cert.id}
+                            onClick={() => setSelectedCert(cert)}
+                            className={`p-3 rounded-xl border text-xs cursor-pointer transition relative ${
+                              isSelected
+                                ? isLightMode
+                                  ? 'bg-emerald-50/80 border-emerald-500 shadow-sm'
+                                  : 'bg-emerald-950/20 border-emerald-500/80 shadow-md ring-1 ring-emerald-500/30'
+                                : isLightMode
+                                ? 'bg-white border-slate-200 hover:border-slate-300'
+                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <div className={`p-1.5 rounded-lg shrink-0 ${
+                                  cert.status === 'valid'
+                                    ? 'bg-emerald-500/10 text-emerald-400'
+                                    : cert.status === 'expiring_soon'
+                                    ? 'bg-amber-500/10 text-amber-400'
+                                    : 'bg-rose-500/10 text-rose-400'
+                                }`}>
+                                  <Lock className="w-3.5 h-3.5" />
+                                </div>
+                                <div>
+                                  <div className="font-bold font-mono text-sm text-slate-200 flex items-center gap-1.5">
+                                    <span>{cert.primaryDomain}</span>
+                                    {cert.isWildcard && (
+                                      <span className="text-[9px] px-1 py-0.2 rounded font-sans font-bold bg-purple-500/15 text-purple-300 border border-purple-500/20">
+                                        Wildcard
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 truncate max-w-[220px]">
+                                    {cert.issuer}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Status Badge */}
+                              <div className="shrink-0 text-right">
+                                {cert.status === 'valid' && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>{cert.daysRemaining}d</span>
+                                  </span>
+                                )}
+                                {cert.status === 'expiring_soon' && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 inline-flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3 text-amber-400 animate-pulse" />
+                                    <span>{cert.daysRemaining}d left</span>
+                                  </span>
+                                )}
+                                {cert.status === 'expired' && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30 inline-flex items-center gap-1">
+                                    <AlertCircle className="w-3 h-3" />
+                                    <span>Expired</span>
+                                  </span>
+                                )}
+                                {cert.status === 'missing' && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                                    Missing
+                                  </span>
+                                )}
+                                {cert.status === 'unreadable' && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                    Error
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Secondary Attributes */}
+                            <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] font-mono text-slate-400">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-1.5 py-0.2 rounded text-[10px] ${
+                                  cert.isSelfSigned ? 'bg-blue-500/10 text-blue-300 border border-blue-500/20' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+                                }`}>
+                                  {cert.isSelfSigned ? 'Self-Signed' : 'Trusted CA'}
+                                </span>
+                                {cert.keyExists && (
+                                  <span className="text-[10px] text-emerald-400 flex items-center gap-0.5">
+                                    <Key className="w-2.5 h-2.5" />
+                                    <span>Key OK</span>
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-slate-400">
+                                {isEn ? `${cert.associatedSites.length} site(s)` : `${cert.associatedSites.length} سایت`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                  {/* Right Column: Selected Certificate Detailed Inspector */}
+                  <div className={`lg:col-span-7 rounded-xl border p-4 sm:p-5 space-y-4 ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}>
+                    {selectedCert ? (
+                      <div className="space-y-4">
+                        {/* Domain Header & Main Badges */}
+                        <div className="flex items-start justify-between gap-3 border-b border-slate-800/80 pb-3 flex-wrap">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                              <h4 className="text-base font-bold font-mono text-slate-100">{selectedCert.primaryDomain}</h4>
+                            </div>
+                            <p className="text-xs text-slate-400 font-mono mt-1">
+                              Subject: <span className="text-slate-300">{selectedCert.subject}</span>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold ${
+                              selectedCert.status === 'valid'
+                                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                : selectedCert.status === 'expiring_soon'
+                                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                            }`}>
+                              {selectedCert.status === 'valid' && (isEn ? `Valid (${selectedCert.daysRemaining} days left)` : `معتبر (${selectedCert.daysRemaining} روز مانده)`)}
+                              {selectedCert.status === 'expiring_soon' && (isEn ? `Expires soon (${selectedCert.daysRemaining} days left)` : `در آستانه انقضا (${selectedCert.daysRemaining} روز مانده)`)}
+                              {selectedCert.status === 'expired' && (isEn ? `Expired (${Math.abs(selectedCert.daysRemaining)} days ago)` : `منقضی شده (${Math.abs(selectedCert.daysRemaining)} روز پیش)`)}
+                              {selectedCert.status === 'missing' && (isEn ? 'Certificate Missing' : 'فایل گواهینامه یافت نشد')}
+                              {selectedCert.status === 'unreadable' && (isEn ? 'Unreadable Certificate' : 'گواهینامه غیرقابل خواندن')}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-mono ${
+                              selectedCert.isSelfSigned
+                                ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                                : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                            }`}>
+                              {selectedCert.isSelfSigned ? (isEn ? 'Self-Signed' : 'گواهینامه خودامضا') : (isEn ? 'Public CA' : 'مرجع رسمی (CA)')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Validity Countdown Bar */}
+                        <div className="p-3 rounded-xl border border-slate-800 bg-slate-950/60 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-mono">
+                            <span className="text-slate-400 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{isEn ? 'Certificate Validity Lifecycle' : 'چرخه اعتبار زمانی گواهینامه'}</span>
+                            </span>
+                            <span className="font-bold text-slate-200">
+                              {selectedCert.daysRemaining > 0
+                                ? (isEn ? `${selectedCert.daysRemaining} days remaining` : `${selectedCert.daysRemaining} روز باقیمانده`)
+                                : (isEn ? `Expired on ${selectedCert.validTo}` : `در تاریخ ${selectedCert.validTo} منقضی شده`)}
+                            </span>
+                          </div>
+
+                          {/* Progress bar */}
+                          <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                selectedCert.daysRemaining > 60
+                                  ? 'bg-emerald-500'
+                                  : selectedCert.daysRemaining > 30
+                                  ? 'bg-teal-500'
+                                  : selectedCert.daysRemaining > 15
+                                  ? 'bg-amber-500'
+                                  : 'bg-rose-500'
+                              }`}
+                              style={{
+                                width: `${Math.min(100, Math.max(5, (selectedCert.daysRemaining / (selectedCert.isSelfSigned ? 365 : 90)) * 100))}%`,
+                              }}
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-0.5">
+                            <span>From: <strong className="text-slate-300">{selectedCert.validFrom || 'Unknown'}</strong></span>
+                            <span>To: <strong className="text-slate-300">{selectedCert.validTo || 'Unknown'}</strong></span>
+                          </div>
+                        </div>
+
+                        {/* Subject Alternative Names (SANs) List */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-400 uppercase font-sans">
+                              {isEn ? 'Protected Domains & SANs (Subject Alternative Names)' : 'دامنه‌های تحت پوشش گواهینامه (SANs)'}
+                            </span>
+                            <FieldInfoTooltip
+                              fieldName="Subject Alternative Names (SANs)"
+                              infoWhatEn="An extension to X.509 that allows multiple domain names, subdomains, or IP addresses to be protected under a single SSL certificate."
+                              infoWhatFa="قابلیتی در گواهینامه X.509 که امکان پوشش و حفاظت از چندین دامنه، ساب‌دامین یا IP را در یک گواهینامه واحد فراهم می‌کند."
+                              infoWhyEn="Enables multi-domain and wildcard (*.domain.com) SSL protection without requiring distinct certificates and IP addresses per host."
+                              infoWhyFa="امکان پوشش چندین دامنه و وایلدکارد (*.domain.com) را بدون نیاز به تهیه گواهینامه‌های مجزا و IPهای جداگانه فراهم می‌سازد."
+                              infoExampleEn="DNS:example.com, DNS:www.example.com, DNS:api.example.com"
+                              infoExampleFa="DNS:example.com, DNS:www.example.com, DNS:api.example.com"
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {selectedCert.allDomains.length > 0 ? (
+                              selectedCert.allDomains.map((domain, i) => (
+                                <span
+                                  key={i}
+                                  className="px-2 py-1 rounded-lg text-xs font-mono bg-slate-950/70 border border-slate-800 text-cyan-300 flex items-center gap-1"
+                                >
+                                  <Globe className="w-3 h-3 text-cyan-400" />
+                                  <span>{domain}</span>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-500 italic font-mono">
+                                {isEn ? 'No SAN entries found (Single CN domain)' : 'فاقد ورودی SAN (تک دامنه CN)'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Issuer & Authority */}
+                        <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 space-y-1">
+                          <span className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                            {isEn ? 'Issuer / Certificate Authority (CA)' : 'مرجع صادرکننده گواهینامه (CA)'}
+                          </span>
+                          <div className="text-xs font-mono text-slate-200">
+                            {selectedCert.issuer}
+                          </div>
+                        </div>
+
+                        {/* File Paths & Key Security Notice */}
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase font-sans">
+                            {isEn ? 'Storage Filesystem Paths & Key Verification' : 'مسیر فایل‌های ذخیره‌شده و تایید کلید خصوصی'}
+                          </span>
+
+                          {/* Certificate Path */}
+                          <div className="p-2.5 rounded-lg border border-slate-800 bg-slate-950/70 flex items-center justify-between gap-2 text-xs font-mono">
+                            <div className="flex items-center gap-2 truncate">
+                              <FileCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                              <span className="text-slate-400 text-[11px]">ssl_certificate:</span>
+                              <span className="text-slate-200 font-bold truncate">{selectedCert.certPath}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyCertText(selectedCert.certPath, `cert-${selectedCert.id}`)}
+                              className="p-1 rounded text-slate-400 hover:text-slate-200 cursor-pointer shrink-0 transition"
+                              title={isEn ? 'Copy Certificate Path' : 'کپی مسیر گواهینامه'}
+                            >
+                              {copiedCertText === `cert-${selectedCert.id}` ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Private Key Path */}
+                          {selectedCert.keyPath && (
+                            <div className="p-2.5 rounded-lg border border-slate-800 bg-slate-950/70 flex items-center justify-between gap-2 text-xs font-mono">
+                              <div className="flex items-center gap-2 truncate">
+                                <Key className={`w-4 h-4 shrink-0 ${selectedCert.keyExists ? 'text-amber-400' : 'text-rose-400'}`} />
+                                <span className="text-slate-400 text-[11px]">ssl_certificate_key:</span>
+                                <span className="text-slate-200 font-bold truncate">{selectedCert.keyPath}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded font-sans font-bold ${
+                                  selectedCert.keyExists
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                }`}>
+                                  {selectedCert.keyExists ? 'Exists' : 'Missing'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyCertText(selectedCert.keyPath!, `key-${selectedCert.id}`)}
+                                  className="p-1 rounded text-slate-400 hover:text-slate-200 cursor-pointer transition"
+                                  title={isEn ? 'Copy Key Path' : 'کپی مسیر کلید خصوصی'}
+                                >
+                                  {copiedCertText === `key-${selectedCert.id}` ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Strict Zero-Leak Notice */}
+                          <div className={`p-2.5 rounded-lg border flex items-center gap-2 text-[11px] ${
+                            isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                          }`}>
+                            <Lock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span>
+                              {isEn
+                                ? 'Zero-Leak Security Protocol: Private key presence on disk is verified; key data is never exposed or transferred.'
+                                : 'استاندارد امنیتی عدم افشای کلید: وجود فایل کلید خصوصی روی دیسک تایید شده است؛ محتوای کلید هرگز خوانده یا به مرورگر ارسال نمی‌شود.'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Technical Fingerprint & Serial */}
+                        {(selectedCert.serialNumber || selectedCert.fingerprintSha256) && (
+                          <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 space-y-1.5 text-xs font-mono">
+                            <span className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                              {isEn ? 'Cryptographic Fingerprints' : 'اثرانگشت و مشخصات رمزنقاری'}
+                            </span>
+                            {selectedCert.serialNumber && (
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-400">Serial:</span>
+                                <span className="text-slate-300 font-bold truncate max-w-[280px]">{selectedCert.serialNumber}</span>
+                              </div>
+                            )}
+                            {selectedCert.fingerprintSha256 && (
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-400">SHA-256:</span>
+                                <span className="text-slate-300 truncate max-w-[280px] text-[10px]">{selectedCert.fingerprintSha256}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Associated Nginx Virtual Hosts & Ports */}
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase font-sans">
+                            {isEn ? 'Associated Nginx Server Blocks' : 'بلوک‌های متصل به این گواهینامه در Nginx'}
+                          </span>
+                          {selectedCert.associatedSites.length === 0 ? (
+                            <div className="text-xs text-slate-500 italic font-mono p-2">
+                              {isEn ? 'Referenced globally or in non-standard blocks' : 'به صورت سراسری یا در بلوک‌های متفرقه تعریف شده'}
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              {selectedCert.associatedSites.map((site, idx) => (
+                                <div
+                                  key={idx}
+                                  className="p-2 rounded-lg border border-slate-800 bg-slate-950/60 flex items-center justify-between gap-2 text-xs font-mono"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Server className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                    <span className="text-slate-200 font-bold">{site.serverName}</span>
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                      Ports: {site.ports.join(', ')}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 truncate max-w-[180px]">
+                                    {site.definedInFile}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 py-16 flex flex-col items-center justify-center text-xs text-slate-400 gap-2">
+                        <Lock className="w-6 h-6 text-slate-500" />
+                        <span>{isEn ? 'Select a certificate from the left list to inspect' : 'یک گواهینامه را از لیست سمت چپ برای مشاهده جزئیات انتخاب کنید'}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: CONFIGURATION TREE & AST TOPOLOGY */}
           {activeTab === 'config' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-2">

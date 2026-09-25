@@ -1421,6 +1421,29 @@ export async function fetchNginxProxy(
   return data;
 }
 
+export async function fetchNginxCertificates(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  ssl?: import('../types').NginxSslSummary;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-certificates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchLinuxServiceWatchdogs(
   serverId: string,
   ephemeralPassword?: string

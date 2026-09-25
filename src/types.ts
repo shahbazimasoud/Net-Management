@@ -1586,6 +1586,48 @@ export interface NginxProxySummary {
   warnings: string[];
 }
 
+export interface NginxCertificateAssociatedSite {
+  siteId: string;
+  serverName: string;
+  definedInFile: string;
+  ports: number[];
+}
+
+export interface NginxCertificateDetails {
+  id: string;
+  primaryDomain: string;
+  allDomains: string[];
+  certPath: string;
+  keyPath?: string;
+  keyExists: boolean;
+  certExists: boolean;
+  certReadable: boolean;
+  keyReadable: boolean;
+  issuer: string;
+  subject: string;
+  validFrom: string;
+  validTo: string;
+  daysRemaining: number;
+  status: 'valid' | 'expiring_soon' | 'expired' | 'unreadable' | 'missing';
+  isSelfSigned: boolean;
+  isWildcard: boolean;
+  signatureAlgorithm?: string;
+  serialNumber?: string;
+  fingerprintSha256?: string;
+  associatedSites: NginxCertificateAssociatedSite[];
+}
+
+export interface NginxSslSummary {
+  totalCertificates: number;
+  validCertificates: number;
+  expiringSoonCertificates: number;
+  expiredCertificates: number;
+  selfSignedCertificates: number;
+  missingOrUnreadableCertificates: number;
+  certificates: NginxCertificateDetails[];
+  warnings: string[];
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;

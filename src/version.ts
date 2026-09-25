@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.164.0';
+export const APP_VERSION = '1.165.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.165.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۵ مدیریت انجین‌ایکس: کاوش و تحلیل زنده گواهینامه‌های امنیتی SSL / TLS، تاریخ انقضا و دامنه‌های SAN',
+    title_en: 'Nginx Management Phase 5: Live SSL / TLS Certificate Inspector, Expiration Lifecycle & SANs Discovery Engine',
+    changes: [
+      'پیاده‌سازی موتور کشف و بررسی مشخصات گواهینامه‌های امنیتی SSL/TLS در فایل‌های کانفیگ Nginx (/server/nginxCertDiscovery.ts).',
+      'استخراج زنده اطلاعات X.509 گواهینامه‌ها از روی دیسک با OpenSSL شامل تاریخ صدور و انقضا، صادرکننده (CA)، دامنه‌های تحت پوشش (SANs) و اثرانگشت SHA-256.',
+      'محاسبه دقیق روزهای باقیمانده تا انقضا، نوار بصری پیشرفت دوره اعتبار و سیستم هشدار هوشمند برای گواهینامه‌های منقضی یا در آستانه انقضا (زیر ۳۰ روز).',
+      'تفکیک گواهینامه‌های رسمی CA از گواهینامه‌های خودامضا (Self-Signed) و وایلدکارد (*.domain.com).',
+      'رعایت استاندارد قطعی عدم افشای کلید خصوصی (Zero-Leak Security): بررسی امن وجود فایل کلید روی دیسک بدون دسترسی به محتوای محرمانه کلید.',
+      'طراحی و پیاده‌سازی تب اختصاصی Certificates & SSL در NginxManagementModal با لیست کارتی، جستجو، فیلترهای چندگانه و پنل بازرسی تفصیلی.',
+      'تجهیز به کادرهای راهنمای Info با ساختار سه‌گانه و مهار ۴ جهته و پشتیبانی ۱۰۰ درصدی از زبان‌های انگلیسی و فارسی و تم‌های روشن و تیره.'
+    ],
+    changes_en: [
+      'Engineered robust X.509 SSL/TLS certificate discovery and OpenSSL inspection engine (/server/nginxCertDiscovery.ts).',
+      'Extracted live certificate metadata directly from server storage via OpenSSL: validity periods, issuer (CA), Subject Alternative Names (SANs), serials, and SHA-256 fingerprints.',
+      'Computed exact days remaining until expiry, animated validity lifecycle countdown bar, and proactive warning alerts for expired or expiring-soon certificates (<= 30 days).',
+      'Differentiated trusted public CA certificates from Self-Signed and Wildcard (*.domain.com) certificates.',
+      'Strictly adhered to Zero-Leak Security Protocol: private key existence is verified on disk without ever reading, leaking, or transmitting private key contents.',
+      'Implemented dedicated Certificates & SSL tab in NginxManagementModal featuring interactive card list, search filters, and comprehensive inspection inspector.',
+      'Equipped with boundary-safe 3-part FieldInfoTooltips and strictly enforced bilingual i18n and light/dark theme contrast.'
+    ]
+  },
   {
     version: '1.164.0',
     releaseDate: '2026-09-25',
