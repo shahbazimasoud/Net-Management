@@ -209,6 +209,13 @@ import {
   toggleNginxSiteStatus,
   deleteNginxSite,
 } from './nginxSiteWriter';
+import {
+  readNginxConfigFile,
+  testNginxConfigFileCandidate,
+  saveNginxConfigFileSafe,
+  listNginxFileBackups,
+  restoreNginxFileBackup,
+} from './nginxSafeEditor';
 
 export const apiRouter = Router();
 
@@ -2159,6 +2166,158 @@ apiRouter.post('/remote-servers/:id/nginx-site-delete', async (req: Request, res
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to delete Nginx site',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-file-read - Reads raw content of an Nginx config file
+apiRouter.post('/remote-servers/:id/nginx-file-read', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, password } = req.body || {};
+
+    if (!filePath) {
+      return res.status(400).json({ success: false, error: 'filePath parameter is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await readNginxConfigFile(server, filePath, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[NginxFileRead API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to read Nginx configuration file',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-file-test - Tests candidate content in isolated context
+apiRouter.post('/remote-servers/:id/nginx-file-test', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, candidateContent, password } = req.body || {};
+
+    if (!filePath || candidateContent === undefined) {
+      return res.status(400).json({ success: false, error: 'filePath and candidateContent are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await testNginxConfigFileCandidate(server, filePath, candidateContent, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[NginxFileTest API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      isValid: false,
+      output: err.message || 'Syntax test execution failed',
+      error: err.message || 'Failed to test configuration syntax',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-file-save - Atomically saves config with automatic backup and rollback
+apiRouter.post('/remote-servers/:id/nginx-file-save', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, newContent, autoReload, password } = req.body || {};
+
+    if (!filePath || newContent === undefined) {
+      return res.status(400).json({ success: false, error: 'filePath and newContent are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await saveNginxConfigFileSafe(
+      server,
+      filePath,
+      newContent,
+      autoReload !== false,
+      password
+    );
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[NginxFileSave API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: req.body?.filePath || '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Save exception',
+      serviceReloaded: false,
+      error: err.message || 'Failed to save configuration file',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-file-backups - Lists existing backups for a specific config file
+apiRouter.post('/remote-servers/:id/nginx-file-backups', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, password } = req.body || {};
+
+    if (!filePath) {
+      return res.status(400).json({ success: false, error: 'filePath parameter is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await listNginxFileBackups(server, filePath, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[NginxFileBackups API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      backups: [],
+      error: err.message || 'Failed to list configuration backups',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-file-restore - Restores a specific backup with verification
+apiRouter.post('/remote-servers/:id/nginx-file-restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, backupPath, autoReload, password } = req.body || {};
+
+    if (!filePath || !backupPath) {
+      return res.status(400).json({ success: false, error: 'filePath and backupPath are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await restoreNginxFileBackup(
+      server,
+      filePath,
+      backupPath,
+      autoReload !== false,
+      password
+    );
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[NginxFileRestore API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: req.body?.filePath || '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Restore exception',
+      serviceReloaded: false,
+      error: err.message || 'Failed to restore configuration backup',
     });
   }
 });

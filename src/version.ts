@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.167.0';
+export const APP_VERSION = '1.168.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.168.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۸ مدیریت انجین‌ایکس: ویرایشگر امن پیکربندی با تحلیل سینتکس، پشتیبان‌گیری نسخه‌دار، دیف و رول‌بک اتمیک',
+    title_en: 'Nginx Management Phase 8: Safe Configuration Editor with Syntax Validation, Versioned Backups, Diff Viewer & Atomic Rollback',
+    changes: [
+      'پیاده‌سازی ماژول اختصاصی ویرایش امن و رول‌بک اتمیک فایل‌های پیکربندی Nginx (/server/nginxSafeEditor.ts).',
+      'طراحی و پیاده‌سازی مودال پیشرفته ویرایشگر امن پیکربندی (/src/components/servers/NginxSafeEditorModal.tsx) منطبق بر استانداردهای پنج‌گانه مودال‌ها و حریم فوتر (bottom-8).',
+      'سیستم اعتبارسنجی ایزوله سینتکس کاندیدا قبل از ذخیره با تست درای‌ران مستقیم از طریق nginx -t -c.',
+      'مکانیزم پشتیبان‌گیری خودکار زمان‌بندی‌شده (Timestamped Backup) در مسیر امن سیستم قبل از اعمال هرگونه تغییر بر روی فایل اصلی.',
+      'رول‌بک اتمیک خودکار (Atomic Rollback): در صورت بروز هرگونه خطای سینتکسی پس از نوشتن، فایل قبلی در کسری از ثانیه بازیابی شده و وضعیت سرور دست‌نخورده باقی می‌ماند.',
+      'نمای مقایسه تفاضلی هوشمند (Visual Line-by-Line Diff Viewer) جهت نمایش تغییرات ایجادشده، سطرهای اضافه و حذف‌شده نسبت به نسخه اصلی.',
+      'تب تاریخچه و تایم‌لاین نسخه‌های پشتیبان (Backup Timeline) با قابلیت بازیابی با یک کلیک و اعتبارسنجی خودکار.',
+      'امکان فعال‌سازی مجدد و ریلود خودکار سرویس انجین‌ایکس با systemctl reload nginx پس از تایید موفقیت تست سلامت.',
+      'تعبیه دکمه‌های مستقیم ویرایش امن فایل در تب درخت پیکربندی (Config Tree) برای تمام فایل‌ها و کانفیگ اصلی، و در کارت‌های هاست‌های مجازی (Virtual Hosts).',
+      'تجهیز ویرایشگر به کادرهای راهنمای FieldInfoTooltip سه‌بخشی، انطباق کامل با تم تیره و روشن و پایبندی قطعی به استانداردهای دو زبانه بدون متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered dedicated safe configuration editor and atomic rollback backend engine (/server/nginxSafeEditor.ts).',
+      'Built advanced safe configuration editor modal (/src/components/servers/NginxSafeEditorModal.tsx) compliant with universal modal standards, footer clearance (bottom-8), and dock minimization.',
+      'Implemented candidate syntax dry-run verification isolated from live configuration using remote nginx -t -c.',
+      'Integrated automated timestamped backup creation in secure system directory prior to touching target configuration files.',
+      'Engineered zero-downtime Atomic Rollback: automatically reverts configuration to last-known-good state in milliseconds if compiler syntax tests fail.',
+      'Built visual line-by-line Diff Viewer displaying added, removed, and modified lines comparing draft against original content.',
+      'Created versioned Backup Timeline tab with one-click instant restoration and automated post-restore verification.',
+      'Added optional seamless Nginx service reload (systemctl reload nginx) upon successful syntax test pass.',
+      'Added direct Safe Edit buttons on every file in the Configuration Tree hierarchy, main nginx.conf, and Virtual Host cards.',
+      'Equipped editor with 3-part boundary-safe FieldInfoTooltips, ergonomic dark/light theme styling, and strict zero-Persian English localization.'
+    ]
+  },
   {
     version: '1.167.0',
     releaseDate: '2026-09-25',

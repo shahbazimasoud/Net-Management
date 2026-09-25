@@ -1770,6 +1770,32 @@ export interface NginxSiteDeployResult {
   error?: string;
 }
 
+export interface NginxConfigFileBackup {
+  id: string;
+  backupPath: string;
+  originalPath: string;
+  timestamp: string;
+  sizeBytes: number;
+  sizeHuman: string;
+}
+
+export interface NginxEditorSaveResult {
+  success: boolean;
+  filePath: string;
+  backupCreated?: string;
+  syntaxTestPassed: boolean;
+  syntaxOutput: string;
+  serviceReloaded: boolean;
+  reloadOutput?: string;
+  error?: string;
+}
+
+export interface NginxEditorTestResult {
+  isValid: boolean;
+  output: string;
+  error?: string;
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;

@@ -52,6 +52,7 @@ import {
   Plus,
   ToggleLeft,
   ToggleRight,
+  Edit3,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -86,6 +87,7 @@ import {
   sshExecute,
 } from '../../services/api';
 import { NginxSiteWizardModal } from './NginxSiteWizardModal';
+import { NginxSafeEditorModal } from './NginxSafeEditorModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface NginxManagementModalProps {
@@ -157,6 +159,17 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [togglingSitePath, setTogglingSitePath] = useState<string | null>(null);
   const [deletingSitePath, setDeletingSitePath] = useState<string | null>(null);
+
+  // Phase 8: Safe Configuration Editor
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editorFilePath, setEditorFilePath] = useState<string | null>(null);
+  const [editorInitialContent, setEditorInitialContent] = useState<string>('');
+
+  const handleOpenSafeEditor = (filePath: string, initialContent?: string) => {
+    setEditorFilePath(filePath);
+    setEditorInitialContent(initialContent || '');
+    setIsEditorOpen(true);
+  };
 
   const handleToggleSite = async (site: NginxServerBlock) => {
     if (!server || !site.definedInFile) return;
@@ -1585,6 +1598,17 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
 
                         {/* Site Action Buttons */}
                         <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Safe Edit Config */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSafeEditor(selectedSite.definedInFile)}
+                            className="px-2.5 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                            title={isEn ? 'Edit configuration file safely' : 'ویرایش امن فایل کانفیگ'}
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Edit Config' : 'ویرایش کانفیگ'}</span>
+                          </button>
+
                           {/* Toggle Active / Disabled */}
                           <button
                             type="button"
@@ -2822,6 +2846,20 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => handleOpenSafeEditor(configTopology?.mainConfigPath || discovery?.confPath || '/etc/nginx/nginx.conf')}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                      isLightMode
+                        ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                    }`}
+                    title={isEn ? 'Edit main nginx.conf configuration file' : 'ویرایش امن فایل اصلی پیکربندی انجین‌ایکس'}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Edit Main Config' : 'ویرایش کانفیگ اصلی'}</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={fetchConfigTree}
                     disabled={configLoading}
                     className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
@@ -2979,9 +3017,21 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
                             {selectedConfigFile.includedFrom && ` • Included from: ${selectedConfigFile.includedFrom}`}
                           </p>
                         </div>
-                        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
-                          Level {selectedConfigFile.level}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSafeEditor(selectedConfigFile.filePath, selectedConfigFile.fullContent || selectedConfigFile.contentSnippet)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer shrink-0"
+                            title={isEn ? 'Open in Safe Configuration Editor' : 'باز کردن در ویرایشگر امن کانفیگ'}
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Edit File' : 'ویرایش فایل'}</span>
+                          </button>
+
+                          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
+                            Level {selectedConfigFile.level}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Code Snippet / Content */}
@@ -4027,6 +4077,27 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
           setIsWizardOpen(false);
           await fetchSites();
           await fetchConfigTree();
+          await fetchDiscovery();
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* Phase 8: Safe Configuration Editor Modal */}
+      <NginxSafeEditorModal
+        isOpen={isEditorOpen}
+        server={server}
+        filePath={editorFilePath}
+        initialContent={editorInitialContent}
+        sessionPassword={sessionPassword}
+        onClose={() => setIsEditorOpen(false)}
+        onMinimize={() => {
+          setIsEditorOpen(false);
+          onMinimize();
+        }}
+        onSaved={async () => {
+          await fetchConfigTree();
+          await fetchSites();
           await fetchDiscovery();
         }}
         isLightMode={isLightMode}

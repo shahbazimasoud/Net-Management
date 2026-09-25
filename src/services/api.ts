@@ -1582,6 +1582,90 @@ export async function deleteNginxSite(
   return res.json().catch(() => ({ success: false, error: 'Failed to parse response' }));
 }
 
+export async function readNginxFile(
+  serverId: string,
+  filePath: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; content: string; sizeBytes: number; lastModified?: string; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-file-read`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, content: '', sizeBytes: 0, error: 'Failed to parse response' }));
+}
+
+export async function testNginxFileCandidate(
+  serverId: string,
+  filePath: string,
+  candidateContent: string,
+  ephemeralPassword?: string
+): Promise<import('../types').NginxEditorTestResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-file-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, candidateContent, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ isValid: false, output: 'Failed to parse response', error: 'Failed to parse response' }));
+}
+
+export async function saveNginxFileSafe(
+  serverId: string,
+  filePath: string,
+  newContent: string,
+  autoReload: boolean = true,
+  ephemeralPassword?: string
+): Promise<import('../types').NginxEditorSaveResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-file-save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, newContent, autoReload, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({
+    success: false,
+    filePath,
+    syntaxTestPassed: false,
+    syntaxOutput: 'Failed to parse response',
+    serviceReloaded: false,
+    error: 'Failed to parse response',
+  }));
+}
+
+export async function fetchNginxFileBackups(
+  serverId: string,
+  filePath: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; backups: import('../types').NginxConfigFileBackup[]; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-file-backups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, backups: [], error: 'Failed to parse response' }));
+}
+
+export async function restoreNginxFileBackup(
+  serverId: string,
+  filePath: string,
+  backupPath: string,
+  autoReload: boolean = true,
+  ephemeralPassword?: string
+): Promise<import('../types').NginxEditorSaveResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-file-restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, backupPath, autoReload, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({
+    success: false,
+    filePath,
+    syntaxTestPassed: false,
+    syntaxOutput: 'Failed to parse response',
+    serviceReloaded: false,
+    error: 'Failed to parse response',
+  }));
+}
+
 export async function fetchLinuxServiceWatchdogs(
   serverId: string,
   ephemeralPassword?: string
