@@ -1320,7 +1320,7 @@ export const CertConverterTab: React.FC<CertConverterTabProps> = ({ isEn, isLigh
 
       {/* Code Preview Modal / Drawer */}
       {previewItem && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed top-0 left-0 right-0 bottom-8 z-[999995] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
           <div
             className={`w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl shadow-2xl border ${
               isLightMode ? 'bg-white text-slate-900 border-slate-200' : 'bg-slate-950 text-slate-100 border-slate-800'

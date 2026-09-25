@@ -463,9 +463,9 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
     <div
       id="password-vault-modal-root"
       dir={isEn ? 'ltr' : 'rtl'}
-      className={`fixed ${
-        isMaximized ? 'top-0 left-0 right-0 bottom-8 p-0' : 'inset-0 p-3 sm:p-5'
-      } z-[9990] flex items-center justify-center bg-black/75 backdrop-blur-sm transition-all duration-200 select-text`}
+      className={`fixed top-0 left-0 right-0 bottom-8 ${
+        isMaximized ? 'p-0' : 'p-3 sm:p-5'
+      } z-[999990] flex items-center justify-center bg-black/75 backdrop-blur-sm transition-all duration-200 select-text`}
     >
       <div
         id="password-vault-modal-container"
@@ -1434,7 +1434,7 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
             RE-AUTHENTICATION MODAL (MASTER PASSWORD VERIFICATION)
             ===================================================================== */}
         {authPromptItem && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-[999995] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div
               id="vault-reauth-modal"
               className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden transition-all ${

@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.152.7';
+export const APP_VERSION = '1.153.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.153.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'اولویت مطلق مودال‌های تولز (Tools) بر فراز تمامی پنجره‌ها و ترمینال‌ها با هوئیستینگ پورتال و لایه z-[999990]',
+    title_en: 'Universal Super-Priority Stacking for All Network Tools Modals Above Terminal and File Explorer Windows',
+    changes: [
+      'انتقال رندرینگ تمامی ۱۰ مودال ابزارهای شبکه (IpSubnetModal، PasswordGeneratorModal، PortScannerModal، DnsUtilitiesModal، TracerouteModal، CertLookupModal، HeaderAnalyzerModal، UpsCalculatorModal، HostCheckerModal و PasswordVaultModal) به ریشه document.body با استفاده از createPortal جهت خروج از Stacking Context و جلوگیری قطعی از افتادن زیر مودال‌های ترمینال یا فایل اکسپلورر.',
+      'ارتقای لایه z-index تمامی مودال‌های تولز به z-[999990] جهت نمایش پایدار بر فراز پنجره‌های فایل اکسپلورر (z-[9999] و z-[99999])، ترمینال لینوکس، ریموت دسکتاپ و دیگر پنجره‌ها.',
+      'تنظیم لایه زیرمودال‌ها و دیالوگ‌های داخلی تولز (پیش‌نمایش کد در CertConverterTab، احراز هویت مجدد ولت و ...) روی z-[999995].',
+      'ارتقای لایه نوار داک تب‌های مینیمایز شده (ToolsDock) به z-[999995] و پاپ‌اور منوی آن به z-[1000000] جهت دسترسی همیشگی.',
+      'تنظیم لایه کادرهای راهنمای سه‌گانه FieldInfoTooltip روی z-[1000005] جهت شناوری کامل روی تمامی المان‌ها و مودال‌ها.',
+      'حفظ دقیق حریم فاصله ۳۲ پیکسلی فوتر (bottom-8) در تمام حالات عادی و تمام‌صفحه به منظور عدم تداخل با تسک‌بار و اطلاعات شبکه.',
+    ],
+    changes_en: [
+      'Hoisted rendering for all 10 network tool modals (IpSubnetModal, PasswordGeneratorModal, PortScannerModal, DnsUtilitiesModal, TracerouteModal, CertLookupModal, HeaderAnalyzerModal, UpsCalculatorModal, HostCheckerModal, and PasswordVaultModal) directly into document.body using createPortal, escaping stacking contexts and completely preventing modals from falling behind File Explorer or Terminal windows.',
+      'Elevated z-index across all tools modals to z-[999990], ensuring rock-solid layering on top of Linux File Explorer (z-[9999] & z-[99999]), Linux Terminal, Remote Desktop, and device management windows.',
+      'Configured nested tool dialogs (CertConverterTab code preview, PasswordVault re-authentication prompt) to z-[999995].',
+      'Elevated ToolsDock dockbar to z-[999995] and its category popup to z-[1000000] ensuring persistent access and smooth window switching.',
+      'Elevated FieldInfoTooltip portal z-index to z-[1000005] for seamless visibility above all layers.',
+      'Enforced strict 32px footer clearance (bottom-8) across normal and maximized states maintaining full status bar interactability.',
+    ],
+  },
   {
     version: '1.152.7',
     releaseDate: '2026-09-24',

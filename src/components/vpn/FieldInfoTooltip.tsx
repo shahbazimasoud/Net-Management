@@ -186,7 +186,7 @@ export const FieldInfoTooltip: React.FC<FieldInfoTooltipProps> = ({
               left: `${coords.left}px`,
               width: `${coords.width}px`,
               maxHeight: `${coords.maxHeight}px`,
-              zIndex: 99999,
+              zIndex: 1000005,
             }}
             className={`p-3.5 rounded-xl border shadow-2xl text-xs backdrop-blur-md overflow-y-auto animate-in fade-in zoom-in-95 duration-150 select-text ${
               isLightMode

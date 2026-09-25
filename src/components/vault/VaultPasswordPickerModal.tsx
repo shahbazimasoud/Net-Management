@@ -202,16 +202,16 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
     }
   };
 
-  const subModalZIndex = (zIndex || 10005) + 15;
+  const subModalZIndex = (zIndex || 999995) + 5;
 
   const modalContent = (
     <div
       id="vault-password-picker-modal-root"
-      style={{ zIndex }}
-      className={`fixed transition-all duration-200 ${
+      style={{ zIndex: zIndex || 999995 }}
+      className={`fixed top-0 left-0 right-0 bottom-8 transition-all duration-200 ${
         isMaximized
-          ? 'top-0 left-0 right-0 bottom-8 p-0 flex flex-col bg-black/80 backdrop-blur-md'
-          : 'inset-0 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm'
+          ? 'p-0 flex flex-col bg-black/80 backdrop-blur-md'
+          : 'flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm'
       }`}
     >
       <div

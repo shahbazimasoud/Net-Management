@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FileCode2,
   Minus,
@@ -78,10 +79,10 @@ export const HeaderAnalyzerModal: React.FC<HeaderAnalyzerModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div
       id="header-analyzer-modal-overlay"
-      className="fixed top-0 left-0 right-0 bottom-8 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
     >
       <div
         id="header-analyzer-modal-window"
@@ -364,4 +365,6 @@ export const HeaderAnalyzerModal: React.FC<HeaderAnalyzerModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

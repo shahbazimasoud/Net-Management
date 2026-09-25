@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ShieldCheck,
   Minus,
@@ -73,16 +74,20 @@ export const CertLookupModal: React.FC<CertLookupModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div
       id="cert-lookup-modal-overlay"
-      className="fixed top-0 left-0 right-0 bottom-8 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in"
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[999990] ${
+        isMaximized
+          ? 'p-0 flex flex-col bg-black/80 backdrop-blur-md'
+          : 'flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in'
+      }`}
     >
       <div
         id="cert-lookup-modal-window"
         className={`flex flex-col transition-all duration-200 overflow-hidden ${
           isMaximized
-            ? `fixed top-0 left-0 right-0 bottom-8 z-50 w-full h-full max-w-none max-h-full rounded-none border-none ${
+            ? `w-full h-full max-w-none max-h-full rounded-none border-none ${
                 isLightMode ? 'bg-white text-slate-900' : 'bg-slate-950 text-slate-100'
               }`
             : `w-full max-w-4xl max-h-[88vh] rounded-2xl shadow-2xl border ${
@@ -445,4 +450,6 @@ export const CertLookupModal: React.FC<CertLookupModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };
