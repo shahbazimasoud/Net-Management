@@ -35,8 +35,21 @@ import {
   ExternalLink,
   Code2,
 } from 'lucide-react';
-import { RemoteServer, NginxInstallationDetails, NginxConfigTopologyTree, NginxConfigFileNode } from '../../types';
-import { controlLinuxServerService, discoverNginxTopology, fetchNginxConfigTopology, sshExecute } from '../../services/api';
+import {
+  RemoteServer,
+  NginxInstallationDetails,
+  NginxConfigTopologyTree,
+  NginxConfigFileNode,
+  NginxSitesSummary,
+  NginxServerBlock,
+} from '../../types';
+import {
+  controlLinuxServerService,
+  discoverNginxTopology,
+  fetchNginxConfigTopology,
+  fetchNginxSites,
+  sshExecute,
+} from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface NginxManagementModalProps {
@@ -80,6 +93,32 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   const [configLoading, setConfigLoading] = useState(false);
   const [selectedConfigFile, setSelectedConfigFile] = useState<NginxConfigFileNode | null>(null);
   const [configSearchQuery, setConfigSearchQuery] = useState('');
+
+  // Phase 3: Virtual Hosts & Sites AST Model
+  const [sitesData, setSitesData] = useState<NginxSitesSummary | null>(null);
+  const [sitesLoading, setSitesLoading] = useState(false);
+  const [selectedSite, setSelectedSite] = useState<NginxServerBlock | null>(null);
+  const [sitesSearchQuery, setSitesSearchQuery] = useState('');
+  const [sitesFilter, setSitesFilter] = useState<'all' | 'active' | 'disabled' | 'ssl' | 'proxy'>('all');
+
+  // Fetch full virtual hosts and server blocks
+  const fetchSites = useCallback(async () => {
+    if (!server) return;
+    setSitesLoading(true);
+    try {
+      const res = await fetchNginxSites(server.id, sessionPassword || server.ssh_password);
+      if (res && res.success && res.sites) {
+        setSitesData(res.sites);
+        if (res.sites.sites.length > 0) {
+          setSelectedSite(res.sites.sites[0]);
+        }
+      }
+    } catch (err: any) {
+      console.error('[Failed to fetch Nginx server blocks]:', err);
+    } finally {
+      setSitesLoading(false);
+    }
+  }, [server, sessionPassword]);
 
   // Fetch full configuration tree topology
   const fetchConfigTree = useCallback(async () => {
@@ -150,6 +189,12 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       fetchConfigTree();
     }
   }, [isOpen, server, activeTab, configTopology, configLoading, fetchConfigTree]);
+
+  useEffect(() => {
+    if (isOpen && server && activeTab === 'vhosts' && !sitesData && !sitesLoading) {
+      fetchSites();
+    }
+  }, [isOpen, server, activeTab, sitesData, sitesLoading, fetchSites]);
 
   // Execute Service Action (Start, Stop, Restart, Reload) using discovered service name
   const handleServiceAction = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
@@ -971,48 +1016,405 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: VIRTUAL HOSTS */}
+          {/* TAB 2: VIRTUAL HOSTS & SITES AST MODEL */}
           {activeTab === 'vhosts' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h3 className="text-sm font-bold flex items-center gap-2">
                     <Layers className="w-4 h-4 text-emerald-400" />
-                    <span>{isEn ? 'Virtual Hosts & Server Blocks' : 'هاست‌های مجازی و بلوک‌های سرور'}</span>
+                    <span>{isEn ? 'Virtual Hosts & Server Blocks Model' : 'مدل هاست‌های مجازی و بلوک‌های سرور'}</span>
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-400 mt-0.5 font-mono">
                     {isEn
-                      ? 'Inspect domains, ports (80/443), SSL certificates, and root directories served by Nginx.'
-                      : 'مشاهده دامنه‌ها، پورت‌های ۸۰ و ۴۴۳، وضعیت گواهینامه‌های SSL و مسیرهای ریشه دایرکتوری وب.'}
+                      ? `Total: ${sitesData?.totalSites ?? 0} sites • Active: ${sitesData?.activeSites ?? 0} • SSL Enabled: ${sitesData?.sslSites ?? 0} • Reverse Proxies: ${sitesData?.proxySites ?? 0}`
+                      : `مجموع: ${sitesData?.totalSites ?? 0} سایت • فعال: ${sitesData?.activeSites ?? 0} • مجهز به SSL: ${sitesData?.sslSites ?? 0} • پروکسی معکوس: ${sitesData?.proxySites ?? 0}`}
                   </p>
                 </div>
-                <FieldInfoTooltip
-                  fieldName="Virtual Host (Server Block)"
-                  infoWhatEn="A configuration block allowing a single Nginx instance to host multiple distinct domain names or services."
-                  infoWhatFa="بلوک پیکربندی که به یک سرور Nginx امکان میزبانی چندین دامنه و سرویس مجزا را می‌دهد."
-                  infoWhyEn="Isolates routing, root folders, and SSL settings per domain name or IP."
-                  infoWhyFa="تفکیک روتینگ، مسیر فایل‌ها و سرتیفیکیت‌های امنیتی برای هر دامنه یا ساب‌دامنه."
-                  infoExampleEn="server { listen 80; server_name example.com; root /var/www/html; }"
-                  infoExampleFa="server { listen 80; server_name example.com; root /var/www/html; }"
-                  isEn={isEn}
-                  isLightMode={isLightMode}
-                />
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={fetchSites}
+                    disabled={sitesLoading}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${sitesLoading ? 'animate-spin' : ''}`} />
+                    <span>{sitesLoading ? (isEn ? 'Parsing Sites...' : 'در حال استخراج سایت‌ها...') : (isEn ? 'Refresh Sites' : 'بروزرسانی سایت‌ها')}</span>
+                  </button>
+
+                  <FieldInfoTooltip
+                    fieldName="Virtual Host (Server Block)"
+                    infoWhatEn="A configuration block allowing a single Nginx instance to host multiple distinct domain names or services."
+                    infoWhatFa="بلوک پیکربندی که به یک سرور Nginx امکان میزبانی چندین دامنه و سرویس مجزا را می‌دهد."
+                    infoWhyEn="Isolates routing, root folders, and SSL settings per domain name or IP."
+                    infoWhyFa="تفکیک روتینگ، مسیر فایل‌ها و سرتیفیکیت‌های امنیتی برای هر دامنه یا ساب‌دامنه."
+                    infoExampleEn="server { listen 80; server_name example.com; root /var/www/html; }"
+                    infoExampleFa="server { listen 80; server_name example.com; root /var/www/html; }"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
               </div>
 
-              <div
-                className={`p-6 rounded-xl border text-center ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
-                }`}
-              >
-                <Layers className="w-10 h-10 text-emerald-400/60 mx-auto mb-3" />
-                <h4 className="text-sm font-bold">
-                  {isEn ? 'Virtual Hosts Inspector' : 'کاوشگر هاست‌های مجازی'}
-                </h4>
-                <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
-                  {isEn
-                    ? 'Target directories: discovered from include directives in nginx.conf. Ready for parsing in Phase 3.'
-                    : 'مسیرهای هدف از دایرکتیوهای include در فایل nginx.conf کشف می‌شوند. آماده برای فاز ۳.'}
-                </p>
+              {/* Sites Summary Telemetry */}
+              {sitesData && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Total Sites' : 'کل وب‌سایت‌ها'}</span>
+                    <div className="text-base font-bold text-emerald-400 mt-1">{sitesData.totalSites}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Active Sites' : 'سایت‌های فعال'}</span>
+                    <div className="text-base font-bold text-cyan-400 mt-1">{sitesData.activeSites}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Disabled Sites' : 'غیرفعال / بکاپ'}</span>
+                    <div className="text-base font-bold text-amber-400 mt-1">{sitesData.disabledSites}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'SSL Protected' : 'مجهز به SSL'}</span>
+                    <div className="text-base font-bold text-emerald-300 mt-1">{sitesData.sslSites}</div>
+                  </div>
+                  <div className={`p-3 rounded-xl border ${isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'}`}>
+                    <span className="text-slate-400 text-[10px] uppercase font-sans font-bold">{isEn ? 'Reverse Proxies' : 'پروکسی‌های معکوس'}</span>
+                    <div className="text-base font-bold text-purple-400 mt-1">{sitesData.proxySites}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Two-Pane Sites Explorer */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                {/* Sites List Column */}
+                <div
+                  className={`lg:col-span-5 p-3 rounded-xl border flex flex-col space-y-2 max-h-[520px] overflow-hidden ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  {/* Filter & Search Bar */}
+                  <div className="space-y-2 shrink-0">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={sitesSearchQuery}
+                        onChange={(e) => setSitesSearchQuery(e.target.value)}
+                        placeholder={isEn ? 'Search domains, ports...' : 'جستجوی دامنه‌ها و پورت‌ها...'}
+                        className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border outline-none font-mono transition ${
+                          isLightMode
+                            ? 'border-slate-300 bg-slate-50 focus:border-emerald-500 text-slate-800'
+                            : 'border-slate-800 bg-slate-950/60 focus:border-emerald-500/50 text-slate-100'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Filter Pills */}
+                    <div className="flex items-center gap-1 overflow-x-auto text-[11px] pb-1">
+                      {(['all', 'active', 'disabled', 'ssl', 'proxy'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setSitesFilter(mode)}
+                          className={`px-2 py-0.5 rounded capitalize transition cursor-pointer shrink-0 font-medium ${
+                            sitesFilter === mode
+                              ? 'bg-emerald-500 text-slate-950 font-bold'
+                              : isLightMode
+                              ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          {mode === 'all'
+                            ? isEn ? 'All' : 'همه'
+                            : mode === 'active'
+                            ? isEn ? 'Active' : 'فعال'
+                            : mode === 'disabled'
+                            ? isEn ? 'Disabled' : 'غیرفعال'
+                            : mode === 'ssl'
+                            ? 'SSL'
+                            : isEn ? 'Proxy' : 'پروکسی'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sites Scrollable List */}
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                    {sitesLoading ? (
+                      <div className="p-8 text-center text-xs text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-emerald-400" />
+                        <span>{isEn ? 'Discovering Virtual Hosts...' : 'در حال استخراج هاست‌های مجازی...'}</span>
+                      </div>
+                    ) : !sitesData || sitesData.sites.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        <Layers className="w-6 h-6 mx-auto mb-2 text-slate-500" />
+                        <span>{isEn ? 'No virtual hosts or server blocks detected' : 'هیچ هاست مجازی در کانفیگ‌ها یافت نشد'}</span>
+                      </div>
+                    ) : (
+                      sitesData.sites
+                        .filter((s) => {
+                          if (sitesFilter === 'active' && !s.isEnabled) return false;
+                          if (sitesFilter === 'disabled' && s.isEnabled) return false;
+                          if (sitesFilter === 'ssl' && !s.sslEnabled) return false;
+                          if (sitesFilter === 'proxy' && !s.locations.some((l) => l.proxyPass)) return false;
+
+                          if (!sitesSearchQuery) return true;
+                          const q = sitesSearchQuery.toLowerCase();
+                          return (
+                            s.primaryDomain.toLowerCase().includes(q) ||
+                            s.serverNames.some((n) => n.toLowerCase().includes(q)) ||
+                            s.fileRelativePath.toLowerCase().includes(q) ||
+                            s.listens.some((l) => l.port.toString().includes(q))
+                          );
+                        })
+                        .map((s) => {
+                          const isSelected = selectedSite?.id === s.id;
+                          const hasProxy = s.locations.some((l) => l.proxyPass);
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => setSelectedSite(s)}
+                              className={`w-full text-left p-2.5 rounded-xl border transition cursor-pointer flex flex-col space-y-1.5 ${
+                                isSelected
+                                  ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200 shadow-sm'
+                                  : isLightMode
+                                  ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                                  : 'border-slate-800/80 bg-slate-950/40 hover:bg-slate-800/40 text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Globe className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-emerald-400' : 'text-slate-400'}`} />
+                                  <span className="font-bold text-xs font-mono truncate">{s.primaryDomain}</span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {s.isEnabled ? (
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400" title="Active / Enabled" />
+                                  ) : (
+                                    <span className="w-2 h-2 rounded-full bg-amber-400" title="Disabled" />
+                                  )}
+                                  {s.sslEnabled && (
+                                    <span className="px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono border border-emerald-500/30">
+                                      SSL
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+                                <div className="flex items-center gap-1">
+                                  {s.listens.map((l, i) => (
+                                    <span key={i} className="px-1.5 py-0.2 rounded bg-slate-800/60 text-slate-300">
+                                      :{l.port}
+                                    </span>
+                                  ))}
+                                  {hasProxy && (
+                                    <span className="px-1 py-0.2 rounded bg-purple-500/20 text-purple-300 text-[10px]">
+                                      proxy
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-slate-500 truncate max-w-[120px]">
+                                  {s.fileRelativePath}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+
+                {/* Site Inspection & Location Routing Column */}
+                <div
+                  className={`lg:col-span-7 p-4 rounded-xl border flex flex-col space-y-3 max-h-[520px] overflow-hidden ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  {selectedSite ? (
+                    <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                      {/* Site Header */}
+                      <div className="flex items-start justify-between border-b pb-3 gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-sm font-bold font-mono text-emerald-400">
+                              {selectedSite.primaryDomain}
+                            </h4>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                              {selectedSite.context}
+                            </span>
+                            {selectedSite.isEnabled ? (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                {isEn ? 'Active' : 'فعال'}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                {isEn ? 'Disabled' : 'غیرفعال'}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 font-mono mt-1">
+                            Defined in: <strong className="text-slate-300">{selectedSite.definedInFile}</strong>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Ports & Bindings */}
+                      <div className="space-y-1.5">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase">
+                          {isEn ? 'Listen Directives & Ports' : 'دایرکتیوهای Listen و پورت‌ها'}
+                        </span>
+                        <div className="flex flex-wrap gap-1.5 font-mono text-xs">
+                          {selectedSite.listens.map((l, idx) => (
+                            <div
+                              key={idx}
+                              className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-950/60 flex items-center gap-1.5"
+                            >
+                              <span className="text-emerald-400 font-bold">{l.raw}</span>
+                              {l.isSsl && <span className="text-[10px] text-cyan-400">(SSL)</span>}
+                              {l.isHttp2 && <span className="text-[10px] text-emerald-400">(HTTP/2)</span>}
+                              {l.isDefaultServer && <span className="text-[10px] text-amber-400">(Default)</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Server Names (Aliases) */}
+                      {selectedSite.serverNames.length > 0 && (
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">
+                            {isEn ? 'Server Names & Aliases' : 'نام‌های سرور و دامنه‌های متصل'}
+                          </span>
+                          <div className="flex flex-wrap gap-1.5 font-mono text-xs">
+                            {selectedSite.serverNames.map((sn, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2 py-0.5 rounded border border-slate-800 bg-slate-950/40 text-slate-200"
+                              >
+                                {sn}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Root & Static Index */}
+                      {selectedSite.rootPath && (
+                        <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 text-xs font-mono">
+                          <span className="text-[10px] text-slate-400 uppercase font-sans font-bold">
+                            {isEn ? 'Document Root' : 'مسیر ریشه وب (Root Path)'}
+                          </span>
+                          <div className="text-amber-300 font-bold mt-0.5">{selectedSite.rootPath}</div>
+                          {selectedSite.indexFiles && selectedSite.indexFiles.length > 0 && (
+                            <div className="text-slate-400 text-[11px] mt-1">
+                              Index: {selectedSite.indexFiles.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* SSL Certificates (Zero Private Key Leakage) */}
+                      {selectedSite.sslEnabled && (
+                        <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-950/20 text-xs font-mono space-y-1">
+                          <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                            <ShieldCheck className="w-4 h-4" />
+                            <span>{isEn ? 'SSL / TLS Certificate Binding' : 'گواهی امنیتی SSL/TLS متصل'}</span>
+                          </div>
+                          {selectedSite.sslCertificate && (
+                            <div className="text-[11px] text-slate-300 truncate">
+                              <strong>Cert:</strong> {selectedSite.sslCertificate}
+                            </div>
+                          )}
+                          {selectedSite.sslCertificateKey && (
+                            <div className="text-[11px] text-slate-400 truncate">
+                              <strong>Key Path:</strong> {selectedSite.sslCertificateKey}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Location Routing Blocks */}
+                      <div className="space-y-2">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase">
+                          {isEn ? `Locations & Routing (${selectedSite.locations.length})` : `مسیرها و روتینگ (${selectedSite.locations.length})`}
+                        </span>
+
+                        {selectedSite.locations.length === 0 ? (
+                          <div className="text-xs text-slate-500 italic font-mono p-2">
+                            {isEn ? 'No location directives explicitly defined' : 'دایرکتیو location مجزا تعریف نشده است'}
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5 font-mono text-xs">
+                            {selectedSite.locations.map((loc, idx) => (
+                              <div
+                                key={idx}
+                                className="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 flex flex-col space-y-1"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-bold text-emerald-400">location {loc.path}</span>
+                                  {loc.websocketSupport && (
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                      WebSocket
+                                    </span>
+                                  )}
+                                </div>
+
+                                {loc.proxyPass && (
+                                  <div className="text-cyan-300 text-[11px]">
+                                    <strong className="text-slate-400">proxy_pass:</strong> {loc.proxyPass}
+                                  </div>
+                                )}
+                                {loc.root && (
+                                  <div className="text-amber-300 text-[11px]">
+                                    <strong className="text-slate-400">root:</strong> {loc.root}
+                                  </div>
+                                )}
+                                {loc.alias && (
+                                  <div className="text-purple-300 text-[11px]">
+                                    <strong className="text-slate-400">alias:</strong> {loc.alias}
+                                  </div>
+                                )}
+                                {loc.tryFiles && (
+                                  <div className="text-slate-300 text-[11px]">
+                                    <strong className="text-slate-400">try_files:</strong> {loc.tryFiles}
+                                  </div>
+                                )}
+                                {loc.fastcgiPass && (
+                                  <div className="text-amber-400 text-[11px]">
+                                    <strong className="text-slate-400">fastcgi_pass:</strong> {loc.fastcgiPass}
+                                  </div>
+                                )}
+                                {loc.returnDirective && (
+                                  <div className="text-rose-400 text-[11px]">
+                                    <strong className="text-slate-400">return:</strong> {loc.returnDirective}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Raw Server Block Snippet */}
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase">
+                          {isEn ? 'Configuration Snippet' : 'تکه کد کانفیگ'}
+                        </span>
+                        <pre className="font-mono text-xs p-3 rounded-lg bg-black/70 text-slate-200 overflow-x-auto whitespace-pre">
+                          {selectedSite.rawBlockSnippet}
+                        </pre>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
+                      <span>{isEn ? 'Select a virtual host to inspect details' : 'یک هاست مجازی را برای بررسی انتخاب کنید'}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

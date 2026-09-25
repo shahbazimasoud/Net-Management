@@ -1484,6 +1484,58 @@ export interface NginxConfigTopologyTree {
   warnings: string[];
 }
 
+export interface NginxServerBlockLocation {
+  path: string;
+  proxyPass?: string;
+  root?: string;
+  alias?: string;
+  tryFiles?: string;
+  websocketSupport?: boolean;
+  fastcgiPass?: string;
+  returnDirective?: string;
+}
+
+export interface NginxServerBlock {
+  id: string;
+  context: 'http' | 'stream';
+  serverNames: string[];
+  primaryDomain: string;
+  listens: {
+    raw: string;
+    port: number;
+    isSsl: boolean;
+    isHttp2: boolean;
+    isHttp3: boolean;
+    isDefaultServer: boolean;
+    isIpv6: boolean;
+    ip?: string;
+  }[];
+  rootPath?: string;
+  indexFiles?: string[];
+  sslCertificate?: string;
+  sslCertificateKey?: string;
+  sslEnabled: boolean;
+  locations: NginxServerBlockLocation[];
+  definedInFile: string;
+  fileRelativePath: string;
+  lineStart?: number;
+  lineEnd?: number;
+  isEnabled: boolean;
+  rawBlockSnippet: string;
+}
+
+export interface NginxSitesSummary {
+  totalSites: number;
+  activeSites: number;
+  disabledSites: number;
+  sslSites: number;
+  proxySites: number;
+  staticSites: number;
+  streamSites: number;
+  sites: NginxServerBlock[];
+  warnings: string[];
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;

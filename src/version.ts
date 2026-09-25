@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.162.0';
+export const APP_VERSION = '1.163.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.163.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۳ مدیریت انجین‌ایکس: استخراج و مدل‌سازی نرمالایز هاست‌های مجازی (Virtual Hosts / Server Blocks Model) و نگاشت روتینگ دامنه‌ها',
+    title_en: 'Nginx Management Phase 3: Virtual Hosts & Server Blocks Normalized Model, Live Domain Routing & Port Binding Discovery',
+    changes: [
+      'پیاده‌سازی ماژول اختصاصی استخراج هاست‌های مجازی (/server/nginxSitesManager.ts) برای تفکیک خودکار و هوشمند بلوک‌های server { ... } در سرتاسر فایل‌های کانفیگ.',
+      'استخراج دقیق دایرکتیوهای listen (شامل پورت‌ها، IPv4/IPv6، SSL، HTTP/2 و default_server) و دامنه‌های server_name بدون وابستگی به ساختار sites-available اوبونتو.',
+      'نگاشت کامل دایرکتیوهای روتینگ درون هر هاست شامل مسیرهای location، اهداف proxy_pass، ریشه فایل‌ها (root)، پشتیبانی WebSocket، بازگشت‌ها (return) و fastcgi.',
+      'تشخیص هوشمند گواهینامه‌های SSL متصل به هر سایت بدون کوچکترین افشای کلید خصوصی (Zero Private Key Leakage).',
+      'تجهیز تب Virtual Hosts & Server Blocks در مودال Nginx به نمای دو ستونه تعاملی با فیلترهای All, Active, Disabled, SSL, Proxy و پنل جزئیات عمیق هر سایت.',
+      'ایجاد اندپوینت اختصاصی POST /api/remote-servers/:id/nginx-sites و متد کلاینت fetchNginxSites در سرویس API.',
+      'رعایت استانداردهای طراحی مودال، داک فوتر و تفکیک کامل زبان‌های فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered dedicated Virtual Hosts AST extractor (/server/nginxSitesManager.ts) parsing all server { ... } blocks across the discovered configuration file tree.',
+      'Extracted listen directives (ports, IPv4/IPv6, SSL flags, HTTP/2, default_server) and domain aliases (server_name) independently of distro conventions.',
+      'Mapped deep routing hierarchy inside each server block: locations, proxy_pass targets, static root paths, WebSocket upgrade support, return directives, and FastCGI passes.',
+      'Identified SSL/TLS certificate associations per virtual host with strict Zero Private Key Leakage security.',
+      'Revitalized Virtual Hosts & Server Blocks tab in Nginx modal with an interactive two-pane explorer, quick filter pills (All, Active, Disabled, SSL, Proxy), and domain routing inspector.',
+      'Added dedicated backend endpoint POST /api/remote-servers/:id/nginx-sites and client API fetchNginxSites.',
+      'Strictly maintained modal boundaries, dock integration, and bilingual localization.'
+    ]
+  },
   {
     version: '1.162.0',
     releaseDate: '2026-09-25',

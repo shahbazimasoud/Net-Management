@@ -199,6 +199,7 @@ import {
 } from './linuxCronManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
+import { discoverNginxServerBlocks } from './nginxSitesManager';
 
 export const apiRouter = Router();
 
@@ -1914,6 +1915,28 @@ apiRouter.post('/remote-servers/:id/nginx-config-topology', async (req: Request,
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to parse Nginx configuration tree',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-sites - Parses and models all Virtual Hosts & Server Blocks
+apiRouter.post('/remote-servers/:id/nginx-sites', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const sitesData = await discoverNginxServerBlocks(server, password);
+    return res.json({ success: true, sites: sitesData });
+  } catch (err: any) {
+    console.error(`[NginxSites API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to extract Nginx virtual hosts',
     });
   }
 });
