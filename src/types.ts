@@ -1419,6 +1419,34 @@ export interface RemoteServer {
   updated_at?: string;
 }
 
+export interface NginxInstallationDetails {
+  isInstalled: boolean;
+  version?: string;
+  binaryPath?: string;
+  prefixPath?: string;
+  confPath?: string;
+  pidPath?: string;
+  errorLogPath?: string;
+  accessLogPath?: string;
+  modulesPath?: string;
+  serviceName?: string;
+  serviceManager: 'systemd' | 'openrc' | 'init.d' | 'manual' | 'unknown';
+  serviceActive: 'active' | 'inactive' | 'failed' | 'unknown';
+  serviceEnabled: 'enabled' | 'disabled' | 'unknown';
+  masterPid?: number;
+  workerPids: number[];
+  workerCount: number;
+  compiledModules: string[];
+  buildArguments: string[];
+  osDistro?: string;
+  osRelease?: string;
+  osFamily: 'debian' | 'rhel' | 'alpine' | 'suse' | 'arch' | 'generic';
+  packageManager?: 'apt' | 'dnf' | 'yum' | 'apk' | 'zypper' | 'source' | 'unknown';
+  testedAt: string;
+  configTestOk: boolean;
+  configTestOutput?: string;
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;

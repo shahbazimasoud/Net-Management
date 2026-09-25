@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.160.0';
+export const APP_VERSION = '1.161.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.161.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۱ مدیریت انجین‌ایکس: پیاده‌سازی موتور کشف هوشمند توزیع، باینری، پرفیکس، سرویس و مشخصات بیلد Nginx بدون اتکا به مسیرهای پیش‌فرض اوبونتو',
+    title_en: 'Nginx Management Phase 1: Distribution-Aware Engine Discovery, Dynamic Executable & Prefix Detection, Procfs Process Mapping and Build Arguments Inspection',
+    changes: [
+      'پیاده‌سازی موتور اختصاصی کشف هوشمند Nginx در سرور (/server/nginxDiscovery.ts) برای شناسایی دقیق توزیع لینوکس (Debian, Ubuntu, RHEL, Rocky, Alma, Alpine, SUSE) و مدیر بسته مربوطه.',
+      'کشف پویا و زنده مسیر باینری Nginx از طریق خواندن /proc/<PID>/exe در صورت فعال بودن پروسه و بررسی سلسله‌مراتبی PATH و باینری‌های سفارشی بدون پیش‌فرض قرار دادن /usr/sbin/nginx.',
+      'استخراج بلادرنگ پرفیکس ریشه (--prefix)، فایل کانفیگ اصلی (--conf-path)، مسیر PID، ماژول‌های کامپایل‌شده و آرگومان‌های بیلد از خروجی زنده nginx -V.',
+      'شناسایی مدیر سرویس فعال سیستم (systemd، OpenRC، init.d یا مدیریت دستی) و نام اختصاصی یونیت سرویس جهت اجرای دستورات کنترل و ریلود.',
+      'تجهیز تب Overview & Discovery به کارت‌های زنده فرآیندها (Master PID و تعداد ورکرها)، مسیرهای توپولوژی، تگ‌های ماژول‌های کامپایل‌شده و تست سینتکس تطبیقی با باینری و کانفیگ کشف‌شده.',
+      'ایجاد اندپوینت اختصاصی POST /api/remote-servers/:id/nginx-discovery و متد کلاینت discoverNginxTopology در سرویس API.',
+      'حفظ کامل استانداردهای مودال، داک فوتر و عدم نمایش متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Implemented dedicated server-side Nginx discovery engine (/server/nginxDiscovery.ts) dynamically detecting Linux OS family (Debian, Ubuntu, RHEL, Rocky, Alma, Alpine, SUSE) and package managers.',
+      'Engineered live runtime binary resolution via /proc/<PID>/exe inspect and hierarchical path discovery without assuming Debian/Ubuntu default /usr/sbin/nginx.',
+      'Extracted real-time build arguments, prefix path, conf path, PID file path, and compiled modules list directly from live nginx -V output.',
+      'Detected active service manager (systemd, OpenRC, init.d, manual) and exact service unit name for accurate reload and lifecycle management.',
+      'Revamped Overview & Discovery tab with real process metrics (Master PID, worker counts), discovered path cards, compiled module badges, and dynamic syntax validation.',
+      'Added dedicated backend endpoint POST /api/remote-servers/:id/nginx-discovery and frontend API discoverNginxTopology.',
+      'Strictly maintained modal boundaries, footer dock synchronization, and zero Persian text in English mode.'
+    ]
+  },
   {
     version: '1.160.0',
     releaseDate: '2026-09-25',

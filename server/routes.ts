@@ -197,6 +197,7 @@ import {
   deleteLinuxCronJobSSH,
   runLinuxCronJobNowSSH,
 } from './linuxCronManager';
+import { discoverNginxInstallation } from './nginxDiscovery';
 
 export const apiRouter = Router();
 
@@ -1868,6 +1869,28 @@ apiRouter.post('/remote-servers/:id/service-action', async (req: Request, res: R
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to control remote service',
+    });
+  }
+});
+
+// GET /api/remote-servers/:id/nginx-discovery - Discovers real distribution-aware Nginx installation topology
+apiRouter.post('/remote-servers/:id/nginx-discovery', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const discovery = await discoverNginxInstallation(server, password);
+    return res.json({ success: true, discovery });
+  } catch (err: any) {
+    console.error(`[NginxDiscovery API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Nginx installation topology',
     });
   }
 });

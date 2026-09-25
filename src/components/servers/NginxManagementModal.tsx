@@ -15,20 +15,22 @@ import {
   CheckCircle2,
   AlertCircle,
   FileCode,
-  Sliders,
   Server,
   Network,
   Cpu,
   ShieldCheck,
   FileText,
-  Clock,
   Layers,
-  Check,
-  ArrowUpRight,
   HelpCircle,
+  FolderTree,
+  Box,
+  Key,
+  Flame,
+  Check,
+  Info,
 } from 'lucide-react';
-import { RemoteServer } from '../../types';
-import { controlLinuxServerService, sshExecute } from '../../services/api';
+import { RemoteServer, NginxInstallationDetails } from '../../types';
+import { controlLinuxServerService, discoverNginxTopology, sshExecute } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface NginxManagementModalProps {
@@ -43,19 +45,6 @@ export interface NginxManagementModalProps {
 }
 
 type NginxTab = 'overview' | 'vhosts' | 'proxy' | 'config' | 'logs';
-
-interface NginxLiveStatus {
-  activeState: 'active' | 'inactive' | 'failed' | 'unknown';
-  version?: string;
-  uptime?: string;
-  mainPid?: string;
-  configTestResult?: {
-    ok: boolean;
-    output: string;
-    testedAt: string;
-  };
-  lastCheckTime?: string;
-}
 
 export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   isOpen,
@@ -77,97 +66,36 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
     details?: string;
   } | null>(null);
 
-  const [nginxStatus, setNginxStatus] = useState<NginxLiveStatus>({
-    activeState: 'unknown',
-  });
+  // Phase 1: Real Topology Discovery Model
+  const [discovery, setDiscovery] = useState<NginxInstallationDetails | null>(null);
 
-  // Query live Nginx status on the real server
-  const fetchLiveNginxStatus = useCallback(async () => {
+  // Fetch full dynamic distribution-aware discovery
+  const fetchDiscovery = useCallback(async () => {
     if (!server) return;
     setLoading(true);
     setActionFeedback(null);
 
     try {
-      // Execute authentic diagnostic command via SSH
-      const cmd = `export LC_ALL=C
-echo "===SYSTEMCTL==="
-systemctl is-active nginx 2>/dev/null || service nginx status 2>/dev/null || echo "unknown"
-echo "===VERSION==="
-nginx -v 2>&1 || true
-echo "===TEST==="
-nginx -t 2>&1 || true
-echo "===PID==="
-pgrep -f "nginx: master process" 2>/dev/null || true
-`;
-      const res = await sshExecute({
-        host: server.ip,
-        port: server.ssh_port || 22,
-        username: server.ssh_username || 'root',
-        password: sessionPassword || server.ssh_password,
-        command: cmd,
-        timeout: 10000,
-      });
+      const res = await discoverNginxTopology(
+        server.id,
+        sessionPassword || server.ssh_password
+      );
 
-      if (res && res.success && res.output) {
-        const out = res.output;
-        const sysctlPart = out.includes('===SYSTEMCTL===')
-          ? out.split('===SYSTEMCTL===')[1].split('===VERSION===')[0].trim()
-          : '';
-        const versionPart = out.includes('===VERSION===')
-          ? out.split('===VERSION===')[1].split('===TEST===')[0].trim()
-          : '';
-        const testPart = out.includes('===TEST===')
-          ? out.split('===TEST===')[1].split('===PID===')[0].trim()
-          : '';
-        const pidPart = out.includes('===PID===')
-          ? out.split('===PID===')[1].trim()
-          : '';
-
-        let state: 'active' | 'inactive' | 'failed' | 'unknown' = 'unknown';
-        if (sysctlPart.includes('active') && !sysctlPart.includes('inactive')) {
-          state = 'active';
-        } else if (sysctlPart.includes('inactive') || sysctlPart.includes('dead') || sysctlPart.includes('stopped')) {
-          state = 'inactive';
-        } else if (sysctlPart.includes('failed')) {
-          state = 'failed';
-        }
-
-        const isConfigOk = testPart.includes('syntax is ok') && testPart.includes('test is successful');
-
-        setNginxStatus({
-          activeState: state,
-          version: versionPart.replace('nginx version:', '').trim() || undefined,
-          mainPid: pidPart || undefined,
-          configTestResult: {
-            ok: isConfigOk,
-            output: testPart,
-            testedAt: new Date().toLocaleTimeString(),
-          },
-          lastCheckTime: new Date().toLocaleTimeString(),
-        });
+      if (res && res.success && res.discovery) {
+        setDiscovery(res.discovery);
       } else {
-        // If SSH command failed or unreachable
-        setNginxStatus({
-          activeState: 'unknown',
-          configTestResult: undefined,
-          lastCheckTime: new Date().toLocaleTimeString(),
+        setActionFeedback({
+          type: 'error',
+          message: isEn
+            ? 'Failed to discover Nginx installation details'
+            : 'خطا در استعلام مشخصات نصب و معماری Nginx',
+          details: res?.error || (isEn ? 'Remote host did not return discovery data.' : 'سرور پاسخی ارسال نکرد.'),
         });
-        if (res?.error) {
-          setActionFeedback({
-            type: 'error',
-            message: isEn ? 'Failed to query Nginx status' : 'خطا در استعلام وضعیت سرویس Nginx',
-            details: res.error,
-          });
-        }
       }
     } catch (err: any) {
-      setNginxStatus({
-        activeState: 'unknown',
-        lastCheckTime: new Date().toLocaleTimeString(),
-      });
       setActionFeedback({
         type: 'error',
-        message: isEn ? 'Connection error while checking Nginx' : 'خطای ارتباط هنگام بررسی وضعیت Nginx',
+        message: isEn ? 'Connection error during Nginx discovery' : 'خطای ارتباط در حین کشف معماری Nginx',
         details: err?.message,
       });
     } finally {
@@ -177,20 +105,22 @@ pgrep -f "nginx: master process" 2>/dev/null || true
 
   useEffect(() => {
     if (isOpen && server) {
-      fetchLiveNginxStatus();
+      fetchDiscovery();
     }
-  }, [isOpen, server, fetchLiveNginxStatus]);
+  }, [isOpen, server, fetchDiscovery]);
 
-  // Execute Service Action (Start, Stop, Restart, Reload)
+  // Execute Service Action (Start, Stop, Restart, Reload) using discovered service name
   const handleServiceAction = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
     if (!server) return;
     setActionLoading(action);
     setActionFeedback(null);
 
+    const svcName = discovery?.serviceName || 'nginx';
+
     try {
       const res = await controlLinuxServerService(
         server.id,
-        'nginx',
+        svcName,
         action,
         sessionPassword || server.ssh_password
       );
@@ -199,21 +129,20 @@ pgrep -f "nginx: master process" 2>/dev/null || true
         setActionFeedback({
           type: 'success',
           message: isEn
-            ? `Nginx service ${action} action executed successfully.`
-            : `عملیات ${action} روی سرویس Nginx با موفقیت اجرا شد.`,
+            ? `Nginx service ${action} (${svcName}) executed successfully.`
+            : `عملیات ${action} روی سرویس ${svcName} با موفقیت انجام شد.`,
           details: res.message,
         });
-        // Refresh live status after action
         setTimeout(() => {
-          fetchLiveNginxStatus();
+          fetchDiscovery();
         }, 1200);
       } else {
         setActionFeedback({
           type: 'error',
           message: isEn
-            ? `Failed to ${action} Nginx service.`
-            : `خطا در اجرای عملیات ${action} روی سرویس Nginx.`,
-          details: res?.error || res?.message || (isEn ? 'Command returned non-zero code' : 'دستور با خطا پایان یافت'),
+            ? `Failed to ${action} Nginx (${svcName}) service.`
+            : `خطا در اجرای عملیات ${action} روی سرویس ${svcName}.`,
+          details: res?.error || res?.message || (isEn ? 'Command exited with error' : 'دستور با خطا پایان یافت'),
         });
       }
     } catch (err: any) {
@@ -227,11 +156,15 @@ pgrep -f "nginx: master process" 2>/dev/null || true
     }
   };
 
-  // Run Test Syntax (`nginx -t`)
+  // Run Test Syntax (`nginx -t`) using discovered binary and configuration path
   const handleTestSyntax = async () => {
     if (!server) return;
     setActionLoading('test');
     setActionFeedback(null);
+
+    const bin = discovery?.binaryPath || 'nginx';
+    const confArg = discovery?.confPath ? `-c "${discovery.confPath}"` : '';
+    const cmd = `${bin} ${confArg} -t 2>&1`;
 
     try {
       const res = await sshExecute({
@@ -239,20 +172,22 @@ pgrep -f "nginx: master process" 2>/dev/null || true
         port: server.ssh_port || 22,
         username: server.ssh_username || 'root',
         password: sessionPassword || server.ssh_password,
-        command: 'nginx -t 2>&1',
+        command: cmd,
         timeout: 10000,
       });
 
       if (res && res.output) {
         const isOk = res.output.includes('syntax is ok') && res.output.includes('test is successful');
-        setNginxStatus((prev) => ({
-          ...prev,
-          configTestResult: {
-            ok: isOk,
-            output: res.output,
-            testedAt: new Date().toLocaleTimeString(),
-          },
-        }));
+        setDiscovery((prev) =>
+          prev
+            ? {
+                ...prev,
+                configTestOk: isOk,
+                configTestOutput: res.output,
+                testedAt: new Date().toISOString(),
+              }
+            : null
+        );
 
         setActionFeedback({
           type: isOk ? 'success' : 'error',
@@ -275,7 +210,7 @@ pgrep -f "nginx: master process" 2>/dev/null || true
     } catch (err: any) {
       setActionFeedback({
         type: 'error',
-        message: isEn ? 'Error executing nginx -t' : 'خطا در اجرای دستور nginx -t',
+        message: isEn ? 'Error executing configuration test' : 'خطا در اجرای تست پیکربندی',
         details: err?.message,
       });
     } finally {
@@ -284,6 +219,8 @@ pgrep -f "nginx: master process" 2>/dev/null || true
   };
 
   if (!isOpen || !server) return null;
+
+  const isRunning = discovery?.serviceActive === 'active' || (discovery?.masterPid ?? 0) > 0;
 
   return createPortal(
     <div
@@ -328,45 +265,52 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-500/15 text-slate-300 border border-slate-500/30">
                   {server.ip}:{server.ssh_port || 22}
                 </span>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 uppercase">
-                  {server.os_distro || 'Linux'}
-                </span>
+
+                {/* Discovered Distribution Badge */}
+                {discovery?.osDistro ? (
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                    {discovery.osDistro} {discovery.osRelease || ''} ({discovery.osFamily})
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 uppercase">
+                    {server.os_distro || 'Linux'}
+                  </span>
+                )}
 
                 {/* Status Badge */}
-                {nginxStatus.activeState === 'active' && (
+                {isRunning ? (
                   <span className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <span>{isEn ? 'Active / Running' : 'فعال و در حال اجرا'}</span>
                   </span>
-                )}
-                {nginxStatus.activeState === 'inactive' && (
+                ) : discovery?.serviceActive === 'inactive' ? (
                   <span className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                     <span>{isEn ? 'Stopped / Inactive' : 'متوقف‌شده'}</span>
                   </span>
-                )}
-                {nginxStatus.activeState === 'failed' && (
+                ) : discovery?.serviceActive === 'failed' ? (
                   <span className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/40">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
                     <span>{isEn ? 'Failed' : 'خطادار'}</span>
                   </span>
-                )}
-                {nginxStatus.activeState === 'unknown' && !loading && (
+                ) : !loading ? (
                   <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-500/20 text-slate-400 border border-slate-500/40">
-                    {isEn ? 'Status Untested' : 'وضعیت نامشخص'}
+                    {isEn ? 'Status Unknown' : 'وضعیت نامشخص'}
                   </span>
-                )}
+                ) : null}
+
                 {loading && (
                   <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-mono animate-pulse">
                     <RefreshCw className="w-3 h-3 animate-spin" />
-                    <span>{isEn ? 'Inspecting...' : 'بررسی وضعیت...'}</span>
+                    <span>{isEn ? 'Discovering Environment...' : 'در حال کشف معماری سرور...'}</span>
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-400 truncate mt-0.5 font-mono">
-                {server.hostname ? `hostname: ${server.hostname} • ` : ''}
-                {nginxStatus.version ? `Nginx ${nginxStatus.version}` : 'Web Server & Reverse Proxy'}
-                {nginxStatus.mainPid ? ` • PID: ${nginxStatus.mainPid}` : ''}
+                {discovery?.version ? `${discovery.version}` : 'Web Server & Reverse Proxy'}
+                {discovery?.binaryPath ? ` • Binary: ${discovery.binaryPath}` : ''}
+                {discovery?.masterPid ? ` • Master PID: ${discovery.masterPid}` : ''}
+                {discovery?.workerCount ? ` • Workers: ${discovery.workerCount}` : ''}
               </p>
             </div>
           </div>
@@ -438,24 +382,24 @@ pgrep -f "nginx: master process" 2>/dev/null || true
         </div>
 
         {/* ======================================================== */}
-        {/* SUBHEADER: QUICK ACTIONS & PATH INFO                     */}
+        {/* SUBHEADER: DYNAMIC ACTIONS & PATHS                       */}
         {/* ======================================================== */}
         <div
           className={`px-4 sm:px-6 py-2.5 border-b flex items-center justify-between gap-3 flex-wrap text-xs ${
             isLightMode ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/50 border-slate-800'
           }`}
         >
-          {/* Quick Service Controls */}
+          {/* Quick Dynamic Service Controls */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-slate-400 text-[11px] font-semibold">
-              {isEn ? 'Quick Actions:' : 'عملیات سریع:'}
+              {isEn ? 'Live Actions:' : 'عملیات زنده:'}
             </span>
 
-            {/* Test Config Syntax */}
+            {/* Test Config Syntax using discovered binary */}
             <button
               type="button"
               onClick={handleTestSyntax}
-              disabled={actionLoading !== null || loading}
+              disabled={actionLoading !== null || loading || !discovery?.isInstalled}
               className={`px-2.5 py-1 rounded-lg border font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
                 isLightMode
                   ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -463,14 +407,18 @@ pgrep -f "nginx: master process" 2>/dev/null || true
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{actionLoading === 'test' ? (isEn ? 'Testing...' : 'تست...') : (isEn ? 'Test Syntax (nginx -t)' : 'تست سینتکس (nginx -t)')}</span>
+              <span>
+                {actionLoading === 'test'
+                  ? isEn ? 'Testing...' : 'تست...'
+                  : isEn ? 'Test Syntax' : 'تست سینتکس'}
+              </span>
             </button>
 
             {/* Reload */}
             <button
               type="button"
               onClick={() => handleServiceAction('reload')}
-              disabled={actionLoading !== null || loading}
+              disabled={actionLoading !== null || loading || !discovery?.isInstalled}
               className={`px-2.5 py-1 rounded-lg border font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
                 isLightMode
                   ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -485,7 +433,7 @@ pgrep -f "nginx: master process" 2>/dev/null || true
             <button
               type="button"
               onClick={() => handleServiceAction('restart')}
-              disabled={actionLoading !== null || loading}
+              disabled={actionLoading !== null || loading || !discovery?.isInstalled}
               className={`px-2.5 py-1 rounded-lg border font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
                 isLightMode
                   ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -497,11 +445,11 @@ pgrep -f "nginx: master process" 2>/dev/null || true
             </button>
 
             {/* Start or Stop */}
-            {nginxStatus.activeState === 'active' ? (
+            {isRunning ? (
               <button
                 type="button"
                 onClick={() => handleServiceAction('stop')}
-                disabled={actionLoading !== null || loading}
+                disabled={actionLoading !== null || loading || !discovery?.isInstalled}
                 className="px-2.5 py-1 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
               >
                 <Square className="w-3.5 h-3.5 text-rose-400" />
@@ -511,7 +459,7 @@ pgrep -f "nginx: master process" 2>/dev/null || true
               <button
                 type="button"
                 onClick={() => handleServiceAction('start')}
-                disabled={actionLoading !== null || loading}
+                disabled={actionLoading !== null || loading || !discovery?.isInstalled}
                 className="px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
               >
                 <Play className="w-3.5 h-3.5 text-emerald-400" />
@@ -519,12 +467,12 @@ pgrep -f "nginx: master process" 2>/dev/null || true
               </button>
             )}
 
-            {/* Refresh Live Status */}
+            {/* Refresh Live Discovery */}
             <button
               type="button"
-              onClick={fetchLiveNginxStatus}
+              onClick={fetchDiscovery}
               disabled={loading}
-              title={isEn ? 'Refresh Live Status' : 'به‌روزرسانی وضعیت زنده'}
+              title={isEn ? 'Refresh Live Discovery' : 'کشف مجدد وضعیت زنده'}
               className={`p-1.5 rounded-lg border transition cursor-pointer disabled:opacity-50 ${
                 isLightMode
                   ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
@@ -535,19 +483,29 @@ pgrep -f "nginx: master process" 2>/dev/null || true
             </button>
           </div>
 
-          {/* Standard Paths Quick References */}
+          {/* Real Discovered Paths (Zero hardcoded assumptions) */}
           <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 truncate">
-            <span className="hidden md:inline">
-              <strong className="text-slate-300">Config:</strong> /etc/nginx/nginx.conf
-            </span>
-            <span className="hidden lg:inline text-slate-600">•</span>
-            <span className="hidden lg:inline">
-              <strong className="text-slate-300">Sites:</strong> /etc/nginx/sites-available/
-            </span>
-            <span className="hidden xl:inline text-slate-600">•</span>
-            <span className="hidden xl:inline">
-              <strong className="text-slate-300">Logs:</strong> /var/log/nginx/
-            </span>
+            {discovery?.confPath && (
+              <span className="hidden md:inline">
+                <strong className="text-slate-300">Config:</strong> {discovery.confPath}
+              </span>
+            )}
+            {discovery?.prefixPath && (
+              <>
+                <span className="hidden lg:inline text-slate-600">•</span>
+                <span className="hidden lg:inline">
+                  <strong className="text-slate-300">Prefix:</strong> {discovery.prefixPath}
+                </span>
+              </>
+            )}
+            {discovery?.serviceManager && (
+              <>
+                <span className="hidden xl:inline text-slate-600">•</span>
+                <span className="hidden xl:inline">
+                  <strong className="text-slate-300">Init:</strong> {discovery.serviceManager} ({discovery.serviceName || 'nginx'})
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -607,7 +565,7 @@ pgrep -f "nginx: master process" 2>/dev/null || true
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Overview & Status' : 'نمای کلی و وضعیت'}</span>
+            <span>{isEn ? 'Overview & Discovery' : 'نمای کلی و کشف معماری'}</span>
           </button>
 
           <button
@@ -652,7 +610,7 @@ pgrep -f "nginx: master process" 2>/dev/null || true
             }`}
           >
             <FileCode className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Configuration' : 'فایل‌های پیکربندی'}</span>
+            <span>{isEn ? 'Configuration Tree' : 'درخت پیکربندی'}</span>
           </button>
 
           <button
@@ -675,12 +633,12 @@ pgrep -f "nginx: master process" 2>/dev/null || true
         {/* TAB CONTENTS                                             */}
         {/* ======================================================== */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-          {/* TAB 1: OVERVIEW & STATUS */}
+          {/* TAB 1: OVERVIEW & DISCOVERY */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
               {/* Telemetry & Spec Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Card 1: Service State */}
+                {/* Card 1: Daemon & Process State */}
                 <div
                   className={`p-4 rounded-xl border ${
                     isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -688,16 +646,16 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-slate-400">
-                      {isEn ? 'Service Status' : 'وضعیت سرویس'}
+                      {isEn ? 'Process State' : 'وضعیت پردازش'}
                     </span>
                     <FieldInfoTooltip
-                      fieldName="Nginx Daemon State"
-                      infoWhatEn="The active execution state of the Nginx master process under systemd."
-                      infoWhatFa="وضعیت پردازش اصلی و سرویس دیمن وب‌سرور Nginx تحت سیستم‌دی لینوکس."
-                      infoWhyEn="Ensures the web server daemon is alive and listening for incoming HTTP/HTTPS traffic."
-                      infoWhyFa="تضمین می‌کند وب‌سرور زنده بوده و به ترافیک ورودی وب گوش فرا می‌دهد."
-                      infoExampleEn="active (running)"
-                      infoExampleFa="active (running)"
+                      fieldName="Nginx Master & Worker State"
+                      infoWhatEn="The active execution state of Nginx master and worker processes discovered directly via /proc."
+                      infoWhatFa="وضعیت اجرای پردازش اصلی (Master) و پردازش‌های کارگر (Workers) که مستقیماً از /proc لینوکس کشف شده است."
+                      infoWhyEn="Confirms whether Nginx is actively listening and handling web traffic, regardless of systemd unit status."
+                      infoWhyFa="تایید می‌کند وب‌سرور واقعاً ترافیک وب را دریافت می‌کند یا خیر، مستقل از اینکه سرویس از چه راهی استارت شده باشد."
+                      infoExampleEn="Active (Master PID: 1248, 4 Workers)"
+                      infoExampleFa="فعال (شناسه مستر: ۱۲۴۸، ۴ ورکر)"
                       isEn={isEn}
                       isLightMode={isLightMode}
                     />
@@ -705,27 +663,27 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                   <div className="flex items-center gap-2">
                     <span
                       className={`w-3 h-3 rounded-full ${
-                        nginxStatus.activeState === 'active'
+                        isRunning
                           ? 'bg-emerald-500 animate-pulse'
-                          : nginxStatus.activeState === 'inactive'
+                          : discovery?.serviceActive === 'inactive'
                           ? 'bg-amber-500'
-                          : nginxStatus.activeState === 'failed'
+                          : discovery?.serviceActive === 'failed'
                           ? 'bg-rose-500'
                           : 'bg-slate-500'
                       }`}
                     />
                     <span className="text-base font-bold capitalize">
-                      {nginxStatus.activeState}
+                      {isRunning ? (isEn ? 'Running' : 'در حال اجرا') : (isEn ? 'Stopped' : 'متوقف')}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-1 font-mono">
-                    {nginxStatus.lastCheckTime
-                      ? `${isEn ? 'Checked at' : 'بررسی در'}: ${nginxStatus.lastCheckTime}`
-                      : isEn ? 'Not verified yet' : 'هنوز بررسی نشده'}
+                    {discovery?.masterPid
+                      ? `Master PID: ${discovery.masterPid} (${discovery.workerCount} workers)`
+                      : isEn ? 'No running process detected' : 'هیچ پردازش فعالی یافت نشد'}
                   </p>
                 </div>
 
-                {/* Card 2: Nginx Version */}
+                {/* Card 2: Engine Version & Distribution */}
                 <div
                   className={`p-4 rounded-xl border ${
                     isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -733,15 +691,17 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-slate-400">
-                      {isEn ? 'Installed Engine' : 'موتور وب‌سرور'}
+                      {isEn ? 'Discovered Engine' : 'موتور و توزیع لینوکس'}
                     </span>
                     <Globe className="w-4 h-4 text-emerald-400" />
                   </div>
-                  <div className="text-base font-bold font-mono text-emerald-400">
-                    {nginxStatus.version || 'Nginx (Live)'}
+                  <div className="text-base font-bold font-mono text-emerald-400 truncate">
+                    {discovery?.version || (isEn ? 'Nginx' : 'انجین‌ایکس')}
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    {isEn ? 'HTTP Server & Reverse Proxy' : 'وب‌سرور و پراکسی معکوس'}
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono truncate">
+                    {discovery?.osDistro
+                      ? `${discovery.osDistro} (${discovery.packageManager || 'pkg'})`
+                      : 'Linux Distribution'}
                   </p>
                 </div>
 
@@ -756,24 +716,24 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                       {isEn ? 'Syntax Test' : 'اعتبارسنجی سینتکس'}
                     </span>
                     <FieldInfoTooltip
-                      fieldName="Nginx Configuration Integrity"
-                      infoWhatEn="Verifies that all include directives, server blocks, and proxy rules are syntactically sound without breaking production."
-                      infoWhatFa="صحت نحوی تمامی دستورات، بلوک‌های سرور و رول‌های پروکسی را بدون اختلال در سرور بررسی می‌کند."
-                      infoWhyEn="Executing nginx -t prevents fatal service crashes prior to applying reloads or restarts."
-                      infoWhyFa="اجرای تست سینتکس مانع از کرش و از کار افتادن وب‌سرور قبل از اعمال ریلود می‌شود."
-                      infoExampleEn="nginx -t => syntax is ok, test is successful"
-                      infoExampleFa="nginx -t => syntax is ok, test is successful"
+                      fieldName="Real Nginx Configuration Test"
+                      infoWhatEn="Verifies configuration integrity using discovered binary and configuration path."
+                      infoWhatFa="صحت نحوی کانفیگ را با باینری و مسیر کانفیگ کشف‌شده از سرور بررسی می‌کند."
+                      infoWhyEn="Prevents downtime and service restarts with invalid configuration syntax."
+                      infoWhyFa="مانع از دان شدن سرور و کرش در حین بارگذاری مجدد کانفیگ معیوب می‌شود."
+                      infoExampleEn="nginx -c /etc/nginx/nginx.conf -t"
+                      infoExampleFa="nginx -c /etc/nginx/nginx.conf -t"
                       isEn={isEn}
                       isLightMode={isLightMode}
                     />
                   </div>
                   <div className="flex items-center gap-1.5">
-                    {nginxStatus.configTestResult ? (
-                      nginxStatus.configTestResult.ok ? (
+                    {discovery?.configTestOutput ? (
+                      discovery.configTestOk ? (
                         <>
                           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                           <span className="text-base font-bold text-emerald-400">
-                            {isEn ? 'Passed' : 'بدون خطا'}
+                            {isEn ? 'Syntax OK' : 'بدون خطا'}
                           </span>
                         </>
                       ) : (
@@ -791,11 +751,11 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 mt-1 font-mono">
-                    {nginxStatus.configTestResult?.testedAt || 'nginx -t'}
+                    {discovery?.testedAt ? new Date(discovery.testedAt).toLocaleTimeString() : 'nginx -t'}
                   </p>
                 </div>
 
-                {/* Card 4: SSH Target */}
+                {/* Card 4: Service Manager & Init */}
                 <div
                   className={`p-4 rounded-xl border ${
                     isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -803,24 +763,143 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-slate-400">
-                      {isEn ? 'Management Target' : 'هدف ارتباطی'}
+                      {isEn ? 'Service Manager' : 'مدیر سرویس'}
                     </span>
                     <Server className="w-4 h-4 text-cyan-400" />
                   </div>
                   <div className="text-base font-bold font-mono text-cyan-400 truncate">
-                    {server.ip}
+                    {discovery?.serviceManager || 'systemd'} ({discovery?.serviceName || 'nginx'})
                   </div>
                   <p className="text-[11px] text-slate-400 mt-1 font-mono">
-                    SSH: {server.ssh_username || 'root'}@{server.ip}:{server.ssh_port || 22}
+                    Boot: {discovery?.serviceEnabled || 'unknown'}
                   </p>
                 </div>
               </div>
 
+              {/* Real Discovered Paths Grid */}
+              <div
+                className={`p-5 rounded-xl border ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    <FolderTree className="w-4 h-4 text-emerald-400" />
+                    <span>{isEn ? 'Discovered Nginx System Topology' : 'توپولوژی و مسیرهای کشف‌شده Nginx در سرور'}</span>
+                  </h3>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                    {isEn ? 'Discovered from live host' : 'کشف‌شده به‌صورت زنده از هاست'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs font-mono">
+                  {/* Binary Path */}
+                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40">
+                    <div className="text-slate-400 text-[10px] uppercase font-sans font-bold">
+                      {isEn ? 'Executable Binary' : 'مسیر باینری اجرایی'}
+                    </div>
+                    <div className="text-emerald-400 font-bold truncate mt-1">
+                      {discovery?.binaryPath || (isEn ? 'Not found in PATH' : 'یافت نشد')}
+                    </div>
+                  </div>
+
+                  {/* Config Path */}
+                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40">
+                    <div className="text-slate-400 text-[10px] uppercase font-sans font-bold">
+                      {isEn ? 'Main Configuration' : 'فایل کانفیگ اصلی'}
+                    </div>
+                    <div className="text-cyan-400 font-bold truncate mt-1">
+                      {discovery?.confPath || '/etc/nginx/nginx.conf'}
+                    </div>
+                  </div>
+
+                  {/* Prefix Path */}
+                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40">
+                    <div className="text-slate-400 text-[10px] uppercase font-sans font-bold">
+                      {isEn ? 'Root Prefix Path' : 'دایرکتوری ریشه Prefix'}
+                    </div>
+                    <div className="text-amber-400 font-bold truncate mt-1">
+                      {discovery?.prefixPath || '/etc/nginx'}
+                    </div>
+                  </div>
+
+                  {/* PID Path */}
+                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40">
+                    <div className="text-slate-400 text-[10px] uppercase font-sans font-bold">
+                      {isEn ? 'Master PID File' : 'مسیر فایل PID مستر'}
+                    </div>
+                    <div className="text-slate-200 font-bold truncate mt-1">
+                      {discovery?.pidPath || '/run/nginx.pid'}
+                    </div>
+                  </div>
+
+                  {/* Error Log Path */}
+                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40">
+                    <div className="text-slate-400 text-[10px] uppercase font-sans font-bold">
+                      {isEn ? 'Default Error Log' : 'لاگ پیش‌فرض خطا'}
+                    </div>
+                    <div className="text-rose-400 font-bold truncate mt-1">
+                      {discovery?.errorLogPath || '/var/log/nginx/error.log'}
+                    </div>
+                  </div>
+
+                  {/* Access Log Path */}
+                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40">
+                    <div className="text-slate-400 text-[10px] uppercase font-sans font-bold">
+                      {isEn ? 'Default Access Log' : 'لاگ پیش‌فرض دسترسی'}
+                    </div>
+                    <div className="text-emerald-300 font-bold truncate mt-1">
+                      {discovery?.accessLogPath || '/var/log/nginx/access.log'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Compiled Modules & Build Arguments */}
+              {discovery?.compiledModules && discovery.compiledModules.length > 0 && (
+                <div
+                  className={`p-5 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold flex items-center gap-2">
+                      <Box className="w-4 h-4 text-emerald-400" />
+                      <span>{isEn ? 'Compiled Nginx Modules' : 'ماژول‌های کامپایل‌شده انجین‌ایکس'}</span>
+                    </h3>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {discovery.compiledModules.length} {isEn ? 'modules enabled' : 'ماژول فعال'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1 font-mono text-[11px]">
+                    {discovery.compiledModules.map((m, idx) => (
+                      <span
+                        key={idx}
+                        className={`px-2 py-0.5 rounded border ${
+                          m.includes('ssl')
+                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                            : m.includes('v2') || m.includes('v3')
+                            ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
+                            : m.includes('stream')
+                            ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                            : isLightMode
+                            ? 'bg-slate-100 border-slate-300 text-slate-700'
+                            : 'bg-slate-800/60 border-slate-700/60 text-slate-300'
+                        }`}
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Syntax Output Panel (if tested) */}
-              {nginxStatus.configTestResult && (
+              {discovery?.configTestOutput && (
                 <div
                   className={`p-4 rounded-xl border ${
-                    nginxStatus.configTestResult.ok
+                    discovery.configTestOk
                       ? isLightMode
                         ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                         : 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
@@ -833,67 +912,20 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4" />
                       <span className="font-bold text-xs">
-                        {isEn ? 'Nginx Configuration Test Output (nginx -t):' : 'خروجی تست پیکربندی Nginx:'}
+                        {isEn
+                          ? `Configuration Test Output (${discovery.binaryPath || 'nginx'} -t):`
+                          : 'خروجی تست پیکربندی انجین‌ایکس:'}
                       </span>
                     </div>
                     <span className="text-[10px] font-mono opacity-75">
-                      {nginxStatus.configTestResult.testedAt}
+                      {new Date(discovery.testedAt).toLocaleTimeString()}
                     </span>
                   </div>
                   <pre className="font-mono text-xs p-3 rounded-lg bg-black/50 text-slate-200 overflow-x-auto whitespace-pre-wrap">
-                    {nginxStatus.configTestResult.output}
+                    {discovery.configTestOutput}
                   </pre>
                 </div>
               )}
-
-              {/* Server Information & Paths Guide */}
-              <div
-                className={`p-5 rounded-xl border ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                }`}
-              >
-                <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
-                  <FileCode className="w-4 h-4 text-emerald-400" />
-                  <span>{isEn ? 'Nginx File Structure & Architecture' : 'ساختار فایل‌ها و معماری Nginx'}</span>
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 space-y-1">
-                    <div className="text-emerald-400 font-bold">/etc/nginx/nginx.conf</div>
-                    <div className="text-slate-400 text-[11px] font-sans">
-                      {isEn
-                        ? 'Primary Nginx server configuration file, worker processes, event loop, and global HTTP context.'
-                        : 'فایل پیکربندی اصلی وب‌سرور، تنظیمات پردازشگرهای ورکر، حلقه رویدادها و کانتکست عمومی HTTP.'}
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 space-y-1">
-                    <div className="text-cyan-400 font-bold">/etc/nginx/sites-available/</div>
-                    <div className="text-slate-400 text-[11px] font-sans">
-                      {isEn
-                        ? 'Definitions of virtual hosts (server blocks) for domains and ports before being symlinked.'
-                        : 'تعاریف هاست‌های مجازی (بلوک‌های سرور) برای دامنه‌ها و پورت‌های مختلف قبل از لینک‌شدن.'}
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 space-y-1">
-                    <div className="text-amber-400 font-bold">/etc/nginx/sites-enabled/</div>
-                    <div className="text-slate-400 text-[11px] font-sans">
-                      {isEn
-                        ? 'Active sites symlinked from sites-available that are parsed and served by Nginx.'
-                        : 'سایت‌های فعال که از پوشه sites-available لینک شده و در حال سرویس‌دهی ترافیک هستند.'}
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-800/80 bg-slate-950/40 space-y-1">
-                    <div className="text-rose-400 font-bold">/var/log/nginx/error.log</div>
-                    <div className="text-slate-400 text-[11px] font-sans">
-                      {isEn
-                        ? 'Web server diagnostic errors, failed upstream connections, and configuration issues.'
-                        : 'لاگ خطاهای سرور، عدم دسترسی به آپ‌استریم‌های بک‌اند و خطاهای تحلیل پیکربندی.'}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -925,7 +957,6 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 />
               </div>
 
-              {/* Virtual Hosts Container Ready for User Guidance */}
               <div
                 className={`p-6 rounded-xl border text-center ${
                   isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
@@ -937,8 +968,8 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 </h4>
                 <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
                   {isEn
-                    ? 'Target directories: /etc/nginx/sites-available and /etc/nginx/conf.d. Ready for automated parsing and site creation.'
-                    : 'مسیرهای هدف: /etc/nginx/sites-available و /etc/nginx/conf.d. آماده برای تحلیل فایل‌ها و مدیریت سایت‌ها.'}
+                    ? 'Target directories: discovered from include directives in nginx.conf. Ready for parsing in Phase 3.'
+                    : 'مسیرهای هدف از دایرکتیوهای include در فایل nginx.conf کشف می‌شوند. آماده برای فاز ۳.'}
                 </p>
               </div>
             </div>
@@ -972,7 +1003,6 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 />
               </div>
 
-              {/* Upstreams Container Ready for User Guidance */}
               <div
                 className={`p-6 rounded-xl border text-center ${
                   isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
@@ -991,19 +1021,19 @@ pgrep -f "nginx: master process" 2>/dev/null || true
             </div>
           )}
 
-          {/* TAB 4: CONFIGURATION */}
+          {/* TAB 4: CONFIGURATION TREE */}
           {activeTab === 'config' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold flex items-center gap-2">
                     <FileCode className="w-4 h-4 text-emerald-400" />
-                    <span>{isEn ? 'Configuration Files & Editor' : 'فایل‌ها و ویرایشگر پیکربندی'}</span>
+                    <span>{isEn ? 'Configuration Files & Architecture' : 'فایل‌ها و ساختار پیکربندی'}</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {isEn
-                      ? 'Direct editing and backup of nginx.conf, snippets, and SSL parameters with safety checks.'
-                      : 'ویرایش مستقیم و پشتیبان‌گیری از nginx.conf و تنظیمات SSL همراه با تست ایمنی سینتکس.'}
+                      ? `Root config path: ${discovery?.confPath || '/etc/nginx/nginx.conf'}`
+                      : `مسیر فایل اصلی: ${discovery?.confPath || '/etc/nginx/nginx.conf'}`}
                   </p>
                 </div>
               </div>
@@ -1019,8 +1049,8 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 </h4>
                 <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
                   {isEn
-                    ? 'Ready for viewing, syntax validation, and editing /etc/nginx/nginx.conf.'
-                    : 'آماده برای مشاهده، اعتبارسنجی سینتکس و ویرایش فایل /etc/nginx/nginx.conf.'}
+                    ? 'Ready for viewing, recursive include traversal, and safe syntax validation in Phase 2.'
+                    : 'آماده برای تحلیل گراف Includeها و اعتبارسنجی در فاز ۲.'}
                 </p>
               </div>
             </div>
@@ -1037,8 +1067,8 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {isEn
-                      ? 'Real-time telemetry from /var/log/nginx/access.log and /var/log/nginx/error.log.'
-                      : 'گزارش‌های لحظه‌ای ترافیک از /var/log/nginx/access.log و خطاهای /var/log/nginx/error.log.'}
+                      ? `Discovered logs: Error (${discovery?.errorLogPath || '/var/log/nginx/error.log'}), Access (${discovery?.accessLogPath || '/var/log/nginx/access.log'})`
+                      : `مسیرهای لاگ کشف‌شده: خطا (${discovery?.errorLogPath || '/var/log/nginx/error.log'})، دسترسی (${discovery?.accessLogPath || '/var/log/nginx/access.log'})`}
                   </p>
                 </div>
               </div>
@@ -1054,8 +1084,8 @@ pgrep -f "nginx: master process" 2>/dev/null || true
                 </h4>
                 <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
                   {isEn
-                    ? 'Tails and filters incoming HTTP status codes (2xx, 3xx, 4xx, 5xx) and fatal web server errors.'
-                    : 'مشاهده و فیلتر کردن کدهای وضعیت HTTP و خطاهای سرور به صورت زنده.'}
+                    ? 'Tails and filters incoming HTTP status codes and fatal web server errors from real discovered paths.'
+                    : 'مشاهده و فیلتر کردن لاگ‌های واقعی کشف‌شده از سرور لینوکس.'}
                 </p>
               </div>
             </div>
@@ -1076,8 +1106,16 @@ pgrep -f "nginx: master process" 2>/dev/null || true
             </span>
             <span className="hidden sm:inline">•</span>
             <span className="hidden sm:inline">
-              Engine: <strong className="text-slate-200">{nginxStatus.version || 'Nginx'}</strong>
+              Engine: <strong className="text-slate-200">{discovery?.version || 'Nginx'}</strong>
             </span>
+            {discovery?.binaryPath && (
+              <>
+                <span className="hidden md:inline">•</span>
+                <span className="hidden md:inline text-slate-400">
+                  Bin: <span className="text-emerald-400">{discovery.binaryPath}</span>
+                </span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
