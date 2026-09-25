@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.155.0';
+export const APP_VERSION = '1.156.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.156.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'توسعه جامع الگو و فرم ساخت و پیکربندی کاربران لینوکس (User Provisioning) در ابزار Bulk Server Configuration با تولید گذرواژه امن',
+    title_en: 'Comprehensive Linux User Creation & Provisioning Template in Bulk Server Configuration with Interactive Password Generator',
+    changes: [
+      'بازطراحی و توسعه همه‌جانبه تمپلیت ساخت کاربر سیستم (linux_create_admin_user) با پارامترهای کامل شرکتی و امنیتی.',
+      'افزودن امکان تعریف رمز عبور کاربر با قابلیت هش‌گذاری امن (chpasswd) و دکمه‌های مخفی‌سازی/نمایش و کپی گذرواژه.',
+      'افزودن کلید هوشمند تولید خودکار گذرواژه‌های با آنتروپی و امنیت بالا (Generate Strong Password) مستقیم در داخل فرم تنظیمات.',
+      'افزودن قابلیت اجبار به تغییر رمز عبور در اولین ورود (Force Password Reset on First Login) با استفاده از ابزار chage.',
+      'افزودن گزینه‌های سطوح دسترسی Sudo شامل دسترسی استاندارد با رمز، دسترسی سوپریوزر بدون رمز (NOPASSWD در /etc/sudoers.d) و کاربر عادی بدون سودو.',
+      'پشتیبانی از نام کامل و توضیحات کاربر (GECOS)، مسیر پوشه خانگی سفارشی، گروه‌های ثانویه اضافی (مانند docker, adm, www-data)، شناسه کاربری سفارشی (UID) و تاریخ انقضای حساب.',
+      'پیاده‌سازی اسکریپت بش واحد و ماژولار جهت اجرای سازگار و امن بر روی تمامی توزیع‌های دبیان، اوبونتو، ردهت، سنت‌او‌اس، راکی، آلپاین و سوزه.',
+      'بروزرسانی تحلیل اثرات امنیتی و سیستمی و تطابق صددرصدی با استانداردهای چندزبانگی (i18n).'
+    ],
+    changes_en: [
+      'Comprehensive overhaul and expansion of the Linux user creation template (linux_create_admin_user) with enterprise-grade parameters.',
+      'Added user password configuration with secure in-flight hashing (chpasswd) and toggleable show/hide and copy controls.',
+      'Integrated a 1-click high-entropy random password generator (Generate Strong Password) directly inside the parameter form.',
+      'Added mandatory password reset enforcement on first login (Force Password Reset via chage -d 0).',
+      'Configured granular Sudo privilege elevation levels: standard sudo with password prompt, passwordless sudo (NOPASSWD in /etc/sudoers.d), and standard unprivileged user.',
+      'Added support for full name / description (GECOS), custom home directory, supplementary secondary groups (e.g. docker, adm, www-data), custom UID, and account expiration dates.',
+      'Engineered a robust, idempotent bash provisioning script compatible across Debian, Ubuntu, RHEL, CentOS, Rocky Linux, Arch, Alpine, and SUSE.',
+      'Updated security and filesystem impact analysis engine with strict bilingual i18n support.'
+    ]
+  },
   {
     version: '1.155.0',
     releaseDate: '2026-09-25',

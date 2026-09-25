@@ -158,6 +158,7 @@ interface FallbackStore {
   remote_servers?: RemoteServer[];
   server_categories?: ServerCategory[];
   user_password_vault?: UserVaultItem[];
+  bulk_server_reports?: any[];
 }
 
 export interface UserVaultItem {
@@ -3788,4 +3789,53 @@ export async function deleteUserVaultItem(id: string, userId: string): Promise<b
 
   return deletedInFallback;
 }
+
+export async function getBulkServerReports(): Promise<any[]> {
+  const store = loadFallbackStore();
+  const reports = Array.isArray(store.bulk_server_reports) ? store.bulk_server_reports : [];
+  return [...reports].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+export async function getBulkServerReportById(id: string): Promise<any | null> {
+  const store = loadFallbackStore();
+  const reports = Array.isArray(store.bulk_server_reports) ? store.bulk_server_reports : [];
+  return reports.find((r: any) => r.id === id || r.jobId === id) || null;
+}
+
+export async function saveBulkServerReport(report: any): Promise<void> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.bulk_server_reports)) {
+    store.bulk_server_reports = [];
+  }
+  const idx = store.bulk_server_reports.findIndex((r: any) => r.id === report.id || r.jobId === report.jobId);
+  if (idx >= 0) {
+    store.bulk_server_reports[idx] = report;
+  } else {
+    store.bulk_server_reports.unshift(report);
+  }
+  if (store.bulk_server_reports.length > 150) {
+    store.bulk_server_reports = store.bulk_server_reports.slice(0, 150);
+  }
+  saveFallbackStore(store);
+}
+
+export async function deleteBulkServerReport(id: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.bulk_server_reports)) return false;
+  const initialLen = store.bulk_server_reports.length;
+  store.bulk_server_reports = store.bulk_server_reports.filter((r: any) => r.id !== id && r.jobId !== id);
+  if (store.bulk_server_reports.length < initialLen) {
+    saveFallbackStore(store);
+    return true;
+  }
+  return false;
+}
+
+export async function clearAllBulkServerReports(): Promise<boolean> {
+  const store = loadFallbackStore();
+  store.bulk_server_reports = [];
+  saveFallbackStore(store);
+  return true;
+}
+
 

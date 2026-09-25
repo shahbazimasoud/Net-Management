@@ -31,7 +31,8 @@ import {
   HelpCircle,
   AlertCircle,
   FolderArchive,
-  ShieldCheck
+  ShieldCheck,
+  Wand2
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -118,6 +119,7 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
   const [activeTabServerId, setActiveTabServerId] = useState<string | null>(null);
   const [logFilter, setLogFilter] = useState<'all' | 'error' | 'warning' | 'info' | 'success'>('all');
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
 
   const logsEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -988,15 +990,77 @@ export const BulkServerConfigModal: React.FC<BulkServerConfigModalProps> = ({
                                     className="w-full px-3 py-2 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500"
                                   />
                                 ) : param.type === 'password' ? (
-                                  <input
-                                    type="password"
-                                    value={parameters[param.name] ?? ''}
-                                    onChange={(e) =>
-                                      setParameters((prev) => ({ ...prev, [param.name]: e.target.value }))
-                                    }
-                                    placeholder={param.placeholder || ''}
-                                    className="w-full px-3 py-1.5 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500"
-                                  />
+                                  <div className="space-y-1.5">
+                                    <div className="relative flex items-center">
+                                      <input
+                                        type={showPasswordMap[param.name] ? 'text' : 'password'}
+                                        value={parameters[param.name] ?? ''}
+                                        onChange={(e) =>
+                                          setParameters((prev) => ({ ...prev, [param.name]: e.target.value }))
+                                        }
+                                        placeholder={param.placeholder || ''}
+                                        className="w-full px-3 py-1.5 pr-10 text-xs font-mono bg-black/60 border border-white/10 rounded-lg text-slate-200 focus:outline-none focus:border-cyan-500"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setShowPasswordMap((prev) => ({
+                                            ...prev,
+                                            [param.name]: !prev[param.name]
+                                          }))
+                                        }
+                                        title={showPasswordMap[param.name] ? (isEn ? 'Hide Password' : 'مخفی‌سازی رمز') : (isEn ? 'Show Password' : 'نمایش رمز')}
+                                        className="absolute right-2 p-1 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition cursor-pointer"
+                                      >
+                                        {showPasswordMap[param.name] ? (
+                                          <EyeOff className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <Eye className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()_+';
+                                          let pwd = '';
+                                          for (let i = 0; i < 16; i++) {
+                                            pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+                                          }
+                                          setParameters((prev) => ({ ...prev, [param.name]: pwd }));
+                                          setShowPasswordMap((prev) => ({ ...prev, [param.name]: true }));
+                                        }}
+                                        className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 transition cursor-pointer font-mono"
+                                      >
+                                        <Wand2 className="w-3 h-3" />
+                                        <span>{isEn ? 'Generate Strong Password' : 'تولید خودکار گذرواژه امن'}</span>
+                                      </button>
+                                      {parameters[param.name] && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard?.writeText(String(parameters[param.name]));
+                                            setCopiedText(param.name);
+                                            setTimeout(() => setCopiedText(null), 1500);
+                                          }}
+                                          className="inline-flex items-center gap-1 text-slate-400 hover:text-slate-200 transition font-mono cursor-pointer"
+                                        >
+                                          {copiedText === param.name ? (
+                                            <>
+                                              <Check className="w-3 h-3 text-emerald-400" />
+                                              <span className="text-emerald-400">{isEn ? 'Copied' : 'کپی شد'}</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Copy className="w-3 h-3" />
+                                              <span>{isEn ? 'Copy' : 'کپی'}</span>
+                                            </>
+                                          )}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
                                 ) : (
                                   <input
                                     type={param.type === 'number' ? 'number' : 'text'}

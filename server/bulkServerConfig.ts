@@ -1,6 +1,19 @@
 import { Client, ConnectConfig } from 'ssh2';
-import { getRemoteServerById, getAllRemoteServers } from './db';
-import { addAuditLog } from './db';
+import {
+  getRemoteServerById,
+  getAllRemoteServers,
+  addAuditLog,
+  saveBulkServerReport,
+  getBulkServerReports,
+  getBulkServerReportById,
+  deleteBulkServerReport,
+  clearAllBulkServerReports,
+} from './db';
+import {
+  BulkServerExecutionReport,
+  BulkServerImpactAnalysis,
+  BulkServerReportServerSummary,
+} from '../src/types';
 
 export type LinuxDistroFamily = 'debian' | 'rhel' | 'arch' | 'alpine' | 'suse' | 'generic';
 
@@ -720,20 +733,20 @@ export const LINUX_SERVER_TEMPLATES: BulkServerTemplate[] = [
   {
     id: 'linux_create_admin_user',
     category: 'users',
-    title: 'ایجاد کاربر راهبر سیستم با دسترسی Sudo (Create Sudo User)',
-    title_en: 'Create System Administrator with Sudo Privileges',
-    description: 'ایجاد کاربر جدید، تخصیص شل استاندارد و اعطای دسترسی به گروه sudo یا wheel بر اساس توزیع',
-    description_en: 'Create a new administrative user with home directory and distro-aware sudo/wheel group access.',
+    title: 'ایجاد و پیکربندی کامل کاربر سیستم (Create & Provision User)',
+    title_en: 'Create & Provision System User with Full Profile',
+    description: 'ایجاد کاربر با مشخصات کامل: گذرواژه، اجبار تغییر رمز، دسترسی Sudo، دایرکتوری خانگی، شل، کلید SSH و انقضا',
+    description_en: 'Create user with full specifications: password, forced reset, sudo levels, custom home, shell, SSH key & expiration.',
     icon: 'Users',
     is_dangerous: false,
     confirmation_keyword: '',
-    default_timeout_sec: 35,
-    info_what_fa: 'تعریف یک حساب کاربری مهندسی در لینوکس با دایرکتوری خانگی و عضویت در گروه مدیران سیستم.',
-    info_what_en: 'Provisions an engineer account with home folder and grants sudo privileges via sudo (Debian) or wheel (RHEL).',
-    info_why_fa: 'ایجاد اکانت اختصاصی برای کارشناسان جدید شبکه بدون نیاز به اشتراک‌گذاری رمز کاربر root.',
-    info_why_en: 'Provides personalized audit-friendly access without sharing the root superuser credentials.',
-    info_example_fa: 'ایجاد حساب کاربری masoud در تمام سرورهای لینوکس ناوگان.',
-    info_example_en: 'Create user sysadmin on all fleet servers with bash shell and sudo access.',
+    default_timeout_sec: 45,
+    info_what_fa: 'تعریف یا بروزرسانی یک حساب کاربری جامع در لینوکس با کنترل کامل روی رمز عبور، شل، مسیر خانگی، عضویت گروه‌ها و سطح دسترسی مدیرتی.',
+    info_what_en: 'Provisions or updates a comprehensive Linux user account with full control over credentials, shell, home folder, groups, and sudo access.',
+    info_why_fa: 'امکان ساخت سریع اکانت‌های مهندسی یا کاربری در کل ناوگان با رعایت استانداردهای امنیتی (مانند الزام تغییر پسورد و کلید SSH).',
+    info_why_en: 'Enables rapid, secure provisioning of operator accounts across all fleet servers while enforcing security best practices.',
+    info_example_fa: 'ایجاد کاربر masoud با رمز اولیه، عضویت در گروه sudo و docker و تزریق کلید عمومی SSH.',
+    info_example_en: 'Create user devops with initial password, sudo privilege, docker group, and authorized SSH key.',
     parameters: [
       {
         name: 'username',
@@ -750,16 +763,83 @@ export const LINUX_SERVER_TEMPLATES: BulkServerTemplate[] = [
         info_example_en: 'opsadmin or devops'
       },
       {
+        name: 'full_name',
+        labelFa: 'نام کامل و مشخصات (Full Name / GECOS)',
+        labelEn: 'Full Name / Description',
+        type: 'string',
+        required: false,
+        placeholder: 'Masoud Shahbazi (Senior Network Engineer)',
+        info_what_fa: 'نام کامل و اطلاعات هویتی دارنده اکانت (فیلد GECOS در /etc/passwd).',
+        info_what_en: 'Full name and organizational title stored in user GECOS field.',
+        info_why_fa: 'شناسایی آسان مالک حساب در گزارش‌های ممیزی و امنیتی ناوگان.',
+        info_why_en: 'Facilitates ownership attribution in system audits and process trees.',
+        info_example_fa: 'Ali Rezaei (NOC Engineer)',
+        info_example_en: 'John Doe (DevOps Lead)'
+      },
+      {
+        name: 'password',
+        labelFa: 'رمز عبور کاربر (User Password)',
+        labelEn: 'User Password (Optional)',
+        type: 'password',
+        required: false,
+        placeholder: '•••••••••••• (اختیاری)',
+        info_what_fa: 'رمز عبور اولیه برای ورود به سرور یا اجرای دستورات نیازمند گذرواژه در sudo.',
+        info_what_en: 'Initial account password for SSH/console login and sudo authentication.',
+        info_why_fa: 'امکان ورود با رمز در صورت عدم استفاده از کلید SSH و احراز هویت در دستورات sudo.',
+        info_why_en: 'Allows password authentication and sudo privilege verification.',
+        info_example_fa: 'P@ssw0rdSecure2026!',
+        info_example_en: 'P@ssw0rdSecure2026!'
+      },
+      {
+        name: 'force_password_change',
+        labelFa: 'اجبار تغییر رمز در اولین ورود (Force Password Reset)',
+        labelEn: 'Force Password Change on First Login',
+        type: 'select',
+        required: true,
+        default: 'no',
+        options: [
+          { value: 'no', labelFa: 'خیر - بدون تغییر اجباری (No)', labelEn: 'No - Keep initial password' },
+          { value: 'yes', labelFa: 'بله - تغییر اجباری در اولین لاگین (Yes - Expire Password)', labelEn: 'Yes - Force password change on first login' }
+        ],
+        info_what_fa: 'منقضی کردن آنی رمز عبور به نحوی که کاربر در اولین لاگین ناچار به تعیین رمز جدید باشد.',
+        info_what_en: 'Expires the initial password immediately, prompting user to choose their own secret upon first login.',
+        info_why_fa: 'جلوگیری از باقی‌ماندن رمزهای اشتراکی اولیه و رعایت سیاست‌های امنیتی سازمان.',
+        info_why_en: 'Enforces credential confidentiality according to enterprise compliance standards.',
+        info_example_fa: 'بله (Yes) برای کاربران جدید سازمان',
+        info_example_en: 'Yes for onboarding employees'
+      },
+      {
+        name: 'sudo_level',
+        labelFa: 'سطح دسترسی Sudo (Sudo Privilege Level)',
+        labelEn: 'Sudo Privilege Level',
+        type: 'select',
+        required: true,
+        default: 'sudo_password',
+        options: [
+          { value: 'sudo_password', labelFa: 'مدیر سیستم با تایید رمز (Standard Sudo - Password Required)', labelEn: 'Standard Sudo (Password Required)' },
+          { value: 'sudo_nopasswd', labelFa: 'مدیر سیستم بدون رمز (Passwordless Sudo - NOPASSWD)', labelEn: 'Passwordless Sudo (NOPASSWD)' },
+          { value: 'standard_user', labelFa: 'کاربر عادی بدون دسترسی سودو (Standard User - No Sudo)', labelEn: 'Standard User (No Sudo Privileges)' }
+        ],
+        info_what_fa: 'تعیین سطح اختیارات روت کاربر و نیاز یا عدم نیاز به تایید رمز عبور هنگام اجرای sudo.',
+        info_what_en: 'Determines administrative privilege elevation and password prompt requirements.',
+        info_why_fa: 'کنترل دسترسی طبق اصل حداقل اختیارات (Least Privilege).',
+        info_why_en: 'Controls privilege boundaries according to organizational security policy.',
+        info_example_fa: 'Standard Sudo برای مهندسان سیستم',
+        info_example_en: 'Standard Sudo for systems team'
+      },
+      {
         name: 'shell',
-        labelFa: 'شل پیش‌فرض (Default Shell)',
+        labelFa: 'شل پیش‌فرض کاربر (Login Shell)',
         labelEn: 'Default Login Shell',
         type: 'select',
         required: true,
         default: '/bin/bash',
         options: [
-          { value: '/bin/bash', labelFa: 'Bash (/bin/bash)', labelEn: 'Bash (/bin/bash - Recommended)' },
+          { value: '/bin/bash', labelFa: 'Bash (/bin/bash - پیشنهادی)', labelEn: 'Bash (/bin/bash - Recommended)' },
           { value: '/bin/zsh', labelFa: 'Zsh (/bin/zsh)', labelEn: 'Zsh (/bin/zsh)' },
-          { value: '/bin/sh', labelFa: 'POSIX Sh (/bin/sh)', labelEn: 'POSIX Sh (/bin/sh)' }
+          { value: '/bin/sh', labelFa: 'POSIX Sh (/bin/sh)', labelEn: 'POSIX Sh (/bin/sh)' },
+          { value: '/bin/rbash', labelFa: 'Restricted Bash (/bin/rbash)', labelEn: 'Restricted Bash (/bin/rbash)' },
+          { value: '/usr/sbin/nologin', labelFa: 'مسدودسازی ورود (/usr/sbin/nologin)', labelEn: 'No Login (/usr/sbin/nologin)' }
         ],
         info_what_fa: 'محیط خط فرمانی که کاربر پس از ورود با آن کار خواهد کرد.',
         info_what_en: 'Login shell spawned when user connects via SSH.',
@@ -767,6 +847,62 @@ export const LINUX_SERVER_TEMPLATES: BulkServerTemplate[] = [
         info_why_en: 'Ensures familiar environment and history navigation.',
         info_example_fa: '/bin/bash',
         info_example_en: '/bin/bash'
+      },
+      {
+        name: 'home_dir',
+        labelFa: 'مسیر دایرکتوری خانگی (Custom Home Directory)',
+        labelEn: 'Custom Home Directory (Optional)',
+        type: 'string',
+        required: false,
+        placeholder: 'خالی = پیش‌فرض /home/username',
+        info_what_fa: 'محل قرارگیری فایل‌های شخصی و تنظیمات کاربر روی فایل‌سیستم.',
+        info_what_en: 'Target absolute path for user home directory storage.',
+        info_why_fa: 'امکان انتقال پوشه کاربر به پارتیشن‌های حجیم یا سرورهای اشتراکی NFS.',
+        info_why_en: 'Useful when mounting home spaces on dedicated volumes or storage tiers.',
+        info_example_fa: '/data/home/masoud یا خالی',
+        info_example_en: '/data/home/devops or empty'
+      },
+      {
+        name: 'secondary_groups',
+        labelFa: 'گروه‌های ثانویه اضافی (Additional Secondary Groups)',
+        labelEn: 'Additional Secondary Groups (Optional)',
+        type: 'string',
+        required: false,
+        placeholder: 'docker, adm, www-data, disk',
+        info_what_fa: 'لیست گروه‌های اضافی لینوکس جدا شده با کاما برای اعطای دسترسی‌های تخصصی.',
+        info_what_en: 'Comma-separated list of supplementary Linux groups.',
+        info_why_fa: 'دسترسی به ابزارهایی مانند Docker، دایرکتوری وب‌سرورها یا خواندن لاگ‌ها بدون نیاز به روت.',
+        info_why_en: 'Grants access to Docker daemon or log viewing without full root escalation.',
+        info_example_fa: 'docker,adm,www-data',
+        info_example_en: 'docker,adm,www-data'
+      },
+      {
+        name: 'custom_uid',
+        labelFa: 'شناسه کاربری سفارشی (Custom UID)',
+        labelEn: 'Custom User ID (UID - Optional)',
+        type: 'string',
+        required: false,
+        placeholder: 'خالی = تخصیص خودکار سیستم (مثال: 1500)',
+        info_what_fa: 'شناسه عددی کاربر در سیستم‌عامل.',
+        info_what_en: 'Explicit numerical User ID assigned to the account.',
+        info_why_fa: 'یکسان‌سازی UID کاربر در سرورهای مختلف جهت سازگاری دسترسی فایل‌ها در NFS و بکاپ‌ها.',
+        info_why_en: 'Ensures consistent numeric ownership across multiple NFS-shared cluster nodes.',
+        info_example_fa: '1200',
+        info_example_en: '1500'
+      },
+      {
+        name: 'expire_date',
+        labelFa: 'تاریخ انقضای حساب کاربری (Account Expiration Date)',
+        labelEn: 'Account Expiration Date (Optional)',
+        type: 'string',
+        required: false,
+        placeholder: 'YYYY-MM-DD (مثال: 2026-12-31)',
+        info_what_fa: 'تاریخ غیرفعال‌سازی خودکار حساب پس از پایان قرارداد یا دوره کاری.',
+        info_what_en: 'Automatic deactivation date for temporary or contract personnel.',
+        info_why_fa: 'جلوگیری از باز ماندن حساب‌های بدون استفاده و افزایش امنیت ناوگان.',
+        info_why_en: 'Prevents zombie accounts for contractors or timed audit projects.',
+        info_example_fa: '2026-12-31 یا خالی',
+        info_example_en: '2026-12-31 or empty'
       },
       {
         name: 'ssh_pubkey',
@@ -784,28 +920,8 @@ export const LINUX_SERVER_TEMPLATES: BulkServerTemplate[] = [
       }
     ],
     distro_commands: {
-      debian: [
-        'id "{{username}}" 2>/dev/null || useradd -m -s "{{shell}}" "{{username}}"',
-        'usermod -aG sudo "{{username}}"',
-        'if [ -n "{{ssh_pubkey}}" ]; then mkdir -p /home/{{username}}/.ssh && touch /home/{{username}}/.ssh/authorized_keys && echo "{{ssh_pubkey}}" >> /home/{{username}}/.ssh/authorized_keys && chmod 700 /home/{{username}}/.ssh && chmod 600 /home/{{username}}/.ssh/authorized_keys && chown -R {{username}}:{{username}} /home/{{username}}/.ssh; fi',
-        'id "{{username}}"'
-      ],
-      rhel: [
-        'id "{{username}}" 2>/dev/null || useradd -m -s "{{shell}}" "{{username}}"',
-        'usermod -aG wheel "{{username}}"',
-        'if [ -n "{{ssh_pubkey}}" ]; then mkdir -p /home/{{username}}/.ssh && touch /home/{{username}}/.ssh/authorized_keys && echo "{{ssh_pubkey}}" >> /home/{{username}}/.ssh/authorized_keys && chmod 700 /home/{{username}}/.ssh && chmod 600 /home/{{username}}/.ssh/authorized_keys && chown -R {{username}}:{{username}} /home/{{username}}/.ssh; fi',
-        'id "{{username}}"'
-      ],
-      alpine: [
-        'id "{{username}}" 2>/dev/null || adduser -D -s "{{shell}}" "{{username}}"',
-        'addgroup "{{username}}" wheel 2>/dev/null || true',
-        'id "{{username}}"'
-      ],
       generic: [
-        'id "{{username}}" 2>/dev/null || useradd -m -s "{{shell}}" "{{username}}"',
-        'usermod -aG sudo "{{username}}" 2>/dev/null || usermod -aG wheel "{{username}}" 2>/dev/null || true',
-        'if [ -n "{{ssh_pubkey}}" ]; then mkdir -p /home/{{username}}/.ssh && touch /home/{{username}}/.ssh/authorized_keys && echo "{{ssh_pubkey}}" >> /home/{{username}}/.ssh/authorized_keys && chmod 700 /home/{{username}}/.ssh && chmod 600 /home/{{username}}/.ssh/authorized_keys && chown -R {{username}}:{{username}} /home/{{username}}/.ssh; fi',
-        'id "{{username}}"'
+        'bash -c \'set -e; USER="{{username}}"; [ -z "$USER" ] && { echo "ERROR: Username is required" >&2; exit 1; }; FULLNAME="{{full_name}}"; PASS="{{password}}"; FORCE_CHG="{{force_password_change}}"; SUDO_LEVEL="{{sudo_level}}"; SHELL_PATH="{{shell}}"; [ -z "$SHELL_PATH" ] && SHELL_PATH="/bin/bash"; HOME_DIR="{{home_dir}}"; EXTRA_GROUPS="{{secondary_groups}}"; CUSTOM_UID="{{custom_uid}}"; EXPIRE_DATE="{{expire_date}}"; SSH_KEY="{{ssh_pubkey}}"; echo "=== Provisioning Linux User Account: $USER ==="; USERADD_ARGS=("-m" "-s" "$SHELL_PATH"); if [ -n "$HOME_DIR" ]; then USERADD_ARGS+=("-d" "$HOME_DIR"); fi; if [ -n "$FULLNAME" ]; then USERADD_ARGS+=("-c" "$FULLNAME"); fi; if [ -n "$CUSTOM_UID" ]; then USERADD_ARGS+=("-u" "$CUSTOM_UID"); fi; if id "$USER" >/dev/null 2>&1; then echo "User $USER already exists. Updating configuration..."; usermod -s "$SHELL_PATH" "$USER"; [ -n "$FULLNAME" ] && usermod -c "$FULLNAME" "$USER" 2>/dev/null || true; [ -n "$HOME_DIR" ] && usermod -d "$HOME_DIR" "$USER" 2>/dev/null || true; else echo "Creating new user account: $USER"; useradd "${USERADD_ARGS[@]}" "$USER"; fi; if [ -n "$PASS" ]; then echo "Configuring password for $USER..."; echo "$USER:$PASS" | chpasswd; echo "Password successfully applied."; if [ "$FORCE_CHG" = "yes" ] || [ "$FORCE_CHG" = "true" ]; then echo "Enforcing password expiration on next login..."; chage -d 0 "$USER" 2>/dev/null || passwd -e "$USER" 2>/dev/null || true; fi; fi; if [ -n "$EXPIRE_DATE" ]; then echo "Setting account expiration date: $EXPIRE_DATE..."; chage -E "$EXPIRE_DATE" "$USER" 2>/dev/null || usermod -e "$EXPIRE_DATE" "$USER" 2>/dev/null || true; fi; if [ "$SUDO_LEVEL" = "sudo_nopasswd" ]; then echo "Configuring passwordless sudo for $USER..."; if getent group sudo >/dev/null 2>&1; then usermod -aG sudo "$USER"; fi; if getent group wheel >/dev/null 2>&1; then usermod -aG wheel "$USER"; fi; mkdir -p /etc/sudoers.d; echo "$USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USER"; chmod 0440 "/etc/sudoers.d/$USER"; elif [ "$SUDO_LEVEL" = "sudo_password" ]; then echo "Configuring standard password-authenticated sudo for $USER..."; rm -f "/etc/sudoers.d/$USER" 2>/dev/null || true; if getent group sudo >/dev/null 2>&1; then usermod -aG sudo "$USER"; elif getent group wheel >/dev/null 2>&1; then usermod -aG wheel "$USER"; fi; elif [ "$SUDO_LEVEL" = "standard_user" ]; then echo "Ensuring standard user status without sudo..."; rm -f "/etc/sudoers.d/$USER" 2>/dev/null || true; gpasswd -d "$USER" sudo 2>/dev/null || true; gpasswd -d "$USER" wheel 2>/dev/null || true; fi; if [ -n "$EXTRA_GROUPS" ]; then IFS="," read -ra GRP_ARRAY <<< "$EXTRA_GROUPS"; for g in "${GRP_ARRAY[@]}"; do cg=$(echo "$g" | tr -d "[:space:]"); if [ -n "$cg" ]; then if getent group "$cg" >/dev/null 2>&1; then usermod -aG "$cg" "$USER"; echo "Added $USER to group: $cg"; else echo "Note: Group $cg not found, skipping."; fi; fi; done; fi; RESOLVED_HOME=$(getent passwd "$USER" | cut -d: -f6); [ -z "$RESOLVED_HOME" ] && RESOLVED_HOME="/home/$USER"; if [ -n "$SSH_KEY" ]; then echo "Installing authorized SSH key in $RESOLVED_HOME/.ssh/authorized_keys..."; mkdir -p "$RESOLVED_HOME/.ssh"; touch "$RESOLVED_HOME/.ssh/authorized_keys"; if ! grep -q -F "$SSH_KEY" "$RESOLVED_HOME/.ssh/authorized_keys" 2>/dev/null; then echo "$SSH_KEY" >> "$RESOLVED_HOME/.ssh/authorized_keys"; fi; chmod 700 "$RESOLVED_HOME/.ssh"; chmod 600 "$RESOLVED_HOME/.ssh/authorized_keys"; chown -R "$USER:$USER" "$RESOLVED_HOME/.ssh"; echo "SSH key successfully installed with secure permissions (700/600)."; fi; echo "=== User Account Provisioning Complete ==="; id "$USER"; chage -l "$USER" 2>/dev/null || true\''
       ]
     }
   },
@@ -2523,6 +2639,259 @@ async function executeSshCommand(
 }
 
 // ---------------------------------------------------------------------------
+// Impact Analysis Generator
+// ---------------------------------------------------------------------------
+export function generateBulkServerImpactAnalysis(
+  template: BulkServerTemplate,
+  parameters: Record<string, any>
+): BulkServerImpactAnalysis {
+  const p = parameters || {};
+  const templateId = template.id;
+
+  let actionsSummaryFa = template.title;
+  let actionsSummaryEn = template.title_en;
+  const affectedPaths: string[] = [];
+  const createdFiles: string[] = [];
+  const modifiedConfigs: string[] = [];
+  const securityImplicationsFa: string[] = [];
+  const securityImplicationsEn: string[] = [];
+
+  switch (templateId) {
+    case 'linux_create_admin_user': {
+      const u = p.username || 'user';
+      const homeDir = p.home_dir || `/home/${u}`;
+      const shell = p.shell || '/bin/bash';
+      const sudoLevel = p.sudo_level || 'sudo_password';
+      const sudoLabel = sudoLevel === 'sudo_nopasswd' ? 'NOPASSWD Sudo' : sudoLevel === 'standard_user' ? 'No Sudo' : 'Standard Sudo';
+      actionsSummaryFa = `ایجاد یا بروزرسانی حساب کاربری «${u}» با مشخصات کامل (شل: ${shell}، سطح دسترسی: ${sudoLabel})`;
+      actionsSummaryEn = `Created/updated user account "${u}" with full specifications (shell: ${shell}, privileges: ${sudoLabel})`;
+      affectedPaths.push(homeDir, `${homeDir}/.ssh`, `${homeDir}/.ssh/authorized_keys`, '/etc/passwd', '/etc/shadow', '/etc/group', '/etc/sudoers', `/etc/sudoers.d/${u}`);
+      createdFiles.push(homeDir, `${homeDir}/.ssh/authorized_keys`);
+      if (sudoLevel === 'sudo_nopasswd') {
+        createdFiles.push(`/etc/sudoers.d/${u}`);
+      }
+      modifiedConfigs.push('/etc/passwd (User registry)', '/etc/shadow (Password hash)', '/etc/group (Sudo/Wheel group membership)');
+      if (p.password) {
+        securityImplicationsFa.push('پیکربندی رمز عبور هش‌شده و محرمانه برای کاربر');
+        securityImplicationsEn.push('Configured encrypted password hash for user authentication');
+      }
+      if (p.force_password_change === 'yes') {
+        securityImplicationsFa.push('الزام به تغییر گذرواژه در اولین ورود جهت انطباق با خط‌مشی‌های امنیتی');
+        securityImplicationsEn.push('Enforced mandatory password reset on first user login');
+      }
+      if (sudoLevel === 'sudo_nopasswd') {
+        securityImplicationsFa.push('اعطای دسترسی سوپریوزر بدون نیاز به رمز (NOPASSWD)');
+        securityImplicationsEn.push('Granted passwordless administrative superuser access');
+      } else if (sudoLevel === 'sudo_password') {
+        securityImplicationsFa.push('اعطای دسترسی سوپریوزر با احراز هویت رمز عبور (Sudo/Wheel)');
+        securityImplicationsEn.push('Granted standard password-authenticated sudo/wheel access');
+      }
+      if (p.ssh_pubkey) {
+        securityImplicationsFa.push('فعال‌سازی کلید عمومی نامتقارن SSH در authorized_keys با پرمیشن ایمن (600/700)');
+        securityImplicationsEn.push('Deployed asymmetric SSH public key in authorized_keys with strict 0700/0600 permissions');
+      }
+      break;
+    }
+    case 'linux_deploy_ssh_key': {
+      const targetUser = p.user || 'root';
+      const home = targetUser === 'root' ? '/root' : `/home/${targetUser}`;
+      actionsSummaryFa = `تزریق و فعال‌سازی کلید عمومی SSH برای کاربر «${targetUser}»`;
+      actionsSummaryEn = `Deployed authorized SSH public key for user "${targetUser}"`;
+      affectedPaths.push(`${home}/.ssh/authorized_keys`);
+      createdFiles.push(`${home}/.ssh/authorized_keys`);
+      modifiedConfigs.push(`${home}/.ssh/authorized_keys`);
+      securityImplicationsFa.push('ورود امن بر پایه کلید بدون نیاز به انتقال کلمه عبور');
+      securityImplicationsEn.push('Enabled secure asymmetric key authentication');
+      break;
+    }
+    case 'linux_ssh_hardening': {
+      actionsSummaryFa = 'سخت‌سازی امنیتی سرویس SSHD و راه‌اندازی مجدد سرویس';
+      actionsSummaryEn = 'Hardened SSH daemon configuration and restarted SSH service';
+      affectedPaths.push('/etc/ssh/sshd_config', '/etc/ssh/sshd_config.d/99-fleet-hardening.conf');
+      createdFiles.push('/etc/ssh/sshd_config.d/99-fleet-hardening.conf');
+      modifiedConfigs.push('/etc/ssh/sshd_config');
+      securityImplicationsFa.push('کاهش سطح حمله از طریق مسدودسازی لاگین با پسورد ضعیف یا روت مستقیم');
+      securityImplicationsEn.push('Mitigated brute-force vectors by enforcing strict SSH cipher and access policies');
+      break;
+    }
+    case 'linux_cron_add_job': {
+      const jId = p.job_id || 'fleet_job';
+      const sched = p.schedule || '* * * * *';
+      const cmd = p.command || '';
+      actionsSummaryFa = `ثبت و زمان‌بندی جاب جدید در Crontab سیستمی («${jId}»: ${sched})`;
+      actionsSummaryEn = `Scheduled new system cron task ("${jId}": ${sched}) -> ${cmd}`;
+      affectedPaths.push(`/etc/cron.d/${jId}`, `/var/spool/cron/crontabs/${p.user || 'root'}`);
+      createdFiles.push(`/etc/cron.d/${jId}`);
+      modifiedConfigs.push(`/etc/cron.d/${jId}`);
+      break;
+    }
+    case 'linux_cron_remove_job': {
+      const jId = p.job_identifier || 'job';
+      actionsSummaryFa = `حذف جاب زمان‌بندی‌شده «${jId}» از سیستم`;
+      actionsSummaryEn = `Removed scheduled cron task "${jId}"`;
+      affectedPaths.push(`/etc/cron.d/${jId}`, '/var/spool/cron/crontabs');
+      modifiedConfigs.push('/var/spool/cron/crontabs');
+      break;
+    }
+    case 'linux_security_updates': {
+      actionsSummaryFa = 'به‌روزرسانی بسته‌های نرم‌افزاری و پچ‌های امنیتی سیستم‌عامل';
+      actionsSummaryEn = 'Installed operating system security updates and repository package upgrades';
+      affectedPaths.push('/var/lib/dpkg/status', '/var/log/dpkg.log', '/var/log/dnf.log', '/var/cache/apt', '/var/cache/dnf');
+      modifiedConfigs.push('Installed binary packages and system libraries');
+      securityImplicationsFa.push('رفع آسیب‌پذیری‌های امنیتی شناخته‌شده در پکیج‌ها');
+      securityImplicationsEn.push('Patched known CVE vulnerabilities in system binaries');
+      break;
+    }
+    case 'linux_clean_cache_disk': {
+      actionsSummaryFa = 'پاکسازی کش‌های موقت سیستم، لاگ‌های دوره‌ای و آزادسازی فضای ذخیره‌سازی';
+      actionsSummaryEn = 'Cleaned system package cache, journal logs, and reclaimed disk space';
+      affectedPaths.push('/var/cache/apt/archives', '/var/cache/dnf', '/tmp', '/var/tmp', '/var/log/journal');
+      break;
+    }
+    case 'linux_firewall_whitelist_port':
+    case 'linux_firewall_manage_port': {
+      const port = p.port || '80';
+      const proto = p.protocol || 'tcp';
+      const act = p.action || 'allow';
+      actionsSummaryFa = `تنظیم قانون فایروال برای پورت ${port}/${proto} (عملیات: ${act})`;
+      actionsSummaryEn = `Updated firewall rule table for port ${port}/${proto} (${act})`;
+      affectedPaths.push('/etc/ufw/user.rules', '/etc/firewalld/zones/public.xml', '/etc/nftables.conf');
+      modifiedConfigs.push('Active firewall packet filter table');
+      securityImplicationsFa.push(`تغییر دسترسی شبکه به پورت ${port}`);
+      securityImplicationsEn.push(`Network ingress rule modified for port ${port}`);
+      break;
+    }
+    case 'linux_ntp_timezone_sync': {
+      const tz = p.timezone || 'Asia/Tehran';
+      actionsSummaryFa = `همگام‌سازی ساعت با پروتکل NTP و تنظیم منطقه زمانی به ${tz}`;
+      actionsSummaryEn = `Synchronized NTP hardware clock and updated timezone to ${tz}`;
+      affectedPaths.push('/etc/timezone', '/etc/localtime', '/etc/systemd/timesyncd.conf', '/etc/chrony.conf');
+      modifiedConfigs.push('/etc/timezone', '/etc/localtime');
+      break;
+    }
+    case 'linux_dns_nameservers': {
+      const primary = p.primary_dns || '8.8.8.8';
+      const secondary = p.secondary_dns || '1.1.1.1';
+      actionsSummaryFa = `پیکربندی سرورهای DNS نام‌گذاری شبکه (${primary}, ${secondary})`;
+      actionsSummaryEn = `Configured system DNS resolvers (${primary}, ${secondary})`;
+      affectedPaths.push('/etc/resolv.conf', '/etc/systemd/resolved.conf');
+      modifiedConfigs.push('/etc/resolv.conf');
+      break;
+    }
+    case 'linux_service_lifecycle': {
+      const svc = p.service_name || 'service';
+      const sAct = p.action || 'restart';
+      actionsSummaryFa = `اعمال عملیات «${sAct}» روی سرویس سیستمی «${svc}»`;
+      actionsSummaryEn = `Performed action "${sAct}" on systemd service unit "${svc}"`;
+      affectedPaths.push(`/etc/systemd/system/${svc}.service`, `/lib/systemd/system/${svc}.service`);
+      modifiedConfigs.push(`Service unit state: ${svc}`);
+      break;
+    }
+    case 'linux_mount_storage': {
+      const dev = p.device_path || '/dev/sdb1';
+      const mnt = p.mount_point || '/mnt/storage';
+      actionsSummaryFa = `مونت دائمی دیسک «${dev}» در دایرکتوری «${mnt}»`;
+      actionsSummaryEn = `Mounted disk device "${dev}" to directory "${mnt}" with persistent /etc/fstab entry`;
+      affectedPaths.push(mnt, '/etc/fstab');
+      createdFiles.push(mnt);
+      modifiedConfigs.push('/etc/fstab');
+      break;
+    }
+    case 'linux_unmount_storage': {
+      const mnt = p.mount_point || '/mnt/storage';
+      actionsSummaryFa = `آن‌مونت دیسک و جداسازی دایرکتوری «${mnt}»`;
+      actionsSummaryEn = `Unmounted storage volume at "${mnt}"`;
+      affectedPaths.push(mnt, '/etc/fstab');
+      modifiedConfigs.push('/etc/fstab');
+      break;
+    }
+    case 'linux_directory_lifecycle_backup': {
+      const src = p.source_dir || '/opt';
+      const dest = p.dest_dir || '/var/backups';
+      actionsSummaryFa = `ایجاد فایل آرشیو فشرده پشتیبان از مسیر «${src}» در «${dest}»`;
+      actionsSummaryEn = `Generated compressed backup archive of directory "${src}" to "${dest}"`;
+      affectedPaths.push(dest);
+      createdFiles.push(`${dest}/*.tar.gz`);
+      break;
+    }
+    case 'linux_user_groups_management': {
+      const u = p.username || 'user';
+      const grp = p.group_name || 'sudo';
+      actionsSummaryFa = `مدیریت عضویت کاربر «${u}» در گروه «${grp}»`;
+      actionsSummaryEn = `Updated group memberships for user "${u}" in group "${grp}"`;
+      affectedPaths.push('/etc/group', '/etc/gshadow');
+      modifiedConfigs.push('/etc/group');
+      break;
+    }
+    case 'linux_user_lock_expire': {
+      const u = p.username || 'user';
+      actionsSummaryFa = `تغییر وضعیت قفل یا انقضای حساب کاربری «${u}»`;
+      actionsSummaryEn = `Updated lock / expiration security state for user account "${u}"`;
+      affectedPaths.push('/etc/shadow');
+      modifiedConfigs.push('/etc/shadow');
+      break;
+    }
+    case 'linux_delete_user': {
+      const u = p.username || 'user';
+      actionsSummaryFa = `حذف حساب کاربری «${u}» از سرور`;
+      actionsSummaryEn = `Deleted user account "${u}" and removed access`;
+      affectedPaths.push('/etc/passwd', '/etc/shadow', '/etc/group', `/home/${u}`);
+      modifiedConfigs.push('/etc/passwd', '/etc/shadow', '/etc/group');
+      break;
+    }
+    case 'linux_change_user_shell': {
+      const u = p.username || 'user';
+      const sh = p.new_shell || '/bin/bash';
+      actionsSummaryFa = `تغییر شل لاگین کاربر «${u}» به ${sh}`;
+      actionsSummaryEn = `Changed login shell for user "${u}" to ${sh}`;
+      affectedPaths.push('/etc/passwd');
+      modifiedConfigs.push('/etc/passwd');
+      break;
+    }
+    case 'linux_docker_fleet_manager': {
+      const dAct = p.action || 'status';
+      actionsSummaryFa = `مدیریت ناوگان کانتینرهای Docker (عملیات: ${dAct})`;
+      actionsSummaryEn = `Executed Docker fleet operation: ${dAct}`;
+      affectedPaths.push('/var/run/docker.sock', '/var/lib/docker');
+      break;
+    }
+    case 'linux_static_route_config': {
+      const net = p.network || '10.0.0.0/24';
+      const gw = p.gateway || '192.168.1.1';
+      actionsSummaryFa = `پیکربندی مسیر استاتیک شبکه: مقصد ${net} از طریق درگاه ${gw}`;
+      actionsSummaryEn = `Configured static network route: ${net} via ${gw}`;
+      affectedPaths.push('/etc/iproute2', '/etc/netplan', '/etc/sysconfig/network-scripts');
+      modifiedConfigs.push('Kernel routing table');
+      break;
+    }
+    case 'linux_custom_command': {
+      const cmd = (p.command || '').trim();
+      actionsSummaryFa = `اجرای دستور سفارشی ادمین: ${cmd.length > 50 ? cmd.slice(0, 50) + '...' : cmd}`;
+      actionsSummaryEn = `Executed custom command: ${cmd.length > 50 ? cmd.slice(0, 50) + '...' : cmd}`;
+      affectedPaths.push('System Terminal Runtime');
+      break;
+    }
+    default: {
+      actionsSummaryFa = `${template.title}`;
+      actionsSummaryEn = `${template.title_en}`;
+      affectedPaths.push('System Configuration');
+      modifiedConfigs.push(template.title_en);
+      break;
+    }
+  }
+
+  return {
+    actionsSummaryFa,
+    actionsSummaryEn,
+    affectedPaths: Array.from(new Set(affectedPaths)),
+    createdFiles: Array.from(new Set(createdFiles)),
+    modifiedConfigs: Array.from(new Set(modifiedConfigs)),
+    securityImplicationsFa,
+    securityImplicationsEn
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Job Worker Execution
 // ---------------------------------------------------------------------------
 async function runJobWorker(jobId: string, ephemeralPassword?: string) {
@@ -2734,7 +3103,7 @@ async function runJobWorker(jobId: string, ephemeralPassword?: string) {
 
   // Audit Log
   await addAuditLog({
-    userName: 'Admin',
+    userName: (job as any).operatorUser || 'Administrator',
     action: 'Bulk Linux Server Configuration',
     category: 'system',
     target: `${template.title_en} (${serverIds.length} servers)`,
@@ -2743,6 +3112,60 @@ async function runJobWorker(jobId: string, ephemeralPassword?: string) {
     ipAddress: '127.0.0.1',
     userAgent: 'BulkServerAutomationEngine/1.0'
   }).catch(() => {});
+
+  // Save comprehensive execution report for reporting & audit history tab
+  try {
+    const impactAnalysis = generateBulkServerImpactAnalysis(template, job.parameters);
+    const serverSummaries: BulkServerReportServerSummary[] = serverIds.map((sId) => {
+      const res = job.results[sId];
+      return {
+        serverId: sId,
+        serverName: res?.serverName || sId,
+        serverIp: res?.serverIp || '',
+        osDistro: res?.osDistro || 'Linux',
+        distroFamily: res?.distroFamily || 'generic',
+        status: res?.status || 'skipped',
+        durationMs: res?.durationMs || 0,
+        error: res?.errorMessageEn || res?.errorMessageFa,
+      };
+    });
+
+    const finalStatus: 'completed' | 'failed' | 'cancelled' | 'partial' = isCancelled()
+      ? 'cancelled'
+      : job.failedCount === 0
+      ? 'completed'
+      : job.successCount > 0
+      ? 'partial'
+      : 'failed';
+
+    const report: BulkServerExecutionReport = {
+      id: `report-${job.jobId}`,
+      jobId: job.jobId,
+      templateId: template.id,
+      templateTitle: template.title,
+      templateTitleEn: template.title_en,
+      category: template.category,
+      icon: template.icon,
+      operatorUser: (job as any).operatorUser || 'Administrator',
+      createdAt: job.createdAt,
+      finishedAt: job.finishedAt || Date.now(),
+      durationMs: (job.finishedAt || Date.now()) - job.createdAt,
+      status: finalStatus,
+      totalServers: job.totalServers,
+      successCount: job.successCount,
+      failedCount: job.failedCount,
+      skippedCount: job.skippedCount,
+      parameters: job.parameters,
+      impactAnalysis,
+      serverSummaries,
+      results: job.results,
+      logs: job.logs,
+    };
+
+    await saveBulkServerReport(report);
+  } catch (err: any) {
+    console.error('[BulkServerConfig] Failed to save execution report:', err?.message || err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2756,6 +3179,7 @@ export async function startBulkServerJob(payload: {
   delayMs?: number;
   dangerConfirmation?: string;
   ephemeralPassword?: string;
+  operatorUser?: string;
 }): Promise<{ jobId: string }> {
   const template = getBulkServerTemplateById(payload.templateId);
   if (!template) {
@@ -2825,11 +3249,13 @@ export async function startBulkServerJob(payload: {
         timestamp: Date.now(),
         timeStr: new Date().toLocaleTimeString(),
         level: 'info',
-        messageFa: `عملیات در صف قرار گرفت برای ${validLinuxServers.length} سرور لینوکسی.`,
-        messageEn: `Job queued for ${validLinuxServers.length} Linux servers.`
+        messageFa: `عملیات در صف قرار گرفت برای ${validLinuxServers.length} سرور لینوکسی توسط ${payload.operatorUser || 'Administrator'}.`,
+        messageEn: `Job queued for ${validLinuxServers.length} Linux servers by ${payload.operatorUser || 'Administrator'}.`
       }
     ]
   };
+
+  (job as any).operatorUser = payload.operatorUser || 'Administrator';
 
   activeJobs.set(jobId, job);
 
@@ -2863,3 +3289,23 @@ export function cancelBulkServerJob(jobId: string): boolean {
   }
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Execution Reports & Audit History Methods
+// ---------------------------------------------------------------------------
+export async function getBulkServerReportsList(): Promise<BulkServerExecutionReport[]> {
+  return getBulkServerReports();
+}
+
+export async function getBulkServerReportDetails(reportId: string): Promise<BulkServerExecutionReport | null> {
+  return getBulkServerReportById(reportId);
+}
+
+export async function deleteBulkServerReportEntry(reportId: string): Promise<boolean> {
+  return deleteBulkServerReport(reportId);
+}
+
+export async function clearAllBulkServerReportsList(): Promise<boolean> {
+  return clearAllBulkServerReports();
+}
+

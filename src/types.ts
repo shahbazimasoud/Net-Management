@@ -1331,6 +1331,51 @@ export interface BulkServerJobStatus {
   logs: BulkServerJobLog[];
 }
 
+export interface BulkServerImpactAnalysis {
+  actionsSummaryFa: string;
+  actionsSummaryEn: string;
+  affectedPaths: string[];
+  createdFiles: string[];
+  modifiedConfigs: string[];
+  securityImplicationsFa?: string[];
+  securityImplicationsEn?: string[];
+}
+
+export interface BulkServerReportServerSummary {
+  serverId: string;
+  serverName: string;
+  serverIp: string;
+  osDistro: string;
+  distroFamily: string;
+  status: 'success' | 'failed' | 'partial' | 'skipped';
+  durationMs: number;
+  error?: string;
+}
+
+export interface BulkServerExecutionReport {
+  id: string;
+  jobId: string;
+  templateId: string;
+  templateTitle: string;
+  templateTitleEn: string;
+  category: string;
+  icon: string;
+  operatorUser: string;
+  createdAt: number;
+  finishedAt: number;
+  durationMs: number;
+  status: 'completed' | 'failed' | 'cancelled' | 'partial';
+  totalServers: number;
+  successCount: number;
+  failedCount: number;
+  skippedCount: number;
+  parameters: Record<string, any>;
+  impactAnalysis: BulkServerImpactAnalysis;
+  serverSummaries: BulkServerReportServerSummary[];
+  results: Record<string, BulkServerExecutionResult>;
+  logs: BulkServerJobLog[];
+}
+
 export interface RemoteServer {
   id: string;
   name: string;
