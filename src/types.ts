@@ -1628,6 +1628,98 @@ export interface NginxSslSummary {
   warnings: string[];
 }
 
+export type NginxLogType = 'access' | 'error' | 'combined' | 'stream' | 'custom';
+
+export interface NginxDiscoveredLogFile {
+  id: string;
+  filePath: string;
+  type: 'access' | 'error' | 'stream';
+  scope: 'global' | 'server_block';
+  associatedServerName?: string;
+  associatedSiteId?: string;
+  definedInFile?: string;
+  exists: boolean;
+  isReadable: boolean;
+  sizeBytes: number;
+  sizeHuman: string;
+  lastModified?: string;
+  lineCount?: number;
+  format?: string;
+}
+
+export interface NginxParsedAccessLogEntry {
+  id: string;
+  raw: string;
+  type: 'access';
+  clientIp?: string;
+  timestamp?: string;
+  method?: string;
+  uri?: string;
+  protocol?: string;
+  statusCode?: number;
+  statusCategory?: '2xx' | '3xx' | '4xx' | '5xx' | 'other';
+  bytesSent?: number;
+  referer?: string;
+  userAgent?: string;
+  requestTimeSec?: number;
+  upstreamResponseTimeSec?: number;
+  upstreamAddr?: string;
+  pipe?: string;
+}
+
+export interface NginxParsedErrorLogEntry {
+  id: string;
+  raw: string;
+  type: 'error';
+  timestamp?: string;
+  level: 'emerg' | 'alert' | 'crit' | 'error' | 'warn' | 'notice' | 'info' | 'debug';
+  pid?: number;
+  tid?: number;
+  clientIp?: string;
+  serverDomain?: string;
+  requestUri?: string;
+  upstream?: string;
+  host?: string;
+  message: string;
+}
+
+export type NginxLogEntry = NginxParsedAccessLogEntry | NginxParsedErrorLogEntry;
+
+export interface NginxLogStreamResponse {
+  filePath: string;
+  logType: 'access' | 'error' | 'stream';
+  totalLinesScanned: number;
+  returnedLines: number;
+  entries: NginxLogEntry[];
+  stats: {
+    totalEntries: number;
+    count2xx: number;
+    count3xx: number;
+    count4xx: number;
+    count5xx: number;
+    countErrors: number;
+    countWarns: number;
+    uniqueIpsCount: number;
+    topIps: { ip: string; count: number }[];
+    topUris: { uri: string; count: number }[];
+    topStatusCodes: { code: number; count: number }[];
+  };
+  fileMetadata: {
+    exists: boolean;
+    sizeBytes: number;
+    sizeHuman: string;
+    lastModified?: string;
+  };
+}
+
+export interface NginxLogsDiscoverySummary {
+  totalLogFiles: number;
+  accessLogFilesCount: number;
+  errorLogFilesCount: number;
+  availableLogFiles: NginxDiscoveredLogFile[];
+  warnings: string[];
+}
+
 export interface RemoteServerTagSummary {
   tag: string;
   count: number;

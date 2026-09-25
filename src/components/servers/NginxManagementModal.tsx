@@ -40,6 +40,15 @@ import {
   Clock,
   Copy,
   AlertTriangle,
+  Filter,
+  Pause,
+  Download,
+  Trash2,
+  Radio,
+  SlidersHorizontal,
+  HardDrive,
+  TerminalSquare,
+  Eye,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -53,6 +62,12 @@ import {
   NginxReverseProxyRoute,
   NginxSslSummary,
   NginxCertificateDetails,
+  NginxDiscoveredLogFile,
+  NginxLogsDiscoverySummary,
+  NginxLogStreamResponse,
+  NginxLogEntry,
+  NginxParsedAccessLogEntry,
+  NginxParsedErrorLogEntry,
 } from '../../types';
 import {
   controlLinuxServerService,
@@ -61,6 +76,8 @@ import {
   fetchNginxSites,
   fetchNginxProxy,
   fetchNginxCertificates,
+  fetchNginxLogsDiscovery,
+  fetchNginxLogStream,
   sshExecute,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
@@ -158,6 +175,102 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       setSslLoading(false);
     }
   }, [server, sessionPassword]);
+
+  // Phase 6: Live Dynamic Logs Model
+  const [logsSummary, setLogsSummary] = useState<NginxLogsDiscoverySummary | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [selectedLogFile, setSelectedLogFile] = useState<NginxDiscoveredLogFile | null>(null);
+  const [logStream, setLogStream] = useState<NginxLogStreamResponse | null>(null);
+  const [streamLoading, setStreamLoading] = useState(false);
+  const [isLiveTailing, setIsLiveTailing] = useState(false);
+  const [logLinesLimit, setLogLinesLimit] = useState<number>(100);
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | '2xx' | '3xx' | '4xx' | '5xx' | '404' | '502'>('all');
+  const [logLevelFilter, setLogLevelFilter] = useState<'all' | 'error' | 'warn' | 'info' | 'crit'>('all');
+  const [logViewMode, setLogViewMode] = useState<'structured' | 'raw'>('structured');
+  const [selectedLogDetail, setSelectedLogDetail] = useState<NginxLogEntry | null>(null);
+  const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
+
+  // Fetch discovered Nginx log files
+  const fetchLogsDiscovery = useCallback(async () => {
+    if (!server) return;
+    setLogsLoading(true);
+    try {
+      const res = await fetchNginxLogsDiscovery(server.id, sessionPassword || server.ssh_password);
+      if (res && res.success && res.logs) {
+        setLogsSummary(res.logs);
+        if (res.logs.availableLogFiles.length > 0) {
+          setSelectedLogFile((prev) => {
+            if (prev) {
+              const stillExists = res.logs?.availableLogFiles.find((f) => f.filePath === prev.filePath);
+              if (stillExists) return stillExists;
+            }
+            return res.logs?.availableLogFiles.find((f) => f.type === 'access') || res.logs?.availableLogFiles[0] || null;
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error('[Failed to discover Nginx logs]:', err);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [server, sessionPassword]);
+
+  // Fetch real-time stream of selected log file
+  const fetchLogStreamData = useCallback(async (targetFile?: NginxDiscoveredLogFile, silent: boolean = false) => {
+    const fileToRead = targetFile || selectedLogFile;
+    if (!server || !fileToRead) return;
+    if (!silent) setStreamLoading(true);
+    try {
+      const res = await fetchNginxLogStream(
+        server.id,
+        {
+          filePath: fileToRead.filePath,
+          lines: logLinesLimit,
+          search: logSearchQuery,
+          statusCode: logStatusFilter !== 'all' ? logStatusFilter : '',
+          level: logLevelFilter !== 'all' ? logLevelFilter : '',
+        },
+        sessionPassword || server.ssh_password
+      );
+      if (res && res.success && res.stream) {
+        setLogStream(res.stream);
+      }
+    } catch (err: any) {
+      console.error('[Failed to fetch Nginx log stream]:', err);
+    } finally {
+      if (!silent) setStreamLoading(false);
+    }
+  }, [server, selectedLogFile, logLinesLimit, logSearchQuery, logStatusFilter, logLevelFilter, sessionPassword]);
+
+  const handleCopyLogEntry = (text: string, id: string) => {
+    try {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text);
+        setCopiedLogId(id);
+        setTimeout(() => setCopiedLogId(null), 2000);
+      }
+    } catch {}
+  };
+
+  const handleDownloadLogs = () => {
+    if (!logStream || !selectedLogFile) return;
+    try {
+      const content = logStream.entries.map((e) => e.raw).join('\n');
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const filename = `${selectedLogFile.filePath.split('/').pop() || 'nginx'}_${Date.now()}.log`;
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download log content:', err);
+    }
+  };
 
   // Fetch full proxy & upstreams architecture
   const fetchProxyArchitecture = useCallback(async () => {
@@ -287,6 +400,31 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       fetchCertificates();
     }
   }, [isOpen, server, activeTab, sslData, sslLoading, fetchCertificates]);
+
+  useEffect(() => {
+    if (isOpen && server && activeTab === 'logs' && !logsSummary && !logsLoading) {
+      fetchLogsDiscovery();
+    }
+  }, [isOpen, server, activeTab, logsSummary, logsLoading, fetchLogsDiscovery]);
+
+  useEffect(() => {
+    if (isOpen && server && activeTab === 'logs' && selectedLogFile) {
+      fetchLogStreamData(selectedLogFile, false);
+    }
+  }, [isOpen, server, activeTab, selectedLogFile, logLinesLimit, logStatusFilter, logLevelFilter]);
+
+  // Live tail polling effect
+  useEffect(() => {
+    let intervalId: any;
+    if (isOpen && server && activeTab === 'logs' && isLiveTailing && selectedLogFile) {
+      intervalId = setInterval(() => {
+        fetchLogStreamData(selectedLogFile, true);
+      }, 3500);
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isOpen, server, activeTab, isLiveTailing, selectedLogFile, fetchLogStreamData]);
 
   // Execute Service Action (Start, Stop, Restart, Reload) using discovered service name
   const handleServiceAction = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
@@ -2740,38 +2878,974 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
             </div>
           )}
 
-          {/* TAB 5: LOGS */}
+          {/* TAB 5: LOGS - Phase 6 Dynamic Log Viewer & Real-Time Tail */}
           {activeTab === 'logs' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              {/* Header & Controls Bar */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-700/50">
                 <div>
                   <h3 className="text-sm font-bold flex items-center gap-2">
                     <FileText className="w-4 h-4 text-emerald-400" />
-                    <span>{isEn ? 'Nginx Diagnostic Logs' : 'لاگ‌های وب‌سرور Nginx'}</span>
+                    <span>{isEn ? 'Live Nginx Logs & Traffic Monitor' : 'پایش بلادرنگ و تحلیل لاگ‌های Nginx'}</span>
+                    {isLiveTailing && (
+                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse">
+                        <Radio className="w-3 h-3 animate-ping" />
+                        <span>{isEn ? 'LIVE TAIL ACTIVE' : 'استریم زنده فعال'}</span>
+                      </span>
+                    )}
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {isEn
-                      ? `Discovered logs: Error (${discovery?.errorLogPath || '/var/log/nginx/error.log'}), Access (${discovery?.accessLogPath || '/var/log/nginx/access.log'})`
-                      : `مسیرهای لاگ کشف‌شده: خطا (${discovery?.errorLogPath || '/var/log/nginx/error.log'})، دسترسی (${discovery?.accessLogPath || '/var/log/nginx/access.log'})`}
+                      ? 'Monitors real access and error log files discovered dynamically from Nginx configuration hierarchy.'
+                      : 'مشاهده و تحلیل فایل‌های لاگ کشف‌شده از ساختار پیکربندی سرور با فیلتر هوشمند کدهای خطا.'}
                   </p>
+                </div>
+
+                {/* Top Action Toolbar */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* File Selector Dropdown */}
+                  <div className="relative min-w-[240px]">
+                    <select
+                      value={selectedLogFile?.filePath || ''}
+                      onChange={(e) => {
+                        const file = logsSummary?.availableLogFiles.find((f) => f.filePath === e.target.value);
+                        if (file) {
+                          setSelectedLogFile(file);
+                        }
+                      }}
+                      disabled={logsLoading || !logsSummary || logsSummary.availableLogFiles.length === 0}
+                      className={`w-full px-3 py-1.5 text-xs rounded-lg border appearance-none font-mono cursor-pointer transition focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-300 text-slate-800'
+                          : 'bg-slate-900 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      {logsSummary?.availableLogFiles.map((file) => (
+                        <option key={file.id} value={file.filePath}>
+                          [{file.type.toUpperCase()}] {file.filePath.split('/').pop()} ({file.associatedServerName || file.scope} • {file.sizeHuman})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+
+                  {/* View Mode Toggle: Structured vs Raw */}
+                  <div
+                    className={`flex items-center p-0.5 rounded-lg border text-xs ${
+                      isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-800'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setLogViewMode('structured')}
+                      className={`px-2 py-1 rounded flex items-center gap-1 transition cursor-pointer font-medium ${
+                        logViewMode === 'structured'
+                          ? 'bg-emerald-500 text-slate-950 font-bold shadow-xs'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title={isEn ? 'Structured Table View' : 'نمای جدول ساختاریافته'}
+                    >
+                      <SlidersHorizontal className="w-3 h-3" />
+                      <span>{isEn ? 'Table' : 'جدول'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLogViewMode('raw')}
+                      className={`px-2 py-1 rounded flex items-center gap-1 transition cursor-pointer font-medium ${
+                        logViewMode === 'raw'
+                          ? 'bg-emerald-500 text-slate-950 font-bold shadow-xs'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title={isEn ? 'Raw Terminal View' : 'نمای کنسول خام'}
+                    >
+                      <TerminalSquare className="w-3 h-3" />
+                      <span>{isEn ? 'Raw' : 'کنسول'}</span>
+                    </button>
+                  </div>
+
+                  {/* Live Tail Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsLiveTailing(!isLiveTailing)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                      isLiveTailing
+                        ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                        : isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {isLiveTailing ? (
+                      <>
+                        <Pause className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{isEn ? 'Pause Stream' : 'توقف استریم'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{isEn ? 'Live Tail' : 'استریم زنده'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Refresh Button */}
+                  <button
+                    type="button"
+                    onClick={() => fetchLogStreamData(selectedLogFile || undefined, false)}
+                    disabled={streamLoading}
+                    className={`p-1.5 rounded-lg border text-xs transition cursor-pointer disabled:opacity-50 ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                    title={isEn ? 'Refresh Logs' : 'تازه‌سازی لاگ‌ها'}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${streamLoading ? 'animate-spin text-emerald-400' : ''}`} />
+                  </button>
+
+                  {/* Download Logs */}
+                  <button
+                    type="button"
+                    onClick={handleDownloadLogs}
+                    disabled={!logStream || logStream.entries.length === 0}
+                    className={`p-1.5 rounded-lg border text-xs transition cursor-pointer disabled:opacity-50 ${
+                      isLightMode
+                        ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                        : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                    title={isEn ? 'Download log snippet' : 'دانلود قطعه لاگ'}
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-300" />
+                  </button>
                 </div>
               </div>
 
+              {/* Selected File Metadata Card */}
+              {selectedLogFile && (
+                <div
+                  className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`px-2 py-0.5 rounded font-mono font-bold uppercase text-[10px] ${
+                        selectedLogFile.type === 'access'
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      }`}
+                    >
+                      {selectedLogFile.type}
+                    </span>
+                    <span className="font-mono text-slate-300 font-medium break-all">
+                      {selectedLogFile.filePath}
+                    </span>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-slate-400">
+                      {isEn ? 'Scope:' : 'محدوده:'}{' '}
+                      <strong className="text-emerald-400 font-mono">
+                        {selectedLogFile.associatedServerName || selectedLogFile.scope}
+                      </strong>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+                    <span>
+                      {isEn ? 'Size:' : 'حجم:'} <strong className="text-slate-200">{selectedLogFile.sizeHuman}</strong>
+                    </span>
+                    {selectedLogFile.lastModified && (
+                      <>
+                        <span className="text-slate-600">•</span>
+                        <span>
+                          {isEn ? 'Modified:' : 'تاریخ:'}{' '}
+                          <strong className="text-slate-300">
+                            {new Date(selectedLogFile.lastModified).toLocaleTimeString()}
+                          </strong>
+                        </span>
+                      </>
+                    )}
+                    <span className="text-slate-600">•</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] ${
+                        selectedLogFile.isReadable
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : 'bg-rose-500/10 text-rose-400'
+                      }`}
+                    >
+                      {selectedLogFile.isReadable ? (isEn ? 'Readable' : 'قابل خواندن') : (isEn ? 'Access Denied' : 'عدم دسترسی')}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Real-time Statistics Cards */}
+              {logStream && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                      <span>{isEn ? 'Tailed Entries' : 'ورودی‌های اسکن‌شده'}</span>
+                      <FileText className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
+                    <div className="text-lg font-bold mt-1 font-mono text-slate-100">
+                      {logStream.returnedLines}
+                    </div>
+                  </div>
+
+                  {selectedLogFile?.type === 'access' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setLogStatusFilter(logStatusFilter === '2xx' ? 'all' : '2xx')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logStatusFilter === '2xx'
+                            ? 'bg-emerald-500/15 border-emerald-500 ring-1 ring-emerald-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200 hover:bg-slate-50'
+                            : 'bg-slate-900/60 border-slate-800 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-emerald-400">
+                          <span>{isEn ? '2xx Success' : '۲xx موفق'}</span>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-emerald-400">
+                          {logStream.stats.count2xx}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setLogStatusFilter(logStatusFilter === '3xx' ? 'all' : '3xx')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logStatusFilter === '3xx'
+                            ? 'bg-sky-500/15 border-sky-500 ring-1 ring-sky-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200 hover:bg-slate-50'
+                            : 'bg-slate-900/60 border-slate-800 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-sky-400">
+                          <span>{isEn ? '3xx Redirect' : '۳xx ریدایرکت'}</span>
+                          <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-sky-400">
+                          {logStream.stats.count3xx}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setLogStatusFilter(logStatusFilter === '4xx' ? 'all' : '4xx')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logStatusFilter === '4xx'
+                            ? 'bg-amber-500/15 border-amber-500 ring-1 ring-amber-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200 hover:bg-slate-50'
+                            : 'bg-slate-900/60 border-slate-800 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-amber-400">
+                          <span>{isEn ? '4xx Client Err' : '۴xx خطای کاربر'}</span>
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-amber-400">
+                          {logStream.stats.count4xx}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setLogStatusFilter(logStatusFilter === '5xx' ? 'all' : '5xx')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logStatusFilter === '5xx'
+                            ? 'bg-rose-500/15 border-rose-500 ring-1 ring-rose-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200 hover:bg-slate-50'
+                            : 'bg-slate-900/60 border-slate-800 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-rose-400">
+                          <span>{isEn ? '5xx Server Err' : '۵xx خطای سرور'}</span>
+                          <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-rose-400">
+                          {logStream.stats.count5xx}
+                        </div>
+                      </button>
+
+                      <div
+                        className={`p-2.5 rounded-xl border ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                          <span>{isEn ? 'Unique Clients' : 'کلاینت‌های یکتا'}</span>
+                          <Globe className="w-3.5 h-3.5 text-slate-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-cyan-400">
+                          {logStream.stats.uniqueIpsCount}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setLogLevelFilter(logLevelFilter === 'crit' ? 'all' : 'crit')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logLevelFilter === 'crit'
+                            ? 'bg-rose-500/20 border-rose-500 ring-1 ring-rose-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200'
+                            : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-rose-400">
+                          <span>{isEn ? 'Critical / Emerg' : 'بحرانی'}</span>
+                          <Flame className="w-3.5 h-3.5 text-rose-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-rose-400">
+                          {logStream.entries.filter((e) => e.type === 'error' && ['crit', 'alert', 'emerg'].includes(e.level || '')).length}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setLogLevelFilter(logLevelFilter === 'error' ? 'all' : 'error')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logLevelFilter === 'error'
+                            ? 'bg-rose-500/15 border-rose-500 ring-1 ring-rose-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200'
+                            : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-rose-400">
+                          <span>{isEn ? 'Errors' : 'خطاها'}</span>
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-rose-400">
+                          {logStream.stats.countErrors}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setLogLevelFilter(logLevelFilter === 'warn' ? 'all' : 'warn')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logLevelFilter === 'warn'
+                            ? 'bg-amber-500/15 border-amber-500 ring-1 ring-amber-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200'
+                            : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-amber-400">
+                          <span>{isEn ? 'Warnings' : 'هشدارها'}</span>
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-amber-400">
+                          {logStream.stats.countWarns}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setLogLevelFilter(logLevelFilter === 'info' ? 'all' : 'info')}
+                        className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          logLevelFilter === 'info'
+                            ? 'bg-cyan-500/15 border-cyan-500 ring-1 ring-cyan-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-200'
+                            : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-cyan-400">
+                          <span>{isEn ? 'Info / Notice' : 'اطلاع / پیام'}</span>
+                          <Info className="w-3.5 h-3.5 text-cyan-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-cyan-400">
+                          {logStream.entries.filter((e) => e.type === 'error' && ['info', 'notice'].includes(e.level || '')).length}
+                        </div>
+                      </button>
+
+                      <div
+                        className={`p-2.5 rounded-xl border ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                          <span>{isEn ? 'Affected IPs' : 'IPهای درگیر'}</span>
+                          <Globe className="w-3.5 h-3.5 text-slate-400" />
+                        </div>
+                        <div className="text-lg font-bold mt-1 font-mono text-slate-200">
+                          {logStream.stats.uniqueIpsCount}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Filters Toolbar */}
               <div
-                className={`p-6 rounded-xl border text-center ${
+                className={`p-3 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
                   isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
                 }`}
               >
-                <FileText className="w-10 h-10 text-amber-400/60 mx-auto mb-3" />
-                <h4 className="text-sm font-bold">
-                  {isEn ? 'Access & Error Stream' : 'جریان لاگ‌های دسترسی و خطا'}
-                </h4>
-                <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
-                  {isEn
-                    ? 'Tails and filters incoming HTTP status codes and fatal web server errors from real discovered paths.'
-                    : 'مشاهده و فیلتر کردن لاگ‌های واقعی کشف‌شده از سرور لینوکس.'}
-                </p>
+                {/* Search Input */}
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={logSearchQuery}
+                    onChange={(e) => setLogSearchQuery(e.target.value)}
+                    placeholder={
+                      isEn
+                        ? 'Filter by IP, URI path, status code, user-agent, or keyword...'
+                        : 'فیلتر بر اساس IP، آدرس URI، کد وضعیت، User-Agent یا کلمه کلیدی...'
+                    }
+                    className={`w-full pl-9 pr-8 py-1.5 rounded-lg border text-xs transition focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400'
+                        : 'bg-slate-900 border-slate-700 text-slate-100 placeholder:text-slate-500'
+                    }`}
+                  />
+                  {logSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setLogSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick Status / Level Filters */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {selectedLogFile?.type === 'access' ? (
+                    <>
+                      {(['all', '2xx', '3xx', '4xx', '5xx', '404', '502'] as const).map((code) => (
+                        <button
+                          key={code}
+                          type="button"
+                          onClick={() => setLogStatusFilter(code)}
+                          className={`px-2 py-1 rounded text-[11px] font-mono font-medium transition cursor-pointer ${
+                            logStatusFilter === code
+                              ? 'bg-emerald-500 text-slate-950 font-bold'
+                              : isLightMode
+                              ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                          }`}
+                        >
+                          {code === 'all' ? (isEn ? 'All Codes' : 'همه کدها') : code.toUpperCase()}
+                        </button>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      {(['all', 'crit', 'error', 'warn', 'info'] as const).map((lvl) => (
+                        <button
+                          key={lvl}
+                          type="button"
+                          onClick={() => setLogLevelFilter(lvl)}
+                          className={`px-2 py-1 rounded text-[11px] font-mono font-medium transition cursor-pointer uppercase ${
+                            logLevelFilter === lvl
+                              ? 'bg-emerald-500 text-slate-950 font-bold'
+                              : isLightMode
+                              ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+                          }`}
+                        >
+                          {lvl === 'all' ? (isEn ? 'All Levels' : 'همه سطوح') : lvl}
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Lines Limit Dropdown */}
+                  <select
+                    value={logLinesLimit}
+                    onChange={(e) => setLogLinesLimit(Number(e.target.value))}
+                    className={`px-2 py-1 text-xs rounded border cursor-pointer font-mono ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-800'
+                        : 'bg-slate-900 border-slate-700 text-slate-300'
+                    }`}
+                  >
+                    <option value={50}>50 lines</option>
+                    <option value={100}>100 lines</option>
+                    <option value={250}>250 lines</option>
+                    <option value={500}>500 lines</option>
+                    <option value={1000}>1000 lines</option>
+                  </select>
+                </div>
               </div>
+
+              {/* Main Log Stream Display Area */}
+              {streamLoading && !logStream ? (
+                <div
+                  className={`p-12 rounded-xl border text-center ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
+                  }`}
+                >
+                  <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin mx-auto mb-3" />
+                  <p className="text-xs text-slate-400">
+                    {isEn ? 'Reading log stream from remote server...' : 'در حال دریافت استریم لاگ‌ها از سرور...'}
+                  </p>
+                </div>
+              ) : !logStream || logStream.entries.length === 0 ? (
+                <div
+                  className={`p-12 rounded-xl border text-center ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
+                  }`}
+                >
+                  <FileText className="w-10 h-10 text-slate-500 mx-auto mb-3" />
+                  <h4 className="text-sm font-bold text-slate-300">
+                    {isEn ? 'No Log Entries Found' : 'هیچ ردیف لاگی یافت نشد'}
+                  </h4>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                    {isEn
+                      ? 'The selected log file is currently empty, or no lines matched your filter criteria.'
+                      : 'فایل لاگ انتخابی خالی است یا هیچ موردی با شروط فیلتر فعلی همخوانی ندارد.'}
+                  </p>
+                </div>
+              ) : logViewMode === 'structured' ? (
+                /* Structured Table Mode */
+                <div
+                  className={`rounded-xl border overflow-hidden ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/40 border-slate-800'
+                  }`}
+                >
+                  <div className="overflow-x-auto max-h-[500px]">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead
+                        className={`sticky top-0 text-[11px] font-sans font-semibold border-b ${
+                          isLightMode
+                            ? 'bg-slate-100 border-slate-200 text-slate-600'
+                            : 'bg-slate-900 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        <tr>
+                          <th className="py-2.5 px-3">
+                            {selectedLogFile?.type === 'access' ? (isEn ? 'Status' : 'وضعیت') : (isEn ? 'Level' : 'سطح')}
+                          </th>
+                          {selectedLogFile?.type === 'access' && (
+                            <th className="py-2.5 px-3">{isEn ? 'Method' : 'متد'}</th>
+                          )}
+                          <th className="py-2.5 px-3">{isEn ? 'Client IP' : 'آدرس کلاینت'}</th>
+                          <th className="py-2.5 px-3">
+                            {selectedLogFile?.type === 'access' ? (isEn ? 'Request Path' : 'مسیر درخواست') : (isEn ? 'Message' : 'پیام خطا')}
+                          </th>
+                          {selectedLogFile?.type === 'access' && (
+                            <th className="py-2.5 px-3">{isEn ? 'Bytes' : 'حجم'}</th>
+                          )}
+                          <th className="py-2.5 px-3">{isEn ? 'Timestamp' : 'زمان'}</th>
+                          <th className="py-2.5 px-3 text-right">{isEn ? 'Actions' : 'عملیات'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {logStream.entries.map((entry) => {
+                          if (entry.type === 'access') {
+                            const acc = entry as NginxParsedAccessLogEntry;
+                            const is2xx = acc.statusCategory === '2xx';
+                            const is3xx = acc.statusCategory === '3xx';
+                            const is4xx = acc.statusCategory === '4xx';
+                            const is5xx = acc.statusCategory === '5xx';
+
+                            return (
+                              <tr
+                                key={acc.id}
+                                className={`hover:bg-slate-800/30 transition group ${
+                                  selectedLogDetail?.id === acc.id ? 'bg-emerald-500/10' : ''
+                                }`}
+                              >
+                                {/* Status Pill */}
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                      is2xx
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                        : is3xx
+                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                        : is4xx
+                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                        : is5xx
+                                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                        : 'bg-slate-700 text-slate-300'
+                                    }`}
+                                  >
+                                    {acc.statusCode || '---'}
+                                  </span>
+                                </td>
+
+                                {/* Method */}
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                      acc.method === 'GET'
+                                        ? 'bg-cyan-500/10 text-cyan-400'
+                                        : acc.method === 'POST'
+                                        ? 'bg-emerald-500/10 text-emerald-400'
+                                        : acc.method === 'PUT'
+                                        ? 'bg-amber-500/10 text-amber-400'
+                                        : acc.method === 'DELETE'
+                                        ? 'bg-rose-500/10 text-rose-400'
+                                        : 'bg-slate-700/50 text-slate-300'
+                                    }`}
+                                  >
+                                    {acc.method || '---'}
+                                  </span>
+                                </td>
+
+                                {/* Client IP */}
+                                <td className="py-2 px-3 whitespace-nowrap font-mono text-slate-300">
+                                  <button
+                                    type="button"
+                                    onClick={() => setLogSearchQuery(acc.clientIp || '')}
+                                    className="hover:text-emerald-400 hover:underline cursor-pointer"
+                                    title={isEn ? 'Filter by this IP' : 'فیلتر بر اساس این IP'}
+                                  >
+                                    {acc.clientIp || '---'}
+                                  </button>
+                                </td>
+
+                                {/* Request Path */}
+                                <td className="py-2 px-3 font-mono text-slate-200 max-w-xs sm:max-w-md truncate">
+                                  <span title={acc.uri}>{acc.uri || acc.raw}</span>
+                                </td>
+
+                                {/* Bytes */}
+                                <td className="py-2 px-3 whitespace-nowrap text-slate-400 text-[11px]">
+                                  {acc.bytesSent ? `${acc.bytesSent} B` : '-'}
+                                </td>
+
+                                {/* Timestamp */}
+                                <td className="py-2 px-3 whitespace-nowrap text-slate-400 text-[11px]">
+                                  {acc.timestamp || '-'}
+                                </td>
+
+                                {/* Action: Inspect Details */}
+                                <td className="py-2 px-3 text-right whitespace-nowrap">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyLogEntry(acc.raw, acc.id)}
+                                      className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                                      title={isEn ? 'Copy raw log line' : 'کپی خط کامل لاگ'}
+                                    >
+                                      {copiedLogId === acc.id ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedLogDetail(acc)}
+                                      className="p-1 rounded text-emerald-400 hover:bg-emerald-500/10 cursor-pointer"
+                                      title={isEn ? 'Inspect details' : 'مشاهده جزئیات'}
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          } else {
+                            // Error Log row
+                            const err = entry as NginxParsedErrorLogEntry;
+                            const isCrit = ['crit', 'alert', 'emerg'].includes(err.level || '');
+                            const isErr = err.level === 'error';
+                            const isWarn = err.level === 'warn';
+
+                            return (
+                              <tr
+                                key={err.id}
+                                className={`hover:bg-slate-800/30 transition group ${
+                                  selectedLogDetail?.id === err.id ? 'bg-emerald-500/10' : ''
+                                }`}
+                              >
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                      isCrit
+                                        ? 'bg-rose-600 text-white'
+                                        : isErr
+                                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                        : isWarn
+                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                        : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                                    }`}
+                                  >
+                                    {err.level || 'ERROR'}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap font-mono text-slate-300">
+                                  {err.clientIp ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setLogSearchQuery(err.clientIp || '')}
+                                      className="hover:text-emerald-400 hover:underline cursor-pointer"
+                                    >
+                                      {err.clientIp}
+                                    </button>
+                                  ) : (
+                                    '-'
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 font-mono text-slate-200 max-w-sm sm:max-w-xl truncate">
+                                  <span title={err.message}>{err.message}</span>
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap text-slate-400 text-[11px]">
+                                  {err.timestamp || '-'}
+                                </td>
+                                <td className="py-2 px-3 text-right whitespace-nowrap">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyLogEntry(err.raw, err.id)}
+                                      className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                                    >
+                                      {copiedLogId === err.id ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedLogDetail(err)}
+                                      className="p-1 rounded text-emerald-400 hover:bg-emerald-500/10 cursor-pointer"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                /* Raw Console Mode */
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs overflow-x-auto max-h-[500px] text-slate-200">
+                  <div className="space-y-1">
+                    {logStream.entries.map((entry, idx) => (
+                      <div key={entry.id || idx} className="flex items-start gap-3 hover:bg-white/5 p-0.5 rounded">
+                        <span className="text-slate-600 select-none text-[10px] w-8 text-right shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="whitespace-pre-wrap break-all flex-1">
+                          {entry.raw}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyLogEntry(entry.raw, entry.id)}
+                          className="text-slate-600 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition shrink-0 cursor-pointer"
+                        >
+                          {copiedLogId === entry.id ? (
+                            <Check className="w-3 h-3 text-emerald-400" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Log Entry Detail Modal */}
+              {selectedLogDetail && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[999995]">
+                  <div
+                    className={`max-w-2xl w-full rounded-2xl border shadow-2xl overflow-hidden ${
+                      isLightMode ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between p-4 border-b border-slate-700">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-emerald-400" />
+                        <h4 className="text-sm font-bold">
+                          {isEn ? 'Log Entry Inspection' : 'جزئیات ردیف لاگ'}
+                        </h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLogDetail(null)}
+                        className="text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-xs font-mono">
+                      {selectedLogDetail.type === 'access' ? (
+                        <>
+                          {(() => {
+                            const acc = selectedLogDetail as NginxParsedAccessLogEntry;
+                            return (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                  <div className="p-2.5 rounded-lg bg-black/30 border border-white/5">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Status' : 'کد وضعیت'}
+                                    </span>
+                                    <strong className="text-emerald-400 text-sm">{acc.statusCode || 'N/A'}</strong>
+                                  </div>
+                                  <div className="p-2.5 rounded-lg bg-black/30 border border-white/5">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Method' : 'متد'}
+                                    </span>
+                                    <strong className="text-cyan-400 text-sm">{acc.method || 'N/A'}</strong>
+                                  </div>
+                                  <div className="p-2.5 rounded-lg bg-black/30 border border-white/5">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Client IP' : 'آدرس IP'}
+                                    </span>
+                                    <strong className="text-slate-200 text-sm">{acc.clientIp || 'N/A'}</strong>
+                                  </div>
+                                  <div className="p-2.5 rounded-lg bg-black/30 border border-white/5">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Bytes Sent' : 'بایت ارسالی'}
+                                    </span>
+                                    <strong className="text-slate-200 text-sm">{acc.bytesSent || 0} B</strong>
+                                  </div>
+                                </div>
+
+                                <div className="p-3 rounded-lg bg-black/30 border border-white/5 space-y-2">
+                                  <div>
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Request URI' : 'آدرس درخواست'}
+                                    </span>
+                                    <span className="text-slate-200 break-all">{acc.uri || 'N/A'}</span>
+                                  </div>
+                                  {acc.referer && (
+                                    <div>
+                                      <span className="text-[10px] text-slate-400 block font-sans">
+                                        {isEn ? 'HTTP Referer' : 'ارجاع‌دهنده'}
+                                      </span>
+                                      <span className="text-slate-400 break-all">{acc.referer}</span>
+                                    </div>
+                                  )}
+                                  {acc.userAgent && (
+                                    <div>
+                                      <span className="text-[10px] text-slate-400 block font-sans">
+                                        {isEn ? 'User Agent' : 'مشخصات مرورگر/کلاینت'}
+                                      </span>
+                                      <span className="text-slate-400 break-all">{acc.userAgent}</span>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Timestamp' : 'زمان ثبت'}
+                                    </span>
+                                    <span className="text-slate-400">{acc.timestamp || 'N/A'}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <>
+                          {(() => {
+                            const err = selectedLogDetail as NginxParsedErrorLogEntry;
+                            return (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div className="p-2.5 rounded-lg bg-black/30 border border-white/5">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Severity Level' : 'شدت خطا'}
+                                    </span>
+                                    <strong className="text-rose-400 text-sm uppercase">{err.level}</strong>
+                                  </div>
+                                  <div className="p-2.5 rounded-lg bg-black/30 border border-white/5">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      PID # TID
+                                    </span>
+                                    <strong className="text-slate-200 text-sm">{err.pid || '-'}{err.tid ? `#${err.tid}` : ''}</strong>
+                                  </div>
+                                  <div className="p-2.5 rounded-lg bg-black/30 border border-white/5">
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Client IP' : 'آدرس IP'}
+                                    </span>
+                                    <strong className="text-slate-200 text-sm">{err.clientIp || '-'}</strong>
+                                  </div>
+                                </div>
+
+                                <div className="p-3 rounded-lg bg-black/30 border border-white/5 space-y-2">
+                                  <div>
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Error Message' : 'متن خطا'}
+                                    </span>
+                                    <span className="text-rose-300 break-all">{err.message}</span>
+                                  </div>
+                                  {err.serverDomain && (
+                                    <div>
+                                      <span className="text-[10px] text-slate-400 block font-sans">
+                                        {isEn ? 'Target Virtual Host' : 'هاست مجازی هدف'}
+                                      </span>
+                                      <span className="text-emerald-400">{err.serverDomain}</span>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <span className="text-[10px] text-slate-400 block font-sans">
+                                      {isEn ? 'Timestamp' : 'زمان ثبت'}
+                                    </span>
+                                    <span className="text-slate-400">{err.timestamp || 'N/A'}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
+
+                      {/* Raw String */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-sans">
+                          <span>{isEn ? 'Full Raw Log Line' : 'خط کامل لاگ خام'}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLogEntry(selectedLogDetail.raw, 'modal')}
+                            className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>{isEn ? 'Copy' : 'کپی'}</span>
+                          </button>
+                        </div>
+                        <pre className="p-3 rounded-lg bg-black/50 border border-slate-800 text-[11px] whitespace-pre-wrap break-all text-slate-300">
+                          {selectedLogDetail.raw}
+                        </pre>
+                      </div>
+                    </div>
+
+                    <div className="p-3 border-t border-slate-800 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLogDetail(null)}
+                        className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white cursor-pointer"
+                      >
+                        {isEn ? 'Close' : 'بستن'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

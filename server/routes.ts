@@ -202,6 +202,7 @@ import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
 import { discoverNginxProxyArchitecture } from './nginxProxyManager';
 import { discoverNginxCertificates } from './nginxCertDiscovery';
+import { discoverNginxLogFiles, streamNginxLogFile } from './nginxLogManager';
 
 export const apiRouter = Router();
 
@@ -1983,6 +1984,65 @@ apiRouter.post('/remote-servers/:id/nginx-certificates', async (req: Request, re
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to inspect Nginx SSL certificates',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-logs-discovery - Discovers all active access and error log files
+apiRouter.post('/remote-servers/:id/nginx-logs-discovery', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const logsSummary = await discoverNginxLogFiles(server, password);
+    return res.json({ success: true, logs: logsSummary });
+  } catch (err: any) {
+    console.error(`[NginxLogsDiscovery API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Nginx log files',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-logs-stream - Streams, parses, filters, and computes live statistics for Nginx logs
+apiRouter.post('/remote-servers/:id/nginx-logs-stream', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, filePath, lines, search, statusCode, level } = req.body || {};
+
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({ success: false, error: 'File path parameter is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const streamData = await streamNginxLogFile(
+      server,
+      {
+        filePath,
+        lines: lines ? Number(lines) : 100,
+        search: typeof search === 'string' ? search : '',
+        statusCode: typeof statusCode === 'string' ? statusCode : '',
+        level: typeof level === 'string' ? level : '',
+      },
+      password
+    );
+
+    return res.json({ success: true, stream: streamData });
+  } catch (err: any) {
+    console.error(`[NginxLogsStream API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to stream Nginx log file',
     });
   }
 });

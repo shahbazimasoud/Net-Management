@@ -10,9 +10,40 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.165.1';
+export const APP_VERSION = '1.166.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.166.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'فاز ۶ مدیریت انجین‌ایکس: مانیتورینگ زنده، استریم و تحلیل بلادرنگ لاگ‌های Access و Error',
+    title_en: 'Nginx Management Phase 6: Live Dynamic Log Discovery, Real-Time Tail Streaming & Traffic Analytics',
+    changes: [
+      'پیاده‌سازی ماژول اختصاصی کشف و استریم هوشمند لاگ‌های Nginx (/server/nginxLogManager.ts).',
+      'کشف خودکار تمامی فایل‌های access_log و error_log تعریف‌شده در سطوح مختلف کانتکست‌های http و server بدون مسیرهای هاردکدشده.',
+      'پیاده‌سازی موتور پردازش و تحلیل زنده لاگ‌ها بر روی سرور با استخراج فیلدهای کلاینت IP، متد، آدرس درخواست (URI)، کد وضعیت، حجم ارسالی، User-Agent، Referer، سطح خطا و شناسه‌های PID/TID.',
+      'محاسبه آمار ترافیک بلادرنگ: شمارش کدهای ۲xx، ۳xx، ۴xx و ۵xx، خطاهای بحرانی، کلاینت‌های یکتا و پرترافیک‌ترین آدرس‌ها.',
+      'امکان سوئیچ بین حالت جدول ساختاریافته (Structured Table) و کنسول لاگ خام (Raw Console) با رنگ‌آمیزی کد وضعیت‌ها و خطاها.',
+      'قابلیت استریم و پایش پیوسته زنده (Live Tail Streaming) با امکان توقف موقت (Pause) و ادامه (Resume).',
+      'سیستم فیلتر پیشرفته بر اساس کدهای خطای HTTP (مانند 404، 500، 502 Bad Gateway) و سطوح خطا (Crit, Error, Warn, Info).',
+      'افزودن امکان دانلود مستقیم قطعه لاگ (Download Log) و کپی آسان خطوط لاگ با کلیک.',
+      'رعایت استانداردهای امنیتی دقیق جهت جلوگیری از Path Traversal و محدودسازی دسترسی صرفاً به فایل‌های مجاز لاگ.',
+      'انطباق صددرصدی با تم‌های روشن و تیره و پشتیبانی کامل و تفکیک‌شده از زبان‌های فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered dedicated dynamic Nginx log discovery and real-time tail streaming engine (/server/nginxLogManager.ts).',
+      'Automatically discovered active access_log and error_log directives across http and server block contexts with zero hardcoded paths.',
+      'Implemented high-performance remote log parser extracting client IPs, HTTP methods, request URIs, status codes, bytes sent, user agents, error levels, and PID/TID threads.',
+      'Computed real-time traffic statistics: counts of 2xx success, 3xx redirects, 4xx client errors, 5xx server failures, unique clients, and top requested URIs.',
+      'Provided seamless toggle between Structured Table Mode and Raw Console Mode with status code and severity syntax colorization.',
+      'Added automated real-time Live Tail Streaming with responsive Pause / Resume controls.',
+      'Built advanced multi-criteria filtering by HTTP status codes (2xx, 3xx, 4xx, 5xx, 404, 502 Bad Gateway) and error severity levels.',
+      'Introduced direct log snippet download (.log) and instant clipboard copying for individual lines or full requests.',
+      'Enforced strict security boundaries to prevent path traversal, ensuring read access is confined strictly to verified Nginx log files.',
+      'Strictly verified bilingual localization (EN/FA) and ergonomic high-contrast dark/light theme styling.'
+    ]
+  },
   {
     version: '1.165.1',
     releaseDate: '2026-09-25',
