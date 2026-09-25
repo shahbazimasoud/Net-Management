@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.154.0';
+export const APP_VERSION = '1.155.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.155.0',
+    releaseDate: '2026-09-25',
+    type: 'minor',
+    title: 'افزودن تب و مودال پیشرفته مدیریت Cron Jobs در مودال Server Management با قابلیت توقف، ویرایش، حذف، ایجاد و اجرای تستی زنده',
+    title_en: 'Linux Cron Jobs Management Tab & Visual Schedule Editor in Server Management Modal with Pause, Edit, Delete, Create, and Live Test Run',
+    changes: [
+      'افزودن تب اختصاصی «کرون‌جاب‌ها» (Cron Jobs) در نوار ناوبری مودال مدیریت سرور (LinuxServerMonitorModal) همراه با نمایش زنده وضعیت دیمن cron/crond.',
+      'پیاده‌سازی کامپوننت کامل LinuxCronJobsTab با جدول تعاملی، فیلترهای چندگانه (کاربر، وضعیت فعال/متوقف، منابع سیستمی یا کاربر)، و جستجوی لحظه‌ای.',
+      'افزودن قابلیت توقف موقت و فعال‌سازی مجدد (Pause / Resume) بدون حذف دستور با نشانه‌گذاری استاندارد # [DISABLED] در crontab.',
+      'طراحی مودال سازنده و ویرایشگر پیشرفته LinuxEditCronModal با الگوهای آماده زمانی و دستوری (بکاپ دیتابیس، پاکسازی لاگ، تمدید SSL، ناظر سرویس)، تنظیمات گرافیکی ۵ گانه، و تولید توضیحات متنی زمان‌بندی به دو زبان فارسی و انگلیسی.',
+      'پیاده‌سازی مودال اجرای دستی (Run Now) با کنسول خروجی ترمینال زنده (stdout/stderr)، کد خروج و مدت زمان اجرا جهت اعتبارسنجی پیش از زمان‌بندی.',
+      'رعایت کامل استانداردهای مودال (دکمه‌های سه‌گانه Close/Minimize/Fullscreen، حریم فوتر bottom-8، انطباق کامل تم تیره و روشن، راهنماهای سه‌بخشی FieldInfoTooltip و عدم وجود هرگونه متن فارسی در حالت انگلیسی).',
+    ],
+    changes_en: [
+      'Added dedicated "Cron Jobs" tab to LinuxServerMonitorModal navigation bar with live cron/crond daemon telemetry status.',
+      'Implemented LinuxCronJobsTab featuring interactive table of schedules, comprehensive multi-tier filtering (user, status active/paused, source user/system), and real-time search.',
+      'Added seamless Pause / Resume toggling without destroying cron commands via standard "# [DISABLED]" comment tagging in crontab.',
+      'Engineered LinuxEditCronModal with visual 5-part cron generator, quick preset frequencies, enterprise command templates (DB backup, log rotation, SSL renewal, service auto-heal), and dynamic bilingual schedule translation.',
+      'Added interactive "Run Now" live execution modal capturing exit code, duration, and terminal stdout/stderr for preflight schedule verification.',
+      'Fully strictly aligned with system modal standards: triad control buttons (Close/Minimize/Fullscreen), bottom-8 footer clearance, dark/light theme contrast, 3-part FieldInfoTooltips, and zero Persian text in English mode.',
+    ],
+  },
   {
     version: '1.154.0',
     releaseDate: '2026-09-25',

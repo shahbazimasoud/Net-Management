@@ -46,6 +46,7 @@ import {
   Compass,
   ArrowDownCircle,
   ArrowUpCircle,
+  CalendarClock,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -78,6 +79,7 @@ import { LinuxMountModal } from './LinuxMountModal';
 import { LinuxServiceWatchdogModal } from './LinuxServiceWatchdogModal';
 import { LinuxDirectoryPolicyTab } from './LinuxDirectoryPolicyTab';
 import { LinuxStorageManager } from './storage';
+import { LinuxCronJobsTab } from './LinuxCronJobsTab';
 import { useModalDock } from '../../context/ModalDockContext';
 
 export interface LinuxServerMonitorModalProps {
@@ -115,7 +117,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const [ephemeralPassword, setEphemeralPassword] = useState(sessionPassword || '');
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(3000); // 3 seconds default
   const [history, setHistory] = useState<HistoricalDataPoint[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'disks' | 'directories' | 'network' | 'firewall' | 'users' | 'sysconfig' | 'logs' | 'updates'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'services' | 'processes' | 'cron' | 'disks' | 'directories' | 'network' | 'firewall' | 'users' | 'sysconfig' | 'logs' | 'updates'>('overview');
   const [processSearch, setProcessSearch] = useState('');
   const [sortProcessBy, setSortProcessBy] = useState<'cpu' | 'mem'>('cpu');
 
@@ -1085,6 +1087,21 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
                   {metrics.processes.length}
                 </span>
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('cron')}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'cron'
+                  ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-200'
+                  : 'text-slate-300 hover:bg-white/10'
+              }`}
+            >
+              <CalendarClock className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Cron Jobs' : 'کرون‌جاب‌ها'}</span>
             </button>
 
             <button
@@ -2467,6 +2484,16 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
               {/* TAB 8: UPDATE PACKAGES */}
               {activeTab === 'updates' && server && (
                 <LinuxPackageUpdateTab
+                  server={server}
+                  ephemeralPassword={ephemeralPassword}
+                  isLightMode={isLightMode}
+                  isEn={isEn}
+                />
+              )}
+
+              {/* TAB 9: CRON JOBS */}
+              {activeTab === 'cron' && server && (
+                <LinuxCronJobsTab
                   server={server}
                   ephemeralPassword={ephemeralPassword}
                   isLightMode={isLightMode}
