@@ -1734,6 +1734,78 @@ export interface SwitchApacheMpmParams {
   targetMpm: 'event' | 'worker' | 'prefork' | string;
 }
 
+export interface ApacheCertificateAssociatedVHost {
+  vhostId: string;
+  serverName: string;
+  definedInFile: string;
+  port: number;
+  sslEngine: boolean;
+  h2Enabled: boolean;
+  hstsEnabled: boolean;
+  sslProtocol?: string;
+  cipherSuite?: string;
+}
+
+export interface ApacheCertificateDetails {
+  id: string;
+  primaryDomain: string;
+  allDomains: string[];
+  certPath: string;
+  keyPath?: string;
+  chainPath?: string;
+  caPath?: string;
+  keyExists: boolean;
+  certExists: boolean;
+  certReadable: boolean;
+  keyReadable: boolean;
+  issuer: string;
+  subject: string;
+  validFrom: string;
+  validTo: string;
+  daysRemaining: number;
+  status: 'valid' | 'expiring_soon' | 'expired' | 'unreadable' | 'missing';
+  isSelfSigned: boolean;
+  isWildcard: boolean;
+  signatureAlgorithm?: string;
+  serialNumber?: string;
+  fingerprintSha256?: string;
+  associatedVHosts: ApacheCertificateAssociatedVHost[];
+  sourceType: 'configured_vhost' | 'configured_global' | 'letsencrypt_storage' | 'system_cert';
+}
+
+export interface ApacheSslSummary {
+  totalCertificates: number;
+  validCertificates: number;
+  expiringSoonCertificates: number;
+  expiredCertificates: number;
+  selfSignedCertificates: number;
+  missingOrUnreadableCertificates: number;
+  modSslLoaded: boolean;
+  modSocacheLoaded: boolean;
+  http2Loaded: boolean;
+  vhostsWithSslCount: number;
+  vhostsWithoutSslCount: number;
+  certificates: ApacheCertificateDetails[];
+  warnings: string[];
+}
+
+export interface GenerateApacheSelfSignedCertParams {
+  domain: string;
+  days?: number;
+  country?: string;
+  organization?: string;
+  vhostId?: string;
+}
+
+export interface AttachApacheSslCertParams {
+  vhostId: string;
+  certPath: string;
+  keyPath: string;
+  chainPath?: string;
+  enableHttp2?: boolean;
+  enableHsts?: boolean;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

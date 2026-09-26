@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.175.0';
+export const APP_VERSION = '1.176.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.176.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۷ مدیریت آپاچی: موتور جامع گواهینامه‌های SSL / TLS، پایش OpenSSL X.509، صدور خودامضا و اتصال ایمن به هاست‌های مجازی',
+    title_en: 'Apache Management Phase 7: Comprehensive SSL / TLS Certificate Engine, OpenSSL X.509 Inspection, Self-Signed Provisioner & Secure VHost Attachment',
+    changes: [
+      'پیاده‌سازی موتور عمیق کاوش و بررسی گواهینامه‌های SSL/TLS آپاچی (/server/apacheSslManager.ts) با اسکنر همه‌جانبه فایل‌های کانفیگ، VirtualHostها، مخزن Let\'s Encrypt (/etc/letsencrypt/live/) و گواهینامه‌های سیستمی.',
+      'اجرای مستقیم ابزار OpenSSL جهت استخراج متادیتای واقعی X.509 شامل دامنه‌های تحت پوشش (SANs)، صادرکننده، الگوریتم امضا، تاریخ انقضا و محاسبه دقیق روزهای باقیمانده.',
+      'رعایت صددرصدی پروتکل عدم افشای کلید خصوصی (Zero-Leak Rule 14): بررسی وجود و خوانایی کلید خصوصی روی دیسک بدون خواندن یا انتقال محتوای کلید به مرورگر.',
+      'پیاده‌سازی ماژول صدور گواهینامه خودامضا (Self-Signed 2048-bit RSA) مستقیماً روی سرور مقصد با قابلیت اتصال خودکار به هاست مجازی دلخواه.',
+      'توسعه سیستم اتصال ایمن گواهینامه به VirtualHost با تنظیم خودکار SSLEngine، SSLCertificateFile، SSLCertificateKeyFile، زنجیره اختیاری، HTTP/2 و هدر HSTS همراه با اعتبارسنجی سینتکس (-t) و رول‌بک فوری در صورت بروز خطا.',
+      'افزودن امکان اعمال یک‌کلیکی پروفایل امنیتی مدرن Mozilla Intermediate (شامل انحصاری‌سازی TLS 1.2 و TLS 1.3 و رمزهای امن).',
+      'ایجاد ۴ اندپوینت بک‌اند: /api/remote-servers/:id/apache-certificates، apache-ssl-generate-selfsigned، apache-ssl-attach و apache-ssl-modern-profile همراه با توابع کلاینت در src/services/api.ts.',
+      'توسعه کامل تب ۶ (SSL / TLS) در کامپوننت ApacheManagementModal با ۵ کارت آماری، بنر هشدار فقدان mod_ssl و دکمه فعال‌سازی مستقیم آن، فیلترهای چندگانه وضعیت، بازرس جزئیات رمزنقاری، نوار شمارش معکوس چرخه اعتبار و دو پنجره پورتال صدور خودامضا و اتصال گواهینامه با رعایت حریم فوتر.'
+    ],
+    changes_en: [
+      'Engineered deep Apache SSL/TLS Certificate Engine (/server/apacheSslManager.ts) scanning VirtualHost directives, server-level SSL files, Let\'s Encrypt storage (/etc/letsencrypt/live/), and system certificate stores.',
+      'Executed authentic OpenSSL X.509 inspector retrieving Subject Alternative Names (SANs), issuers, signatures, validity dates, and exact days remaining calculations.',
+      'Strict Zero-Leak compliance (Rule 14): filesystem presence and readability of private keys are verified while private key data is NEVER read, streamed, or leaked to browser.',
+      'Built remote 2048-bit RSA self-signed certificate generator using OpenSSL with optional auto-bind to target Apache VirtualHost.',
+      'Developed atomic SSL attachment engine safely configuring SSLEngine, SSLCertificateFile, SSLCertificateKeyFile, chain cert, HTTP/2, and HSTS with pre-flight syntax check (-t) and instant rollback.',
+      'Built one-click Mozilla Intermediate Modern SSL Profile enhancer enforcing TLS 1.2 and TLS 1.3 with modern cipher suites.',
+      'Added 4 backend API endpoints and matching client functions in src/services/api.ts for certificate discovery, self-signed generation, SSL attachment, and modern profile application.',
+      'Fully developed Tab 6 (SSL / TLS) in ApacheManagementModal featuring 5 telemetry metrics, mod_ssl readiness banner with one-click activation, status filters, cryptographic inspector, lifecycle validity countdown bar, and dual portal dialogs for self-signed issuance and SSL attachment.'
+    ]
+  },
   {
     version: '1.175.0',
     releaseDate: '2026-09-26',

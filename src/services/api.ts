@@ -1682,6 +1682,104 @@ export async function switchApacheMpm(
   return data;
 }
 
+export async function fetchApacheCertificates(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  sslData?: import('../types').ApacheSslSummary;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-certificates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function generateApacheSelfSignedCert(
+  serverId: string,
+  params: import('../types').GenerateApacheSelfSignedCertParams,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  certPath?: string;
+  keyPath?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-ssl-generate-selfsigned`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, ...params }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function attachApacheSslCert(
+  serverId: string,
+  params: import('../types').AttachApacheSslCertParams,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  output?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-ssl-attach`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, ...params }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function enableApacheModernSslProfile(
+  serverId: string,
+  vhostId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-ssl-modern-profile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, vhostId }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,

@@ -216,6 +216,12 @@ import {
   toggleApacheModule,
   switchApacheMpm,
 } from './apacheModuleManager';
+import {
+  discoverApacheCertificates,
+  generateApacheSelfSignedCertificate,
+  attachApacheSslCertificate,
+  enableApacheModernSslProfile,
+} from './apacheSslManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2259,6 +2265,117 @@ apiRouter.post('/remote-servers/:id/apache-mpm-switch', async (req: Request, res
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to switch Apache MPM',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-certificates - Discovers and inspects all SSL/TLS certificates
+apiRouter.post('/remote-servers/:id/apache-certificates', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const sslData = await discoverApacheCertificates(server, password);
+    return res.json({ success: true, sslData });
+  } catch (err: any) {
+    console.error(`[ApacheCertificates API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover and inspect Apache certificates',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-ssl-generate-selfsigned - Generates a self-signed certificate on remote server
+apiRouter.post('/remote-servers/:id/apache-ssl-generate-selfsigned', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, domain, days, country, organization, vhostId } = req.body || {};
+
+    if (!domain) {
+      return res.status(400).json({ success: false, error: 'domain is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await generateApacheSelfSignedCertificate(
+      server,
+      { domain, days, country, organization, vhostId },
+      password
+    );
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheSslGenerateSelfSigned API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to generate self-signed SSL certificate',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-ssl-attach - Attaches SSL certificate to a VirtualHost
+apiRouter.post('/remote-servers/:id/apache-ssl-attach', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, vhostId, certPath, keyPath, chainPath, enableHttp2, enableHsts } = req.body || {};
+
+    if (!vhostId || !certPath || !keyPath) {
+      return res.status(400).json({
+        success: false,
+        error: 'vhostId, certPath, and keyPath are required',
+      });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await attachApacheSslCertificate(
+      server,
+      { vhostId, certPath, keyPath, chainPath, enableHttp2, enableHsts },
+      password
+    );
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheSslAttach API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to attach SSL certificate to VirtualHost',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-ssl-modern-profile - Enables Mozilla Intermediate modern SSL profile
+apiRouter.post('/remote-servers/:id/apache-ssl-modern-profile', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, vhostId } = req.body || {};
+
+    if (!vhostId) {
+      return res.status(400).json({ success: false, error: 'vhostId is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await enableApacheModernSslProfile(server, vhostId, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheSslModernProfile API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to apply modern SSL profile',
     });
   }
 });
