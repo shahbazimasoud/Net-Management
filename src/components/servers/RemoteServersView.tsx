@@ -48,6 +48,7 @@ import { LinuxTerminalModal } from './LinuxTerminalModal';
 import { LinuxServerMonitorModal } from './LinuxServerMonitorModal';
 import { LinuxFileExplorerModal } from './LinuxFileExplorerModal';
 import { NginxManagementModal } from './NginxManagementModal';
+import { ApacheManagementModal } from './ApacheManagementModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
@@ -302,6 +303,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Linux Nginx Web Server Management Modal
   const [nginxModalServer, setNginxModalServer] = useState<RemoteServer | null>(null);
   const [isNginxModalOpen, setIsNginxModalOpen] = useState(false);
+
+  // Linux Apache Web Server Management Modal (Phase 1 Entry Point)
+  const [apacheModalServer, setApacheModalServer] = useState<RemoteServer | null>(null);
+  const [isApacheModalOpen, setIsApacheModalOpen] = useState(false);
 
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
@@ -633,6 +638,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     undockModal(`nginx_mgmt_${server.id}`);
   };
 
+  // Handle Open Apache Management (Phase 1 Entry Point)
+  const handleOpenApacheManagement = (server: RemoteServer) => {
+    setMenuAnchor(null);
+    setApacheModalServer(server);
+    setIsApacheModalOpen(true);
+    undockModal(`apache_mgmt_${server.id}`);
+  };
+
   // Handle Open Windows Remote
   const handleOpenWindowsRemote = (server: RemoteServer) => {
     setWindowsModalServer(server);
@@ -917,6 +930,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onClose: () => {
           setIsNginxModalOpen(false);
           undockModal(`nginx_mgmt_${nginxModalServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizeApacheManagement = () => {
+    setIsApacheModalOpen(false);
+    if (apacheModalServer) {
+      dockModal({
+        id: `apache_mgmt_${apacheModalServer.id}`,
+        labelEn: `${apacheModalServer.name} - Apache Management`,
+        labelFa: `مدیریت Apache ${apacheModalServer.name}`,
+        badge: 'HTTPD',
+        category: 'tools',
+        onRestore: () => setIsApacheModalOpen(true),
+        onClose: () => {
+          setIsApacheModalOpen(false);
+          undockModal(`apache_mgmt_${apacheModalServer.id}`);
         },
       });
     }
@@ -2788,6 +2819,28 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </button>
                     )}
 
+                    {/* Apache Management (shown if server has_apache is true or installed_web_servers includes 'apache') */}
+                    {(menuAnchor.server.has_apache || (Array.isArray(menuAnchor.server.installed_web_servers) && menuAnchor.server.installed_web_servers.includes('apache'))) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const s = menuAnchor.server;
+                          handleOpenApacheManagement(s);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-300 transition cursor-pointer ${
+                          isEn ? 'text-left' : 'text-right'
+                        } ${isLightMode ? 'hover:bg-amber-50 text-amber-700' : 'hover:bg-amber-500/15 text-amber-300'}`}
+                      >
+                        <Server className="w-4 h-4 text-amber-400 shrink-0" />
+                        <div className="flex flex-col">
+                          <span>{isEn ? 'Apache Management' : 'مدیریت Apache'}</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>
+                            {isEn ? 'HTTP Server, VirtualHosts & Modules' : 'وب‌سرور آپاچی، هاست‌های مجازی و ماژول‌ها'}
+                          </span>
+                        </div>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => {
@@ -3090,6 +3143,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           setNginxModalServer(null);
         }}
         onMinimize={handleMinimizeNginxManagement}
+        onOpenTerminal={(s) => {
+          handleOpenLinuxTerminal(s, 'bash');
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 12.8 Linux Apache Management Modal (Phase 1 Entry Point) */}
+      <ApacheManagementModal
+        isOpen={isApacheModalOpen}
+        server={apacheModalServer}
+        onClose={() => {
+          setIsApacheModalOpen(false);
+          if (apacheModalServer) undockModal(`apache_mgmt_${apacheModalServer.id}`);
+          setApacheModalServer(null);
+        }}
+        onMinimize={handleMinimizeApacheManagement}
         onOpenTerminal={(s) => {
           handleOpenLinuxTerminal(s, 'bash');
         }}

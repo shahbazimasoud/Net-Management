@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.169.1';
+export const APP_VERSION = '1.170.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.170.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۱ مدیریت آپاچی: پیاده‌سازی مدخل دسترسی، اتصال شرطی به استک فلیت و ساخت مودال مدیریت وب‌سرور Apache',
+    title_en: 'Apache Management Phase 1: Entry Point Integration, Fleet Database Source of Truth & Apache Management Modal',
+    changes: [
+      'پیاده‌سازی مدخل ورود اختصاصی مدیریت وب‌سرور آپاچی (Apache Management Entry Point) در منوی سه‌نقطه سرورها در بخش Remote Servers & Automation Fleet.',
+      'وابسته‌سازی دقیق و شرطی نمایش منوی مدیریت آپاچی به تنظیمات واقعی سرور ثبت‌شده در دیتابیس (has_apache یا وجود apache در installed_web_servers) بدون نمایش بی‌مورد برای همه سرورها.',
+      'توسعه کامپوننت مودال مدیریت آپاچی (src/components/servers/ApacheManagementModal.tsx) منطبق بر استانداردهای ۵ گانه معماری مودال‌ها (بستن، مینیمایز به داک، تمام‌صفحه، حریم فوتر و سازگاری دوزبانه و تم).',
+      'طراحی ساختار تب‌های چندگانه برای فازهای آتی شامل نمای کلی، هاست‌های مجازی (VirtualHost)، پروکسی معکوس، ماژول‌ها و MPM، گواهینامه‌های SSL، لاگ‌های زنده و ویرایشگر امن کانفیگ.',
+      'تثبیت اصول معماری چندتوزیعی مستقل از اوبونتو با هدف پشتیبانی جامع از دبیان (apache2)، ردهت/راکی/آلما (httpd)، سوزه و مسیرهای سفارشی در فازهای بعدی.'
+    ],
+    changes_en: [
+      'Implemented dedicated Apache Management entry point in 3-dot server action menu within Remote Servers & Automation Fleet view.',
+      'Conditioned Apache Management visibility strictly on verified server database attributes (has_apache or installed_web_servers containing apache), ensuring database source of truth.',
+      'Created standard ApacheManagementModal component adhering to all universal modal architecture rules (3-button header controls, ToolsDock minimization, bottom-8 clearance, full theme and i18n support).',
+      'Architected tab navigation ready for phased rollout: Overview & Roadmap, VirtualHosts, Reverse Proxy, Modules & MPM, SSL/TLS Certificates, Log Analytics and Safe Config Editor.',
+      'Enforced distribution-neutral design principles rejecting Ubuntu-only paths, ready for dynamic host discovery across Debian, RHEL, Rocky, Alma, Fedora, SUSE and custom paths.'
+    ]
+  },
   {
     version: '1.169.1',
     releaseDate: '2026-09-26',
