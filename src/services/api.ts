@@ -1383,6 +1383,31 @@ export async function discoverApacheTopology(
   return data;
 }
 
+export async function fetchApacheConfigTopology(
+  serverId: string,
+  ephemeralPassword?: string,
+  confPath?: string,
+  serverRoot?: string
+): Promise<{
+  success: boolean;
+  topology?: import('../types').ApacheConfigTopologyTree;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-config-topology`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, confPath, serverRoot }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,

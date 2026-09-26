@@ -198,6 +198,7 @@ import {
   runLinuxCronJobNowSSH,
 } from './linuxCronManager';
 import { discoverApacheInstallation } from './apacheDiscovery';
+import { discoverApacheConfigTopology } from './apacheConfigParser';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -1936,6 +1937,28 @@ apiRouter.post('/remote-servers/:id/apache-discovery', async (req: Request, res:
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to discover Apache installation topology',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-config-topology - Scans Include tree and builds Apache configuration topology graph
+apiRouter.post('/remote-servers/:id/apache-config-topology', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, confPath, serverRoot } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const topology = await discoverApacheConfigTopology(server, password, confPath, serverRoot);
+    return res.json({ success: true, topology });
+  } catch (err: any) {
+    console.error(`[ApacheConfigTopology API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to scan Apache configuration topology tree',
     });
   }
 });

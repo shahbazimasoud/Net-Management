@@ -29,9 +29,19 @@ import {
   Search,
   Check,
   Copy,
+  Hash,
+  Eye,
+  CornerDownRight,
+  Network,
 } from 'lucide-react';
-import { RemoteServer, ApacheInstallationDetails, ApacheInstanceInfo } from '../../types';
-import { discoverApacheTopology } from '../../services/api';
+import {
+  RemoteServer,
+  ApacheInstallationDetails,
+  ApacheInstanceInfo,
+  ApacheConfigFileNode,
+  ApacheConfigTopologyTree,
+} from '../../types';
+import { discoverApacheTopology, fetchApacheConfigTopology } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 export interface ApacheManagementModalProps {
@@ -46,6 +56,7 @@ export interface ApacheManagementModalProps {
 
 export type ApacheTabType =
   | 'overview'
+  | 'topology'
   | 'vhosts'
   | 'proxy'
   | 'modules'
@@ -65,13 +76,21 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   const [activeTab, setActiveTab] = useState<ApacheTabType>('overview');
   const [isMaximized, setIsMaximized] = useState(false);
 
-  // Live Discovery State
+  // Live Discovery State (Phase 2)
   const [discovery, setDiscovery] = useState<ApacheInstallationDetails | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [testingSyntax, setTestingSyntax] = useState<boolean>(false);
   const [selectedInstanceId, setSelectedInstanceId] = useState<string>('');
   const [moduleFilter, setModuleFilter] = useState<string>('');
   const [showCompilerDefines, setShowCompilerDefines] = useState<boolean>(false);
+
+  // Configuration Topology State (Phase 3)
+  const [topology, setTopology] = useState<ApacheConfigTopologyTree | null>(null);
+  const [loadingTopology, setLoadingTopology] = useState<boolean>(false);
+  const [selectedFile, setSelectedFile] = useState<ApacheConfigFileNode | null>(null);
+  const [topologySearch, setTopologySearch] = useState<string>('');
+  const [copiedFilePath, setCopiedFilePath] = useState<string | null>(null);
+
   const [actionFeedback, setActionFeedback] = useState<{
     type: 'success' | 'error' | 'info';
     message: string;
@@ -133,6 +152,45 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     [server, isEn]
   );
 
+  // Fetch complete Apache configuration topology tree (Phase 3)
+  const fetchTopologyData = useCallback(async () => {
+    if (!server) return;
+    setLoadingTopology(true);
+    setActionFeedback(null);
+    try {
+      const res = await fetchApacheConfigTopology(
+        server.id,
+        server.ssh_password,
+        discovery?.confPath,
+        discovery?.serverRoot
+      );
+      if (res && res.success && res.topology) {
+        setTopology(res.topology);
+        if (res.topology.files && res.topology.files.length > 0) {
+          setSelectedFile(res.topology.files[0]);
+        }
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn
+            ? 'Failed to scan Apache configuration topology'
+            : 'خطا در پیمایش ساختار درختی کانفیگ آپاچی',
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn
+          ? 'Topology scanner connection error'
+          : 'خطای ارتباط در اسکنر توپولوژی کانفیگ',
+        details: err?.message,
+      });
+    } finally {
+      setLoadingTopology(false);
+    }
+  }, [server, discovery, isEn]);
+
   // Run on-demand syntax test
   const handleRunSyntaxTest = async () => {
     if (!server || !discovery?.binaryPath) return;
@@ -160,11 +218,23 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     }
   };
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedFilePath(text);
+    setTimeout(() => setCopiedFilePath(null), 2000);
+  };
+
   useEffect(() => {
     if (isOpen && server) {
       fetchDiscovery();
     }
   }, [isOpen, server, fetchDiscovery]);
+
+  useEffect(() => {
+    if (activeTab === 'topology' && !topology && !loadingTopology && server) {
+      fetchTopologyData();
+    }
+  }, [activeTab, topology, loadingTopology, server, fetchTopologyData]);
 
   if (!isOpen || !server) return null;
 
@@ -181,6 +251,15 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   const filteredModules = (discovery?.loadedModules || []).filter((m) =>
     moduleFilter ? m.toLowerCase().includes(moduleFilter.toLowerCase()) : true
   );
+
+  const filteredTopologyFiles = (topology?.files || []).filter((f) => {
+    if (!topologySearch) return true;
+    const term = topologySearch.toLowerCase();
+    return (
+      f.filePath.toLowerCase().includes(term) ||
+      f.relativePath.toLowerCase().includes(term)
+    );
+  });
 
   return createPortal(
     <div
@@ -252,7 +331,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                 )}
 
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  {isEn ? 'Phase 2: Discovery & Health' : 'فاز ۲: کشف و پایش سلامت'}
+                  {isEn ? 'Phase 3: Config Topology' : 'فاز ۳: توپولوژی کانفیگ'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 truncate mt-0.5 font-mono">
@@ -267,21 +346,28 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
 
           {/* Header Action Buttons (Terminal, Refresh, Minimize, Fullscreen, Close) */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Refresh Discovery */}
+            {/* Refresh Discovery & Topology */}
             <button
               type="button"
-              onClick={() => fetchDiscovery()}
-              disabled={loading}
-              title={isEn ? 'Refresh Live Discovery' : 'بازخوانی کشف زنده'}
+              onClick={() => {
+                fetchDiscovery();
+                if (activeTab === 'topology') fetchTopologyData();
+              }}
+              disabled={loading || loadingTopology}
+              title={isEn ? 'Refresh Live Data' : 'بازخوانی داده‌های زنده'}
               className={`p-2 rounded-lg border transition cursor-pointer ${
-                loading ? 'opacity-50 cursor-not-allowed' : ''
+                loading || loadingTopology ? 'opacity-50 cursor-not-allowed' : ''
               } ${
                 isLightMode
                   ? 'border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   : 'border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-400' : ''}`} />
+              <RefreshCw
+                className={`w-4 h-4 ${
+                  loading || loadingTopology ? 'animate-spin text-amber-400' : ''
+                }`}
+              />
             </button>
 
             {onOpenTerminal && (
@@ -503,11 +589,34 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Overview & Discovery' : 'نمای کلی و کشف زنده'}</span>
+            <span>{isEn ? 'Overview & Discovery' : 'نمای کلی و کشف'}</span>
             <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P2</span>
           </button>
 
-          {/* Tab 2: Virtual Hosts */}
+          {/* Tab 2: Config Topology (Phase 3) */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('topology')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+              activeTab === 'topology'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : isLightMode
+                ? 'text-slate-600 hover:bg-slate-100'
+                : 'text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            <FolderTree className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Config Topology' : 'توپولوژی کانفیگ'}</span>
+            {topology ? (
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+                {topology.totalFiles} {isEn ? 'files' : 'فایل'}
+              </span>
+            ) : (
+              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P3</span>
+            )}
+          </button>
+
+          {/* Tab 3: Virtual Hosts */}
           <button
             type="button"
             onClick={() => setActiveTab('vhosts')}
@@ -524,7 +633,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P4</span>
           </button>
 
-          {/* Tab 3: Reverse Proxy */}
+          {/* Tab 4: Reverse Proxy */}
           <button
             type="button"
             onClick={() => setActiveTab('proxy')}
@@ -541,7 +650,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P5</span>
           </button>
 
-          {/* Tab 4: Modules & MPM */}
+          {/* Tab 5: Modules & MPM */}
           <button
             type="button"
             onClick={() => setActiveTab('modules')}
@@ -562,7 +671,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             )}
           </button>
 
-          {/* Tab 5: SSL / TLS */}
+          {/* Tab 6: SSL / TLS */}
           <button
             type="button"
             onClick={() => setActiveTab('ssl')}
@@ -579,7 +688,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P7</span>
           </button>
 
-          {/* Tab 6: Logs */}
+          {/* Tab 7: Logs */}
           <button
             type="button"
             onClick={() => setActiveTab('logs')}
@@ -596,7 +705,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P8</span>
           </button>
 
-          {/* Tab 7: Safe Config Editor */}
+          {/* Tab 8: Safe Config Editor */}
           <button
             type="button"
             onClick={() => setActiveTab('config')}
@@ -795,9 +904,13 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                     <FolderTree className="w-4 h-4 text-amber-400" />
                     <span>{isEn ? 'Discovered Apache System Topology' : 'توپولوژی و مسیرهای کشف‌شده Apache در هاست'}</span>
                   </h3>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                    {isEn ? 'Live Host Discovery' : 'کشف‌شده به‌صورت زنده از هاست'}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('topology')}
+                    className="text-xs text-amber-400 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                  >
+                    <span>{isEn ? 'Explore Include Tree →' : 'کاوش درخت کانفیگ‌ها ←'}</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs font-mono">
@@ -898,114 +1011,368 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                   </pre>
                 </div>
               )}
+            </div>
+          )}
 
-              {/* Discovered Loaded Modules Section */}
-              {discovery?.loadedModules && discovery.loadedModules.length > 0 && (
-                <div
-                  className={`p-5 rounded-xl border ${
-                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <Boxes className="w-4 h-4 text-amber-400" />
-                      <h4 className="text-sm font-bold">
-                        {isEn
-                          ? `Discovered Loaded Modules (${discovery.loadedModules.length})`
-                          : `ماژول‌های بارگذاری‌شده کشف‌شده (${discovery.loadedModules.length})`}
-                      </h4>
-                    </div>
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
-                      <input
-                        type="text"
-                        placeholder={isEn ? 'Filter modules (e.g. ssl, proxy)...' : 'فیلتر ماژول‌ها...'}
-                        value={moduleFilter}
-                        onChange={(e) => setModuleFilter(e.target.value)}
-                        className={`text-xs pl-8 pr-3 py-1 rounded-lg border font-mono ${
-                          isLightMode
-                            ? 'bg-white border-slate-200 text-slate-800'
-                            : 'bg-slate-900 border-slate-700 text-slate-200'
-                        }`}
-                      />
+          {/* TAB 2: CONFIGURATION TOPOLOGY & INCLUDE TREE (PHASE 3) */}
+          {activeTab === 'topology' && (
+            <div className="space-y-6">
+              {/* Header and Quick Stats */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                    <FolderTree className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm">
+                      {isEn
+                        ? 'Apache Configuration Tree & Include Topology'
+                        : 'ساختار درختی و نگاشت پیوندهای کانفیگ آپاچی'}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {isEn
+                        ? `ServerRoot: ${topology?.serverRoot || discovery?.serverRoot || '/etc/apache2'} • Main: ${topology?.mainConfigPath || discovery?.confPath || 'apache2.conf'}`
+                        : `مسیر ریشه سرور: ${topology?.serverRoot || discovery?.serverRoot || '/etc/apache2'} • فایل اصلی: ${topology?.mainConfigPath || discovery?.confPath || 'apache2.conf'}`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                    <input
+                      type="text"
+                      placeholder={isEn ? 'Filter config files...' : 'فیلتر فایل‌های کانفیگ...'}
+                      value={topologySearch}
+                      onChange={(e) => setTopologySearch(e.target.value)}
+                      className={`text-xs pl-8 pr-3 py-1 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-white border-slate-200 text-slate-800'
+                          : 'bg-slate-900 border-slate-700 text-slate-200'
+                      }`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchTopologyData}
+                    disabled={loadingTopology}
+                    className="px-3 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs font-semibold cursor-pointer transition flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingTopology ? 'animate-spin' : ''}`} />
+                    <span>{isEn ? 'Rescan Tree' : 'اسکن مجدد'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Topology Loading Spinner */}
+              {loadingTopology && !topology && (
+                <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                  <RefreshCw className="w-8 h-8 text-amber-400 animate-spin" />
+                  <p className="text-xs font-mono text-slate-400">
+                    {isEn
+                      ? 'Traversing Include & IncludeOptional directives across ServerRoot...'
+                      : 'در حال پیمایش بازگشتی دستورات Include و IncludeOptional در ServerRoot...'}
+                  </p>
+                </div>
+              )}
+
+              {/* Topology Summary Directives Metrics */}
+              {topology && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 text-xs">
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                      {isEn ? 'Files' : 'فایل‌ها'}
+                    </span>
+                    <div className="text-base font-bold text-amber-400 font-mono mt-0.5">
+                      {topology.totalFiles}
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-1 font-mono text-[11px]">
-                    {filteredModules.map((mod, idx) => {
-                      const isShared = mod.includes('shared');
-                      return (
-                        <span
-                          key={idx}
-                          className={`px-2 py-0.5 rounded border ${
-                            isShared
-                              ? isLightMode
-                                ? 'bg-cyan-50 border-cyan-200 text-cyan-800'
-                                : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
-                              : isLightMode
-                              ? 'bg-slate-100 border-slate-200 text-slate-700'
-                              : 'bg-slate-800/60 border-slate-700 text-slate-300'
-                          }`}
-                        >
-                          {mod}
-                        </span>
-                      );
-                    })}
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                      {isEn ? 'Total Lines' : 'مجموع خطوط'}
+                    </span>
+                    <div className="text-base font-bold text-cyan-400 font-mono mt-0.5">
+                      {topology.totalLines.toLocaleString()}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                      {isEn ? 'VirtualHosts' : 'هاست‌های مجازی'}
+                    </span>
+                    <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">
+                      {topology.detectedContexts.totalVirtualHosts}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                      {isEn ? 'Directories' : 'دایرکتوری‌ها'}
+                    </span>
+                    <div className="text-base font-bold text-slate-200 font-mono mt-0.5">
+                      {topology.detectedContexts.totalDirectories}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                      {isEn ? 'Proxy Directives' : 'دستورات پروکسی'}
+                    </span>
+                    <div className="text-base font-bold text-cyan-300 font-mono mt-0.5">
+                      {topology.detectedContexts.totalProxyDirectives}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                      {isEn ? 'SSL Files' : 'فایل‌های SSL'}
+                    </span>
+                    <div className="text-base font-bold text-emerald-300 font-mono mt-0.5">
+                      {topology.detectedContexts.totalSslBlocks}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[10px] text-slate-400 uppercase font-bold">
+                      {isEn ? 'Listen Ports' : 'پورت‌های Listen'}
+                    </span>
+                    <div className="text-base font-bold text-amber-300 font-mono mt-0.5 truncate">
+                      {topology.detectedContexts.listenPorts.length > 0
+                        ? topology.detectedContexts.listenPorts.join(', ')
+                        : '80, 443'}
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Build Arguments & Compiler Defines */}
-              {discovery?.buildArguments && discovery.buildArguments.length > 0 && (
-                <div
-                  className={`p-5 rounded-xl border ${
-                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Cpu className="w-4 h-4 text-cyan-400" />
-                      <h4 className="text-sm font-bold">
-                        {isEn
-                          ? `Apache Compiler Directives (-D Defines: ${discovery.buildArguments.length})`
-                          : `تعاریف زمان کامپایلر آپاچی (-D: ${discovery.buildArguments.length})`}
-                      </h4>
+              {/* Topology Warnings if any */}
+              {topology?.warnings && topology.warnings.length > 0 && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+                  <div className="font-bold flex items-center gap-1.5 mb-1">
+                    <AlertCircle className="w-4 h-4 text-amber-400" />
+                    <span>{isEn ? 'Topology Scanner Notices:' : 'نکات اسکنر توپولوژی:'}</span>
+                  </div>
+                  <ul className="list-disc list-inside space-y-0.5 font-mono text-[11px] text-slate-300">
+                    {topology.warnings.map((w, idx) => (
+                      <li key={idx}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Two-Panel Explorer (Tree List & File Inspector) */}
+              {topology && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                  {/* Left Column: Include Hierarchy Tree List */}
+                  <div
+                    className={`lg:col-span-5 p-3 rounded-xl border flex flex-col max-h-[580px] overflow-hidden ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between px-2 pb-2.5 border-b mb-2">
+                      <span className="text-xs font-bold text-slate-400">
+                        {isEn ? 'Include Hierarchy Tree' : 'سلسله‌مراتب فایل‌های Include'}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-500">
+                        {filteredTopologyFiles.length} / {topology.totalFiles}
+                      </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowCompilerDefines(!showCompilerDefines)}
-                      className="text-xs text-amber-400 hover:underline cursor-pointer"
-                    >
-                      {showCompilerDefines
-                        ? isEn
-                          ? 'Collapse'
-                          : 'بستن'
-                        : isEn
-                        ? 'Expand'
-                        : 'نمایش جزئیات'}
-                    </button>
+
+                    <div className="flex-1 overflow-y-auto space-y-1 pr-1 font-mono text-xs">
+                      {filteredTopologyFiles.map((file, idx) => {
+                        const isSelected = selectedFile?.filePath === file.filePath;
+                        const indentPx = Math.min(file.level * 16, 64);
+                        const fileName = file.filePath.split('/').pop() || file.filePath;
+                        const dirName = file.filePath.substring(0, file.filePath.lastIndexOf('/'));
+
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => setSelectedFile(file)}
+                            style={{ paddingLeft: isEn ? `${indentPx}px` : undefined, paddingRight: !isEn ? `${indentPx}px` : undefined }}
+                            className={`p-2 rounded-lg border transition cursor-pointer flex items-center justify-between gap-2 ${
+                              isSelected
+                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
+                                : isLightMode
+                                ? 'border-slate-200/60 hover:bg-slate-100 text-slate-700'
+                                : 'border-slate-800/60 hover:bg-slate-800/40 text-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {file.level > 0 ? (
+                                <CornerDownRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              ) : (
+                                <FolderTree className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              )}
+                              <div className="min-w-0">
+                                <div className="font-bold text-xs truncate">{fileName}</div>
+                                <div className="text-[10px] text-slate-500 truncate">{dirName}</div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 text-[10px]">
+                              {file.virtualHostsCount > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                  {file.virtualHostsCount} vhost
+                                </span>
+                              )}
+                              {file.sslEnabled && (
+                                <span className="px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                  SSL
+                                </span>
+                              )}
+                              <span className="text-slate-500 font-mono">
+                                {file.lineCount}L
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {showCompilerDefines && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 font-mono text-[11px]">
-                      {discovery.buildArguments.map((def, idx) => (
-                        <div
-                          key={idx}
-                          className="p-2 rounded bg-black/40 border border-slate-800 truncate"
-                          title={def}
-                        >
-                          <span className="text-amber-400 font-bold">-D </span>
-                          <span className="text-slate-300">{def}</span>
+                  {/* Right Column: File Inspector & Code Preview */}
+                  <div
+                    className={`lg:col-span-7 p-4 rounded-xl border flex flex-col max-h-[580px] overflow-hidden ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    {selectedFile ? (
+                      <div className="flex flex-col h-full space-y-3">
+                        {/* File Header Bar */}
+                        <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b shrink-0">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <FileCode className="w-4 h-4 text-amber-400 shrink-0" />
+                              <span className="font-mono font-bold text-xs truncate">
+                                {selectedFile.filePath}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400 font-mono flex-wrap">
+                              <span>Lines: <strong className="text-slate-200">{selectedFile.lineCount}</strong></span>
+                              <span>•</span>
+                              <span>Size: <strong className="text-slate-200">{(selectedFile.sizeBytes / 1024).toFixed(1)} KB</strong></span>
+                              <span>•</span>
+                              <span>Perms: <strong className="text-slate-200">{selectedFile.permissions || '0644'}</strong></span>
+                              <span>•</span>
+                              <span>Owner: <strong className="text-slate-200">{selectedFile.owner || 'root'}</strong></span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(selectedFile.filePath)}
+                            className="p-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white cursor-pointer text-xs flex items-center gap-1 font-mono"
+                          >
+                            {copiedFilePath === selectedFile.filePath ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                            <span>{copiedFilePath === selectedFile.filePath ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی')}</span>
+                          </button>
                         </div>
-                      ))}
-                    </div>
-                  )}
+
+                        {/* Directives Metric Badges */}
+                        <div className="flex items-center gap-2 flex-wrap text-xs font-mono shrink-0">
+                          {selectedFile.virtualHostsCount > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              VirtualHosts: {selectedFile.virtualHostsCount}
+                            </span>
+                          )}
+                          {selectedFile.directoriesCount > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-slate-500/15 text-slate-300 border border-slate-500/30">
+                              Directories: {selectedFile.directoriesCount}
+                            </span>
+                          )}
+                          {selectedFile.locationsCount > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-slate-500/15 text-slate-300 border border-slate-500/30">
+                              Locations: {selectedFile.locationsCount}
+                            </span>
+                          )}
+                          {selectedFile.proxyPassCount > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                              ProxyPass: {selectedFile.proxyPassCount}
+                            </span>
+                          )}
+                          {selectedFile.sslEnabled && (
+                            <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              SSL Enabled
+                            </span>
+                          )}
+                          {selectedFile.hasCustomLog && (
+                            <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                              CustomLog
+                            </span>
+                          )}
+                          {selectedFile.hasErrorLog && (
+                            <span className="px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                              ErrorLog
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Included From Parent info */}
+                        {selectedFile.includedFrom && (
+                          <div className="text-[11px] font-mono text-slate-400 bg-black/30 p-2 rounded border border-slate-800 truncate shrink-0">
+                            <span className="text-amber-400 font-bold">{isEn ? 'Included from: ' : 'درج‌شده توسط: '}</span>
+                            <span>{selectedFile.includedFrom}</span>
+                          </div>
+                        )}
+
+                        {/* Code Content Snippet Preview */}
+                        <div className="flex-1 overflow-hidden flex flex-col rounded-lg border border-slate-800 bg-black/60">
+                          <div className="px-3 py-1.5 border-b border-slate-800 bg-slate-950 flex items-center justify-between text-[11px] font-mono text-slate-400 shrink-0">
+                            <span>{isEn ? 'Configuration Source Code Preview' : 'پیش‌نمایش سورس فایل کانفیگ'}</span>
+                            <span>{selectedFile.lineCount} {isEn ? 'lines' : 'سطر'}</span>
+                          </div>
+                          <pre className="flex-1 overflow-y-auto p-3 text-xs font-mono text-slate-200 whitespace-pre-wrap leading-relaxed">
+                            {selectedFile.fullContent || selectedFile.contentSnippet || (isEn ? '# Empty file or not readable' : '# فایل خالی است یا خوانده نشد')}
+                          </pre>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-xs">
+                        <FolderTree className="w-8 h-8 text-slate-600 mb-2" />
+                        <p>{isEn ? 'Select a configuration file to inspect' : 'یک فایل کانفیگ را جهت بررسی انتخاب کنید'}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* TAB 4: MODULES & MPM CONTROLLER */}
+          {/* TAB 5: MODULES & MPM CONTROLLER */}
           {activeTab === 'modules' && (
             <div className="space-y-6">
               <div
@@ -1080,7 +1447,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           )}
 
           {/* PLACEHOLDERS FOR FUTURE PHASES */}
-          {activeTab !== 'overview' && activeTab !== 'modules' && (
+          {activeTab !== 'overview' && activeTab !== 'topology' && activeTab !== 'modules' && (
             <div
               className={`p-8 rounded-xl border text-center flex flex-col items-center justify-center space-y-3 ${
                 isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -1102,15 +1469,15 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
               </h3>
               <p className="text-xs text-slate-400 max-w-md leading-relaxed">
                 {isEn
-                  ? 'Phase 2 has delivered full live Apache discovery & health monitoring. This module will be developed in its planned phase using authentic live data from the connected Linux server.'
-                  : 'فاز ۲ کشف کامل زنده و پایش سلامت وب‌سرور آپاچی را مستقر ساخته است. این ماژول در فاز زمان‌بندی‌شده با استفاده از داده‌های واقعی سرور توسعه خواهد یافت.'}
+                  ? 'Phase 3 has delivered the complete Apache configuration topology and Include tree. This module will be developed in its planned phase using authentic live data from the connected Linux server.'
+                  : 'فاز ۳ ساختار درختی و پیوندهای دایرکتیوهای کانفیگ آپاچی را مستقر نموده است. این ماژول در فاز زمان‌بندی‌شده با استفاده از داده‌های واقعی سرور توسعه خواهد یافت.'}
               </p>
               <button
                 type="button"
-                onClick={() => setActiveTab('overview')}
+                onClick={() => setActiveTab('topology')}
                 className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs font-semibold cursor-pointer transition"
               >
-                {isEn ? 'Return to Live Discovery' : 'بازگشت به نمای کشف زنده'}
+                {isEn ? 'Return to Config Topology' : 'بازگشت به توپولوژی کانفیگ'}
               </button>
             </div>
           )}

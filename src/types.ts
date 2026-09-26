@@ -1512,6 +1512,47 @@ export interface ApacheInstallationDetails {
   instances?: ApacheInstanceInfo[];
 }
 
+export interface ApacheConfigTopologyTree {
+  mainConfigPath: string;
+  serverRoot: string;
+  totalFiles: number;
+  totalLines: number;
+  files: ApacheConfigFileNode[];
+  detectedContexts: {
+    totalVirtualHosts: number;
+    totalDirectories: number;
+    totalLocations: number;
+    totalProxyDirectives: number;
+    totalSslBlocks: number;
+    totalLoadedModules: number;
+    listenPorts: number[];
+  };
+  warnings: string[];
+}
+
+export interface ApacheConfigFileNode {
+  filePath: string;
+  relativePath: string;
+  sizeBytes: number;
+  lineCount: number;
+  permissions?: string;
+  owner?: string;
+  includedFrom?: string;
+  level: number;
+  includesCount: number;
+  virtualHostsCount: number;
+  directoriesCount: number;
+  locationsCount: number;
+  proxyPassCount: number;
+  sslEnabled: boolean;
+  hasCustomLog: boolean;
+  hasErrorLog: boolean;
+  loadModulesCount: number;
+  contentSnippet?: string;
+  fullContent?: string;
+  error?: string;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

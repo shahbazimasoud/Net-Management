@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.171.0';
+export const APP_VERSION = '1.172.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.172.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۳ مدیریت آپاچی: موتور تحلیل ساختار درختی کانفیگ، پیمایش بازگشتی Includeها، استخراج گراف وابستگی‌ها و کاوشگر بصری توپولوژی',
+    title_en: 'Apache Management Phase 3: Configuration Topology Engine, Recursive Include Traverser, Dependency Graph & Interactive Inspector',
+    changes: [
+      'پیاده‌سازی موتور جامع تحلیل ساختار درختی کانفیگ آپاچی (/server/apacheConfigParser.ts): پیمایش بازگشتی و هوشمند دایرکتیوهای Include و IncludeOptional نسبت به ServerRoot و حل الگوهای Wildcard و دایرکتوری‌ها.',
+      'استخراج عمیق دایرکتیوها و متریک‌های هر فایل: شمارش بلوک‌های VirtualHost، Directory، Location، دستورات ProxyPass، فعال بودن SSL، لاگ‌های CustomLog و ErrorLog، دایرکتیوهای LoadModule و استخراج پورت‌های Listen.',
+      'افزودن اسکنر قدرتمند مبتنی بر پایتون با فالبک امن شل لینوکس (Bash) برای استخراج مشخصات فایل‌ها شامل حجم، تعداد سطور، دسترسی‌ها (Permissions) و مالک (Owner).',
+      'ایجاد اندپوینت بک‌اند POST /api/remote-servers/:id/apache-config-topology و متد کلاینت fetchApacheConfigTopology در src/services/api.ts.',
+      'توسعه تب اختصاصی توپولوژی کانفیگ (Config Topology) در کامپوننت ApacheManagementModal همراه با کارت‌های خلاصه آماری، فیلتر و جستجوی فایل‌ها، درخت سلسله‌مراتبی و پنجره بازرسی زنده کد با شمارنده خطوط و کپی آسان مسیر.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Apache configuration topology parser (/server/apacheConfigParser.ts): recursively resolves Include and IncludeOptional directives relative to ServerRoot with directory traversal and wildcard expansion.',
+      'Extracted deep directive metrics per file: VirtualHost, Directory, and Location block counts, ProxyPass statements, SSL status, CustomLog and ErrorLog presence, LoadModule directives, and active Listen ports.',
+      'Built dual-engine architecture: high-fidelity remote Python scanner with safe POSIX shell fallback extracting file sizes, line counts, octal permissions, and ownership.',
+      'Integrated backend route POST /api/remote-servers/:id/apache-config-topology and client API method fetchApacheConfigTopology in src/services/api.ts.',
+      'Created dedicated Config Topology tab in ApacheManagementModal featuring statistical directive metric cards, live file filtering, visual tree hierarchy, and an interactive inspector with code preview and path copy.'
+    ]
+  },
   {
     version: '1.171.0',
     releaseDate: '2026-09-26',
