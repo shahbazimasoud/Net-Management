@@ -1836,6 +1836,161 @@ export async function fetchApacheLogStream(
   return data;
 }
 
+export async function readApacheConfigFile(
+  serverId: string,
+  filePath: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  content: string;
+  sizeBytes: number;
+  lastModified?: string;
+  permissions?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-config-read`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    content: '',
+    sizeBytes: 0,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function testApacheConfigFileCandidate(
+  serverId: string,
+  filePath: string,
+  candidateContent: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  test?: import('../types').ApacheEditorTestResult;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-config-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, candidateContent, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function saveApacheConfigFileSafe(
+  serverId: string,
+  filePath: string,
+  newContent: string,
+  autoReload: boolean = true,
+  ephemeralPassword?: string
+): Promise<import('../types').ApacheEditorSaveResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-config-save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, newContent, autoReload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath,
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function listApacheFileBackups(
+  serverId: string,
+  filePath: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  backups?: import('../types').ApacheConfigFileBackup[];
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-config-backups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    backups: [],
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function restoreApacheFileBackup(
+  serverId: string,
+  filePath: string,
+  backupPath: string,
+  autoReload: boolean = true,
+  ephemeralPassword?: string
+): Promise<import('../types').ApacheEditorSaveResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-config-restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath, backupPath, autoReload, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath,
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function manageApacheService(
+  serverId: string,
+  action: import('../types').ApacheServiceAction,
+  ephemeralPassword?: string
+): Promise<import('../types').ApacheServiceActionResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-service-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    action,
+    serviceName: 'apache2',
+    serviceManager: 'systemd',
+    output: 'Failed to parse response from server',
+    error: 'Network or parsing error',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,

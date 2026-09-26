@@ -223,6 +223,14 @@ import {
   enableApacheModernSslProfile,
 } from './apacheSslManager';
 import { discoverApacheLogFiles, streamApacheLogFile } from './apacheLogManager';
+import {
+  readApacheConfigFile,
+  testApacheConfigFileCandidate,
+  saveApacheConfigFileSafe,
+  listApacheFileBackups,
+  restoreApacheFileBackup,
+  manageApacheService,
+} from './apacheSafeEditor';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2436,6 +2444,174 @@ apiRouter.post('/remote-servers/:id/apache-logs-stream', async (req: Request, re
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to stream Apache log file',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-config-read - Safely reads an Apache configuration file
+apiRouter.post('/remote-servers/:id/apache-config-read', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, password } = req.body || {};
+
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({ success: false, error: 'filePath is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await readApacheConfigFile(server, filePath, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheConfigRead API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to read Apache configuration file',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-config-test - Tests candidate Apache configuration in real context
+apiRouter.post('/remote-servers/:id/apache-config-test', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, candidateContent, password } = req.body || {};
+
+    if (!filePath || candidateContent === undefined) {
+      return res.status(400).json({ success: false, error: 'filePath and candidateContent are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await testApacheConfigFileCandidate(server, filePath, candidateContent, password);
+    return res.json({ success: true, test: result });
+  } catch (err: any) {
+    console.error(`[ApacheConfigTest API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to test candidate Apache configuration',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-config-save - Safely saves config with backup, syntax test & atomic rollback
+apiRouter.post('/remote-servers/:id/apache-config-save', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, newContent, autoReload, password } = req.body || {};
+
+    if (!filePath || newContent === undefined) {
+      return res.status(400).json({ success: false, error: 'filePath and newContent are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await saveApacheConfigFileSafe(
+      server,
+      filePath,
+      newContent,
+      autoReload !== false,
+      password
+    );
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheConfigSave API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to save Apache configuration file',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-config-backups - Lists all versioned backups for a file
+apiRouter.post('/remote-servers/:id/apache-config-backups', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, password } = req.body || {};
+
+    if (!filePath) {
+      return res.status(400).json({ success: false, error: 'filePath is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await listApacheFileBackups(server, filePath, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheConfigBackups API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to list Apache file backups',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-config-restore - Restores versioned backup with syntax test and rollback
+apiRouter.post('/remote-servers/:id/apache-config-restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { filePath, backupPath, autoReload, password } = req.body || {};
+
+    if (!filePath || !backupPath) {
+      return res.status(400).json({ success: false, error: 'filePath and backupPath are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await restoreApacheFileBackup(
+      server,
+      filePath,
+      backupPath,
+      autoReload !== false,
+      password
+    );
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheConfigRestore API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to restore Apache file backup',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-service-action - Controls Apache service (start/stop/restart/reload/graceful/enable/disable/status)
+apiRouter.post('/remote-servers/:id/apache-service-action', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { action, password } = req.body || {};
+
+    if (!action) {
+      return res.status(400).json({ success: false, error: 'action parameter is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await manageApacheService(server, action, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheServiceAction API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to execute Apache service action',
     });
   }
 });

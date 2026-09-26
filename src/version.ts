@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.177.0';
+export const APP_VERSION = '1.178.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.178.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۹ مدیریت آپاچی: ویرایشگر امن پیکربندی، اعتبارسنجی سینتکس ریموت، پشتیبان‌گیری زمان‌دار، مقایسه بصری (Diff)، رول‌بک اتمیک و مدیریت توزیع‌پذیر سرویس',
+    title_en: 'Apache Management Phase 9: Safe Configuration Editor, Remote Syntax Validation, Timestamped Backups, Visual Diff Viewer, Atomic Rollback & Distribution-Aware Service Management',
+    changes: [
+      'پیاده‌سازی موتور ویرایشگر امن پیکربندی آپاچی (/server/apacheSafeEditor.ts) با اعتبارسنجی سخت‌گیرانه مسیر جهت ممانعت قاطع از Path Traversal و دستکاری فایل‌های حساس سیستم.',
+      'پشتیبانی از خواندن و ارسال محتوای فایل‌های کانفیگ با کدگذاری Base64 از طریق SSH و اجرای مستقیم اسکریپت‌های پایتون بدون ایجاد افت کارایی.',
+      'پیاده‌سازی تست سینتکس کاندیدای ویرایش‌شده در محیط ایزوله و واقعی آپاچی (apachectl -t / httpd -t) با بارگذاری خودکار متغیرهای محیطی (/etc/apache2/envvars).',
+      'سیستم ذخیره‌سازی فوق‌العاده امن با ایجاد خودکار نسخه پشتیبان زمان‌دار در مسیر /var/backups/nettopology_apache/ قبل از اعمال هرگونه تغییر.',
+      'سازوکار رول‌بک اتمیک (Atomic Rollback): در صورت شکست تست ساختار یا کوچکترین خطای سینتکسی در دایرکتیوهای آپاچی، فایل کانفیگ فوراً و بی‌درنگ به نسخه سالم قبلی بازگردانده شده و مانع از توقف سرور (Downtime) می‌گردد.',
+      'موتور مدیریت سرویس تطبیقی با پشتیبانی چندتوزیعی (systemd، openrc، init.d و کنترل مستقیم apachectl) شامل ریلود ملایم (Graceful Reload) بدون قطعی ارتباط، ری‌استارت، توقف، راه‌اندازی و پایش ژورنال وضعیت.',
+      'ایجاد ۶ اندپوینت جدید در /server/routes.ts: apache-config-read، apache-config-test، apache-config-save، apache-config-backups، apache-config-restore و apache-service-action همراه با توابع کلاینت متناظر در src/services/api.ts.',
+      'توسعه کامل تب ۸ (Config & Service) در کامپوننت ApacheManagementModal با نوار مدیریت سرویس، انتخابگر سریع کلیه فایل‌های کانفیگ، ویرایشگر پیشرفته با آمار خطوط و کاراکترها، نمایشگر مقایسه بصری خط‌به‌خط (Visual Diff)، کشوی مدیریت و بازیابی بکاپ‌ها و بنرهای گزارش ریلود و رول‌بک.',
+      'توسعه کامپوننت ماژولار و مستقل ApacheSafeEditorModal همراه با دکمه‌های ویرایش مستقیم در تب‌های توپولوژی کانفیگ (Tab 2) و هاست‌های مجازی (Tab 3) با رعایت کامل استانداردهای پنج‌گانه مودال‌ها.'
+    ],
+    changes_en: [
+      'Engineered safe Apache configuration editor engine (/server/apacheSafeEditor.ts) with strict path traversal assertion and legitimate Apache directive verification.',
+      'High-integrity base64-encoded file streaming over SSH via Python workers on remote hosts with zero performance degradation.',
+      'Isolated remote candidate syntax verification using verified Apache control utilities (apachectl -t / httpd -t) with dynamic environment variable sourcing (/etc/apache2/envvars).',
+      'Automated timestamped backup system preserving snapshots under /var/backups/nettopology_apache/ before applying any modifications.',
+      'Atomic Rollback Architecture: Instantaneous restoration of original configuration if Apache syntax validation fails, ensuring zero downtime.',
+      'Adaptive distribution-aware service management supporting systemd, openrc, init.d, and direct apachectl with zero-downtime graceful reload, restart, start/stop, and full journal status inspection.',
+      'Added 6 backend API endpoints (/api/remote-servers/:id/apache-config-read, config-test, config-save, config-backups, config-restore, service-action) with corresponding client methods in src/services/api.ts.',
+      'Fully implemented Tab 8 (Config & Service) in ApacheManagementModal featuring the service command center, categorized file picker, code editor with syntax styling, line-by-line visual diff viewer (+/- changes), versioned backups manager with 1-click atomic restore, and detailed status inspection.',
+      'Engineered standalone ApacheSafeEditorModal with direct edit entry points embedded within Configuration Topology (Tab 2) and Virtual Hosts (Tab 3), complying with universal modal standards.'
+    ]
+  },
   {
     version: '1.177.0',
     releaseDate: '2026-09-26',

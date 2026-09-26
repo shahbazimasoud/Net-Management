@@ -1905,6 +1905,57 @@ export interface ApacheLogsDiscoverySummary {
   envVars: Record<string, string>;
 }
 
+// ==========================================
+// APACHE MANAGEMENT PHASE 9: SAFE CONFIG EDITOR, SYNTAX TEST, BACKUPS & SERVICE MANAGEMENT
+// ==========================================
+
+export interface ApacheConfigFileBackup {
+  id: string;
+  backupPath: string;
+  originalPath: string;
+  timestamp: string;
+  sizeBytes: number;
+  sizeHuman: string;
+}
+
+export interface ApacheEditorSaveResult {
+  success: boolean;
+  filePath: string;
+  backupCreated?: string;
+  syntaxTestPassed: boolean;
+  syntaxOutput: string;
+  serviceReloaded: boolean;
+  reloadOutput?: string;
+  error?: string;
+}
+
+export interface ApacheEditorTestResult {
+  isValid: boolean;
+  output: string;
+  error?: string;
+  warnings?: string[];
+}
+
+export type ApacheServiceAction =
+  | 'start'
+  | 'stop'
+  | 'restart'
+  | 'reload'
+  | 'graceful'
+  | 'enable'
+  | 'disable'
+  | 'status';
+
+export interface ApacheServiceActionResult {
+  success: boolean;
+  action: ApacheServiceAction;
+  serviceName: string;
+  serviceManager: string;
+  output: string;
+  activeState?: string;
+  error?: string;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

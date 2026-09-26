@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Server,
@@ -55,6 +55,13 @@ import {
   Play,
   Pause,
   TerminalSquare,
+  Edit3,
+  Save,
+  RotateCw,
+  GitCompare,
+  History,
+  Square,
+  RotateCcw,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -85,6 +92,11 @@ import {
   ApacheLogEntry,
   ApacheParsedAccessLogEntry,
   ApacheParsedErrorLogEntry,
+  ApacheConfigFileBackup,
+  ApacheEditorSaveResult,
+  ApacheEditorTestResult,
+  ApacheServiceAction,
+  ApacheServiceActionResult,
 } from '../../types';
 import {
   discoverApacheTopology,
@@ -106,8 +118,15 @@ import {
   enableApacheModernSslProfile,
   fetchApacheLogFiles,
   fetchApacheLogStream,
+  readApacheConfigFile,
+  testApacheConfigFileCandidate,
+  saveApacheConfigFileSafe,
+  listApacheFileBackups,
+  restoreApacheFileBackup,
+  manageApacheService,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { ApacheSafeEditorModal } from './ApacheSafeEditorModal';
 
 export interface ApacheManagementModalProps {
   isOpen: boolean;
@@ -273,6 +292,34 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   const [logLinesLimit, setLogLinesLimit] = useState<number>(100);
   const [copiedLogSnippet, setCopiedLogSnippet] = useState<boolean>(false);
   const [copiedEntryIp, setCopiedEntryIp] = useState<string | null>(null);
+
+  // Safe Configuration Editor & Service Management State (Phase 9)
+  const [editorModalOpen, setEditorModalOpen] = useState<boolean>(false);
+  const [editorModalFilePath, setEditorModalFilePath] = useState<string | null>(null);
+
+  const [selectedConfigFile, setSelectedConfigFile] = useState<string>('');
+  const [configContent, setConfigContent] = useState<string>('');
+  const [configOriginalContent, setConfigOriginalContent] = useState<string>('');
+  const [isLoadingConfigFile, setIsLoadingConfigFile] = useState<boolean>(false);
+  const [configFileMeta, setConfigFileMeta] = useState<{ sizeBytes: number; lastModified?: string; permissions?: string } | null>(null);
+
+  const [isTestingSyntax, setIsTestingSyntax] = useState<boolean>(false);
+  const [syntaxTestResult, setSyntaxTestResult] = useState<ApacheEditorTestResult | null>(null);
+  const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
+  const [saveConfigResult, setSaveConfigResult] = useState<ApacheEditorSaveResult | null>(null);
+  const [autoReloadConfig, setAutoReloadConfig] = useState<boolean>(true);
+
+  const [tabViewMode, setTabViewMode] = useState<'editor' | 'diff' | 'backups'>('editor');
+  const [configBackups, setConfigBackups] = useState<ApacheConfigFileBackup[]>([]);
+  const [isLoadingBackups, setIsLoadingBackups] = useState<boolean>(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState<string | null>(null);
+  const [copiedConfig, setCopiedConfig] = useState<boolean>(false);
+  const [customFilePath, setCustomFilePath] = useState<string>('');
+
+  const [serviceActionRunning, setServiceActionRunning] = useState<ApacheServiceAction | null>(null);
+  const [serviceActionResult, setServiceActionResult] = useState<ApacheServiceActionResult | null>(null);
+  const [showServiceStatusModal, setShowServiceStatusModal] = useState<boolean>(false);
+  const [serviceStatusOutput, setServiceStatusOutput] = useState<string>('');
 
   const [actionFeedback, setActionFeedback] = useState<{
     type: 'success' | 'error' | 'info';
@@ -1098,6 +1145,238 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     setTimeout(() => setCopiedEntryIp(null), 2000);
   };
 
+  // ==========================================
+  // PHASE 9: SAFE CONFIG EDITOR & SERVICE HANDLERS
+  // ==========================================
+
+  // Load configuration file content
+  const handleLoadConfigFile = useCallback(
+    async (filePath: string) => {
+      if (!server || !filePath.trim()) return;
+      setIsLoadingConfigFile(true);
+      setSyntaxTestResult(null);
+      setSaveConfigResult(null);
+      setSelectedConfigFile(filePath.trim());
+
+      try {
+        const res = await readApacheConfigFile(server.id, filePath.trim(), server.ssh_password);
+        if (res.success) {
+          setConfigContent(res.content);
+          setConfigOriginalContent(res.content);
+          setConfigFileMeta({
+            sizeBytes: res.sizeBytes,
+            lastModified: res.lastModified,
+            permissions: res.permissions,
+          });
+        } else {
+          setSaveConfigResult({
+            success: false,
+            filePath: filePath.trim(),
+            syntaxTestPassed: false,
+            syntaxOutput: '',
+            serviceReloaded: false,
+            error: res.error || (isEn ? 'Failed to read configuration file' : 'خطا در خواندن فایل پیکربندی'),
+          });
+        }
+      } catch (err: any) {
+        setSaveConfigResult({
+          success: false,
+          filePath: filePath.trim(),
+          syntaxTestPassed: false,
+          syntaxOutput: '',
+          serviceReloaded: false,
+          error: err?.message || (isEn ? 'Failed to read configuration file' : 'خطا در خواندن فایل پیکربندی'),
+        });
+      } finally {
+        setIsLoadingConfigFile(false);
+      }
+
+      // Load backups list
+      try {
+        const bRes = await listApacheFileBackups(server.id, filePath.trim(), server.ssh_password);
+        if (bRes.success && bRes.backups) {
+          setConfigBackups(bRes.backups);
+        }
+      } catch {
+        // Ignored
+      }
+    },
+    [server, isEn]
+  );
+
+  // Test candidate syntax
+  const handleTestCandidateSyntax = async () => {
+    if (!server || !selectedConfigFile || isTestingSyntax) return;
+    setIsTestingSyntax(true);
+    setSyntaxTestResult(null);
+    try {
+      const res = await testApacheConfigFileCandidate(
+        server.id,
+        selectedConfigFile,
+        configContent,
+        server.ssh_password
+      );
+      if (res.success && res.test) {
+        setSyntaxTestResult(res.test);
+      } else {
+        setSyntaxTestResult({
+          isValid: false,
+          output: res.error || (isEn ? 'Syntax check failed' : 'خطا در بررسی ساختار'),
+          error: res.error,
+        });
+      }
+    } catch (err: any) {
+      setSyntaxTestResult({
+        isValid: false,
+        output: err?.message || (isEn ? 'Remote check failed' : 'خطا در بررسی ریموت'),
+        error: err?.message,
+      });
+    } finally {
+      setIsTestingSyntax(false);
+    }
+  };
+
+  // Safe Save
+  const handleSaveConfigFileSafe = async () => {
+    if (!server || !selectedConfigFile || isSavingConfig) return;
+    setIsSavingConfig(true);
+    setSaveConfigResult(null);
+    try {
+      const res = await saveApacheConfigFileSafe(
+        server.id,
+        selectedConfigFile,
+        configContent,
+        autoReloadConfig,
+        server.ssh_password
+      );
+      setSaveConfigResult(res);
+      if (res.success) {
+        setConfigOriginalContent(configContent);
+        // Refresh backups
+        const bRes = await listApacheFileBackups(server.id, selectedConfigFile, server.ssh_password);
+        if (bRes.success && bRes.backups) {
+          setConfigBackups(bRes.backups);
+        }
+        // Refresh discovery
+        fetchDiscovery();
+      }
+    } catch (err: any) {
+      setSaveConfigResult({
+        success: false,
+        filePath: selectedConfigFile,
+        syntaxTestPassed: false,
+        syntaxOutput: '',
+        serviceReloaded: false,
+        error: err?.message || (isEn ? 'Failed to save configuration' : 'خطا در ذخیره‌سازی پیکربندی'),
+      });
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
+  // Restore backup
+  const handleRestoreFileBackup = async (backupPath: string) => {
+    if (!server || !selectedConfigFile || isRestoringBackup) return;
+    setIsRestoringBackup(backupPath);
+    setSaveConfigResult(null);
+    try {
+      const res = await restoreApacheFileBackup(
+        server.id,
+        selectedConfigFile,
+        backupPath,
+        autoReloadConfig,
+        server.ssh_password
+      );
+      setSaveConfigResult(res);
+      if (res.success) {
+        await handleLoadConfigFile(selectedConfigFile);
+        fetchDiscovery();
+      }
+    } catch (err: any) {
+      setSaveConfigResult({
+        success: false,
+        filePath: selectedConfigFile,
+        syntaxTestPassed: false,
+        syntaxOutput: '',
+        serviceReloaded: false,
+        error: err?.message || (isEn ? 'Failed to restore backup' : 'خطا در بازیابی نسخه پشتیبان'),
+      });
+    } finally {
+      setIsRestoringBackup(null);
+    }
+  };
+
+  // Manage Service Action
+  const handleServiceControlAction = async (action: ApacheServiceAction) => {
+    if (!server || serviceActionRunning) return;
+    setServiceActionRunning(action);
+    setServiceActionResult(null);
+    try {
+      const res = await manageApacheService(server.id, action, server.ssh_password);
+      setServiceActionResult(res);
+      if (action === 'status') {
+        setServiceStatusOutput(res.output);
+        setShowServiceStatusModal(true);
+      } else {
+        await fetchDiscovery();
+      }
+    } catch (err: any) {
+      setServiceActionResult({
+        success: false,
+        action,
+        serviceName: discovery?.serviceName || 'apache2',
+        serviceManager: discovery?.serviceManager || 'systemd',
+        output: err?.message || 'Execution error',
+        error: err?.message,
+      });
+    } finally {
+      setServiceActionRunning(null);
+    }
+  };
+
+  const handleCopyEditorContent = () => {
+    navigator.clipboard.writeText(configContent);
+    setCopiedConfig(true);
+    setTimeout(() => setCopiedConfig(false), 2000);
+  };
+
+  const handleResetEditorDraft = () => {
+    setConfigContent(configOriginalContent);
+    setSyntaxTestResult(null);
+  };
+
+  const isConfigDirty = configContent !== configOriginalContent;
+  const configLineCount = useMemo(() => configContent.split('\n').length, [configContent]);
+
+  // Compute line diff for tab view
+  const tabDiffLines = useMemo(() => {
+    if (tabViewMode !== 'diff') return [];
+    const orig = configOriginalContent.split('\n');
+    const nw = configContent.split('\n');
+    if (configOriginalContent === configContent) {
+      return orig.map((l, i) => ({ type: 'unchanged' as const, content: l, oldNum: i + 1, newNum: i + 1 }));
+    }
+    const maxLen = Math.max(orig.length, nw.length);
+    const result: { type: 'unchanged' | 'added' | 'removed'; content: string; oldNum?: number; newNum?: number }[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const o = orig[i];
+      const n = nw[i];
+      if (o === n) {
+        result.push({ type: 'unchanged', content: o, oldNum: i + 1, newNum: i + 1 });
+      } else {
+        if (o !== undefined) result.push({ type: 'removed', content: o, oldNum: i + 1 });
+        if (n !== undefined) result.push({ type: 'added', content: n, newNum: i + 1 });
+      }
+    }
+    return result;
+  }, [tabViewMode, configOriginalContent, configContent]);
+
+  const tabDiffStats = useMemo(() => {
+    const added = tabDiffLines.filter((l) => l.type === 'added').length;
+    const removed = tabDiffLines.filter((l) => l.type === 'removed').length;
+    return { added, removed };
+  }, [tabDiffLines]);
+
   useEffect(() => {
     if (isOpen && server) {
       fetchDiscovery();
@@ -1123,7 +1402,11 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     if (activeTab === 'logs' && !logsSummary && !loadingLogs && server) {
       fetchLogsData();
     }
-  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, proxySummary, loadingProxy, modulesSummary, loadingModules, sslData, loadingSsl, logsSummary, loadingLogs, server, fetchTopologyData, fetchVHostsData, fetchProxyData, fetchModulesData, fetchSslData, fetchLogsData]);
+    if (activeTab === 'config' && !selectedConfigFile && server) {
+      const defaultPath = discovery?.confPath || '/etc/apache2/apache2.conf';
+      handleLoadConfigFile(defaultPath);
+    }
+  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, proxySummary, loadingProxy, modulesSummary, loadingModules, sslData, loadingSsl, logsSummary, loadingLogs, selectedConfigFile, discovery, server, fetchTopologyData, fetchVHostsData, fetchProxyData, fetchModulesData, fetchSslData, fetchLogsData, handleLoadConfigFile]);
 
   useEffect(() => {
     if (isOpen && server && activeTab === 'logs' && selectedLogFile) {
@@ -1187,6 +1470,45 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
       (vh.documentRoot && vh.documentRoot.toLowerCase().includes(term))
     );
   });
+
+  // Discovered config files list for dropdown selector
+  const availableConfigFiles = useMemo(() => {
+    const list: { label: string; path: string; category: string }[] = [];
+    const mainPath = topology?.mainConfigPath || discovery?.confPath || '/etc/apache2/apache2.conf';
+    list.push({
+      label: `${isEn ? 'Main Configuration' : 'پیکربندی اصلی'} (${mainPath.split('/').pop()})`,
+      path: mainPath,
+      category: isEn ? 'Core Configuration' : 'پیکربندی هسته',
+    });
+
+    if (topology?.files) {
+      topology.files.forEach((f) => {
+        if (f.filePath !== mainPath) {
+          const fn = f.filePath.split('/').pop() || f.filePath;
+          let cat = isEn ? 'Included Files' : 'فایل‌های پیوند‌شده';
+          if (f.filePath.includes('sites-')) cat = isEn ? 'VirtualHost Sites' : 'هاست‌های مجازی';
+          else if (f.filePath.includes('mods-')) cat = isEn ? 'Modules' : 'ماژول‌ها';
+          else if (f.filePath.includes('conf.d') || f.filePath.includes('conf-')) cat = isEn ? 'Configuration Snippets' : 'بخش‌های پیکربندی';
+          list.push({ label: fn, path: f.filePath, category: cat });
+        }
+      });
+    }
+
+    if (vhostsSummary?.vhosts) {
+      vhostsSummary.vhosts.forEach((v) => {
+        if (!list.some((item) => item.path === v.definedInFile)) {
+          const fn = v.definedInFile.split('/').pop() || v.definedInFile;
+          list.push({
+            label: `${v.serverName} (${fn})`,
+            path: v.definedInFile,
+            category: isEn ? 'VirtualHosts' : 'هاست‌های مجازی',
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [topology, discovery, vhostsSummary, isEn]);
 
   return createPortal(
     <div
@@ -1651,7 +1973,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             )}
           </button>
 
-          {/* Tab 8: Safe Config Editor */}
+          {/* Tab 8: Safe Config Editor & Service Management (Phase 9) */}
           <button
             type="button"
             onClick={() => setActiveTab('config')}
@@ -1664,8 +1986,8 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             }`}
           >
             <FileCode className="w-3.5 h-3.5" />
-            <span>{isEn ? 'Config Editor' : 'ویرایشگر امن کانفیگ'}</span>
-            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P10</span>
+            <span>{isEn ? 'Config & Service' : 'کانفیگ و سرویس'}</span>
+            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P9</span>
           </button>
         </div>
 
@@ -2186,18 +2508,33 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(selectedFile.filePath)}
-                            className="p-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white cursor-pointer text-xs flex items-center gap-1 font-mono"
-                          >
-                            {copiedFilePath === selectedFile.filePath ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                            <span>{copiedFilePath === selectedFile.filePath ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی')}</span>
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditorModalFilePath(selectedFile.filePath);
+                                setEditorModalOpen(true);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer text-xs flex items-center gap-1 font-mono font-semibold transition"
+                              title={isEn ? 'Open in Safe Configuration Editor' : 'ویرایش در ویرایشگر امن کانفیگ'}
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                              <span>{isEn ? 'Edit in Safe Editor' : 'ویرایش امن'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(selectedFile.filePath)}
+                              className="p-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white cursor-pointer text-xs flex items-center gap-1 font-mono"
+                            >
+                              {copiedFilePath === selectedFile.filePath ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                              <span>{copiedFilePath === selectedFile.filePath ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی')}</span>
+                            </button>
+                          </div>
                         </div>
 
                         {/* Directives Metric Badges */}
@@ -5684,42 +6021,667 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             </div>
           )}
 
-          {/* PLACEHOLDERS FOR FUTURE PHASES */}
-          {activeTab !== 'overview' &&
-            activeTab !== 'topology' &&
-            activeTab !== 'vhosts' &&
-            activeTab !== 'proxy' &&
-            activeTab !== 'modules' &&
-            activeTab !== 'ssl' &&
-            activeTab !== 'logs' && (
+          {/* TAB 8: SAFE CONFIGURATION EDITOR & DISTRIBUTION-AWARE SERVICE MANAGEMENT (PHASE 9) */}
+          {activeTab === 'config' && (
+            <div className="space-y-4">
+              {/* TOP: SERVICE COMMAND CENTER */}
               <div
-                className={`p-8 rounded-xl border text-center flex flex-col items-center justify-center space-y-3 ${
+                className={`p-4 rounded-xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
                   isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                 }`}
               >
-                <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
-                  {activeTab === 'config' && <FileCode className="w-7 h-7" />}
+                {/* Left: Service Status Telemetry */}
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-3.5 h-3.5 rounded-full shrink-0 ${
+                      discovery?.serviceActive === 'active' || isRunning
+                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] animate-pulse'
+                        : discovery?.serviceActive === 'failed'
+                        ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+                        : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                    }`}
+                  />
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-sm">
+                        {isEn ? 'Apache HTTP Service' : 'سرویس وب‌سرور آپاچی'}
+                      </span>
+                      <span
+                        className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                          discovery?.serviceActive === 'active' || isRunning
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : discovery?.serviceActive === 'failed'
+                            ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        {discovery?.serviceActive === 'active' || isRunning
+                          ? isEn
+                            ? 'Active (Running)'
+                            : 'فعال (در حال اجرا)'
+                          : discovery?.serviceActive === 'failed'
+                          ? isEn
+                            ? 'Failed'
+                            : 'خطا / ناموفق'
+                          : isEn
+                          ? 'Inactive (Stopped)'
+                          : 'غیرفعال (متوقف)'}
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                        {discovery?.serviceName || 'apache2'}
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                        {discovery?.serviceManager || 'systemd'}
+                      </span>
+                      {discovery?.activeMpm && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                          MPM: {discovery.activeMpm}
+                        </span>
+                      )}
+                      {discovery?.masterPid && (
+                        <span className="text-[10px] font-mono text-slate-400">
+                          PID: {discovery.masterPid}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                      {isEn
+                        ? `Distro: ${discovery?.osDistro || 'Linux'} (${discovery?.osFamily || 'generic'}) • Binary: ${discovery?.binaryPath || 'apache2'}`
+                        : `توزیع: ${discovery?.osDistro || 'Linux'} (${discovery?.osFamily || 'generic'}) • باینری: ${discovery?.binaryPath || 'apache2'}`}
+                    </p>
+                  </div>
                 </div>
-                <h3 className="font-bold text-base">
-                  {activeTab === 'config' &&
-                    (isEn
-                      ? 'Safe Configuration Editor with Rollback (Phase 10)'
-                      : 'ویرایشگر امن کانفیگ با رول‌بک خودکار (فاز ۱۰)')}
-                </h3>
-                <p className="text-xs text-slate-400 max-w-md leading-relaxed">
-                  {isEn
-                    ? 'Phases 1-8 have delivered Entry Point, Discovery, Topology, Virtual Hosts, Reverse Proxy, Modules & MPM, SSL/TLS Engine, and Logs Analyzer. This module will be developed in its planned phase using authentic live data from the connected Linux server.'
-                    : 'فازهای ۱ تا ۸ ورودی، کشف زنده، توپولوژی کانفیگ، هاست‌های مجازی، پروکسی معکوس، مدیریت ماژول‌ها و MPM، موتور سرتیفیکیت SSL و تحلیلگر لاگ‌های آپاچی را مستقر ساخته‌اند. این ماژول در فاز برنامه‌ریزی‌شده با داده‌های واقعی سرور توسعه خواهد یافت.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('logs')}
-                  className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs font-semibold cursor-pointer transition"
-                >
-                  {isEn ? 'Return to Logs Engine' : 'بازگشت به موتور لاگ‌ها'}
-                </button>
+
+                {/* Right: Service Control Actions */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Graceful Reload (Zero Downtime) */}
+                  <button
+                    type="button"
+                    onClick={() => handleServiceControlAction('graceful')}
+                    disabled={Boolean(serviceActionRunning)}
+                    className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                    title={
+                      isEn
+                        ? 'Gracefully reloads Apache configuration without dropping active client connections'
+                        : 'ریلود ملایم کانفیگ آپاچی بدون قطعی ارتباط کاربران متصل'
+                    }
+                  >
+                    {serviceActionRunning === 'graceful' || serviceActionRunning === 'reload' ? (
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RotateCw className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isEn ? 'Reload (Graceful)' : 'ریلود ملایم (بدون قطعی)'}</span>
+                  </button>
+
+                  {/* Restart */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          isEn
+                            ? 'Are you sure you want to restart Apache? This may briefly interrupt ongoing connections.'
+                            : 'آیا از ری‌استارت کامل سرویس آپاچی اطمینان دارید؟ این عمل ممکن است اتصالات فعال را به طور موقت قطع نماید.'
+                        )
+                      ) {
+                        handleServiceControlAction('restart');
+                      }
+                    }}
+                    disabled={Boolean(serviceActionRunning)}
+                    className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-semibold text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                    title={isEn ? 'Fully restart Apache daemon' : 'ری‌استارت کامل پروسه آپاچی'}
+                  >
+                    {serviceActionRunning === 'restart' ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isEn ? 'Restart' : 'ری‌استارت'}</span>
+                  </button>
+
+                  {/* Start / Stop */}
+                  {discovery?.serviceActive === 'active' || isRunning ? (
+                    <button
+                      type="button"
+                      onClick={() => handleServiceControlAction('stop')}
+                      disabled={Boolean(serviceActionRunning)}
+                      className="px-2.5 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-semibold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                      title={isEn ? 'Stop Apache service' : 'متوقف‌سازی سرویس آپاچی'}
+                    >
+                      {serviceActionRunning === 'stop' ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Square className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isEn ? 'Stop' : 'توقف'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleServiceControlAction('start')}
+                      disabled={Boolean(serviceActionRunning)}
+                      className="px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                      title={isEn ? 'Start Apache service' : 'راه‌اندازی سرویس آپاچی'}
+                    >
+                      {serviceActionRunning === 'start' ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isEn ? 'Start' : 'شروع'}</span>
+                    </button>
+                  )}
+
+                  {/* Status Inspector */}
+                  <button
+                    type="button"
+                    onClick={() => handleServiceControlAction('status')}
+                    disabled={Boolean(serviceActionRunning)}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white text-xs flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
+                    title={isEn ? 'Inspect service status and journal logs' : 'مشاهده جزئیات وضعیت و لاگ سیستم'}
+                  >
+                    <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{isEn ? 'Status Logs' : 'لاگ وضعیت'}</span>
+                  </button>
+
+                  <FieldInfoTooltip
+                    fieldName="Apache Service Management"
+                    infoWhatEn="Provides adaptive systemd/openrc/init.d management for Apache HTTP daemon with graceful zero-downtime reloads."
+                    infoWhatFa="کنترل تطبیقی سیستم‌عامل برای آپاچی با سیستم‌های systemd و openrc را همراه با ریلود ملایم بدون قطعی فراهم می‌کند."
+                    infoWhyEn="Reload updates configuration without dropping client sockets, while restart resets worker pools."
+                    infoWhyFa="دستور reload تنظیمات را بدون قطع ارتباط کلاینت‌ها بروز می‌کند، اما restart پروسه‌های وب‌سرور را ریست می‌نماید."
+                    infoExampleEn="systemctl reload apache2 / apachectl graceful"
+                    infoExampleFa="systemctl reload apache2 / apachectl graceful"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
+                </div>
               </div>
-            )}
+
+              {/* MIDDLE: FILE EXPLORER & QUICK-SELECTOR */}
+              <div
+                className={`p-3 rounded-xl border flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <FileCode className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="font-bold shrink-0">{isEn ? 'Config File:' : 'فایل کانفیگ:'}</span>
+                  <select
+                    value={selectedConfigFile}
+                    onChange={(e) => handleLoadConfigFile(e.target.value)}
+                    className={`flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border font-mono text-xs truncate cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-800'
+                        : 'bg-slate-950 border-slate-700 text-slate-200'
+                    }`}
+                  >
+                    {availableConfigFiles.map((item, idx) => (
+                      <option key={idx} value={item.path}>
+                        [{item.category}] {item.label} — {item.path}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Custom File Path Input & Manual Load */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="text"
+                    placeholder={isEn ? '/etc/apache2/conf.d/custom.conf' : 'مسیر دلخواه فایل...'}
+                    value={customFilePath}
+                    onChange={(e) => setCustomFilePath(e.target.value)}
+                    className={`px-2.5 py-1.5 rounded-lg border font-mono text-xs w-48 sm:w-64 ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-800'
+                        : 'bg-slate-950 border-slate-700 text-slate-200'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (customFilePath.trim()) {
+                        handleLoadConfigFile(customFilePath.trim());
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer transition shrink-0"
+                  >
+                    {isEn ? 'Load' : 'بارگذاری'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLoadConfigFile(selectedConfigFile)}
+                    disabled={isLoadingConfigFile}
+                    className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-slate-300 cursor-pointer transition shrink-0"
+                    title={isEn ? 'Reload from server' : 'خواندن مجدد از سرور'}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingConfigFile ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* EDITOR WORKSPACE CARD */}
+              <div
+                className={`rounded-2xl border flex flex-col overflow-hidden ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-950 border-slate-800'
+                }`}
+              >
+                {/* TOOLBAR */}
+                <div
+                  className={`px-4 py-2.5 border-b flex items-center justify-between flex-wrap gap-2 text-xs ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  {/* Left: View Mode Toggles */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setTabViewMode('editor')}
+                      className={`px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                        tabViewMode === 'editor'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-200'
+                          : 'text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      <FileCode className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Code Editor' : 'ویرایشگر کد'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTabViewMode('diff')}
+                      className={`px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                        tabViewMode === 'diff'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-200'
+                          : 'text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      <GitCompare className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Visual Diff' : 'مقایسه تغییرات'}</span>
+                      {isConfigDirty && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-mono bg-black/30 text-white font-bold">
+                          +{tabDiffStats.added} -{tabDiffStats.removed}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTabViewMode('backups')}
+                      className={`px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                        tabViewMode === 'backups'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm font-bold'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-200'
+                          : 'text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      <History className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Backups' : 'بکاپ‌ها'}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded font-mono bg-black/30 font-bold">
+                        {configBackups.length}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Right: Actions */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Copy */}
+                    <button
+                      type="button"
+                      onClick={handleCopyEditorContent}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center gap-1 cursor-pointer transition"
+                      title={isEn ? 'Copy configuration content' : 'کپی محتوای پیکربندی'}
+                    >
+                      {copiedConfig ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedConfig ? (isEn ? 'Copied' : 'کپی شد') : isEn ? 'Copy' : 'کپی'}</span>
+                    </button>
+
+                    {/* Reset */}
+                    {isConfigDirty && (
+                      <button
+                        type="button"
+                        onClick={handleResetEditorDraft}
+                        className="px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center gap-1 cursor-pointer transition"
+                        title={isEn ? 'Reset to remote original' : 'بازنشانی به نسخه اصلی سرور'}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                        <span>{isEn ? 'Reset' : 'بازنشانی'}</span>
+                      </button>
+                    )}
+
+                    {/* Remote Syntax Test Button */}
+                    <button
+                      type="button"
+                      onClick={handleTestCandidateSyntax}
+                      disabled={isTestingSyntax || isLoadingConfigFile}
+                      className="px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                      title={isEn ? 'Execute live apachectl -t remote syntax check' : 'اجرای زنده تست سینتکس apachectl -t بر روی سرور'}
+                    >
+                      {isTestingSyntax ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isTestingSyntax ? (isEn ? 'Testing...' : 'در حال بررسی...') : isEn ? 'Test Syntax' : 'تست سینتکس'}</span>
+                    </button>
+
+                    {/* Auto-Reload Toggle */}
+                    <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none px-2 py-1 rounded bg-black/20">
+                      <input
+                        type="checkbox"
+                        checked={autoReloadConfig}
+                        onChange={(e) => setAutoReloadConfig(e.target.checked)}
+                        className="rounded border-slate-700 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                      />
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {isEn ? 'Auto-reload' : 'لود خودکار'}
+                      </span>
+                    </label>
+
+                    {/* Safe Save Button */}
+                    <button
+                      type="button"
+                      onClick={handleSaveConfigFileSafe}
+                      disabled={isSavingConfig || isLoadingConfigFile || !isConfigDirty}
+                      className="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-40"
+                      title={isEn ? 'Save with backup and atomic rollback' : 'ذخیره ایمن با بکاپ و رول‌بک خودکار'}
+                    >
+                      {isSavingConfig ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Save className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {isSavingConfig
+                          ? isEn
+                            ? 'Verifying & Saving...'
+                            : 'در حال اعتبارسنجی و ذخیره...'
+                          : isEn
+                          ? 'Save & Apply Safe'
+                          : 'ذخیره و اعمال ایمن'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* NOTICES: TEST & SAVE RESULTS BANNERS */}
+                {syntaxTestResult && (
+                  <div
+                    className={`px-4 py-2.5 border-b flex items-start gap-2.5 text-xs ${
+                      syntaxTestResult.isValid
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-red-500/10 border-red-500/30 text-red-300'
+                    }`}
+                  >
+                    {syntaxTestResult.isValid ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 overflow-hidden font-mono">
+                      <div className="font-bold flex items-center justify-between">
+                        <span>
+                          {syntaxTestResult.isValid
+                            ? isEn
+                              ? 'Remote Syntax Test Passed: Syntax OK'
+                              : 'تست سینتکس ریموت با موفقیت تایید شد (Syntax OK)'
+                            : isEn
+                            ? 'Remote Syntax Test Failed'
+                            : 'خطا در سینتکس کانفیگ ریموت'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSyntaxTestResult(null)}
+                          className="text-slate-400 hover:text-white text-[11px] underline cursor-pointer"
+                        >
+                          {isEn ? 'Dismiss' : 'بستن'}
+                        </button>
+                      </div>
+                      <pre className="mt-1 whitespace-pre-wrap text-[11px] max-h-20 overflow-y-auto leading-relaxed opacity-90">
+                        {syntaxTestResult.output}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+
+                {saveConfigResult && (
+                  <div
+                    className={`px-4 py-3 border-b flex items-start gap-2.5 text-xs ${
+                      saveConfigResult.success
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                        : 'bg-red-500/10 border-red-500/30 text-red-300'
+                    }`}
+                  >
+                    {saveConfigResult.success ? (
+                      <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 overflow-hidden font-mono">
+                      <div className="font-bold text-sm flex items-center justify-between">
+                        <span>
+                          {saveConfigResult.success
+                            ? isEn
+                              ? 'Configuration Safely Applied & Verified'
+                              : 'پیکربندی با اعتبارسنجی کامل و ایمنی ذخیره شد'
+                            : isEn
+                            ? 'Atomic Rollback Triggered — Changes Reverted'
+                            : 'رول‌بک خودکار فعال شد — تغییرات به حالت قبلی بازگردانده شدند'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSaveConfigResult(null)}
+                          className="text-slate-400 hover:text-white text-xs underline cursor-pointer"
+                        >
+                          {isEn ? 'Dismiss' : 'بستن'}
+                        </button>
+                      </div>
+                      <div className="mt-1 text-xs opacity-90">
+                        {saveConfigResult.backupCreated && (
+                          <div>
+                            {isEn ? 'Backup Created: ' : 'بکاپ ایجادشده: '}
+                            <span className="text-amber-300">{saveConfigResult.backupCreated}</span>
+                          </div>
+                        )}
+                        {saveConfigResult.serviceReloaded && (
+                          <div className="text-emerald-400">
+                            {isEn ? '✓ Apache service gracefully reloaded' : '✓ سرویس آپاچی به صورت ملایم ریلود گردید'}
+                          </div>
+                        )}
+                        {saveConfigResult.error && (
+                          <div className="text-red-300 font-bold mt-1">{saveConfigResult.error}</div>
+                        )}
+                      </div>
+                      {saveConfigResult.syntaxOutput && (
+                        <pre className="mt-1 whitespace-pre-wrap text-[11px] max-h-20 overflow-y-auto leading-relaxed p-2 rounded bg-black/40">
+                          {saveConfigResult.syntaxOutput}
+                        </pre>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* VIEW MODES CONTAINER */}
+                <div className="min-h-[460px] max-h-[620px] flex flex-col relative overflow-hidden">
+                  {isLoadingConfigFile ? (
+                    <div className="h-full flex flex-col items-center justify-center space-y-3 text-slate-400 py-24">
+                      <RefreshCw className="w-8 h-8 animate-spin text-amber-400" />
+                      <div className="text-xs font-mono">
+                        {isEn ? 'Reading configuration from remote Linux host...' : 'در حال خواندن فایل از سرور ریموت لینوکس...'}
+                      </div>
+                    </div>
+                  ) : tabViewMode === 'editor' ? (
+                    /* CODE EDITOR VIEW */
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <textarea
+                        value={configContent}
+                        onChange={(e) => setConfigContent(e.target.value)}
+                        spellCheck={false}
+                        className={`w-full flex-1 p-4 font-mono text-xs leading-relaxed resize-none focus:outline-none transition ${
+                          isLightMode ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-slate-100'
+                        }`}
+                        placeholder={isEn ? '# Apache configuration directives...' : '# دایرکتیوهای کانفیگ آپاچی...'}
+                      />
+                    </div>
+                  ) : tabViewMode === 'diff' ? (
+                    /* VISUAL DIFF VIEW */
+                    <div className="flex-1 overflow-y-auto font-mono text-xs leading-relaxed p-4 space-y-0.5">
+                      <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 flex items-center justify-between text-xs">
+                        <span>
+                          {isEn
+                            ? `Comparing Current Draft with Remote Server Original (${tabDiffStats.added} additions, ${tabDiffStats.removed} deletions)`
+                            : `مقایسه پیش‌نویس با نسخه ریموت (${tabDiffStats.added} افزودن، ${tabDiffStats.removed} حذف)`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setTabViewMode('editor')}
+                          className="px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-bold cursor-pointer"
+                        >
+                          {isEn ? 'Return to Editor' : 'بازگشت به ویرایشگر'}
+                        </button>
+                      </div>
+
+                      {tabDiffLines.map((line, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex items-start px-2 py-0.5 rounded select-text ${
+                            line.type === 'added'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-l-2 border-emerald-500'
+                              : line.type === 'removed'
+                              ? 'bg-red-500/20 text-red-300 border-l-2 border-red-500'
+                              : 'text-slate-400 hover:bg-white/5'
+                          }`}
+                        >
+                          <span className="w-10 text-slate-600 text-right pr-2 select-none shrink-0 text-[10px]">
+                            {line.oldNum || ''}
+                          </span>
+                          <span className="w-10 text-slate-600 text-right pr-2 select-none shrink-0 text-[10px]">
+                            {line.newNum || ''}
+                          </span>
+                          <span className="w-4 select-none shrink-0 font-bold">
+                            {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
+                          </span>
+                          <span className="whitespace-pre-wrap break-all flex-1">{line.content}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    /* VERSIONED BACKUPS VIEW */
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-bold text-sm flex items-center gap-2">
+                            <History className="w-4 h-4 text-amber-400" />
+                            <span>{isEn ? 'Timestamped Configuration Backups' : 'نسخه‌های پشتیبان زمان‌بندی‌شده'}</span>
+                          </h4>
+                          <p className="text-xs text-slate-400 mt-0.5 font-mono">
+                            {isEn
+                              ? 'Automatically generated in /var/backups/nettopology_apache/ before every write'
+                              : 'تولید خودکار در /var/backups/nettopology_apache/ قبل از هر تغییر'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleLoadConfigFile(selectedConfigFile)}
+                          disabled={isLoadingBackups}
+                          className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer hover:bg-slate-800"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingBackups ? 'animate-spin' : ''}`} />
+                          <span>{isEn ? 'Refresh Backups' : 'بروزرسانی بکاپ‌ها'}</span>
+                        </button>
+                      </div>
+
+                      {configBackups.length === 0 ? (
+                        <div className="p-8 rounded-xl border border-dashed border-slate-800 text-center text-xs text-slate-400">
+                          {isEn
+                            ? 'No backups found for this file yet. A backup is created automatically upon first save.'
+                            : 'هنوز نسخه پشتیبانی برای این فایل ثبت نشده است. در اولین ذخیره، بکاپ به صورت خودکار ایجاد می‌شود.'}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {configBackups.map((bk) => (
+                            <div
+                              key={bk.id}
+                              className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono ${
+                                isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                              }`}
+                            >
+                              <div className="truncate">
+                                <div className="font-bold text-slate-200 truncate">{bk.id}</div>
+                                <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                                  {bk.backupPath} • {bk.sizeHuman} • {new Date(bk.timestamp).toLocaleString()}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRestoreFileBackup(bk.backupPath)}
+                                disabled={isRestoringBackup === bk.backupPath}
+                                className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                              >
+                                {isRestoringBackup === bk.backupPath ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                )}
+                                <span>
+                                  {isRestoringBackup === bk.backupPath
+                                    ? isEn
+                                      ? 'Restoring...'
+                                      : 'در حال بازیابی...'
+                                    : isEn
+                                    ? 'Restore Backup'
+                                    : 'بازیابی این نسخه'}
+                                </span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* EDITOR STATUS FOOTER */}
+                <div
+                  className={`px-4 py-2 border-t flex items-center justify-between text-xs font-mono select-none ${
+                    isLightMode ? 'bg-slate-100/70 border-slate-200 text-slate-600' : 'bg-slate-900/40 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 truncate">
+                    <span>
+                      {isEn ? 'Status: ' : 'وضعیت: '}
+                      <strong className={isConfigDirty ? 'text-amber-400' : 'text-emerald-400'}>
+                        {isConfigDirty ? (isEn ? 'Unsaved changes' : 'تغییرات ذخیره‌نشده') : isEn ? 'Synced with remote' : 'همگام با سرور'}
+                      </strong>
+                    </span>
+                    <span>•</span>
+                    <span>{configLineCount} lines</span>
+                    <span>•</span>
+                    <span>{configContent.length} chars</span>
+                    {configFileMeta && (
+                      <>
+                        <span>•</span>
+                        <span>{configFileMeta.permissions || '-rw-r--r--'}</span>
+                        <span>•</span>
+                        <span>{(configFileMeta.sizeBytes / 1024).toFixed(1)} KB</span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 truncate hidden sm:block">
+                    {selectedConfigFile}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -5741,13 +6703,29 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                     {inspectVHost.serverName} ({inspectVHost.siteName}.conf)
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setInspectVHost(null)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditorModalFilePath(inspectVHost.definedInFile);
+                      setEditorModalOpen(true);
+                      setInspectVHost(null);
+                    }}
+                    className="px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs font-semibold cursor-pointer transition flex items-center gap-1.5"
+                    title={isEn ? 'Open in Safe Configuration Editor' : 'ویرایش در ویرایشگر امن کانفیگ'}
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{isEn ? 'Edit in Safe Editor' : 'ویرایش در ویرایشگر امن'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInspectVHost(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               <div className="p-4 flex-1 overflow-y-auto space-y-3 font-mono text-xs">
@@ -7438,6 +8416,70 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                   </button>
                 </div>
               </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* 6. STANDALONE SAFE CONFIGURATION EDITOR MODAL (Phase 9) */}
+      <ApacheSafeEditorModal
+        isOpen={editorModalOpen}
+        server={server}
+        filePath={editorModalFilePath}
+        sessionPassword={server.ssh_password}
+        onClose={() => setEditorModalOpen(false)}
+        onMinimize={() => {
+          setEditorModalOpen(false);
+          onMinimize();
+        }}
+        onSaved={async (savedPath) => {
+          await fetchDiscovery();
+          if (activeTab === 'topology') fetchTopologyData();
+          if (activeTab === 'vhosts') fetchVHostsData();
+          if (activeTab === 'config') handleLoadConfigFile(savedPath);
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 7. SERVICE STATUS INSPECTOR MODAL (Phase 9) */}
+      {showServiceStatusModal &&
+        createPortal(
+          <div className="fixed inset-0 z-[999995] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`w-full max-w-3xl max-h-[85vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-cyan-400" />
+                  <span className="font-bold text-sm">
+                    {isEn ? 'Apache Service Status & Journal Telemetry' : 'لاگ وضعیت سرویس و ژورنال آپاچی'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowServiceStatusModal(false)}
+                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 bg-black/90 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">
+                {serviceStatusOutput || (isEn ? 'No output received from service manager' : 'خروجی از سیستم دریافت نشد')}
+              </div>
+
+              <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowServiceStatusModal(false)}
+                  className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer"
+                >
+                  {isEn ? 'Close' : 'بستن'}
+                </button>
+              </div>
             </div>
           </div>,
           document.body
