@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.180.0';
+export const APP_VERSION = '1.181.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.181.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۱۲ مدیریت آپاچی: استودیو جامع قوانین ریرایت (mod_rewrite)، کاوشگر و ویرایشگر .htaccess، احراز هویت دایرکتوری (Basic Auth) و مدیریت صفحات خطای سفارشی (ErrorDocument)',
+    title_en: 'Apache Management Phase 12: mod_rewrite Studio, .htaccess Explorer & Safe Editor, Directory Password Protection (HTTP Basic Auth) & Custom ErrorDocument Engine',
+    changes: [
+      'پیاده‌سازی ماژول جامع مدیریت ریرایت و فایل‌های htaccess (/server/apacheRewriteManager.ts) با کاوش لحظه‌ای فایل‌ها از طریق SSH در تمامی دایرکتوری‌های وب.',
+      'موتور الگوهای استاندارد ریرایت (mod_rewrite Presets): تغییر مسیر اجباری HTTPS، دامنه کانونیکال (Non-WWW به WWW و برعکس)، روتینگ برنامه‌های تک‌صفحه‌ای (SPA/React/Vue)، محافظت از تصاویر در برابر هات‌لینک (Anti-Hotlinking) و مسدودسازی اسکنرهای مخرب با کد ۴۰۳.',
+      'کاوشگر و ویرایشگر زنده فایل‌های .htaccess: شناسایی خودکار فایل‌های محلی در ریشه‌های وب، نمایش مالکیت، دسترسی‌ها و وضعیت AllowOverride، همراه با امکان ویرایش امن، اعتبارسنجی سینتکس و رول‌بک اتمیک.',
+      'دستیار فعال‌سازی ایمن ماژول mod_rewrite: بررسی خودکار بارگذاری ماژول و فعال‌سازی سریع آن روی سیستم‌عامل‌های دبیان/اوبونتو و ردهت/آلما/راکی همراه با بارگذاری مجدد آپاچی.',
+      'مدیریت احراز هویت سطح پوشه (HTTP Basic Auth): تولید امن فایل‌های هش‌شده رمز عبور (.htpasswd) بر روی سرور و تزریق بدون نقص دایرکتیوهای AuthType Basic و Require valid-user.',
+      'موتور مدیریت صفحات خطای سفارشی (ErrorDocument): پیکربندی قالب‌های پاسخ یا تغییر مسیر برای کدهای وضعیت ۴۰۰، ۴۰۱، ۴۰۳، ۴۰۴، ۵۰۰، ۵۰۲ و ۵۰۳ با استقرار امن در conf-available/conf.d.',
+      'افزودن تب ۱۱ (Rewrite & .htaccess) در پنجره مدیریت آپاچی با ۴ زیربخش تخصصی، رابط کاربری روان سازگار با تم تیره/روشن و رعایت دقیق استانداردهای چندزبانگی.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Apache Rewrite & .htaccess manager (/server/apacheRewriteManager.ts) scanning web roots in real-time over SSH.',
+      'Built production mod_rewrite rule presets: strict HTTPS redirection, canonical domain enforcement, Single Page Application (SPA) HTML5 routing, image hotlink protection, and vulnerability scanner blocking.',
+      'Live .htaccess explorer & safe editor: discovers local override files, parses permissions, ownership, line counts, and AllowOverride status with syntax verification and atomic rollback.',
+      'One-click mod_rewrite module activator: verifies module availability and safely enables rewrite on Debian/Ubuntu and RHEL families.',
+      'Directory HTTP Basic Authentication wizard (.htpasswd): generates encrypted credentials on the target host and deploys AuthType Basic with Require valid-user.',
+      'Custom ErrorDocument engine: configures custom templates or redirects for 400, 401, 403, 404, 500, 502, and 503 status codes.',
+      'Integrated Phase 12 Rewrite & .htaccess Studio tab into ApacheManagementModal with 4 sub-modules, full dark/light theme adaptability, and strict bilingual English/Persian localization.'
+    ]
+  },
   {
     version: '1.180.0',
     releaseDate: '2026-09-26',

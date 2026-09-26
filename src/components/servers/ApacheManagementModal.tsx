@@ -137,6 +137,7 @@ import {
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ApacheSafeEditorModal } from './ApacheSafeEditorModal';
 import { ApachePerformanceTab } from './ApachePerformanceTab';
+import { ApacheRewriteTab } from './ApacheRewriteTab';
 
 export interface ApacheManagementModalProps {
   isOpen: boolean;
@@ -158,7 +159,8 @@ export type ApacheTabType =
   | 'logs'
   | 'config'
   | 'security'
-  | 'performance';
+  | 'performance'
+  | 'rewrite';
 
 export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   isOpen,
@@ -2184,6 +2186,23 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             <Gauge className="w-3.5 h-3.5" />
             <span>{isEn ? 'Performance & Telemetry' : 'عملکرد و تلمتری'}</span>
             <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P11</span>
+          </button>
+
+          {/* Tab 11: Rewrite & .htaccess (Phase 12) */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('rewrite')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+              activeTab === 'rewrite'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : isLightMode
+                ? 'text-slate-600 hover:bg-slate-100'
+                : 'text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Rewrite & .htaccess' : 'ریرایت و htaccess.'}</span>
+            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P12</span>
           </button>
         </div>
 
@@ -7533,6 +7552,17 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           {/* TAB 10: PERFORMANCE & TELEMETRY (PHASE 11) */}
           {activeTab === 'performance' && server && (
             <ApachePerformanceTab
+              server={server}
+              discovery={discovery}
+              isEn={isEn}
+              isLightMode={isLightMode}
+              onRefreshDiscovery={() => fetchDiscovery()}
+            />
+          )}
+
+          {/* TAB 11: REWRITE & .HTACCESS STUDIO (PHASE 12) */}
+          {activeTab === 'rewrite' && server && (
+            <ApacheRewriteTab
               server={server}
               discovery={discovery}
               isEn={isEn}

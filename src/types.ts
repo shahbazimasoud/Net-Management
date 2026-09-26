@@ -2120,6 +2120,89 @@ export interface ApachePerformanceTuneResult {
   error?: string;
 }
 
+// ==========================================
+// APACHE MANAGEMENT PHASE 12: REWRITE, .HTACCESS & ACCESS CONTROL
+// ==========================================
+export interface ApacheHtaccessFile {
+  filePath: string;
+  directory: string;
+  sizeBytes: number;
+  lineCount: number;
+  permissions?: string;
+  owner?: string;
+  allowOverrideSetting?: string;
+  isEffective: boolean;
+  contentSnippet?: string;
+  fullContent?: string;
+  hasRewriteEngine: boolean;
+  hasAuthBasic: boolean;
+  hasErrorDocument: boolean;
+  hasRequireDirectives: boolean;
+  error?: string;
+}
+
+export interface ApacheRewriteRuleItem {
+  id: string;
+  name: string;
+  description: string;
+  category: 'https_redirect' | 'canonical_domain' | 'custom_redirect' | 'spa_routing' | 'hotlink_protection' | 'bad_bot_block' | 'custom';
+  enabled: boolean;
+  conditions: string[];
+  rule: string;
+  flags: string;
+  rawSnippet: string;
+}
+
+export interface ApacheBasicAuthProtectedArea {
+  id: string;
+  targetPath: string;
+  targetType: 'directory' | 'location';
+  authName: string;
+  authType: string;
+  authUserFile: string;
+  requireDirective: string;
+  users: string[];
+  configuredInFile: string;
+}
+
+export interface ApacheCustomErrorDoc {
+  statusCode: number;
+  reason: string;
+  actionType: 'path' | 'url' | 'message';
+  target: string;
+  configuredInFile?: string;
+}
+
+export interface ApacheIpAccessRule {
+  id: string;
+  targetPath: string;
+  type: 'allow' | 'deny';
+  ipOrSubnet: string;
+  comment?: string;
+}
+
+export interface ApacheRewriteHtaccessSummary {
+  testedAt: string;
+  isRewriteModuleLoaded: boolean;
+  isAuthBasicLoaded: boolean;
+  globalAllowOverride: string;
+  htaccessFiles: ApacheHtaccessFile[];
+  protectedAreas: ApacheBasicAuthProtectedArea[];
+  configuredErrorDocs: ApacheCustomErrorDoc[];
+  defaultRewritePresets: ApacheRewriteRuleItem[];
+  error?: string;
+}
+
+export interface ApacheDeployRewriteResult {
+  success: boolean;
+  filePath: string;
+  backupCreated?: string;
+  syntaxTestPassed: boolean;
+  syntaxOutput: string;
+  serviceReloaded: boolean;
+  error?: string;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

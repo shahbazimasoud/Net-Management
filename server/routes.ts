@@ -240,6 +240,13 @@ import {
   enableApacheModStatus,
   applyApachePerformanceTuning,
 } from './apachePerformanceManager';
+import {
+  discoverApacheRewriteAndHtaccess,
+  enableApacheRewriteModule,
+  saveHtaccessFile,
+  setupApacheBasicAuth,
+  deployApacheCustomErrorDocs,
+} from './apacheRewriteManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2747,6 +2754,148 @@ apiRouter.post('/remote-servers/:id/apache-performance-apply-tuning', async (req
       syntaxOutput: err.message || 'Tuning application exception',
       serviceReloaded: false,
       error: err.message || 'Failed to apply Apache performance tuning',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-rewrite-summary - Discovers .htaccess, AllowOverride, and rewrite rules
+apiRouter.post('/remote-servers/:id/apache-rewrite-summary', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, targetConfPath } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const summary = await discoverApacheRewriteAndHtaccess(server, password, targetConfPath);
+    return res.json({ success: true, summary });
+  } catch (err: any) {
+    console.error(`[ApacheRewriteSummary API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Apache rewrite & .htaccess configurations',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-rewrite-enable-module - Enables mod_rewrite safely
+apiRouter.post('/remote-servers/:id/apache-rewrite-enable-module', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await enableApacheRewriteModule(server, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheEnableRewriteModule API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Error enabling rewrite module',
+      serviceReloaded: false,
+      error: err.message || 'Failed to enable mod_rewrite',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-htaccess-save - Saves .htaccess with atomic backup and permissions
+apiRouter.post('/remote-servers/:id/apache-htaccess-save', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { targetDirectory, content, password } = req.body || {};
+
+    if (!targetDirectory || content === undefined) {
+      return res.status(400).json({ success: false, error: 'Target directory and content are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await saveHtaccessFile(server, targetDirectory, content, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheHtaccessSave API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: req.body?.targetDirectory || '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Error saving .htaccess file',
+      serviceReloaded: false,
+      error: err.message || 'Failed to save .htaccess file',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-basic-auth-setup - Configures HTTP Basic Auth and .htpasswd
+apiRouter.post('/remote-servers/:id/apache-basic-auth-setup', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { targetDirectory, authName, username, password, authUserFilePath, sessionPassword } = req.body || {};
+
+    if (!targetDirectory || !username) {
+      return res.status(400).json({ success: false, error: 'Target directory and username are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await setupApacheBasicAuth(
+      server,
+      { targetDirectory, authName, username, password, authUserFilePath },
+      sessionPassword
+    );
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheBasicAuthSetup API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: req.body?.authUserFilePath || '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Error configuring basic auth',
+      serviceReloaded: false,
+      error: err.message || 'Failed to configure HTTP Basic Auth',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-error-docs-deploy - Deploys custom ErrorDocuments safely
+apiRouter.post('/remote-servers/:id/apache-error-docs-deploy', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { errorDocs, password } = req.body || {};
+
+    if (!Array.isArray(errorDocs) || errorDocs.length === 0) {
+      return res.status(400).json({ success: false, error: 'Valid errorDocs array is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deployApacheCustomErrorDocs(server, errorDocs, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheErrorDocsDeploy API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Error deploying error documents',
+      serviceReloaded: false,
+      error: err.message || 'Failed to deploy custom error documents',
     });
   }
 });

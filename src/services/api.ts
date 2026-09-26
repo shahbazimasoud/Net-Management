@@ -2112,6 +2112,132 @@ export async function applyApachePerformanceTuning(
   return data;
 }
 
+export async function fetchApacheRewriteSummary(
+  serverId: string,
+  ephemeralPassword?: string,
+  targetConfPath?: string
+): Promise<{
+  success: boolean;
+  summary?: import('../types').ApacheRewriteHtaccessSummary;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-rewrite-summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, targetConfPath }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function enableApacheRewriteModule(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<import('../types').ApacheDeployRewriteResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-rewrite-enable-module`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath: '',
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function saveApacheHtaccessFile(
+  serverId: string,
+  targetDirectory: string,
+  content: string,
+  ephemeralPassword?: string
+): Promise<import('../types').ApacheDeployRewriteResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-htaccess-save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetDirectory, content, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath: targetDirectory,
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function setupApacheBasicAuth(
+  serverId: string,
+  params: {
+    targetDirectory: string;
+    authName: string;
+    username: string;
+    password?: string;
+    authUserFilePath?: string;
+  },
+  sessionPassword?: string
+): Promise<import('../types').ApacheDeployRewriteResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-basic-auth-setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...params, sessionPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath: params.targetDirectory,
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function deployApacheCustomErrorDocs(
+  serverId: string,
+  errorDocs: import('../types').ApacheCustomErrorDoc[],
+  ephemeralPassword?: string
+): Promise<import('../types').ApacheDeployRewriteResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-error-docs-deploy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ errorDocs, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath: '',
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,
