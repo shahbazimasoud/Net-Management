@@ -199,6 +199,12 @@ import {
 } from './linuxCronManager';
 import { discoverApacheInstallation } from './apacheDiscovery';
 import { discoverApacheConfigTopology } from './apacheConfigParser';
+import {
+  discoverApacheVirtualHosts,
+  toggleApacheVirtualHost,
+  createApacheVirtualHost,
+  deleteApacheVirtualHost,
+} from './apacheVirtualHosts';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -1959,6 +1965,106 @@ apiRouter.post('/remote-servers/:id/apache-config-topology', async (req: Request
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to scan Apache configuration topology tree',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-vhosts - Discovers all Apache VirtualHosts
+apiRouter.post('/remote-servers/:id/apache-vhosts', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const summary = await discoverApacheVirtualHosts(server, password);
+    return res.json({ success: true, summary });
+  } catch (err: any) {
+    console.error(`[ApacheVHosts API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Apache VirtualHosts',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-vhost-toggle - Enables or disables an Apache VirtualHost
+apiRouter.post('/remote-servers/:id/apache-vhost-toggle', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, siteName, enable, filePath } = req.body || {};
+
+    if (!siteName) {
+      return res.status(400).json({ success: false, error: 'siteName is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await toggleApacheVirtualHost(server, siteName, Boolean(enable), filePath, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheVHostToggle API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to toggle Apache VirtualHost status',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-vhost-create - Creates and deploys a new Apache VirtualHost
+apiRouter.post('/remote-servers/:id/apache-vhost-create', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, params } = req.body || {};
+
+    if (!params || !params.serverName || !params.siteName) {
+      return res.status(400).json({ success: false, error: 'serverName and siteName are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createApacheVirtualHost(server, params, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheVHostCreate API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create Apache VirtualHost',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-vhost-delete - Deletes an Apache VirtualHost configuration safely
+apiRouter.post('/remote-servers/:id/apache-vhost-delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, siteName, filePath } = req.body || {};
+
+    if (!siteName || !filePath) {
+      return res.status(400).json({ success: false, error: 'siteName and filePath are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deleteApacheVirtualHost(server, siteName, filePath, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheVHostDelete API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete Apache VirtualHost',
     });
   }
 });

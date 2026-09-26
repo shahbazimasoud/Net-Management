@@ -1553,6 +1553,56 @@ export interface ApacheConfigFileNode {
   error?: string;
 }
 
+export interface ApacheVirtualHost {
+  id: string;
+  serverName: string;
+  serverAliases: string[];
+  ipPort: string;
+  port: number;
+  isSsl: boolean;
+  documentRoot?: string;
+  proxyPassTargets: {
+    path: string;
+    target: string;
+  }[];
+  customLog?: string;
+  errorLog?: string;
+  serverAdmin?: string;
+  definedInFile: string;
+  fileRelativePath: string;
+  lineStart?: number;
+  lineEnd?: number;
+  isEnabled: boolean;
+  siteName: string;
+  rawBlockSnippet: string;
+}
+
+export interface ApacheVirtualHostsSummary {
+  totalVHosts: number;
+  activeVHosts: number;
+  disabledVHosts: number;
+  sslVHosts: number;
+  proxyVHosts: number;
+  staticVHosts: number;
+  vhosts: ApacheVirtualHost[];
+  warnings: string[];
+}
+
+export interface CreateApacheVirtualHostParams {
+  siteType: 'static' | 'proxy';
+  siteName: string;
+  serverName: string;
+  serverAliases?: string;
+  port?: number;
+  serverAdmin?: string;
+  documentRoot?: string;
+  proxyTarget?: string;
+  enableSsl?: boolean;
+  sslCertFile?: string;
+  sslKeyFile?: string;
+  autoEnable?: boolean;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

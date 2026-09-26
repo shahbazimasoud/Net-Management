@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.172.0';
+export const APP_VERSION = '1.173.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.173.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۴ مدیریت آپاچی: ماژول مدیریت هاست‌های مجازی (VirtualHost)، سوئیچ فعال/غیرفعال‌سازی، ویزارد ساخت وب‌سایت و پروکسی معکوس',
+    title_en: 'Apache Management Phase 4: Virtual Hosts Management, Live AST Extractor, Enable/Disable Controller & Deployment Wizard',
+    changes: [
+      'پیاده‌سازی موتور عمیق استخراج و تجزیه بلوک‌های <VirtualHost> آپاچی (/server/apacheVirtualHosts.ts) با اسکنر قدرتمند AST پایتون بر روی کل فایل‌های کانفیگ، sites-available و conf.d.',
+      'استخراج مشخصات کلیدی هر هاست مجازی: ServerName، دامنه‌های مستعار (ServerAlias)، آدرس و پورت، وضعیت SSL، ریشه اسناد (DocumentRoot)، مقاصد پروکسی (ProxyPass)، لاگ‌ها و ایمیل مدیر.',
+      'پیاده‌سازی مکانیزم ایمن فعال‌سازی و غیرفعال‌سازی سایت‌ها (a2ensite / a2dissite در دبیان/اوبونتو و مدیریت فایل در ردهت/راکی) به همراه تست سینتکس آنی و رول‌بک خودکار در صورت بروز خطای پیکربندی.',
+      'توسعه ویزارد جامع ساخت VirtualHost جدید با پشتیبانی از وب‌استاتیک و پروکسی معکوس، تست سینتکس قبل از اعمال و بارگذاری مجدد نرم (Graceful Reload) سرویس.',
+      'ایجاد اندپوینت‌های بک‌اند: /api/remote-servers/:id/apache-vhosts، apache-vhost-toggle، apache-vhost-create و apache-vhost-delete همراه با توابع کلاینت API.',
+      'توسعه کامل تب Virtual Hosts در کامپوننت ApacheManagementModal همراه با کارت‌های ویژوال، فیلترهای چندگانه وضعیت، پیش‌نمایش زنده کد و دکمه‌های کنترل وضعیت.'
+    ],
+    changes_en: [
+      'Engineered deep AST VirtualHost extraction engine (/server/apacheVirtualHosts.ts) scanning active and available configs across Debian/Ubuntu sites-available and RHEL conf.d.',
+      'Extracted comprehensive VirtualHost metadata: ServerName, ServerAlias, Listen IP/Port, SSL state, DocumentRoot, ProxyPass targets, custom/error logs, and ServerAdmin.',
+      'Built atomic enable/disable controller using a2ensite/a2dissite on Debian and symlink/rename handling on RHEL with instant syntax verification (-t) and automatic rollback.',
+      'Created VirtualHost deployment wizard supporting both standard web roots and reverse proxy configurations with syntax dry-run verification and graceful reload.',
+      'Integrated backend routes for discovery, toggle, creation, and deletion alongside matching client API functions in src/services/api.ts.',
+      'Engineered comprehensive Virtual Hosts tab in ApacheManagementModal featuring visual cards, live domain search, multi-criteria filters, and raw configuration code modals.'
+    ]
+  },
   {
     version: '1.172.0',
     releaseDate: '2026-09-26',

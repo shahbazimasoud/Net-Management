@@ -1408,6 +1408,107 @@ export async function fetchApacheConfigTopology(
   return data;
 }
 
+export async function fetchApacheVirtualHosts(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  summary?: import('../types').ApacheVirtualHostsSummary;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-vhosts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function toggleApacheVirtualHostStatus(
+  serverId: string,
+  siteName: string,
+  enable: boolean,
+  filePath?: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  output?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-vhost-toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, siteName, enable, filePath }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function createApacheVirtualHost(
+  serverId: string,
+  params: import('../types').CreateApacheVirtualHostParams,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  filePath?: string;
+  output?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-vhost-create`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, params }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function deleteApacheVirtualHost(
+  serverId: string,
+  siteName: string,
+  filePath: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-vhost-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, siteName, filePath }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,
