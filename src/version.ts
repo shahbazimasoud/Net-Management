@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.173.0';
+export const APP_VERSION = '1.174.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.174.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۵ مدیریت آپاچی: معماری جامع پروکسی معکوس (Reverse Proxy)، کلاسترهای لود بالانسر (Balancer)، تانل وب‌سوکت و پایش آمادگی ماژول‌ها',
+    title_en: 'Apache Management Phase 5: Comprehensive Reverse Proxy Architecture, Load Balancer Clusters, WebSocket Tunneling & Module Readiness Engine',
+    changes: [
+      'پیاده‌سازی موتور عمیق استخراج و مدل‌سازی مسیرهای پروکسی معکوس و کلاسترهای بالانسر (/server/apacheProxyManager.ts) با اسکنر قدرتمند AST پایتون بر روی تمام دایرکتیوهای ProxyPass، ProxyPassReverse، ProxyPreserveHost، SSLProxyEngine و بلوک‌های <Proxy balancer://...>.',
+      'پایش خودکار و بلادرنگ ۱۰ ماژول حیاتی پروکسی آپاچی (mod_proxy، mod_proxy_http، mod_proxy_wstunnel، mod_proxy_balancer، الگوریتم‌های lbmethod، mod_headers، mod_ssl، mod_rewrite) با امکان فعال‌سازی خودکار و اعتبارسنجی سینتکس قبل از اعمال.',
+      'توسعه ویزارد هوشمند ایجاد و استقرار مسیرهای پروکسی معکوس با پشتیبانی از مقاصد تکی و کلاسترهای توزیع بار، تنظیمات ضریب بار (loadfactor)، پشتیبانی وب‌سوکت، حفظ هدر هاست، تایم‌اوت‌ها، بک‌اند امن SSL و تست سینتکس آنی (-t) با رول‌بک خودکار در صورت خطا.',
+      'ایجاد اندپوینت‌های بک‌اند: /api/remote-servers/:id/apache-proxy، apache-proxy-modules، apache-proxy-route و apache-proxy-delete همراه با توابع متناظر در src/services/api.ts.',
+      'طراحی و پیاده‌سازی کامل نمای اختصاصی Reverse Proxy در کامپوننت ApacheManagementModal با ۵ کارت آماری، سوئیچ بین حالت‌های مسیرها، بالانسرها و ماژول‌ها، فیلترهای چندگانه و پنجره‌های بازرسی دایرکتیوها.'
+    ],
+    changes_en: [
+      'Engineered deep AST Reverse Proxy and Load Balancer extraction engine (/server/apacheProxyManager.ts) scanning ProxyPass, ProxyPassReverse, ProxyPreserveHost, SSLProxyEngine, and <Proxy balancer://...> blocks across all Apache configurations.',
+      'Built live readiness inspector and 1-click enabler for 10 essential Apache proxy modules (mod_proxy, mod_proxy_http, mod_proxy_wstunnel, mod_proxy_balancer, lbmethod schedulers, mod_headers, mod_ssl, mod_rewrite) with atomic syntax check before commit.',
+      'Developed deployment wizard for new reverse proxy routes and balancer clusters with configurable load factors, WebSocket tunneling, ProxyPreserveHost, timeout parameters, SSL backend encryption, and instant rollback on syntax error.',
+      'Integrated backend routes for discovery, module enablement, route deployment, and safe deletion alongside matching client API functions in src/services/api.ts.',
+      'Designed complete Reverse Proxy management suite in ApacheManagementModal featuring 5 statistical metric cards, switcher for routes/balancers/modules views, real-time search, multi-criteria filters, and directive inspection modals.'
+    ]
+  },
   {
     version: '1.173.0',
     releaseDate: '2026-09-26',

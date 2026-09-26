@@ -1509,6 +1509,105 @@ export async function deleteApacheVirtualHost(
   return data;
 }
 
+export async function fetchApacheProxyArchitecture(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  summary?: import('../types').ApacheProxySummary;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-proxy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function enableApacheProxyModules(
+  serverId: string,
+  modules: string[],
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  output?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-proxy-modules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, modules }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function createApacheProxyRoute(
+  serverId: string,
+  params: import('../types').CreateApacheProxyRouteParams,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  filePath?: string;
+  output?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-proxy-route`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, params }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function deleteApacheProxyRoute(
+  serverId: string,
+  routeId: string,
+  filePath: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-proxy-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, routeId, filePath }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,

@@ -1603,6 +1603,92 @@ export interface CreateApacheVirtualHostParams {
   autoEnable?: boolean;
 }
 
+export interface ApacheProxyRoute {
+  id: string;
+  path: string;
+  target: string;
+  reverseTarget?: string;
+  protocol: 'http' | 'https' | 'ws' | 'wss' | 'balancer' | 'unix';
+  isBalancer: boolean;
+  balancerName?: string;
+  websocketEnabled: boolean;
+  preserveHost: boolean;
+  timeout?: number;
+  connectTimeout?: number;
+  sslBackend: boolean;
+  sslVerify?: boolean;
+  headers: { [key: string]: string };
+  vhostId?: string;
+  serverName?: string;
+  definedInFile: string;
+  fileRelativePath: string;
+  lineStart?: number;
+  rawSnippet?: string;
+}
+
+export interface ApacheBalancerMember {
+  url: string;
+  loadfactor?: number;
+  status?: string;
+  route?: string;
+  isBackup?: boolean;
+  isDrain?: boolean;
+}
+
+export interface ApacheBalancerPool {
+  id: string;
+  name: string;
+  algorithm: 'byrequests' | 'bytraffic' | 'bybusyness' | 'heartbeat' | 'unknown';
+  members: ApacheBalancerMember[];
+  definedInFile: string;
+  fileRelativePath: string;
+  rawSnippet: string;
+}
+
+export interface ApacheProxyModuleRequirement {
+  name: string;
+  moduleName: string;
+  isLoaded: boolean;
+  isAvailable: boolean;
+  purpose: string;
+  purpose_fa: string;
+  requiredFor: string;
+}
+
+export interface ApacheProxySummary {
+  totalRoutes: number;
+  totalBalancers: number;
+  totalBalancerMembers: number;
+  websocketRoutesCount: number;
+  sslBackendCount: number;
+  routes: ApacheProxyRoute[];
+  balancers: ApacheBalancerPool[];
+  moduleStatus: ApacheProxyModuleRequirement[];
+  allRequiredModulesLoaded: boolean;
+  missingModules: string[];
+  warnings: string[];
+}
+
+export interface CreateApacheProxyRouteParams {
+  vhostId?: string;
+  siteName?: string;
+  targetConfFile?: string;
+  path: string;
+  backendUrl: string;
+  preserveHost: boolean;
+  websocketSupport: boolean;
+  timeout?: number;
+  connectTimeout?: number;
+  sslBackend: boolean;
+  sslVerify?: boolean;
+  customHeaders?: { name: string; value: string }[];
+  isBalancer?: boolean;
+  balancerName?: string;
+  balancerAlgorithm?: 'byrequests' | 'bytraffic' | 'bybusyness';
+  balancerMembers?: { url: string; loadfactor?: number }[];
+  autoEnableModules?: boolean;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

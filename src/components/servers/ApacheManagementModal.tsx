@@ -38,6 +38,13 @@ import {
   Power,
   ArrowUpRight,
   Code2,
+  GitFork,
+  Share2,
+  ToggleLeft,
+  ToggleRight,
+  Wrench,
+  Shield,
+  CheckSquare,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -48,6 +55,12 @@ import {
   ApacheVirtualHost,
   ApacheVirtualHostsSummary,
   CreateApacheVirtualHostParams,
+  ApacheProxyRoute,
+  ApacheBalancerMember,
+  ApacheBalancerPool,
+  ApacheProxyModuleRequirement,
+  ApacheProxySummary,
+  CreateApacheProxyRouteParams,
 } from '../../types';
 import {
   discoverApacheTopology,
@@ -56,6 +69,10 @@ import {
   toggleApacheVirtualHostStatus,
   createApacheVirtualHost,
   deleteApacheVirtualHost,
+  fetchApacheProxyArchitecture,
+  enableApacheProxyModules,
+  createApacheProxyRoute,
+  deleteApacheProxyRoute,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -132,6 +149,38 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   });
   const [creatingVHost, setCreatingVHost] = useState<boolean>(false);
   const [deletingVHostId, setDeletingVHostId] = useState<string | null>(null);
+
+  // Reverse Proxy & Load Balancer State (Phase 5)
+  const [proxySummary, setProxySummary] = useState<ApacheProxySummary | null>(null);
+  const [loadingProxy, setLoadingProxy] = useState<boolean>(false);
+  const [proxyViewMode, setProxyViewMode] = useState<'routes' | 'balancers' | 'modules'>('routes');
+  const [proxySearch, setProxySearch] = useState<string>('');
+  const [proxyFilter, setProxyFilter] = useState<'all' | 'http' | 'ws' | 'balancer' | 'ssl'>('all');
+  const [inspectProxyRoute, setInspectProxyRoute] = useState<ApacheProxyRoute | null>(null);
+  const [inspectBalancer, setInspectBalancer] = useState<ApacheBalancerPool | null>(null);
+  const [isCreateProxyOpen, setIsCreateProxyOpen] = useState<boolean>(false);
+  const [createProxyForm, setCreateProxyForm] = useState<CreateApacheProxyRouteParams>({
+    path: '/',
+    backendUrl: 'http://127.0.0.1:3000',
+    preserveHost: true,
+    websocketSupport: false,
+    timeout: 60,
+    connectTimeout: 10,
+    sslBackend: false,
+    sslVerify: true,
+    isBalancer: false,
+    balancerName: 'app_cluster',
+    balancerAlgorithm: 'byrequests',
+    balancerMembers: [
+      { url: 'http://127.0.0.1:8081', loadfactor: 1 },
+      { url: 'http://127.0.0.1:8082', loadfactor: 1 },
+    ],
+    autoEnableModules: true,
+    customHeaders: [],
+  });
+  const [creatingProxy, setCreatingProxy] = useState<boolean>(false);
+  const [deletingProxyId, setDeletingProxyId] = useState<string | null>(null);
+  const [enablingModules, setEnablingModules] = useState<boolean>(false);
 
   const [actionFeedback, setActionFeedback] = useState<{
     type: 'success' | 'error' | 'info';
@@ -430,6 +479,138 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     }
   };
 
+  // Fetch complete Apache reverse proxy architecture (Phase 5)
+  const fetchProxyData = useCallback(async () => {
+    if (!server) return;
+    setLoadingProxy(true);
+    setActionFeedback(null);
+    try {
+      const res = await fetchApacheProxyArchitecture(server.id, server.ssh_password);
+      if (res && res.success && res.summary) {
+        setProxySummary(res.summary);
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn
+            ? 'Failed to discover Apache Reverse Proxy architecture'
+            : 'خطا در استخراج ساختار پروکسی معکوس آپاچی',
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn
+          ? 'Reverse proxy scanner connection error'
+          : 'خطای ارتباط در اسکنر پروکسی معکوس',
+        details: err?.message,
+      });
+    } finally {
+      setLoadingProxy(false);
+    }
+  }, [server, isEn]);
+
+  // Handle enabling required proxy modules
+  const handleEnableProxyModules = async (modulesToEnable: string[]) => {
+    if (!server || enablingModules) return;
+    setEnablingModules(true);
+    setActionFeedback(null);
+    try {
+      const res = await enableApacheProxyModules(server.id, modulesToEnable, server.ssh_password);
+      if (res && res.success) {
+        setActionFeedback({
+          type: 'success',
+          message: res.message || (isEn ? 'Proxy modules enabled successfully' : 'ماژول‌های پروکسی با موفقیت فعال شدند'),
+        });
+        await fetchProxyData();
+        await fetchDiscovery();
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn ? 'Failed to enable proxy modules' : 'خطا در فعال‌سازی ماژول‌های پروکسی',
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn ? 'Error enabling proxy modules' : 'خطا در فعال‌سازی ماژول‌های پروکسی',
+        details: err?.message,
+      });
+    } finally {
+      setEnablingModules(false);
+    }
+  };
+
+  // Handle creating reverse proxy route / balancer
+  const handleCreateProxySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!server || creatingProxy) return;
+    setCreatingProxy(true);
+    setActionFeedback(null);
+    try {
+      const res = await createApacheProxyRoute(server.id, createProxyForm, server.ssh_password);
+      if (res && res.success) {
+        setActionFeedback({
+          type: 'success',
+          message: res.message || (isEn ? 'Reverse proxy route deployed successfully' : 'مسیر پروکسی معکوس با موفقیت مستقر شد'),
+        });
+        setIsCreateProxyOpen(false);
+        await fetchProxyData();
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn ? 'Failed to deploy proxy route' : 'خطا در استقرار مسیر پروکسی',
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn ? 'Proxy route deployment error' : 'خطا در استقرار مسیر پروکسی معکوس',
+        details: err?.message,
+      });
+    } finally {
+      setCreatingProxy(false);
+    }
+  };
+
+  // Handle deleting reverse proxy route
+  const handleDeleteProxyRoute = async (route: ApacheProxyRoute) => {
+    if (!server || deletingProxyId) return;
+    const confirmMsg = isEn
+      ? `Are you sure you want to remove reverse proxy route for '${route.path}'?`
+      : `آیا از حذف مسیر پروکسی معکوس '${route.path}' اطمینان دارید؟`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingProxyId(route.id);
+    setActionFeedback(null);
+    try {
+      const res = await deleteApacheProxyRoute(server.id, route.id, route.definedInFile, server.ssh_password);
+      if (res && res.success) {
+        setActionFeedback({
+          type: 'success',
+          message: res.message || (isEn ? 'Proxy route removed successfully' : 'مسیر پروکسی با موفقیت حذف شد'),
+        });
+        await fetchProxyData();
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn ? 'Failed to delete proxy route' : 'خطا در حذف مسیر پروکسی',
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn ? 'Error deleting proxy route' : 'خطا در حذف مسیر پروکسی',
+        details: err?.message,
+      });
+    } finally {
+      setDeletingProxyId(null);
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedFilePath(text);
@@ -449,7 +630,10 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     if (activeTab === 'vhosts' && !vhostsSummary && !loadingVHosts && server) {
       fetchVHostsData();
     }
-  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, server, fetchTopologyData, fetchVHostsData]);
+    if (activeTab === 'proxy' && !proxySummary && !loadingProxy && server) {
+      fetchProxyData();
+    }
+  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, proxySummary, loadingProxy, server, fetchTopologyData, fetchVHostsData, fetchProxyData]);
 
   if (!isOpen || !server) return null;
 
@@ -888,7 +1072,13 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           >
             <Globe className="w-3.5 h-3.5" />
             <span>{isEn ? 'Reverse Proxy' : 'پروکسی معکوس'}</span>
-            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P5</span>
+            {proxySummary ? (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+                {proxySummary.totalRoutes}
+              </span>
+            ) : (
+              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P5</span>
+            )}
           </button>
 
           {/* Tab 5: Modules & MPM */}
@@ -1899,10 +2089,683 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             </div>
           )}
 
+          {/* ======================================================== */}
+          {/* TAB 4: REVERSE PROXY & LOAD BALANCER (PHASE 5)           */}
+          {/* ======================================================== */}
+          {activeTab === 'proxy' && (
+            <div className="space-y-4">
+              {/* Header Controls */}
+              <div
+                className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm flex items-center gap-2">
+                      <span>{isEn ? 'Apache Reverse Proxy & Load Balancer' : 'پروکسی معکوس و توزیع بار آپاچی'}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold">
+                        Phase 5
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {isEn
+                        ? 'Discovered from live Apache config, ProxyPass directives, balancer clusters & mod_proxy tables'
+                        : 'استخراج‌شده از کانفیگ زنده، دایرکتیوهای ProxyPass، کلاسترهای بالانسر و جداول mod_proxy'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* View Mode Switcher */}
+                  <div
+                    className={`p-1 rounded-lg border flex items-center gap-1 ${
+                      isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-950/80 border-slate-800'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setProxyViewMode('routes')}
+                      className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 ${
+                        proxyViewMode === 'routes'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <GitFork className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Routes' : 'مسیرها'}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/20 font-mono">
+                        {proxySummary?.totalRoutes || 0}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setProxyViewMode('balancers')}
+                      className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 ${
+                        proxyViewMode === 'balancers'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Network className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Load Balancers' : 'بالانسرها'}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/20 font-mono">
+                        {proxySummary?.totalBalancers || 0}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setProxyViewMode('modules')}
+                      className={`px-2.5 py-1 rounded text-xs font-semibold cursor-pointer transition flex items-center gap-1.5 ${
+                        proxyViewMode === 'modules'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Boxes className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Modules' : 'ماژول‌ها'}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                          proxySummary?.allRequiredModulesLoaded
+                            ? 'bg-emerald-500/20 text-emerald-400 font-bold'
+                            : 'bg-amber-500/20 text-amber-400 font-bold'
+                        }`}
+                      >
+                        {proxySummary?.moduleStatus?.filter((m) => m.isLoaded).length || 0}/10
+                      </span>
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateProxyOpen(true)}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'New Proxy Route' : 'مسیر پروکسی جدید'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={fetchProxyData}
+                    disabled={loadingProxy}
+                    className={`p-2 rounded-lg border text-slate-400 hover:text-white cursor-pointer transition ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700'
+                    }`}
+                    title={isEn ? 'Refresh Proxy Data' : 'به‌روزرسانی داده‌های پروکسی'}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingProxy ? 'animate-spin text-amber-400' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Metric Overview Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'Proxy Routes' : 'مسیرهای پروکسی'}
+                  </span>
+                  <div className="text-xl font-bold font-mono text-amber-400 mt-1">
+                    {proxySummary?.totalRoutes ?? 0}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'Load Balancers' : 'کلاسترهای بالانسر'}
+                  </span>
+                  <div className="text-xl font-bold font-mono text-cyan-400 mt-1 flex items-baseline gap-1.5">
+                    <span>{proxySummary?.totalBalancers ?? 0}</span>
+                    <span className="text-xs text-slate-400 font-normal">
+                      ({proxySummary?.totalBalancerMembers ?? 0} {isEn ? 'nodes' : 'گره'})
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'WebSocket Routes' : 'مسیرهای وب‌سوکت'}
+                  </span>
+                  <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
+                    {proxySummary?.websocketRoutesCount ?? 0}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'SSL Protected' : 'بک‌اند امن (SSL)'}
+                  </span>
+                  <div className="text-xl font-bold font-mono text-purple-400 mt-1">
+                    {proxySummary?.sslBackendCount ?? 0}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider flex items-center justify-between">
+                    <span>{isEn ? 'Module Readiness' : 'آمادگی ماژول‌ها'}</span>
+                    <FieldInfoTooltip
+                      fieldName="Apache Proxy Modules"
+                      infoWhatEn="Apache relies on dynamic modules (mod_proxy, mod_proxy_http, mod_proxy_wstunnel, mod_proxy_balancer) for proxying traffic."
+                      infoWhatFa="آپاچی برای فوروارد ترافیک، وب‌سوکت و لود بالانسر به ماژول‌های داینامیک mod_proxy، mod_proxy_http و ... وابسته است."
+                      infoWhyEn="Without these modules loaded, Apache will reject ProxyPass directives with configuration errors."
+                      infoWhyFa="بدون بارگذاری این ماژول‌ها، آپاچی دایرکتیوهای ProxyPass را خطا دانسته و اجرا نمی‌کند."
+                      infoExampleEn="mod_proxy, mod_proxy_http, mod_proxy_wstunnel"
+                      infoExampleFa="mod_proxy، mod_proxy_http، mod_proxy_wstunnel"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </span>
+                  <div className="text-sm font-bold font-mono mt-1 flex items-center gap-1.5">
+                    {proxySummary?.allRequiredModulesLoaded ? (
+                      <span className="text-emerald-400 flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{isEn ? 'Operational' : 'آماده به کار'}</span>
+                      </span>
+                    ) : (
+                      <span className="text-amber-400 flex items-center gap-1 text-xs">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>{isEn ? 'Missing Modules' : 'ماژول‌های ناقص'}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Missing Modules Warning Banner */}
+              {proxySummary && !proxySummary.allRequiredModulesLoaded && (
+                <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+                    <div>
+                      <div className="font-bold text-amber-300">
+                        {isEn
+                          ? 'Essential Apache Proxy modules are not yet loaded!'
+                          : 'ماژول‌های اصلی پروکسی آپاچی هنوز بارگذاری نشده‌اند!'}
+                      </div>
+                      <div className="text-slate-300 text-[11px]">
+                        {isEn
+                          ? `Missing: ${proxySummary.missingModules.join(', ')}. Reverse proxy requests require these modules.`
+                          : `ماژول‌های ناموجود: ${proxySummary.missingModules.join('، ')}. برای کارکرد پروکسی معکوس این ماژول‌ها ضروری هستند.`}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleEnableProxyModules(proxySummary.missingModules)}
+                    disabled={enablingModules}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer transition shrink-0 flex items-center gap-1.5 shadow"
+                  >
+                    {enablingModules ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {enablingModules
+                        ? isEn
+                          ? 'Enabling...'
+                          : 'در حال فعال‌سازی...'
+                        : isEn
+                        ? 'Enable Missing Modules'
+                        : 'فعال‌سازی خودکار ماژول‌ها'}
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {/* VIEW 1: REVERSE PROXY ROUTES */}
+              {proxyViewMode === 'routes' && (
+                <div className="space-y-3">
+                  {/* Search and Filters */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                    <div className="relative flex-1 max-w-md">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      <input
+                        type="text"
+                        placeholder={
+                          isEn
+                            ? 'Search by path, backend target, domain...'
+                            : 'جستجو بر اساس مسیر، سرور مقصد، دامنه...'
+                        }
+                        value={proxySearch}
+                        onChange={(e) => setProxySearch(e.target.value)}
+                        className={`w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border font-mono ${
+                          isLightMode
+                            ? 'bg-white border-slate-200 text-slate-800'
+                            : 'bg-slate-900 border-slate-700 text-slate-200'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                      {[
+                        { id: 'all', labelEn: 'All', labelFa: 'همه' },
+                        { id: 'http', labelEn: 'HTTP/HTTPS', labelFa: 'HTTP/HTTPS' },
+                        { id: 'ws', labelEn: 'WebSocket', labelFa: 'وب‌سوکت' },
+                        { id: 'balancer', labelEn: 'Balancer', labelFa: 'بالانسر' },
+                        { id: 'ssl', labelEn: 'SSL Backend', labelFa: 'بک‌اند امن' },
+                      ].map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setProxyFilter(f.id as any)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition shrink-0 ${
+                            proxyFilter === f.id
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : isLightMode
+                              ? 'text-slate-600 hover:bg-slate-100'
+                              : 'text-slate-400 hover:bg-slate-800'
+                          }`}
+                        >
+                          {isEn ? f.labelEn : f.labelFa}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Routes List */}
+                  {loadingProxy ? (
+                    <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>{isEn ? 'Scanning Apache proxy directives...' : 'در حال اسکن دایرکتیوهای پروکسی آپاچی...'}</span>
+                    </div>
+                  ) : (
+                    (() => {
+                      const filteredRoutes = (proxySummary?.routes || []).filter((r) => {
+                        const matchesSearch =
+                          !proxySearch ||
+                          r.path.toLowerCase().includes(proxySearch.toLowerCase()) ||
+                          r.target.toLowerCase().includes(proxySearch.toLowerCase()) ||
+                          (r.serverName && r.serverName.toLowerCase().includes(proxySearch.toLowerCase())) ||
+                          r.fileRelativePath.toLowerCase().includes(proxySearch.toLowerCase());
+
+                        if (!matchesSearch) return false;
+                        if (proxyFilter === 'http') return r.protocol === 'http' || r.protocol === 'https';
+                        if (proxyFilter === 'ws') return r.websocketEnabled || r.protocol === 'ws' || r.protocol === 'wss';
+                        if (proxyFilter === 'balancer') return r.isBalancer;
+                        if (proxyFilter === 'ssl') return r.sslBackend;
+                        return true;
+                      });
+
+                      if (filteredRoutes.length === 0) {
+                        return (
+                          <div
+                            className={`p-8 rounded-xl border text-center space-y-3 ${
+                              isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                            }`}
+                          >
+                            <Globe className="w-8 h-8 text-slate-500 mx-auto" />
+                            <div className="font-bold text-sm">
+                              {isEn ? 'No Reverse Proxy Routes Found' : 'هیچ مسیر پروکسی معکوسی یافت نشد'}
+                            </div>
+                            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                              {isEn
+                                ? 'No ProxyPass directives are active in the discovered Apache configurations.'
+                                : 'هیچ دایرکتیو ProxyPass فعالی در کانفیگ‌های آپاچی کشف نشد.'}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setIsCreateProxyOpen(true)}
+                              className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer hover:bg-amber-400 transition"
+                            >
+                              {isEn ? 'Deploy First Proxy Route' : 'ایجاد اولین مسیر پروکسی'}
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2.5">
+                          {filteredRoutes.map((route) => (
+                            <div
+                              key={route.id}
+                              className={`p-3.5 rounded-xl border transition ${
+                                isLightMode
+                                  ? 'bg-white border-slate-200 hover:border-amber-500/50'
+                                  : 'bg-slate-900/70 border-slate-800 hover:border-amber-500/40'
+                              }`}
+                            >
+                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                                {/* Route Info */}
+                                <div className="space-y-1.5 flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-mono font-bold text-sm text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                      {route.path}
+                                    </span>
+                                    <span className="text-slate-400 text-xs">→</span>
+                                    <span className="font-mono font-bold text-sm text-cyan-300 truncate max-w-xs sm:max-w-md">
+                                      {route.target}
+                                    </span>
+
+                                    {/* Protocol badge */}
+                                    <span
+                                      className={`text-[10px] px-2 py-0.2 rounded font-mono font-bold uppercase ${
+                                        route.isBalancer
+                                          ? 'bg-purple-500/20 text-purple-300'
+                                          : route.websocketEnabled
+                                          ? 'bg-emerald-500/20 text-emerald-300'
+                                          : route.sslBackend
+                                          ? 'bg-cyan-500/20 text-cyan-300'
+                                          : 'bg-blue-500/20 text-blue-300'
+                                      }`}
+                                    >
+                                      {route.protocol}
+                                    </span>
+
+                                    {route.websocketEnabled && (
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono flex items-center gap-1">
+                                        <Activity className="w-3 h-3" />
+                                        WebSocket
+                                      </span>
+                                    )}
+
+                                    {route.preserveHost && (
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-700/50 text-slate-300 font-mono">
+                                        Host: Preserved
+                                      </span>
+                                    )}
+
+                                    {route.sslBackend && (
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 font-mono flex items-center gap-1">
+                                        <Shield className="w-3 h-3" />
+                                        SSL Backend
+                                      </span>
+                                    )}
+
+                                    {route.timeout && (
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
+                                        {route.timeout}s
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 font-mono">
+                                    {route.serverName && (
+                                      <span className="flex items-center gap-1 text-slate-300">
+                                        <Globe className="w-3 h-3 text-amber-400" />
+                                        <span>{route.serverName}</span>
+                                      </span>
+                                    )}
+                                    <span className="truncate text-[11px] text-slate-400">
+                                      {route.fileRelativePath}
+                                      {route.lineStart ? `:${route.lineStart}` : ''}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-800">
+                                  <button
+                                    type="button"
+                                    onClick={() => setInspectProxyRoute(route)}
+                                    className="p-1.5 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer transition text-xs flex items-center gap-1"
+                                    title={isEn ? 'Inspect Apache Directive' : 'مشاهده دایرکتیو کانفیگ'}
+                                  >
+                                    <Code2 className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>{isEn ? 'Inspect' : 'بررسی'}</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteProxyRoute(route)}
+                                    disabled={deletingProxyId === route.id}
+                                    className="p-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/20 cursor-pointer transition text-xs flex items-center gap-1"
+                                    title={isEn ? 'Delete Proxy Route' : 'حذف مسیر پروکسی'}
+                                  >
+                                    {deletingProxyId === route.id ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              )}
+
+              {/* VIEW 2: LOAD BALANCER POOLS */}
+              {proxyViewMode === 'balancers' && (
+                <div className="space-y-3">
+                  {loadingProxy ? (
+                    <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>{isEn ? 'Scanning Apache balancer clusters...' : 'در حال اسکن کلاسترهای بالانسر آپاچی...'}</span>
+                    </div>
+                  ) : (proxySummary?.balancers || []).length === 0 ? (
+                    <div
+                      className={`p-8 rounded-xl border text-center space-y-3 ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <Network className="w-8 h-8 text-slate-500 mx-auto" />
+                      <div className="font-bold text-sm">
+                        {isEn ? 'No Load Balancer Pools Defined' : 'هیچ کلاستر توزیع باری تعریف نشده است'}
+                      </div>
+                      <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                        {isEn
+                          ? 'Apache mod_proxy_balancer supports clustering multiple backends with failover & loadfactor.'
+                          : 'ماژول mod_proxy_balancer امکان توزیع بار بین چندین سرور بک‌اند با ضرایب وزنی را فراهم می‌کند.'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCreateProxyForm({ ...createProxyForm, isBalancer: true });
+                          setIsCreateProxyOpen(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs cursor-pointer hover:bg-amber-400 transition"
+                      >
+                        {isEn ? 'Create Balancer Cluster' : 'ایجاد کلاستر توزیع بار'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {(proxySummary?.balancers || []).map((bal) => (
+                        <div
+                          key={bal.id}
+                          className={`p-4 rounded-xl border ${
+                            isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/70 border-slate-800'
+                          }`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                            <div className="flex items-center gap-2.5">
+                              <Network className="w-5 h-5 text-purple-400 shrink-0" />
+                              <div>
+                                <div className="font-mono font-bold text-sm text-purple-300">
+                                  balancer://{bal.name}
+                                </div>
+                                <div className="text-[11px] text-slate-400 font-mono">
+                                  {bal.fileRelativePath}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono uppercase font-bold">
+                                {bal.algorithm}
+                              </span>
+                              <span className="text-xs text-slate-400 font-mono">
+                                {bal.members.length} {isEn ? 'members' : 'عضو'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setInspectBalancer(bal)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-white"
+                                title={isEn ? 'View Snippet' : 'مشاهده کد'}
+                              >
+                                <Code2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Member Table */}
+                          <div className="pt-3 overflow-x-auto">
+                            <table className="w-full text-left font-mono text-xs">
+                              <thead>
+                                <tr className="text-slate-400 text-[10px] uppercase border-b border-slate-800/60 pb-1">
+                                  <th className="pb-1 font-semibold">{isEn ? 'Member Target URL' : 'آدرس گره بک‌اند'}</th>
+                                  <th className="pb-1 font-semibold">{isEn ? 'Weight' : 'ضریب بار'}</th>
+                                  <th className="pb-1 font-semibold">{isEn ? 'Status' : 'وضعیت'}</th>
+                                  <th className="pb-1 font-semibold">{isEn ? 'Route' : 'مسیر'}</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-800/40">
+                                {bal.members.map((m, mIdx) => (
+                                  <tr key={mIdx} className="hover:bg-white/5 transition">
+                                    <td className="py-1.5 font-bold text-slate-200">{m.url}</td>
+                                    <td className="py-1.5 text-amber-400 font-bold">{m.loadfactor || 1}</td>
+                                    <td className="py-1.5">
+                                      {m.isBackup ? (
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-sans">
+                                          Standby
+                                        </span>
+                                      ) : m.isDrain ? (
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-red-500/20 text-red-300 font-sans">
+                                          Drain
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-sans">
+                                          Active
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-1.5 text-slate-400">{m.route || '-'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* VIEW 3: PROXY MODULES CATALOG */}
+              {proxyViewMode === 'modules' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>
+                      {isEn
+                        ? 'Catalog of dynamic Apache modules governing reverse proxy, protocols & load balancing'
+                        : 'کاتالوگ جامع ماژول‌های داینامیک آپاچی برای پروکسی، وب‌سوکت و توزیع بار'}
+                    </span>
+                    {proxySummary?.missingModules && proxySummary.missingModules.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleEnableProxyModules(proxySummary.missingModules)}
+                        disabled={enablingModules}
+                        className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer transition text-xs flex items-center gap-1 shadow"
+                      >
+                        {enablingModules ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                        <span>{isEn ? 'Enable All Missing' : 'فعال‌سازی همه موارد ناقص'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {(proxySummary?.moduleStatus || []).map((mod, idx) => (
+                      <div
+                        key={idx}
+                        className={`p-3.5 rounded-xl border flex flex-col justify-between gap-2.5 transition ${
+                          mod.isLoaded
+                            ? isLightMode
+                              ? 'bg-white border-emerald-300'
+                              : 'bg-slate-900/70 border-emerald-500/30'
+                            : isLightMode
+                            ? 'bg-amber-50 border-amber-300'
+                            : 'bg-slate-900/70 border-amber-500/30'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-sm text-slate-100 flex items-center gap-1.5">
+                              <span>{mod.name}</span>
+                              <span className="text-slate-400 text-[11px] font-normal">({mod.moduleName})</span>
+                            </span>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold uppercase ${
+                                mod.isLoaded
+                                  ? 'bg-emerald-500/20 text-emerald-400'
+                                  : 'bg-amber-500/20 text-amber-400'
+                              }`}
+                            >
+                              {mod.isLoaded
+                                ? isEn
+                                  ? 'Loaded'
+                                  : 'بارگذاری شده'
+                                : isEn
+                                ? 'Not Loaded'
+                                : 'بارگذاری نشده'}
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                            {isEn ? mod.purpose : mod.purpose_fa}
+                          </p>
+                          <p className="text-[11px] text-slate-400 leading-normal">
+                            <strong className="text-slate-300">{isEn ? 'Used for: ' : 'کاربرد: '}</strong>
+                            {mod.requiredFor}
+                          </p>
+                        </div>
+
+                        {!mod.isLoaded && (
+                          <div className="pt-2 border-t border-slate-800 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleEnableProxyModules([mod.name.replace(/^mod_/, '')])}
+                              disabled={enablingModules}
+                              className="px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs font-bold cursor-pointer transition flex items-center gap-1"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>{isEn ? 'Enable Module' : 'فعال‌سازی ماژول'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* PLACEHOLDERS FOR FUTURE PHASES */}
           {activeTab !== 'overview' &&
             activeTab !== 'topology' &&
             activeTab !== 'vhosts' &&
+            activeTab !== 'proxy' &&
             activeTab !== 'modules' && (
               <div
                 className={`p-8 rounded-xl border text-center flex flex-col items-center justify-center space-y-3 ${
@@ -1910,28 +2773,26 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                 }`}
               >
                 <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
-                  {activeTab === 'proxy' && <Globe className="w-7 h-7" />}
                   {activeTab === 'ssl' && <Lock className="w-7 h-7" />}
                   {activeTab === 'logs' && <FileText className="w-7 h-7" />}
                   {activeTab === 'config' && <FileCode className="w-7 h-7" />}
                 </div>
                 <h3 className="font-bold text-base">
-                  {activeTab === 'proxy' && (isEn ? 'Reverse Proxy & Load Balancer (Phase 5)' : 'پروکسی معکوس و بالانسر (فاز ۵)')}
                   {activeTab === 'ssl' && (isEn ? 'SSL / TLS Certificate Engine (Phase 7)' : 'موتور سرتیفیکیت و SSL/TLS (فاز ۷)')}
                   {activeTab === 'logs' && (isEn ? 'Access & Error Logs Discovery (Phase 8)' : 'کشف و تحلیل لاگ‌های دسترسی و خطا (فاز ۸)')}
                   {activeTab === 'config' && (isEn ? 'Safe Configuration Editor with Rollback (Phase 10)' : 'ویرایشگر امن کانفیگ با رول‌بک خودکار (فاز ۱۰)')}
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md leading-relaxed">
                   {isEn
-                    ? 'Phase 4 has delivered Virtual Hosts management. This module will be developed in its planned phase using authentic live data from the connected Linux server.'
-                    : 'فاز ۴ مدیریت جامع هاست‌های مجازی آپاچی را مستقر ساخته است. این ماژول در فاز برنامه‌ریزی‌شده با استفاده از داده‌های واقعی سرور توسعه خواهد یافت.'}
+                    ? 'Phases 1-5 have delivered Entry Point, Discovery, Topology, Virtual Hosts, and Reverse Proxy. This module will be developed in its planned phase using authentic live data from the connected Linux server.'
+                    : 'فازهای ۱ تا ۵ ورودی، کشف زنده، توپولوژی کانفیگ، هاست‌های مجازی و پروکسی معکوس آپاچی را مستقر ساخته‌اند. این ماژول در فاز برنامه‌ریزی‌شده با داده‌های واقعی سرور توسعه خواهد یافت.'}
                 </p>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('vhosts')}
+                  onClick={() => setActiveTab('proxy')}
                   className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs font-semibold cursor-pointer transition"
                 >
-                  {isEn ? 'Return to Virtual Hosts' : 'بازگشت به هاست‌های مجازی'}
+                  {isEn ? 'Return to Reverse Proxy' : 'بازگشت به پروکسی معکوس'}
                 </button>
               </div>
             )}
@@ -2238,6 +3099,676 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                       <Check className="w-3.5 h-3.5" />
                     )}
                     <span>{creatingVHost ? (isEn ? 'Deploying...' : 'در حال استقرار...') : (isEn ? 'Create & Deploy' : 'ایجاد و استقرار')}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* ======================================================== */}
+      {/* 7. INSPECT REVERSE PROXY ROUTE MODAL (Portal)            */}
+      {/* ======================================================== */}
+      {inspectProxyRoute &&
+        createPortal(
+          <div className="fixed inset-0 z-[999995] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`w-full max-w-3xl max-h-[85vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
+                <div className="flex items-center gap-2">
+                  <Code2 className="w-5 h-5 text-amber-400" />
+                  <span className="font-bold text-sm font-mono">
+                    {inspectProxyRoute.path} → {inspectProxyRoute.target}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectProxyRoute(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-4 flex-1 overflow-y-auto space-y-3 font-mono text-xs">
+                <div className="flex items-center justify-between text-slate-400 text-[11px] pb-1 border-b border-slate-800">
+                  <span>
+                    {inspectProxyRoute.definedInFile}
+                    {inspectProxyRoute.lineStart ? `:${inspectProxyRoute.lineStart}` : ''}
+                  </span>
+                  {inspectProxyRoute.rawSnippet && (
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(inspectProxyRoute.rawSnippet!)}
+                      className="flex items-center gap-1 text-amber-400 hover:underline cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Copy Directive' : 'کپی دایرکتیو'}</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                  <div className="p-2 rounded bg-black/40 border border-slate-800">
+                    <span className="text-slate-400 block">{isEn ? 'Protocol' : 'پروتکل'}</span>
+                    <span className="font-bold text-amber-300 uppercase">{inspectProxyRoute.protocol}</span>
+                  </div>
+                  <div className="p-2 rounded bg-black/40 border border-slate-800">
+                    <span className="text-slate-400 block">{isEn ? 'WebSocket' : 'وب‌سوکت'}</span>
+                    <span className="font-bold text-emerald-300">
+                      {inspectProxyRoute.websocketEnabled ? (isEn ? 'Enabled' : 'فعال') : (isEn ? 'Disabled' : 'غیرفعال')}
+                    </span>
+                  </div>
+                  <div className="p-2 rounded bg-black/40 border border-slate-800">
+                    <span className="text-slate-400 block">{isEn ? 'Preserve Host' : 'حفظ هدر هاست'}</span>
+                    <span className="font-bold text-cyan-300">
+                      {inspectProxyRoute.preserveHost ? 'On' : 'Off'}
+                    </span>
+                  </div>
+                  <div className="p-2 rounded bg-black/40 border border-slate-800">
+                    <span className="text-slate-400 block">{isEn ? 'SSL Backend' : 'بک‌اند امن'}</span>
+                    <span className="font-bold text-purple-300">
+                      {inspectProxyRoute.sslBackend ? 'SSLProxyEngine' : 'Plain'}
+                    </span>
+                  </div>
+                </div>
+
+                {inspectProxyRoute.rawSnippet ? (
+                  <pre className="p-3 rounded-lg bg-black/60 text-slate-200 overflow-x-auto whitespace-pre-wrap leading-relaxed border border-slate-800">
+                    {inspectProxyRoute.rawSnippet}
+                  </pre>
+                ) : (
+                  <div className="p-4 text-center text-slate-400">
+                    {isEn ? 'No raw snippet captured.' : 'کد خامی ثبت نشده است.'}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* ======================================================== */}
+      {/* 8. INSPECT BALANCER POOL MODAL (Portal)                  */}
+      {/* ======================================================== */}
+      {inspectBalancer &&
+        createPortal(
+          <div className="fixed inset-0 z-[999995] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`w-full max-w-3xl max-h-[85vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
+                <div className="flex items-center gap-2">
+                  <Network className="w-5 h-5 text-purple-400" />
+                  <span className="font-bold text-sm font-mono">
+                    balancer://{inspectBalancer.name}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectBalancer(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-4 flex-1 overflow-y-auto space-y-3 font-mono text-xs">
+                <div className="flex items-center justify-between text-slate-400 text-[11px] pb-1 border-b border-slate-800">
+                  <span>{inspectBalancer.definedInFile}</span>
+                  {inspectBalancer.rawSnippet && (
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(inspectBalancer.rawSnippet)}
+                      className="flex items-center gap-1 text-purple-400 hover:underline cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Copy Configuration' : 'کپی کانفیگ'}</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="p-2 rounded bg-black/40 border border-slate-800">
+                    <span className="text-slate-400 block">{isEn ? 'Balancing Algorithm' : 'الگوریتم توزیع بار'}</span>
+                    <span className="font-bold text-purple-300 uppercase">{inspectBalancer.algorithm}</span>
+                  </div>
+                  <div className="p-2 rounded bg-black/40 border border-slate-800">
+                    <span className="text-slate-400 block">{isEn ? 'Active Cluster Nodes' : 'تعداد اعضای کلاستر'}</span>
+                    <span className="font-bold text-cyan-300">{inspectBalancer.members.length}</span>
+                  </div>
+                </div>
+
+                <pre className="p-3 rounded-lg bg-black/60 text-slate-200 overflow-x-auto whitespace-pre-wrap leading-relaxed border border-slate-800">
+                  {inspectBalancer.rawSnippet}
+                </pre>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* ======================================================== */}
+      {/* 9. CREATE REVERSE PROXY WIZARD MODAL (Portal)            */}
+      {/* ======================================================== */}
+      {isCreateProxyOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[999995] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`w-full max-w-2xl max-h-[90vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-amber-400" />
+                  <h3 className="font-bold text-sm">
+                    {isEn ? 'Deploy Apache Reverse Proxy Route' : 'استقرار مسیر پروکسی معکوس آپاچی'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateProxyOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateProxySubmit} className="p-5 flex-1 overflow-y-auto space-y-4 text-xs">
+                {/* Route Path Input */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-400 flex items-center justify-between">
+                    <span>{isEn ? 'Proxy Path Prefix' : 'پیشوند آدرس مسیر پروکسی'}</span>
+                    <FieldInfoTooltip
+                      fieldName="Proxy Path"
+                      infoWhatEn="URL path pattern intercepted and proxied by Apache (e.g. / or /api or /ws)."
+                      infoWhatFa="الگوی آدرس URL که توسط آپاچی شنود و به سرور بک‌اند هدایت می‌شود (مانند / یا /api)."
+                      infoWhyEn="Maps incoming public request URLs to specific internal application services."
+                      infoWhyFa="درخواست‌های بیرونی را به سرویس‌ها و پورت‌های برنامه‌های داخلی متصل می‌سازد."
+                      infoExampleEn="/ or /api/v1"
+                      infoExampleFa="/ یا /api/v1"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="/ or /api"
+                    value={createProxyForm.path}
+                    onChange={(e) => setCreateProxyForm({ ...createProxyForm, path: e.target.value })}
+                    className={`w-full p-2.5 rounded-lg border font-mono ${
+                      isLightMode
+                        ? 'bg-white border-slate-300 text-slate-900'
+                        : 'bg-slate-900 border-slate-700 text-white'
+                    }`}
+                  />
+                </div>
+
+                {/* Target Type Radio */}
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-400 block">
+                    {isEn ? 'Backend Routing Architecture' : 'معماری روتینگ سرور بک‌اند'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCreateProxyForm({ ...createProxyForm, isBalancer: false })}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition flex items-start gap-2.5 ${
+                        !createProxyForm.isBalancer
+                          ? 'border-amber-500 bg-amber-500/15 text-amber-300 font-bold'
+                          : 'border-slate-800 bg-slate-900/40 text-slate-400'
+                      }`}
+                    >
+                      <ArrowUpRight className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div>{isEn ? 'Single Backend Target' : 'سرور مقصد تکی'}</div>
+                        <div className="text-[10px] opacity-75 font-normal">
+                          {isEn ? 'Direct HTTP/HTTPS/WS destination' : 'اتصال مستقیم به آدرس مشخص (مانند 127.0.0.1:3000)'}
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCreateProxyForm({ ...createProxyForm, isBalancer: true })}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition flex items-start gap-2.5 ${
+                        createProxyForm.isBalancer
+                          ? 'border-purple-500 bg-purple-500/15 text-purple-300 font-bold'
+                          : 'border-slate-800 bg-slate-900/40 text-slate-400'
+                      }`}
+                    >
+                      <Network className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div>{isEn ? 'Load Balancer Cluster' : 'کلاستر توزیع بار (Balancer)'}</div>
+                        <div className="text-[10px] opacity-75 font-normal">
+                          {isEn ? 'mod_proxy_balancer pool with failover' : 'کلاسترینگ چندین سرور با بالانس هوشمند'}
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* If Single Backend */}
+                {!createProxyForm.isBalancer ? (
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-400 flex items-center justify-between">
+                      <span>{isEn ? 'Backend Destination URL' : 'آدرس کامل سرور بک‌اند'}</span>
+                      <FieldInfoTooltip
+                        fieldName="Backend Destination"
+                        infoWhatEn="Internal network address and port where the application server listens."
+                        infoWhatFa="آدرس شبکه داخلی و پورتی که برنامه وب در آن گوش فرا می‌دهد."
+                        infoWhyEn="Instructs Apache where to transmit proxy requests via ProxyPass directive."
+                        infoWhyFa="مشخص می‌کند آپاچی درخواست‌ها را به کدام سرور داخلی بفرستد."
+                        infoExampleEn="http://127.0.0.1:3000 or https://internal.app:8443"
+                        infoExampleFa="http://127.0.0.1:3000 یا https://internal.app:8443"
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="http://127.0.0.1:3000"
+                      value={createProxyForm.backendUrl}
+                      onChange={(e) => setCreateProxyForm({ ...createProxyForm, backendUrl: e.target.value })}
+                      className={`w-full p-2.5 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-900 border-slate-700 text-white'
+                      }`}
+                    />
+                  </div>
+                ) : (
+                  /* If Load Balancer Cluster */
+                  <div className="space-y-3 p-3.5 rounded-xl border border-purple-500/30 bg-purple-500/5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="font-bold text-slate-400 block mb-1">
+                          {isEn ? 'Cluster Identifier Name' : 'نام شناسه کلاستر (Balancer Name)'}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="app_cluster"
+                          value={createProxyForm.balancerName}
+                          onChange={(e) => setCreateProxyForm({ ...createProxyForm, balancerName: e.target.value })}
+                          className={`w-full p-2 rounded-lg border font-mono ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-900'
+                              : 'bg-slate-900 border-slate-700 text-white'
+                          }`}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="font-bold text-slate-400 block mb-1">
+                          {isEn ? 'Balancing Algorithm' : 'الگوریتم توزیع بار'}
+                        </label>
+                        <select
+                          value={createProxyForm.balancerAlgorithm}
+                          onChange={(e) =>
+                            setCreateProxyForm({
+                              ...createProxyForm,
+                              balancerAlgorithm: e.target.value as any,
+                            })
+                          }
+                          className={`w-full p-2 rounded-lg border font-mono ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-900'
+                              : 'bg-slate-900 border-slate-700 text-white'
+                          }`}
+                        >
+                          <option value="byrequests">byrequests (Request Counting)</option>
+                          <option value="bytraffic">bytraffic (Bandwidth / Bytes)</option>
+                          <option value="bybusyness">bybusyness (Least Active Connections)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Member List */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-300">
+                          {isEn ? 'Balancer Member Nodes' : 'گره‌های عضو کلاستر'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = createProxyForm.balancerMembers || [];
+                            setCreateProxyForm({
+                              ...createProxyForm,
+                              balancerMembers: [
+                                ...current,
+                                { url: `http://127.0.0.1:${8080 + current.length + 1}`, loadfactor: 1 },
+                              ],
+                            });
+                          }}
+                          className="text-[11px] text-amber-400 hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Add Member' : 'افزودن عضو'}</span>
+                        </button>
+                      </div>
+
+                      {(createProxyForm.balancerMembers || []).map((m, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="http://127.0.0.1:8081"
+                            value={m.url}
+                            onChange={(e) => {
+                              const updated = [...(createProxyForm.balancerMembers || [])];
+                              updated[idx].url = e.target.value;
+                              setCreateProxyForm({ ...createProxyForm, balancerMembers: updated });
+                            }}
+                            className={`flex-1 p-2 rounded-lg border font-mono ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-900'
+                                : 'bg-slate-900 border-slate-700 text-white'
+                            }`}
+                          />
+                          <div className="w-24 flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400">w:</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="100"
+                              value={m.loadfactor || 1}
+                              onChange={(e) => {
+                                const updated = [...(createProxyForm.balancerMembers || [])];
+                                updated[idx].loadfactor = parseInt(e.target.value) || 1;
+                                setCreateProxyForm({ ...createProxyForm, balancerMembers: updated });
+                              }}
+                              className={`w-full p-2 rounded-lg border font-mono text-center ${
+                                isLightMode
+                                  ? 'bg-white border-slate-300 text-slate-900'
+                                  : 'bg-slate-900 border-slate-700 text-white'
+                              }`}
+                            />
+                          </div>
+                          {(createProxyForm.balancerMembers || []).length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = (createProxyForm.balancerMembers || []).filter((_, i) => i !== idx);
+                                setCreateProxyForm({ ...createProxyForm, balancerMembers: updated });
+                              }}
+                              className="p-2 text-slate-400 hover:text-red-400"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Protocol & Connection Options */}
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <span className="font-bold text-slate-300 block">
+                    {isEn ? 'Proxy Protocol & Performance Options' : 'تنظیمات پروتکل و عملکرد پروکسی'}
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* WebSocket */}
+                    <div
+                      className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                        createProxyForm.websocketSupport
+                          ? 'border-emerald-500 bg-emerald-500/10 text-emerald-300'
+                          : 'border-slate-800 bg-slate-900/40 text-slate-400'
+                      }`}
+                      onClick={() =>
+                        setCreateProxyForm({
+                          ...createProxyForm,
+                          websocketSupport: !createProxyForm.websocketSupport,
+                        })
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createProxyForm.websocketSupport}
+                        onChange={() => {}}
+                        className="mt-0.5 rounded text-emerald-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className="font-bold flex items-center justify-between">
+                          <span>{isEn ? 'WebSocket Support' : 'پشتیبانی وب‌سوکت'}</span>
+                          <FieldInfoTooltip
+                            fieldName="WebSocket Support"
+                            infoWhatEn="Configures mod_proxy_wstunnel and HTTP Upgrade headers for duplex WebSocket connections."
+                            infoWhatFa="ماژول mod_proxy_wstunnel و هدرهای ارتقای HTTP را برای ارتباطات دوطرفه وب‌سوکت تنظیم می‌کند."
+                            infoWhyEn="Prevents socket disconnections and handshake failures in real-time apps."
+                            infoWhyFa="از قطع شدن ارتباطات بلادرنگ وب‌سوکت و خطای عدم تطابق پروتکل جلوگیری می‌کند."
+                            infoExampleEn="Enabled for Socket.io, ws, Live feeds"
+                            infoExampleFa="فعال برای Socket.io و برنامه‌های چت و تلمتری"
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                        </div>
+                        <div className="text-[10px] opacity-75 font-normal">
+                          {isEn ? 'Auto-wires mod_proxy_wstunnel & upgrade rules' : 'تنظیم خودکار قوانین ارتقای سوکت'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* PreserveHost */}
+                    <div
+                      className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                        createProxyForm.preserveHost
+                          ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                          : 'border-slate-800 bg-slate-900/40 text-slate-400'
+                      }`}
+                      onClick={() =>
+                        setCreateProxyForm({
+                          ...createProxyForm,
+                          preserveHost: !createProxyForm.preserveHost,
+                        })
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createProxyForm.preserveHost}
+                        onChange={() => {}}
+                        className="mt-0.5 rounded text-amber-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className="font-bold flex items-center justify-between">
+                          <span>{isEn ? 'Preserve Original Host' : 'حفظ هدر اصلی هاست (Host)'}</span>
+                          <FieldInfoTooltip
+                            fieldName="ProxyPreserveHost"
+                            infoWhatEn="Directs Apache to pass the incoming Host: header to the backend instead of rewriting it to the backend IP/host."
+                            infoWhatFa="به آپاچی دستور می‌دهد هدر Host ورودی کاربر را دقیقاً به بک‌اند بفرستد و آن را با IP بک‌اند بازنویسی نکند."
+                            infoWhyEn="Critical for virtual-hosted backends and correct SSL/domain routing."
+                            infoWhyFa="برای برنامه‌هایی که نیاز به شناسایی دامنه دقیق کاربر دارند حیاتی است."
+                            infoExampleEn="ProxyPreserveHost On"
+                            infoExampleFa="ProxyPreserveHost On"
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                        </div>
+                        <div className="text-[10px] opacity-75 font-normal">
+                          {isEn ? 'ProxyPreserveHost On' : 'ارسال دامنه درخواستی کاربر به بک‌اند'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SSL Backend */}
+                    <div
+                      className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                        createProxyForm.sslBackend
+                          ? 'border-purple-500 bg-purple-500/10 text-purple-300'
+                          : 'border-slate-800 bg-slate-900/40 text-slate-400'
+                      }`}
+                      onClick={() =>
+                        setCreateProxyForm({
+                          ...createProxyForm,
+                          sslBackend: !createProxyForm.sslBackend,
+                        })
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createProxyForm.sslBackend}
+                        onChange={() => {}}
+                        className="mt-0.5 rounded text-purple-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className="font-bold flex items-center justify-between">
+                          <span>{isEn ? 'SSL/TLS Backend Engine' : 'رمزنگاری بک‌اند با SSL/TLS'}</span>
+                          <FieldInfoTooltip
+                            fieldName="SSLProxyEngine"
+                            infoWhatEn="Enables SSL/TLS encryption for communication between Apache and the backend server (https://)."
+                            infoWhatFa="رمزنگاری امن SSL/TLS را برای ارتباط بین آپاچی و سرور مقصد فعال می‌سازد."
+                            infoWhyEn="Required whenever the backend destination uses HTTPS or WSS."
+                            infoWhyFa="زمانی که بک‌اند از پروتکل امن https استفاده می‌کند اجباری است."
+                            infoExampleEn="SSLProxyEngine On"
+                            infoExampleFa="SSLProxyEngine On"
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                        </div>
+                        <div className="text-[10px] opacity-75 font-normal">
+                          {isEn ? 'SSLProxyEngine On' : 'ارتباط امن با سرور مقصد'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Auto-enable Modules */}
+                    <div
+                      className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer transition ${
+                        createProxyForm.autoEnableModules !== false
+                          ? 'border-blue-500 bg-blue-500/10 text-blue-300'
+                          : 'border-slate-800 bg-slate-900/40 text-slate-400'
+                      }`}
+                      onClick={() =>
+                        setCreateProxyForm({
+                          ...createProxyForm,
+                          autoEnableModules: createProxyForm.autoEnableModules === false ? true : false,
+                        })
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createProxyForm.autoEnableModules !== false}
+                        onChange={() => {}}
+                        className="mt-0.5 rounded text-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className="font-bold">
+                          {isEn ? 'Auto-Enable Missing Modules' : 'فعال‌سازی خودکار ماژول‌ها'}
+                        </div>
+                        <div className="text-[10px] opacity-75 font-normal">
+                          {isEn
+                            ? 'Detects and runs a2enmod before writing configuration'
+                            : 'اجرای خودکار دستور a2enmod قبل از استقرار کانفیگ'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Timeouts */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div>
+                    <label className="font-bold text-slate-400 flex items-center justify-between mb-1">
+                      <span>{isEn ? 'Read Timeout (seconds)' : 'مهلت خواندن پاسخ (Read Timeout)'}</span>
+                      <FieldInfoTooltip
+                        fieldName="Proxy Timeout"
+                        infoWhatEn="Maximum time in seconds Apache waits for backend application to generate a response."
+                        infoWhatFa="حداکثر زمانی که آپاچی منتظر پاسخ از برنامه بک‌اند می‌ماند."
+                        infoWhyEn="Prevents hanging requests while accommodating long-running API calculations."
+                        infoWhyFa="از باز ماندن بیهوده کانکشن‌ها در صورت قطعی سرور مقصد جلوگیری می‌کند."
+                        infoExampleEn="60"
+                        infoExampleFa="60 ثانیه"
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="600"
+                      value={createProxyForm.timeout || 60}
+                      onChange={(e) =>
+                        setCreateProxyForm({ ...createProxyForm, timeout: parseInt(e.target.value) || 60 })
+                      }
+                      className={`w-full p-2 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-900 border-slate-700 text-white'
+                      }`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-400 flex items-center justify-between mb-1">
+                      <span>{isEn ? 'Connection Timeout (seconds)' : 'مهلت برقراری اتصال (Connect Timeout)'}</span>
+                      <FieldInfoTooltip
+                        fieldName="Connection Timeout"
+                        infoWhatEn="Time Apache waits to establish TCP network handshake with backend host."
+                        infoWhatFa="زمانی که آپاچی برای برقراری ارتباط TCP اولیه با بک‌اند منتظر می‌ماند."
+                        infoWhyEn="Quickly fails over if backend port is closed or server is unreachable."
+                        infoWhyFa="در صورت در دسترس نبودن پورت مقصد، بلافاصله خطا را مدیریت می‌کند."
+                        infoExampleEn="10"
+                        infoExampleFa="10 ثانیه"
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="120"
+                      value={createProxyForm.connectTimeout || 10}
+                      onChange={(e) =>
+                        setCreateProxyForm({ ...createProxyForm, connectTimeout: parseInt(e.target.value) || 10 })
+                      }
+                      className={`w-full p-2 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900'
+                          : 'bg-slate-900 border-slate-700 text-white'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Submit Bar */}
+                <div className="pt-4 border-t flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateProxyOpen(false)}
+                    className="px-4 py-2 rounded-lg border border-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={creatingProxy}
+                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer transition flex items-center gap-1.5"
+                  >
+                    {creatingProxy ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {creatingProxy
+                        ? isEn
+                          ? 'Validating & Deploying...'
+                          : 'در حال اعتبارسنجی و استقرار...'
+                        : isEn
+                        ? 'Deploy Proxy Route'
+                        : 'استقرار مسیر پروکسی'}
+                    </span>
                   </button>
                 </div>
               </form>

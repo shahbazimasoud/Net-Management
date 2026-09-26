@@ -205,6 +205,12 @@ import {
   createApacheVirtualHost,
   deleteApacheVirtualHost,
 } from './apacheVirtualHosts';
+import {
+  discoverApacheProxyArchitecture,
+  enableApacheProxyModules,
+  createApacheProxyRoute,
+  deleteApacheProxyRoute,
+} from './apacheProxyManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2065,6 +2071,109 @@ apiRouter.post('/remote-servers/:id/apache-vhost-delete', async (req: Request, r
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to delete Apache VirtualHost',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-proxy - Discovers all Apache reverse proxy routes, balancers & modules
+apiRouter.post('/remote-servers/:id/apache-proxy', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const summary = await discoverApacheProxyArchitecture(server, password);
+    return res.json({ success: true, summary });
+  } catch (err: any) {
+    console.error(`[ApacheProxy API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Apache Reverse Proxy architecture',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-proxy-modules - Enables required Apache proxy modules
+apiRouter.post('/remote-servers/:id/apache-proxy-modules', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, modules } = req.body || {};
+
+    if (!modules || !Array.isArray(modules) || modules.length === 0) {
+      return res.status(400).json({ success: false, error: 'modules array is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await enableApacheProxyModules(server, modules, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheProxyModules API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to enable Apache proxy modules',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-proxy-route - Creates and deploys a new Apache reverse proxy route or balancer
+apiRouter.post('/remote-servers/:id/apache-proxy-route', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, params } = req.body || {};
+
+    if (!params || !params.path || (!params.backendUrl && !params.balancerName)) {
+      return res.status(400).json({
+        success: false,
+        error: 'path and backendUrl (or balancerName) are required',
+      });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await createApacheProxyRoute(server, params, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheProxyRouteCreate API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to create Apache reverse proxy route',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-proxy-delete - Safely removes a reverse proxy route
+apiRouter.post('/remote-servers/:id/apache-proxy-delete', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, routeId, filePath } = req.body || {};
+
+    if (!filePath) {
+      return res.status(400).json({ success: false, error: 'filePath is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await deleteApacheProxyRoute(server, routeId, filePath, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheProxyDelete API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to delete Apache reverse proxy route',
     });
   }
 });
