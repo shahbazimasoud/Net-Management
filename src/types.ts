@@ -1522,6 +1522,12 @@ export interface PostgresTableItem {
   estimatedRows: number;
   sizePretty: string;
   sizeBytes: number | null;
+  tableSizePretty?: string;
+  indexSizePretty?: string;
+  toastSizePretty?: string;
+  columnCount?: number;
+  hasPrimaryKey?: boolean;
+  isPartitioned?: boolean;
   hasIndexes: boolean;
   hasTriggers: boolean;
   persistence: 'permanent' | 'temporary' | 'unlogged';
@@ -1533,6 +1539,10 @@ export interface PostgresViewItem {
   owner: string;
   isMaterialized: boolean;
   sizePretty?: string;
+  definition?: string;
+  columnCount?: number;
+  checkOption?: string;
+  isUpdatable?: boolean;
 }
 
 export interface PostgresRoutineItem {
@@ -1544,12 +1554,33 @@ export interface PostgresRoutineItem {
   returnType: string;
   argumentTypes: string;
   isAggregate: boolean;
+  volatility?: 'IMMUTABLE' | 'STABLE' | 'VOLATILE';
+  isSecurityDefiner?: boolean;
+  sourceCode?: string;
 }
 
 export interface PostgresSequenceItem {
   name: string;
   schema: string;
   owner: string;
+  dataType?: string;
+  startValue?: string;
+  minValue?: string;
+  maxValue?: string;
+  increment?: string;
+  isCycled?: boolean;
+  lastValue?: string;
+  cacheSize?: string;
+}
+
+export interface PostgresTypeItem {
+  name: string;
+  schema: string;
+  owner: string;
+  kind: 'enum' | 'composite' | 'domain' | 'base' | 'range' | 'other';
+  enumLabels?: string[];
+  baseType?: string;
+  description?: string;
 }
 
 export interface PostgresExtensionItem {
@@ -1563,12 +1594,15 @@ export interface PostgresExtensionItem {
 export interface PostgresSchemaObjects {
   name: string;
   owner: string;
+  sizePretty?: string;
+  description?: string;
   tables: PostgresTableItem[];
   views: PostgresViewItem[];
   materializedViews: PostgresViewItem[];
   functions: PostgresRoutineItem[];
   procedures: PostgresRoutineItem[];
   sequences: PostgresSequenceItem[];
+  types: PostgresTypeItem[];
 }
 
 export interface PostgresDatabaseTree {
@@ -1581,6 +1615,7 @@ export interface PostgresDatabaseTree {
   totalFunctions: number;
   totalProcedures: number;
   totalSequences: number;
+  totalTypes: number;
   totalExtensions: number;
   fetchedAt: string;
 }

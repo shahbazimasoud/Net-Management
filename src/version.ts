@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.184.0';
+export const APP_VERSION = '1.185.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.185.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۴ مدیریت PostgreSQL: کاوشگر تفصیلی اسکیما و اجزای شیء (Schema & Object Explorer)، متادیتای پیشرفته جداول، نماها، توابع، دنباله‌ها و افزونه‌ها',
+    title_en: 'PostgreSQL Management Phase 4: Detailed Schema & Object Explorer, Advanced Metadata Discovery for Tables, Views, Routines, Sequences & Extensions',
+    changes: [
+      'توسعه همه‌جانبه کاوشگر اسکیما و اجزای پایگاه داده با استخراج زنده متادیتای ساختاری دقیق از کاتالوگ‌های سیستمی PostgreSQL.',
+      'افزودن متادیتای پیشرفته جداول: محاسبه تعداد ستون‌ها، تفکیک دقیق فضای فیزیکی دیسک (داده‌های اصلی Table Heap، فضای ایندکس‌ها، فضای TOAST)، شناسایی کلید اصلی (Primary Key Enforced)، جدول پارتیشن‌شده (Partitioned Table)، پایداری و پیش‌نمایش کوئری‌های SQL با دکمه کپی.',
+      'اکتشاف تفصیلی نماها و نماهای مادی (Views & Materialized Views): بازیابی متن و کوئری تعریف کامل SQL نما با قالب‌بندی و دکمه کپی، تعداد ستون‌ها و محاسبه فضای اشغالی نماهای مادی.',
+      'کاوش جامع توابع و رویه‌ها (Functions & Procedures): استخراج سطح فراریت (IMMUTABLE, STABLE, VOLATILE)، وضعیت امنیت اجرا (SECURITY DEFINER vs INVOKER)، امضای کامل پارامترها و نمایش سورس‌کد کامل بدنه تابع با قابلیت کپی مستقیم.',
+      'بازرس اختصاصی دنباله‌ها (Sequences Explorer): نمایش نوع داده، چرخه (Cycled vs No Cycle)، مقدار شروع، آخرین مقدار تولیدشده، حداقل و حداکثر مجاز، گام افزایش، اندازه کش و دستورات کاربردی SQL (nextval, currval, RESTART WITH).',
+      'کاتالوگ و بازرس افزونه‌ها (Extensions): لیست افزونه‌های نصب‌شده (pg_extension)، نسخه، اسکیما، قابلیت انتقال (Relocatable)، توضیحات رسمی و دستورات SQL مدیریت افزونه.',
+      'پنل خلاصه مشخصات اسکیما (Schema Overview): محاسبه فضای فیزیکی کل اشیاء اسکیما، کامنت‌ها و توضیحات، کارت‌های شمارنده اشیاء و تب‌های فیلترشونده جداول، نماها، توابع، دنباله‌ها و انواع داده.',
+      'رعایت کامل قوانین بدون نشت زبان (Strict Bilingual i18n)، عدم استفاده از داده‌های ساختگی، تم تیره و روشن و هماهنگی با نوار ابزار پایین.'
+    ],
+    changes_en: [
+      'Comprehensive Schema & Object Explorer for PostgreSQL databases with authentic real-time metadata discovery from system catalogs.',
+      'Advanced table metadata discovery: column counts, granular storage breakdown (Heap data, Index total, TOAST storage), Primary Key enforcement indicator, partitioned table badge, persistence classification, and copyable SQL query previews.',
+      'Detailed Views & Materialized Views inspection: full SQL view definition retrieval via pg_get_viewdef with syntax formatting and one-click copy, column count metrics, and physical storage sizes.',
+      'Rich Routines exploration: volatility classification (IMMUTABLE, STABLE, VOLATILE), security execution contexts (SECURITY DEFINER vs INVOKER), full argument signatures, and complete function body source code viewer with copy capability.',
+      'Dedicated Sequence Inspector: sequence data type, cycle policy, start value, current/last value, min/max boundaries, increment step, cache size, and actionable sequence SQL commands (nextval, currval, RESTART WITH).',
+      'Installed Extensions Catalog & Inspector: version tracking, default schema, relocatability status, official descriptions, and copyable extension SQL statements.',
+      'Schema Overview metrics panel: aggregated physical storage calculation across schema relations, schema descriptions/comments, object counters, and quick filterable tabs.',
+      'Strict bilingual English/Persian localization adherence without leakage, authentic live hardware data guarantee, dark/light theme ergonomics, and universal modal compliance.'
+    ]
+  },
   {
     version: '1.184.0',
     releaseDate: '2026-09-26',

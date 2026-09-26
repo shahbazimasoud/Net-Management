@@ -99,6 +99,12 @@ export interface PostgresTableItem {
   estimatedRows: number;
   sizePretty: string;
   sizeBytes: number | null;
+  tableSizePretty?: string;
+  indexSizePretty?: string;
+  toastSizePretty?: string;
+  columnCount?: number;
+  hasPrimaryKey?: boolean;
+  isPartitioned?: boolean;
   hasIndexes: boolean;
   hasTriggers: boolean;
   persistence: 'permanent' | 'temporary' | 'unlogged';
@@ -110,6 +116,10 @@ export interface PostgresViewItem {
   owner: string;
   isMaterialized: boolean;
   sizePretty?: string;
+  definition?: string;
+  columnCount?: number;
+  checkOption?: string;
+  isUpdatable?: boolean;
 }
 
 export interface PostgresRoutineItem {
@@ -121,12 +131,33 @@ export interface PostgresRoutineItem {
   returnType: string;
   argumentTypes: string;
   isAggregate: boolean;
+  volatility?: 'IMMUTABLE' | 'STABLE' | 'VOLATILE';
+  isSecurityDefiner?: boolean;
+  sourceCode?: string;
 }
 
 export interface PostgresSequenceItem {
   name: string;
   schema: string;
   owner: string;
+  dataType?: string;
+  startValue?: string;
+  minValue?: string;
+  maxValue?: string;
+  increment?: string;
+  isCycled?: boolean;
+  lastValue?: string;
+  cacheSize?: string;
+}
+
+export interface PostgresTypeItem {
+  name: string;
+  schema: string;
+  owner: string;
+  kind: 'enum' | 'composite' | 'domain' | 'base' | 'range' | 'other';
+  enumLabels?: string[];
+  baseType?: string;
+  description?: string;
 }
 
 export interface PostgresExtensionItem {
@@ -140,12 +171,15 @@ export interface PostgresExtensionItem {
 export interface PostgresSchemaObjects {
   name: string;
   owner: string;
+  sizePretty?: string;
+  description?: string;
   tables: PostgresTableItem[];
   views: PostgresViewItem[];
   materializedViews: PostgresViewItem[];
   functions: PostgresRoutineItem[];
   procedures: PostgresRoutineItem[];
   sequences: PostgresSequenceItem[];
+  types: PostgresTypeItem[];
 }
 
 export interface PostgresDatabaseTree {
@@ -158,6 +192,7 @@ export interface PostgresDatabaseTree {
   totalFunctions: number;
   totalProcedures: number;
   totalSequences: number;
+  totalTypes: number;
   totalExtensions: number;
   fetchedAt: string;
 }
@@ -752,14 +787,18 @@ export async function getPostgresDatabaseTree(
   try {
     await client.connect();
 
-    // 1. Schemas
+    // 1. Schemas with storage size and comments
     const schemasRes = await client.query(`
       SELECT 
         n.nspname as schema_name,
-        pg_catalog.pg_get_userbyid(n.nspowner) as schema_owner
+        pg_catalog.pg_get_userbyid(n.nspowner) as schema_owner,
+        COALESCE(pg_catalog.pg_size_pretty(SUM(pg_catalog.pg_total_relation_size(c.oid))), '0 bytes') as size_pretty,
+        COALESCE(pg_catalog.obj_description(n.oid, 'pg_namespace'), '') as description
       FROM pg_catalog.pg_namespace n
+      LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid
       WHERE n.nspname !~ '^pg_toast' 
         AND n.nspname !~ '^pg_temp'
+      GROUP BY n.oid, n.nspname, n.nspowner
       ORDER BY 
         CASE WHEN n.nspname = 'public' THEN 0 
              WHEN n.nspname = 'information_schema' THEN 2 
@@ -768,7 +807,7 @@ export async function getPostgresDatabaseTree(
         n.nspname;
     `);
 
-    // 2. Tables
+    // 2. Tables with detailed columns, size breakdown, PK, partitions
     const tablesRes = await client.query(`
       SELECT 
         c.relname as table_name,
@@ -777,6 +816,12 @@ export async function getPostgresDatabaseTree(
         GREATEST(c.reltuples::bigint, 0) as estimated_rows,
         pg_catalog.pg_total_relation_size(c.oid) as size_bytes,
         pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) as size_pretty,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) as table_size_pretty,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_indexes_size(c.oid)) as index_size_pretty,
+        pg_catalog.pg_size_pretty(GREATEST(pg_catalog.pg_total_relation_size(c.oid) - pg_catalog.pg_relation_size(c.oid) - pg_catalog.pg_indexes_size(c.oid), 0)) as toast_size_pretty,
+        (SELECT count(*)::int FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped) as column_count,
+        EXISTS(SELECT 1 FROM pg_catalog.pg_constraint con WHERE con.conrelid = c.oid AND con.contype = 'p') as has_primary_key,
+        (c.relkind = 'p') as is_partitioned,
         c.relhasindex as has_indexes,
         c.relhastriggers as has_triggers,
         CASE c.relpersistence 
@@ -786,20 +831,22 @@ export async function getPostgresDatabaseTree(
         END as persistence
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.relkind = 'r'
+      WHERE c.relkind IN ('r', 'p')
         AND n.nspname !~ '^pg_toast' 
         AND n.nspname !~ '^pg_temp'
       ORDER BY n.nspname, c.relname;
     `);
 
-    // 3. Views & Materialized Views
+    // 3. Views & Materialized Views with definition query & column counts
     const viewsRes = await client.query(`
       SELECT 
         c.relname as view_name,
         n.nspname as schema_name,
         pg_catalog.pg_get_userbyid(c.relowner) as view_owner,
         (c.relkind = 'm') as is_materialized,
-        pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) as size_pretty
+        pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) as size_pretty,
+        pg_catalog.pg_get_viewdef(c.oid, true) as definition,
+        (SELECT count(*)::int FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped) as column_count
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
       WHERE c.relkind IN ('v', 'm')
@@ -808,7 +855,7 @@ export async function getPostgresDatabaseTree(
       ORDER BY n.nspname, c.relname;
     `);
 
-    // 4. Routines (Functions & Procedures)
+    // 4. Routines (Functions & Procedures) with volatility, security & source code
     let routinesRes;
     try {
       routinesRes = await client.query(`
@@ -820,7 +867,15 @@ export async function getPostgresDatabaseTree(
           COALESCE(l.lanname, 'sql') as language,
           pg_catalog.format_type(p.prorettype, NULL) as return_type,
           COALESCE(pg_catalog.pg_get_function_arguments(p.oid), '') as argument_types,
-          (p.prokind = 'a') as is_aggregate
+          (p.prokind = 'a') as is_aggregate,
+          CASE p.provolatile 
+            WHEN 'i' THEN 'IMMUTABLE' 
+            WHEN 's' THEN 'STABLE' 
+            WHEN 'v' THEN 'VOLATILE' 
+            ELSE 'VOLATILE' 
+          END as volatility,
+          p.prosecdef as is_security_definer,
+          p.prosrc as source_code
         FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
         LEFT JOIN pg_catalog.pg_language l ON l.oid = p.prolang
@@ -839,7 +894,15 @@ export async function getPostgresDatabaseTree(
           COALESCE(l.lanname, 'sql') as language,
           pg_catalog.format_type(p.prorettype, NULL) as return_type,
           COALESCE(pg_catalog.pg_get_function_arguments(p.oid), '') as argument_types,
-          p.proisagg as is_aggregate
+          p.proisagg as is_aggregate,
+          CASE p.provolatile 
+            WHEN 'i' THEN 'IMMUTABLE' 
+            WHEN 's' THEN 'STABLE' 
+            WHEN 'v' THEN 'VOLATILE' 
+            ELSE 'VOLATILE' 
+          END as volatility,
+          p.prosecdef as is_security_definer,
+          p.prosrc as source_code
         FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
         LEFT JOIN pg_catalog.pg_language l ON l.oid = p.prolang
@@ -850,19 +913,49 @@ export async function getPostgresDatabaseTree(
       `);
     }
 
-    // 5. Sequences
-    const sequencesRes = await client.query(`
-      SELECT 
-        c.relname as sequence_name,
-        n.nspname as schema_name,
-        pg_catalog.pg_get_userbyid(c.relowner) as sequence_owner
-      FROM pg_catalog.pg_class c
-      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.relkind = 'S'
-        AND n.nspname !~ '^pg_toast' 
-        AND n.nspname !~ '^pg_temp'
-      ORDER BY n.nspname, c.relname;
-    `);
+    // 5. Sequences with start/min/max/cache/cycle parameters
+    let sequencesRes;
+    try {
+      sequencesRes = await client.query(`
+        SELECT 
+          s.sequencename as sequence_name,
+          s.schemaname as schema_name,
+          s.sequenceowner as sequence_owner,
+          s.data_type::text as data_type,
+          s.start_value::text as start_value,
+          s.min_value::text as min_value,
+          s.max_value::text as max_value,
+          s.increment_by::text as increment,
+          s.cycle as is_cycled,
+          s.last_value::text as last_value,
+          s.cache_size::text as cache_size
+        FROM pg_catalog.pg_sequences s
+        WHERE s.schemaname !~ '^pg_toast' 
+          AND s.schemaname !~ '^pg_temp'
+        ORDER BY s.schemaname, s.sequencename;
+      `);
+    } catch {
+      sequencesRes = await client.query(`
+        SELECT 
+          c.relname as sequence_name,
+          n.nspname as schema_name,
+          pg_catalog.pg_get_userbyid(c.relowner) as sequence_owner,
+          'bigint' as data_type,
+          '1' as start_value,
+          '1' as min_value,
+          '9223372036854775807' as max_value,
+          '1' as increment,
+          false as is_cycled,
+          null as last_value,
+          '1' as cache_size
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind = 'S'
+          AND n.nspname !~ '^pg_toast' 
+          AND n.nspname !~ '^pg_temp'
+        ORDER BY n.nspname, c.relname;
+      `);
+    }
 
     // 6. Extensions
     const extensionsRes = await client.query(`
@@ -878,6 +971,70 @@ export async function getPostgresDatabaseTree(
       ORDER BY e.extname;
     `);
 
+    // 7. Custom Types, Enums, Domains, and Composite Types
+    let typesRes;
+    try {
+      typesRes = await client.query(`
+        SELECT 
+          t.typname as type_name,
+          n.nspname as schema_name,
+          pg_catalog.pg_get_userbyid(t.typowner) as type_owner,
+          CASE t.typtype
+            WHEN 'e' THEN 'enum'
+            WHEN 'c' THEN 'composite'
+            WHEN 'd' THEN 'domain'
+            WHEN 'b' THEN 'base'
+            WHEN 'r' THEN 'range'
+            ELSE 'other'
+          END as type_kind,
+          COALESCE(
+            (SELECT string_agg(quote_literal(enumlabel), ', ' ORDER BY enumsortorder) 
+             FROM pg_catalog.pg_enum e WHERE e.enumtypid = t.oid),
+            ''
+          ) as enum_labels,
+          pg_catalog.format_type(t.typbasetype, t.typtypmod) as base_type_name,
+          COALESCE(d.description, '') as description
+        FROM pg_catalog.pg_type t
+        JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+        LEFT JOIN pg_catalog.pg_description d ON d.objoid = t.oid AND d.classoid = 'pg_type'::regclass
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND n.nspname !~ '^pg_toast' 
+          AND n.nspname !~ '^pg_temp'
+          AND (t.typrelid = 0 OR (SELECT c.relkind = 'c' FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid))
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid
+          )
+        ORDER BY n.nspname, t.typname;
+      `);
+    } catch {
+      try {
+        typesRes = await client.query(`
+          SELECT 
+            t.typname as type_name,
+            n.nspname as schema_name,
+            pg_catalog.pg_get_userbyid(t.typowner) as type_owner,
+            CASE t.typtype
+              WHEN 'e' THEN 'enum'
+              WHEN 'c' THEN 'composite'
+              WHEN 'd' THEN 'domain'
+              ELSE 'other'
+            END as type_kind,
+            '' as enum_labels,
+            '' as base_type_name,
+            '' as description
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+            AND n.nspname !~ '^pg_toast' 
+            AND n.nspname !~ '^pg_temp'
+            AND (t.typrelid = 0)
+          ORDER BY n.nspname, t.typname;
+        `);
+      } catch {
+        typesRes = { rows: [] };
+      }
+    }
+
     await client.end();
 
     // Group objects by schema
@@ -887,12 +1044,15 @@ export async function getPostgresDatabaseTree(
       schemaMap.set(sName, {
         name: sName,
         owner: String(row.schema_owner || 'postgres'),
+        sizePretty: row.size_pretty ? String(row.size_pretty) : undefined,
+        description: row.description ? String(row.description) : undefined,
         tables: [],
         views: [],
         materializedViews: [],
         functions: [],
         procedures: [],
         sequences: [],
+        types: [],
       });
     }
 
@@ -909,6 +1069,7 @@ export async function getPostgresDatabaseTree(
           functions: [],
           procedures: [],
           sequences: [],
+          types: [],
         });
       }
       schemaMap.get(sName)!.tables.push({
@@ -918,6 +1079,12 @@ export async function getPostgresDatabaseTree(
         estimatedRows: Number(row.estimated_rows) || 0,
         sizePretty: String(row.size_pretty || '0 bytes'),
         sizeBytes: row.size_bytes !== null ? Number(row.size_bytes) : null,
+        tableSizePretty: row.table_size_pretty ? String(row.table_size_pretty) : undefined,
+        indexSizePretty: row.index_size_pretty ? String(row.index_size_pretty) : undefined,
+        toastSizePretty: row.toast_size_pretty ? String(row.toast_size_pretty) : undefined,
+        columnCount: row.column_count !== null && row.column_count !== undefined ? Number(row.column_count) : undefined,
+        hasPrimaryKey: Boolean(row.has_primary_key),
+        isPartitioned: Boolean(row.is_partitioned),
         hasIndexes: Boolean(row.has_indexes),
         hasTriggers: Boolean(row.has_triggers),
         persistence: (row.persistence as any) || 'permanent',
@@ -939,6 +1106,7 @@ export async function getPostgresDatabaseTree(
           functions: [],
           procedures: [],
           sequences: [],
+          types: [],
         });
       }
       const isMat = Boolean(row.is_materialized);
@@ -948,6 +1116,8 @@ export async function getPostgresDatabaseTree(
         owner: String(row.view_owner || 'postgres'),
         isMaterialized: isMat,
         sizePretty: row.size_pretty ? String(row.size_pretty) : undefined,
+        definition: row.definition ? String(row.definition).trim() : undefined,
+        columnCount: row.column_count !== null && row.column_count !== undefined ? Number(row.column_count) : undefined,
       };
       if (isMat) {
         schemaMap.get(sName)!.materializedViews.push(vItem);
@@ -972,6 +1142,7 @@ export async function getPostgresDatabaseTree(
           functions: [],
           procedures: [],
           sequences: [],
+          types: [],
         });
       }
       const isProc = row.routine_type === 'procedure';
@@ -984,6 +1155,9 @@ export async function getPostgresDatabaseTree(
         returnType: String(row.return_type || 'void'),
         argumentTypes: String(row.argument_types || ''),
         isAggregate: Boolean(row.is_aggregate),
+        volatility: (row.volatility as any) || 'VOLATILE',
+        isSecurityDefiner: Boolean(row.is_security_definer),
+        sourceCode: row.source_code ? String(row.source_code) : undefined,
       };
       if (isProc) {
         schemaMap.get(sName)!.procedures.push(rItem);
@@ -1007,14 +1181,54 @@ export async function getPostgresDatabaseTree(
           functions: [],
           procedures: [],
           sequences: [],
+          types: [],
         });
       }
       schemaMap.get(sName)!.sequences.push({
         name: String(row.sequence_name),
         schema: sName,
         owner: String(row.sequence_owner || 'postgres'),
+        dataType: row.data_type ? String(row.data_type) : undefined,
+        startValue: row.start_value !== null && row.start_value !== undefined ? String(row.start_value) : undefined,
+        minValue: row.min_value !== null && row.min_value !== undefined ? String(row.min_value) : undefined,
+        maxValue: row.max_value !== null && row.max_value !== undefined ? String(row.max_value) : undefined,
+        increment: row.increment !== null && row.increment !== undefined ? String(row.increment) : undefined,
+        isCycled: Boolean(row.is_cycled),
+        lastValue: row.last_value !== null && row.last_value !== undefined ? String(row.last_value) : undefined,
+        cacheSize: row.cache_size !== null && row.cache_size !== undefined ? String(row.cache_size) : undefined,
       });
       totalSequences++;
+    }
+
+    let totalTypes = 0;
+    for (const row of typesRes?.rows || []) {
+      const sName = String(row.schema_name);
+      if (!schemaMap.has(sName)) {
+        schemaMap.set(sName, {
+          name: sName,
+          owner: String(row.type_owner || 'postgres'),
+          tables: [],
+          views: [],
+          materializedViews: [],
+          functions: [],
+          procedures: [],
+          sequences: [],
+          types: [],
+        });
+      }
+      const rawLabels = String(row.enum_labels || '').trim();
+      const labels = rawLabels ? rawLabels.split(',').map((l: string) => l.trim().replace(/^'|'$/g, '')) : undefined;
+
+      schemaMap.get(sName)!.types.push({
+        name: String(row.type_name),
+        schema: sName,
+        owner: String(row.type_owner || 'postgres'),
+        kind: (row.type_kind as any) || 'other',
+        enumLabels: labels,
+        baseType: row.base_type_name && row.base_type_name !== '-' ? String(row.base_type_name) : undefined,
+        description: row.description ? String(row.description) : undefined,
+      });
+      totalTypes++;
     }
 
     const extensions: PostgresExtensionItem[] = (extensionsRes.rows || []).map((row: any) => ({
@@ -1035,6 +1249,7 @@ export async function getPostgresDatabaseTree(
       totalFunctions,
       totalProcedures,
       totalSequences,
+      totalTypes,
       totalExtensions: extensions.length,
       fetchedAt: new Date().toISOString(),
     };

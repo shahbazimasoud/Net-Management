@@ -29,6 +29,9 @@ import {
   Sliders,
   CheckCircle2,
   XCircle,
+  Tag,
+  ListFilter,
+  FileCode,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -39,6 +42,7 @@ import {
   PostgresViewItem,
   PostgresRoutineItem,
   PostgresSequenceItem,
+  PostgresTypeItem,
   PostgresExtensionItem,
   PostgresSchemaObjects,
   PostgresDatabaseTree,
@@ -80,6 +84,8 @@ export type SelectedNodeType =
   | 'procedure'
   | 'sequences_folder'
   | 'sequence'
+  | 'types_folder'
+  | 'type'
   | 'extensions_folder'
   | 'extension';
 
@@ -112,6 +118,9 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
     id: 'root',
     name: 'PostgreSQL',
   });
+
+  // Active sub-tab inside Schema & Object Explorer
+  const [schemaTab, setSchemaTab] = useState<'all' | 'tables' | 'views' | 'routines' | 'sequences' | 'types'>('all');
 
   // Lazy-loaded database trees cache: dbName -> PostgresDatabaseTree
   const [databaseTrees, setDatabaseTrees] = useState<Record<string, PostgresDatabaseTree>>({});
@@ -333,7 +342,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                 <button
                   type="button"
                   onClick={() => setTreeFilter('')}
-                  className="text-slate-400 hover:text-slate-200 text-xs px-1"
+                  className="text-slate-400 hover:text-slate-200 text-xs px-1 cursor-pointer"
                 >
                   ✕
                 </button>
@@ -589,6 +598,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                                         schemaName: schema.name,
                                                         data: schema,
                                                       });
+                                                      setSchemaTab('all');
                                                     }}
                                                     className={`flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer transition ${
                                                       isSchemaSelected
@@ -775,16 +785,45 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                                                             selectedNode.id === `sequences:${db.name}:${schema.name}`
                                                               ? 'bg-rose-500/20 text-rose-400 font-bold'
                                                               : 'hover:bg-slate-800/40 text-slate-400'
-                                                        }`}
-                                                      >
-                                                        <Hash className="w-3 h-3 text-rose-400 shrink-0" />
-                                                        <span className="font-sans text-[11px]">
-                                                          {isEn ? 'Sequences' : 'دنباله‌ها'}
-                                                        </span>
-                                                        <span className="text-[10px] ml-auto text-rose-400 font-mono">
-                                                          {schema.sequences.length}
-                                                        </span>
-                                                      </div>
+                                                          }`}
+                                                        >
+                                                          <Hash className="w-3 h-3 text-rose-400 shrink-0" />
+                                                          <span className="font-sans text-[11px]">
+                                                            {isEn ? 'Sequences' : 'دنباله‌ها'}
+                                                          </span>
+                                                          <span className="text-[10px] ml-auto text-rose-400 font-mono">
+                                                            {schema.sequences.length}
+                                                          </span>
+                                                        </div>
+                                                      )}
+
+                                                      {/* Custom Types & Enums */}
+                                                      {(schema.types || []).length > 0 && (
+                                                        <div
+                                                          onClick={() => {
+                                                            setSelectedNode({
+                                                              type: 'types_folder',
+                                                              id: `types:${db.name}:${schema.name}`,
+                                                              name: isEn ? 'Types & Enums' : 'انواع داده و شمارشی‌ها',
+                                                              dbName: db.name,
+                                                              schemaName: schema.name,
+                                                              data: schema.types,
+                                                            });
+                                                          }}
+                                                          className={`flex items-center gap-1.5 px-2 py-0.5 rounded cursor-pointer transition ${
+                                                            selectedNode.id === `types:${db.name}:${schema.name}`
+                                                              ? 'bg-pink-500/20 text-pink-400 font-bold'
+                                                              : 'hover:bg-slate-800/40 text-slate-400'
+                                                          }`}
+                                                        >
+                                                          <Sliders className="w-3 h-3 text-pink-400 shrink-0" />
+                                                          <span className="font-sans text-[11px]">
+                                                            {isEn ? 'Types' : 'انواع داده'}
+                                                          </span>
+                                                          <span className="text-[10px] ml-auto text-pink-400 font-mono">
+                                                            {schema.types?.length || 0}
+                                                          </span>
+                                                        </div>
                                                       )}
                                                     </div>
                                                   )}
@@ -1011,14 +1050,20 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
                   selectedNode.type === 'table' || selectedNode.type === 'tables_folder'
                     ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                    : selectedNode.type === 'view' || selectedNode.type === 'views_folder'
+                    : selectedNode.type === 'view' || selectedNode.type === 'views_folder' || selectedNode.type === 'matview' || selectedNode.type === 'matviews_folder'
                     ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
                     : selectedNode.type === 'database' || selectedNode.type === 'databases_folder'
                     ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
                     : selectedNode.type === 'role' || selectedNode.type === 'roles_folder'
                     ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                    : selectedNode.type === 'function' || selectedNode.type === 'functions_folder'
+                    : selectedNode.type === 'function' || selectedNode.type === 'functions_folder' || selectedNode.type === 'procedure' || selectedNode.type === 'procedures_folder'
                     ? 'bg-violet-500/15 text-violet-400 border border-violet-500/30'
+                    : selectedNode.type === 'type' || selectedNode.type === 'types_folder'
+                    ? 'bg-pink-500/15 text-pink-400 border border-pink-500/30'
+                    : selectedNode.type === 'sequence' || selectedNode.type === 'sequences_folder'
+                    ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                    : selectedNode.type === 'schema' || selectedNode.type === 'schemas_folder'
+                    ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
                     : 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
                 }`}
               >
@@ -1048,8 +1093,8 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                     }
                     whyNeeded={
                       isEn
-                        ? 'Essential for diagnosing health, capacity planning, and database operations.'
-                        : 'ضروری جهت اطمینان از سلامت کلاستر و آگاهی از سقف اتصالات و بافرها.'
+                        ? 'Crucial for understanding overall host database engine capabilities and cluster limits.'
+                        : 'حیاتی جهت آگاهی از ظرفیت‌های پردازشی، محدودیت‌های کلاستر و سلامت سرویس دهنده.'
                     }
                     example="PostgreSQL 16.2 on x86_64-pc-linux-gnu"
                     isEn={isEn}
@@ -1057,17 +1102,14 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
                   <div
                     className={`p-3 rounded-xl border space-y-1 ${
                       isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                     }`}
                   >
-                    <span className="text-[11px] text-slate-400">{isEn ? 'Engine Version' : 'نسخه موتور'}</span>
-                    <p className="font-mono font-bold text-sm text-blue-400">{overviewData.versionShort}</p>
-                    <p className="text-[11px] text-slate-500 truncate" title={overviewData.version}>
-                      {overviewData.version}
-                    </p>
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Version' : 'نسخه موتور'}</span>
+                    <p className="font-bold text-sm text-blue-400">{overviewData.versionShort}</p>
                   </div>
 
                   <div
@@ -1075,12 +1117,8 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                     }`}
                   >
-                    <span className="text-[11px] text-slate-400">{isEn ? 'Uptime' : 'مدت زمان فعالیت'}</span>
-                    <p className="font-mono font-bold text-sm text-emerald-400">{overviewData.uptimePretty}</p>
-                    <p className="text-[11px] text-slate-500 font-mono">
-                      {isEn ? 'Since: ' : 'از: '}
-                      {new Date(overviewData.startTime).toLocaleString()}
-                    </p>
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Server Uptime' : 'مدت زمان کارکرد'}</span>
+                    <p className="font-bold text-sm text-emerald-400">{overviewData.uptimePretty}</p>
                   </div>
 
                   <div
@@ -1088,13 +1126,10 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                     }`}
                   >
-                    <span className="text-[11px] text-slate-400">{isEn ? 'Connection Pool' : 'استخر اتصالات'}</span>
-                    <p className="font-mono font-bold text-sm text-cyan-400">
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Connections' : 'اتصالات همزمان'}</span>
+                    <p className="font-bold text-sm text-cyan-400">
                       {overviewData.connections.total} / {overviewData.maxConnections}
                     </p>
-                    <p className="text-[11px] text-slate-500 font-mono">
-                      {overviewData.connections.usedPercentage}% {isEn ? 'capacity used' : 'ظرفیت مصرف‌شده'}
-                    </p>
                   </div>
 
                   <div
@@ -1102,65 +1137,60 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                     }`}
                   >
-                    <span className="text-[11px] text-slate-400">{isEn ? 'Data Directory' : 'مسیر ذخیره‌سازی داده'}</span>
-                    <p className="font-mono font-bold text-xs text-slate-200 truncate" title={overviewData.dataDirectory}>
-                      {overviewData.dataDirectory}
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Cache Hit' : 'نرخ اصابت حافظه'}</span>
+                    <p className="font-bold text-sm text-purple-400">
+                      {(overviewData.performance.cacheHitRatio * 100).toFixed(1)}%
                     </p>
-                    <p className="text-[11px] text-slate-500 font-mono">wal_level: {overviewData.walLevel}</p>
                   </div>
+                </div>
 
-                  <div
-                    className={`p-3 rounded-xl border space-y-1 ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <span className="text-[11px] text-slate-400">{isEn ? 'Memory (RAM)' : 'بافرهای حافظه'}</span>
-                    <p className="font-mono font-bold text-xs text-purple-400">
-                      shared: {overviewData.sharedBuffers}
-                    </p>
-                    <p className="text-[11px] text-slate-500 font-mono">work_mem: {overviewData.workMem}</p>
-                  </div>
-
-                  <div
-                    className={`p-3 rounded-xl border space-y-1 ${
-                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                    }`}
-                  >
-                    <span className="text-[11px] text-slate-400">{isEn ? 'Cache Hit Ratio' : 'نرخ دسترسی به کش'}</span>
-                    <p className="font-mono font-bold text-sm text-emerald-400">
-                      {overviewData.telemetry.cacheHitRatio}%
-                    </p>
-                    <p className="text-[11px] text-slate-500 font-mono">
-                      {overviewData.telemetry.totalCommits.toLocaleString()} commits
-                    </p>
-                  </div>
+                <div
+                  className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                    isLightMode ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <p className="text-[11px] text-slate-400 font-sans font-semibold">
+                    {isEn ? 'Cluster Environment Telemetry' : 'مشخصات محیطی کلاستر'}
+                  </p>
+                  <p>
+                    <span className="text-slate-500">Data Directory: </span>
+                    {overviewData.dataDirectory}
+                  </p>
+                  <p>
+                    <span className="text-slate-500">Shared Buffers: </span>
+                    {overviewData.sharedBuffers}
+                  </p>
+                  <p>
+                    <span className="text-slate-500">Timezone: </span>
+                    {overviewData.timezone}
+                  </p>
                 </div>
               </div>
             )}
 
             {/* ======================================================== */}
-            {/* VIEW B: DATABASES FOLDER / CATALOG                       */}
+            {/* VIEW B: DATABASES FOLDER (CATALOG TABLE)                 */}
             {/* ======================================================== */}
             {selectedNode.type === 'databases_folder' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className="font-bold text-sm flex items-center gap-2">
                     <Database className="w-4 h-4 text-cyan-400" />
-                    <span>{isEn ? 'PostgreSQL Database Catalog' : 'کاتالوگ پایگاه‌های داده'}</span>
+                    <span>{isEn ? 'PostgreSQL Database Catalog' : 'کاتالوگ پایگاه‌های داده کلاستر'}</span>
                   </h4>
                   <FieldInfoTooltip
-                    title={isEn ? 'PostgreSQL Databases Catalog' : 'کاتالوگ دیتابیس‌های سرور'}
+                    title={isEn ? 'Database Catalog' : 'کاتالوگ دیتابیس‌ها'}
                     whatIsIt={
                       isEn
-                        ? 'All user and template databases hosted in this PostgreSQL cluster.'
-                        : 'فهرست تمامی دیتابیس‌های ایجاد شده در کلاستر همراه با حجم و مالکیت.'
+                        ? 'All user and template databases hosted in this cluster.'
+                        : 'فهرست تمامی دیتابیس‌های کاربری و قالب موجود روی سرور.'
                     }
                     whyNeeded={
                       isEn
-                        ? 'Select any database in the left tree to explore its schemas, tables, and objects.'
-                        : 'با کلیک روی هر دیتابیس در درخت سمت چپ، اجزای داخلی آن بارگذاری می‌شود.'
+                        ? 'Selecting a database lazy-loads its structural objects, schemas, tables, and routines.'
+                        : 'با کلیک روی هر دیتابیس، ساختار درختی و اجزای داخلی آن بارگذاری می‌شود.'
                     }
-                    example="postgres, template1, app_production"
+                    example="production_db, staging_db, postgres"
                     isEn={isEn}
                     isLightMode={isLightMode}
                   />
@@ -1180,8 +1210,8 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       <tr>
                         <th className="py-2.5 px-3">{isEn ? 'Database Name' : 'نام دیتابیس'}</th>
                         <th className="py-2.5 px-3">{isEn ? 'Owner' : 'مالک'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Size' : 'حجم'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Encoding / Collation' : 'کدگذاری'}</th>
+                        <th className="py-2.5 px-3">{isEn ? 'Size' : 'حجم فیزیکی'}</th>
+                        <th className="py-2.5 px-3">{isEn ? 'Encoding' : 'کدگذاری'}</th>
                         <th className="py-2.5 px-3">{isEn ? 'Connections' : 'اتصالات'}</th>
                         <th className="py-2.5 px-3 text-right">{isEn ? 'Action' : 'عملیات'}</th>
                       </tr>
@@ -1189,7 +1219,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                     <tbody className="divide-y divide-slate-800/40 font-mono">
                       {databases.map((db) => (
                         <tr
-                          key={db.name}
+                          key={db.oid || db.name}
                           onClick={() => {
                             setSelectedNode({
                               type: 'database',
@@ -1225,7 +1255,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                           <td className="py-2 px-3 text-right">
                             <button
                               type="button"
-                              className="px-2 py-1 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white transition text-[11px] font-sans"
+                              className="px-2 py-1 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white transition text-[11px] font-sans cursor-pointer"
                             >
                               {isEn ? 'Explore' : 'کاوش'}
                             </button>
@@ -1243,7 +1273,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
             {/* ======================================================== */}
             {selectedNode.type === 'database' && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
                     <Database className="w-5 h-5 text-cyan-400" />
                     <h4 className="font-bold text-base text-slate-100 font-mono">{selectedNode.dbName}</h4>
@@ -1317,7 +1347,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       <span>{isEn ? 'Discovered Object Counts' : 'شمارش اجزای کشف‌شده'}</span>
                     </h5>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-center font-mono">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-center font-mono">
                       <div
                         className={`p-2.5 rounded-lg border ${
                           isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
@@ -1379,6 +1409,17 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                           isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
                         }`}
                       >
+                        <span className="text-[10px] text-slate-400 font-sans">{isEn ? 'Types' : 'انواع داده'}</span>
+                        <p className="font-bold text-base text-pink-400">
+                          {databaseTrees[selectedNode.dbName].totalTypes ?? 0}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`p-2.5 rounded-lg border ${
+                          isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                        }`}
+                      >
                         <span className="text-[10px] text-slate-400 font-sans">{isEn ? 'Extensions' : 'افزونه‌ها'}</span>
                         <p className="font-bold text-base text-rose-400">
                           {databaseTrees[selectedNode.dbName].totalExtensions}
@@ -1400,101 +1441,632 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
             )}
 
             {/* ======================================================== */}
-            {/* VIEW D: TABLES FOLDER / SINGLE SCHEMA TABLES             */}
+            {/* VIEW D: PHASE 4 — SCHEMA & OBJECT EXPLORER               */}
             {/* ======================================================== */}
-            {(selectedNode.type === 'tables_folder' || selectedNode.type === 'schema') && (
+            {(selectedNode.type === 'schema' ||
+              selectedNode.type === 'schemas_folder' ||
+              selectedNode.type === 'tables_folder' ||
+              selectedNode.type === 'views_folder' ||
+              selectedNode.type === 'matviews_folder' ||
+              selectedNode.type === 'functions_folder' ||
+              selectedNode.type === 'procedures_folder' ||
+              selectedNode.type === 'sequences_folder' ||
+              selectedNode.type === 'types_folder') && (
               <div className="space-y-4">
+                {/* Schema Header with Info and Search */}
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <TableIcon className="w-4 h-4 text-emerald-400" />
-                    <h4 className="font-bold text-sm">
-                      {isEn ? 'Tables in Schema' : 'جداول موجود در اسکیما'}{' '}
-                      <span className="text-emerald-400 font-mono">"{selectedNode.schemaName || 'public'}"</span>
-                    </h4>
+                    <Layers className="w-5 h-5 text-purple-400" />
+                    <div>
+                      <h4 className="font-bold text-base text-slate-100 font-mono">
+                        {selectedNode.type === 'schema'
+                          ? selectedNode.schemaName || selectedNode.name
+                          : selectedNode.type === 'schemas_folder'
+                          ? isEn ? 'All Schemas' : 'تمام اسکیماها'
+                          : selectedNode.name}
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        {isEn ? 'Database: ' : 'پایگاه داده: '}
+                        <span className="font-mono text-cyan-400">{selectedNode.dbName}</span>
+                        {selectedNode.data?.owner && (
+                          <span className="ml-2 text-slate-500">
+                            • {isEn ? 'Owner: ' : 'مالک: '}
+                            <span className="text-slate-300 font-mono">{selectedNode.data.owner}</span>
+                          </span>
+                        )}
+                      </p>
+                    </div>
                   </div>
-                  <FieldInfoTooltip
-                    title={isEn ? 'Schema Table Objects' : 'جداول فیزیکی اسکیما'}
-                    whatIsIt={
-                      isEn
-                        ? 'Relational tables registered in this schema with row estimates and physical disk consumption.'
-                        : 'فهرست جداول رابطه ای ثبت شده در این اسکیما با تخمین رکوردها و فضای دیسک.'
-                    }
-                    whyNeeded={
-                      isEn
-                        ? 'Phase 3 exposes database tables; subsequent phases enable full structure and row inspection.'
-                        : 'فاز ۳ جداول را کاوش می‌کند و در فازهای بعدی امکان مشاهده ساختار فیلدها و داده‌ها افزوده می‌شود.'
-                    }
-                    example="users, orders, products"
-                    isEn={isEn}
-                    isLightMode={isLightMode}
-                  />
+
+                  {/* Instant Filter */}
+                  <div
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs w-full sm:w-64 ${
+                      isLightMode ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-900 border-slate-800 text-slate-200'
+                    }`}
+                  >
+                    <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={detailFilter}
+                      onChange={(e) => setDetailFilter(e.target.value)}
+                      placeholder={isEn ? 'Filter schema objects...' : 'فیلتر اجزای اسکیما...'}
+                      className="w-full bg-transparent focus:outline-hidden text-xs"
+                    />
+                    {detailFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setDetailFilter('')}
+                        className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div
-                  className={`rounded-xl border overflow-hidden ${
-                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                  }`}
-                >
-                  <table className="w-full text-xs text-left">
-                    <thead
-                      className={`border-b text-[11px] font-semibold select-none ${
-                        isLightMode ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                {/* Schema Metadata & Object Counters */}
+                {selectedNode.type === 'schema' && selectedNode.data && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                      <div
+                        className={`p-3 rounded-xl border space-y-1 ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Physical Size' : 'فضای فیزیکی اسکیما'}</span>
+                        <p className="font-bold text-sm text-purple-400">
+                          {(selectedNode.data as PostgresSchemaObjects).sizePretty || '0 bytes'}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`p-3 rounded-xl border space-y-1 ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Tables & Views' : 'جداول و نماها'}</span>
+                        <p className="font-bold text-sm text-emerald-400">
+                          {(selectedNode.data as PostgresSchemaObjects).tables?.length || 0} /{' '}
+                          {((selectedNode.data as PostgresSchemaObjects).views?.length || 0) +
+                            ((selectedNode.data as PostgresSchemaObjects).materializedViews?.length || 0)}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`p-3 rounded-xl border space-y-1 ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Routines (Func/Proc)' : 'توابع و رویه‌ها'}</span>
+                        <p className="font-bold text-sm text-violet-400">
+                          {((selectedNode.data as PostgresSchemaObjects).functions?.length || 0) +
+                            ((selectedNode.data as PostgresSchemaObjects).procedures?.length || 0)}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`p-3 rounded-xl border space-y-1 ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Sequences & Types' : 'دنباله‌ها و انواع'}</span>
+                        <p className="font-bold text-sm text-pink-400">
+                          {(selectedNode.data as PostgresSchemaObjects).sequences?.length || 0} /{' '}
+                          {(selectedNode.data as PostgresSchemaObjects).types?.length || 0}
+                        </p>
+                      </div>
+                    </div>
+
+                    {(selectedNode.data as PostgresSchemaObjects).description && (
+                      <p className="text-xs text-slate-400 italic bg-purple-500/5 p-2.5 rounded-lg border border-purple-500/10 font-sans">
+                        <span className="font-semibold text-purple-300">{isEn ? 'Comment: ' : 'توضیحات: '}</span>
+                        {(selectedNode.data as PostgresSchemaObjects).description}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Sub-Tabs for Schema Objects */}
+                {selectedNode.type === 'schema' && selectedNode.data && (
+                  <div className="flex items-center gap-1.5 border-b border-slate-700/30 overflow-x-auto no-scrollbar pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setSchemaTab('all')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                        schemaTab === 'all'
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
                       }`}
                     >
-                      <tr>
-                        <th className="py-2.5 px-3">{isEn ? 'Table Name' : 'نام جدول'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Owner' : 'مالک'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Estimated Rows' : 'تخمین رکوردها'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Disk Size' : 'فضای دیسک'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Attributes' : 'ویژگی‌ها'}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/40 font-mono">
-                      {((selectedNode.data?.tables || selectedNode.data) as PostgresTableItem[] || []).map(
-                        (table: PostgresTableItem) => (
-                          <tr
-                            key={table.name}
-                            onClick={() => {
-                              setSelectedNode({
-                                type: 'table',
-                                id: `table:${selectedNode.dbName}:${table.schema}:${table.name}`,
-                                name: table.name,
-                                dbName: selectedNode.dbName,
-                                schemaName: table.schema,
-                                data: table,
-                              });
-                            }}
-                            className={`cursor-pointer transition ${
-                              isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
-                            }`}
-                          >
-                            <td className="py-2 px-3 flex items-center gap-2 font-bold text-slate-200">
-                              <TableIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                              <span>{table.name}</span>
-                            </td>
-                            <td className="py-2 px-3 text-slate-400">{table.owner}</td>
-                            <td className="py-2 px-3 text-cyan-400 tabular-nums">
-                              {table.estimatedRows.toLocaleString()}
-                            </td>
-                            <td className="py-2 px-3 text-emerald-400 font-bold">{table.sizePretty}</td>
-                            <td className="py-2 px-3 space-x-1">
-                              {table.hasIndexes && (
-                                <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-400">
-                                  INDEX
-                                </span>
-                              )}
-                              {table.hasTriggers && (
-                                <span className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-400">
-                                  TRIGGER
-                                </span>
-                              )}
-                            </td>
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'All Objects' : 'کل اجزا'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSchemaTab('tables')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                        schemaTab === 'tables'
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <TableIcon className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Tables' : 'جداول'}</span>
+                      <span className="text-[10px] px-1 rounded bg-black/20 font-mono">
+                        {(selectedNode.data as PostgresSchemaObjects).tables?.length || 0}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSchemaTab('views')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                        schemaTab === 'views'
+                          ? 'bg-sky-600 text-white shadow-sm'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Views' : 'نماها'}</span>
+                      <span className="text-[10px] px-1 rounded bg-black/20 font-mono">
+                        {((selectedNode.data as PostgresSchemaObjects).views?.length || 0) +
+                          ((selectedNode.data as PostgresSchemaObjects).materializedViews?.length || 0)}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSchemaTab('routines')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                        schemaTab === 'routines'
+                          ? 'bg-violet-600 text-white shadow-sm'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Routines' : 'توابع و رویه‌ها'}</span>
+                      <span className="text-[10px] px-1 rounded bg-black/20 font-mono">
+                        {((selectedNode.data as PostgresSchemaObjects).functions?.length || 0) +
+                          ((selectedNode.data as PostgresSchemaObjects).procedures?.length || 0)}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSchemaTab('sequences')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                        schemaTab === 'sequences'
+                          ? 'bg-rose-600 text-white shadow-sm'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <Hash className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Sequences' : 'دنباله‌ها'}</span>
+                      <span className="text-[10px] px-1 rounded bg-black/20 font-mono">
+                        {(selectedNode.data as PostgresSchemaObjects).sequences?.length || 0}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSchemaTab('types')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+                        schemaTab === 'types'
+                          ? 'bg-pink-600 text-white shadow-sm'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <Sliders className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Types & Enums' : 'انواع داده'}</span>
+                      <span className="text-[10px] px-1 rounded bg-black/20 font-mono">
+                        {(selectedNode.data as PostgresSchemaObjects).types?.length || 0}
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                {/* TAB CONTENT: TABLES */}
+                {(schemaTab === 'tables' || (selectedNode.type === 'schema' && schemaTab === 'all')) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <TableIcon className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{isEn ? 'Tables' : 'جداول'}</span>
+                      </h5>
+                    </div>
+
+                    <div
+                      className={`rounded-xl border overflow-hidden ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <table className="w-full text-xs text-left">
+                        <thead
+                          className={`border-b text-[11px] font-semibold select-none ${
+                            isLightMode ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          <tr>
+                            <th className="py-2.5 px-3">{isEn ? 'Table Name' : 'نام جدول'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Owner' : 'مالک'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Estimated Rows' : 'تخمین سطرها'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Disk Size' : 'فضای دیسک'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Attributes' : 'ویژگی‌ها'}</th>
                           </tr>
-                        )
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40 font-mono">
+                          {(((selectedNode.data as PostgresSchemaObjects)?.tables || [])
+                            .filter((t) => !detailFilter || t.name.toLowerCase().includes(detailFilter.toLowerCase()))
+                          ).map((table: PostgresTableItem) => (
+                            <tr
+                              key={table.name}
+                              onClick={() => {
+                                setSelectedNode({
+                                  type: 'table',
+                                  id: `table:${selectedNode.dbName}:${table.schema}:${table.name}`,
+                                  name: table.name,
+                                  dbName: selectedNode.dbName,
+                                  schemaName: table.schema,
+                                  data: table,
+                                });
+                              }}
+                              className={`cursor-pointer transition ${
+                                isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
+                              }`}
+                            >
+                              <td className="py-2 px-3 flex items-center gap-2 font-bold text-slate-200">
+                                <TableIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <span>{table.name}</span>
+                              </td>
+                              <td className="py-2 px-3 text-slate-400">{table.owner}</td>
+                              <td className="py-2 px-3 text-cyan-400 tabular-nums">
+                                {table.estimatedRows.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-emerald-400 font-bold">{table.sizePretty}</td>
+                              <td className="py-2 px-3 space-x-1">
+                                {table.hasIndexes && (
+                                  <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-400 font-sans">
+                                    INDEX
+                                  </span>
+                                )}
+                                {table.hasTriggers && (
+                                  <span className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-400 font-sans">
+                                    TRIGGER
+                                  </span>
+                                )}
+                                <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 font-sans">
+                                  {table.persistence}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB CONTENT: VIEWS & MATVIEWS */}
+                {(schemaTab === 'views' || (selectedNode.type === 'schema' && schemaTab === 'all')) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5 text-sky-400" />
+                        <span>{isEn ? 'Views & Materialized Views' : 'نماها و نماهای مادی'}</span>
+                      </h5>
+                    </div>
+
+                    <div
+                      className={`rounded-xl border overflow-hidden ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <table className="w-full text-xs text-left">
+                        <thead
+                          className={`border-b text-[11px] font-semibold select-none ${
+                            isLightMode ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          <tr>
+                            <th className="py-2.5 px-3">{isEn ? 'View Name' : 'نام نما'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Kind' : 'نوع نما'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Owner' : 'مالک'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Disk Size' : 'فضای دیسک'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40 font-mono">
+                          {[
+                            ...((selectedNode.data as PostgresSchemaObjects)?.views || []),
+                            ...((selectedNode.data as PostgresSchemaObjects)?.materializedViews || []),
+                          ]
+                            .filter((v) => !detailFilter || v.name.toLowerCase().includes(detailFilter.toLowerCase()))
+                            .map((view) => (
+                              <tr
+                                key={view.name}
+                                onClick={() => {
+                                  setSelectedNode({
+                                    type: view.isMaterialized ? 'matview' : 'view',
+                                    id: `view:${selectedNode.dbName}:${view.schema}:${view.name}`,
+                                    name: view.name,
+                                    dbName: selectedNode.dbName,
+                                    schemaName: view.schema,
+                                    data: view,
+                                  });
+                                }}
+                                className={`cursor-pointer transition ${
+                                  isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
+                                }`}
+                              >
+                                <td className="py-2 px-3 flex items-center gap-2 font-bold text-slate-200">
+                                  {view.isMaterialized ? (
+                                    <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                  ) : (
+                                    <Eye className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                  )}
+                                  <span>{view.name}</span>
+                                </td>
+                                <td className="py-2 px-3">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-bold ${
+                                      view.isMaterialized
+                                        ? 'bg-amber-500/15 text-amber-400'
+                                        : 'bg-sky-500/15 text-sky-400'
+                                    }`}
+                                  >
+                                    {view.isMaterialized ? 'MATERIALIZED VIEW' : 'VIEW'}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-slate-400">{view.owner}</td>
+                                <td className="py-2 px-3 text-slate-300">{view.sizePretty || 'N/A'}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB CONTENT: ROUTINES (FUNCTIONS & PROCEDURES) */}
+                {(schemaTab === 'routines' || (selectedNode.type === 'schema' && schemaTab === 'all')) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Code className="w-3.5 h-3.5 text-violet-400" />
+                        <span>{isEn ? 'Functions & Stored Procedures' : 'توابع و رویه‌های ذخیره‌شده'}</span>
+                      </h5>
+                    </div>
+
+                    <div
+                      className={`rounded-xl border overflow-hidden ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <table className="w-full text-xs text-left">
+                        <thead
+                          className={`border-b text-[11px] font-semibold select-none ${
+                            isLightMode ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          <tr>
+                            <th className="py-2.5 px-3">{isEn ? 'Routine Name' : 'نام تابع / رویه'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Kind' : 'نوع'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Return Type' : 'نوع بازگشتی'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Arguments' : 'پارامترهای ورودی'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Language' : 'زبان'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40 font-mono">
+                          {[
+                            ...((selectedNode.data as PostgresSchemaObjects)?.functions || []),
+                            ...((selectedNode.data as PostgresSchemaObjects)?.procedures || []),
+                          ]
+                            .filter((r) => !detailFilter || r.name.toLowerCase().includes(detailFilter.toLowerCase()))
+                            .map((routine, idx) => (
+                              <tr
+                                key={`${routine.name}-${idx}`}
+                                onClick={() => {
+                                  setSelectedNode({
+                                    type: routine.type === 'procedure' ? 'procedure' : 'function',
+                                    id: `routine:${selectedNode.dbName}:${routine.schema}:${routine.name}:${idx}`,
+                                    name: routine.name,
+                                    dbName: selectedNode.dbName,
+                                    schemaName: routine.schema,
+                                    data: routine,
+                                  });
+                                }}
+                                className={`cursor-pointer transition ${
+                                  isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
+                                }`}
+                              >
+                                <td className="py-2 px-3 flex items-center gap-2 font-bold text-slate-200">
+                                  {routine.type === 'procedure' ? (
+                                    <Wrench className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                  ) : (
+                                    <Code className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+                                  )}
+                                  <span>{routine.name}</span>
+                                </td>
+                                <td className="py-2 px-3">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-bold uppercase ${
+                                      routine.type === 'procedure'
+                                        ? 'bg-indigo-500/15 text-indigo-400'
+                                        : 'bg-violet-500/15 text-violet-400'
+                                    }`}
+                                  >
+                                    {routine.type}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-cyan-400 truncate max-w-xs">{routine.returnType}</td>
+                                <td className="py-2 px-3 text-slate-400 text-[11px] truncate max-w-sm">
+                                  {routine.argumentTypes || <span className="text-slate-600 font-sans italic">none</span>}
+                                </td>
+                                <td className="py-2 px-3 text-slate-300 font-sans uppercase text-[10px]">
+                                  {routine.language}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB CONTENT: SEQUENCES */}
+                {(schemaTab === 'sequences' || (selectedNode.type === 'schema' && schemaTab === 'all')) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Hash className="w-3.5 h-3.5 text-rose-400" />
+                        <span>{isEn ? 'Sequences' : 'دنباله‌ها'}</span>
+                      </h5>
+                    </div>
+
+                    <div
+                      className={`rounded-xl border overflow-hidden ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <table className="w-full text-xs text-left">
+                        <thead
+                          className={`border-b text-[11px] font-semibold select-none ${
+                            isLightMode ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          <tr>
+                            <th className="py-2.5 px-3">{isEn ? 'Sequence Name' : 'نام دنباله'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Schema' : 'اسکیما'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Owner' : 'مالک'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40 font-mono">
+                          {(((selectedNode.data as PostgresSchemaObjects)?.sequences || [])
+                            .filter((s) => !detailFilter || s.name.toLowerCase().includes(detailFilter.toLowerCase()))
+                          ).map((seq) => (
+                            <tr
+                              key={seq.name}
+                              onClick={() => {
+                                setSelectedNode({
+                                  type: 'sequence',
+                                  id: `seq:${selectedNode.dbName}:${seq.schema}:${seq.name}`,
+                                  name: seq.name,
+                                  dbName: selectedNode.dbName,
+                                  schemaName: seq.schema,
+                                  data: seq,
+                                });
+                              }}
+                              className={`cursor-pointer transition ${
+                                isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
+                              }`}
+                            >
+                              <td className="py-2 px-3 flex items-center gap-2 font-bold text-slate-200">
+                                <Hash className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                                <span>{seq.name}</span>
+                              </td>
+                              <td className="py-2 px-3 text-slate-400">{seq.schema}</td>
+                              <td className="py-2 px-3 text-slate-300">{seq.owner}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB CONTENT: TYPES & ENUMS */}
+                {(schemaTab === 'types' || (selectedNode.type === 'schema' && schemaTab === 'all')) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5 text-pink-400" />
+                        <span>{isEn ? 'Custom Types, Enums & Domains' : 'انواع داده سفارشی، شمارشی‌ها و دامنه‌ها'}</span>
+                      </h5>
+                    </div>
+
+                    <div
+                      className={`rounded-xl border overflow-hidden ${
+                        isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                      }`}
+                    >
+                      <table className="w-full text-xs text-left">
+                        <thead
+                          className={`border-b text-[11px] font-semibold select-none ${
+                            isLightMode ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-950 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          <tr>
+                            <th className="py-2.5 px-3">{isEn ? 'Type Name' : 'نام نوع داده'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Kind' : 'طبقه‌بندی'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Enum Labels / Base Type' : 'مقادیر یا نوع پایه'}</th>
+                            <th className="py-2.5 px-3">{isEn ? 'Owner' : 'مالک'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40 font-mono">
+                          {(((selectedNode.data as PostgresSchemaObjects)?.types || [])
+                            .filter((t) => !detailFilter || t.name.toLowerCase().includes(detailFilter.toLowerCase()))
+                          ).map((item) => (
+                            <tr
+                              key={item.name}
+                              onClick={() => {
+                                setSelectedNode({
+                                  type: 'type',
+                                  id: `type:${selectedNode.dbName}:${item.schema}:${item.name}`,
+                                  name: item.name,
+                                  dbName: selectedNode.dbName,
+                                  schemaName: item.schema,
+                                  data: item,
+                                });
+                              }}
+                              className={`cursor-pointer transition ${
+                                isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
+                              }`}
+                            >
+                              <td className="py-2 px-3 flex items-center gap-2 font-bold text-slate-200">
+                                <Sliders className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                                <span>{item.name}</span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-sans font-bold uppercase bg-pink-500/15 text-pink-400">
+                                  {item.kind}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-slate-300 text-[11px] truncate max-w-md">
+                                {item.enumLabels && item.enumLabels.length > 0 ? (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {item.enumLabels.slice(0, 4).map((lbl, li) => (
+                                      <span key={li} className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 text-[10px]">
+                                        {lbl}
+                                      </span>
+                                    ))}
+                                    {item.enumLabels.length > 4 && (
+                                      <span className="text-[10px] text-slate-500">+{item.enumLabels.length - 4} more</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  item.baseType || item.description || <span className="text-slate-600 font-sans italic">custom</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-slate-400">{item.owner}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1503,7 +2075,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
             {/* ======================================================== */}
             {selectedNode.type === 'table' && selectedNode.data && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
                     <TableIcon className="w-5 h-5 text-emerald-400" />
                     <div>
@@ -1515,11 +2087,24 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                     </div>
                   </div>
 
-                  <span className="px-2 py-1 rounded-md text-xs font-mono bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                    {selectedNode.data.persistence || 'permanent'}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="px-2 py-1 rounded-md text-xs font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                      {selectedNode.data.persistence || 'permanent'}
+                    </span>
+                    {selectedNode.data.hasPrimaryKey && (
+                      <span className="px-2 py-1 rounded-md text-xs font-mono font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                        PRIMARY KEY
+                      </span>
+                    )}
+                    {selectedNode.data.isPartitioned && (
+                      <span className="px-2 py-1 rounded-md text-xs font-mono font-bold bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                        PARTITIONED
+                      </span>
+                    )}
+                  </div>
                 </div>
 
+                {/* Primary Metrics */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
                   <div
                     className={`p-3 rounded-xl border space-y-1 ${
@@ -1537,8 +2122,114 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                     }`}
                   >
-                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Total Size' : 'فضای دیسک'}</span>
-                    <p className="font-bold text-sm text-emerald-400">{selectedNode.data.sizePretty}</p>
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Columns Count' : 'تعداد ستون‌ها'}</span>
+                    <p className="font-bold text-sm text-emerald-400">
+                      {selectedNode.data.columnCount !== undefined ? selectedNode.data.columnCount : 'N/A'}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Total Disk Size' : 'کل فضای دیسک'}</span>
+                    <p className="font-bold text-sm text-purple-400">{selectedNode.data.sizePretty}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Table Owner' : 'مالک جدول'}</span>
+                    <p className="font-bold text-sm text-slate-200 truncate">{selectedNode.data.owner}</p>
+                  </div>
+                </div>
+
+                {/* Storage Size Breakdown */}
+                <div
+                  className={`p-4 rounded-xl border space-y-3 ${
+                    isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                  }`}
+                >
+                  <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5 font-sans">
+                    <HardDrive className="w-3.5 h-3.5 text-blue-400" />
+                    <span>{isEn ? 'Table Physical Storage Breakdown' : 'تفکیک فضای ذخیره‌سازی فیزیکی جدول'}</span>
+                  </h5>
+
+                  <div className="grid grid-cols-3 gap-3 text-xs font-mono">
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-sans">{isEn ? 'Table Heap Data' : 'داده‌های اصلی'}</span>
+                      <p className="font-bold text-slate-200">{selectedNode.data.tableSizePretty || '0 bytes'}</p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-sans">{isEn ? 'Indexes Total' : 'فضای ایندکس‌ها'}</span>
+                      <p className="font-bold text-blue-400">{selectedNode.data.indexSizePretty || '0 bytes'}</p>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-sans">{isEn ? 'TOAST Out-of-line' : 'فضای TOAST'}</span>
+                      <p className="font-bold text-amber-400">{selectedNode.data.toastSizePretty || '0 bytes'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fast SQL queries */}
+                <div
+                  className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                    {isEn ? 'SQL Data Query Preview' : 'پیش‌نمایش دستور کوئری داده'}
+                  </span>
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                    <code className="text-cyan-300">
+                      SELECT * FROM "{selectedNode.schemaName}"."{selectedNode.name}" LIMIT 50;
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(`SELECT * FROM "${selectedNode.schemaName}"."${selectedNode.name}" LIMIT 50;`)}
+                      className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                      title={isEn ? 'Copy SQL' : 'کپی دستور SQL'}
+                    >
+                      {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* VIEW F: SINGLE TYPE / ENUM OBJECT INSPECTOR              */}
+            {/* ======================================================== */}
+            {selectedNode.type === 'type' && selectedNode.data && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-5 h-5 text-pink-400" />
+                    <div>
+                      <h4 className="font-bold text-base text-slate-100 font-mono">{selectedNode.name}</h4>
+                      <p className="text-xs text-slate-400">
+                        {isEn ? 'Schema: ' : 'اسکیما: '}
+                        <span className="font-mono text-cyan-400">{selectedNode.schemaName}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="px-2 py-1 rounded-md text-xs font-mono font-bold uppercase bg-pink-500/15 text-pink-400 border border-pink-500/30">
+                    {selectedNode.data.kind}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs font-mono">
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Type Category' : 'دسته‌بندی'}</span>
+                    <p className="font-bold text-sm text-pink-400 uppercase">{selectedNode.data.kind}</p>
                   </div>
 
                   <div
@@ -1547,7 +2238,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                     }`}
                   >
                     <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Owner' : 'مالک'}</span>
-                    <p className="font-bold text-sm text-slate-200">{selectedNode.data.owner}</p>
+                    <p className="font-bold text-sm text-cyan-400">{selectedNode.data.owner}</p>
                   </div>
 
                   <div
@@ -1555,50 +2246,434 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
                     }`}
                   >
-                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Indexes & Triggers' : 'ایندکس‌ها'}</span>
-                    <p className="font-bold text-xs text-blue-400">
-                      {selectedNode.data.hasIndexes ? 'Indexed' : 'No Index'}
-                    </p>
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Base Type' : 'نوع پایه'}</span>
+                    <p className="font-bold text-sm text-slate-200">{selectedNode.data.baseType || 'N/A'}</p>
                   </div>
                 </div>
 
+                {/* Enum Labels section if kind === 'enum' */}
+                {selectedNode.data.enumLabels && selectedNode.data.enumLabels.length > 0 && (
+                  <div
+                    className={`p-4 rounded-xl border space-y-3 ${
+                      isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                    }`}
+                  >
+                    <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center gap-1.5 font-sans">
+                      <Tag className="w-3.5 h-3.5 text-pink-400" />
+                      <span>{isEn ? 'Enum Labels / Permitted Values' : 'مقادیر مجاز شمارشی (Enum Labels)'}</span>
+                    </h5>
+
+                    <div className="flex items-center gap-2 flex-wrap font-mono">
+                      {selectedNode.data.enumLabels.map((lbl: string, idx: number) => (
+                        <span
+                          key={idx}
+                          className="px-2.5 py-1 rounded-lg bg-pink-500/10 border border-pink-500/20 text-pink-300 text-xs font-bold"
+                        >
+                          '{lbl}'
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick SQL usage snippet */}
                 <div
-                  className={`p-4 rounded-xl border space-y-2 text-xs font-sans ${
-                    isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
                   }`}
                 >
-                  <p className="font-semibold text-slate-200 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>
-                      {isEn
-                        ? 'Table structure inspection and live data browsing'
-                        : 'کاوش ساختار ستون‌ها و مرور سطرهای جدول'}
-                    </span>
-                  </p>
-                  <p>
-                    {isEn
-                      ? 'Detailed column metadata, data types, constraints and safe paginated row browsing will be unlocked in Phase 4, Phase 5 and Phase 6 of the PostgreSQL roadmap.'
-                      : 'مشاهده ستون‌ها، تایپ داده‌ها، کلیدهای اصلی و خارجی و صفحه‌بندی امن داده‌ها در فازهای ۵ و ۶ نقشه راه پیاده‌سازی خواهد شد.'}
-                  </p>
+                  <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                    {isEn ? 'SQL Usage Example' : 'نمونه استفاده در SQL'}
+                  </span>
+                  <div className="p-2 rounded bg-black/40 text-cyan-300 select-all">
+                    SELECT '
+                    {selectedNode.data.enumLabels?.[0] || 'value'}'::{selectedNode.schemaName}.{selectedNode.name};
+                  </div>
                 </div>
               </div>
             )}
 
             {/* ======================================================== */}
-            {/* VIEW F: VIEWS / ROUTINES / SEQUENCES / EXTENSIONS        */}
+            {/* VIEW G: SINGLE ROUTINE (FUNCTION / PROCEDURE) INSPECTOR  */}
             {/* ======================================================== */}
-            {(selectedNode.type === 'views_folder' ||
-              selectedNode.type === 'matviews_folder' ||
-              selectedNode.type === 'functions_folder' ||
-              selectedNode.type === 'procedures_folder' ||
-              selectedNode.type === 'sequences_folder' ||
-              selectedNode.type === 'extensions_folder') && (
+            {(selectedNode.type === 'function' || selectedNode.type === 'procedure') && selectedNode.data && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="font-bold text-sm">{selectedNode.name}</h4>
-                  <span className="text-xs font-mono text-slate-400">
-                    {Array.isArray(selectedNode.data) ? selectedNode.data.length : 0} items
+                  <div className="flex items-center gap-2">
+                    {selectedNode.type === 'procedure' ? (
+                      <Wrench className="w-5 h-5 text-indigo-400" />
+                    ) : (
+                      <Code className="w-5 h-5 text-violet-400" />
+                    )}
+                    <div>
+                      <h4 className="font-bold text-base text-slate-100 font-mono">{selectedNode.name}</h4>
+                      <p className="text-xs text-slate-400">
+                        {isEn ? 'Schema: ' : 'اسکیما: '}
+                        <span className="font-mono text-cyan-400">{selectedNode.schemaName}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="px-2 py-1 rounded-md text-xs font-mono font-bold uppercase bg-violet-500/15 text-violet-400 border border-violet-500/30">
+                    {selectedNode.data.type || selectedNode.type}
                   </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Return Type' : 'نوع خروجی'}</span>
+                    <p className="font-bold text-sm text-cyan-400 truncate">{selectedNode.data.returnType}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Language' : 'زبان'}</span>
+                    <p className="font-bold text-sm text-violet-400 uppercase">{selectedNode.data.language}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Volatility' : 'فراریت'}</span>
+                    <p className="font-bold text-sm text-amber-400">{selectedNode.data.volatility || 'VOLATILE'}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Security' : 'امنیت اجرا'}</span>
+                    <p className="font-bold text-sm text-emerald-400">
+                      {selectedNode.data.isSecurityDefiner ? 'DEFINER' : 'INVOKER'}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                    isLightMode ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                    {isEn ? 'Argument Signature' : 'امضای ورودی'}
+                  </span>
+                  <p className="text-cyan-300">
+                    {selectedNode.data.argumentTypes || <span className="text-slate-500 italic">No arguments</span>}
+                  </p>
+                </div>
+
+                {/* Routine Source Code if available */}
+                {selectedNode.data.sourceCode && (
+                  <div
+                    className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                        {isEn ? 'Routine Body / Source Code' : 'بدنه و سورس‌کد تابع در سرور'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(selectedNode.data.sourceCode)}
+                        className="px-2 py-0.5 rounded text-[11px] font-sans flex items-center gap-1 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                      >
+                        {copiedText ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedText ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy Source' : 'کپی کد')}</span>
+                      </button>
+                    </div>
+
+                    <pre className="p-3 rounded-lg bg-black/60 border border-slate-800/80 text-cyan-200 overflow-x-auto text-[11px] leading-relaxed max-h-60 select-all font-mono">
+                      {selectedNode.data.sourceCode}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* VIEW H: SINGLE VIEW / MATVIEW INSPECTOR                  */}
+            {/* ======================================================== */}
+            {(selectedNode.type === 'view' || selectedNode.type === 'matview') && selectedNode.data && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    {selectedNode.data.isMaterialized ? (
+                      <Zap className="w-5 h-5 text-amber-400" />
+                    ) : (
+                      <Eye className="w-5 h-5 text-sky-400" />
+                    )}
+                    <div>
+                      <h4 className="font-bold text-base text-slate-100 font-mono">{selectedNode.name}</h4>
+                      <p className="text-xs text-slate-400">
+                        {isEn ? 'Schema: ' : 'اسکیما: '}
+                        <span className="font-mono text-cyan-400">{selectedNode.schemaName}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={`px-2 py-1 rounded-md text-xs font-mono font-bold uppercase ${
+                      selectedNode.data.isMaterialized
+                        ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                        : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                    }`}
+                  >
+                    {selectedNode.data.isMaterialized ? 'Materialized View' : 'Standard View'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Disk Size' : 'فضای دیسک'}</span>
+                    <p className="font-bold text-sm text-emerald-400">{selectedNode.data.sizePretty || '0 bytes'}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Columns' : 'ستون‌ها'}</span>
+                    <p className="font-bold text-sm text-cyan-400">
+                      {selectedNode.data.columnCount !== undefined ? selectedNode.data.columnCount : 'N/A'}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Owner' : 'مالک'}</span>
+                    <p className="font-bold text-sm text-slate-200 truncate">{selectedNode.data.owner}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Type' : 'نوع'}</span>
+                    <p className="font-bold text-sm text-purple-400">
+                      {selectedNode.data.isMaterialized ? 'Materialized' : 'Standard'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* View SQL Definition */}
+                {selectedNode.data.definition && (
+                  <div
+                    className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                        {isEn ? 'View SQL Query Definition' : 'تعریف کوئری SQL نما'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(selectedNode.data.definition)}
+                        className="px-2 py-0.5 rounded text-[11px] font-sans flex items-center gap-1 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                      >
+                        {copiedText ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedText ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy Query' : 'کپی کوئری')}</span>
+                      </button>
+                    </div>
+
+                    <pre className="p-3 rounded-lg bg-black/60 border border-slate-800/80 text-cyan-200 overflow-x-auto text-[11px] leading-relaxed max-h-60 select-all font-mono">
+                      {selectedNode.data.definition}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* VIEW H2: SINGLE SEQUENCE INSPECTOR                       */}
+            {/* ======================================================== */}
+            {selectedNode.type === 'sequence' && selectedNode.data && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Hash className="w-5 h-5 text-rose-400" />
+                    <div>
+                      <h4 className="font-bold text-base text-slate-100 font-mono">{selectedNode.name}</h4>
+                      <p className="text-xs text-slate-400">
+                        {isEn ? 'Schema: ' : 'اسکیما: '}
+                        <span className="font-mono text-cyan-400">{selectedNode.schemaName}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-1 rounded-md text-xs font-mono font-bold uppercase bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                      {selectedNode.data.dataType || 'BIGINT'}
+                    </span>
+                    <span
+                      className={`px-2 py-1 rounded-md text-xs font-mono font-bold uppercase border ${
+                        selectedNode.data.isCycled
+                          ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {selectedNode.data.isCycled ? 'CYCLED' : 'NO CYCLE'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Start Value' : 'مقدار شروع'}</span>
+                    <p className="font-bold text-sm text-cyan-400">{selectedNode.data.startValue ?? '1'}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Last Value' : 'آخرین مقدار'}</span>
+                    <p className="font-bold text-sm text-emerald-400">{selectedNode.data.lastValue ?? 'N/A'}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Increment' : 'گام افزایش'}</span>
+                    <p className="font-bold text-sm text-purple-400">{selectedNode.data.increment ?? '1'}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Cache Size' : 'اندازه کش'}</span>
+                    <p className="font-bold text-sm text-amber-400">{selectedNode.data.cacheSize ?? '1'}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs font-mono">
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Minimum Value' : 'حداقل مقدار'}</span>
+                    <p className="font-bold text-sm text-slate-200 truncate">{selectedNode.data.minValue ?? '1'}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Maximum Value' : 'حداکثر مقدار'}</span>
+                    <p className="font-bold text-sm text-slate-200 truncate">
+                      {selectedNode.data.maxValue ?? '9223372036854775807'}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Owner' : 'مالک'}</span>
+                    <p className="font-bold text-sm text-cyan-400 truncate">{selectedNode.data.owner}</p>
+                  </div>
+                </div>
+
+                {/* SQL Snippets */}
+                <div
+                  className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                    {isEn ? 'SQL Sequence Operations' : 'دستورات کاربردی دنباله در SQL'}
+                  </span>
+                  <div className="space-y-2">
+                    <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                      <code className="text-cyan-300">
+                        SELECT nextval('{selectedNode.schemaName}.{selectedNode.name}');
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(`SELECT nextval('${selectedNode.schemaName}.${selectedNode.name}');`)}
+                        className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                      >
+                        {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                      <code className="text-cyan-300">
+                        ALTER SEQUENCE {selectedNode.schemaName}.{selectedNode.name} RESTART WITH {selectedNode.data.startValue || 1};
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(`ALTER SEQUENCE ${selectedNode.schemaName}.${selectedNode.name} RESTART WITH ${selectedNode.data.startValue || 1};`)}
+                        className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                      >
+                        {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================================================== */}
+            {/* VIEW H3: EXTENSIONS CATALOG & SINGLE EXTENSION           */}
+            {/* ======================================================== */}
+            {selectedNode.type === 'extensions_folder' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Puzzle className="w-5 h-5 text-amber-400" />
+                    <h4 className="font-bold text-sm">
+                      {isEn ? 'Installed PostgreSQL Extensions (pg_extension)' : 'کاتالوگ افزونه‌های نصب‌شده PostgreSQL'}
+                    </h4>
+                  </div>
+                  <FieldInfoTooltip
+                    title={isEn ? 'PostgreSQL Extensions' : 'افزونه‌های دیتابیس'}
+                    whatIsIt={
+                      isEn
+                        ? 'Modules and plugins installed in this database providing specialized functions or types.'
+                        : 'ماژول‌ها و اکستنشن‌های فعال در این پایگاه داده جهت افزودن قابلیت‌های پیشرفته.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Useful for tracking PostGIS, pg_stat_statements, uuid-ossp, pgcrypto, etc.'
+                        : 'جهت رصد اکستنشن‌های کلیدی مانند uuid-ossp، pgcrypto و ماژول‌های آماری.'
+                    }
+                    example="pg_stat_statements, uuid-ossp, plpgsql"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
                 </div>
 
                 <div
@@ -1613,20 +2688,46 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                       }`}
                     >
                       <tr>
-                        <th className="py-2.5 px-3">{isEn ? 'Name' : 'نام شی'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Type / Schema' : 'نوع / اسکیما'}</th>
-                        <th className="py-2.5 px-3">{isEn ? 'Details' : 'جزئیات'}</th>
+                        <th className="py-2.5 px-3">{isEn ? 'Extension Name' : 'نام افزونه'}</th>
+                        <th className="py-2.5 px-3">{isEn ? 'Version' : 'نسخه'}</th>
+                        <th className="py-2.5 px-3">{isEn ? 'Schema' : 'اسکیما'}</th>
+                        <th className="py-2.5 px-3">{isEn ? 'Relocatable' : 'قابل جابجایی'}</th>
+                        <th className="py-2.5 px-3">{isEn ? 'Description' : 'توضیحات'}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/40 font-mono">
-                      {(selectedNode.data || []).map((item: any, idx: number) => (
-                        <tr key={idx} className={isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'}>
-                          <td className="py-2 px-3 font-bold text-slate-200">{item.name}</td>
-                          <td className="py-2 px-3 text-slate-400">
-                            {item.type || item.schema || (item.isMaterialized ? 'MatView' : 'View')}
+                      {(((selectedNode.data as PostgresExtensionItem[]) || [])
+                        .filter(
+                          (ext) =>
+                            !detailFilter ||
+                            ext.name.toLowerCase().includes(detailFilter.toLowerCase()) ||
+                            ext.description?.toLowerCase().includes(detailFilter.toLowerCase())
+                        )
+                      ).map((ext) => (
+                        <tr
+                          key={ext.name}
+                          onClick={() => {
+                            setSelectedNode({
+                              type: 'extension',
+                              id: `ext:${selectedNode.dbName}:${ext.name}`,
+                              name: ext.name,
+                              dbName: selectedNode.dbName,
+                              data: ext,
+                            });
+                          }}
+                          className={`cursor-pointer transition ${
+                            isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <td className="py-2 px-3 flex items-center gap-2 font-bold text-slate-200">
+                            <Puzzle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span>{ext.name}</span>
                           </td>
-                          <td className="py-2 px-3 text-slate-400 text-[11px] truncate max-w-xs">
-                            {item.returnType ? `${item.returnType} (${item.argumentTypes || ''})` : item.version || item.owner || ''}
+                          <td className="py-2 px-3 text-cyan-400">{ext.version}</td>
+                          <td className="py-2 px-3 text-slate-400">{ext.schema}</td>
+                          <td className="py-2 px-3 text-slate-300 font-sans text-[11px]">{ext.relocatable ? 'YES' : 'NO'}</td>
+                          <td className="py-2 px-3 text-slate-400 font-sans text-[11px] truncate max-w-sm">
+                            {ext.description || '-'}
                           </td>
                         </tr>
                       ))}
@@ -1636,8 +2737,92 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
               </div>
             )}
 
+            {selectedNode.type === 'extension' && selectedNode.data && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Puzzle className="w-5 h-5 text-amber-400" />
+                    <div>
+                      <h4 className="font-bold text-base text-slate-100 font-mono">{selectedNode.name}</h4>
+                      <p className="text-xs text-slate-400">
+                        {isEn ? 'Database: ' : 'دیتابیس: '}
+                        <span className="font-mono text-cyan-400">{selectedNode.dbName}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="px-2 py-1 rounded-md text-xs font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    v{selectedNode.data.version}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs font-mono">
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Installed Schema' : 'اسکیمای نصب'}</span>
+                    <p className="font-bold text-sm text-cyan-400">{selectedNode.data.schema}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Relocatable' : 'قابلیت انتقال'}</span>
+                    <p className="font-bold text-sm text-emerald-400">{selectedNode.data.relocatable ? 'YES' : 'NO'}</p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-xl border space-y-1 ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Extension Status' : 'وضعیت'}</span>
+                    <p className="font-bold text-sm text-purple-400">INSTALLED</p>
+                  </div>
+                </div>
+
+                {selectedNode.data.description && (
+                  <div
+                    className={`p-4 rounded-xl border space-y-1.5 text-xs font-sans ${
+                      isLightMode ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <span className="text-[11px] text-slate-400 font-semibold">
+                      {isEn ? 'Extension Description' : 'توضیحات و کاربرد افزونه'}
+                    </span>
+                    <p>{selectedNode.data.description}</p>
+                  </div>
+                )}
+
+                {/* SQL Example */}
+                <div
+                  className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}
+                >
+                  <span className="text-[11px] text-slate-400 font-sans font-semibold">
+                    {isEn ? 'SQL Installation / Upgrade Syntax' : 'دستور ایجاد یا ارتقا در SQL'}
+                  </span>
+                  <div className="p-2.5 rounded-lg bg-black/40 border border-slate-800 flex items-center justify-between gap-2">
+                    <code className="text-cyan-300">CREATE EXTENSION IF NOT EXISTS "{selectedNode.name}";</code>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(`CREATE EXTENSION IF NOT EXISTS "${selectedNode.name}";`)}
+                      className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                    >
+                      {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ======================================================== */}
-            {/* VIEW G: ROLES & USERS                                    */}
+            {/* VIEW I: ROLES & USERS                                    */}
             {/* ======================================================== */}
             {(selectedNode.type === 'roles_folder' || selectedNode.type === 'role') && (
               <div className="space-y-4">
@@ -1708,24 +2893,24 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                           </td>
                           <td className="py-2 px-3">
                             {role.isSuperuser ? (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-400 font-bold">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-400 font-bold font-sans">
                                 YES
                               </span>
                             ) : (
-                              <span className="text-slate-500">NO</span>
+                              <span className="text-slate-500 font-sans">NO</span>
                             )}
                           </td>
                           <td className="py-2 px-3">
                             {role.canLogin ? (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 font-bold">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 font-bold font-sans">
                                 YES
                               </span>
                             ) : (
-                              <span className="text-slate-500">NO</span>
+                              <span className="text-slate-500 font-sans">NO</span>
                             )}
                           </td>
-                          <td className="py-2 px-3 text-slate-400">{role.createDb ? 'YES' : 'NO'}</td>
-                          <td className="py-2 px-3 text-slate-400">{role.replication ? 'YES' : 'NO'}</td>
+                          <td className="py-2 px-3 text-slate-400 font-sans">{role.createDb ? 'YES' : 'NO'}</td>
+                          <td className="py-2 px-3 text-slate-400 font-sans">{role.replication ? 'YES' : 'NO'}</td>
                           <td className="py-2 px-3 text-cyan-400">
                             {role.connectionLimit === -1 ? 'Unlimited' : role.connectionLimit}
                           </td>
