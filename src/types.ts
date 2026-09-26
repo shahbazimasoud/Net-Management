@@ -1419,6 +1419,22 @@ export interface RemoteServer {
   updated_at?: string;
 }
 
+export interface NginxInstanceInfo {
+  id: string;
+  name: string;
+  binaryPath: string;
+  confPath?: string;
+  prefixPath?: string;
+  masterPid?: number;
+  workerCount: number;
+  user?: string;
+  serviceName?: string;
+  isPrimary: boolean;
+  version?: string;
+  status: 'active' | 'inactive' | 'unknown';
+  commandLine?: string;
+}
+
 export interface NginxInstallationDetails {
   isInstalled: boolean;
   version?: string;
@@ -1445,6 +1461,7 @@ export interface NginxInstallationDetails {
   testedAt: string;
   configTestOk: boolean;
   configTestOutput?: string;
+  instances?: NginxInstanceInfo[];
 }
 
 export interface NginxConfigFileNode {
@@ -1793,6 +1810,61 @@ export interface NginxEditorSaveResult {
 export interface NginxEditorTestResult {
   isValid: boolean;
   output: string;
+  error?: string;
+}
+
+export type NginxSecurityCategory =
+  | 'headers'
+  | 'ssl'
+  | 'information_disclosure'
+  | 'dos_limits'
+  | 'access_control'
+  | 'permissions';
+
+export type NginxSecuritySeverity = 'critical' | 'warning' | 'info' | 'pass';
+
+export interface NginxSecurityAuditItem {
+  id: string;
+  category: NginxSecurityCategory;
+  title: string;
+  title_en: string;
+  severity: NginxSecuritySeverity;
+  passed: boolean;
+  currentValue?: string;
+  recommendedValue: string;
+  description: string;
+  description_en: string;
+  impact: string;
+  impact_en: string;
+  remediationSnippet: string;
+  affectedFiles?: string[];
+}
+
+export interface NginxSecurityAuditReport {
+  testedAt: string;
+  overallScore: number;
+  grade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+  totalChecks: number;
+  passedChecks: number;
+  warningChecks: number;
+  criticalChecks: number;
+  infoChecks: number;
+  serverUser?: string;
+  workerUser?: string;
+  isWorkerRoot: boolean;
+  targetConfPath?: string;
+  items: NginxSecurityAuditItem[];
+  hardeningSnippet: string;
+}
+
+export interface NginxSecurityApplyFixResult {
+  success: boolean;
+  filePath: string;
+  backupCreated?: string;
+  syntaxTestPassed: boolean;
+  syntaxOutput: string;
+  serviceReloaded: boolean;
+  reloadOutput?: string;
   error?: string;
 }
 

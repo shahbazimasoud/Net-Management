@@ -216,6 +216,10 @@ import {
   listNginxFileBackups,
   restoreNginxFileBackup,
 } from './nginxSafeEditor';
+import {
+  performNginxSecurityAudit,
+  applyNginxSecurityHardening,
+} from './nginxSecurityAuditor';
 
 export const apiRouter = Router();
 
@@ -1891,18 +1895,18 @@ apiRouter.post('/remote-servers/:id/service-action', async (req: Request, res: R
   }
 });
 
-// GET /api/remote-servers/:id/nginx-discovery - Discovers real distribution-aware Nginx installation topology
+// POST /api/remote-servers/:id/nginx-discovery - Discovers real distribution-aware Nginx installation topology
 apiRouter.post('/remote-servers/:id/nginx-discovery', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { password } = req.body || {};
+    const { password, targetConfPath, targetBinaryPath } = req.body || {};
 
     const server = await getRemoteServerById(id);
     if (!server) {
       return res.status(404).json({ success: false, error: 'Server not found' });
     }
 
-    const discovery = await discoverNginxInstallation(server, password);
+    const discovery = await discoverNginxInstallation(server, password, { targetConfPath, targetBinaryPath });
     return res.json({ success: true, discovery });
   } catch (err: any) {
     console.error(`[NginxDiscovery API Error for server ${req.params.id}]:`, err?.message || err);
@@ -2318,6 +2322,54 @@ apiRouter.post('/remote-servers/:id/nginx-file-restore', async (req: Request, re
       syntaxOutput: err.message || 'Restore exception',
       serviceReloaded: false,
       error: err.message || 'Failed to restore configuration backup',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-security-audit - Runs comprehensive security hardening audit
+apiRouter.post('/remote-servers/:id/nginx-security-audit', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, targetConfPath } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const report = await performNginxSecurityAudit(server, password, targetConfPath);
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    console.error(`[NginxSecurityAudit API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to perform Nginx security audit',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/nginx-security-apply-fix - Safely applies hardening configuration
+apiRouter.post('/remote-servers/:id/nginx-security-apply-fix', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { targetFilePath, customContent, password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await applyNginxSecurityHardening(server, targetFilePath, customContent, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[NginxSecurityApplyFix API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: req.body?.targetFilePath || '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Hardening application exception',
+      serviceReloaded: false,
+      error: err.message || 'Failed to apply security hardening configuration',
     });
   }
 });

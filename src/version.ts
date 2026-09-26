@@ -10,9 +10,44 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.168.0';
+export const APP_VERSION = '1.169.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.169.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۹ مدیریت انجین‌ایکس: مدیریت پیشرفته امنیت، ممیزی آسیب‌پذیری‌ها، هاردنینگ زنده و پشتیبانی از چند نمونه‌ای (Multi-Instance)',
+    title_en: 'Nginx Management Phase 9: Advanced Security Hardening, Vulnerability Audit, Production Hardening Generator & Multi-Instance Engine',
+    changes: [
+      'پیاده‌سازی موتور جامع ارزیابی و ممیزی امنیتی انجین‌ایکس (/server/nginxSecurityAuditor.ts) جهت بررسی موشکافانه دایرکتیوها و پیکربندی زنده سیستم.',
+      'پشتیبانی کامل از معماری چند نمونه‌ای (Multi-Instance Architecture): شناسایی و سوئیچ بین چند اینستنس موازی Nginx یا OpenResty بر روی یک سرور با مسیرها و پروسه‌های اختصاصی.',
+      'بررسی دقیق نشت اطلاعات و افشای نسخه نرم‌افزار (Information Disclosure) شامل دایرکتیو server_tokens off و هدرهای افشاگر.',
+      'ارزیابی کامل هدرهای امنیتی دفاعی (Defensive HTTP Security Headers) شامل X-Frame-Options، X-Content-Type-Options، X-XSS-Protection، Referrer-Policy، Content-Security-Policy و Permissions-Policy.',
+      'تحلیل حدود بافرها و درخواست‌ها جهت مقابله با حملات محروم‌سازی از سرویس (DoS Mitigation) شامل client_max_body_size و large_client_header_buffers.',
+      'تحلیل مقاومت در برابر حملات Slowloris با بهینه‌سازی تایم‌اوت‌های client_body_timeout، client_header_timeout و keepalive_timeout.',
+      'ممیزی عمیق پروتکل‌ها و سایفرهای SSL/TLS: شناسایی پروتکل‌های منسوخ و ناامن (SSLv3، TLSv1، TLSv1.1)، سایفرهای ضعیف، و بررسی وضعیت OCSP Stapling.',
+      'محافظت از فایل‌های حساس و پنهان مخفی مخازن کد و محیطی (.git, .env, .svn, .htaccess, فایل‌های پشتیبان .bak).',
+      'بررسی و ممیزی پرمیشن‌ها و کاربر پروسه‌های اجرایی انجین‌ایکس (Worker/Master User Audit) و سطح دسترسی به کلیدهای خصوصی SSL.',
+      'سیستم امتیازدهی هوشمند سلامت امنیت (از ۰ تا ۱۰۰) و تعیین درجه اعتباری (A+ تا F) با تفکیک موارد بحرانی، هشدار و راهکارهای ترمیمی زنده.',
+      'تولید خودکار فایل کانفیگ استاندارد امنیتی (security-hardening.conf) همراه با امکان اعمال امن با یک کلیک با پشتیبان‌گیری خودکار، اعتبارسنجی سینتکس و رول‌بک اتمیک در صورت خطا.',
+      'تب اختصاصی Security در مودال مدیریت Nginx منطبق بر استانداردهای پنج‌گانه مودال‌ها، حریم فوتر (bottom-8)، پشتیبانی از تم تیره/روشن و عدم استفاده از متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Nginx Security Audit and Vulnerability Engine (/server/nginxSecurityAuditor.ts) for directive-level and live runtime inspection.',
+      'Built multi-instance architecture support: automatically discovers and seamlessly switches between multiple running Nginx or OpenResty instances on the same host.',
+      'Implemented information disclosure auditing including server_tokens off directive and header leakage detection.',
+      'Audited defensive HTTP security headers: X-Frame-Options, X-Content-Type-Options, X-XSS-Protection, Referrer-Policy, Content-Security-Policy, and Permissions-Policy.',
+      'Analyzed buffer size and body limits for Denial-of-Service (DoS) mitigation, including client_max_body_size and header buffers.',
+      'Evaluated Slowloris attack resilience via timeout hardening: client_body_timeout, client_header_timeout, and keepalive_timeout.',
+      'Deep SSL/TLS security evaluation: flagged deprecated protocols (SSLv3, TLSv1, TLSv1.1), weak cipher suites, and OCSP Stapling status.',
+      'Protected sensitive hidden files, repository metadata, and environment configs (.git, .env, .svn, .bak, .htaccess).',
+      'Audited runtime process execution privileges (master/worker user hierarchy) and file permissions of private SSL keys.',
+      'Dynamic security health score (0-100%) and letter grade (A+ through F) calculation with categorized Critical, Warning, and Info findings.',
+      'Automated production-grade security-hardening.conf generator with one-click safe apply pipeline, automated backup, syntax dry-run, and atomic rollback.',
+      'Integrated dedicated Security Audit tab within NginxManagementModal complying with all 5 modal directives, footer clearance (bottom-8), dark/light mode ergonomics, and strict bilingual localization.'
+    ]
+  },
   {
     version: '1.168.0',
     releaseDate: '2026-09-25',

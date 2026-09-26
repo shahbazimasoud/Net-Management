@@ -53,6 +53,13 @@ import {
   ToggleLeft,
   ToggleRight,
   Edit3,
+  Shield,
+  Award,
+  Sparkles,
+  Zap,
+  CheckSquare,
+  Bug,
+  Wrench,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -72,6 +79,12 @@ import {
   NginxLogEntry,
   NginxParsedAccessLogEntry,
   NginxParsedErrorLogEntry,
+  NginxInstanceInfo,
+  NginxSecurityAuditReport,
+  NginxSecurityAuditItem,
+  NginxSecurityCategory,
+  NginxSecuritySeverity,
+  NginxSecurityApplyFixResult,
 } from '../../types';
 import {
   controlLinuxServerService,
@@ -85,6 +98,8 @@ import {
   toggleNginxSite,
   deleteNginxSite,
   sshExecute,
+  fetchNginxSecurityAudit,
+  applyNginxSecurityFix,
 } from '../../services/api';
 import { NginxSiteWizardModal } from './NginxSiteWizardModal';
 import { NginxSafeEditorModal } from './NginxSafeEditorModal';
@@ -101,7 +116,7 @@ export interface NginxManagementModalProps {
   isEn?: boolean;
 }
 
-type NginxTab = 'overview' | 'vhosts' | 'proxy' | 'ssl' | 'config' | 'logs';
+type NginxTab = 'overview' | 'vhosts' | 'proxy' | 'ssl' | 'config' | 'logs' | 'security';
 
 export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   isOpen,
@@ -349,6 +364,18 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
     }
   };
 
+  // Phase 9: Multi-Instance Architecture & Security Hardening Model
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string>('');
+  const [securityReport, setSecurityReport] = useState<NginxSecurityAuditReport | null>(null);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityCategoryFilter, setSecurityCategoryFilter] = useState<'all' | NginxSecurityCategory>('all');
+  const [securityStatusFilter, setSecurityStatusFilter] = useState<'all' | 'failed' | 'passed'>('all');
+  const [securitySeverityFilter, setSecuritySeverityFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
+  const [securitySearchQuery, setSecuritySearchQuery] = useState('');
+  const [applyingSecurityFix, setApplyingSecurityFix] = useState(false);
+  const [copiedSnippetId, setCopiedSnippetId] = useState<string | null>(null);
+  const [isHardeningPreviewOpen, setIsHardeningPreviewOpen] = useState(false);
+
   // Fetch full proxy & upstreams architecture
   const fetchProxyArchitecture = useCallback(async () => {
     if (!server) return;
@@ -415,7 +442,7 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   }, [server, sessionPassword, discovery?.confPath, discovery?.prefixPath]);
 
   // Fetch full dynamic distribution-aware discovery
-  const fetchDiscovery = useCallback(async () => {
+  const fetchDiscovery = useCallback(async (targetOpts?: { targetConfPath?: string; targetBinaryPath?: string }) => {
     if (!server) return;
     setLoading(true);
     setActionFeedback(null);
@@ -423,11 +450,21 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
     try {
       const res = await discoverNginxTopology(
         server.id,
-        sessionPassword || server.ssh_password
+        sessionPassword || server.ssh_password,
+        targetOpts
       );
 
       if (res && res.success && res.discovery) {
         setDiscovery(res.discovery);
+        if (res.discovery.instances && res.discovery.instances.length > 0) {
+          setSelectedInstanceId((prev) => {
+            if (prev && res.discovery?.instances?.some((i) => i.id === prev)) {
+              return prev;
+            }
+            const primary = res.discovery?.instances?.find((i) => i.isPrimary) || res.discovery?.instances?.[0];
+            return primary ? primary.id : '';
+          });
+        }
       } else {
         setActionFeedback({
           type: 'error',
@@ -447,6 +484,113 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       setLoading(false);
     }
   }, [server, sessionPassword, isEn]);
+
+  // Phase 9: Fetch Comprehensive Security Hardening Audit
+  const fetchSecurityAudit = useCallback(async (targetPath?: string) => {
+    if (!server) return;
+    setSecurityLoading(true);
+    try {
+      const res = await fetchNginxSecurityAudit(
+        server.id,
+        targetPath || discovery?.confPath,
+        sessionPassword || server.ssh_password
+      );
+      if (res && res.success && res.report) {
+        setSecurityReport(res.report);
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn
+            ? 'Failed to execute Nginx security audit'
+            : 'خطا در ارزیابی و ممیزی امنیتی انجین‌ایکس',
+          details: res?.error || (isEn ? 'Remote host did not return audit data.' : 'سرور پاسخی ارسال نکرد.'),
+        });
+      }
+    } catch (err: any) {
+      console.error('[Failed to fetch Nginx security audit]:', err);
+    } finally {
+      setSecurityLoading(false);
+    }
+  }, [server, sessionPassword, discovery?.confPath, isEn]);
+
+  const handleApplySecurityHardening = async (customContent?: string) => {
+    if (!server) return;
+    const confirmMsg = isEn
+      ? 'Are you sure you want to apply security hardening configuration to /etc/nginx/conf.d/security-hardening.conf? This executes automated syntax dry-run verification (nginx -t) with instant atomic rollback if any error occurs.'
+      : 'آیا از استقرار پیکربندی سخت‌سازی امنیتی در مسیر conf.d/security-hardening.conf اطمینان دارید؟ سینتکس قبل از اعمال با nginx -t بررسی شده و در صورت هرگونه خطا به طور خودکار رول‌بک خواهد شد.';
+    if (!window.confirm(confirmMsg)) return;
+
+    setApplyingSecurityFix(true);
+    try {
+      const res = await applyNginxSecurityFix(
+        server.id,
+        undefined,
+        customContent || securityReport?.hardeningSnippet,
+        sessionPassword || server.ssh_password
+      );
+
+      if (res && res.success) {
+        setActionFeedback({
+          type: 'success',
+          message: isEn
+            ? 'Security hardening configuration deployed and Nginx reloaded successfully!'
+            : 'پیکربندی سخت‌سازی امنیتی با موفقیت مستقر شد و انجین‌ایکس ریلود گردید!',
+          details: isEn
+            ? `Target: ${res.filePath}\nBackup: ${res.backupCreated || 'Created'}\nSyntax Test: Passed\nService Reloaded: ${res.serviceReloaded}`
+            : `مسیر: ${res.filePath}\nپشتیبان: ${res.backupCreated || 'ایجاد شد'}\nتست سینتکس: تایید\nریلود سرویس: ${res.serviceReloaded ? 'موفق' : 'خیر'}`,
+        });
+        await fetchSecurityAudit();
+        await fetchConfigTree();
+        await fetchDiscovery();
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn
+            ? 'Security hardening deployment failed (Automatic Rollback Executed)'
+            : 'خطا در استقرار سخت‌سازی امنیتی (رول‌بک خودکار انجام شد)',
+          details: res?.syntaxOutput || res?.error || 'Syntax verification failed',
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn ? 'Exception during hardening deployment' : 'خطای سیستمی حین استقرار سخت‌سازی',
+        details: err?.message || 'Unknown error',
+      });
+    } finally {
+      setApplyingSecurityFix(false);
+    }
+  };
+
+  const handleOpenHardeningInEditor = () => {
+    if (!discovery || !securityReport) return;
+    const baseDir = discovery.prefixPath || '/etc/nginx';
+    const targetPath = `${baseDir}/conf.d/security-hardening.conf`;
+    handleOpenSafeEditor(targetPath, securityReport.hardeningSnippet);
+  };
+
+  const handleSwitchInstance = async (instanceId: string) => {
+    setSelectedInstanceId(instanceId);
+    const inst = discovery?.instances?.find((i) => i.id === instanceId);
+    if (!inst) return;
+    await fetchDiscovery({ targetConfPath: inst.confPath, targetBinaryPath: inst.binaryPath });
+    setConfigTopology(null);
+    setSitesData(null);
+    setProxyData(null);
+    setSslData(null);
+    setLogsSummary(null);
+    setSecurityReport(null);
+  };
+
+  const handleCopySnippetText = (text: string, id: string) => {
+    try {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text);
+        setCopiedSnippetId(id);
+        setTimeout(() => setCopiedSnippetId(null), 2000);
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     if (isOpen && server) {
@@ -502,6 +646,13 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       if (intervalId) clearInterval(intervalId);
     };
   }, [isOpen, server, activeTab, isLiveTailing, selectedLogFile, fetchLogStreamData]);
+
+  // Phase 9: Fetch security audit upon tab activation
+  useEffect(() => {
+    if (isOpen && server && activeTab === 'security' && !securityReport && !securityLoading) {
+      fetchSecurityAudit();
+    }
+  }, [isOpen, server, activeTab, securityReport, securityLoading, fetchSecurityAudit]);
 
   // Execute Service Action (Start, Stop, Restart, Reload) using discovered service name
   const handleServiceAction = async (action: 'start' | 'stop' | 'restart' | 'reload') => {
@@ -864,7 +1015,7 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
             {/* Refresh Live Discovery */}
             <button
               type="button"
-              onClick={fetchDiscovery}
+              onClick={() => { fetchDiscovery(); }}
               disabled={loading}
               title={isEn ? 'Refresh Live Discovery' : 'کشف مجدد وضعیت زنده'}
               className={`p-1.5 rounded-lg border transition cursor-pointer disabled:opacity-50 ${
@@ -876,6 +1027,31 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
+
+          {/* Multi-Instance Selector */}
+          {discovery?.instances && discovery.instances.length > 1 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs bg-emerald-500/10 border-emerald-500/30 text-emerald-300">
+              <Server className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="font-semibold hidden sm:inline">{isEn ? 'Instance:' : 'نمونه:'}</span>
+              <select
+                value={selectedInstanceId}
+                onChange={(e) => handleSwitchInstance(e.target.value)}
+                className={`bg-transparent font-mono text-[11px] focus:outline-none cursor-pointer max-w-[220px] truncate ${
+                  isLightMode ? 'text-slate-800' : 'text-emerald-200'
+                }`}
+              >
+                {discovery.instances.map((inst) => (
+                  <option
+                    key={inst.id}
+                    value={inst.id}
+                    className={isLightMode ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-200'}
+                  >
+                    {inst.name} {inst.masterPid ? `(PID ${inst.masterPid})` : `(${inst.status})`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Real Discovered Paths (Zero hardcoded assumptions) */}
           <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 truncate">
@@ -1038,6 +1214,34 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
           >
             <FileText className="w-3.5 h-3.5" />
             <span>{isEn ? 'Access & Error Logs' : 'لاگ‌های دسترسی و خطا'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+              activeTab === 'security'
+                ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                : isLightMode
+                ? 'text-slate-600 hover:bg-slate-100'
+                : 'text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Security & Hardening' : 'امنیت و سخت‌سازی'}</span>
+            {securityReport && (
+              <span
+                className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                  securityReport.criticalChecks > 0
+                    ? 'bg-rose-500 text-white animate-pulse'
+                    : securityReport.warningChecks > 0
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-emerald-600 text-white'
+                }`}
+              >
+                {securityReport.grade} ({securityReport.overallScore}%)
+              </span>
+            )}
           </button>
         </div>
 
@@ -1306,6 +1510,217 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Multi-Instance Architecture Card */}
+              {discovery?.instances && discovery.instances.length > 0 && (
+                <div
+                  className={`p-5 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Server className="w-4 h-4 text-emerald-400" />
+                      <h3 className="text-sm font-bold">
+                        {isEn ? 'Multi-Instance Architecture' : 'معماری و نمونه‌های انجین‌ایکس کشف‌شده'}
+                      </h3>
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        {discovery.instances.length} {isEn ? 'instances discovered' : 'نمونه کشف‌شده'}
+                      </span>
+                    </div>
+                    <FieldInfoTooltip
+                      fieldName="Nginx Multi-Instance Support"
+                      infoWhatEn="Displays all active and installed Nginx/OpenResty instances running or configured on this Linux server."
+                      infoWhatFa="نمایش تمام نمونه‌های مجزا یا در حال اجرای Nginx و OpenResty در این سرور لینوکس."
+                      infoWhyEn="Allows managing multi-instance setups, isolated worker pools, or custom prefixes without conflict."
+                      infoWhyFa="مدیریت معماری‌های چندنمونه‌ای با کانفیگ‌های مجزا یا سرویس‌های مستقل را به سادگی میسر می‌سازد."
+                      infoExampleEn="Primary System Nginx (/etc/nginx) vs Secondary (/opt/nginx)"
+                      infoExampleFa="انجین‌ایکس اصلی سیستم در برابر نمونه دوم سفارشی"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {discovery.instances.map((inst) => {
+                      const isCurrent = selectedInstanceId === inst.id || (!selectedInstanceId && inst.isPrimary);
+                      return (
+                        <div
+                          key={inst.id}
+                          className={`p-3.5 rounded-lg border transition ${
+                            isCurrent
+                              ? isLightMode
+                                ? 'bg-emerald-50/70 border-emerald-400/80 shadow-xs'
+                                : 'bg-emerald-950/20 border-emerald-500/60 shadow-xs'
+                              : isLightMode
+                              ? 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                              : 'bg-slate-950/40 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-xs truncate" title={inst.name}>
+                              {inst.name}
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {inst.isPrimary && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 font-semibold">
+                                  {isEn ? 'Primary' : 'اصلی'}
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                                  inst.status === 'active'
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-slate-500/15 text-slate-400 border border-slate-500/30'
+                                }`}
+                              >
+                                {inst.status}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 font-mono text-[11px] text-slate-400 mb-3">
+                            <div className="truncate" title={inst.binaryPath}>
+                              <span className="text-slate-500">Bin:</span>{' '}
+                              <span className="text-slate-300">{inst.binaryPath}</span>
+                            </div>
+                            {inst.confPath && (
+                              <div className="truncate" title={inst.confPath}>
+                                <span className="text-slate-500">Conf:</span>{' '}
+                                <span className="text-cyan-400">{inst.confPath}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span>PID: {inst.masterPid || 'N/A'}</span>
+                              <span>Workers: {inst.workerCount}</span>
+                              {inst.user && <span>User: {inst.user}</span>}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSwitchInstance(inst.id)}
+                            disabled={isCurrent}
+                            className={`w-full py-1 px-2 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-70 disabled:cursor-default ${
+                              isCurrent
+                                ? 'bg-emerald-500 text-slate-950 font-bold'
+                                : isLightMode
+                                ? 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                                : 'bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700'
+                            }`}
+                          >
+                            {isCurrent ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>{isEn ? 'Active Selection' : 'نمونه جاری'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <RotateCw className="w-3.5 h-3.5" />
+                                <span>{isEn ? 'Switch to this Instance' : 'انتخاب و پایش این نمونه'}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Security Hardening Quick Posture Card */}
+              <div
+                className={`p-5 rounded-xl border ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <h3 className="text-sm font-bold">
+                        {isEn ? 'Security Hardening & Posture Audit' : 'ارزیابی و استحکام امنیتی Nginx'}
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        {isEn
+                          ? 'Analyzes server tokens, HTTP security headers, TLS ciphers, and process permissions.'
+                          : 'تحلیل پنهان‌سازی نسخه، هدرهای امنیتی وب، پروتکل‌های TLS، سقف بافر و دسترسی‌های پروسه.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('security')}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'View Full Security Audit' : 'مشاهده گزارش کامل ممیزی امنیتی'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {securityReport ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div className="p-3 rounded-lg bg-black/20 border border-white/5 flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-base border shrink-0 ${
+                          securityReport.grade.startsWith('A')
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                            : securityReport.grade === 'B'
+                            ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
+                            : securityReport.grade === 'C'
+                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                            : 'bg-rose-500/20 text-rose-400 border-rose-500/40'
+                        }`}
+                      >
+                        {securityReport.grade}
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">{isEn ? 'Hardening Score' : 'نمره امنیتی'}</span>
+                        <strong className="text-sm">{securityReport.overallScore}/100</strong>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                      <span className="text-[10px] text-slate-400 block">{isEn ? 'Compliant Checks' : 'تست‌های تاییدشده'}</span>
+                      <strong className="text-sm text-emerald-400 font-bold">
+                        {securityReport.passedChecks} / {securityReport.totalChecks}
+                      </strong>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                      <span className="text-[10px] text-slate-400 block">{isEn ? 'Critical Vulnerabilities' : 'آسیب‌پذیری بحرانی'}</span>
+                      <strong className={`text-sm font-bold ${securityReport.criticalChecks > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+                        {securityReport.criticalChecks}
+                      </strong>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                      <span className="text-[10px] text-slate-400 block">{isEn ? 'Warnings / Fixes' : 'هشدارهای اصلاحی'}</span>
+                      <strong className={`text-sm font-bold ${securityReport.warningChecks > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                        {securityReport.warningChecks}
+                      </strong>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-lg bg-slate-950/40 border border-dashed border-slate-700/60 flex items-center justify-between text-xs">
+                    <span className="text-slate-400">
+                      {isEn ? 'Security audit has not been executed yet.' : 'ارزیابی امنیتی هنوز انجام نشده است.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => fetchSecurityAudit()}
+                      disabled={securityLoading}
+                      className="px-3 py-1 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 font-medium flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${securityLoading ? 'animate-spin' : ''}`} />
+                      <span>{isEn ? 'Run Security Scan' : 'شروع اسکن امنیتی'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Syntax Output Panel (if tested) */}
               {discovery?.configTestOutput && (
@@ -4013,6 +4428,714 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
                       >
                         {isEn ? 'Close' : 'بستن'}
                       </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ======================================================== */}
+          {/* TAB 7: SECURITY AUDIT & HARDENING (Phase 9)               */}
+          {/* ======================================================== */}
+          {activeTab === 'security' && (
+            <div className="space-y-6">
+              {/* Top Score & Posture Banner */}
+              <div
+                className={`p-6 rounded-2xl border transition shadow-xs ${
+                  isLightMode
+                    ? 'bg-gradient-to-br from-white via-slate-50 to-slate-100 border-slate-200'
+                    : 'bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-slate-950 border-slate-800'
+                }`}
+              >
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                  {/* Left: Score Badge & Grade */}
+                  <div className="flex items-center gap-5">
+                    <div
+                      className={`w-20 h-20 rounded-2xl flex flex-col items-center justify-center font-black text-3xl border-2 shadow-lg shrink-0 ${
+                        securityReport?.grade.startsWith('A')
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-emerald-500/20'
+                          : securityReport?.grade === 'B'
+                          ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50 shadow-cyan-500/20'
+                          : securityReport?.grade === 'C'
+                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-amber-500/20'
+                          : 'bg-rose-500/20 text-rose-400 border-rose-500/50 shadow-rose-500/20'
+                      }`}
+                    >
+                      <span>{securityReport?.grade || '?'}</span>
+                      <span className="text-[10px] font-sans font-bold tracking-widest uppercase opacity-80">
+                        {isEn ? 'Grade' : 'رتبه'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className="w-5 h-5 text-emerald-400" />
+                        <h2 className="text-lg font-bold">
+                          {isEn ? 'Nginx Security Audit & Hardening' : 'ممیزی، ارزیابی و سخت‌سازی امنیتی Nginx'}
+                        </h2>
+                      </div>
+                      <p className="text-xs text-slate-400 max-w-xl">
+                        {isEn
+                          ? 'Comprehensive multi-vector audit analyzing information disclosure, defensive HTTP headers, modern TLS cipher suites, buffer overflow controls, and worker process privileges.'
+                          : 'ممیزی چندبعدی و سخت‌سازی کانفیگ، بررسی نشت اطلاعات نسخه، هدرهای دفاعی HTTP، سایفرهای رمزنگاری، سقف بافر و دسترسی‌های پروسه ورکر.'}
+                      </p>
+
+                      {securityReport && (
+                        <div className="flex items-center gap-3 pt-1">
+                          <div className="w-36 sm:w-48 h-2 rounded-full bg-slate-800 overflow-hidden border border-white/5">
+                            <div
+                              className={`h-full rounded-full transition-all duration-700 ${
+                                securityReport.overallScore >= 80
+                                  ? 'bg-emerald-500'
+                                  : securityReport.overallScore >= 60
+                                  ? 'bg-amber-500'
+                                  : 'bg-rose-500'
+                              }`}
+                              style={{ width: `${securityReport.overallScore}%` }}
+                            />
+                          </div>
+                          <span className="font-mono text-xs font-bold">
+                            {securityReport.overallScore}/100 {isEn ? 'Hardening Score' : 'امتیاز نهایی'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Quick Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => fetchSecurityAudit()}
+                      disabled={securityLoading}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${securityLoading ? 'animate-spin' : ''}`} />
+                      <span>{isEn ? 'Re-scan Audit' : 'اسکن مجدد'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsHardeningPreviewOpen(true)}
+                      disabled={!securityReport}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isEn ? 'Preview Hardening Config' : 'مشاهده کانفیگ سخت‌سازی'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenHardeningInEditor}
+                      disabled={!securityReport}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-cyan-50 border-cyan-300 text-cyan-800 hover:bg-cyan-100'
+                          : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
+                      }`}
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isEn ? 'Edit in Safe Editor' : 'شخصی‌سازی در ویرایشگر امن'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleApplySecurityHardening()}
+                      disabled={applyingSecurityFix || !securityReport}
+                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 transition cursor-pointer shadow-md disabled:opacity-50"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>
+                        {applyingSecurityFix
+                          ? isEn
+                            ? 'Verifying & Deploying...'
+                            : 'در حال اعتبارسنجی و استقرار...'
+                          : isEn
+                          ? 'Apply Safe Hardening'
+                          : 'اعمال آنی سخت‌سازی امن'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 Metric Summary Counter Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Total Rules Audited' : 'کل قوانین ممیزی‌شده'}
+                    </span>
+                    <Box className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono">
+                    {securityReport?.totalChecks ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {isEn ? '18 automated security vectors' : '۱۸ بردار امنیتی خودکار'}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Compliant / Passed' : 'منطبق و امن'}
+                    </span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-emerald-400">
+                    {securityReport?.passedChecks ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {isEn ? 'Hardened directives active' : 'دستورات امنیتی فعال'}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Critical Vulnerabilities' : 'آسیب‌پذیری بحرانی'}
+                    </span>
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                  </div>
+                  <div
+                    className={`text-2xl font-bold font-mono ${
+                      (securityReport?.criticalChecks ?? 0) > 0 ? 'text-rose-400 animate-pulse' : 'text-slate-400'
+                    }`}
+                  >
+                    {securityReport?.criticalChecks ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {(securityReport?.criticalChecks ?? 0) > 0
+                      ? isEn ? 'Immediate fix required' : 'نیازمند اصلاح فوری'
+                      : isEn ? 'Zero critical issues' : 'بدون باگ بحرانی'}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Warnings & Best Practices' : 'هشدارها و راهکارها'}
+                    </span>
+                    <AlertCircle className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-amber-400">
+                    {securityReport?.warningChecks ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {isEn ? 'Optimization opportunities' : 'فرصت‌های بهینه‌سازی'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Live Execution Context Bar */}
+              {securityReport && (
+                <div
+                  className={`px-4 py-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs font-mono ${
+                    isLightMode ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">{isEn ? 'Worker Process User:' : 'کاربر پروسه ورکر:'}</span>
+                      {securityReport.isWorkerRoot ? (
+                        <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/40 font-bold flex items-center gap-1 animate-pulse">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'ROOT (CRITICAL)' : 'روت (خطرناک)'}</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                          {securityReport.workerUser || 'nginx'} ({isEn ? 'Unprivileged' : 'غیرممتاز'})
+                        </span>
+                      )}
+                    </div>
+
+                    <span className="text-slate-600 hidden sm:inline">•</span>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">{isEn ? 'Master User:' : 'کاربر مستر:'}</span>
+                      <strong className="text-slate-200">{securityReport.serverUser || 'root'}</strong>
+                    </div>
+
+                    <span className="text-slate-600 hidden sm:inline">•</span>
+
+                    <div className="flex items-center gap-1.5 truncate max-w-sm" title={securityReport.targetConfPath}>
+                      <span className="text-slate-400">{isEn ? 'Target Config:' : 'کانفیگ هدف:'}</span>
+                      <span className="text-cyan-400 truncate">{securityReport.targetConfPath || '/etc/nginx/nginx.conf'}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-400">
+                    {isEn ? 'Audited at:' : 'زمان اسکن:'} {new Date(securityReport.testedAt).toLocaleTimeString()}
+                  </div>
+                </div>
+              )}
+
+              {/* Filters & Search Toolbar */}
+              <div
+                className={`p-4 rounded-xl border space-y-3 ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  {/* Search Bar */}
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={securitySearchQuery}
+                      onChange={(e) => setSecuritySearchQuery(e.target.value)}
+                      placeholder={
+                        isEn
+                          ? 'Search rules by title, keyword, or recommendation...'
+                          : 'جستجو در قوانین امنیتی بر اساس عنوان، کلمه کلیدی یا دستور...'
+                      }
+                      className={`w-full pl-9 pr-4 py-2 rounded-lg text-xs font-sans transition focus:outline-none ${
+                        isLightMode
+                          ? 'bg-slate-50 border border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-emerald-500'
+                          : 'bg-black/30 border border-slate-700 text-slate-100 placeholder:text-slate-500 focus:border-emerald-500'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Status & Severity Dropdowns */}
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={securityStatusFilter}
+                      onChange={(e) => setSecurityStatusFilter(e.target.value as any)}
+                      className={`px-3 py-2 rounded-lg text-xs font-semibold focus:outline-none cursor-pointer border ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-800'
+                          : 'bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <option value="all">{isEn ? 'All Statuses' : 'همه وضعیت‌ها'}</option>
+                      <option value="failed">{isEn ? 'Action Required (At Risk)' : 'نیازمند اصلاح (دارای ریسک)'}</option>
+                      <option value="passed">{isEn ? 'Compliant Only' : 'فقط منطبق‌ها'}</option>
+                    </select>
+
+                    <select
+                      value={securitySeverityFilter}
+                      onChange={(e) => setSecuritySeverityFilter(e.target.value as any)}
+                      className={`px-3 py-2 rounded-lg text-xs font-semibold focus:outline-none cursor-pointer border ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-800'
+                          : 'bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <option value="all">{isEn ? 'All Severities' : 'همه سطوح اهمیت'}</option>
+                      <option value="critical">{isEn ? 'Critical Severity' : 'سطح بحرانی'}</option>
+                      <option value="warning">{isEn ? 'Warning Severity' : 'سطح هشدار'}</option>
+                      <option value="info">{isEn ? 'Info / Best Practice' : 'اطلاع‌رسانی'}</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Category Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto text-xs pt-1">
+                  {[
+                    { id: 'all', labelEn: 'All Categories', labelFa: 'همه دسته‌ها', icon: Box },
+                    { id: 'headers', labelEn: 'Security Headers', labelFa: 'هدرهای امنیتی', icon: Shield },
+                    { id: 'ssl', labelEn: 'SSL/TLS Encryption', labelFa: 'رمزنگاری و SSL', icon: Lock },
+                    { id: 'information_disclosure', labelEn: 'Info Leakage', labelFa: 'نشت اطلاعات', icon: Eye },
+                    { id: 'dos_limits', labelEn: 'DoS & Timeouts', labelFa: 'حملات DoS و تایم‌اوت', icon: Zap },
+                    { id: 'access_control', labelEn: 'Access Control', labelFa: 'کنترل دسترسی فایل', icon: ShieldAlert },
+                    { id: 'permissions', labelEn: 'Process & Permissions', labelFa: 'دسترسی‌ها و کاربر', icon: Key },
+                  ].map((cat) => {
+                    const IconComp = cat.icon;
+                    const isActive = securityCategoryFilter === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setSecurityCategoryFilter(cat.id as any)}
+                        className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition cursor-pointer shrink-0 ${
+                          isActive
+                            ? 'bg-emerald-500 text-slate-950 font-bold shadow-xs'
+                            : isLightMode
+                            ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <IconComp className="w-3.5 h-3.5" />
+                        <span>{isEn ? cat.labelEn : cat.labelFa}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Audit Items List */}
+              {securityLoading ? (
+                <div className="p-12 text-center space-y-3">
+                  <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin mx-auto" />
+                  <p className="text-sm font-semibold text-slate-300">
+                    {isEn
+                      ? 'Executing multi-vector Nginx security audit across all configuration files...'
+                      : 'در حال اجرای ممیزی امنیتی انجین‌ایکس در تمام فایل‌های پیکربندی و پروسه‌های سرور...'}
+                  </p>
+                </div>
+              ) : !securityReport ? (
+                <div className="p-12 text-center rounded-2xl border border-dashed border-slate-700 space-y-4">
+                  <ShieldAlert className="w-12 h-12 text-slate-500 mx-auto" />
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-slate-200">
+                      {isEn ? 'Security Audit Ready' : 'آماده اجرای ارزیابی امنیتی'}
+                    </h3>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      {isEn
+                        ? 'Click below to inspect real Nginx configuration files, process users, and cryptographic settings.'
+                        : 'برای بررسی زنده فایل‌های کانفیگ، هدرهای امنیتی و وضعیت کاربران وب‌سرور کلیک کنید.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fetchSecurityAudit()}
+                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-2 mx-auto transition cursor-pointer"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>{isEn ? 'Run Security Audit Now' : 'شروع ممیزی امنیتی'}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {(() => {
+                    const filteredItems = (securityReport.items || []).filter((item) => {
+                      if (securityCategoryFilter !== 'all' && item.category !== securityCategoryFilter) {
+                        return false;
+                      }
+                      if (securityStatusFilter === 'failed' && item.passed) {
+                        return false;
+                      }
+                      if (securityStatusFilter === 'passed' && !item.passed) {
+                        return false;
+                      }
+                      if (securitySeverityFilter !== 'all' && item.severity !== securitySeverityFilter) {
+                        return false;
+                      }
+                      if (securitySearchQuery.trim()) {
+                        const q = securitySearchQuery.toLowerCase();
+                        const matchTitle =
+                          (item.title || '').toLowerCase().includes(q) ||
+                          (item.title_en || '').toLowerCase().includes(q);
+                        const matchDesc =
+                          (item.description || '').toLowerCase().includes(q) ||
+                          (item.description_en || '').toLowerCase().includes(q);
+                        const matchRec = (item.recommendedValue || '').toLowerCase().includes(q);
+                        return matchTitle || matchDesc || matchRec;
+                      }
+                      return true;
+                    });
+
+                    if (filteredItems.length === 0) {
+                      return (
+                        <div className="p-8 text-center rounded-xl border border-slate-800 text-xs text-slate-400">
+                          {isEn ? 'No security audit items match your filter criteria.' : 'هیچ قانونی با فیلترهای انتخابی شما همخوانی ندارد.'}
+                        </div>
+                      );
+                    }
+
+                    return filteredItems.map((item) => {
+                      const isCopied = copiedSnippetId === item.id;
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-5 rounded-2xl border transition ${
+                            !item.passed
+                              ? item.severity === 'critical'
+                                ? isLightMode
+                                  ? 'bg-rose-50/60 border-rose-300'
+                                  : 'bg-rose-950/20 border-rose-500/40'
+                                : isLightMode
+                                ? 'bg-amber-50/60 border-amber-300'
+                                : 'bg-amber-950/20 border-amber-500/40'
+                              : isLightMode
+                              ? 'bg-white border-slate-200'
+                              : 'bg-slate-900/60 border-slate-800'
+                          }`}
+                        >
+                          {/* Item Header */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              {/* Severity Pill */}
+                              <span
+                                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase border ${
+                                  item.severity === 'critical'
+                                    ? 'bg-rose-500/20 border-rose-500/40 text-rose-300'
+                                    : item.severity === 'warning'
+                                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                                    : item.severity === 'info'
+                                    ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
+                                    : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                }`}
+                              >
+                                {item.severity}
+                              </span>
+
+                              {/* Category Badge */}
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 capitalize">
+                                {item.category.replace('_', ' ')}
+                              </span>
+
+                              {/* Title */}
+                              <h4 className="text-sm font-bold text-slate-100">
+                                {isEn ? item.title_en : item.title}
+                              </h4>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/* Status Badge */}
+                              <span
+                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border ${
+                                  item.passed
+                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                                    : item.severity === 'critical'
+                                    ? 'bg-rose-500/20 border-rose-500/40 text-rose-300'
+                                    : 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                                }`}
+                              >
+                                {item.passed ? (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Compliant' : 'منطبق و امن'}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                    <span>{isEn ? 'Action Required' : 'اقدام لازم'}</span>
+                                  </>
+                                )}
+                              </span>
+
+                              {/* 3-Part Field Info Tooltip */}
+                              <FieldInfoTooltip
+                                fieldName={isEn ? item.title_en : item.title}
+                                infoWhatEn={item.description_en}
+                                infoWhatFa={item.description}
+                                infoWhyEn={item.impact_en}
+                                infoWhyFa={item.impact}
+                                infoExampleEn={item.recommendedValue}
+                                infoExampleFa={item.recommendedValue}
+                                isEn={isEn}
+                                isLightMode={isLightMode}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Description */}
+                          <p className="text-xs text-slate-300 mb-3 leading-relaxed">
+                            {isEn ? item.description_en : item.description}
+                          </p>
+
+                          {/* Comparison Grid: Current vs Recommended */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono mb-3">
+                            <div className="p-3 rounded-xl bg-black/30 border border-white/5 space-y-1">
+                              <span className="text-[10px] font-sans font-bold text-slate-400 block uppercase">
+                                {isEn ? 'Current Configuration Value' : 'مقدار کنونی در سرور'}
+                              </span>
+                              <div
+                                className={`text-xs break-all ${
+                                  item.passed ? 'text-emerald-400' : 'text-rose-300'
+                                }`}
+                              >
+                                {item.currentValue || (isEn ? 'Not Configured' : 'تنظیم نشده')}
+                              </div>
+                            </div>
+
+                            <div className="p-3 rounded-xl bg-black/30 border border-emerald-500/20 space-y-1">
+                              <span className="text-[10px] font-sans font-bold text-emerald-400 block uppercase">
+                                {isEn ? 'Recommended Standard Value' : 'مقدار استاندارد و پیشنهادی'}
+                              </span>
+                              <div className="text-xs text-emerald-300 break-all font-semibold">
+                                {item.recommendedValue}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Security Impact Note */}
+                          <div
+                            className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 mb-3 ${
+                              !item.passed
+                                ? item.severity === 'critical'
+                                  ? 'bg-rose-500/10 border-rose-500/20 text-rose-200'
+                                  : 'bg-amber-500/10 border-amber-500/20 text-amber-200'
+                                : 'bg-slate-900/30 border-white/5 text-slate-400'
+                            }`}
+                          >
+                            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 opacity-80" />
+                            <div className="space-y-0.5">
+                              <span className="font-bold block text-[11px] uppercase">
+                                {isEn ? 'Security Risk & Engineering Impact:' : 'اثر مهندسی و ریسک امنیتی:'}
+                              </span>
+                              <p className="text-[11px] leading-relaxed">
+                                {isEn ? item.impact_en : item.impact}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Remediation Snippet Block */}
+                          <div className="p-3 rounded-xl bg-black/50 border border-white/10 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono font-bold text-slate-400 uppercase flex items-center gap-1.5">
+                                <Code2 className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>{isEn ? 'Suggested Remediation Directive' : 'دستور استاندارد رفع آسیب‌پذیری'}</span>
+                              </span>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopySnippetText(item.remediationSnippet, item.id)}
+                                  className="text-[11px] font-mono px-2 py-0.5 rounded border border-slate-700 bg-slate-800 text-slate-300 hover:text-white flex items-center gap-1 transition cursor-pointer"
+                                >
+                                  {isCopied ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                      <span className="text-emerald-400">{isEn ? 'Copied' : 'کپی شد'}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span>{isEn ? 'Copy Snippet' : 'کپی دستور'}</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const baseDir = discovery?.prefixPath || '/etc/nginx';
+                                    const targetPath = item.affectedFiles?.[0] || `${baseDir}/conf.d/security-hardening.conf`;
+                                    handleOpenSafeEditor(targetPath, item.remediationSnippet);
+                                  }}
+                                  className="text-[11px] font-mono px-2 py-0.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 flex items-center gap-1 transition cursor-pointer"
+                                >
+                                  <Edit3 className="w-3 h-3 text-cyan-400" />
+                                  <span>{isEn ? 'Apply via Editor' : 'اعمال در ویرایشگر امن'}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <pre className="font-mono text-xs text-emerald-300 p-2.5 rounded-lg bg-black/60 overflow-x-auto whitespace-pre-wrap">
+                              {item.remediationSnippet}
+                            </pre>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+
+              {/* Hardening Preview Drawer / Modal */}
+              {isHardeningPreviewOpen && securityReport && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-[999995]">
+                  <div
+                    className={`max-w-3xl w-full rounded-2xl border shadow-2xl overflow-hidden flex flex-col max-h-[85vh] ${
+                      isLightMode ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between p-4 border-b border-slate-700">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                        <div>
+                          <h4 className="text-sm font-bold">
+                            {isEn ? 'Production Security Hardening Template' : 'قالب جامع سخت‌سازی امنیتی Nginx'}
+                          </h4>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {discovery?.prefixPath || '/etc/nginx'}/conf.d/security-hardening.conf
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsHardeningPreviewOpen(false)}
+                        className="text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="p-5 flex-1 overflow-y-auto space-y-4 text-xs font-mono">
+                      <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs">
+                        {isEn
+                          ? 'This production-ready hardening template covers information disclosure prevention (server_tokens off), clickjacking defense, MIME-sniffing prevention, buffer limits, Slowloris timeouts, rate limiting zones, and modern TLS protocols.'
+                          : 'این قالب استاندارد امنیتی شامل پنهان‌سازی نسخه، هدرهای ضد کلیک‌جکینگ و اسنیف، سقف بافر DoS، تایم‌اوت‌های ضد اسلولوریس و پروتکل‌های مدرن TLS است.'}
+                      </div>
+
+                      <pre className="p-4 rounded-xl bg-black/60 border border-white/10 text-emerald-300 overflow-x-auto text-xs whitespace-pre-wrap">
+                        {securityReport.hardeningSnippet}
+                      </pre>
+                    </div>
+
+                    <div className="p-4 border-t border-slate-800 flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleCopySnippetText(securityReport.hardeningSnippet, 'full-hardening')}
+                        className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        {copiedSnippetId === 'full-hardening' ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-emerald-400">{isEn ? 'Copied' : 'کپی شد'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Copy Configuration' : 'کپی تمام کانفیگ'}</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsHardeningPreviewOpen(false);
+                            handleOpenHardeningInEditor();
+                          }}
+                          className="px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition cursor-pointer"
+                        >
+                          {isEn ? 'Customize in Safe Editor' : 'ویرایش قبل از اعمال'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setIsHardeningPreviewOpen(false);
+                            await handleApplySecurityHardening();
+                          }}
+                          disabled={applyingSecurityFix}
+                          className="px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'Deploy Safely Now' : 'استقرار امن هم‌اکنون'}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

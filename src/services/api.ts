@@ -1329,7 +1329,8 @@ export async function controlLinuxServerService(
 
 export async function discoverNginxTopology(
   serverId: string,
-  ephemeralPassword?: string
+  ephemeralPassword?: string,
+  options?: { targetConfPath?: string; targetBinaryPath?: string }
 ): Promise<{
   success: boolean;
   discovery?: import('../types').NginxInstallationDetails;
@@ -1338,7 +1339,11 @@ export async function discoverNginxTopology(
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-discovery`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: ephemeralPassword }),
+    body: JSON.stringify({
+      password: ephemeralPassword,
+      targetConfPath: options?.targetConfPath,
+      targetBinaryPath: options?.targetBinaryPath,
+    }),
   });
   const data = await res.json().catch(() => ({
     success: false,
@@ -1663,6 +1668,47 @@ export async function restoreNginxFileBackup(
     syntaxOutput: 'Failed to parse response',
     serviceReloaded: false,
     error: 'Failed to parse response',
+  }));
+}
+
+export async function fetchNginxSecurityAudit(
+  serverId: string,
+  targetConfPath?: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  report?: import('../types').NginxSecurityAuditReport;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-security-audit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetConfPath, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+}
+
+export async function applyNginxSecurityFix(
+  serverId: string,
+  targetFilePath?: string,
+  customContent?: string,
+  ephemeralPassword?: string
+): Promise<import('../types').NginxSecurityApplyFixResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/nginx-security-apply-fix`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetFilePath, customContent, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({
+    success: false,
+    filePath: targetFilePath || '',
+    syntaxTestPassed: false,
+    syntaxOutput: 'Failed to parse response',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
   }));
 }
 

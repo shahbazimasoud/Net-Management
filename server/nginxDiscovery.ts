@@ -1,6 +1,22 @@
 import { RemoteServer } from '../src/types';
 import { runAdaptiveSshCommand } from './linuxServerMonitor';
 
+export interface NginxInstanceInfo {
+  id: string;
+  name: string;
+  binaryPath: string;
+  confPath?: string;
+  prefixPath?: string;
+  masterPid?: number;
+  workerCount: number;
+  user?: string;
+  serviceName?: string;
+  isPrimary: boolean;
+  version?: string;
+  status: 'active' | 'inactive' | 'unknown';
+  commandLine?: string;
+}
+
 export interface NginxInstallationDetails {
   isInstalled: boolean;
   version?: string;
@@ -27,6 +43,7 @@ export interface NginxInstallationDetails {
   testedAt: string;
   configTestOk: boolean;
   configTestOutput?: string;
+  instances?: NginxInstanceInfo[];
 }
 
 /**
@@ -96,6 +113,19 @@ else
   echo "manual"
 fi
 
+echo "===MULTI_INSTANCES==="
+ps -eo pid,user,args 2>/dev/null | grep -E "(nginx: master process|openresty: master)" | grep -v grep || true
+echo "---ALL_UNITS---"
+systemctl list-unit-files --type=service 2>/dev/null | grep -iE "(nginx|openresty)" | awk '{print $1}' || true
+echo "---ALL_BINARIES---"
+which -a nginx 2>/dev/null || true
+which -a openresty 2>/dev/null || true
+for p in /usr/sbin/nginx /usr/local/nginx/sbin/nginx /opt/nginx/sbin/nginx /usr/local/openresty/nginx/sbin/nginx /usr/bin/nginx /sbin/nginx; do
+  if [ -x "$p" ]; then
+    echo "$p"
+  fi
+done 2>/dev/null | sort -u
+
 echo "===END_DISCOVERY==="
 `;
 
@@ -104,7 +134,8 @@ echo "===END_DISCOVERY==="
  */
 export async function discoverNginxInstallation(
   server: RemoteServer,
-  ephemeralPassword?: string
+  ephemeralPassword?: string,
+  options?: { targetConfPath?: string; targetBinaryPath?: string }
 ): Promise<NginxInstallationDetails> {
   const testedAt = new Date().toISOString();
 
@@ -121,6 +152,7 @@ export async function discoverNginxInstallation(
     osFamily: 'generic',
     testedAt,
     configTestOk: false,
+    instances: [],
   };
 
   try {
@@ -255,7 +287,16 @@ export async function discoverNginxInstallation(
         // Continue even if -V errored
       }
 
-      // 6. Run safe configuration test (`nginx -t`) using discovered binary and discovered confPath
+      // 6. Override target paths if requested
+      if (options?.targetConfPath) {
+        details.confPath = options.targetConfPath;
+      }
+      if (options?.targetBinaryPath) {
+        chosenBinary = options.targetBinaryPath;
+        details.binaryPath = chosenBinary;
+      }
+
+      // 7. Run safe configuration test (`nginx -t`) using discovered binary and discovered confPath
       const testArgs = details.confPath ? `-c "${details.confPath}"` : '';
       const tCmd = `${chosenBinary} ${testArgs} -t 2>&1`;
       try {
@@ -269,6 +310,117 @@ export async function discoverNginxInstallation(
     } else {
       details.isInstalled = false;
     }
+
+    // 8. Parse Multi-Instances from procfs, systemd & binaries
+    const instances: NginxInstanceInfo[] = [];
+    if (rawOut.includes('===MULTI_INSTANCES===')) {
+      const multiPart = rawOut.split('===MULTI_INSTANCES===')[1].split('===END_DISCOVERY===')[0] || '';
+      const procLines = multiPart.split('---ALL_UNITS---')[0].trim().split('\n').filter(Boolean);
+      const unitsBlock = multiPart.split('---ALL_UNITS---')[1]?.split('---ALL_BINARIES---')[0] || '';
+      const binariesBlock = multiPart.split('---ALL_BINARIES---')[1] || '';
+
+      const discoveredUnits = unitsBlock.split('\n').map((u) => u.trim()).filter(Boolean);
+      const discoveredBinaries = binariesBlock.split('\n').map((b) => b.trim()).filter(Boolean);
+
+      // Parse running master processes
+      for (const line of procLines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 3) {
+          const pid = parseInt(parts[0], 10);
+          const user = parts[1];
+          const cmdLine = parts.slice(2).join(' ');
+
+          if (!isNaN(pid) && pid > 0) {
+            let confPath: string | undefined;
+            let prefixPath: string | undefined;
+
+            const cMatch = cmdLine.match(/-c\s*["']?([^\s"']+)["']?/);
+            if (cMatch) confPath = cMatch[1];
+
+            const pMatch = cmdLine.match(/-p\s*["']?([^\s"']+)["']?/);
+            if (pMatch) prefixPath = pMatch[1];
+
+            const isResty = cmdLine.toLowerCase().includes('openresty');
+            const binMatch = cmdLine.match(/(\/[^\s]+nginx|\/[^\s]+openresty|[a-zA-Z0-9_\-\/]+nginx)/);
+            const instanceBin = binMatch ? binMatch[1] : (details.binaryPath || 'nginx');
+
+            const isPrimary = pid === details.masterPid || instances.length === 0;
+            const workerCount = pid === details.masterPid ? details.workerCount : 1;
+
+            const name = isResty
+              ? `OpenResty Instance (PID ${pid})`
+              : confPath
+              ? `Nginx [${confPath}] (PID ${pid})`
+              : isPrimary
+              ? `Primary System Nginx (PID ${pid})`
+              : `Nginx Worker/Instance (PID ${pid})`;
+
+            instances.push({
+              id: `inst-${pid}`,
+              name,
+              binaryPath: instanceBin,
+              confPath: confPath || (isPrimary ? details.confPath : undefined),
+              prefixPath: prefixPath || (isPrimary ? details.prefixPath : undefined),
+              masterPid: pid,
+              workerCount,
+              user,
+              isPrimary,
+              status: 'active',
+              commandLine: cmdLine,
+            });
+          }
+        }
+      }
+
+      // Check inactive units/binaries if not already in running instances
+      for (const unit of discoveredUnits) {
+        if (!instances.some((i) => i.serviceName === unit || i.name.toLowerCase().includes(unit.toLowerCase()))) {
+          const unitName = unit.replace(/\.service$/, '');
+          if (unitName !== 'nginx' || instances.length === 0) {
+            instances.push({
+              id: `unit-${unitName}`,
+              name: `Service Unit: ${unit}`,
+              binaryPath: details.binaryPath || '/usr/sbin/nginx',
+              serviceName: unitName,
+              workerCount: 0,
+              isPrimary: instances.length === 0,
+              status: 'inactive',
+            });
+          }
+        }
+      }
+
+      for (const bin of discoveredBinaries) {
+        if (!instances.some((i) => i.binaryPath === bin)) {
+          const isResty = bin.includes('openresty');
+          instances.push({
+            id: `bin-${bin.replace(/[^a-zA-Z0-9]/g, '_')}`,
+            name: isResty ? `OpenResty (${bin})` : `Installed Binary (${bin})`,
+            binaryPath: bin,
+            workerCount: 0,
+            isPrimary: instances.length === 0,
+            status: 'inactive',
+          });
+        }
+      }
+    }
+
+    if (instances.length === 0 && details.isInstalled && details.binaryPath) {
+      instances.push({
+        id: 'inst-primary',
+        name: 'Primary System Nginx',
+        binaryPath: details.binaryPath,
+        confPath: details.confPath,
+        prefixPath: details.prefixPath,
+        masterPid: details.masterPid,
+        workerCount: details.workerCount,
+        serviceName: details.serviceName,
+        isPrimary: true,
+        status: details.serviceActive === 'active' ? 'active' : 'inactive',
+      });
+    }
+
+    details.instances = instances;
   } catch (err: any) {
     details.configTestOutput = err?.message || 'SSH connection failure during Nginx discovery';
   }
