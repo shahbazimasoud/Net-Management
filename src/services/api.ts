@@ -1355,6 +1355,34 @@ export async function discoverNginxTopology(
   return data;
 }
 
+export async function discoverApacheTopology(
+  serverId: string,
+  ephemeralPassword?: string,
+  options?: { targetConfPath?: string; targetBinaryPath?: string }
+): Promise<{
+  success: boolean;
+  discovery?: import('../types').ApacheInstallationDetails;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-discovery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      password: ephemeralPassword,
+      targetConfPath: options?.targetConfPath,
+      targetBinaryPath: options?.targetBinaryPath,
+    }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,

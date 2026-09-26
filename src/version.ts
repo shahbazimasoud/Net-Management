@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.170.0';
+export const APP_VERSION = '1.171.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.171.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۲ مدیریت آپاچی: کشف زنده و مستقل از توزیع، پایش سلامت، استخراج مشخصات ساخت، معماری MPM و ماژول‌های وب‌سرور Apache',
+    title_en: 'Apache Management Phase 2: Live Distribution-Neutral Discovery, Health Monitoring, Build Specs, MPM & Modules Engine',
+    changes: [
+      'پیاده‌سازی موتور کشف زنده و مستقل از توزیع آپاچی (/server/apacheDiscovery.ts): کشف خودکار باینری‌های واقعی دمون (httpd، apache2، httpd2) و ابزار کنترلی (apachectl، apache2ctl) بر روی انواع توزیع‌های لینوکس.',
+      'ایزولاسیون کامل شناسایی پروسه‌های وب‌سرور در اسکریپت شل از طریق بررسی فیلد comm در کنار ppid=1 جهت ریشه‌یابی و جلوگیری قطعی از تداخل با پروسه شل یا اسکریپت‌های در حال اجرا.',
+      'تعبیه اعتبارسنج سخت‌گیرانه باینری isLikelyApacheBinary جهت ممانعت از اجرای تصادفی یا مخرب شل‌ها یا اسکریپت‌های متفرقه.',
+      'استخراج مشخصات بیلد و پارامترهای زمان کامپایل (httpd -V / apache2 -V) شامل نسخه دقیق، مدل پردازش همزمانی فعال (MPM: event، worker، prefork)، مسیر ریشه (ServerRoot)، مسیر فایل کانفیگ اصلی، فایل PID و لاگ خطا.',
+      'کشف کامل ماژول‌های فعال و بارگذاری‌شده (Loaded Modules) استاتیک و اشتراکی (Shared) از طریق httpd -M همراه با قابلیت جستجو و فیلتر زنده در تب ماژول‌ها.',
+      'پیاده‌سازی تست امن و زنده سینتکس کانفیگ (Syntax Dry-Run Test با سوئیچ -t) با نمایش کارت وضعیت، بج تفکیک‌شده و کنسول خروجی ترمینال.',
+      'افزودن اندپوینت سرور /api/remote-servers/:id/apache-discovery و تابع کلاینت discoverApacheTopology در API سرویس.',
+      'اتصال تب‌های Overview و Modules مودال ApacheManagementModal به داده‌های کشف‌شده زنده و نمایش هشدارهای دقیق در صورت عدم نصب بودن وب‌سرور بر روی هاست.'
+    ],
+    changes_en: [
+      'Engineered live distribution-neutral Apache discovery engine (/server/apacheDiscovery.ts): auto-detects daemon binaries (httpd, apache2, httpd2) and control utilities (apachectl, apache2ctl) across all Linux families.',
+      'Enforced kernel process comm isolation alongside ppid=1 in process discovery, eliminating any possibility of shell or script interpreter false-positives.',
+      'Implemented strict isLikelyApacheBinary validator rejecting shells, interpreters, or arbitrary utilities from being executed as web servers.',
+      'Extracted compiler defines and build specs via httpd/apache2 -V: Apache version, active MPM (event, worker, prefork), ServerRoot, main config path, PID path, and error log path.',
+      'Discovered all active static and shared modules via httpd -M with real-time search and filter capabilities inside the dedicated Modules tab.',
+      'Built live non-destructive configuration syntax testing (-t) with real-time status badges, output consoles, and on-demand re-check capability.',
+      'Integrated backend route /api/remote-servers/:id/apache-discovery and client API service discoverApacheTopology.',
+      'Connected Overview and Modules tabs in ApacheManagementModal to authentic live discovery telemetry with transparent notices when Apache is not installed.'
+    ]
+  },
   {
     version: '1.170.0',
     releaseDate: '2026-09-26',

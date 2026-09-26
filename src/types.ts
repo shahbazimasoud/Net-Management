@@ -1464,6 +1464,54 @@ export interface NginxInstallationDetails {
   instances?: NginxInstanceInfo[];
 }
 
+export interface ApacheInstanceInfo {
+  id: string;
+  name: string;
+  binaryPath: string;
+  confPath?: string;
+  serverRoot?: string;
+  masterPid?: number;
+  workerCount: number;
+  user?: string;
+  serviceName?: string;
+  isPrimary: boolean;
+  version?: string;
+  status: 'active' | 'inactive' | 'unknown';
+  commandLine?: string;
+}
+
+export interface ApacheInstallationDetails {
+  isInstalled: boolean;
+  version?: string;
+  binaryPath?: string;
+  controlBinaryPath?: string;
+  serverRoot?: string;
+  confPath?: string;
+  pidPath?: string;
+  errorLogPath?: string;
+  accessLogPath?: string;
+  modulesPath?: string;
+  serviceName?: string;
+  serviceManager: 'systemd' | 'openrc' | 'init.d' | 'manual' | 'unknown';
+  serviceActive: 'active' | 'inactive' | 'failed' | 'unknown';
+  serviceEnabled: 'enabled' | 'disabled' | 'unknown';
+  masterPid?: number;
+  workerPids: number[];
+  workerCount: number;
+  activeMpm?: string;
+  compiledModules: string[];
+  loadedModules: string[];
+  buildArguments: string[];
+  osDistro?: string;
+  osRelease?: string;
+  osFamily: 'debian' | 'rhel' | 'alpine' | 'suse' | 'arch' | 'generic';
+  packageManager?: 'apt' | 'dnf' | 'yum' | 'apk' | 'zypper' | 'source' | 'unknown';
+  testedAt: string;
+  configTestOk: boolean;
+  configTestOutput?: string;
+  instances?: ApacheInstanceInfo[];
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

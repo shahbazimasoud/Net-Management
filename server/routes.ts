@@ -197,6 +197,7 @@ import {
   deleteLinuxCronJobSSH,
   runLinuxCronJobNowSSH,
 } from './linuxCronManager';
+import { discoverApacheInstallation } from './apacheDiscovery';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -1913,6 +1914,28 @@ apiRouter.post('/remote-servers/:id/nginx-discovery', async (req: Request, res: 
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to discover Nginx installation topology',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-discovery - Discovers real distribution-aware Apache installation topology
+apiRouter.post('/remote-servers/:id/apache-discovery', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, targetConfPath, targetBinaryPath } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const discovery = await discoverApacheInstallation(server, password, { targetConfPath, targetBinaryPath });
+    return res.json({ success: true, discovery });
+  } catch (err: any) {
+    console.error(`[ApacheDiscovery API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Apache installation topology',
     });
   }
 });
