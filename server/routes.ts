@@ -231,6 +231,10 @@ import {
   restoreApacheFileBackup,
   manageApacheService,
 } from './apacheSafeEditor';
+import {
+  performApacheSecurityAudit,
+  applyApacheSecurityHardening,
+} from './apacheSecurityAuditor';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2612,6 +2616,54 @@ apiRouter.post('/remote-servers/:id/apache-service-action', async (req: Request,
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to execute Apache service action',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-security-audit - Runs comprehensive Apache security hardening audit
+apiRouter.post('/remote-servers/:id/apache-security-audit', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, targetConfPath } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const report = await performApacheSecurityAudit(server, password, targetConfPath);
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    console.error(`[ApacheSecurityAudit API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to perform Apache security audit',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-security-apply-fix - Safely applies Apache security hardening configuration
+apiRouter.post('/remote-servers/:id/apache-security-apply-fix', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { targetFilePath, customContent, password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await applyApacheSecurityHardening(server, targetFilePath, customContent, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheSecurityApplyFix API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: req.body?.targetFilePath || '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Hardening application exception',
+      serviceReloaded: false,
+      error: err.message || 'Failed to apply Apache security hardening configuration',
     });
   }
 });

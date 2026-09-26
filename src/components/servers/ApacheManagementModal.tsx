@@ -62,6 +62,7 @@ import {
   History,
   Square,
   RotateCcw,
+  Box,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -97,6 +98,11 @@ import {
   ApacheEditorTestResult,
   ApacheServiceAction,
   ApacheServiceActionResult,
+  ApacheSecurityCategory,
+  ApacheSecuritySeverity,
+  ApacheSecurityAuditItem,
+  ApacheSecurityAuditReport,
+  ApacheSecurityApplyFixResult,
 } from '../../types';
 import {
   discoverApacheTopology,
@@ -124,6 +130,8 @@ import {
   listApacheFileBackups,
   restoreApacheFileBackup,
   manageApacheService,
+  fetchApacheSecurityAudit,
+  applyApacheSecurityHardening,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ApacheSafeEditorModal } from './ApacheSafeEditorModal';
@@ -146,7 +154,8 @@ export type ApacheTabType =
   | 'modules'
   | 'ssl'
   | 'logs'
-  | 'config';
+  | 'config'
+  | 'security';
 
 export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   isOpen,
@@ -320,6 +329,20 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   const [serviceActionResult, setServiceActionResult] = useState<ApacheServiceActionResult | null>(null);
   const [showServiceStatusModal, setShowServiceStatusModal] = useState<boolean>(false);
   const [serviceStatusOutput, setServiceStatusOutput] = useState<string>('');
+
+  // Security Audit & Hardening State (Phase 10)
+  const [auditReport, setAuditReport] = useState<ApacheSecurityAuditReport | null>(null);
+  const [loadingAudit, setLoadingAudit] = useState<boolean>(false);
+  const [auditCategoryFilter, setAuditCategoryFilter] = useState<string>('all');
+  const [auditSeverityFilter, setAuditSeverityFilter] = useState<string>('all');
+  const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
+  const [isApplyingHardening, setIsApplyingHardening] = useState<boolean>(false);
+  const [applyHardeningResult, setApplyHardeningResult] = useState<ApacheSecurityApplyFixResult | null>(null);
+  const [isHardeningDrawerOpen, setIsHardeningDrawerOpen] = useState<boolean>(false);
+  const [customHardeningContent, setCustomHardeningContent] = useState<string>('');
+  const [copiedRemediationId, setCopiedRemediationId] = useState<string | null>(null);
+  const [copiedHardeningSnippet, setCopiedHardeningSnippet] = useState<boolean>(false);
+  const [selectedAuditConfPath, setSelectedAuditConfPath] = useState<string>('');
 
   const [actionFeedback, setActionFeedback] = useState<{
     type: 'success' | 'error' | 'info';
@@ -1377,6 +1400,94 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     return { added, removed };
   }, [tabDiffLines]);
 
+  // Fetch Apache security audit data (Phase 10)
+  const fetchAuditData = useCallback(
+    async (targetConf?: string) => {
+      if (!server) return;
+      setLoadingAudit(true);
+      try {
+        const confToTest = targetConf || selectedAuditConfPath || discovery?.confPath;
+        const res = await fetchApacheSecurityAudit(server.id, server.ssh_password, confToTest);
+        if (res.success && res.report) {
+          setAuditReport(res.report);
+          setCustomHardeningContent(res.report.suggestedHardeningSnippet);
+          if (!selectedAuditConfPath && res.report.activeInstanceConf) {
+            setSelectedAuditConfPath(res.report.activeInstanceConf);
+          }
+        } else {
+          setActionFeedback({
+            type: 'error',
+            message: isEn ? 'Security audit scan failed' : 'ممیزی امنیتی با خطا مواجه شد',
+            details: res.error || (isEn ? 'Failed to audit Apache configuration.' : 'خطا در ارزیابی امنیتی کانفیگ آپاچی.'),
+          });
+        }
+      } catch (err: any) {
+        setActionFeedback({
+          type: 'error',
+          message: isEn ? 'Audit exception' : 'خطای ممیزی امنیتی',
+          details: err?.message || String(err),
+        });
+      } finally {
+        setLoadingAudit(false);
+      }
+    },
+    [server, selectedAuditConfPath, discovery, isEn]
+  );
+
+  // Apply Apache security hardening (Phase 10)
+  const handleApplySecurityHardening = useCallback(
+    async (targetPath?: string, contentToDeploy?: string) => {
+      if (!server || isApplyingHardening) return;
+      setIsApplyingHardening(true);
+      setApplyHardeningResult(null);
+
+      const content = contentToDeploy || customHardeningContent || auditReport?.suggestedHardeningSnippet;
+      if (!content) {
+        setIsApplyingHardening(false);
+        return;
+      }
+
+      try {
+        const res = await applyApacheSecurityHardening(
+          server.id,
+          targetPath,
+          content,
+          server.ssh_password
+        );
+        setApplyHardeningResult(res);
+
+        if (res.success) {
+          setActionFeedback({
+            type: 'success',
+            message: isEn
+              ? 'Security hardening successfully verified and deployed!'
+              : 'پیکربندی سخت‌سازی امنیتی با موفقیت اعتبارسنجی و اعمال گردید!',
+            details: `${isEn ? 'File' : 'فایل'}: ${res.filePath} | ${
+              isEn ? 'Syntax Test' : 'تست سینتکس'
+            }: PASSED | ${isEn ? 'Service' : 'سرویس'}: RELOADED`,
+          });
+          setIsHardeningDrawerOpen(false);
+          fetchAuditData(selectedAuditConfPath);
+        } else {
+          setActionFeedback({
+            type: 'error',
+            message: isEn ? 'Hardening failed - Atomic Rollback executed' : 'خطا در اعمال سخت‌سازی - رول‌بک اتمیک انجام شد',
+            details: res.error || res.syntaxOutput || (isEn ? 'Syntax test failed.' : 'تست ساختار کانفیگ ناموفق بود.'),
+          });
+        }
+      } catch (err: any) {
+        setActionFeedback({
+          type: 'error',
+          message: isEn ? 'Hardening deployment exception' : 'خطا در استقرار سخت‌سازی',
+          details: err?.message || String(err),
+        });
+      } finally {
+        setIsApplyingHardening(false);
+      }
+    },
+    [server, isApplyingHardening, customHardeningContent, auditReport, isEn, fetchAuditData, selectedAuditConfPath]
+  );
+
   useEffect(() => {
     if (isOpen && server) {
       fetchDiscovery();
@@ -1406,7 +1517,10 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
       const defaultPath = discovery?.confPath || '/etc/apache2/apache2.conf';
       handleLoadConfigFile(defaultPath);
     }
-  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, proxySummary, loadingProxy, modulesSummary, loadingModules, sslData, loadingSsl, logsSummary, loadingLogs, selectedConfigFile, discovery, server, fetchTopologyData, fetchVHostsData, fetchProxyData, fetchModulesData, fetchSslData, fetchLogsData, handleLoadConfigFile]);
+    if (activeTab === 'security' && !auditReport && !loadingAudit && server) {
+      fetchAuditData();
+    }
+  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, proxySummary, loadingProxy, modulesSummary, loadingModules, sslData, loadingSsl, logsSummary, loadingLogs, selectedConfigFile, auditReport, loadingAudit, discovery, server, fetchTopologyData, fetchVHostsData, fetchProxyData, fetchModulesData, fetchSslData, fetchLogsData, handleLoadConfigFile, fetchAuditData]);
 
   useEffect(() => {
     if (isOpen && server && activeTab === 'logs' && selectedLogFile) {
@@ -1426,6 +1540,76 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
       if (intervalId) clearInterval(intervalId);
     };
   }, [isOpen, server, activeTab, isLiveTailing, selectedLogFile, fetchLogStreamData]);
+
+  // Discovered config files list for dropdown selector (declared unconditionally before early return)
+  const availableConfigFiles = useMemo(() => {
+    const list: { label: string; path: string; category: string }[] = [];
+    const mainPath = topology?.mainConfigPath || discovery?.confPath || '/etc/apache2/apache2.conf';
+    list.push({
+      label: `${isEn ? 'Main Configuration' : 'پیکربندی اصلی'} (${mainPath.split('/').pop()})`,
+      path: mainPath,
+      category: isEn ? 'Core Configuration' : 'پیکربندی هسته',
+    });
+
+    if (topology?.files) {
+      topology.files.forEach((f) => {
+        if (f.filePath !== mainPath) {
+          const fn = f.filePath.split('/').pop() || f.filePath;
+          let cat = isEn ? 'Included Files' : 'فایل‌های پیوند‌شده';
+          if (f.filePath.includes('sites-')) cat = isEn ? 'VirtualHost Sites' : 'هاست‌های مجازی';
+          else if (f.filePath.includes('mods-')) cat = isEn ? 'Modules' : 'ماژول‌ها';
+          else if (f.filePath.includes('conf.d') || f.filePath.includes('conf-')) cat = isEn ? 'Configuration Snippets' : 'بخش‌های پیکربندی';
+          list.push({ label: fn, path: f.filePath, category: cat });
+        }
+      });
+    }
+
+    if (vhostsSummary?.vhosts) {
+      vhostsSummary.vhosts.forEach((v) => {
+        if (!list.some((item) => item.path === v.definedInFile)) {
+          const fn = v.definedInFile.split('/').pop() || v.definedInFile;
+          list.push({
+            label: `${v.serverName} (${fn})`,
+            path: v.definedInFile,
+            category: isEn ? 'VirtualHosts' : 'هاست‌های مجازی',
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [topology, discovery, vhostsSummary, isEn]);
+
+  // Filtered security audit items (Phase 10 - declared unconditionally before early return)
+  const filteredAuditItems = useMemo(() => {
+    if (!auditReport?.items) return [];
+    return auditReport.items.filter((item) => {
+      if (auditCategoryFilter !== 'all' && item.category !== auditCategoryFilter) {
+        return false;
+      }
+      if (auditSeverityFilter === 'passed' && !item.passed) return false;
+      if (auditSeverityFilter === 'failed' && item.passed) return false;
+      if (auditSeverityFilter === 'critical' && item.severity !== 'critical') return false;
+      if (auditSeverityFilter === 'warning' && item.severity !== 'warning') return false;
+      if (auditSeverityFilter === 'info' && item.severity !== 'info') return false;
+
+      if (auditSearchQuery.trim()) {
+        const query = auditSearchQuery.toLowerCase();
+        return (
+          item.title.toLowerCase().includes(query) ||
+          item.title_en.toLowerCase().includes(query) ||
+          item.description.toLowerCase().includes(query) ||
+          item.description_en.toLowerCase().includes(query) ||
+          item.impact.toLowerCase().includes(query) ||
+          item.impact_en.toLowerCase().includes(query) ||
+          item.remediationSnippet.toLowerCase().includes(query) ||
+          item.currentValue.toLowerCase().includes(query) ||
+          item.id.toLowerCase().includes(query)
+        );
+      }
+      return true;
+    });
+  }, [auditReport, auditCategoryFilter, auditSeverityFilter, auditSearchQuery]);
 
   if (!isOpen || !server) return null;
 
@@ -1470,45 +1654,6 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
       (vh.documentRoot && vh.documentRoot.toLowerCase().includes(term))
     );
   });
-
-  // Discovered config files list for dropdown selector
-  const availableConfigFiles = useMemo(() => {
-    const list: { label: string; path: string; category: string }[] = [];
-    const mainPath = topology?.mainConfigPath || discovery?.confPath || '/etc/apache2/apache2.conf';
-    list.push({
-      label: `${isEn ? 'Main Configuration' : 'پیکربندی اصلی'} (${mainPath.split('/').pop()})`,
-      path: mainPath,
-      category: isEn ? 'Core Configuration' : 'پیکربندی هسته',
-    });
-
-    if (topology?.files) {
-      topology.files.forEach((f) => {
-        if (f.filePath !== mainPath) {
-          const fn = f.filePath.split('/').pop() || f.filePath;
-          let cat = isEn ? 'Included Files' : 'فایل‌های پیوند‌شده';
-          if (f.filePath.includes('sites-')) cat = isEn ? 'VirtualHost Sites' : 'هاست‌های مجازی';
-          else if (f.filePath.includes('mods-')) cat = isEn ? 'Modules' : 'ماژول‌ها';
-          else if (f.filePath.includes('conf.d') || f.filePath.includes('conf-')) cat = isEn ? 'Configuration Snippets' : 'بخش‌های پیکربندی';
-          list.push({ label: fn, path: f.filePath, category: cat });
-        }
-      });
-    }
-
-    if (vhostsSummary?.vhosts) {
-      vhostsSummary.vhosts.forEach((v) => {
-        if (!list.some((item) => item.path === v.definedInFile)) {
-          const fn = v.definedInFile.split('/').pop() || v.definedInFile;
-          list.push({
-            label: `${v.serverName} (${fn})`,
-            path: v.definedInFile,
-            category: isEn ? 'VirtualHosts' : 'هاست‌های مجازی',
-          });
-        }
-      });
-    }
-
-    return list;
-  }, [topology, discovery, vhostsSummary, isEn]);
 
   return createPortal(
     <div
@@ -1988,6 +2133,37 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             <FileCode className="w-3.5 h-3.5" />
             <span>{isEn ? 'Config & Service' : 'کانفیگ و سرویس'}</span>
             <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P9</span>
+          </button>
+
+          {/* Tab 9: Security Audit & Hardening (Phase 10) */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+              activeTab === 'security'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : isLightMode
+                ? 'text-slate-600 hover:bg-slate-100'
+                : 'text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Security & Hardening' : 'امنیت و سخت‌سازی'}</span>
+            {auditReport ? (
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                  auditReport.overallScore >= 80
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : auditReport.overallScore >= 60
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'bg-rose-500/20 text-rose-300'
+                }`}
+              >
+                {auditReport.overallScore}/100
+              </span>
+            ) : (
+              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P10</span>
+            )}
           </button>
         </div>
 
@@ -6682,6 +6858,657 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* ======================================================== */}
+          {/* TAB 9: SECURITY AUDIT & HARDENING (Phase 10)             */}
+          {/* ======================================================== */}
+          {activeTab === 'security' && (
+            <div className="space-y-6">
+              {/* Top Score & Posture Banner */}
+              <div
+                className={`p-6 rounded-2xl border transition shadow-xs ${
+                  isLightMode
+                    ? 'bg-gradient-to-br from-white via-slate-50 to-slate-100 border-slate-200'
+                    : 'bg-gradient-to-br from-slate-900/90 via-slate-900/60 to-slate-950 border-slate-800'
+                }`}
+              >
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                  {/* Left: Score Badge & Grade */}
+                  <div className="flex items-center gap-5">
+                    <div
+                      className={`w-20 h-20 rounded-2xl flex flex-col items-center justify-center font-black text-3xl border-2 shadow-lg shrink-0 ${
+                        (auditReport?.overallScore ?? 0) >= 85
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-emerald-500/20'
+                          : (auditReport?.overallScore ?? 0) >= 70
+                          ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50 shadow-cyan-500/20'
+                          : (auditReport?.overallScore ?? 0) >= 50
+                          ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-amber-500/20'
+                          : 'bg-rose-500/20 text-rose-400 border-rose-500/50 shadow-rose-500/20'
+                      }`}
+                    >
+                      <span>
+                        {(auditReport?.overallScore ?? 0) >= 85
+                          ? 'A'
+                          : (auditReport?.overallScore ?? 0) >= 70
+                          ? 'B'
+                          : (auditReport?.overallScore ?? 0) >= 50
+                          ? 'C'
+                          : 'F'}
+                      </span>
+                      <span className="text-[10px] font-sans font-bold tracking-widest uppercase opacity-80">
+                        {isEn ? 'Grade' : 'رتبه'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className="w-5 h-5 text-amber-400" />
+                        <h2 className="text-lg font-bold">
+                          {isEn ? 'Apache Security Audit & Hardening' : 'ممیزی، ارزیابی و سخت‌سازی امنیتی آپاچی'}
+                        </h2>
+                      </div>
+                      <p className="text-xs text-slate-400 max-w-xl leading-relaxed">
+                        {isEn
+                          ? 'Comprehensive CIS Apache Benchmark & OWASP multi-vector audit analyzing ServerTokens, HTTP TRACE mitigation, defensive response headers, modern TLS cipher suites, root directory traversal limits, buffer caps, and worker process security.'
+                          : 'ممیزی چندبعدی مطابق با بنچ‌مارک رسمی CIS و توصیه‌های OWASP؛ بررسی نشت اطلاعات نسخه، هدرهای دفاعی HTTP، سایفرهای مدرن TLS، مسدودسازی ریشه فایل‌سیستم، سقف بافر و دسترسی پروسه ورکر.'}
+                      </p>
+
+                      {auditReport && (
+                        <div className="flex items-center gap-3 pt-1">
+                          <div className="w-36 sm:w-48 h-2 rounded-full bg-slate-800 overflow-hidden border border-white/5">
+                            <div
+                              className={`h-full rounded-full transition-all duration-700 ${
+                                auditReport.overallScore >= 80
+                                  ? 'bg-emerald-500'
+                                  : auditReport.overallScore >= 60
+                                  ? 'bg-amber-500'
+                                  : 'bg-rose-500'
+                              }`}
+                              style={{ width: `${auditReport.overallScore}%` }}
+                            />
+                          </div>
+                          <span className="font-mono text-xs font-bold">
+                            {auditReport.overallScore}/100 {isEn ? 'Hardening Score' : 'امتیاز نهایی'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Quick Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => fetchAuditData()}
+                      disabled={loadingAudit}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${loadingAudit ? 'animate-spin' : ''}`} />
+                      <span>{isEn ? 'Re-scan Audit' : 'اسکن مجدد'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsHardeningDrawerOpen(true)}
+                      disabled={!auditReport}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-800'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isEn ? 'Preview Hardening Config' : 'مشاهده کانفیگ سخت‌سازی'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target =
+                          discovery?.osFamily === 'debian'
+                            ? '/etc/apache2/conf-available/security-hardening.conf'
+                            : discovery?.osFamily === 'rhel'
+                            ? '/etc/httpd/conf.d/security-hardening.conf'
+                            : discovery?.confPath || '/etc/apache2/apache2.conf';
+                        setEditorModalFilePath(target);
+                        setEditorModalOpen(true);
+                      }}
+                      disabled={!auditReport}
+                      className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 ${
+                        isLightMode
+                          ? 'bg-cyan-50 border-cyan-300 text-cyan-800 hover:bg-cyan-100'
+                          : 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
+                      }`}
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isEn ? 'Edit in Safe Editor' : 'شخصی‌سازی در ویرایشگر امن'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleApplySecurityHardening()}
+                      disabled={isApplyingHardening || !auditReport}
+                      className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-2 transition cursor-pointer shadow-md disabled:opacity-50"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>
+                        {isApplyingHardening
+                          ? isEn
+                            ? 'Verifying & Deploying...'
+                            : 'در حال اعتبارسنجی و استقرار...'
+                          : isEn
+                          ? 'Apply Safe Hardening'
+                          : 'اعمال آنی سخت‌سازی امن'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 Metric Summary Counter Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Total Rules Audited' : 'کل قوانین ممیزی‌شده'}
+                    </span>
+                    <Box className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono">
+                    {auditReport?.totalChecks ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {isEn ? '20 CIS Apache security vectors' : '۲۰ بردار امنیتی بنچ‌مارک CIS'}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Compliant / Passed' : 'منطبق و امن'}
+                    </span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-emerald-400">
+                    {auditReport?.passedCount ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {isEn ? 'Hardened directives active' : 'دستورات امنیتی فعال'}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Critical Vulnerabilities' : 'آسیب‌پذیری بحرانی'}
+                    </span>
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                  </div>
+                  <div
+                    className={`text-2xl font-bold font-mono ${
+                      (auditReport?.criticalCount ?? 0) > 0 ? 'text-rose-400 animate-pulse' : 'text-slate-400'
+                    }`}
+                  >
+                    {auditReport?.criticalCount ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {(auditReport?.criticalCount ?? 0) > 0
+                      ? isEn
+                        ? 'Immediate fix required'
+                        : 'نیازمند اصلاح فوری'
+                      : isEn
+                      ? 'Zero critical issues'
+                      : 'بدون باگ بحرانی'}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isEn ? 'Warnings & Best Practices' : 'هشدارها و راهکارها'}
+                    </span>
+                    <AlertCircle className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div className="text-2xl font-bold font-mono text-amber-400">
+                    {auditReport?.warningCount ?? 0}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
+                    {isEn ? 'Optimization opportunities' : 'فرصت‌های بهینه‌سازی'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Live Execution Context Bar */}
+              {auditReport && (
+                <div
+                  className={`px-4 py-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs font-mono ${
+                    isLightMode ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-slate-900/40 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-400">{isEn ? 'Worker Process User:' : 'کاربر پروسه ورکر:'}</span>
+                      {auditReport.runtimeWorkerUser.toLowerCase() === 'root' ? (
+                        <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/40 font-bold flex items-center gap-1 animate-pulse">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          <span>{isEn ? 'ROOT (CRITICAL)' : 'روت (خطرناک)'}</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+                          {auditReport.runtimeWorkerUser} ({isEn ? 'Unprivileged' : 'غیرممتاز'})
+                        </span>
+                      )}
+                    </div>
+
+                    <span className="text-slate-600">•</span>
+                    <div>
+                      <span className="text-slate-400">{isEn ? 'Master User: ' : 'کاربر مستر: '}</span>
+                      <strong className="text-slate-200">{auditReport.runtimeMasterUser}</strong>
+                    </div>
+
+                    <span className="text-slate-600">•</span>
+                    <div>
+                      <span className="text-slate-400">{isEn ? 'Active Target Config: ' : 'کانفیگ هدف: '}</span>
+                      <strong className="text-amber-400 font-mono text-[11px]">
+                        {auditReport.activeInstanceConf}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Multi-Instance Selector if multiple instances exist */}
+                  {auditReport.discoveredInstances && auditReport.discoveredInstances.length > 1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 text-[11px] font-sans">
+                        {isEn ? 'Target Instance:' : 'نمونه هدف:'}
+                      </span>
+                      <select
+                        value={selectedAuditConfPath || auditReport.activeInstanceConf}
+                        onChange={(e) => {
+                          const conf = e.target.value;
+                          setSelectedAuditConfPath(conf);
+                          fetchAuditData(conf);
+                        }}
+                        className={`text-xs px-2.5 py-1 rounded-lg border font-mono ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-800'
+                            : 'bg-slate-900 border-slate-700 text-slate-200'
+                        }`}
+                      >
+                        {auditReport.discoveredInstances.map((inst) => (
+                          <option key={inst.id} value={inst.confPath}>
+                            {inst.name} ({inst.confPath.split('/').pop()})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Filters & Search Control Bar */}
+              <div
+                className={`p-4 rounded-xl border space-y-3 ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                  {/* Search Input */}
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={auditSearchQuery}
+                      onChange={(e) => setAuditSearchQuery(e.target.value)}
+                      placeholder={
+                        isEn
+                          ? 'Search rules, CVEs, directives (e.g. ServerTokens, TRACE, SSL, dotfiles)...'
+                          : 'جستجو در قوانین، شناسه‌های CVE و دستورات (مانند ServerTokens، TRACE، SSL)...'
+                      }
+                      className={`w-full pl-9 pr-8 py-2 text-xs rounded-xl border transition focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-300 text-slate-800'
+                          : 'bg-slate-950 border-slate-700 text-slate-200'
+                      }`}
+                    />
+                    {auditSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setAuditSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Status / Severity Filter Pills */}
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0 text-xs">
+                    {[
+                      { id: 'all', label: isEn ? 'All Status' : 'همه وضعیت‌ها' },
+                      { id: 'critical', label: isEn ? 'Critical' : 'بحرانی' },
+                      { id: 'warning', label: isEn ? 'Warnings' : 'هشدارها' },
+                      { id: 'info', label: isEn ? 'Info' : 'راهنما' },
+                      { id: 'failed', label: isEn ? 'Failed Only' : 'نامنطبق‌ها' },
+                      { id: 'passed', label: isEn ? 'Passed Only' : 'منطبق‌ها' },
+                    ].map((pill) => (
+                      <button
+                        key={pill.id}
+                        type="button"
+                        onClick={() => setAuditSeverityFilter(pill.id)}
+                        className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                          auditSeverityFilter === pill.id
+                            ? 'bg-amber-500 text-slate-950 border-amber-500 font-bold'
+                            : isLightMode
+                            ? 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                            : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        {pill.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Category Filter Pills */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800/40 text-xs">
+                  <span className="text-slate-400 text-[11px] font-semibold">
+                    {isEn ? 'Category:' : 'دسته‌بندی:'}
+                  </span>
+                  {[
+                    { id: 'all', label: isEn ? 'All Categories' : 'همه دسته‌ها' },
+                    { id: 'information_disclosure', label: isEn ? 'Info Disclosure' : 'نشت اطلاعات' },
+                    { id: 'headers', label: isEn ? 'Security Headers' : 'هدرهای امنیتی' },
+                    { id: 'ssl', label: isEn ? 'SSL / TLS' : 'رمزنگاری SSL/TLS' },
+                    { id: 'access_control', label: isEn ? 'Access Control' : 'کنترل دسترسی' },
+                    { id: 'dos_limits', label: isEn ? 'DoS & Slowloris' : 'حملات DoS و کندی' },
+                    { id: 'permissions', label: isEn ? 'Permissions' : 'مجوزهای سیستمی' },
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setAuditCategoryFilter(cat.id)}
+                      className={`px-2 py-0.5 rounded-md border text-[11px] transition cursor-pointer ${
+                        auditCategoryFilter === cat.id
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 font-bold'
+                          : isLightMode
+                          ? 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                          : 'border-slate-800 text-slate-400 hover:bg-slate-800'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audit Rules Cards List */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+                  <span>
+                    {isEn
+                      ? `Showing ${filteredAuditItems.length} of ${auditReport?.totalChecks || 0} security checks`
+                      : `نمایش ${filteredAuditItems.length} از ${auditReport?.totalChecks || 0} بررسی امنیتی`}
+                  </span>
+                </div>
+
+                {loadingAudit && !auditReport ? (
+                  <div className="p-12 text-center space-y-3">
+                    <RefreshCw className="w-8 h-8 text-amber-400 animate-spin mx-auto" />
+                    <p className="text-sm font-semibold text-slate-300">
+                      {isEn
+                        ? 'Auditing Apache directives, TLS ciphers, and live permissions...'
+                        : 'در حال ممیزی دایرکتیوهای آپاچی، سایفرهای TLS و مجوزهای زنده سرور...'}
+                    </p>
+                  </div>
+                ) : filteredAuditItems.length === 0 ? (
+                  <div
+                    className={`p-8 rounded-xl border text-center space-y-2 ${
+                      isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-900/40 border-slate-800'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                    <p className="text-sm font-bold text-slate-200">
+                      {isEn ? 'No issues matching current filters' : 'موردی با فیلترهای فعلی یافت نشد'}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {isEn
+                        ? 'Try clearing the search query or changing category/status filters.'
+                        : 'جستجو را پاک کنید یا فیلترهای وضعیت و دسته‌بندی را تغییر دهید.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredAuditItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`p-4 sm:p-5 rounded-xl border transition shadow-xs ${
+                        item.passed
+                          ? isLightMode
+                            ? 'bg-emerald-50/40 border-emerald-200'
+                            : 'bg-emerald-950/10 border-emerald-500/20'
+                          : item.severity === 'critical'
+                          ? isLightMode
+                            ? 'bg-rose-50/60 border-rose-200'
+                            : 'bg-rose-950/20 border-rose-500/40'
+                          : item.severity === 'warning'
+                          ? isLightMode
+                            ? 'bg-amber-50/50 border-amber-200'
+                            : 'bg-amber-950/15 border-amber-500/30'
+                          : isLightMode
+                          ? 'bg-cyan-50/30 border-cyan-200'
+                          : 'bg-cyan-950/10 border-cyan-500/20'
+                      }`}
+                    >
+                      {/* Item Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
+                        <div className="flex items-start gap-3">
+                          <div className="p-2 rounded-lg shrink-0 mt-0.5">
+                            {item.passed ? (
+                              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                            ) : item.severity === 'critical' ? (
+                              <AlertTriangle className="w-5 h-5 text-rose-400" />
+                            ) : item.severity === 'warning' ? (
+                              <AlertCircle className="w-5 h-5 text-amber-400" />
+                            ) : (
+                              <Info className="w-5 h-5 text-cyan-400" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="text-sm font-bold text-slate-100">
+                                {isEn ? item.title_en : item.title}
+                              </h3>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                                {item.id}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              {/* Category Badge */}
+                              <span className="text-[10px] px-2 py-0.5 rounded font-semibold bg-slate-800/80 text-cyan-300 border border-cyan-500/30">
+                                {item.category}
+                              </span>
+
+                              {/* Severity Badge */}
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                  item.severity === 'critical'
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                                    : item.severity === 'warning'
+                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                                    : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                                }`}
+                              >
+                                {item.severity}
+                              </span>
+
+                              {/* Status Badge */}
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded font-bold flex items-center gap-1 ${
+                                  item.passed
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                    : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                                }`}
+                              >
+                                {item.passed ? (
+                                  <>
+                                    <Check className="w-3 h-3" />
+                                    <span>{isEn ? 'Compliant' : 'منطبق و ایمن'}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <AlertTriangle className="w-3 h-3" />
+                                    <span>{isEn ? 'Needs Hardening' : 'نیازمند سخت‌سازی'}</span>
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Top-Right Action */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const target = item.affectedFiles[0] || discovery?.confPath || '/etc/apache2/apache2.conf';
+                              setEditorModalFilePath(target);
+                              setEditorModalOpen(true);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                                : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                            }`}
+                          >
+                            <Edit3 className="w-3 h-3 text-cyan-400" />
+                            <span>{isEn ? 'Open in Editor' : 'ویرایش در فایل'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Description & Impact */}
+                      <div className="space-y-2 text-xs text-slate-300 leading-relaxed mb-3">
+                        <p>{isEn ? item.description_en : item.description}</p>
+                        <div
+                          className={`p-2.5 rounded-lg border flex items-start gap-2 ${
+                            item.passed
+                              ? 'bg-slate-900/40 border-slate-800 text-slate-300'
+                              : 'bg-rose-950/20 border-rose-500/30 text-rose-300'
+                          }`}
+                        >
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                          <div>
+                            <strong className="font-semibold block mb-0.5">
+                              {isEn ? 'Security Impact & Vulnerability Vector:' : 'پیامد و ریسک امنیتی:'}
+                            </strong>
+                            <span>{isEn ? item.impact_en : item.impact}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Current vs Recommended Value Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 text-xs font-mono">
+                        <div
+                          className={`p-3 rounded-lg border ${
+                            isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-black/40 border-slate-800'
+                          }`}
+                        >
+                          <span className="text-[10px] text-slate-400 block mb-1 font-sans uppercase font-bold">
+                            {isEn ? 'Current Remote Value:' : 'مقدار فعلی در سرور:'}
+                          </span>
+                          <span
+                            className={
+                              item.passed ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'
+                            }
+                          >
+                            {item.currentValue}
+                          </span>
+                        </div>
+
+                        <div
+                          className={`p-3 rounded-lg border ${
+                            isLightMode ? 'bg-emerald-50 border-emerald-200' : 'bg-emerald-950/20 border-emerald-500/30'
+                          }`}
+                        >
+                          <span className="text-[10px] text-emerald-400 block mb-1 font-sans uppercase font-bold">
+                            {isEn ? 'Recommended Standard Value:' : 'مقدار پیشنهادی و ایمن:'}
+                          </span>
+                          <span className="text-emerald-300 font-semibold whitespace-pre-wrap">
+                            {item.recommendedValue}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Remediation Snippet Block */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400">
+                          <span className="font-sans font-semibold">
+                            {isEn ? 'Remediation Configuration Snippet:' : 'کد رفع و سخت‌سازی:'}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {item.affectedFiles && item.affectedFiles.length > 0 && (
+                              <span className="font-mono text-[10px] text-slate-500">
+                                {isEn ? 'Files: ' : 'فایل‌ها: '}
+                                {item.affectedFiles.map((f) => f.split('/').pop()).join(', ')}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(item.remediationSnippet);
+                                setCopiedRemediationId(item.id);
+                                setTimeout(() => setCopiedRemediationId(null), 2000);
+                              }}
+                              className="flex items-center gap-1 text-amber-400 hover:text-amber-300 cursor-pointer font-sans text-xs"
+                            >
+                              {copiedRemediationId === item.id ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-400" />
+                                  <span className="text-emerald-400">{isEn ? 'Copied!' : 'کپی شد!'}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>{isEn ? 'Copy' : 'کپی'}</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        <pre
+                          className={`p-3 rounded-lg border font-mono text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed ${
+                            isLightMode ? 'bg-slate-900 text-slate-200 border-slate-800' : 'bg-black/60 text-slate-200 border-slate-800'
+                          }`}
+                        >
+                          {item.remediationSnippet}
+                        </pre>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -8479,6 +9306,150 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                 >
                   {isEn ? 'Close' : 'بستن'}
                 </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* 8. APACHE PRODUCTION SECURITY HARDENING PREVIEW & DEPLOY MODAL (Phase 10) */}
+      {isHardeningDrawerOpen &&
+        createPortal(
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-[999995] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`w-full max-w-4xl max-h-[90vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            >
+              {/* Header with control buttons */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <ShieldCheck className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <h3 className="font-bold text-sm">
+                      {isEn
+                        ? 'Apache Production Security Hardening Configuration'
+                        : 'پیکربندی سخت‌سازی امنیتی استاندارد آپاچی'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {isEn
+                        ? 'CIS Apache Benchmark & OWASP Best Practices Profile'
+                        : 'پروفایل استاندارد بر اساس بنچ‌مارک رسمی CIS و توصیه‌های OWASP'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(customHardeningContent);
+                      setCopiedHardeningSnippet(true);
+                      setTimeout(() => setCopiedHardeningSnippet(false), 2000);
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                        : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {copiedHardeningSnippet ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">{isEn ? 'Copied' : 'کپی شد'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Copy Config' : 'کپی کانفیگ'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsHardeningDrawerOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 flex-1 overflow-y-auto space-y-4 text-xs font-sans">
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start gap-3 ${
+                    isLightMode ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                  }`}
+                >
+                  <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1 text-xs leading-relaxed">
+                    <div className="font-bold">
+                      {isEn ? 'Safe Atomic Deployment Target' : 'استقرار امن و رول‌بک خودکار'}
+                    </div>
+                    <div>
+                      {isEn
+                        ? 'This hardening configuration will be deployed to a dedicated security file (e.g. /etc/apache2/conf-available/security-hardening.conf or /etc/httpd/conf.d/security-hardening.conf). An automated syntax test (`apachectl -t`) is executed before reloading. If any test fails, an atomic rollback is triggered immediately with zero downtime.'
+                        : 'این کانفیگ در یک فایل اختصاصی (مانند /etc/apache2/conf-available/security-hardening.conf یا /etc/httpd/conf.d/security-hardening.conf) ذخیره می‌شود. قبل از فعال‌سازی، تست سینتکس (`apachectl -t`) انجام شده و در صورت کوچکترین خطا، رول‌بک اتمیک مانع از هرگونه قطعی سرویس خواهد شد.'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-300 block">
+                    {isEn ? 'Hardening Directives (Editable):' : 'دستورات سخت‌سازی (قابل ویرایش):'}
+                  </label>
+                  <textarea
+                    rows={16}
+                    value={customHardeningContent}
+                    onChange={(e) => setCustomHardeningContent(e.target.value)}
+                    className={`w-full p-3 text-xs font-mono rounded-xl border transition focus:outline-none focus:ring-1 focus:ring-amber-500 leading-relaxed ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-900'
+                        : 'bg-black/70 border-slate-800 text-slate-100'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-5 py-3.5 border-t border-slate-800 flex items-center justify-between gap-3">
+                <div className="text-[11px] text-slate-400 font-mono">
+                  {isEn ? 'Target: /etc/apache2/conf-available/security-hardening.conf' : 'مسیر استقرار: فایل امنیتی اختصاصی'}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsHardeningDrawerOpen(false)}
+                    className="px-4 py-2 rounded-lg border border-slate-700 text-slate-400 hover:text-white cursor-pointer text-xs"
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApplySecurityHardening(undefined, customHardeningContent)}
+                    disabled={isApplyingHardening}
+                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-2 transition cursor-pointer shadow-md disabled:opacity-50"
+                  >
+                    {isApplyingHardening ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isApplyingHardening
+                        ? isEn
+                          ? 'Validating & Applying...'
+                          : 'در حال اعتبارسنجی و استقرار...'
+                        : isEn
+                        ? 'Validate & Deploy Hardening'
+                        : 'اعتبارسنجی و استقرار نهایی'}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>,

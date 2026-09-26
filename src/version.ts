@@ -10,9 +10,42 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.178.0';
+export const APP_VERSION = '1.179.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.179.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۱۰ مدیریت آپاچی: ممیزی جامع امنیتی، تطبیق با بنچ‌مارک CIS، موتور خودکار سخت‌سازی، عیب‌یابی پروسه‌ها و پشتیبانی چندنمونه‌ای (Multi-Instance)',
+    title_en: 'Apache Management Phase 10: Advanced Security Audit, CIS Benchmark Compliance, Automated Hardening Generator, Process Privilege Inspection & Multi-Instance Architecture',
+    changes: [
+      'پیاده‌سازی موتور ممیزی امنیتی چندبعدی آپاچی (/server/apacheSecurityAuditor.ts) با تحلیل جامع ۲۰ بردار امنیتی مطابق با استانداردهای رسمی CIS Apache Benchmark و OWASP.',
+      'پایش دقیق نشت اطلاعات با بررسی سختگیرانه دایرکتیوهای ServerTokens Prod، ServerSignature Off و مسدودسازی متد خطرناک HTTP TRACE جهت پیشگیری قاطع از سرقت کوکی‌های حساس از طریق حملات Cross-Site Tracing (XST).',
+      'تحلیل هدرهای امنیتی دفاعی لایه وب شامل X-Frame-Options (کلیک‌جکینگ)، X-Content-Type-Options nosniff (تزریق MIME)، سیاست امنیت محتوا (CSP)، Referrer-Policy و HSTS برای ارتباطات HTTPS.',
+      'ممیزی عمیق رمزنگاری SSL/TLS: حذف پروتکل‌های منسوخ و ناامن (SSLv2, SSLv3, TLSv1, TLSv1.1)، بهینه‌سازی زنجیره سایفرها با پشتیبانی از Forward Secrecy و بررسی فعال بودن OCSP Stapling.',
+      'کنترل دسترسی فایل‌سیستم: مسدودسازی پیش‌فرض ریشه سیستم‌عامل (<Directory /> Require all denied)، ممانعت از دانلود ناخواسته مخازن گیت (.git)، فایل‌های متغیرهای محیطی (.env) و فایل‌های پشتیبان/دامپ دیتابیس (.sql, .bak, .swp) و غیرفعال‌سازی نمایش لیست پوشه‌ها (Options -Indexes).',
+      'سخت‌سازی تایم‌اوت‌ها در برابر حملات محروم‌سازی از سرویس (DoS / Slowloris) از طریق پایش Timeout، KeepAliveTimeout، LimitRequestBody و ماژول mod_reqtimeout.',
+      'پایش زنده دسترسی‌های پروسه در محیط لینوکس: اعتبارسنجی اجرای ورکرها تحت کاربران غیرممتاز (مانند www-data یا apache) و عدم اجرای آنها به عنوان کاربر root، ارزیابی مجوزهای فایل‌های کانفیگ و دسترسی کلیدهای خصوصی SSL.',
+      'پشتیبانی جامع از معماری چندنمونه‌ای (Multi-Instance): شناسایی و تفکیک نمونه‌های مستقل فعال آپاچی با فایل‌های کانفیگ و پورت‌های مجزا.',
+      'موتور استقرار امن و خودکار سخت‌سازی با اعتبارسنجی سینتکس (apachectl -t)، پشتیبان‌گیری خودکار و رول‌بک اتمیک در صورت کوچکترین خطا.',
+      'رفع قطعی و دائمی خطای React Error #310 (Component Rendering Interrupted) با بازسازی و اصلاح کامل ترتیب فراخوانی هوک‌های React در کامپوننت ApacheManagementModal.',
+      'افزودن تب ۹ (Security & Hardening) با کارت‌های شاخص چهارگانه، نشان‌های رتبه امنیتی (A/B/C/F)، نوار وضعیت تلمتری پروسه‌ها، فیلترهای چندگانه و مدال پیش‌نمایش و شخصی‌سازی کانفیگ سخت‌سازی.'
+    ],
+    changes_en: [
+      'Engineered comprehensive Apache Security Auditor (/server/apacheSecurityAuditor.ts) covering 20 automated security vectors aligned with official CIS Apache Benchmark and OWASP standards.',
+      'Information disclosure defense auditing ServerTokens Prod, ServerSignature Off, and strict HTTP TRACE disablement preventing session hijacking via Cross-Site Tracing (XST).',
+      'Defensive security headers analysis: X-Frame-Options (Clickjacking), X-Content-Type-Options nosniff, Content Security Policy (CSP), Referrer-Policy, and HSTS for SSL hosts.',
+      'Cryptographic SSL/TLS audit: elimination of deprecated legacy protocols (SSLv2, SSLv3, TLSv1, TLSv1.1), enforcement of modern forward-secret cipher suites, and OCSP Stapling evaluation.',
+      'Filesystem access controls: default root directory restriction (<Directory /> Require all denied), blocking of hidden dotfiles (.git, .env) and backup/dump files (.sql, .bak, .swp), and global directory indexing prevention (Options -Indexes).',
+      'Slowloris & buffer DoS mitigation: auditing socket timeouts, KeepAlive, LimitRequestBody, and mod_reqtimeout configurations.',
+      'Live Linux process & privilege telemetry: verifying worker processes run as non-root unprivileged accounts (www-data/apache), checking SSL private key permissions, and preventing world-writable configuration files.',
+      'Multi-instance Apache architecture support: discovering and auditing secondary isolated instances running with distinct configuration roots.',
+      'One-click automated safe hardening engine with isolated syntax testing (apachectl -t), automated timestamped backups, and atomic rollback on failure.',
+      'Resolved Minified React Error #310 (Component Rendering Interrupted) permanently by restructuring React hook execution order unconditionally before early returns in ApacheManagementModal.',
+      'Added Tab 9 (Security & Hardening) featuring security posture grade badges (A/B/C/F), 4 top metric counters, process context indicators, multi-faceted filtering, and interactive hardening deployment drawer.'
+    ]
+  },
   {
     version: '1.178.0',
     releaseDate: '2026-09-26',

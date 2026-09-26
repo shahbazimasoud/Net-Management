@@ -1956,6 +1956,64 @@ export interface ApacheServiceActionResult {
   error?: string;
 }
 
+// ==========================================
+// APACHE MANAGEMENT PHASE 10: ADVANCED SECURITY AUDIT, HARDENING GENERATOR & BENCHMARK COMPLIANCE
+// ==========================================
+
+export type ApacheSecurityCategory =
+  | 'information_disclosure'
+  | 'headers'
+  | 'ssl'
+  | 'dos_limits'
+  | 'access_control'
+  | 'permissions';
+
+export type ApacheSecuritySeverity = 'critical' | 'warning' | 'info';
+
+export interface ApacheSecurityAuditItem {
+  id: string;
+  category: ApacheSecurityCategory;
+  title: string;
+  title_en: string;
+  severity: ApacheSecuritySeverity;
+  passed: boolean;
+  currentValue: string;
+  recommendedValue: string;
+  description: string;
+  description_en: string;
+  impact: string;
+  impact_en: string;
+  remediationSnippet: string;
+  affectedFiles: string[];
+}
+
+export interface ApacheSecurityAuditReport {
+  testedAt: string;
+  totalChecks: number;
+  passedCount: number;
+  warningCount: number;
+  criticalCount: number;
+  infoCount: number;
+  overallScore: number;
+  runtimeWorkerUser: string;
+  runtimeMasterUser: string;
+  discoveredInstances: ApacheInstanceInfo[];
+  activeInstanceConf: string;
+  items: ApacheSecurityAuditItem[];
+  suggestedHardeningSnippet: string;
+}
+
+export interface ApacheSecurityApplyFixResult {
+  success: boolean;
+  filePath: string;
+  backupCreated?: string;
+  syntaxTestPassed: boolean;
+  syntaxOutput: string;
+  serviceReloaded: boolean;
+  reloadOutput?: string;
+  error?: string;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;
