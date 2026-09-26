@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.181.1';
+export const APP_VERSION = '1.182.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.182.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۱ مدیریت PostgreSQL: زیرساخت امن احراز هویت، نگهداری پورت و نام کاربری، اتصال مستقیم بک‌اند و مدخل مدیریت در منوی سرورهای لینوکس',
+    title_en: 'PostgreSQL Management Phase 1: Secure Credential Infrastructure, Port & User Storage, Direct Backend Connection Testing & Management Entry Point',
+    changes: [
+      'یکپارچه‌سازی فرم ثبت و ویرایش سرورهای لینوکس با پارامترهای اختصاصی PostgreSQL شامل نام کاربری، پورت سفارشی (پیش‌فرض ۵۴۳۲) و رمز عبور.',
+      'رمزنگاری پیشرفته کلمات عبور PostgreSQL در دیتابیس پنل با الگوریتم AES-256-GCM و رعایت کامل قانون عدم نشت (Zero-Leak) بدون ارسال به مرورگر.',
+      'پیاده‌سازی ماژول بک‌اند مدیریت و آزمون اتصال مستقیم PostgreSQL (/server/postgresManager.ts) با استفاده از درایور pg بدون اتکای تصادفی به شل یا psql.',
+      'افزودن گزینه‌ی "مدیریت PostgreSQL" به منوی سه‌نقطه سرورهای لینوکسی که سرویس PostgreSQL در آن‌ها فعال یا نصب شده است.',
+      'طراحی و استقرار پنجره‌ی استاندارد مدیریت PostgreSQL (PostgreSQLManagementModal) مجهز به دکمه‌های سه‌گانه، پشتیبانی از داک، تم روشن/تیره، متون دوزبانه، کادرهای سه‌بخشی Info و نمایش زنده وضعیت اتصال و نسخه موتور.'
+    ],
+    changes_en: [
+      'Integrated Linux remote server registration and editing flow with dedicated PostgreSQL connection fields (username, custom port defaulting to 5432, and password).',
+      'Implemented AES-256-GCM encryption at rest for PostgreSQL credentials adhering strictly to the Zero-Leak security standard (passwords scrubbed before client responses).',
+      'Engineered direct backend PostgreSQL connection manager (/server/postgresManager.ts) leveraging the pg client driver without relying on arbitrary SSH shell psql calls.',
+      'Added dynamic "PostgreSQL Management" action item to the 3-dot server menu in Remote Servers & Automation Fleet (visible only when PostgreSQL is configured).',
+      'Crafted PostgreSQLManagementModal adhering to universal modal standards with triple header controls, dock minimization, light/dark themes, strict bilingual localization, 3-part field info tooltips, and real-time engine telemetry.'
+    ]
+  },
   {
     version: '1.181.1',
     releaseDate: '2026-09-26',

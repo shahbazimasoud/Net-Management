@@ -33,6 +33,7 @@ import {
   RotateCcw,
   Power,
   X,
+  Database,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory } from '../../types';
 import {
@@ -49,6 +50,7 @@ import { LinuxServerMonitorModal } from './LinuxServerMonitorModal';
 import { LinuxFileExplorerModal } from './LinuxFileExplorerModal';
 import { NginxManagementModal } from './NginxManagementModal';
 import { ApacheManagementModal } from './ApacheManagementModal';
+import { PostgreSQLManagementModal } from './PostgreSQLManagementModal';
 import { WindowsRemoteConnectModal } from './WindowsRemoteConnectModal';
 import { InBrowserRemoteDesktopModal } from './InBrowserRemoteDesktopModal';
 import { OnDemandPasswordModal } from './OnDemandPasswordModal';
@@ -307,6 +309,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Linux Apache Web Server Management Modal (Phase 1 Entry Point)
   const [apacheModalServer, setApacheModalServer] = useState<RemoteServer | null>(null);
   const [isApacheModalOpen, setIsApacheModalOpen] = useState(false);
+
+  // Linux PostgreSQL Database Management Modal (Phase 1 Entry Point)
+  const [postgresModalServer, setPostgresModalServer] = useState<RemoteServer | null>(null);
+  const [isPostgresModalOpen, setIsPostgresModalOpen] = useState(false);
 
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
@@ -646,6 +652,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     undockModal(`apache_mgmt_${server.id}`);
   };
 
+  // Handle Open PostgreSQL Management (Phase 1 Entry Point)
+  const handleOpenPostgresManagement = (server: RemoteServer) => {
+    setMenuAnchor(null);
+    setPostgresModalServer(server);
+    setIsPostgresModalOpen(true);
+    undockModal(`postgres_mgmt_${server.id}`);
+  };
+
   // Handle Open Windows Remote
   const handleOpenWindowsRemote = (server: RemoteServer) => {
     setWindowsModalServer(server);
@@ -948,6 +962,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onClose: () => {
           setIsApacheModalOpen(false);
           undockModal(`apache_mgmt_${apacheModalServer.id}`);
+        },
+      });
+    }
+  };
+
+  const handleMinimizePostgresManagement = () => {
+    setIsPostgresModalOpen(false);
+    if (postgresModalServer) {
+      dockModal({
+        id: `postgres_mgmt_${postgresModalServer.id}`,
+        labelEn: `${postgresModalServer.name} - PostgreSQL Management`,
+        labelFa: `مدیریت PostgreSQL ${postgresModalServer.name}`,
+        badge: 'PGSQL',
+        category: 'tools',
+        onRestore: () => setIsPostgresModalOpen(true),
+        onClose: () => {
+          setIsPostgresModalOpen(false);
+          undockModal(`postgres_mgmt_${postgresModalServer.id}`);
         },
       });
     }
@@ -2841,6 +2873,28 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       </button>
                     )}
 
+                    {/* PostgreSQL Management (shown if server has_postgresql is true or installed_databases includes 'postgresql') */}
+                    {(menuAnchor.server.has_postgresql || (Array.isArray(menuAnchor.server.installed_databases) && menuAnchor.server.installed_databases.includes('postgresql'))) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const s = menuAnchor.server;
+                          handleOpenPostgresManagement(s);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                          isEn ? 'text-left' : 'text-right'
+                        } ${isLightMode ? 'hover:bg-blue-50 text-blue-700' : 'hover:bg-blue-500/15 text-blue-300'}`}
+                      >
+                        <Database className="w-4 h-4 text-blue-400 shrink-0" />
+                        <div className="flex flex-col">
+                          <span>{isEn ? 'PostgreSQL Management' : 'مدیریت PostgreSQL'}</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-blue-600/80' : 'text-blue-400/80'}`}>
+                            {isEn ? 'Database Engine, Telemetry & Status' : 'پایگاه داده، پایش وضعیت و تلمتری'}
+                          </span>
+                        </div>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => {
@@ -3162,6 +3216,26 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         onMinimize={handleMinimizeApacheManagement}
         onOpenTerminal={(s) => {
           handleOpenLinuxTerminal(s, 'bash');
+        }}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 12.9 Linux PostgreSQL Management Modal (Phase 1 Entry Point) */}
+      <PostgreSQLManagementModal
+        isOpen={isPostgresModalOpen}
+        server={postgresModalServer}
+        onClose={() => {
+          setIsPostgresModalOpen(false);
+          if (postgresModalServer) undockModal(`postgres_mgmt_${postgresModalServer.id}`);
+          setPostgresModalServer(null);
+        }}
+        onMinimize={handleMinimizePostgresManagement}
+        onOpenTerminal={(s) => {
+          handleOpenLinuxTerminal(s, 'bash');
+        }}
+        onEditServer={(s) => {
+          handleOpenEdit(s);
         }}
         isLightMode={isLightMode}
         isEn={isEn}

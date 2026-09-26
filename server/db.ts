@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
+import { encryptServerSecret } from './vaultCrypto';
 
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
@@ -137,6 +138,11 @@ export interface RemoteServer {
   has_nginx?: boolean;
   has_postgresql?: boolean;
   has_mysql?: boolean;
+  postgres_port?: number;
+  postgres_user?: string;
+  postgres_password?: string;
+  postgres_password_set?: boolean;
+  postgres_database?: string;
   status: 'online' | 'offline' | 'unreachable' | 'maintenance' | 'untested';
   cpu_cores?: number;
   ram_gb?: number;
@@ -1472,6 +1478,10 @@ export async function initDatabase(): Promise<void> {
       await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_nginx BOOLEAN DEFAULT FALSE');
       await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_postgresql BOOLEAN DEFAULT FALSE');
       await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_mysql BOOLEAN DEFAULT FALSE');
+      await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_port INT DEFAULT 5432');
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_user VARCHAR(64) DEFAULT 'postgres'");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_password TEXT DEFAULT ''");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_database VARCHAR(64) DEFAULT 'postgres'");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -2995,6 +3005,11 @@ function rowToRemoteServer(r: any): RemoteServer {
     has_nginx: Boolean(r.has_nginx ?? (Array.isArray(r.installed_web_servers) ? r.installed_web_servers.includes('nginx') : false)),
     has_postgresql: Boolean(r.has_postgresql ?? (Array.isArray(r.installed_databases) ? r.installed_databases.includes('postgresql') : false)),
     has_mysql: Boolean(r.has_mysql ?? (Array.isArray(r.installed_databases) ? r.installed_databases.includes('mysql') : false)),
+    postgres_port: r.postgres_port ? Number(r.postgres_port) : 5432,
+    postgres_user: r.postgres_user || 'postgres',
+    postgres_password: r.postgres_password || '',
+    postgres_password_set: Boolean(r.postgres_password && String(r.postgres_password).trim().length > 0),
+    postgres_database: r.postgres_database || 'postgres',
     status: (r.status || 'untested') as 'online' | 'offline' | 'unreachable' | 'untested',
     cpu_cores: r.cpu_cores !== undefined && r.cpu_cores !== null && Number(r.cpu_cores) > 0 ? Number(r.cpu_cores) : undefined,
     ram_gb: r.ram_gb !== undefined && r.ram_gb !== null && Number(r.ram_gb) > 0 ? Number(r.ram_gb) : undefined,
@@ -3004,6 +3019,20 @@ function rowToRemoteServer(r: any): RemoteServer {
     notes: r.notes || '',
     created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
     updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+  };
+}
+
+/**
+ * Scrubs sensitive PostgreSQL passwords and credentials before sending server objects to frontend API consumers.
+ * Indicates `postgres_password_set: true` so UI knows a password is saved on server.
+ */
+export function sanitizeRemoteServerForClient(s: RemoteServer): RemoteServer {
+  return {
+    ...s,
+    postgres_password_set: Boolean(
+      s.postgres_password_set || (s.postgres_password && String(s.postgres_password).trim().length > 0)
+    ),
+    postgres_password: '', // Stripped to ensure zero-leak credential confidentiality
   };
 }
 
@@ -3129,6 +3158,11 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     has_nginx: Boolean(data.has_nginx ?? (Array.isArray(data.installed_web_servers) ? data.installed_web_servers.includes('nginx') : false)),
     has_postgresql: Boolean(data.has_postgresql ?? (Array.isArray(data.installed_databases) ? data.installed_databases.includes('postgresql') : false)),
     has_mysql: Boolean(data.has_mysql ?? (Array.isArray(data.installed_databases) ? data.installed_databases.includes('mysql') : false)),
+    postgres_port: data.postgres_port ? Number(data.postgres_port) : 5432,
+    postgres_user: data.postgres_user?.trim() || 'postgres',
+    postgres_password: data.postgres_password ? encryptServerSecret(data.postgres_password.trim()) : '',
+    postgres_password_set: Boolean(data.postgres_password && data.postgres_password.trim().length > 0),
+    postgres_database: data.postgres_database?.trim() || 'postgres',
     status: data.status || 'untested',
     cpu_cores: data.cpu_cores !== undefined && data.cpu_cores !== null && Number(data.cpu_cores) > 0 ? Number(data.cpu_cores) : undefined,
     ram_gb: data.ram_gb !== undefined && data.ram_gb !== null && Number(data.ram_gb) > 0 ? Number(data.ram_gb) : undefined,
@@ -3160,9 +3194,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
           prompt_password_on_connect,
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
+          postgres_port, postgres_user, postgres_password, postgres_database,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -3196,6 +3231,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           has_nginx = EXCLUDED.has_nginx,
           has_postgresql = EXCLUDED.has_postgresql,
           has_mysql = EXCLUDED.has_mysql,
+          postgres_port = EXCLUDED.postgres_port,
+          postgres_user = EXCLUDED.postgres_user,
+          postgres_password = EXCLUDED.postgres_password,
+          postgres_database = EXCLUDED.postgres_database,
           updated_at = NOW()`,
         [
           newServer.id,
@@ -3231,6 +3270,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           Boolean(newServer.has_nginx),
           Boolean(newServer.has_postgresql),
           Boolean(newServer.has_mysql),
+          newServer.postgres_port || 5432,
+          newServer.postgres_user || 'postgres',
+          newServer.postgres_password || '',
+          newServer.postgres_database || 'postgres',
           newServer.created_at,
           newServer.updated_at,
         ]
@@ -3337,6 +3380,16 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     has_mysql: updates.has_mysql !== undefined
       ? Boolean(updates.has_mysql)
       : (Array.isArray(updates.installed_databases) ? updates.installed_databases.includes('mysql') : (current.has_mysql ?? false)),
+    postgres_port: updates.postgres_port !== undefined ? (Number(updates.postgres_port) || 5432) : (current.postgres_port || 5432),
+    postgres_user: updates.postgres_user !== undefined ? updates.postgres_user.trim() : (current.postgres_user || 'postgres'),
+    postgres_password: updates.postgres_password !== undefined && updates.postgres_password.trim() !== ''
+      ? encryptServerSecret(updates.postgres_password.trim())
+      : (current.postgres_password || ''),
+    postgres_password_set: Boolean(
+      (updates.postgres_password !== undefined && updates.postgres_password.trim().length > 0) ||
+      (current.postgres_password && current.postgres_password.length > 0)
+    ),
+    postgres_database: updates.postgres_database !== undefined ? updates.postgres_database.trim() : (current.postgres_database || 'postgres'),
     status: updates.status !== undefined ? updates.status : (current.status || 'untested'),
     cpu_cores: updates.cpu_cores !== undefined ? (updates.cpu_cores !== null && Number(updates.cpu_cores) > 0 ? Number(updates.cpu_cores) : undefined) : current.cpu_cores,
     ram_gb: updates.ram_gb !== undefined ? (updates.ram_gb !== null && Number(updates.ram_gb) > 0 ? Number(updates.ram_gb) : undefined) : current.ram_gb,
@@ -3373,9 +3426,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
           prompt_password_on_connect,
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
+          postgres_port, postgres_user, postgres_password, postgres_database,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -3409,6 +3463,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           has_nginx = EXCLUDED.has_nginx,
           has_postgresql = EXCLUDED.has_postgresql,
           has_mysql = EXCLUDED.has_mysql,
+          postgres_port = EXCLUDED.postgres_port,
+          postgres_user = EXCLUDED.postgres_user,
+          postgres_password = EXCLUDED.postgres_password,
+          postgres_database = EXCLUDED.postgres_database,
           updated_at = NOW()`,
         [
           updated.id,
@@ -3444,6 +3502,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           Boolean(updated.has_nginx),
           Boolean(updated.has_postgresql),
           Boolean(updated.has_mysql),
+          updated.postgres_port || 5432,
+          updated.postgres_user || 'postgres',
+          updated.postgres_password || '',
+          updated.postgres_database || 'postgres',
           updated.created_at || new Date().toISOString(),
           updated.updated_at,
         ]

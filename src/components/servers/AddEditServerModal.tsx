@@ -147,6 +147,12 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [hasPostgres, setHasPostgres] = useState(false);
   const [hasMysql, setHasMysql] = useState(false);
 
+  // PostgreSQL-specific connection credentials (Phase 1)
+  const [postgresPort, setPostgresPort] = useState<number | string>(5432);
+  const [postgresUser, setPostgresUser] = useState('postgres');
+  const [postgresPassword, setPostgresPassword] = useState('');
+  const [showPostgresPassword, setShowPostgresPassword] = useState(false);
+
   // Windows-specific
   const [winProtocol, setWinProtocol] = useState<'rdp' | 'powershell' | 'winrm' | 'ssh'>('rdp');
   const [winPort, setWinPort] = useState<number | string>(3389);
@@ -208,6 +214,10 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setHasNginx(Boolean(serverToEdit.has_nginx || wsList.includes('nginx')));
         setHasPostgres(Boolean(serverToEdit.has_postgresql || dbList.includes('postgresql')));
         setHasMysql(Boolean(serverToEdit.has_mysql || dbList.includes('mysql') || dbList.includes('mariadb')));
+        setPostgresPort(serverToEdit.postgres_port || 5432);
+        setPostgresUser(serverToEdit.postgres_user || 'postgres');
+        setPostgresPassword('');
+        setShowPostgresPassword(false);
       } else {
         // Defaults for new server
         setName('');
@@ -224,6 +234,10 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setHasNginx(false);
         setHasPostgres(false);
         setHasMysql(false);
+        setPostgresPort(5432);
+        setPostgresUser('postgres');
+        setPostgresPassword('');
+        setShowPostgresPassword(false);
         setSshPort(22);
         setSshUsername('root');
         setSshPassword('');
@@ -315,6 +329,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         has_nginx: osType === 'linux' ? hasNginx : false,
         has_postgresql: osType === 'linux' ? hasPostgres : false,
         has_mysql: osType === 'linux' ? hasMysql : false,
+        postgres_port: hasPostgres && osType === 'linux' ? (Number(postgresPort) || 5432) : undefined,
+        postgres_user: hasPostgres && osType === 'linux' ? (postgresUser.trim() || 'postgres') : undefined,
+        postgres_password: hasPostgres && osType === 'linux' && postgresPassword.trim() ? postgresPassword.trim() : undefined,
         status: serverToEdit?.status || 'online',
         cpu_cores: cpuCores !== '' && Number(cpuCores) > 0 ? Number(cpuCores) : undefined,
         ram_gb: ramGb !== '' && Number(ramGb) > 0 ? Number(ramGb) : undefined,
@@ -790,6 +807,122 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                     </label>
                   </div>
                 </div>
+
+                {/* PostgreSQL Specific Connection Parameters (Phase 1) */}
+                {hasPostgres && (
+                  <div
+                    className={`p-3 rounded-xl border space-y-2 mt-2 transition-all ${
+                      isLightMode
+                        ? 'bg-blue-50/80 border-blue-200 text-slate-800'
+                        : 'bg-blue-950/25 border-blue-500/30 text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Database className="w-3.5 h-3.5 text-blue-400" />
+                        <span className={`text-[11px] font-bold ${isLightMode ? 'text-blue-950' : 'text-blue-300'}`}>
+                          {isEn ? 'PostgreSQL Connection Parameters' : 'تنظیمات اتصال به PostgreSQL'}
+                        </span>
+                        <FieldInfoTooltip
+                          title={isEn ? 'PostgreSQL Credentials & Port' : 'مشخصات احراز هویت و پورت PostgreSQL'}
+                          whatIsIt={
+                            isEn
+                              ? 'Connection credentials (username, password, port) used by the panel backend to connect directly to PostgreSQL.'
+                              : 'مشخصات اتصال (نام کاربری، کلمه عبور و پورت) که توسط بک‌اند پنل جهت اتصال مستقیم به پایگاه داده PostgreSQL سرور استفاده می‌شود.'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Required for Phase 1 connection validation, database discovery, telemetry, and PostgreSQL Management.'
+                              : 'برای اعتبارسنجی اتصال، پایش وضعیت و باز کردن پنجره مدیریت PostgreSQL الزامی است.'
+                          }
+                          example={isEn ? 'User: postgres, Port: 5432' : 'نام کاربری: postgres، پورت: ۵۴۳۲'}
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-blue-400">
+                        {serverToEdit?.ip || ip || 'Host IP'}:{postgresPort || 5432}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                      {/* Username */}
+                      <div className="space-y-1">
+                        <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {isEn ? 'Username' : 'نام کاربری'}
+                        </label>
+                        <input
+                          type="text"
+                          value={postgresUser}
+                          onChange={(e) => setPostgresUser(e.target.value)}
+                          placeholder="postgres"
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
+                              : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
+                          }`}
+                        />
+                      </div>
+
+                      {/* Password */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                            {isEn ? 'Password' : 'رمز عبور'}
+                          </label>
+                          {serverToEdit?.postgres_password_set && (
+                            <span className="text-[10px] text-emerald-400 font-mono">
+                              ({isEn ? 'Saved' : 'ذخیره‌شده'})
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showPostgresPassword ? 'text' : 'password'}
+                            value={postgresPassword}
+                            onChange={(e) => setPostgresPassword(e.target.value)}
+                            placeholder={
+                              serverToEdit?.postgres_password_set
+                                ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
+                                : (isEn ? 'Enter password' : 'رمز عبور را وارد کنید')
+                            }
+                            className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
+                                : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPostgresPassword(!showPostgresPassword)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                            title={showPostgresPassword ? (isEn ? 'Hide' : 'مخفی کردن') : (isEn ? 'Show' : 'نمایش')}
+                          >
+                            {showPostgresPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Port */}
+                      <div className="space-y-1">
+                        <label className={`block text-[11px] font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                          {isEn ? 'Port' : 'پورت'}
+                        </label>
+                        <input
+                          type="number"
+                          value={postgresPort}
+                          onChange={(e) => setPostgresPort(e.target.value)}
+                          placeholder="5432"
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
+                              : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

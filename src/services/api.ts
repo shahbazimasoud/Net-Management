@@ -13,6 +13,7 @@ import {
   AccessPolicy,
   RemoteServer,
   RemoteServerTagSummary,
+  PostgresConnectionTestResult,
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
@@ -1216,6 +1217,23 @@ export async function testRemoteServerConnection(id: string): Promise<{
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/test-connection`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+  });
+  return res.json();
+}
+
+export async function testRemoteServerPostgresConnection(
+  id: string,
+  data?: {
+    port?: number;
+    user?: string;
+    database?: string;
+    password?: string;
+  }
+): Promise<PostgresConnectionTestResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/test-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
   });
   return res.json();
 }

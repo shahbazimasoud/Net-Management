@@ -1415,8 +1415,39 @@ export interface RemoteServer {
   has_nginx?: boolean;
   has_postgresql?: boolean;
   has_mysql?: boolean;
+  postgres_port?: number;
+  postgres_user?: string;
+  postgres_password?: string;
+  postgres_password_set?: boolean;
+  postgres_database?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export type PostgresConnectionStatus =
+  | 'connected'
+  | 'connection_failed'
+  | 'authentication_failed'
+  | 'connection_refused'
+  | 'timeout'
+  | 'permission_denied'
+  | 'database_unavailable'
+  | 'unknown_error';
+
+export interface PostgresConnectionTestResult {
+  success: boolean;
+  status: PostgresConnectionStatus;
+  message: string;
+  messageFa?: string;
+  serverAddress: string;
+  port: number;
+  username: string;
+  database?: string;
+  version?: string;
+  inRecovery?: boolean;
+  latencyMs?: number;
+  testedAt: string;
+  errorDetail?: string;
 }
 
 export interface NginxInstanceInfo {

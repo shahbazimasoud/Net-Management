@@ -104,3 +104,46 @@ export function decryptVaultSecret(
     throw new Error(`Failed to decrypt credentials: ${err.message || 'Authentication tag mismatch'}`);
   }
 }
+
+/**
+ * System-level AES-256-GCM encryption for remote server credentials (e.g. PostgreSQL passwords).
+ * Formatted safely as `enc:v1:<iv>:<tag>:<ciphertext>`.
+ */
+export function encryptServerSecret(plainText: string): string {
+  if (!plainText) return '';
+  const key = crypto.scryptSync(VAULT_MASTER_SECRET, 'server_credential_system_salt', 32);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(plainText, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `enc:v1:${iv.toString('hex')}:${tag}:${encrypted}`;
+}
+
+/**
+ * System-level AES-256-GCM decryption for remote server credentials.
+ * Gracefully preserves unencrypted strings if legacy data exists.
+ */
+export function decryptServerSecret(encryptedString: string): string {
+  if (!encryptedString) return '';
+  if (!encryptedString.startsWith('enc:v1:')) {
+    // If legacy unencrypted format, return as is
+    return encryptedString;
+  }
+  try {
+    const parts = encryptedString.split(':');
+    if (parts.length !== 5) return '';
+    const [, , ivHex, tagHex, ciphertext] = parts;
+    const key = crypto.scryptSync(VAULT_MASTER_SECRET, 'server_credential_system_salt', 32);
+    const iv = Buffer.from(ivHex, 'hex');
+    const tag = Buffer.from(tagHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err: any) {
+    console.warn('[Server Secret Decryption Notice]', err.message);
+    return '';
+  }
+}

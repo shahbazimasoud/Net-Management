@@ -268,6 +268,10 @@ CREATE TABLE IF NOT EXISTS remote_servers (
     has_nginx BOOLEAN DEFAULT FALSE,
     has_postgresql BOOLEAN DEFAULT FALSE,
     has_mysql BOOLEAN DEFAULT FALSE,
+    postgres_port INT DEFAULT 5432,
+    postgres_user VARCHAR(64) DEFAULT 'postgres',
+    postgres_password TEXT DEFAULT '',
+    postgres_database VARCHAR(64) DEFAULT 'postgres',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -279,6 +283,10 @@ ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_apache BOOLEAN DEFAULT F
 ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_nginx BOOLEAN DEFAULT FALSE;
 ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_postgresql BOOLEAN DEFAULT FALSE;
 ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_mysql BOOLEAN DEFAULT FALSE;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_port INT DEFAULT 5432;
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_user VARCHAR(64) DEFAULT 'postgres';
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_password TEXT DEFAULT '';
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_database VARCHAR(64) DEFAULT 'postgres';
 
 CREATE INDEX IF NOT EXISTS idx_remote_servers_os_type ON remote_servers(os_type);
 CREATE INDEX IF NOT EXISTS idx_remote_servers_environment ON remote_servers(environment);

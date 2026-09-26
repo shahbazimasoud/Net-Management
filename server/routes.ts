@@ -43,6 +43,7 @@ import {
   createRemoteServer,
   updateRemoteServer,
   deleteRemoteServer,
+  sanitizeRemoteServerForClient,
   updateRemoteServerTags,
   getRemoteServerTagsSummary,
   getAllServerCategories,
@@ -57,6 +58,7 @@ import {
   UserVaultItem,
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
+import { testPostgresConnection } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
@@ -1132,7 +1134,8 @@ apiRouter.get('/remote-servers', async (req: Request, res: Response) => {
       );
     }
 
-    res.json({ success: true, count: servers.length, servers });
+    const sanitizedServers = servers.map(sanitizeRemoteServerForClient);
+    res.json({ success: true, count: sanitizedServers.length, servers: sanitizedServers });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1155,7 +1158,7 @@ apiRouter.get('/remote-servers/:id', async (req: Request, res: Response) => {
     if (!server) {
       return res.status(404).json({ success: false, error: 'Server not found' });
     }
-    res.json({ success: true, server });
+    res.json({ success: true, server: sanitizeRemoteServerForClient(server) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1183,7 +1186,7 @@ apiRouter.post('/remote-servers', async (req: Request, res: Response) => {
       userAgent: req.headers['user-agent'] || 'WebUI',
     });
 
-    res.status(201).json({ success: true, server: created });
+    res.status(201).json({ success: true, server: sanitizeRemoteServerForClient(created) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1210,7 +1213,7 @@ apiRouter.put('/remote-servers/:id', async (req: Request, res: Response) => {
       userAgent: req.headers['user-agent'] || 'WebUI',
     });
 
-    res.json({ success: true, server: updated });
+    res.json({ success: true, server: sanitizeRemoteServerForClient(updated) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1239,6 +1242,60 @@ apiRouter.delete('/remote-servers/:id', async (req: Request, res: Response) => {
     res.json({ success: deleted });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/:id/postgres/test-connection - Test PostgreSQL connection using configured credentials
+apiRouter.post('/remote-servers/:id/postgres/test-connection', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        status: 'connection_failed',
+        message: 'Server not found in fleet.',
+        messageFa: 'سرور در فهرست ناوگان یافت نشد.',
+        serverAddress: '',
+        port: 5432,
+        username: 'postgres',
+        testedAt: new Date().toISOString(),
+      });
+    }
+
+    const { port, user, database, password } = req.body || {};
+
+    const result = await testPostgresConnection(server, {
+      port: port !== undefined && port !== null && port !== '' ? Number(port) : undefined,
+      user: typeof user === 'string' && user.trim() ? user.trim() : undefined,
+      database: typeof database === 'string' && database.trim() ? database.trim() : undefined,
+      password: typeof password === 'string' && password ? password : undefined,
+    });
+
+    // Add audit log without credentials or secrets
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || 'Admin',
+      action: 'PostgreSQL Connection Test',
+      category: 'device',
+      target: `${server.name} (${server.ip}:${result.port})`,
+      status: result.success ? 'success' : 'failure',
+      details: `Tested PostgreSQL connection: status=${result.status}, latency=${result.latencyMs ?? 0}ms`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      status: 'unknown_error',
+      message: err.message || 'Internal server error while testing connection',
+      messageFa: 'خطای داخلی سرور هنگام آزمایش ارتباط با PostgreSQL',
+      serverAddress: '',
+      port: 5432,
+      username: 'postgres',
+      testedAt: new Date().toISOString(),
+    });
   }
 });
 
