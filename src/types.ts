@@ -1502,6 +1502,89 @@ export interface PostgresDatabaseItem {
   activeConnections: number;
 }
 
+// Phase 3: PostgreSQL Database Browser & Object Tree Types
+export interface PostgresRoleItem {
+  rolname: string;
+  isSuperuser: boolean;
+  canLogin: boolean;
+  createDb: boolean;
+  createRole: boolean;
+  replication: boolean;
+  bypassRls: boolean;
+  connectionLimit: number;
+  validUntil: string | null;
+}
+
+export interface PostgresTableItem {
+  name: string;
+  schema: string;
+  owner: string;
+  estimatedRows: number;
+  sizePretty: string;
+  sizeBytes: number | null;
+  hasIndexes: boolean;
+  hasTriggers: boolean;
+  persistence: 'permanent' | 'temporary' | 'unlogged';
+}
+
+export interface PostgresViewItem {
+  name: string;
+  schema: string;
+  owner: string;
+  isMaterialized: boolean;
+  sizePretty?: string;
+}
+
+export interface PostgresRoutineItem {
+  name: string;
+  schema: string;
+  owner: string;
+  type: 'function' | 'procedure';
+  language: string;
+  returnType: string;
+  argumentTypes: string;
+  isAggregate: boolean;
+}
+
+export interface PostgresSequenceItem {
+  name: string;
+  schema: string;
+  owner: string;
+}
+
+export interface PostgresExtensionItem {
+  name: string;
+  version: string;
+  schema: string;
+  description: string;
+  relocatable: boolean;
+}
+
+export interface PostgresSchemaObjects {
+  name: string;
+  owner: string;
+  tables: PostgresTableItem[];
+  views: PostgresViewItem[];
+  materializedViews: PostgresViewItem[];
+  functions: PostgresRoutineItem[];
+  procedures: PostgresRoutineItem[];
+  sequences: PostgresSequenceItem[];
+}
+
+export interface PostgresDatabaseTree {
+  databaseName: string;
+  schemas: PostgresSchemaObjects[];
+  extensions: PostgresExtensionItem[];
+  totalTables: number;
+  totalViews: number;
+  totalMaterializedViews: number;
+  totalFunctions: number;
+  totalProcedures: number;
+  totalSequences: number;
+  totalExtensions: number;
+  fetchedAt: string;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

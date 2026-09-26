@@ -42,6 +42,7 @@ import {
   fetchRemoteServerPostgresDatabases,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
 
 export interface PostgreSQLManagementModalProps {
   isOpen: boolean;
@@ -54,7 +55,7 @@ export interface PostgreSQLManagementModalProps {
   isEn?: boolean;
 }
 
-type PostgresTab = 'overview' | 'databases' | 'connection';
+type PostgresTab = 'browser' | 'overview' | 'databases' | 'connection';
 
 export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps> = ({
   isOpen,
@@ -66,7 +67,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
   isLightMode = false,
   isEn = true,
 }) => {
-  const [activeTab, setActiveTab] = useState<PostgresTab>('overview');
+  const [activeTab, setActiveTab] = useState<PostgresTab>('browser');
   const [isMaximized, setIsMaximized] = useState(false);
 
   // Connection Test State
@@ -369,12 +370,25 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-700/20 overflow-x-auto no-scrollbar">
             <button
               type="button"
+              onClick={() => setActiveTab('browser')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
+                activeTab === 'browser'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : isLightMode
+                  ? 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Database Browser' : 'کاوشگر پایگاه داده'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('overview')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
                 activeTab === 'overview'
-                  ? isLightMode
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-blue-600 text-white shadow-sm'
                   : isLightMode
                   ? 'text-slate-600 hover:bg-slate-100'
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
@@ -389,9 +403,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               onClick={() => setActiveTab('databases')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
                 activeTab === 'databases'
-                  ? isLightMode
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-blue-600 text-white shadow-sm'
                   : isLightMode
                   ? 'text-slate-600 hover:bg-slate-100'
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
@@ -411,9 +423,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
               onClick={() => setActiveTab('connection')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition cursor-pointer shrink-0 ${
                 activeTab === 'connection'
-                  ? isLightMode
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-blue-600 text-white shadow-sm'
                   : isLightMode
                   ? 'text-slate-600 hover:bg-slate-100'
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
@@ -429,8 +439,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
         {/* 2. BODY CONTENT (Per Active Tab)                          */}
         {/* ======================================================== */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+          {/* TAB 0: DATABASE BROWSER (Tree & Object Inspector) */}
+          {activeTab === 'browser' && (
+            <PostgresDatabaseBrowserTab
+              server={server}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              databases={databases}
+              overviewData={overviewData}
+              onRefreshDatabases={() => handleFetchDatabases(includeTemplates)}
+              onRefreshOverview={handleFetchOverview}
+            />
+          )}
+
           {/* TAB 1: OVERVIEW & HEALTH */}
           {activeTab === 'overview' && (
+
             <div className="space-y-5">
               {/* Top Quick Actions Bar */}
               <div className="flex items-center justify-between gap-3 flex-wrap">

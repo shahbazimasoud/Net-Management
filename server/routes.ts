@@ -58,7 +58,13 @@ import {
   UserVaultItem,
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
-import { testPostgresConnection, getPostgresOverview, getPostgresDatabases } from './postgresManager';
+import {
+  testPostgresConnection,
+  getPostgresOverview,
+  getPostgresDatabases,
+  getPostgresRoles,
+  getPostgresDatabaseTree,
+} from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
@@ -1406,6 +1412,118 @@ const handlePostgresDatabases = async (req: Request, res: Response) => {
 
 apiRouter.get('/remote-servers/:id/postgres/databases', handlePostgresDatabases);
 apiRouter.post('/remote-servers/:id/postgres/databases', handlePostgresDatabases);
+
+// GET & POST /api/remote-servers/:id/postgres/roles - Enumerate PostgreSQL roles & users
+const handlePostgresRoles = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const port = req.body?.port ?? req.query?.port;
+    const user = req.body?.user ?? req.query?.user;
+    const database = req.body?.database ?? req.query?.database;
+    const password = req.body?.password ?? req.query?.password;
+
+    const result = await getPostgresRoles(server, {
+      port: port !== undefined && port !== null && port !== '' ? Number(port) : undefined,
+      user: typeof user === 'string' && user.trim() ? user.trim() : undefined,
+      database: typeof database === 'string' && database.trim() ? database.trim() : undefined,
+      password: typeof password === 'string' && password ? password : undefined,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Roles Enumeration',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Enumerated ${result.roles?.length || 0} PostgreSQL roles`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal error listing roles',
+      errorFa: 'خطای داخلی هنگام دریافت نقش‌های پایگاه داده',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/postgres/roles', handlePostgresRoles);
+apiRouter.post('/remote-servers/:id/postgres/roles', handlePostgresRoles);
+
+// GET & POST /api/remote-servers/:id/postgres/database-tree - Lazy-load database structural object tree
+const handlePostgresDatabaseTree = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const targetDb = req.body?.database ?? req.query?.database;
+    if (!targetDb || typeof targetDb !== 'string' || !targetDb.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Database name query/body parameter is required',
+        errorFa: 'نام پایگاه داده جهت دریافت درخت اجزا الزامی است',
+      });
+    }
+
+    const port = req.body?.port ?? req.query?.port;
+    const user = req.body?.user ?? req.query?.user;
+    const password = req.body?.password ?? req.query?.password;
+
+    const result = await getPostgresDatabaseTree(server, targetDb.trim(), {
+      port: port !== undefined && port !== null && port !== '' ? Number(port) : undefined,
+      user: typeof user === 'string' && user.trim() ? user.trim() : undefined,
+      password: typeof password === 'string' && password ? password : undefined,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Database Object Tree Exploration',
+        category: 'device',
+        target: `${server.name} (${server.ip}/${targetDb.trim()})`,
+        status: 'success',
+        details: `Explored database tree "${targetDb.trim()}": ${result.tree?.schemas.length || 0} schemas, ${result.tree?.totalTables || 0} tables, ${result.tree?.totalViews || 0} views`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal error retrieving database tree',
+      errorFa: 'خطای داخلی هنگام دریافت ساختار پایگاه داده',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/postgres/database-tree', handlePostgresDatabaseTree);
+apiRouter.post('/remote-servers/:id/postgres/database-tree', handlePostgresDatabaseTree);
+
 
 // POST /api/remote-servers/:id/tags - Update tags only
 apiRouter.post('/remote-servers/:id/tags', async (req: Request, res: Response) => {

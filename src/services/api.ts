@@ -16,6 +16,8 @@ import {
   PostgresConnectionTestResult,
   PostgresEngineOverview,
   PostgresDatabaseItem,
+  PostgresRoleItem,
+  PostgresDatabaseTree,
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
@@ -1271,6 +1273,40 @@ export async function fetchRemoteServerPostgresDatabases(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresRoles(
+  id: string,
+  data?: {
+    port?: number;
+    user?: string;
+    database?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; roles?: PostgresRoleItem[]; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/roles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresDatabaseTree(
+  id: string,
+  database: string,
+  data?: {
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; tree?: PostgresDatabaseTree; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/database-tree`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...(data || {}), database }),
   });
   return res.json();
 }

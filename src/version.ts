@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.183.0';
+export const APP_VERSION = '1.184.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.184.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۳ مدیریت PostgreSQL: کاوشگر بصری پایگاه داده (Database Browser)، ناوبری درختی سلسله‌مراتبی، اکتشاف تنبل اجزا (Lazy Loading) و بازرس ساختار',
+    title_en: 'PostgreSQL Management Phase 3: Visual Database Browser, Hierarchical Object Tree Navigation, Lazy Loading Architecture & Structural Inspector',
+    changes: [
+      'پیاده‌سازی کاوشگر درختی سلسله‌مراتبی پایگاه داده (Database Browser) شامل گره ریشه PostgreSQL، شاخه کاتالوگ دیتابیس‌ها، شاخه نقش‌ها و کاربران سرور (Roles & Users) و شاخه مشخصات سرور (Server & Cluster).',
+      'معماری بارگذاری تنبل (Lazy Loading) برای کاوش اجزای پایگاه‌های داده بدون بارگذاری سنگین اولیه؛ بازیابی و کش محلی اسکیماها، جداول، نماها (Views)، نماهای مادی (Materialized Views)، توابع، رویه‌ها، دنباله‌ها (Sequences) و افزونه‌ها (Extensions) تنها در زمان گسترش گره مربوطه.',
+      'پیاده‌سازی متدهای اختصاصی بک‌اند (/api/remote-servers/:id/postgres/database-tree و /api/remote-servers/:id/postgres/roles) جهت استخراج دقیق ساختار کاتالوگ‌های سیستمی pg_catalog بدون اجرای دستورات دلخواه شل.',
+      'طراحی پنل دوطرفه مدرن (Master-Detail Layout) همراه با کادر جستجو و فیلتر سریع درخت، نوار Breadcrumb با قابلیت کپی مسیر کامل اشیاء و برچسب‌های تفکیک رنگی نوع شی.',
+      'بازرس جامع مشخصات (Object Inspector) برای نمایش تخمین رکوردها، حجم فیزیکی دیسک، وضعیت ایندکس‌ها، تریگرها، امضاهای توابع، ویژگی‌های افزونه‌ها و ماتریس اختیارات کاربران (Superuser, Login, Create DB, Replication).',
+      'انطباق صددرصدی با استانداردهای ۵‌گانه مودال، تم روشن/تیره، دوزبانگی کامل انگلیسی و فارسی بدون نشت زبان، و ابزارک‌های سه‌بخشی راهنمای فنی (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Engineered hierarchical PostgreSQL Database Browser tree navigation displaying cluster root, expandable Databases catalog, server Roles & Users, and Server & Cluster topology.',
+      'Implemented on-demand Lazy Loading architecture caching schemas, tables, views, materialized views, functions, stored procedures, sequences, and extensions only upon expanding target database nodes without upfront memory overhead.',
+      'Built dedicated backend endpoints (/api/remote-servers/:id/postgres/database-tree and /api/remote-servers/:id/postgres/roles) querying authentic pg_catalog tables via direct pg.Client without arbitrary shell commands.',
+      'Crafted responsive Master-Detail split-pane interface with instant tree search filtering, dynamic breadcrumb path bar with copy button, and color-coded object type badges.',
+      'Added comprehensive Object Inspector displaying estimated row counts, physical disk footprints, index/trigger presence, routine signatures, extension versions, and server role privilege matrices.',
+      'Fully compliant with 5-part modal standards, dark/light theme ergonomics, strict bilingual English/Persian localization, and 3-part FieldInfoTooltip explanations.'
+    ]
+  },
   {
     version: '1.183.0',
     releaseDate: '2026-09-26',

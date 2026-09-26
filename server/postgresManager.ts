@@ -80,6 +80,88 @@ export interface PostgresDatabaseItem {
   activeConnections: number;
 }
 
+export interface PostgresRoleItem {
+  rolname: string;
+  isSuperuser: boolean;
+  canLogin: boolean;
+  createDb: boolean;
+  createRole: boolean;
+  replication: boolean;
+  bypassRls: boolean;
+  connectionLimit: number;
+  validUntil: string | null;
+}
+
+export interface PostgresTableItem {
+  name: string;
+  schema: string;
+  owner: string;
+  estimatedRows: number;
+  sizePretty: string;
+  sizeBytes: number | null;
+  hasIndexes: boolean;
+  hasTriggers: boolean;
+  persistence: 'permanent' | 'temporary' | 'unlogged';
+}
+
+export interface PostgresViewItem {
+  name: string;
+  schema: string;
+  owner: string;
+  isMaterialized: boolean;
+  sizePretty?: string;
+}
+
+export interface PostgresRoutineItem {
+  name: string;
+  schema: string;
+  owner: string;
+  type: 'function' | 'procedure';
+  language: string;
+  returnType: string;
+  argumentTypes: string;
+  isAggregate: boolean;
+}
+
+export interface PostgresSequenceItem {
+  name: string;
+  schema: string;
+  owner: string;
+}
+
+export interface PostgresExtensionItem {
+  name: string;
+  version: string;
+  schema: string;
+  description: string;
+  relocatable: boolean;
+}
+
+export interface PostgresSchemaObjects {
+  name: string;
+  owner: string;
+  tables: PostgresTableItem[];
+  views: PostgresViewItem[];
+  materializedViews: PostgresViewItem[];
+  functions: PostgresRoutineItem[];
+  procedures: PostgresRoutineItem[];
+  sequences: PostgresSequenceItem[];
+}
+
+export interface PostgresDatabaseTree {
+  databaseName: string;
+  schemas: PostgresSchemaObjects[];
+  extensions: PostgresExtensionItem[];
+  totalTables: number;
+  totalViews: number;
+  totalMaterializedViews: number;
+  totalFunctions: number;
+  totalProcedures: number;
+  totalSequences: number;
+  totalExtensions: number;
+  fetchedAt: string;
+}
+
 function formatUptimePretty(seconds: number): string {
   if (seconds <= 0) return '0m';
   const days = Math.floor(seconds / 86400);
@@ -545,4 +627,430 @@ export async function getPostgresDatabases(
     };
   }
 }
+
+/**
+ * Phase 3: Enumerates server-level roles and users from pg_catalog.pg_roles.
+ */
+export async function getPostgresRoles(
+  server: RemoteServer,
+  options?: {
+    port?: number;
+    user?: string;
+    database?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; roles?: PostgresRoleItem[]; error?: string; errorFa?: string }> {
+  const { client, targetHost } = createPostgresClient(server, options);
+
+  if (!targetHost) {
+    return {
+      success: false,
+      error: 'Server host or IP address is missing.',
+      errorFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+    };
+  }
+
+  try {
+    await client.connect();
+
+    let res;
+    try {
+      res = await client.query(`
+        SELECT 
+          r.rolname,
+          r.rolsuper as is_superuser,
+          r.rolcanlogin as can_login,
+          r.rolcreatedb as create_db,
+          r.rolcreaterole as create_role,
+          r.rolreplication as replication,
+          COALESCE(r.rolbypassrls, false) as bypass_rls,
+          r.rolconnlimit as connection_limit,
+          r.rolvaliduntil::text as valid_until
+        FROM pg_catalog.pg_roles r
+        ORDER BY r.rolsuper DESC, r.rolcanlogin DESC, r.rolname ASC;
+      `);
+    } catch {
+      // Fallback for legacy PostgreSQL without rolbypassrls
+      res = await client.query(`
+        SELECT 
+          r.rolname,
+          r.rolsuper as is_superuser,
+          r.rolcanlogin as can_login,
+          r.rolcreatedb as create_db,
+          r.rolcreaterole as create_role,
+          r.rolreplication as replication,
+          false as bypass_rls,
+          r.rolconnlimit as connection_limit,
+          r.rolvaliduntil::text as valid_until
+        FROM pg_catalog.pg_roles r
+        ORDER BY r.rolsuper DESC, r.rolcanlogin DESC, r.rolname ASC;
+      `);
+    }
+
+    await client.end();
+
+    const roles: PostgresRoleItem[] = (res.rows || []).map((row: any) => ({
+      rolname: String(row.rolname),
+      isSuperuser: Boolean(row.is_superuser),
+      canLogin: Boolean(row.can_login),
+      createDb: Boolean(row.create_db),
+      createRole: Boolean(row.create_role),
+      replication: Boolean(row.replication),
+      bypassRls: Boolean(row.bypass_rls),
+      connectionLimit: Number(row.connection_limit),
+      validUntil: row.valid_until ? String(row.valid_until) : null,
+    }));
+
+    return { success: true, roles };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      error: err.message || 'Failed to enumerate PostgreSQL roles',
+      errorFa: `خطا در دریافت فهرست نقش‌ها و کاربران PostgreSQL: ${err.message || 'خطای شبکه'}`,
+    };
+  }
+}
+
+/**
+ * Phase 3: Lazy-loads structural objects for a specific PostgreSQL database:
+ * Schemas, Tables, Views, Materialized Views, Functions, Procedures, Sequences, and Extensions.
+ */
+export async function getPostgresDatabaseTree(
+  server: RemoteServer,
+  databaseName: string,
+  options?: {
+    port?: number;
+    user?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; tree?: PostgresDatabaseTree; error?: string; errorFa?: string }> {
+  if (!databaseName || !databaseName.trim()) {
+    return {
+      success: false,
+      error: 'Target database name is required for object exploration',
+      errorFa: 'نام پایگاه داده هدف برای کاوش ساختار اجباری است',
+    };
+  }
+
+  const { client, targetHost } = createPostgresClient(server, {
+    ...options,
+    database: databaseName.trim(),
+  });
+
+  if (!targetHost) {
+    return {
+      success: false,
+      error: 'Server host or IP address is missing.',
+      errorFa: 'آدرس هاست یا IP سرور مشخص نشده است.',
+    };
+  }
+
+  try {
+    await client.connect();
+
+    // 1. Schemas
+    const schemasRes = await client.query(`
+      SELECT 
+        n.nspname as schema_name,
+        pg_catalog.pg_get_userbyid(n.nspowner) as schema_owner
+      FROM pg_catalog.pg_namespace n
+      WHERE n.nspname !~ '^pg_toast' 
+        AND n.nspname !~ '^pg_temp'
+      ORDER BY 
+        CASE WHEN n.nspname = 'public' THEN 0 
+             WHEN n.nspname = 'information_schema' THEN 2 
+             WHEN n.nspname LIKE 'pg_%' THEN 3 
+             ELSE 1 END, 
+        n.nspname;
+    `);
+
+    // 2. Tables
+    const tablesRes = await client.query(`
+      SELECT 
+        c.relname as table_name,
+        n.nspname as schema_name,
+        pg_catalog.pg_get_userbyid(c.relowner) as table_owner,
+        GREATEST(c.reltuples::bigint, 0) as estimated_rows,
+        pg_catalog.pg_total_relation_size(c.oid) as size_bytes,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) as size_pretty,
+        c.relhasindex as has_indexes,
+        c.relhastriggers as has_triggers,
+        CASE c.relpersistence 
+          WHEN 't' THEN 'temporary'
+          WHEN 'u' THEN 'unlogged'
+          ELSE 'permanent'
+        END as persistence
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'r'
+        AND n.nspname !~ '^pg_toast' 
+        AND n.nspname !~ '^pg_temp'
+      ORDER BY n.nspname, c.relname;
+    `);
+
+    // 3. Views & Materialized Views
+    const viewsRes = await client.query(`
+      SELECT 
+        c.relname as view_name,
+        n.nspname as schema_name,
+        pg_catalog.pg_get_userbyid(c.relowner) as view_owner,
+        (c.relkind = 'm') as is_materialized,
+        pg_catalog.pg_size_pretty(pg_catalog.pg_total_relation_size(c.oid)) as size_pretty
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind IN ('v', 'm')
+        AND n.nspname !~ '^pg_toast' 
+        AND n.nspname !~ '^pg_temp'
+      ORDER BY n.nspname, c.relname;
+    `);
+
+    // 4. Routines (Functions & Procedures)
+    let routinesRes;
+    try {
+      routinesRes = await client.query(`
+        SELECT 
+          p.proname as routine_name,
+          n.nspname as schema_name,
+          pg_catalog.pg_get_userbyid(p.proowner) as routine_owner,
+          CASE WHEN p.prokind = 'p' THEN 'procedure' ELSE 'function' END as routine_type,
+          COALESCE(l.lanname, 'sql') as language,
+          pg_catalog.format_type(p.prorettype, NULL) as return_type,
+          COALESCE(pg_catalog.pg_get_function_arguments(p.oid), '') as argument_types,
+          (p.prokind = 'a') as is_aggregate
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        LEFT JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND n.nspname !~ '^pg_toast' 
+          AND n.nspname !~ '^pg_temp'
+        ORDER BY n.nspname, p.proname;
+      `);
+    } catch {
+      routinesRes = await client.query(`
+        SELECT 
+          p.proname as routine_name,
+          n.nspname as schema_name,
+          pg_catalog.pg_get_userbyid(p.proowner) as routine_owner,
+          'function' as routine_type,
+          COALESCE(l.lanname, 'sql') as language,
+          pg_catalog.format_type(p.prorettype, NULL) as return_type,
+          COALESCE(pg_catalog.pg_get_function_arguments(p.oid), '') as argument_types,
+          p.proisagg as is_aggregate
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        LEFT JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+        WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND n.nspname !~ '^pg_toast' 
+          AND n.nspname !~ '^pg_temp'
+        ORDER BY n.nspname, p.proname;
+      `);
+    }
+
+    // 5. Sequences
+    const sequencesRes = await client.query(`
+      SELECT 
+        c.relname as sequence_name,
+        n.nspname as schema_name,
+        pg_catalog.pg_get_userbyid(c.relowner) as sequence_owner
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'S'
+        AND n.nspname !~ '^pg_toast' 
+        AND n.nspname !~ '^pg_temp'
+      ORDER BY n.nspname, c.relname;
+    `);
+
+    // 6. Extensions
+    const extensionsRes = await client.query(`
+      SELECT 
+        e.extname as name,
+        e.extversion as version,
+        COALESCE(n.nspname, 'public') as schema,
+        COALESCE(c.description, '') as description,
+        e.extrelocatable as relocatable
+      FROM pg_catalog.pg_extension e
+      LEFT JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+      LEFT JOIN pg_catalog.pg_description c ON c.objoid = e.oid AND c.classoid = 'pg_extension'::regclass
+      ORDER BY e.extname;
+    `);
+
+    await client.end();
+
+    // Group objects by schema
+    const schemaMap = new Map<string, PostgresSchemaObjects>();
+    for (const row of schemasRes.rows || []) {
+      const sName = String(row.schema_name);
+      schemaMap.set(sName, {
+        name: sName,
+        owner: String(row.schema_owner || 'postgres'),
+        tables: [],
+        views: [],
+        materializedViews: [],
+        functions: [],
+        procedures: [],
+        sequences: [],
+      });
+    }
+
+    let totalTables = 0;
+    for (const row of tablesRes.rows || []) {
+      const sName = String(row.schema_name);
+      if (!schemaMap.has(sName)) {
+        schemaMap.set(sName, {
+          name: sName,
+          owner: String(row.table_owner || 'postgres'),
+          tables: [],
+          views: [],
+          materializedViews: [],
+          functions: [],
+          procedures: [],
+          sequences: [],
+        });
+      }
+      schemaMap.get(sName)!.tables.push({
+        name: String(row.table_name),
+        schema: sName,
+        owner: String(row.table_owner || 'postgres'),
+        estimatedRows: Number(row.estimated_rows) || 0,
+        sizePretty: String(row.size_pretty || '0 bytes'),
+        sizeBytes: row.size_bytes !== null ? Number(row.size_bytes) : null,
+        hasIndexes: Boolean(row.has_indexes),
+        hasTriggers: Boolean(row.has_triggers),
+        persistence: (row.persistence as any) || 'permanent',
+      });
+      totalTables++;
+    }
+
+    let totalViews = 0;
+    let totalMaterializedViews = 0;
+    for (const row of viewsRes.rows || []) {
+      const sName = String(row.schema_name);
+      if (!schemaMap.has(sName)) {
+        schemaMap.set(sName, {
+          name: sName,
+          owner: String(row.view_owner || 'postgres'),
+          tables: [],
+          views: [],
+          materializedViews: [],
+          functions: [],
+          procedures: [],
+          sequences: [],
+        });
+      }
+      const isMat = Boolean(row.is_materialized);
+      const vItem: PostgresViewItem = {
+        name: String(row.view_name),
+        schema: sName,
+        owner: String(row.view_owner || 'postgres'),
+        isMaterialized: isMat,
+        sizePretty: row.size_pretty ? String(row.size_pretty) : undefined,
+      };
+      if (isMat) {
+        schemaMap.get(sName)!.materializedViews.push(vItem);
+        totalMaterializedViews++;
+      } else {
+        schemaMap.get(sName)!.views.push(vItem);
+        totalViews++;
+      }
+    }
+
+    let totalFunctions = 0;
+    let totalProcedures = 0;
+    for (const row of routinesRes.rows || []) {
+      const sName = String(row.schema_name);
+      if (!schemaMap.has(sName)) {
+        schemaMap.set(sName, {
+          name: sName,
+          owner: String(row.routine_owner || 'postgres'),
+          tables: [],
+          views: [],
+          materializedViews: [],
+          functions: [],
+          procedures: [],
+          sequences: [],
+        });
+      }
+      const isProc = row.routine_type === 'procedure';
+      const rItem: PostgresRoutineItem = {
+        name: String(row.routine_name),
+        schema: sName,
+        owner: String(row.routine_owner || 'postgres'),
+        type: isProc ? 'procedure' : 'function',
+        language: String(row.language || 'sql'),
+        returnType: String(row.return_type || 'void'),
+        argumentTypes: String(row.argument_types || ''),
+        isAggregate: Boolean(row.is_aggregate),
+      };
+      if (isProc) {
+        schemaMap.get(sName)!.procedures.push(rItem);
+        totalProcedures++;
+      } else {
+        schemaMap.get(sName)!.functions.push(rItem);
+        totalFunctions++;
+      }
+    }
+
+    let totalSequences = 0;
+    for (const row of sequencesRes.rows || []) {
+      const sName = String(row.schema_name);
+      if (!schemaMap.has(sName)) {
+        schemaMap.set(sName, {
+          name: sName,
+          owner: String(row.sequence_owner || 'postgres'),
+          tables: [],
+          views: [],
+          materializedViews: [],
+          functions: [],
+          procedures: [],
+          sequences: [],
+        });
+      }
+      schemaMap.get(sName)!.sequences.push({
+        name: String(row.sequence_name),
+        schema: sName,
+        owner: String(row.sequence_owner || 'postgres'),
+      });
+      totalSequences++;
+    }
+
+    const extensions: PostgresExtensionItem[] = (extensionsRes.rows || []).map((row: any) => ({
+      name: String(row.name),
+      version: String(row.version || ''),
+      schema: String(row.schema || 'public'),
+      description: String(row.description || ''),
+      relocatable: Boolean(row.relocatable),
+    }));
+
+    const tree: PostgresDatabaseTree = {
+      databaseName: databaseName.trim(),
+      schemas: Array.from(schemaMap.values()),
+      extensions,
+      totalTables,
+      totalViews,
+      totalMaterializedViews,
+      totalFunctions,
+      totalProcedures,
+      totalSequences,
+      totalExtensions: extensions.length,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    return { success: true, tree };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+
+    return {
+      success: false,
+      error: err.message || `Failed to explore objects for database "${databaseName}"`,
+      errorFa: `خطا در کاوش اجزای پایگاه داده "${databaseName}": ${err.message || 'خطای شبکه'}`,
+    };
+  }
+}
+
 
