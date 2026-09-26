@@ -14,6 +14,8 @@ import {
   RemoteServer,
   RemoteServerTagSummary,
   PostgresConnectionTestResult,
+  PostgresEngineOverview,
+  PostgresDatabaseItem,
   LinuxServerLiveMetrics,
   LinuxSystemService,
   LinuxSystemUser,
@@ -1231,6 +1233,41 @@ export async function testRemoteServerPostgresConnection(
   }
 ): Promise<PostgresConnectionTestResult> {
   const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/test-connection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresOverview(
+  id: string,
+  data?: {
+    port?: number;
+    user?: string;
+    database?: string;
+    password?: string;
+  }
+): Promise<{ success: boolean; data?: PostgresEngineOverview; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/overview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data || {}),
+  });
+  return res.json();
+}
+
+export async function fetchRemoteServerPostgresDatabases(
+  id: string,
+  data?: {
+    port?: number;
+    user?: string;
+    database?: string;
+    password?: string;
+    includeTemplates?: boolean;
+  }
+): Promise<{ success: boolean; databases?: PostgresDatabaseItem[]; error?: string; errorFa?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(id)}/postgres/databases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data || {}),

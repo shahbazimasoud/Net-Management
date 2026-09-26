@@ -1450,6 +1450,58 @@ export interface PostgresConnectionTestResult {
   errorDetail?: string;
 }
 
+export interface PostgresEngineOverview {
+  serverAddress: string;
+  port: number;
+  connectedUser: string;
+  connectedDatabase: string;
+  version: string;
+  versionShort: string;
+  uptimeSeconds: number;
+  uptimePretty: string;
+  startTime: string;
+  dataDirectory: string;
+  walLevel: string;
+  inRecovery: boolean;
+  clusterRole: 'primary' | 'standby';
+  maxConnections: number;
+  sharedBuffers: string;
+  workMem: string;
+  connections: {
+    total: number;
+    active: number;
+    idle: number;
+    idleInTransaction: number;
+    waiting: number;
+    usedPercentage: number;
+  };
+  telemetry: {
+    totalDatabases: number;
+    totalCommits: number;
+    totalRollbacks: number;
+    totalBlocksRead: number;
+    totalBlocksHit: number;
+    cacheHitRatio: number;
+  };
+  fetchedAt: string;
+}
+
+export interface PostgresDatabaseItem {
+  oid: string;
+  name: string;
+  owner: string;
+  encoding: string;
+  collation: string;
+  ctype: string;
+  isTemplate: boolean;
+  allowConnections: boolean;
+  connectionLimit: number;
+  tablespace: string;
+  sizeBytes: number | null;
+  sizePretty: string;
+  activeConnections: number;
+}
+
 export interface NginxInstanceInfo {
   id: string;
   name: string;

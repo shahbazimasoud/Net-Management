@@ -58,7 +58,7 @@ import {
   UserVaultItem,
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
-import { testPostgresConnection } from './postgresManager';
+import { testPostgresConnection, getPostgresOverview, getPostgresDatabases } from './postgresManager';
 import * as net from 'net';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
@@ -1298,6 +1298,114 @@ apiRouter.post('/remote-servers/:id/postgres/test-connection', async (req: Reque
     });
   }
 });
+
+// GET & POST /api/remote-servers/:id/postgres/overview - Fetch PostgreSQL engine telemetry and overview
+const handlePostgresOverview = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const port = req.body?.port ?? req.query?.port;
+    const user = req.body?.user ?? req.query?.user;
+    const database = req.body?.database ?? req.query?.database;
+    const password = req.body?.password ?? req.query?.password;
+
+    const result = await getPostgresOverview(server, {
+      port: port !== undefined && port !== null && port !== '' ? Number(port) : undefined,
+      user: typeof user === 'string' && user.trim() ? user.trim() : undefined,
+      database: typeof database === 'string' && database.trim() ? database.trim() : undefined,
+      password: typeof password === 'string' && password ? password : undefined,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Overview Discovery',
+        category: 'device',
+        target: `${server.name} (${server.ip}:${result.data?.port || 5432})`,
+        status: 'success',
+        details: `Discovered PostgreSQL ${result.data?.versionShort || ''} (uptime: ${result.data?.uptimePretty || '0m'}, connections: ${result.data?.connections?.total || 0}/${result.data?.maxConnections || 100})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal error retrieving PostgreSQL overview',
+      errorFa: 'خطای داخلی هنگام دریافت تله‌متری پایگاه داده',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/postgres/overview', handlePostgresOverview);
+apiRouter.post('/remote-servers/:id/postgres/overview', handlePostgresOverview);
+
+// GET & POST /api/remote-servers/:id/postgres/databases - Enumerate database catalog
+const handlePostgresDatabases = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({
+        success: false,
+        error: 'Server not found in fleet.',
+        errorFa: 'سرور در فهرست ناوگان یافت نشد.',
+      });
+    }
+
+    const port = req.body?.port ?? req.query?.port;
+    const user = req.body?.user ?? req.query?.user;
+    const database = req.body?.database ?? req.query?.database;
+    const password = req.body?.password ?? req.query?.password;
+    const includeTemplates =
+      (req.body?.includeTemplates ?? req.query?.includeTemplates) === true ||
+      req.query?.includeTemplates === 'true';
+
+    const result = await getPostgresDatabases(server, {
+      port: port !== undefined && port !== null && port !== '' ? Number(port) : undefined,
+      user: typeof user === 'string' && user.trim() ? user.trim() : undefined,
+      database: typeof database === 'string' && database.trim() ? database.trim() : undefined,
+      password: typeof password === 'string' && password ? password : undefined,
+      includeTemplates,
+    });
+
+    if (result.success) {
+      await addAuditLog({
+        userName: (req.headers['x-user-name'] as string) || 'Admin',
+        action: 'PostgreSQL Database Catalog Enumeration',
+        category: 'device',
+        target: `${server.name} (${server.ip})`,
+        status: 'success',
+        details: `Enumerated ${result.databases?.length || 0} databases (includeTemplates: ${includeTemplates})`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] || 'WebUI',
+      });
+      return res.json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal error listing databases',
+      errorFa: 'خطای داخلی هنگام دریافت کاتالوگ پایگاه‌های داده',
+    });
+  }
+};
+
+apiRouter.get('/remote-servers/:id/postgres/databases', handlePostgresDatabases);
+apiRouter.post('/remote-servers/:id/postgres/databases', handlePostgresDatabases);
 
 // POST /api/remote-servers/:id/tags - Update tags only
 apiRouter.post('/remote-servers/:id/tags', async (req: Request, res: Response) => {

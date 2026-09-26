@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.182.0';
+export const APP_VERSION = '1.183.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.183.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۲ مدیریت PostgreSQL: اکتشاف خودکار موتور، تله‌متری سلامت، استخر اتصالات و کاتالوگ جامع پایگاه‌های داده',
+    title_en: 'PostgreSQL Management Phase 2: Engine Discovery, Health Telemetry, Connection Pool Analytics & Database Catalog Inventory',
+    changes: [
+      'پیاده‌سازی متدهای اکتشاف خودکار موتور PostgreSQL شامل نسخه دقیق، آپ‌تایم، مسیر فیزیکی دایرکتوری داده‌ها (data_directory)، سطح لاگ تراکنش (wal_level) و تخصیص حافظه (shared_buffers و work_mem).',
+      'تحلیل و نمایش بی‌درنگ بار استخر اتصالات (Connection Pool) شامل سقف مجاز (max_connections)، درصد مصرف ظرفیت و تفکیک اتصالات بر اساس وضعیت‌های Active، Idle، معلق در تراکنش (Idle in Transaction) و در صف قفل (Waiting).',
+      'سنجش تله‌متری عملکرد و بازدهی موتور شامل نرخ دسترسی به کش حافظه (Buffer Cache Hit Ratio)، شمارنده تراکنش‌های موفق (Commits) در برابر لغوشده (Rollbacks) و بلوک‌های خوانده شده از دیسک.',
+      'پیاده‌سازی کاتالوگ جامع پایگاه‌های داده (Database Catalog) با قابلیت جستجوی زنده، فیلتر دیتابیس‌های تمپلیت، محاسبه اندازه فیزیکی روی دیسک (pg_database_size)، انکودینگ، کلاشن، تیبل‌اسپیس و تفکیک اتصالات فعال هر دیتابیس.',
+      'توسعه رابط کاربری پنجره مدیریت با تب‌های تفکیک‌شده "نمای کلی و سلامت موتور"، "کاتالوگ پایگاه‌های داده" و "اتصال و امنیت" منطبق بر استانداردهای ۵‌گانه مودال، تم روشن/تیره و دوزبانگی صددرصدی.'
+    ],
+    changes_en: [
+      'Engineered direct PostgreSQL engine discovery extracting authentic build versions, uptime, postmaster start time, cluster data directory, wal_level, and RAM allocations (shared_buffers, work_mem).',
+      'Implemented live connection pool analytics tracking max_connections, capacity percentage, and breakdown across Active, Idle, Idle in Transaction (leak detection), and Waiting on lock queues.',
+      'Added authentic performance telemetry metrics including Buffer Cache Hit Ratio, cumulative transaction counters (commits vs rollbacks), and blocks hit vs read.',
+      'Implemented comprehensive Database Catalog inventory featuring real-time client-side search, template database toggling, disk size calculation (pg_database_size), encoding, collation, tablespace, and per-database active connection counters.',
+      'Enhanced PostgreSQLManagementModal with dedicated tab navigation ("Overview & Health", "Databases Catalog", and "Connection & Security") fully compliant with 5-part modal standards, light/dark themes, and strict bilingual localization.'
+    ]
+  },
   {
     version: '1.182.0',
     releaseDate: '2026-09-26',
