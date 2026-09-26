@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.174.0';
+export const APP_VERSION = '1.175.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.175.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۶ مدیریت آپاچی: معماری جامع ماژول‌ها و موتورهای چندپردازشی (MPM)، فعال/غیرفعال‌سازی ماژول و سوئیچ ایمن MPM',
+    title_en: 'Apache Management Phase 6: Comprehensive Modules & Multi-Processing Modules (MPM) Architecture, Module Switcher & Safe MPM Transition',
+    changes: [
+      'پیاده‌سازی موتور عمیق استخراج و مدل‌سازی ماژول‌ها و ساختار MPM آپاچی (/server/apacheModuleManager.ts) با اسکنر همه‌جانبه ماژول‌های فعال (apachectl -M)، ماژول‌های اشتراکی موجود در دیسک، ماژول‌های استاتیک و معماری پردازشی سرور.',
+      'پیاده‌سازی نقشه هوشمند انطباق دایرکتیوهای کانفیگ با ماژول‌های موردنیاز (مانند RewriteRule به mod_rewrite یا SSLEngine به mod_ssl) جهت هشدار و جلوگیری از ایجاد اختلال در وب‌سرور.',
+      'توسعه سیستم ایمن فعال‌سازی و غیرفعال‌سازی ماژول‌ها (a2enmod / a2dismod در دبیان و اوبونتو و مدیریت دایرکتیوهای LoadModule در ردهت/راکی) به همراه تست سینتکس آنی (-t) و رول‌بک خودکار در صورت خطا.',
+      'پیاده‌سازی ابزار سوئیچ ایمن معماری پردازشی MPM (بین سه مدل event، worker و prefork) با بررسی سازگاری، هشدارهای Thread-Safety، اعتبارسنجی اولیه سینتکس و ری‌استارت مطمئن وب‌سرور.',
+      'ایجاد اندپوینت‌های بک‌اند: /api/remote-servers/:id/apache-modules، apache-module-toggle و apache-mpm-switch همراه با توابع متناظر در src/services/api.ts.',
+      'توسعه کامل تب ۵ (Modules & MPM) در کامپوننت ApacheManagementModal با کارت ویژه معماری MPM، ۵ کارت آماری، فیلترهای چندگانه وضعیت و دسته‌بندی، کارت‌های ماژول، پنجره بازرسی ماژول (Inspect Module) و پنجره اختصاصی تغییر مدل MPM با حفظ کامل حریم فوتر.'
+    ],
+    changes_en: [
+      'Engineered deep Apache Modules and MPM Architecture engine (/server/apacheModuleManager.ts) scanning active modules (apachectl -M), disk-available shared DSO modules, compiled-in static modules, and server processing architecture.',
+      'Built intelligent reverse mapping of configuration directives to demanded modules (e.g. RewriteRule to mod_rewrite, ProxyPass to mod_proxy, SSLEngine to mod_ssl) to highlight essential dependencies.',
+      'Developed atomic enable/disable module controller (a2enmod / a2dismod on Debian/Ubuntu and LoadModule comment/uncomment on RHEL/Rocky) with live syntax verification (-t) and instant rollback on failure.',
+      'Engineered safe MPM architecture switcher supporting event (async listener), worker (multi-threaded hybrid), and prefork (process-isolated non-threaded) with pre-flight syntax check and graceful daemon restart.',
+      'Integrated backend routes for module discovery, module toggle, and MPM switching alongside matching client API functions in src/services/api.ts.',
+      'Developed comprehensive Tab 5 (Modules & MPM) in ApacheManagementModal featuring MPM spotlight card, 5 metric counters, search and category/status filters, interactive module cards, Inspect Module portal dialog, and Switch MPM portal dialog with strict footer clearance.'
+    ]
+  },
   {
     version: '1.174.0',
     releaseDate: '2026-09-26',

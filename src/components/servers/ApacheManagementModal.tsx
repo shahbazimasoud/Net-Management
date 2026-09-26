@@ -45,6 +45,8 @@ import {
   Wrench,
   Shield,
   CheckSquare,
+  Sliders,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -61,6 +63,9 @@ import {
   ApacheProxyModuleRequirement,
   ApacheProxySummary,
   CreateApacheProxyRouteParams,
+  ApacheModuleItem,
+  ApacheMpmDetails,
+  ApacheModulesSummary,
 } from '../../types';
 import {
   discoverApacheTopology,
@@ -73,6 +78,9 @@ import {
   enableApacheProxyModules,
   createApacheProxyRoute,
   deleteApacheProxyRoute,
+  fetchApacheModulesArchitecture,
+  toggleApacheModule,
+  switchApacheMpm,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
@@ -181,6 +189,20 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   const [creatingProxy, setCreatingProxy] = useState<boolean>(false);
   const [deletingProxyId, setDeletingProxyId] = useState<string | null>(null);
   const [enablingModules, setEnablingModules] = useState<boolean>(false);
+
+  // Modules & MPM State (Phase 6)
+  const [modulesSummary, setModulesSummary] = useState<ApacheModulesSummary | null>(null);
+  const [loadingModules, setLoadingModules] = useState<boolean>(false);
+  const [moduleSearchQuery, setModuleSearchQuery] = useState<string>('');
+  const [moduleCategoryFilter, setModuleCategoryFilter] = useState<string>('all');
+  const [moduleStatusFilter, setModuleStatusFilter] = useState<
+    'all' | 'loaded' | 'enabled' | 'available' | 'disabled' | 'required'
+  >('all');
+  const [togglingModuleName, setTogglingModuleName] = useState<string | null>(null);
+  const [inspectModule, setInspectModule] = useState<ApacheModuleItem | null>(null);
+  const [isSwitchMpmOpen, setIsSwitchMpmOpen] = useState<boolean>(false);
+  const [targetMpm, setTargetMpm] = useState<string>('event');
+  const [switchingMpm, setSwitchingMpm] = useState<boolean>(false);
 
   const [actionFeedback, setActionFeedback] = useState<{
     type: 'success' | 'error' | 'info';
@@ -611,6 +633,110 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     }
   };
 
+  // Fetch full Apache Modules & MPM Architecture (Phase 6)
+  const fetchModulesData = useCallback(async () => {
+    if (!server) return;
+    setLoadingModules(true);
+    setActionFeedback(null);
+    try {
+      const res = await fetchApacheModulesArchitecture(server.id, server.ssh_password);
+      if (res && res.success && res.summary) {
+        setModulesSummary(res.summary);
+        if (res.summary.activeMpm?.activeMpm) {
+          setTargetMpm(res.summary.activeMpm.activeMpm);
+        }
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn
+            ? 'Failed to discover Apache modules & MPM'
+            : 'خطا در کشف ماژول‌ها و ساختار MPM آپاچی',
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn ? 'Modules scanner connection error' : 'خطای ارتباط در اسکنر ماژول‌ها',
+        details: err?.message,
+      });
+    } finally {
+      setLoadingModules(false);
+    }
+  }, [server, isEn]);
+
+  // Handle module toggle (enable / disable)
+  const handleToggleModuleAction = async (moduleItem: ApacheModuleItem, action: 'enable' | 'disable') => {
+    if (!server || togglingModuleName) return;
+    const cleanName = moduleItem.rawName;
+    const confirmMsg = isEn
+      ? `Are you sure you want to ${action} module 'mod_${cleanName}'?`
+      : `آیا از ${action === 'enable' ? 'فعال‌سازی' : 'غیرفعال‌سازی'} ماژول 'mod_${cleanName}' اطمینان دارید؟`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setTogglingModuleName(moduleItem.name);
+    setActionFeedback(null);
+    try {
+      const res = await toggleApacheModule(server.id, cleanName, action, server.ssh_password);
+      if (res && res.success) {
+        setActionFeedback({
+          type: 'success',
+          message: res.message || (isEn ? `Module mod_${cleanName} ${action}d successfully` : `ماژول mod_${cleanName} با موفقیت ${action === 'enable' ? 'فعال' : 'غیرفعال'} شد`),
+        });
+        await fetchModulesData();
+        await fetchDiscovery();
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn ? `Failed to ${action} module mod_${cleanName}` : `خطا در ${action === 'enable' ? 'فعال‌سازی' : 'غیرفعال‌سازی'} ماژول mod_${cleanName}`,
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn ? 'Module operation failed' : 'عملیات تغییر وضعیت ماژول با خطا مواجه شد',
+        details: err?.message,
+      });
+    } finally {
+      setTogglingModuleName(null);
+    }
+  };
+
+  // Handle switching Apache MPM
+  const handleSwitchMpmSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!server || switchingMpm || !targetMpm) return;
+    setSwitchingMpm(true);
+    setActionFeedback(null);
+    try {
+      const res = await switchApacheMpm(server.id, targetMpm, server.ssh_password);
+      if (res && res.success) {
+        setActionFeedback({
+          type: 'success',
+          message: res.message || (isEn ? `Switched active MPM to '${targetMpm}' successfully` : `مدل MPM با موفقیت به '${targetMpm}' تغییر یافت`),
+        });
+        setIsSwitchMpmOpen(false);
+        await fetchModulesData();
+        await fetchDiscovery();
+      } else {
+        setActionFeedback({
+          type: 'error',
+          message: isEn ? `Failed to switch MPM to '${targetMpm}'` : `خطا در تغییر MPM به '${targetMpm}'`,
+          details: res?.error,
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        type: 'error',
+        message: isEn ? 'MPM switch operation failed' : 'عملیات تغییر MPM با خطا مواجه شد',
+        details: err?.message,
+      });
+    } finally {
+      setSwitchingMpm(false);
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedFilePath(text);
@@ -633,7 +759,10 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     if (activeTab === 'proxy' && !proxySummary && !loadingProxy && server) {
       fetchProxyData();
     }
-  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, proxySummary, loadingProxy, server, fetchTopologyData, fetchVHostsData, fetchProxyData]);
+    if (activeTab === 'modules' && !modulesSummary && !loadingModules && server) {
+      fetchModulesData();
+    }
+  }, [activeTab, topology, loadingTopology, vhostsSummary, loadingVHosts, proxySummary, loadingProxy, modulesSummary, loadingModules, server, fetchTopologyData, fetchVHostsData, fetchProxyData, fetchModulesData]);
 
   if (!isOpen || !server) return null;
 
@@ -2015,80 +2144,6 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             </div>
           )}
 
-          {/* TAB 5: MODULES & MPM CONTROLLER */}
-          {activeTab === 'modules' && (
-            <div className="space-y-6">
-              <div
-                className={`p-5 rounded-xl border ${
-                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
-                }`}
-              >
-                <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
-                  <div className="flex items-center gap-2">
-                    <Boxes className="w-5 h-5 text-amber-400" />
-                    <div>
-                      <h3 className="font-bold text-sm">
-                        {isEn ? 'Apache Modules Architecture' : 'معماری ماژول‌های آپاچی'}
-                      </h3>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {isEn
-                          ? `Total Loaded: ${discovery?.loadedModules?.length || 0} • Static: ${discovery?.compiledModules?.length || 0} • Active MPM: ${discovery?.activeMpm || 'unknown'}`
-                          : `مجموع بارگذاری‌شده: ${discovery?.loadedModules?.length || 0} • استاتیک: ${discovery?.compiledModules?.length || 0} • مدل MPM فعال: ${discovery?.activeMpm || 'نامشخص'}`}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
-                    <input
-                      type="text"
-                      placeholder={isEn ? 'Filter modules...' : 'فیلتر ماژول‌ها...'}
-                      value={moduleFilter}
-                      onChange={(e) => setModuleFilter(e.target.value)}
-                      className={`text-xs pl-8 pr-3 py-1 rounded-lg border font-mono ${
-                        isLightMode
-                          ? 'bg-white border-slate-200 text-slate-800'
-                          : 'bg-slate-900 border-slate-700 text-slate-200'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 font-mono text-xs">
-                  {filteredModules.map((mod, idx) => {
-                    const isShared = mod.includes('shared');
-                    const cleanName = mod.replace(/\s*\((static|shared)\)/i, '');
-                    return (
-                      <div
-                        key={idx}
-                        className={`p-2.5 rounded-lg border flex items-center justify-between ${
-                          isShared
-                            ? isLightMode
-                              ? 'bg-white border-cyan-200 text-cyan-900'
-                              : 'bg-slate-950/60 border-cyan-500/20 text-cyan-300'
-                            : isLightMode
-                            ? 'bg-slate-100 border-slate-200 text-slate-800'
-                            : 'bg-slate-950/60 border-slate-800 text-slate-300'
-                        }`}
-                      >
-                        <span className="font-bold truncate">{cleanName}</span>
-                        <span
-                          className={`text-[10px] px-1.5 py-0.2 rounded font-sans uppercase font-semibold ${
-                            isShared
-                              ? 'bg-cyan-500/20 text-cyan-300'
-                              : 'bg-slate-700/50 text-slate-400'
-                          }`}
-                        >
-                          {isShared ? 'shared' : 'static'}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* ======================================================== */}
           {/* TAB 4: REVERSE PROXY & LOAD BALANCER (PHASE 5)           */}
           {/* ======================================================== */}
@@ -2761,6 +2816,574 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             </div>
           )}
 
+          {/* ======================================================== */}
+          {/* TAB 5: MODULES & MPM MANAGEMENT (PHASE 6)                */}
+          {/* ======================================================== */}
+          {activeTab === 'modules' && (
+            <div className="space-y-4">
+              {/* Header Controls */}
+              <div
+                className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                    <Boxes className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm flex items-center gap-2">
+                      <span>{isEn ? 'Apache Modules & MPM Architecture' : 'معماری ماژول‌ها و MPM آپاچی'}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold">
+                        Phase 6
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {isEn
+                        ? `Loaded: ${modulesSummary?.loadedCount || discovery?.loadedModules?.length || 0} • Available: ${modulesSummary?.availableCount || 0} • Active MPM: ${modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm || 'event'}`
+                        : `بارگذاری‌شده: ${modulesSummary?.loadedCount || discovery?.loadedModules?.length || 0} • موجود: ${modulesSummary?.availableCount || 0} • مدل MPM فعال: ${modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm || 'event'}`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (modulesSummary?.activeMpm?.activeMpm) {
+                        setTargetMpm(modulesSummary.activeMpm.activeMpm);
+                      }
+                      setIsSwitchMpmOpen(true);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Switch MPM' : 'تغییر مدل MPM'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={fetchModulesData}
+                    disabled={loadingModules}
+                    className={`p-2 rounded-lg border text-slate-400 hover:text-white cursor-pointer transition ${
+                      isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-700'
+                    }`}
+                    title={isEn ? 'Refresh Modules' : 'به‌روزرسانی ماژول‌ها'}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingModules ? 'animate-spin text-amber-400' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* MPM Architecture Spotlight Card */}
+              <div
+                className={`p-4 rounded-xl border space-y-3 ${
+                  isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <Cpu className="w-5 h-5 text-amber-400" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm">
+                          {isEn ? 'Multi-Processing Module (MPM):' : 'مدل چندپردازشی فعال (MPM):'}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono font-bold text-xs uppercase">
+                          mpm_{modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm || 'event'}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-400">
+                        {modulesSummary?.activeMpm?.isThreaded
+                          ? isEn
+                            ? 'Threaded Multi-Process Architecture (High Concurrency & Async I/O)'
+                            : 'معماری چندپردازشی چندتردی (کارایی بالا و پردازش غیرهمگام I/O)'
+                          : isEn
+                          ? 'Process-Based Non-Threaded Architecture (Legacy/PHP Thread-Safe)'
+                          : 'معماری تک‌تردی مبتنی بر پردازه مجزا (مناسب برای ماژول‌های فاقد Thread-Safety)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (modulesSummary?.activeMpm?.activeMpm) {
+                        setTargetMpm(modulesSummary.activeMpm.activeMpm);
+                      }
+                      setIsSwitchMpmOpen(true);
+                    }}
+                    className="text-xs text-amber-400 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                  >
+                    <span>{isEn ? 'Change Engine' : 'تغییر موتور'}</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Compatibility Warning if present */}
+                {modulesSummary?.activeMpm?.compatibilityWarning && (
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold">
+                        {isEn ? 'MPM Compatibility Notice' : 'هشدار سازگاری مدل پردازشی MPM'}
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-0.5">
+                        {isEn
+                          ? modulesSummary.activeMpm.compatibilityWarning
+                          : modulesSummary.activeMpm.compatibilityWarning_fa}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3 MPM Architecture Explanations */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+                  <div
+                    className={`p-3 rounded-lg border transition ${
+                      (modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm) === 'event'
+                        ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-600'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-bold mb-1">
+                      <span>Event MPM</span>
+                      {(modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm) === 'event' && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 uppercase font-bold">
+                          {isEn ? 'Active' : 'فعال'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed opacity-90">
+                      {isEn
+                        ? 'Asynchronous listener threads offload Keep-Alive connections. Best for high traffic & HTTP/2.'
+                        : 'تردهای شنونده ناهمگام کانکشن‌های Keep-Alive را مدیریت می‌کنند. بهترین گزینه برای ترافیک بالا و HTTP/2.'}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-lg border transition ${
+                      (modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm) === 'worker'
+                        ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-600'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-bold mb-1">
+                      <span>Worker MPM</span>
+                      {(modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm) === 'worker' && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 uppercase font-bold">
+                          {isEn ? 'Active' : 'فعال'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed opacity-90">
+                      {isEn
+                        ? 'Multi-process multi-threaded hybrid. Low memory footprint with fixed thread pools.'
+                        : 'معماری ترکیبی چندپردازشی و چندتردی با مصرف بهینه رم و استخرهای ترد ثابت.'}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`p-3 rounded-lg border transition ${
+                      (modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm) === 'prefork'
+                        ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-600'
+                        : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-bold mb-1">
+                      <span>Prefork MPM</span>
+                      {(modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm) === 'prefork' && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 uppercase font-bold">
+                          {isEn ? 'Active' : 'فعال'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed opacity-90">
+                      {isEn
+                        ? 'Isolated non-threaded processes. Essential when running non-thread-safe modules like mod_php.'
+                        : 'پردازه‌های مجزا و تک‌تردی؛ ایزوله‌سازی کامل حافظه برای افزونه‌های ناسازگار با ترد (مانند mod_php).'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Statistical Metrics Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'Loaded Modules' : 'ماژول‌های بارگذاری‌شده'}
+                  </span>
+                  <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
+                    {modulesSummary?.loadedCount || discovery?.loadedModules?.length || 0}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'Disabled / Inactive' : 'غیرفعال / در دسترس'}
+                  </span>
+                  <div className="text-xl font-bold font-mono text-amber-400 mt-1">
+                    {modulesSummary?.disabledCount || 0}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'Static (Compiled-in)' : 'استاتیک (کامپایل‌شده)'}
+                  </span>
+                  <div className="text-xl font-bold font-mono text-cyan-400 mt-1">
+                    {modulesSummary?.staticCount || discovery?.compiledModules?.length || 0}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider flex items-center justify-between">
+                    <span>{isEn ? 'Required by Config' : 'الزام در کانفیگ'}</span>
+                    <FieldInfoTooltip
+                      fieldName="Required by Config"
+                      infoWhatEn="Modules that are actively demanded by directives used in your virtual hosts and config files (e.g. RewriteRule demands mod_rewrite)."
+                      infoWhatFa="ماژول‌هایی که صراحتاً توسط دایرکتیوهای کانفیگ‌های شما (مانند RewriteRule یا ProxyPass) مورد نیاز هستند."
+                      infoWhyEn="If a required module is disabled, Apache will throw a syntax error and fail to boot."
+                      infoWhyFa="در صورت غیرفعال شدن این ماژول‌ها، آپاچی خطای سینتکس داده و اجرا نخواهد شد."
+                      infoExampleEn="RewriteRule -> mod_rewrite, SSLEngine -> mod_ssl"
+                      infoExampleFa="RewriteRule -> mod_rewrite، SSLEngine -> mod_ssl"
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </span>
+                  <div className="text-xl font-bold font-mono text-purple-400 mt-1">
+                    {modulesSummary?.requiredCount || 0}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                  }`}
+                >
+                  <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    {isEn ? 'Active MPM' : 'موتور MPM فعال'}
+                  </span>
+                  <div className="text-sm font-bold font-mono text-amber-300 mt-1 uppercase truncate">
+                    {modulesSummary?.activeMpm?.activeMpm || discovery?.activeMpm || 'event'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Search and Filters */}
+              <div className="space-y-2.5">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      placeholder={
+                        isEn
+                          ? 'Search modules by name, directive, category...'
+                          : 'جستجوی ماژول بر اساس نام، دایرکتیو، دسته‌بندی...'
+                      }
+                      value={moduleSearchQuery}
+                      onChange={(e) => setModuleSearchQuery(e.target.value)}
+                      className={`w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-white border-slate-200 text-slate-800'
+                          : 'bg-slate-900 border-slate-700 text-slate-200'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Status Filter Buttons */}
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                    {[
+                      { id: 'all', labelEn: 'All', labelFa: 'همه' },
+                      { id: 'loaded', labelEn: 'Loaded', labelFa: 'بارگذاری‌شده' },
+                      { id: 'disabled', labelEn: 'Disabled', labelFa: 'غیرفعال' },
+                      { id: 'required', labelEn: 'Required by Config', labelFa: 'الزام کانفیگ' },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setModuleStatusFilter(f.id as any)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition shrink-0 ${
+                          moduleStatusFilter === f.id
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : isLightMode
+                            ? 'text-slate-600 hover:bg-slate-100'
+                            : 'text-slate-400 hover:bg-slate-800'
+                        }`}
+                      >
+                        {isEn ? f.labelEn : f.labelFa}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Category Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+                  <span className="text-[11px] text-slate-400 font-semibold shrink-0">
+                    {isEn ? 'Category:' : 'دسته‌بندی:'}
+                  </span>
+                  {[
+                    { id: 'all', labelEn: 'All Categories', labelFa: 'همه دسته‌ها' },
+                    { id: 'core', labelEn: 'Core', labelFa: 'هسته' },
+                    { id: 'proxy', labelEn: 'Proxy', labelFa: 'پروکسی' },
+                    { id: 'security', labelEn: 'Security & SSL', labelFa: 'امنیت و SSL' },
+                    { id: 'performance', labelEn: 'Performance', labelFa: 'بهینه‌سازی' },
+                    { id: 'rewrite', labelEn: 'URL Rewrite', labelFa: 'بازنویسی آدرس' },
+                    { id: 'auth', labelEn: 'Auth', labelFa: 'احراز هویت' },
+                    { id: 'mpm', labelEn: 'MPM', labelFa: 'مدل پردازش' },
+                    { id: 'other', labelEn: 'Other', labelFa: 'سایر' },
+                  ].map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setModuleCategoryFilter(c.id)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono cursor-pointer transition shrink-0 ${
+                        moduleCategoryFilter === c.id
+                          ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                          : isLightMode
+                          ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          : 'bg-slate-800/60 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      {isEn ? c.labelEn : c.labelFa}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Modules Grid */}
+              {loadingModules ? (
+                <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                  <span>{isEn ? 'Scanning Apache modules & directives...' : 'در حال اسکن ماژول‌ها و دایرکتیوهای آپاچی...'}</span>
+                </div>
+              ) : (
+                (() => {
+                  const filtered = (modulesSummary?.modules || []).filter((m) => {
+                    // Search
+                    if (moduleSearchQuery) {
+                      const q = moduleSearchQuery.toLowerCase();
+                      const matchName =
+                        m.name.toLowerCase().includes(q) ||
+                        m.rawName.toLowerCase().includes(q) ||
+                        (m.moduleSymbol && m.moduleSymbol.toLowerCase().includes(q)) ||
+                        m.descriptionEn.toLowerCase().includes(q) ||
+                        m.descriptionFa.includes(q) ||
+                        m.requiredByDirectives.some((d) => d.toLowerCase().includes(q));
+                      if (!matchName) return false;
+                    }
+
+                    // Category
+                    if (moduleCategoryFilter !== 'all') {
+                      if (m.category !== moduleCategoryFilter) return false;
+                    }
+
+                    // Status
+                    if (moduleStatusFilter === 'loaded') return m.status === 'loaded';
+                    if (moduleStatusFilter === 'disabled') return m.status === 'disabled';
+                    if (moduleStatusFilter === 'required') return m.isRequiredByConfig;
+
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div
+                        className={`p-8 rounded-xl border text-center space-y-2 ${
+                          isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                        }`}
+                      >
+                        <Boxes className="w-8 h-8 text-slate-500 mx-auto" />
+                        <div className="font-bold text-sm">
+                          {isEn ? 'No Matching Apache Modules' : 'هیچ ماژولی مطابق با فیلتر یافت نشد'}
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          {isEn
+                            ? 'Try clearing the search query or changing category and status filters.'
+                            : 'معیار فیلتر خود را تغییر دهید یا عبارت جستجو را پاک کنید.'}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {filtered.map((mod) => {
+                        const isCore = ['core', 'so', 'http', 'authz_core'].includes(mod.rawName);
+                        const isMpm = mod.category === 'mpm';
+
+                        return (
+                          <div
+                            key={mod.name}
+                            className={`p-3.5 rounded-xl border flex flex-col justify-between gap-2.5 transition ${
+                              mod.status === 'loaded'
+                                ? isLightMode
+                                  ? 'bg-white border-slate-200 hover:border-amber-500/50'
+                                  : 'bg-slate-900/70 border-slate-800 hover:border-amber-500/40'
+                                : isLightMode
+                                ? 'bg-slate-50/80 border-slate-200 opacity-80'
+                                : 'bg-slate-950/60 border-slate-800/80 opacity-75'
+                            }`}
+                          >
+                            <div className="space-y-1.5">
+                              {/* Top Bar: Name & Badges */}
+                              <div className="flex items-center justify-between flex-wrap gap-1.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-sm text-slate-100">
+                                    {mod.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    ({mod.moduleSymbol || `${mod.rawName}_module`})
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`text-[10px] px-2 py-0.2 rounded font-mono uppercase font-bold ${
+                                      mod.category === 'security'
+                                        ? 'bg-purple-500/20 text-purple-300'
+                                        : mod.category === 'proxy'
+                                        ? 'bg-blue-500/20 text-blue-300'
+                                        : mod.category === 'performance'
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : mod.category === 'rewrite'
+                                        ? 'bg-amber-500/20 text-amber-300'
+                                        : mod.category === 'mpm'
+                                        ? 'bg-cyan-500/20 text-cyan-300'
+                                        : 'bg-slate-700/50 text-slate-300'
+                                    }`}
+                                  >
+                                    {mod.category}
+                                  </span>
+
+                                  <span
+                                    className={`text-[10px] px-2 py-0.2 rounded-full font-mono font-bold uppercase ${
+                                      mod.status === 'loaded'
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : mod.status === 'disabled'
+                                        ? 'bg-amber-500/20 text-amber-400'
+                                        : 'bg-slate-700/40 text-slate-400'
+                                    }`}
+                                  >
+                                    {mod.status === 'loaded'
+                                      ? isEn
+                                        ? 'Loaded'
+                                        : 'بارگذاری‌شده'
+                                      : mod.status === 'disabled'
+                                      ? isEn
+                                        ? 'Disabled'
+                                        : 'غیرفعال'
+                                      : isEn
+                                      ? 'Available'
+                                      : 'موجود'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Required by Config Banner */}
+                              {mod.isRequiredByConfig && (
+                                <div className="p-1.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[11px] flex items-center gap-1.5 font-mono">
+                                  <CheckSquare className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                  <span className="font-semibold">
+                                    {isEn ? 'Required by config: ' : 'الزام در فایل‌های کانفیگ: '}
+                                  </span>
+                                  <span className="truncate text-slate-300">
+                                    {mod.requiredByDirectives.slice(0, 3).join(', ')}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Description */}
+                              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                                {isEn ? mod.descriptionEn : mod.descriptionFa}
+                              </p>
+                            </div>
+
+                            {/* Actions Footer */}
+                            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono">
+                              <span className="text-[10px] text-slate-400">
+                                {mod.type === 'static' ? 'Static (in-binary)' : 'DSO Dynamic (.so)'}
+                              </span>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setInspectModule(mod)}
+                                  className="p-1.5 rounded border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer transition flex items-center gap-1"
+                                  title={isEn ? 'Inspect Module' : 'بررسی مشخصات ماژول'}
+                                >
+                                  <Code2 className="w-3 h-3 text-amber-400" />
+                                  <span>{isEn ? 'Inspect' : 'مشاهده'}</span>
+                                </button>
+
+                                {!isCore && !isMpm && (
+                                  <>
+                                    {mod.status === 'loaded' ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleModuleAction(mod, 'disable')}
+                                        disabled={togglingModuleName === mod.name}
+                                        className="px-2.5 py-1 rounded border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 text-[11px] font-bold cursor-pointer transition flex items-center gap-1"
+                                      >
+                                        {togglingModuleName === mod.name ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Power className="w-3 h-3" />
+                                        )}
+                                        <span>{isEn ? 'Disable' : 'غیرفعال‌سازی'}</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleModuleAction(mod, 'enable')}
+                                        disabled={togglingModuleName === mod.name}
+                                        className="px-2.5 py-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 text-[11px] font-bold cursor-pointer transition flex items-center gap-1"
+                                      >
+                                        {togglingModuleName === mod.name ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Check className="w-3 h-3" />
+                                        )}
+                                        <span>{isEn ? 'Enable' : 'فعال‌سازی'}</span>
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          )}
+
           {/* PLACEHOLDERS FOR FUTURE PHASES */}
           {activeTab !== 'overview' &&
             activeTab !== 'topology' &&
@@ -2784,15 +3407,15 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md leading-relaxed">
                   {isEn
-                    ? 'Phases 1-5 have delivered Entry Point, Discovery, Topology, Virtual Hosts, and Reverse Proxy. This module will be developed in its planned phase using authentic live data from the connected Linux server.'
-                    : 'فازهای ۱ تا ۵ ورودی، کشف زنده، توپولوژی کانفیگ، هاست‌های مجازی و پروکسی معکوس آپاچی را مستقر ساخته‌اند. این ماژول در فاز برنامه‌ریزی‌شده با داده‌های واقعی سرور توسعه خواهد یافت.'}
+                    ? 'Phases 1-6 have delivered Entry Point, Discovery, Topology, Virtual Hosts, Reverse Proxy, and Modules & MPM. This module will be developed in its planned phase using authentic live data from the connected Linux server.'
+                    : 'فازهای ۱ تا ۶ ورودی، کشف زنده، توپولوژی کانفیگ، هاست‌های مجازی، پروکسی معکوس و مدیریت ماژول‌ها و MPM آپاچی را مستقر ساخته‌اند. این ماژول در فاز برنامه‌ریزی‌شده با داده‌های واقعی سرور توسعه خواهد یافت.'}
                 </p>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('proxy')}
+                  onClick={() => setActiveTab('modules')}
                   className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 text-xs font-semibold cursor-pointer transition"
                 >
-                  {isEn ? 'Return to Reverse Proxy' : 'بازگشت به پروکسی معکوس'}
+                  {isEn ? 'Return to Modules & MPM' : 'بازگشت به ماژول‌ها و MPM'}
                 </button>
               </div>
             )}
@@ -3768,6 +4391,338 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                         : isEn
                         ? 'Deploy Proxy Route'
                         : 'استقرار مسیر پروکسی'}
+                    </span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* ======================================================== */}
+      {/* 10. INSPECT APACHE MODULE MODAL (Portal)                 */}
+      {/* ======================================================== */}
+      {inspectModule &&
+        createPortal(
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-[999995] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`w-full max-w-xl max-h-[85vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
+                <div className="flex items-center gap-2">
+                  <Boxes className="w-5 h-5 text-amber-400" />
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm font-mono">
+                      mod_{inspectModule.rawName}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      ({inspectModule.moduleSymbol || `${inspectModule.rawName}_module`})
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectModule(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 flex-1 overflow-y-auto space-y-4 text-xs font-sans">
+                {/* Status & Type Bar */}
+                <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold uppercase ${
+                        inspectModule.status === 'loaded'
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : inspectModule.status === 'disabled'
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          : 'bg-slate-700/40 text-slate-400'
+                      }`}
+                    >
+                      {inspectModule.status === 'loaded'
+                        ? isEn
+                          ? 'Loaded (Active)'
+                          : 'بارگذاری‌شده (فعال)'
+                        : inspectModule.status === 'disabled'
+                        ? isEn
+                          ? 'Disabled'
+                          : 'غیرفعال'
+                        : isEn
+                        ? 'Available'
+                        : 'در دسترس'}
+                    </span>
+
+                    <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase bg-slate-800 text-slate-300">
+                      {inspectModule.type === 'static' ? 'Static (in-binary)' : 'Dynamic Shared (.so)'}
+                    </span>
+
+                    <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase bg-amber-500/20 text-amber-300">
+                      {inspectModule.category}
+                    </span>
+                  </div>
+
+                  <span className="text-slate-400 text-[11px] font-mono">
+                    {inspectModule.filename || `mod_${inspectModule.rawName}.so`}
+                  </span>
+                </div>
+
+                {/* Description */}
+                <div className="space-y-1">
+                  <span className="font-bold text-slate-400 block">
+                    {isEn ? 'Module Purpose & Architecture:' : 'کاربرد و معماری ماژول:'}
+                  </span>
+                  <p className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200 leading-relaxed">
+                    {isEn ? inspectModule.descriptionEn : inspectModule.descriptionFa}
+                  </p>
+                </div>
+
+                {/* Directives Section */}
+                {inspectModule.requiredByDirectives && inspectModule.requiredByDirectives.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="font-bold text-slate-400 block">
+                      {isEn ? 'Directives Provided / Dependent in Configuration:' : 'دایرکتیوهای وابسته در پیکربندی:'}
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 p-3 rounded-xl bg-slate-900/60 border border-slate-800 font-mono text-[11px]">
+                      {inspectModule.requiredByDirectives.map((dir, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded bg-black/50 text-cyan-300 border border-slate-800">
+                          {dir}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Required by Config Notice */}
+                {inspectModule.isRequiredByConfig && (
+                  <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 flex items-start gap-2.5">
+                    <CheckSquare className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold">
+                        {isEn ? 'Essential Configuration Dependency' : 'وابستگی حیاتی به این ماژول در کانفیگ'}
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                        {isEn
+                          ? 'This module is actively invoked by directives in your VirtualHosts or server config files. Disabling it will cause Apache syntax validation to fail!'
+                          : 'این ماژول توسط دایرکتیوهای فعال در VirtualHostها یا فایل‌های پیکربندی فراخوانی شده است. در صورت غیرفعال‌سازی، اعتبارسنجی سینتکس آپاچی خطا خواهد داد.'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Source File */}
+                {inspectModule.sourceConfigPath && (
+                  <div className="space-y-1">
+                    <span className="font-bold text-slate-400 block font-mono text-[11px]">
+                      {isEn ? 'LoadModule Configuration Source:' : 'مسیر فایل فراخوانی LoadModule:'}
+                    </span>
+                    <div className="p-2.5 rounded-lg bg-black/50 border border-slate-800 font-mono text-[11px] text-slate-300 break-all">
+                      {inspectModule.sourceConfigPath}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions Bar */}
+                <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setInspectModule(null)}
+                    className="px-4 py-2 rounded-lg border border-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    {isEn ? 'Close' : 'بستن'}
+                  </button>
+
+                  {!['core', 'so', 'http', 'authz_core'].includes(inspectModule.rawName) &&
+                    inspectModule.category !== 'mpm' && (
+                      <div>
+                        {inspectModule.status === 'loaded' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const target = inspectModule;
+                              setInspectModule(null);
+                              handleToggleModuleAction(target, 'disable');
+                            }}
+                            className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold cursor-pointer transition flex items-center gap-1.5"
+                          >
+                            <Power className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Disable Module' : 'غیرفعال‌سازی ماژول'}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const target = inspectModule;
+                              setInspectModule(null);
+                              handleToggleModuleAction(target, 'enable');
+                            }}
+                            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer transition flex items-center gap-1.5"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Enable Module' : 'فعال‌سازی ماژول'}</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* ======================================================== */}
+      {/* 11. SWITCH APACHE MPM MODAL (Portal)                     */}
+      {/* ======================================================== */}
+      {isSwitchMpmOpen &&
+        createPortal(
+          <div className="fixed top-0 left-0 right-0 bottom-8 z-[999995] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div
+              className={`w-full max-w-xl max-h-[85vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl ${
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
+                <div className="flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-amber-400" />
+                  <h3 className="font-bold text-sm">
+                    {isEn ? 'Switch Apache MPM Architecture' : 'تغییر مدل چندپردازشی (MPM) آپاچی'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSwitchMpmOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSwitchMpmSubmit} className="p-5 flex-1 overflow-y-auto space-y-4 text-xs font-sans">
+                <p className="text-slate-300 leading-relaxed">
+                  {isEn
+                    ? 'The Multi-Processing Module (MPM) defines how Apache binds to network ports, handles incoming HTTP/WebSocket connections, and dispatches workers.'
+                    : 'مدل چندپردازشی (MPM) نحوه اتصال به پورت‌های شبکه، مدیریت کانکشن‌های HTTP و وب‌سوکت و توزیع پردازه‌ها و تردها در آپاچی را تعیین می‌کند.'}
+                </p>
+
+                {/* 3 MPM Selection Cards */}
+                <div className="space-y-2.5">
+                  {[
+                    {
+                      id: 'event',
+                      title: 'Event MPM (Recommended)',
+                      titleFa: 'مدل Event (پیشنهادی و مدرن)',
+                      badge: 'Async / High Load',
+                      descEn:
+                        'Asynchronous listener threads handle Keep-Alive and idle connections. Ideal for high traffic, HTTP/2, WebSocket, and modern PHP via PHP-FPM.',
+                      descFa:
+                        'تردهای ناهمگام کانکشن‌های باز را بدون مشغول کردن ورکرها مدیریت می‌کنند. بهترین گزینه برای ترافیک بالا، HTTP/2، وب‌سوکت و PHP-FPM.',
+                    },
+                    {
+                      id: 'worker',
+                      title: 'Worker MPM',
+                      titleFa: 'مدل Worker',
+                      badge: 'Hybrid Multi-Thread',
+                      descEn:
+                        'Multi-process, multi-threaded hybrid model. Low RAM footprint and predictable scaling with fixed thread pools.',
+                      descFa:
+                        'معماری ترکیبی چندپردازشی و چندتردی با مصرف بهینه حافظه رم و استخرهای ترد معین.',
+                    },
+                    {
+                      id: 'prefork',
+                      title: 'Prefork MPM',
+                      titleFa: 'مدل Prefork (سنتی / تک‌تردی)',
+                      badge: 'Process-Isolated',
+                      descEn:
+                        'Single-threaded separate processes. Higher RAM usage, but required if using non-thread-safe Apache extensions such as embedded mod_php.',
+                      descFa:
+                        'پردازه‌های مجزا بدون ترد؛ مصرف رم بالاتر، اما اجباری برای کتابخانه‌ها و ماژول‌های فاقد Thread-Safety (مانند mod_php قدیمی).',
+                    },
+                  ].map((mpmOpt) => (
+                    <div
+                      key={mpmOpt.id}
+                      onClick={() => setTargetMpm(mpmOpt.id)}
+                      className={`p-3.5 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                        targetMpm === mpmOpt.id
+                          ? 'border-amber-500 bg-amber-500/15 shadow-md'
+                          : isLightMode
+                          ? 'border-slate-200 bg-white hover:border-slate-400'
+                          : 'border-slate-800 bg-slate-900/50 hover:border-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="apacheMpmRadio"
+                        value={mpmOpt.id}
+                        checked={targetMpm === mpmOpt.id}
+                        onChange={() => setTargetMpm(mpmOpt.id)}
+                        className="mt-1 text-amber-500 cursor-pointer"
+                      />
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-sm text-slate-100">
+                            {isEn ? mpmOpt.title : mpmOpt.titleFa}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-amber-500/20 text-amber-300">
+                            {mpmOpt.badge}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                          {isEn ? mpmOpt.descEn : mpmOpt.descFa}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Safety Warning */}
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold">
+                      {isEn ? 'Automatic Verification & Safe Restart' : 'اعتبارسنجی خودکار و ری‌استارت ایمن'}
+                    </div>
+                    <div className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
+                      {isEn
+                        ? 'Changing MPM requires restarting the Apache daemon. The engine will run a syntax check (`apachectl -t`) first; if any error is detected, changes are immediately rolled back without interrupting service.'
+                        : 'تغییر مدل MPM نیازمند ری‌استارت سرویس آپاچی است. سیستم ابتدا تست سینتکس (`apachectl -t`) می‌گیرد؛ در صورت بروز هرگونه خطا، تغییرات بلافاصله به حالت اولیه بازگردانده می‌شوند.'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSwitchMpmOpen(false)}
+                    className="px-4 py-2 rounded-lg border border-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    {isEn ? 'Cancel' : 'انصراف'}
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={switchingMpm}
+                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold cursor-pointer transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    {switchingMpm ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {switchingMpm
+                        ? isEn
+                          ? 'Validating & Switching...'
+                          : 'در حال اعتبارسنجی و تغییر...'
+                        : isEn
+                        ? 'Apply & Restart MPM'
+                        : 'اعمال و ری‌استارت MPM'}
                     </span>
                   </button>
                 </div>

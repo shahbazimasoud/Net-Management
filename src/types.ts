@@ -1689,6 +1689,51 @@ export interface CreateApacheProxyRouteParams {
   autoEnableModules?: boolean;
 }
 
+export interface ApacheModuleItem {
+  name: string;
+  rawName: string;
+  moduleSymbol?: string;
+  filename?: string;
+  type: 'shared' | 'static';
+  status: 'loaded' | 'enabled' | 'available' | 'disabled';
+  isRequiredByConfig: boolean;
+  requiredByDirectives: string[];
+  category: 'core' | 'proxy' | 'security' | 'performance' | 'auth' | 'rewrite' | 'mpm' | 'other';
+  descriptionEn: string;
+  descriptionFa: string;
+  sourceConfigPath?: string;
+}
+
+export interface ApacheMpmDetails {
+  activeMpm: string;
+  availableMpms: string[];
+  isThreaded: boolean;
+  mpmConfigPath?: string;
+  workers: number;
+  threadsPerChild?: number;
+  maxRequestWorkers?: number;
+  compatibilityWarning?: string;
+  compatibilityWarning_fa?: string;
+}
+
+export interface ApacheModulesSummary {
+  activeMpm: ApacheMpmDetails;
+  totalModules: number;
+  loadedCount: number;
+  availableCount: number;
+  disabledCount: number;
+  staticCount: number;
+  requiredCount: number;
+  modules: ApacheModuleItem[];
+  categories: string[];
+  syntaxValid: boolean;
+  syntaxOutput?: string;
+}
+
+export interface SwitchApacheMpmParams {
+  targetMpm: 'event' | 'worker' | 'prefork' | string;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

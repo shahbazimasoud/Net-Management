@@ -211,6 +211,11 @@ import {
   createApacheProxyRoute,
   deleteApacheProxyRoute,
 } from './apacheProxyManager';
+import {
+  discoverApacheModulesArchitecture,
+  toggleApacheModule,
+  switchApacheMpm,
+} from './apacheModuleManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2174,6 +2179,86 @@ apiRouter.post('/remote-servers/:id/apache-proxy-delete', async (req: Request, r
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to delete Apache reverse proxy route',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-modules - Discovers all Apache modules and MPM status
+apiRouter.post('/remote-servers/:id/apache-modules', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const summary = await discoverApacheModulesArchitecture(server, password);
+    return res.json({ success: true, summary });
+  } catch (err: any) {
+    console.error(`[ApacheModules API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Apache modules and MPM architecture',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-module-toggle - Enables or disables an Apache module
+apiRouter.post('/remote-servers/:id/apache-module-toggle', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, moduleName, action } = req.body || {};
+
+    if (!moduleName || !action || !['enable', 'disable'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        error: 'moduleName and action (enable|disable) are required',
+      });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await toggleApacheModule(server, moduleName, action, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheModuleToggle API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to toggle Apache module',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-mpm-switch - Safely switches active Apache MPM
+apiRouter.post('/remote-servers/:id/apache-mpm-switch', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, targetMpm } = req.body || {};
+
+    if (!targetMpm) {
+      return res.status(400).json({
+        success: false,
+        error: 'targetMpm is required (event|worker|prefork)',
+      });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await switchApacheMpm(server, targetMpm, password);
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error(`[ApacheMpmSwitch API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to switch Apache MPM',
     });
   }
 });
