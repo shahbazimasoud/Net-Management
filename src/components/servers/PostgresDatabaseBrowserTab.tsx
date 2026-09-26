@@ -1139,7 +1139,7 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                   >
                     <span className="text-[11px] text-slate-400 font-sans">{isEn ? 'Cache Hit' : 'نرخ اصابت حافظه'}</span>
                     <p className="font-bold text-sm text-purple-400">
-                      {(overviewData.performance.cacheHitRatio * 100).toFixed(1)}%
+                      {overviewData.telemetry?.cacheHitRatio !== undefined ? `${overviewData.telemetry.cacheHitRatio}%` : '100%'}
                     </p>
                   </div>
                 </div>
@@ -1161,8 +1161,8 @@ export const PostgresDatabaseBrowserTab: React.FC<PostgresDatabaseBrowserTabProp
                     {overviewData.sharedBuffers}
                   </p>
                   <p>
-                    <span className="text-slate-500">Timezone: </span>
-                    {overviewData.timezone}
+                    <span className="text-slate-500">WAL Level: </span>
+                    {overviewData.walLevel}
                   </p>
                 </div>
               </div>

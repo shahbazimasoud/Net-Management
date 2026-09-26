@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.185.0';
+export const APP_VERSION = '1.185.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.185.1',
+    releaseDate: '2026-09-26',
+    type: 'patch',
+    title: 'رفع خطای انواع تله‌متری موتور PostgreSQL در تب کاوشگر دیتابیس',
+    title_en: 'Fix PostgreSQL Engine telemetry property types in Database Explorer tab',
+    changes: [
+      'اصلاح ارجاع به فیلد نسبت اصابت کش (telemetry.cacheHitRatio) و فیلد پیکربندی سطح WAL (walLevel) در نمایش خلاصه موتور PostgreSQL.',
+      'اطمینان کامل از عدم وجود خطای تایپ در tsc --noEmit و پایداری کامل رابط کاربری.'
+    ],
+    changes_en: [
+      'Fixed property binding references for engine cache hit ratio (telemetry.cacheHitRatio) and WAL level in PostgreSQL overview view.',
+      'Ensured full TypeScript strict typing compliance (tsc --noEmit) and UI rendering stability.'
+    ]
+  },
   {
     version: '1.185.0',
     releaseDate: '2026-09-26',
