@@ -2014,6 +2014,112 @@ export interface ApacheSecurityApplyFixResult {
   error?: string;
 }
 
+// ==========================================
+// APACHE MANAGEMENT PHASE 11: PERFORMANCE & TELEMETRY
+// ==========================================
+export interface ApacheScoreboardStats {
+  raw: string;
+  totalSlots: number;
+  waitingForConnection: number;
+  startingUp: number;
+  readingRequest: number;
+  sendingReply: number;
+  keepalive: number;
+  dnsLookup: number;
+  closingConnection: number;
+  logging: number;
+  gracefullyFinishing: number;
+  idleCleanup: number;
+  openSlot: number;
+  activeWorkersCount: number;
+  utilizationPercent: number;
+}
+
+export interface ApacheModStatusTelemetry {
+  isStatusAvailable: boolean;
+  totalAccesses: number;
+  totalKBytes: number;
+  totalMBytes: number;
+  uptime: number;
+  uptimeHuman: string;
+  reqPerSec: number;
+  bytesPerSec: number;
+  bytesPerReq: number;
+  busyWorkers: number;
+  idleWorkers: number;
+  cpuLoad: number;
+  connsTotal: number;
+  connsAsyncWriting: number;
+  connsAsyncKeepAlive: number;
+  connsAsyncClosing: number;
+  testedAt: string;
+}
+
+export interface ApacheCompressionStatus {
+  deflateEnabled: boolean;
+  brotliEnabled: boolean;
+  compressionLevel: number;
+  compressedMimeTypes: string[];
+  recommendedSnippet: string;
+}
+
+export interface ApacheCacheStatus {
+  expiresEnabled: boolean;
+  headersEnabled: boolean;
+  diskCacheEnabled: boolean;
+  defaultExpiresHuman: string;
+  recommendedSnippet: string;
+}
+
+export interface ApacheMpmTuningConfig {
+  activeMpm: string;
+  hardware: {
+    totalRamMb: number;
+    availRamMb: number;
+    cpuCores: number;
+    averageWorkerRssMb: number;
+    currentActiveWorkers: number;
+  };
+  currentDirectives: {
+    startServers: number;
+    threadsPerChild: number;
+    maxRequestWorkers: number;
+    serverLimit: number;
+    maxConnectionsPerChild: number;
+  };
+  recommendedDirectives: {
+    startServers: number;
+    minSpareThreads: number;
+    maxSpareThreads: number;
+    threadsPerChild: number;
+    maxRequestWorkers: number;
+    serverLimit: number;
+    maxConnectionsPerChild: number;
+  };
+  recommendedSnippet: string;
+}
+
+export interface ApachePerformanceReport {
+  testedAt: string;
+  isStatusModuleLoaded: boolean;
+  isStatusAvailable: boolean;
+  telemetry: ApacheModStatusTelemetry | null;
+  scoreboard: ApacheScoreboardStats | null;
+  compression: ApacheCompressionStatus;
+  cache: ApacheCacheStatus;
+  mpmTuning: ApacheMpmTuningConfig;
+  error?: string;
+}
+
+export interface ApachePerformanceTuneResult {
+  success: boolean;
+  filePath: string;
+  syntaxTestPassed: boolean;
+  syntaxOutput: string;
+  serviceReloaded: boolean;
+  error?: string;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;

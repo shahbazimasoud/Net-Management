@@ -235,6 +235,11 @@ import {
   performApacheSecurityAudit,
   applyApacheSecurityHardening,
 } from './apacheSecurityAuditor';
+import {
+  getApachePerformanceReport,
+  enableApacheModStatus,
+  applyApachePerformanceTuning,
+} from './apachePerformanceManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2664,6 +2669,84 @@ apiRouter.post('/remote-servers/:id/apache-security-apply-fix', async (req: Requ
       syntaxOutput: err.message || 'Hardening application exception',
       serviceReloaded: false,
       error: err.message || 'Failed to apply Apache security hardening configuration',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-performance-report - Fetches live mod_status, worker metrics, and MPM recommendations
+apiRouter.post('/remote-servers/:id/apache-performance-report', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, targetConfPath } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const report = await getApachePerformanceReport(server, password, targetConfPath);
+    return res.json({ success: true, report });
+  } catch (err: any) {
+    console.error(`[ApachePerformanceReport API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch Apache performance report',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-performance-enable-status - Configures and enables mod_status safely
+apiRouter.post('/remote-servers/:id/apache-performance-enable-status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await enableApacheModStatus(server, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheEnableModStatus API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Error enabling mod_status',
+      serviceReloaded: false,
+      error: err.message || 'Failed to enable mod_status',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-performance-apply-tuning - Safely writes tuned MPM, compression, or caching config
+apiRouter.post('/remote-servers/:id/apache-performance-apply-tuning', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { customContent, targetFilePath, password } = req.body || {};
+
+    if (!customContent) {
+      return res.status(400).json({ success: false, error: 'Configuration content is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const result = await applyApachePerformanceTuning(server, customContent, targetFilePath, password);
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[ApacheApplyTuning API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      filePath: req.body?.targetFilePath || '',
+      syntaxTestPassed: false,
+      syntaxOutput: err.message || 'Tuning application exception',
+      serviceReloaded: false,
+      error: err.message || 'Failed to apply Apache performance tuning',
     });
   }
 });

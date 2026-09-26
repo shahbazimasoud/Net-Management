@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.179.0';
+export const APP_VERSION = '1.180.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.180.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۱۱ مدیریت آپاچی: تلمتری عملکرد زنده، اسکوربورد بصری کارگرها، موتور تنظیم همزمانی MPM، و بهینه‌ساز فشرده‌سازی و کش',
+    title_en: 'Apache Management Phase 11: Real-Time Performance & mod_status Telemetry, Live Worker Scoreboard, Hardware-Aware MPM Concurrency Tuner & Compression/Caching Optimizer',
+    changes: [
+      'پیاده‌سازی ماژول جامع مدیریت عملکرد و تلمتری آپاچی (/server/apachePerformanceManager.ts) با ارتباط زنده از طریق SSH و استخراج متریک‌های mod_status و هسته لینوکس.',
+      'طراحی ماتریس بصری و تعاملی اسکوربورد (Scoreboard Matrix Visualizer) با تفکیک رنگی ۱۱ وضعیت مختلف اسلات‌ها (_, S, R, W, K, D, C, L, G, I, .) و محاسبه درصد بهره‌وری ظرفیت ورکرها.',
+      'کارت‌های تلمتری زنده: پایش نرخ درخواست بر ثانیه (Req/Sec)، پهنای باند و ترافیک لحظه‌ای (KB/s - MB/s)، متوسط حجم هر پاسخ، بار پردازنده، اتصالات ناهمگام (Async Connections) و مدت زمان پایداری سرویس (Uptime).',
+      'محاسبه‌گر هوشمند تنظیمات MPM بر اساس سخت‌افزار واقعی: ارزیابی رم کل و آزاد سرور، هسته‌های CPU، اندازه‌گیری زنده حافظه مصرفی RSS هر ورکر و ارائه مقادیر بهینه برای StartServers، ThreadsPerChild، MaxRequestWorkers، ServerLimit و MaxConnectionsPerChild.',
+      'بهینه‌ساز فشرده‌سازی HTTP (Deflate & Brotli): شناسایی وضعیت ماژول‌های mod_deflate و mod_brotli و تولید کانفیگ استاندارد استریمینگ برای انواع فایل‌های متنی، وب‌فونت‌ها و API‌های JSON.',
+      'بهینه‌ساز سیاست‌های کشینگ مرورگر (Expires & Headers): تشخیص وضعیت mod_expires و mod_headers و اعمال هدرهای Cache-Control جهت کاهش بار سرور و تسریع بارگذاری برای کاربران نهایی.',
+      'دستیار فعال‌سازی امن mod_status با یک کلیک: تنظیم خودکار هندلر /server-status با محدودیت سختگیرانه دسترسی محلی (Require local و 127.0.0.1) جهت حفظ محرمانگی تلمتری.',
+      'مدال استقرار امن و رول‌بک خودکار تنظیمات عملکردی: ویرایشگر داخلی کانفیگ، اعتبارسنجی سینتکس با apachectl -t، ذخیره‌سازی در conf-available/conf.d و بارگذاری مجدد بدون قطعی سرویس.',
+      'تجهیز به قابلیت به‌روزرسانی خودکار تلمتری (Auto-Refresh با فواصل ۵، ۱۰، ۳۰ و ۶۰ ثانیه‌ای)، سازگاری صددرصدی با تم روشن/تیره و پشتیبانی کامل دوزبانه (فارسی و انگلیسی).'
+    ],
+    changes_en: [
+      'Engineered comprehensive Apache Performance & Telemetry engine (/server/apachePerformanceManager.ts) integrating real-time SSH probes with mod_status and kernel metrics.',
+      'Built interactive Scoreboard Matrix visualizer mapping all 11 worker slot states (_, S, R, W, K, D, C, L, G, I, .) with slot utilization percentage and state legend.',
+      'Live performance telemetry dashboard: requests per second, bandwidth throughput, average bytes per request, CPU load, asynchronous connections, and uptime tracking.',
+      'Hardware-aware MPM concurrency tuner: dynamically calculates StartServers, ThreadsPerChild, MaxRequestWorkers, ServerLimit, and MaxConnectionsPerChild based on live worker RSS memory and hardware RAM/cores.',
+      'Compression engine optimizer (mod_deflate & mod_brotli): detects module status and generates production streaming compression rules for HTML, CSS, JavaScript, JSON, and web fonts.',
+      'Browser caching optimizer (mod_expires & mod_headers): enforces RFC-compliant Cache-Control directives to eliminate redundant static asset requests.',
+      'One-click secure mod_status activator: safely provisions /server-status handler locked to loopback interfaces (127.0.0.1 / ::1).',
+      'Safe tuning deployment wizard with remote syntax validation (apachectl -t) and atomic rollback on errors.',
+      'Equipped with auto-refresh intervals (5s, 10s, 30s, 60s), full light/dark theme adaptability, and strict bilingual English/Persian localization.'
+    ]
+  },
   {
     version: '1.179.0',
     releaseDate: '2026-09-26',

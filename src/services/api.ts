@@ -2040,6 +2040,78 @@ export async function applyApacheSecurityHardening(
   return data;
 }
 
+export async function fetchApachePerformanceReport(
+  serverId: string,
+  ephemeralPassword?: string,
+  targetConfPath?: string
+): Promise<{
+  success: boolean;
+  report?: import('../types').ApachePerformanceReport;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-performance-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword, targetConfPath }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function enableApacheModStatus(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<import('../types').ApachePerformanceTuneResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-performance-enable-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath: '',
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function applyApachePerformanceTuning(
+  serverId: string,
+  customContent: string,
+  targetFilePath?: string,
+  ephemeralPassword?: string
+): Promise<import('../types').ApachePerformanceTuneResult> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-performance-apply-tuning`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ customContent, targetFilePath, password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    filePath: targetFilePath || '',
+    syntaxTestPassed: false,
+    syntaxOutput: '',
+    serviceReloaded: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,

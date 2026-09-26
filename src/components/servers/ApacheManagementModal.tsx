@@ -8,6 +8,7 @@ import {
   Minimize2,
   Terminal,
   Activity,
+  Gauge,
   CheckCircle2,
   AlertCircle,
   Globe,
@@ -135,6 +136,7 @@ import {
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ApacheSafeEditorModal } from './ApacheSafeEditorModal';
+import { ApachePerformanceTab } from './ApachePerformanceTab';
 
 export interface ApacheManagementModalProps {
   isOpen: boolean;
@@ -155,7 +157,8 @@ export type ApacheTabType =
   | 'ssl'
   | 'logs'
   | 'config'
-  | 'security';
+  | 'security'
+  | 'performance';
 
 export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
   isOpen,
@@ -2164,6 +2167,23 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
             ) : (
               <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P10</span>
             )}
+          </button>
+
+          {/* Tab 10: Performance & Telemetry (Phase 11) */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('performance')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shrink-0 ${
+              activeTab === 'performance'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : isLightMode
+                ? 'text-slate-600 hover:bg-slate-100'
+                : 'text-slate-300 hover:bg-white/10'
+            }`}
+          >
+            <Gauge className="w-3.5 h-3.5" />
+            <span>{isEn ? 'Performance & Telemetry' : 'عملکرد و تلمتری'}</span>
+            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P11</span>
           </button>
         </div>
 
@@ -7508,6 +7528,17 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                 )}
               </div>
             </div>
+          )}
+
+          {/* TAB 10: PERFORMANCE & TELEMETRY (PHASE 11) */}
+          {activeTab === 'performance' && server && (
+            <ApachePerformanceTab
+              server={server}
+              discovery={discovery}
+              isEn={isEn}
+              isLightMode={isLightMode}
+              onRefreshDiscovery={() => fetchDiscovery()}
+            />
           )}
         </div>
       </div>
