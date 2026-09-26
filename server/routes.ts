@@ -222,6 +222,7 @@ import {
   attachApacheSslCertificate,
   enableApacheModernSslProfile,
 } from './apacheSslManager';
+import { discoverApacheLogFiles, streamApacheLogFile } from './apacheLogManager';
 import { discoverNginxInstallation } from './nginxDiscovery';
 import { discoverNginxConfigTopology } from './nginxConfigParser';
 import { discoverNginxServerBlocks } from './nginxSitesManager';
@@ -2376,6 +2377,65 @@ apiRouter.post('/remote-servers/:id/apache-ssl-modern-profile', async (req: Requ
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to apply modern SSL profile',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-logs-discovery - Discovers all active Apache access and error log files
+apiRouter.post('/remote-servers/:id/apache-logs-discovery', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body || {};
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const logsSummary = await discoverApacheLogFiles(server, password);
+    return res.json({ success: true, logs: logsSummary });
+  } catch (err: any) {
+    console.error(`[ApacheLogsDiscovery API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to discover Apache log files',
+    });
+  }
+});
+
+// POST /api/remote-servers/:id/apache-logs-stream - Streams, parses, filters, and computes live statistics for Apache logs
+apiRouter.post('/remote-servers/:id/apache-logs-stream', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { password, filePath, lines, search, statusCode, level } = req.body || {};
+
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({ success: false, error: 'File path parameter is required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    const streamData = await streamApacheLogFile(
+      server,
+      {
+        filePath,
+        lines: lines ? Number(lines) : 100,
+        search: typeof search === 'string' ? search : '',
+        statusCode: typeof statusCode === 'string' ? statusCode : '',
+        level: typeof level === 'string' ? level : '',
+      },
+      password
+    );
+
+    return res.json({ success: true, stream: streamData });
+  } catch (err: any) {
+    console.error(`[ApacheLogsStream API Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to stream Apache log file',
     });
   }
 });

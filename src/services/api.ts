@@ -1780,6 +1780,62 @@ export async function enableApacheModernSslProfile(
   return data;
 }
 
+export async function fetchApacheLogFiles(
+  serverId: string,
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  logs?: import('../types').ApacheLogsDiscoverySummary;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-logs-discovery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ephemeralPassword }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
+export async function fetchApacheLogStream(
+  serverId: string,
+  params: {
+    filePath: string;
+    lines?: number;
+    search?: string;
+    statusCode?: string;
+    level?: string;
+  },
+  ephemeralPassword?: string
+): Promise<{
+  success: boolean;
+  stream?: import('../types').ApacheLogStreamResponse;
+  error?: string;
+}> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/apache-logs-stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      password: ephemeralPassword,
+      ...params,
+    }),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    error: 'Failed to parse response from server',
+  }));
+  if (!res.ok && !data.error) {
+    data.error = `HTTP Error ${res.status}`;
+  }
+  return data;
+}
+
 export async function fetchNginxConfigTopology(
   serverId: string,
   ephemeralPassword?: string,

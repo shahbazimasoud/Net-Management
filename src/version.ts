@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.176.0';
+export const APP_VERSION = '1.177.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.177.0',
+    releaseDate: '2026-09-26',
+    type: 'minor',
+    title: 'فاز ۸ مدیریت آپاچی: موتور جامع کاوش و تحلیلگر بلادرنگ لاگ‌های دسترسی و خطا (Access & Error Logs)، استریم زنده (Live Tail) و آمار ترافیک',
+    title_en: 'Apache Management Phase 8: Comprehensive Access & Error Logs Discovery, Real-time Log Streamer (Live Tail) & HTTP Traffic Analytics Engine',
+    changes: [
+      'پیاده‌سازی موتور عمیق کاوش فایل‌های لاگ آپاچی (/server/apacheLogManager.ts) با اسکن بازگشتی تمام دایرکتیوهای CustomLog، TransferLog و ErrorLog از سراسر سلسله‌مراتب فایل‌های کانفیگ و VirtualHostها.',
+      'پشتیبانی جامع از متغیرهای محیطی آپاچی (${APACHE_LOG_DIR} و ServerRoot) از طریق پارس خودکار /etc/apache2/envvars و دایرکتوری‌های استاندارد توزیع‌های مختلف لینوکس (دبیان، اوبونتو، ردهت، راکی، آلما و آلپاین).',
+      'تشخیص هوشمند لاگرهای پایپ‌شده (Piped Loggers نظیر rotatelogs) و تمایز کامل آنها از فایل‌های معمولی لاگ بر روی دیسک.',
+      'پیاده‌سازی موتور استریم با کارایی بالا و خوانش معکوس خطوط (Reverse Tail Seek) جهت دسترسی آنی به آخرین رخدادها در فایل‌های حجیم بدون ایجاد سرریز حافظه بر روی سرور ریموت.',
+      'پارس دقیق لاگ‌های دسترسی در قالب‌های Combined، Common (CLF) و vhost_combined شامل تفکیک کلاینت، کاربر، متد، مسیر منبع، پروتکل، کد وضعیت HTTP، حجم بایت و ارجاع‌دهنده.',
+      'پارس ساختاریافته لاگ‌های خطای آپاچی ۲.۴ و ۲.۲ شامل برچسب ماژول گزارش‌دهنده (مانند core، mpm_event، ssl)، سطح شدت (Emerg تا Info)، شناسه‌های PID/TID، آی‌پی کلاینت و کدهای خطای رسمی آپاچی (AHxxxxx).',
+      'محاسبه بلادرنگ شاخص‌های توزیع کدهای وضعیت (2xx، 3xx، 4xx، 5xx)، تعداد خطاها/هشدارها، کلاینت‌های برتر، مسیرهای پرتکرار و بیشترین کدهای خطای فعال.',
+      'ایجاد ۲ اندپوینت بک‌اند: /api/remote-servers/:id/apache-logs-discovery و apache-logs-stream همراه با توابع متناظر در src/services/api.ts.',
+      'توسعه کامل تب ۷ (Logs) در ApacheManagementModal با نوار ابزار پیشرفته، انتخابگر فایل لاگ، ضامن دوگانه نمای جدول ساختاریافته و کنسول خام ترمینال، دکمه استریم زنده (Live Tail)، ۶ کارت آماری، فیلترهای چندگانه کدهای خطا و سطح لاگ، نشان‌های فیلتر سریع کلاینت‌ها/مسیرها/کدهای AH و امکان دانلود قطعه لاگ.'
+    ],
+    changes_en: [
+      'Engineered deep Apache Log Discovery engine (/server/apacheLogManager.ts) scanning CustomLog, TransferLog, and ErrorLog directives across the entire Apache configuration tree and all VirtualHost blocks.',
+      'Universal distribution support resolving Apache environment variables (${APACHE_LOG_DIR}, ServerRoot) across Debian/Ubuntu, RHEL/Rocky/Alma/Fedora, Alpine, and custom installations.',
+      'Intelligent detection and modeling of piped loggers (e.g. rotatelogs) and seamless identification of active log files.',
+      'High-performance reverse tail backward-seek log reader allowing instant retrieval of the newest entries from large multi-gigabyte log files with zero remote memory overhead.',
+      'Accurate parsing of Combined, Common (CLF), and vhost_combined access log formats isolating client IP, auth user, HTTP method, URI resource, protocol, status code, bytes sent, and user agent.',
+      'Structured parser for Apache 2.4 and 2.2 error logs capturing reporting module tags (core, mpm_event, ssl, proxy_http), severity levels, PID/TID, client IPs, and formal Apache error identifiers (AHxxxxx).',
+      'Real-time statistical aggregation of HTTP status distributions (2xx, 3xx, 4xx, 5xx), error/warning frequencies, top client IPs, top requested URIs, and most frequent AH error codes.',
+      'Added 2 backend API endpoints (/api/remote-servers/:id/apache-logs-discovery and apache-logs-stream) with matching client functions in src/services/api.ts.',
+      'Fully implemented Tab 7 (Logs) in ApacheManagementModal featuring an advanced controls toolbar, log file selector, dual view mode (Structured Table vs Raw Terminal Console), Live Tail toggle with interval streaming, 6 telemetry metric cards, status/level filter pills, quick-filter insight badges, and log snippet download capability.'
+    ]
+  },
   {
     version: '1.176.0',
     releaseDate: '2026-09-26',

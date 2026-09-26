@@ -1806,6 +1806,105 @@ export interface AttachApacheSslCertParams {
   enableHsts?: boolean;
 }
 
+// ==========================================
+// APACHE MANAGEMENT PHASE 8: LOGS & LIVE TAIL
+// ==========================================
+
+export type ApacheLogType = 'access' | 'error' | 'transfer' | 'custom';
+
+export interface ApacheDiscoveredLogFile {
+  id: string;
+  filePath: string;
+  type: ApacheLogType;
+  scope: 'global' | 'virtualhost' | 'directory';
+  associatedServerName?: string;
+  associatedVHostId?: string;
+  definedInFile?: string;
+  exists: boolean;
+  isReadable: boolean;
+  sizeBytes: number;
+  sizeHuman: string;
+  lastModified?: string;
+  lineCount?: number;
+  format?: string;
+  logLevel?: string;
+  isPiped?: boolean;
+  pipedCommand?: string;
+}
+
+export interface ApacheParsedAccessLogEntry {
+  id: string;
+  raw: string;
+  type: 'access';
+  clientIp?: string;
+  remoteUser?: string;
+  timestamp?: string;
+  method?: string;
+  uri?: string;
+  protocol?: string;
+  statusCode?: number;
+  statusCategory?: '2xx' | '3xx' | '4xx' | '5xx' | 'other';
+  bytesSent?: number;
+  referer?: string;
+  userAgent?: string;
+  virtualHost?: string;
+}
+
+export interface ApacheParsedErrorLogEntry {
+  id: string;
+  raw: string;
+  type: 'error';
+  timestamp?: string;
+  module?: string;
+  level: string;
+  pid?: number;
+  tid?: string;
+  clientIp?: string;
+  clientPort?: number;
+  errorCode?: string;
+  message: string;
+}
+
+export type ApacheLogEntry = ApacheParsedAccessLogEntry | ApacheParsedErrorLogEntry;
+
+export interface ApacheLogStreamResponse {
+  filePath: string;
+  logType: 'access' | 'error' | 'custom';
+  totalLinesScanned: number;
+  returnedLines: number;
+  entries: ApacheLogEntry[];
+  stats: {
+    totalEntries: number;
+    count2xx: number;
+    count3xx: number;
+    count4xx: number;
+    count5xx: number;
+    countErrors: number;
+    countWarns: number;
+    uniqueIpsCount: number;
+    topIps: { ip: string; count: number }[];
+    topUris: { uri: string; count: number }[];
+    topStatusCodes: { code: number; count: number }[];
+    topErrorModules?: { module: string; count: number }[];
+    topErrorCodes?: { code: string; count: number }[];
+  };
+  fileMetadata: {
+    exists: boolean;
+    sizeBytes: number;
+    sizeHuman: string;
+    lastModified?: string;
+  };
+}
+
+export interface ApacheLogsDiscoverySummary {
+  totalLogFiles: number;
+  accessLogFilesCount: number;
+  errorLogFilesCount: number;
+  availableLogFiles: ApacheDiscoveredLogFile[];
+  warnings: string[];
+  envVars: Record<string, string>;
+}
+
 export interface NginxConfigFileNode {
   filePath: string;
   relativePath: string;
