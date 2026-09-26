@@ -47,8 +47,36 @@ export interface NginxInstallationDetails {
 }
 
 /**
+ * Strict validator to guarantee the discovered binary is genuinely Nginx or OpenResty.
+ * Strictly prevents system shells (/bin/bash, /bin/sh) or other tools from being treated as Nginx.
+ */
+export function isLikelyNginxBinary(binPath?: string): boolean {
+  if (!binPath || typeof binPath !== 'string') return false;
+  const clean = binPath.trim();
+  if (!clean || clean.length < 3) return false;
+  const base = clean.split('/').pop() || clean;
+  if (base !== 'nginx' && base !== 'openresty' && !base.endsWith('nginx') && !base.endsWith('openresty')) {
+    return false;
+  }
+  if (
+    clean.includes('bash') ||
+    clean.includes('/sh') ||
+    clean === 'sh' ||
+    clean.includes('python') ||
+    clean.includes('perl') ||
+    clean.includes('grep') ||
+    clean.includes('awk') ||
+    clean.includes('sed')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Shell diagnostic script to inspect the Linux environment and discover real Nginx topology.
- * Does NOT assume Ubuntu/Debian paths. Discovers running binary via /proc/PID/exe or which/type.
+ * Process inspection isolates comm field to match ONLY real 'nginx' or 'openresty' executables,
+ * preventing subshells or running scripts from being mistaken for Nginx master processes.
  */
 const NGINX_DISCOVERY_SCRIPT = `export LC_ALL=C
 echo "===DISTRO_INFO==="
@@ -62,22 +90,35 @@ elif [ -f /etc/alpine-release ]; then
 fi
 
 echo "===PROCESSES==="
-# Check master process first
-pgrep -f "nginx: master process" 2>/dev/null || true
+# Find master PID safely without matching bash or subshell (comm must be nginx or openresty)
+ps -eo pid,comm,args 2>/dev/null | awk '$2 ~ /^(nginx|openresty)$/ && /master/ {print $1}' || true
 echo "---WORKERS---"
-pgrep -f "nginx: worker process" 2>/dev/null || true
+ps -eo pid,comm,args 2>/dev/null | awk '$2 ~ /^(nginx|openresty)$/ && /worker/ {print $1}' || true
 
 echo "===PROC_BINARY==="
 # If master process is running, determine real running binary from procfs
-MASTER_PID=$(pgrep -f "nginx: master process" 2>/dev/null | head -n 1 || true)
-if [ -n "$MASTER_PID" ] && [ -e "/proc/$MASTER_PID/exe" ]; then
-  readlink -f "/proc/$MASTER_PID/exe" 2>/dev/null || true
+# Ensure we ONLY pick a real nginx/openresty executable, NEVER bash or shell running this script
+REAL_MASTER_PID=$(ps -eo pid,comm,args 2>/dev/null | awk '$2 ~ /^(nginx|openresty)$/ && /master/ {print $1}' | head -n 1 || true)
+if [ -z "$REAL_MASTER_PID" ]; then
+  for p in $(pgrep -x nginx 2>/dev/null || true) $(pgrep -x openresty 2>/dev/null || true); do
+    REAL_MASTER_PID="$p"
+    break
+  done
+fi
+
+if [ -n "$REAL_MASTER_PID" ] && [ -e "/proc/$REAL_MASTER_PID/exe" ]; then
+  READ_EXE=$(readlink -f "/proc/$REAL_MASTER_PID/exe" 2>/dev/null || true)
+  case "$READ_EXE" in
+    */nginx|*/openresty|nginx|openresty)
+      echo "$READ_EXE"
+      ;;
+  esac
 fi
 
 echo "===WHICH_BINARY==="
-which nginx 2>/dev/null || type -p nginx 2>/dev/null || true
-# Check standard alternative paths if not found
-for p in /usr/sbin/nginx /usr/local/nginx/sbin/nginx /opt/nginx/sbin/nginx /usr/bin/nginx /sbin/nginx; do
+which nginx 2>/dev/null || type -p nginx 2>/dev/null || which openresty 2>/dev/null || true
+# Check standard alternative paths
+for p in /usr/sbin/nginx /usr/local/nginx/sbin/nginx /opt/nginx/sbin/nginx /usr/bin/nginx /sbin/nginx /usr/local/openresty/nginx/sbin/nginx; do
   if [ -x "$p" ]; then
     echo "$p"
   fi
@@ -114,7 +155,7 @@ else
 fi
 
 echo "===MULTI_INSTANCES==="
-ps -eo pid,user,args 2>/dev/null | grep -E "(nginx: master process|openresty: master)" | grep -v grep || true
+ps -eo pid,comm,user,args 2>/dev/null | awk '$2 ~ /^(nginx|openresty)$/ && /master/ {print $1, $3, substr($0, index($0,$4))}' || true
 echo "---ALL_UNITS---"
 systemctl list-unit-files --type=service 2>/dev/null | grep -iE "(nginx|openresty)" | awk '{print $1}' || true
 echo "---ALL_BINARIES---"
@@ -208,12 +249,16 @@ export async function discoverNginxInstallation(
       details.workerCount = workers.length;
     }
 
-    // 3. Resolve Real Binary Path
+    // 3. Resolve Real Binary Path (guaranteed to be genuine Nginx / OpenResty)
     let chosenBinary = '';
     if (rawOut.includes('===PROC_BINARY===')) {
       const procBin = rawOut.split('===PROC_BINARY===')[1].split('===WHICH_BINARY===')[0].trim();
-      if (procBin && !procBin.includes('not found') && !procBin.includes('cannot')) {
-        chosenBinary = procBin.split('\n')[0].trim();
+      const lines = procBin.split('\n').map((l) => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        if (isLikelyNginxBinary(line)) {
+          chosenBinary = line;
+          break;
+        }
       }
     }
 
@@ -221,7 +266,7 @@ export async function discoverNginxInstallation(
       const whichBin = rawOut.split('===WHICH_BINARY===')[1].split('===SERVICE_MANAGER===')[0].trim();
       const lines = whichBin.split('\n').map((l) => l.trim()).filter(Boolean);
       for (const candidate of lines) {
-        if (candidate.endsWith('nginx')) {
+        if (isLikelyNginxBinary(candidate)) {
           chosenBinary = candidate;
           break;
         }
@@ -274,8 +319,8 @@ export async function discoverNginxInstallation(
       details.serviceActive = 'active';
     }
 
-    // 5. If binary found, query version and build arguments (`nginx -V`)
-    if (chosenBinary) {
+    // 5. If verified Nginx binary found, query version and build arguments (`nginx -V`)
+    if (chosenBinary && isLikelyNginxBinary(chosenBinary)) {
       details.isInstalled = true;
       details.binaryPath = chosenBinary;
 
@@ -291,12 +336,12 @@ export async function discoverNginxInstallation(
       if (options?.targetConfPath) {
         details.confPath = options.targetConfPath;
       }
-      if (options?.targetBinaryPath) {
+      if (options?.targetBinaryPath && isLikelyNginxBinary(options.targetBinaryPath)) {
         chosenBinary = options.targetBinaryPath;
         details.binaryPath = chosenBinary;
       }
 
-      // 7. Run safe configuration test (`nginx -t`) using discovered binary and discovered confPath
+      // 7. Run safe configuration test (`nginx -t`) strictly using verified Nginx binary
       const testArgs = details.confPath ? `-c "${details.confPath}"` : '';
       const tCmd = `${chosenBinary} ${testArgs} -t 2>&1`;
       try {
@@ -309,6 +354,8 @@ export async function discoverNginxInstallation(
       }
     } else {
       details.isInstalled = false;
+      details.configTestOk = false;
+      details.configTestOutput = 'Nginx is not installed or binary not found in standard system paths.';
     }
 
     // 8. Parse Multi-Instances from procfs, systemd & binaries
@@ -342,7 +389,7 @@ export async function discoverNginxInstallation(
 
             const isResty = cmdLine.toLowerCase().includes('openresty');
             const binMatch = cmdLine.match(/(\/[^\s]+nginx|\/[^\s]+openresty|[a-zA-Z0-9_\-\/]+nginx)/);
-            const instanceBin = binMatch ? binMatch[1] : (details.binaryPath || 'nginx');
+            const instanceBin = (binMatch && isLikelyNginxBinary(binMatch[1])) ? binMatch[1] : (details.binaryPath || '/usr/sbin/nginx');
 
             const isPrimary = pid === details.masterPid || instances.length === 0;
             const workerCount = pid === details.masterPid ? details.workerCount : 1;
@@ -391,7 +438,7 @@ export async function discoverNginxInstallation(
       }
 
       for (const bin of discoveredBinaries) {
-        if (!instances.some((i) => i.binaryPath === bin)) {
+        if (isLikelyNginxBinary(bin) && !instances.some((i) => i.binaryPath === bin)) {
           const isResty = bin.includes('openresty');
           instances.push({
             id: `bin-${bin.replace(/[^a-zA-Z0-9]/g, '_')}`,

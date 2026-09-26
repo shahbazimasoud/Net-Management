@@ -16,9 +16,9 @@ import {
  */
 const LIVE_SECURITY_INSPECTION_SCRIPT = `export LC_ALL=C
 echo "===WORKER_USER==="
-ps -eo user,comm,args 2>/dev/null | grep -E "nginx: worker" | grep -v grep | head -n 1 | awk '{print $1}' || echo "unknown"
+ps -eo pid,comm,user,args 2>/dev/null | awk '$2 ~ /^(nginx|openresty)$/ && /worker/ {print $3; exit}' || echo "unknown"
 echo "===MASTER_USER==="
-ps -eo user,comm,args 2>/dev/null | grep -E "nginx: master" | grep -v grep | head -n 1 | awk '{print $1}' || echo "unknown"
+ps -eo pid,comm,user,args 2>/dev/null | awk '$2 ~ /^(nginx|openresty)$/ && /master/ {print $3; exit}' || echo "root"
 echo "===CONF_PERMS==="
 ls -ld /etc/nginx 2>/dev/null || true
 ls -l /etc/nginx/nginx.conf 2>/dev/null || true

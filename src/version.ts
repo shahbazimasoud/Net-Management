@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.169.0';
+export const APP_VERSION = '1.169.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.169.1',
+    releaseDate: '2026-09-26',
+    type: 'patch',
+    title: 'رفع خطای تایم‌اوت SSH و حل ریشه‌ای شناسایی اشتباه شل لینوکس (/usr/bin/bash) به عنوان باینری انجین‌ایکس',
+    title_en: 'Fix SSH 8000ms timeout and resolve root cause of false-positive /usr/bin/bash binary discovery in Nginx manager',
+    changes: [
+      'اصلاح ریشه‌ای اسکریپت کشف پردازش‌های Nginx (/server/nginxDiscovery.ts): حذف تطبیق باز pgrep -f که به دلیل قرار داشتن کل اسکریپت در پارامترهای اجرای bash، شل جاری سیستم (/usr/bin/bash) را به اشتباه به عنوان پردازش مستر Nginx شناسایی می‌کرد.',
+      'تعبیه اعتبارسنج سخت‌گیرانه باینری isLikelyNginxBinary: رد قاطعانه هرگونه شل یا باینری متفرقه سیستم نظیر /bin/bash، /bin/sh، python و تضمین اینکه تنها باینری‌های واقعی nginx و openresty پذیرفته شوند.',
+      'جلوگیری از اجرای مخرب bash -t: رفع گیر کردن شل در انتظار دریافت دستور از stdin که موجب مسدود ماندن نشست SSH و بروز خطای تایم‌اوت ۸۰۰۰ میلی‌ثانیه‌ای می‌شد.',
+      'بستن خودکار جریان ورودی استاندارد (stream.end()) در runAdaptiveSshCommand جهت ممانعت قطعی از مسدود شدن نشست‌های غیرتعاملی SSH توسط فرآیندهای راکد سمت سرور.',
+      'افزودن پیام هشدار شفاف و هوشمند در تب Overview مودال Nginx در صورت عدم نصب بودن وب‌سرور یا در دسترس نبودن باینری در مسیرهای استاندارد لینوکس.'
+    ],
+    changes_en: [
+      'Fixed root cause in Nginx process discovery script (/server/nginxDiscovery.ts): eliminated fragile pgrep -f which matched the active bash subshell executing the discovery script, incorrectly registering /usr/bin/bash as the Nginx master process.',
+      'Implemented strict isLikelyNginxBinary validator: unconditionally rejects shells and interpreters (/bin/bash, /bin/sh, python, etc.), ensuring only verified nginx or openresty executables are treated as web servers.',
+      'Prevented hanging execution on bash -t: eliminated the process hang where bash waited indefinitely for interactive stdin commands causing the 8000ms SSH timeout.',
+      'Enforced non-interactive stream termination (stream.end()) in runAdaptiveSshCommand preventing remote child processes from blocking on standard input.',
+      'Added clean, dedicated warning notification banner on Nginx Overview tab when Nginx is not installed or when no binary is found in system paths.'
+    ]
+  },
   {
     version: '1.169.0',
     releaseDate: '2026-09-26',

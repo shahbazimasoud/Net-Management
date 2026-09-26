@@ -635,6 +635,11 @@ export async function runAdaptiveSshCommand(
             return finish(err);
           }
 
+          // Close stdin immediately for non-interactive execution so remote processes never block waiting for stdin
+          try {
+            stream.end();
+          } catch {}
+
           let stdout = '';
           let stderr = '';
 

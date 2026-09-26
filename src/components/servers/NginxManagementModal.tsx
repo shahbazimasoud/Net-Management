@@ -1252,6 +1252,29 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
           {/* TAB 1: OVERVIEW & DISCOVERY */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
+              {/* Not Installed Notice Banner */}
+              {discovery && !discovery.isInstalled && (
+                <div
+                  className={`p-4 rounded-xl border flex items-start gap-3 ${
+                    isLightMode
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                  }`}
+                >
+                  <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="font-bold text-sm">
+                      {isEn ? 'Nginx Web Server Not Detected' : 'وب‌سرور انجین‌ایکس شناسایی نشد'}
+                    </h4>
+                    <p className="text-xs mt-1 opacity-90 leading-relaxed">
+                      {isEn
+                        ? 'Nginx executable binary was not found in standard system paths (/usr/sbin/nginx, /usr/bin/nginx, /opt/nginx, etc.) and no running master processes were discovered on this host. Please ensure Nginx is installed on the remote Linux server.'
+                        : 'باینری اجرایی انجین‌ایکس در مسیرهای استاندارد سیستم یافت نشد و پردازش مستر فعالی روی هاست شناسایی نگردید. لطفاً از نصب بودن Nginx بر روی سرور لینوکس اطمینان حاصل فرمایید.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Telemetry & Spec Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Card 1: Daemon & Process State */}
@@ -1740,8 +1763,12 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
                       <ShieldCheck className="w-4 h-4" />
                       <span className="font-bold text-xs">
                         {isEn
-                          ? `Configuration Test Output (${discovery.binaryPath || 'nginx'} -t):`
-                          : 'خروجی تست پیکربندی انجین‌ایکس:'}
+                          ? discovery.binaryPath
+                            ? `Configuration Test Output (${discovery.binaryPath} -t):`
+                            : 'Nginx Status / Syntax Verification:'
+                          : discovery.binaryPath
+                          ? `خروجی تست پیکربندی (${discovery.binaryPath} -t):`
+                          : 'وضعیت نصب و تست پیکربندی انجین‌ایکس:'}
                       </span>
                     </div>
                     <span className="text-[10px] font-mono opacity-75">
