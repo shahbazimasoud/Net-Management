@@ -385,9 +385,6 @@ export const ApacheSafeEditorModal: React.FC<ApacheSafeEditorModalProps> = ({
                 <span className="font-bold text-sm sm:text-base truncate">
                   {isEn ? 'Apache Safe Configuration Editor' : 'ویرایشگر امن پیکربندی آپاچی'}
                 </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
-                  Phase 9
-                </span>
                 {isDirty && (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0 flex items-center gap-1 animate-pulse">
                     ● {isEn ? 'Modified' : 'تغییریافته'}

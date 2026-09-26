@@ -291,14 +291,9 @@ export const ApacheRewriteTab: React.FC<ApacheRewriteTabProps> = ({
             <Globe className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm">
-                {isEn ? 'Apache Rewrite & .htaccess Studio' : 'استودیو ریرایت و فایل‌های .htaccess آپاچی'}
-              </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Phase 12
-              </span>
-            </div>
+            <h3 className="font-bold text-sm">
+              {isEn ? 'Apache Rewrite & .htaccess Studio' : 'استودیو ریرایت و فایل‌های .htaccess آپاچی'}
+            </h3>
             <p className="text-xs text-slate-400 mt-0.5">
               {isEn
                 ? 'mod_rewrite rules engine, URL redirects, .htaccess explorer, HTTP Basic Auth (htpasswd), and custom ErrorDocuments'

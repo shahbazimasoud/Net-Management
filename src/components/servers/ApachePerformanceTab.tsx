@@ -239,14 +239,9 @@ export const ApachePerformanceTab: React.FC<ApachePerformanceTabProps> = ({
             <Gauge className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm">
-                {isEn ? 'Apache Performance & mod_status Telemetry' : 'تلمتری عملکرد آپاچی و اسکوربورد زنده'}
-              </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Phase 11
-              </span>
-            </div>
+            <h3 className="font-bold text-sm">
+              {isEn ? 'Apache Performance & mod_status Telemetry' : 'تلمتری عملکرد آپاچی و اسکوربورد زنده'}
+            </h3>
             <p className="text-xs text-slate-400 mt-0.5">
               {isEn
                 ? 'Real-time mod_status metrics, live worker process scoreboard, MPM hardware tuning, and asset optimization'

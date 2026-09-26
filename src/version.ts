@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.181.0';
+export const APP_VERSION = '1.181.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.181.1',
+    releaseDate: '2026-09-26',
+    type: 'patch',
+    title: 'حذف برچسب‌های فازبندی (P1 تا P12) و عناوین فازها از تب‌ها و بخش‌های پنجره مدیریت آپاچی',
+    title_en: 'Remove Phase Indicators (P1 to P12) and Phase Labels from Apache Management Modal Tabs and Subviews',
+    changes: [
+      'حذف کامل برچسب‌های فازبندی (P2, P3, P4, P5, P7, P8, P9, P10, P11, P12) از نوار تب‌های پنجره مدیریت وب‌سرور آپاچی.',
+      'پاک‌سازی عناوین و نشان‌های فاز از هدر مودال و زیربخش‌های پروکسی معکوس، معماری ماژول‌ها و MPM، تلمتری عملکرد و استودیو ریرایت.',
+      'حفظ شمارنده‌های زنده فنی در تب‌ها (تعداد فایل‌های کانفیگ، هاست‌های مجازی، روت‌های پروکسی، ماژول‌ها، گواهینامه‌ها، لاگ‌ها و امتیاز امنیتی) بدون برچسب فاز.'
+    ],
+    changes_en: [
+      'Completely removed phase badge tags (P2, P3, P4, P5, P7, P8, P9, P10, P11, P12) from Apache Management modal navigation tabs.',
+      'Eliminated phase labels from modal headers and subviews including Reverse Proxy, Modules & MPM, Performance Telemetry, and Rewrite Studio.',
+      'Preserved live technical telemetry counters on tabs (config files count, virtual hosts, proxy routes, loaded modules, SSL certificates, log files, and security score) with clean un-phased presentation.'
+    ]
+  },
   {
     version: '1.181.0',
     releaseDate: '2026-09-26',

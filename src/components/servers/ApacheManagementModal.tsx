@@ -1728,10 +1728,6 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                     <span>{isEn ? 'Unregistered' : 'ثبت‌نشده'}</span>
                   </span>
                 )}
-
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  {isEn ? 'Phase 4: Virtual Hosts' : 'فاز ۴: هاست‌های مجازی'}
-                </span>
               </div>
               <p className="text-xs text-slate-400 truncate mt-0.5 font-mono">
                 {discovery?.version
@@ -1990,7 +1986,6 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           >
             <Activity className="w-3.5 h-3.5" />
             <span>{isEn ? 'Overview & Discovery' : 'نمای کلی و کشف'}</span>
-            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P2</span>
           </button>
 
           {/* Tab 2: Config Topology */}
@@ -2011,12 +2006,10 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
               <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
                 {topology.totalFiles} {isEn ? 'files' : 'فایل'}
               </span>
-            ) : (
-              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P3</span>
-            )}
+            ) : null}
           </button>
 
-          {/* Tab 3: Virtual Hosts (Phase 4) */}
+          {/* Tab 3: Virtual Hosts */}
           <button
             type="button"
             onClick={() => setActiveTab('vhosts')}
@@ -2034,9 +2027,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
               <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
                 {vhostsSummary.totalVHosts}
               </span>
-            ) : (
-              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P4</span>
-            )}
+            ) : null}
           </button>
 
           {/* Tab 4: Reverse Proxy */}
@@ -2057,9 +2048,7 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
               <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
                 {proxySummary.totalRoutes}
               </span>
-            ) : (
-              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P5</span>
-            )}
+            ) : null}
           </button>
 
           {/* Tab 5: Modules & MPM */}
@@ -2097,7 +2086,11 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           >
             <Lock className="w-3.5 h-3.5" />
             <span>{isEn ? 'SSL / TLS' : 'سرتیفیکیت و SSL/TLS'}</span>
-            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P7</span>
+            {sslData?.certificates && sslData.certificates.length > 0 && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+                {sslData.certificates.length}
+              </span>
+            )}
           </button>
 
           {/* Tab 7: Logs */}
@@ -2118,12 +2111,10 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
               <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
                 {logsSummary.totalLogFiles}
               </span>
-            ) : (
-              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P8</span>
-            )}
+            ) : null}
           </button>
 
-          {/* Tab 8: Safe Config Editor & Service Management (Phase 9) */}
+          {/* Tab 8: Safe Config Editor & Service Management */}
           <button
             type="button"
             onClick={() => setActiveTab('config')}
@@ -2137,10 +2128,9 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           >
             <FileCode className="w-3.5 h-3.5" />
             <span>{isEn ? 'Config & Service' : 'کانفیگ و سرویس'}</span>
-            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P9</span>
           </button>
 
-          {/* Tab 9: Security Audit & Hardening (Phase 10) */}
+          {/* Tab 9: Security Audit & Hardening */}
           <button
             type="button"
             onClick={() => setActiveTab('security')}
@@ -2166,12 +2156,10 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
               >
                 {auditReport.overallScore}/100
               </span>
-            ) : (
-              <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P10</span>
-            )}
+            ) : null}
           </button>
 
-          {/* Tab 10: Performance & Telemetry (Phase 11) */}
+          {/* Tab 10: Performance & Telemetry */}
           <button
             type="button"
             onClick={() => setActiveTab('performance')}
@@ -2185,10 +2173,9 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           >
             <Gauge className="w-3.5 h-3.5" />
             <span>{isEn ? 'Performance & Telemetry' : 'عملکرد و تلمتری'}</span>
-            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P11</span>
           </button>
 
-          {/* Tab 11: Rewrite & .htaccess (Phase 12) */}
+          {/* Tab 11: Rewrite & .htaccess */}
           <button
             type="button"
             onClick={() => setActiveTab('rewrite')}
@@ -2202,7 +2189,6 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           >
             <Globe className="w-3.5 h-3.5" />
             <span>{isEn ? 'Rewrite & .htaccess' : 'ریرایت و htaccess.'}</span>
-            <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-mono">P12</span>
           </button>
         </div>
 
@@ -3100,9 +3086,6 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                   <div>
                     <h3 className="font-bold text-sm flex items-center gap-2">
                       <span>{isEn ? 'Apache Reverse Proxy & Load Balancer' : 'پروکسی معکوس و توزیع بار آپاچی'}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold">
-                        Phase 5
-                      </span>
                     </h3>
                     <p className="text-xs text-slate-400">
                       {isEn
@@ -3772,9 +3755,6 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
                   <div>
                     <h3 className="font-bold text-sm flex items-center gap-2">
                       <span>{isEn ? 'Apache Modules & MPM Architecture' : 'معماری ماژول‌ها و MPM آپاچی'}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold">
-                        Phase 6
-                      </span>
                     </h3>
                     <p className="text-xs text-slate-400">
                       {isEn
