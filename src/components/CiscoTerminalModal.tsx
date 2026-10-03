@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Terminal as TerminalIcon,
   X,
@@ -266,7 +266,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           cols = Math.max(80, Math.floor(width / 7.5));
           rows = Math.max(24, Math.floor(height / 17));
         }
-      } else if (isMaximized) {
+      } else if (isFullscreen) {
         cols = 160;
         rows = 48;
       }
@@ -274,7 +274,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
       } catch {}
     }
-  }, [isMaximized]);
+  }, [isFullscreen]);
 
   // Detect if Cisco --More-- is currently active in the last terminal output
   const isMoreActive = useMemo(() => {
