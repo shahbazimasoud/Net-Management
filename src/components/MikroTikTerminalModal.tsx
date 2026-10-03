@@ -34,6 +34,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { fetchDevicePorts, syncDevicePorts, sshConnect, sshExecute, sshDisconnect, getTerminalWebSocketUrl } from '../services/api';
 import { CompactTerminalFaceplate } from './terminal/CompactTerminalFaceplate';
 import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
+import { renderAnsiFormattedText, stripAnsi } from './servers/terminalAnsi';
 
 export interface MikroTikTerminalModalProps {
   device: Device | null;
@@ -124,6 +125,36 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   deviceRef.current = device;
   const activeSessionIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const terminalScreenRef = useRef<HTMLDivElement>(null);
+
+  // Send raw input keystroke or buffer directly to active WebSocket session
+  const sendRawInput = (data: string) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'input', data }));
+    }
+  };
+
+  // Send terminal resize events (cols, rows) to the socket
+  const sendResize = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      let cols = 120;
+      let rows = 36;
+      if (terminalScreenRef.current) {
+        const width = terminalScreenRef.current.clientWidth;
+        const height = terminalScreenRef.current.clientHeight;
+        if (width > 0 && height > 0) {
+          cols = Math.max(80, Math.floor(width / 7.5));
+          rows = Math.max(24, Math.floor(height / 17));
+        }
+      } else if (isFullScreen) {
+        cols = 160;
+        rows = 48;
+      }
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
+      } catch {}
+    }
+  };
 
   const [preventBackdropClose, setPreventBackdropClose] = useState<boolean>(() => {
     try {
@@ -304,13 +335,11 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   // Helper to append streaming raw text from SSH terminal, preserving line continuity across chunk boundaries
   const appendStreamText = (rawChunk: string) => {
     if (!rawChunk) return;
-    const cleanText = rawChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    // Strip ANSI escape sequences (colors, cursor positioning, VT100 control codes)
-    const textWithoutAnsi = cleanText.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-    if (!textWithoutAnsi) return;
+    const cleanText = rawChunk.replace(/\r\r\n/g, '\n').replace(/\r\n/g, '\n');
+    if (!cleanText) return;
 
-    const segments = textWithoutAnsi.split('\n');
-    const endsWithNewline = textWithoutAnsi.endsWith('\n');
+    const segments = cleanText.split('\n');
+    const endsWithNewline = cleanText.endsWith('\n');
 
     setLines((prev) => {
       const updated = [...prev];
@@ -442,16 +471,24 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
     // Connect to real hardware via interactive WebSocket streaming with keepalive
     try {
+      const devSshVersion = (curDev as any).ssh_version || (curDev as any).sshVersion;
       const wsUrl = getTerminalWebSocketUrl(curDev.id, connProtocol, 'Super Admin', {
         ip: curDev.ip,
         ssh_host: curDev.ssh_host,
         ssh_port: curDev.ssh_port,
         ssh_username: curDev.ssh_username,
+        ssh_password: curDev.ssh_password || '',
+        platform: curDev.platform || 'mikrotik_routeros',
+        ssh_version: devSshVersion,
       });
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        setTimeout(() => {
+          sendResize();
+        }, 50);
+
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = setInterval(() => {
           if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -473,33 +510,19 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             appendStreamText(msg.data);
           } else if (msg.type === 'status') {
             if (msg.status === 'connected') {
-              if (msg.is_real) {
-                setSshSessionMode('real_ssh');
-                setSshLatency(msg.latency_ms || 2.1);
-                setLines((prev) => [
-                  ...prev,
-                  {
-                    id: 'sys-mtk-live-' + Date.now(),
-                    type: 'system',
-                    text: isEn
-                      ? `[REAL ${(connProtocol || 'ssh').toUpperCase()} ESTABLISHED] Connected to ${targetHost}:${targetPort} in ${msg.latency_ms || 2}ms.\nSession: Persistent WebSocket SSH Tunnel Active.`
-                      : `[اتصال زنده ${(connProtocol || 'ssh').toUpperCase()} برقرار شد] اتصال به ${targetHost}:${targetPort} در ${msg.latency_ms || 2} میلی‌ثانیه برقرار شد.\nنشست: تانل پایدار سوکت فعال است.`,
-                  },
-                ]);
-              } else {
-                setSshSessionMode('simulated');
-                setSshLatency(msg.latency_ms || 1.2);
-                setLines((prev) => [
-                  ...prev,
-                  {
-                    id: 'sys-mtk-sim-' + Date.now(),
-                    type: 'system',
-                    text: isEn
-                      ? `[INTERACTIVE CLI READY] Connected to ${targetHost ? `${targetHost}:${targetPort} CLI Engine` : `${identity} Local Terminal Engine`}.\nSession: Interactive CLI Session Active.`
-                      : `[ترمینال تعاملی آماده] اتصال به ${targetHost ? `موتور ${targetHost}:${targetPort}` : `موتور ترمینال محلی ${identity}`} برقرار شد.\nنشست: ترمینال تعاملی فعال است.`,
-                  },
-                ]);
-              }
+              setSshSessionMode('real_ssh');
+              setSshLatency(msg.latency_ms || 2.1);
+              setLines((prev) => [
+                ...prev,
+                {
+                  id: 'sys-mtk-live-' + Date.now(),
+                  type: 'system',
+                  text: isEn
+                    ? `[REAL ${(connProtocol || 'ssh').toUpperCase()} ESTABLISHED] Connected to ${targetHost}:${targetPort} in ${msg.latency_ms || 2}ms.\nSession: Persistent WebSocket SSH Tunnel Active.`
+                    : `[اتصال زنده ${(connProtocol || 'ssh').toUpperCase()} برقرار شد] اتصال به ${targetHost}:${targetPort} در ${msg.latency_ms || 2} میلی‌ثانیه برقرار شد.\nنشست: تانل پایدار سوکت فعال است.`,
+                },
+              ]);
+              setTimeout(() => sendResize(), 100);
             } else if (msg.status === 'failed' || msg.status === 'disconnected') {
               setSshSessionMode('failed');
               setLines((prev) => [
@@ -540,26 +563,6 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
       // ws not available
     }
 
-    // Also connect to Python backend client
-    sshConnect({
-      host: targetHost,
-      port: targetPort,
-      username: sshUser,
-      password: curDev.ssh_password || '',
-      deviceId: curDev.id,
-      protocol: connProtocol,
-      timeout: 3500,
-    }).then((res) => {
-      if (!isSubscribed) return;
-      if (res.sessionId || res.session_id) {
-        activeSessionIdRef.current = res.sessionId || res.session_id || null;
-      }
-      if (res.success && res.isReal) {
-        setSshSessionMode('real_ssh');
-        setSshLatency(res.latency_ms || 2.5);
-      }
-    }).catch(() => {});
-
     return () => {
       isSubscribed = false;
       if (pingIntervalRef.current) {
@@ -573,18 +576,34 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
         } catch {}
         wsRef.current = null;
       }
-      if (activeSessionIdRef.current) {
-        sshDisconnect({
-          sessionId: activeSessionIdRef.current,
-          deviceId: curDev.id,
-          host: targetHost,
-          port: targetPort,
-        }).catch(() => {});
-        activeSessionIdRef.current = null;
-      }
       fetch(`/api/devices/${curDev.id}/terminal`, { method: 'DELETE' }).catch(() => {});
     };
   }, [device?.id, isOpen]);
+
+  // Window resize handler to forward terminal cols/rows
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleWinResize = () => {
+      sendResize();
+    };
+    window.addEventListener('resize', handleWinResize);
+    return () => window.removeEventListener('resize', handleWinResize);
+  }, [isOpen, isFullScreen]);
+
+  // Global keydown handler when terminal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+        if (!window.getSelection()?.toString()) {
+          sendRawInput('\x03');
+          setInput('');
+        }
+      }
+    };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, [isOpen]);
 
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -633,7 +652,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     // Direct hardware execution on real MikroTik RouterOS
     if (isSocketReady && wsRef.current) {
       setLines((prev) => [...prev, userLine]);
-      wsRef.current.send(JSON.stringify({ type: 'input', data: rawCmd + '\r\n' }));
+      wsRef.current.send(JSON.stringify({ type: 'input', data: rawCmd + '\r' }));
       if (
         cmdLower.includes('interface') ||
         cmdLower.includes('/export') ||
@@ -1023,6 +1042,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
         <div className="flex-1 flex overflow-hidden">
           {/* Main Terminal Screen */}
           <div
+            ref={terminalScreenRef}
             className="flex-1 flex flex-col p-4 overflow-y-auto font-mono text-xs leading-relaxed transition-colors"
             style={{ backgroundColor: currentBg, color: screenTextColor }}
             onClick={() => inputRef.current?.focus()}
@@ -1037,7 +1057,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
                     <span className={`${screenInputColor} font-bold`}>{l.text}</span>
                   )}
                   {l.type === 'output' && (
-                    <span className={`${screenOutputColor}`}>{l.text}</span>
+                    <span className={`${screenOutputColor}`}>{renderAnsiFormattedText(l.text, l.id)}</span>
                   )}
                   {l.type === 'error' && (
                     <span className={`${screenErrorColor} font-bold`}>{l.text}</span>
@@ -1066,6 +1086,26 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
+                  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+                    e.preventDefault();
+                    sendRawInput('\x03');
+                    setInput('');
+                    return;
+                  }
+                  if (e.key === 'Tab') {
+                    e.preventDefault();
+                    if (input) {
+                      sendRawInput(input + '\t');
+                      setInput('');
+                    } else {
+                      sendRawInput('\t');
+                    }
+                    return;
+                  }
+                  if (e.key === 'Backspace' && input.length === 0) {
+                    sendRawInput('\x08');
+                    return;
+                  }
                   if (e.key === 'ArrowUp') {
                     e.preventDefault();
                     if (history.length > 0 && historyIndex < history.length - 1) {

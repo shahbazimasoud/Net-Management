@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.266.0';
+export const APP_VERSION = '1.267.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.267.0',
+    releaseDate: '2026-10-03',
+    type: 'minor',
+    title: 'فاز ۵.۱: اتصال ترمینال تعاملی خط فرمان به نشست زنده وب‌سوکت و هدایت بایت‌های خام کلیدها (CLI Terminal Live WebSocket Wiring)',
+    title_en: 'Phase 5.1: Connect CLI Terminal to Live SSH Session over WebSocket',
+    changes: [
+      'اتصال مستقیم و پایدار ترمینال تعاملی خط فرمان (CiscoTerminalModal و MikroTikTerminalModal) به اندپوینت وب‌سوکت فاز ۴ با ارسال خودکار شناسه تجهیز و پروتکل ارتباطی.',
+      'استفاده خودکار از نسخه ذخیره‌شده SSH تجهیز (ssh_version: Legacy یا Modern) بدون نیاز به دکمه یا منوی اضافه در رابط کاربری.',
+      'هدایت مستقیم تمامی کلیدهای فشرده‌شده به صورت بایت خام به وب‌سوکت: عملکرد دقیق کلیدهای کنترل شامل Ctrl+C (لغو/توقف دستور)، Enter (اجرا/ارسال carriage return)، Backspace (حذف کاراکتر)، Tab (تکمیل خودکار دستورات روی سخت‌افزار واقعی)، Space (رفتن به صفحه بعد در حالت --More-- سیسکو) و کلید Q برای خروج از صفحه‌بندی --More--.',
+      'رندرینگ بلادرنگ و باکیفیت کاراکترهای دریافتی با پشتیبانی از کدهای اسکیپ رنگی و قالب‌بندی استانداردهای ANSI (renderAnsiFormattedText) دقیقا منطبق بر خروجی ارسالی از سخت‌افزار.',
+      'محاسبه پویا و ارسال خودکار رویدادهای تغییر ابعاد ترمینال (cols و rows در پیام‌های resize) به وب‌سوکت جهت همگام‌سازی سطرها و ستون‌های PTY سخت‌افزار در زمان تغییر اندازه پنجره و تمام‌صفحه.',
+      'پشتیبانی کامل از کلیه دستورات واقعی سخت‌افزار شامل show version، show running-config، show ip interface brief، configure terminal، interface و تغییرات پیکربندی.',
+      'تضمین باز شدن یک نشست مجزا و اختصاصی به ازای هر نمونه ترمینال و ارسال سیگنال بستن تمیز ({ type: "close" }) و بستن سوکت در زمان خروج از مودال.',
+      'حذف کامل داده‌های ساختگی و موک (Strict Zero Mock Data) و نمایش هشدارهای خطای واقعی در صورت قطع اتصال یا عدم پاسخ‌دهی تجهیز.'
+    ],
+    changes_en: [
+      'Directly connected the interactive CLI Terminal (CiscoTerminalModal & MikroTikTerminalModal) to the Phase 4 persistent WebSocket SSH endpoint, automatically forwarding device credentials and target ID.',
+      'Automatically resolves and utilizes the device\'s saved ssh_version (Legacy or Modern) via backend resolver without introducing any unnecessary buttons or dropdowns.',
+      'Direct raw keystroke forwarding to the WebSocket channel: complete support for Ctrl+C (SIGINT/abort), Enter (carriage return execution), Backspace, Tab (live hardware autocompletion), Space (Cisco --More-- page advance), and Q to quit pagination.',
+      'Live stream rendering of incoming device data preserving authentic ANSI escape sequences, color styles, and bold highlights via renderAnsiFormattedText.',
+      'Dynamic terminal dimension calculation and automatic dispatch of resize events (cols, rows) upon initialization, window resize, and fullscreen toggles.',
+      'Full interactive execution of real hardware commands: show version, show running-config, show ip interface brief, configure terminal, interface ...',
+      'Guaranteed one-to-one dedicated WebSocket/SSH session lifecycle per terminal instance with graceful shutdown frames ({ type: "close" }) upon closing.',
+      'Eliminated simulated mock fallback data paths, strictly displaying authentic connection diagnostics and error messages upon failure.'
+    ],
+  },
   {
     version: '1.266.0',
     releaseDate: '2026-10-03',
