@@ -17,7 +17,14 @@ import json
 import time
 import socket
 import select
+import signal
 import threading
+import warnings
+
+# Suppress cryptography legacy deprecation warnings for clean stdio bridge
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*TripleDES.*")
+warnings.filterwarnings("ignore", message=".*cryptography.*")
 
 # Ensure project root is in sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -205,7 +212,15 @@ def handle_terminal(args):
     if len(args) > 0 and args[0].strip().startswith("{"):
         raw_input = args[0].strip()
     else:
-        raw_input = sys.stdin.readline().strip()
+        # Read from raw stdin fd until newline to prevent any internal stdio buffering
+        stdin_fd = sys.stdin.fileno()
+        buf = b""
+        while b"\n" not in buf:
+            chunk = os.read(stdin_fd, 1)
+            if not chunk:
+                break
+            buf += chunk
+        raw_input = buf.decode("utf-8", errors="ignore").strip()
 
     if not raw_input:
         sys.stderr.write("Error: missing connection configuration for terminal\n")
@@ -223,8 +238,8 @@ def handle_terminal(args):
     password = cfg.get("password") or ""
     platform = cfg.get("platform") or "cisco_ios_xe"
     term = cfg.get("term") or "xterm-256color"
-    cols = int(cfg.get("cols") or 80)
-    rows = int(cfg.get("rows") or 24)
+    cols = int(cfg.get("cols") or 120)
+    rows = int(cfg.get("rows") or 36)
     ssh_version = cfg.get("ssh_version") or ACTIVE_MODE
 
     p_client = paramiko.SSHClient()
@@ -236,30 +251,53 @@ def handle_terminal(args):
         port=port,
         username=username,
         password=password,
-        timeout=8.0,
-        banner_timeout=8.0,
-        auth_timeout=8.0,
+        timeout=10.0,
+        banner_timeout=10.0,
+        auth_timeout=10.0,
         platform=platform,
         ssh_version=ssh_version,
     )
 
     if not connected:
-        sys.stderr.write(f"SSH Connection Failed: {err}\n")
+        err_msg = str(err or "SSH Connection Failed")
+        sys.stdout.write(f"__NETMGMT_SSH_ERROR__:{json.dumps({'error': err_msg})}\n")
+        sys.stdout.flush()
+        sys.stderr.write(f"SSH Connection Failed: {err_msg}\n")
+        sys.stderr.flush()
         sys.exit(1)
 
     channel = p_client.invoke_shell(term=term, width=cols, height=rows)
     channel.settimeout(0.0)
 
     # Inform wrapper that channel is open
-    sys.stdout.write(f"__NETMGMT_SSH_OPEN__:{json.dumps({'kex': getattr(p_client, '_negotiation_info', {}).get('kex', 'connected'), 'version': getattr(paramiko, '__version__', 'unknown')})}\n")
+    meta = {
+        'status': 'connected',
+        'host': host,
+        'port': port,
+        'kex': getattr(p_client, '_negotiation_info', {}).get('kex', 'connected'),
+        'cipher': getattr(p_client, '_negotiation_info', {}).get('cipher', ''),
+        'hostkey': getattr(p_client, '_negotiation_info', {}).get('key', ''),
+        'version': getattr(paramiko, '__version__', 'unknown'),
+        'ssh_version': ssh_version,
+    }
+    sys.stdout.write(f"__NETMGMT_SSH_OPEN__:{json.dumps(meta)}\n")
     sys.stdout.flush()
 
     stop_event = threading.Event()
 
+    def sig_handler(signum, frame):
+        stop_event.set()
+
+    try:
+        signal.signal(signal.SIGTERM, sig_handler)
+        signal.signal(signal.SIGINT, sig_handler)
+    except Exception:
+        pass
+
     def read_from_ssh():
         while not stop_event.is_set():
             try:
-                r, _, _ = select.select([channel], [], [], 0.05)
+                r, _, _ = select.select([channel], [], [], 0.02)
                 if r:
                     data = channel.recv(4096)
                     if not data:
@@ -271,14 +309,51 @@ def handle_terminal(args):
         stop_event.set()
 
     def write_to_ssh():
+        buffer = b""
+        stdin_fd = sys.stdin.fileno()
+        CONTROL_PREFIX = b"\x00__NETMGMT_CTL__:"
         while not stop_event.is_set():
             try:
-                r, _, _ = select.select([sys.stdin.buffer], [], [], 0.05)
+                r, _, _ = select.select([stdin_fd], [], [], 0.02)
                 if r:
-                    chunk = sys.stdin.buffer.read(4096)
+                    chunk = os.read(stdin_fd, 4096)
                     if not chunk:
                         break
-                    channel.sendall(chunk)
+
+                    combined = buffer + chunk
+                    buffer = b""
+
+                    while CONTROL_PREFIX in combined:
+                        idx = combined.find(CONTROL_PREFIX)
+                        if idx > 0:
+                            channel.sendall(combined[:idx])
+                            combined = combined[idx:]
+
+                        newline_pos = combined.find(b"\n")
+                        if newline_pos == -1:
+                            # Incomplete control frame, hold in buffer
+                            buffer = combined
+                            combined = b""
+                            break
+
+                        ctrl_raw = combined[len(CONTROL_PREFIX):newline_pos]
+                        combined = combined[newline_pos + 1:]
+                        try:
+                            ctrl = json.loads(ctrl_raw.decode("utf-8", errors="ignore"))
+                            action = ctrl.get("action")
+                            if action == "resize" or "cols" in ctrl:
+                                c = int(ctrl.get("cols") or 80)
+                                r = int(ctrl.get("rows") or 24)
+                                channel.resize_pty(width=c, height=r)
+                            elif action == "close":
+                                stop_event.set()
+                                break
+                        except Exception as ctl_err:
+                            sys.stderr.write(f"Control frame error: {ctl_err}\n")
+                            sys.stderr.flush()
+
+                    if combined:
+                        channel.sendall(combined)
             except Exception:
                 break
         stop_event.set()
@@ -289,10 +364,13 @@ def handle_terminal(args):
     t_write.start()
 
     while not stop_event.is_set():
-        time.sleep(0.1)
+        time.sleep(0.02)
 
     try:
         channel.close()
+    except Exception:
+        pass
+    try:
         p_client.close()
     except Exception:
         pass

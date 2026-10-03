@@ -1,8 +1,8 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { spawn, ChildProcess } from 'child_process';
 import { WebSocketServer, WebSocket } from 'ws';
-import { Client, ConnectConfig } from 'ssh2';
 import { resolveSshBackend } from './sshBackendResolver';
 
 /**
@@ -179,244 +179,310 @@ export function setupTerminalWebSocket(
       }
     };
 
-    // Resolve SSH backend version (legacy vs modern) using single backend resolver
+    // Resolve device platform and SSH backend version (legacy vs modern) using single backend resolver
+    let devPlatform = parsedUrl.searchParams.get('platform') || '';
     let devSshVersion = parsedUrl.searchParams.get('ssh_version') || parsedUrl.searchParams.get('sshVersion') || '';
-    if (!devSshVersion && deviceId) {
+    if ((!devPlatform || !devSshVersion) && deviceId) {
       try {
         const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
         if (fs.existsSync(storePath)) {
           const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
           const foundDev = (store.devices || []).find((d: any) => d.id === deviceId || d.name === deviceId);
           if (foundDev) {
-            devSshVersion = foundDev.ssh_version || foundDev.sshVersion || (foundDev.platform?.includes('modern') ? 'modern' : 'legacy');
+            if (!devPlatform) {
+              devPlatform = foundDev.platform || foundDev.device_type || '';
+            }
+            if (!devSshVersion) {
+              devSshVersion = foundDev.ssh_version || foundDev.sshVersion || (foundDev.platform?.includes('modern') ? 'modern' : 'legacy');
+            }
           }
         }
       } catch {}
     }
     const backendRes = resolveSshBackend(devSshVersion);
-    const isModernBackend = backendRes.version === 'modern';
 
-    // If host is configured, attempt native ssh2 client connection directly
+    // If host is configured, establish live interactive SSH session via resolved Python Paramiko backend
     if (host && host !== '0.0.0.0') {
-      let isSshConnected = false;
-      let hasRetriedLegacy = false;
-      let activeSshClient: Client | null = null;
+      sendClient({
+        type: 'status',
+        status: 'connecting',
+        host,
+        port,
+        ssh_version: backendRes.version,
+        message: `Connecting to ${host}:${port} via SSH v2 (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})...`,
+      });
 
-      const attemptSshConnect = (useLegacyAlgorithms = false) => {
-        if (isModernBackend) {
-          useLegacyAlgorithms = false;
-        }
-        const sshClient = new Client();
-        activeSshClient = sshClient;
+      const configPayload = {
+        host,
+        port,
+        username,
+        password,
+        platform: devPlatform || 'cisco_ios_xe',
+        term: 'xterm-256color',
+        cols: 120,
+        rows: 36,
+        ssh_version: backendRes.version,
+      };
+      const configJson = JSON.stringify(configPayload);
 
-        sendClient({
-          type: 'status',
-          status: 'connecting',
-          host,
-          port,
-          ssh_version: backendRes.version,
-          message: useLegacyAlgorithms
-            ? `Connecting to ${host}:${port} via SSH2 (Legacy Adaptive Mode)...`
-            : (isModernBackend
-                ? `Connecting to ${host}:${port} via SSH2 (Modern High-Security Mode)...`
-                : `Connecting to ${host}:${port} via SSH2 Native Engine...`),
-        });
+      let isSshOpen = false;
+      let hasReportedError = false;
+      let isProcessExited = false;
+      let stdoutBuffer = '';
+      let stderrBuffer = '';
 
-        sshClient.on('ready', () => {
-          isSshConnected = true;
-          sshClient.shell(
-            { term: 'xterm-256color', cols: 120, rows: 36 },
-            (err, stream) => {
-              if (err) {
-                console.warn(`[TerminalWs] PTY Shell creation error on ${host}:`, err.message);
-                sendClient({
-                  type: 'status',
-                  status: 'failed',
-                  error: err.message,
-                  message: `Failed to open PTY shell on ${host}: ${err.message}`,
-                });
+      const proc: ChildProcess = spawn(backendRes.pythonBin, [backendRes.scriptPath, 'terminal', configJson], {
+        cwd: projectRoot,
+        env: backendRes.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        if (!isSshOpen) {
+          stdoutBuffer += chunk.toString('utf-8');
+          if (stdoutBuffer.includes('__NETMGMT_SSH_OPEN__:')) {
+            const lines = stdoutBuffer.split('\n');
+            let remaining = '';
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+              if (line.startsWith('__NETMGMT_SSH_OPEN__:')) {
+                isSshOpen = true;
+                try {
+                  const meta = JSON.parse(line.replace('__NETMGMT_SSH_OPEN__:', '').trim());
+                  sendClient({
+                    type: 'status',
+                    status: 'connected',
+                    is_real: true,
+                    host,
+                    port,
+                    username,
+                    ssh_version: backendRes.version,
+                    kex: meta.kex,
+                    paramiko_version: meta.version,
+                    message: `Live SSH connected to ${host}:${port} (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})`,
+                  });
+                } catch {
+                  sendClient({
+                    type: 'status',
+                    status: 'connected',
+                    is_real: true,
+                    host,
+                    port,
+                    username,
+                    ssh_version: backendRes.version,
+                    message: `Live SSH connected to ${host}:${port}`,
+                  });
+                }
+                remaining = lines.slice(i + 1).join('\n');
+                break;
+              } else if (line.startsWith('__NETMGMT_SSH_ERROR__:')) {
+                hasReportedError = true;
+                try {
+                  const errMeta = JSON.parse(line.replace('__NETMGMT_SSH_ERROR__:', '').trim());
+                  sendClient({
+                    type: 'status',
+                    status: 'failed',
+                    error: errMeta.error,
+                    message: `SSH Connection Failed: ${errMeta.error}`,
+                  });
+                  sendClient({
+                    type: 'error',
+                    error: errMeta.error,
+                  });
+                } catch {
+                  sendClient({
+                    type: 'status',
+                    status: 'failed',
+                    error: line,
+                    message: line,
+                  });
+                }
                 return;
               }
-
+            }
+            if (isSshOpen && remaining) {
               sendClient({
-                type: 'status',
-                status: 'connected',
-                is_real: true,
-                host,
-                port,
-                username,
-                message: `Live SSH connected to ${host}:${port} (${shell})`,
-              });
-
-              stream.on('data', (chunk: Buffer) => {
-                sendClient({
-                  type: 'data',
-                  data: chunk.toString('utf-8'),
-                });
-              });
-
-              stream.on('close', () => {
-                sendClient({
-                  type: 'status',
-                  status: 'disconnected',
-                  message: `SSH stream from ${host} closed.`,
-                });
-                try {
-                  sshClient.end();
-                } catch {}
-              });
-
-              clientWs.on('message', (raw: WebSocket.Data) => {
-                try {
-                  const text = raw.toString();
-                  let msgData = text;
-                  try {
-                    const parsed = JSON.parse(text);
-                    if (parsed.type === 'input' || parsed.type === 'stdin') {
-                      msgData = parsed.data || '';
-                    } else if (parsed.type === 'resize') {
-                      stream.setWindow(parsed.rows || 36, parsed.cols || 120, 0, 0);
-                      return;
-                    }
-                  } catch {}
-                  stream.write(msgData);
-                } catch (writeErr: any) {
-                  console.warn('[TerminalWs] Stream write error:', writeErr.message);
-                }
+                type: 'data',
+                data: remaining,
               });
             }
-          );
-        });
-
-        sshClient.on('error', (err: Error) => {
-          console.warn(`[TerminalWs] SSH2 connection error to ${host}:${port}:`, err.message);
-
-          // Rule 12: Adaptive Protocol Negotiation - modern first, automatic legacy fallback
-          const isAlgorithmOrHandshakeError =
-            err.message.includes('handshake') ||
-            err.message.includes('algorithm') ||
-            err.message.includes('kex') ||
-            err.message.includes('key') ||
-            err.message.includes('cipher') ||
-            err.message.includes('negotiation');
-
-          if (!isModernBackend && !useLegacyAlgorithms && !hasRetriedLegacy && isAlgorithmOrHandshakeError) {
-            hasRetriedLegacy = true;
+          } else if (stdoutBuffer.includes('__NETMGMT_SSH_ERROR__:')) {
+            hasReportedError = true;
+            const errLine = stdoutBuffer.split('\n').find((l) => l.startsWith('__NETMGMT_SSH_ERROR__:')) || '';
             try {
-              sshClient.end();
-            } catch {}
+              const errMeta = JSON.parse(errLine.replace('__NETMGMT_SSH_ERROR__:', '').trim());
+              sendClient({
+                type: 'status',
+                status: 'failed',
+                error: errMeta.error,
+                message: `SSH Connection Failed: ${errMeta.error}`,
+              });
+              sendClient({
+                type: 'error',
+                error: errMeta.error,
+              });
+            } catch {
+              sendClient({
+                type: 'status',
+                status: 'failed',
+                error: stdoutBuffer.trim(),
+                message: stdoutBuffer.trim(),
+              });
+            }
+          }
+        } else {
+          // Stream device output live: SSH channel -> Python -> Node -> WebSocket
+          // Raw bytes/chunks as they arrive, no buffering
+          const dataStr = chunk.toString('utf-8');
+          sendClient({
+            type: 'data',
+            data: dataStr,
+          });
+        }
+      });
+
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf-8');
+        stderrBuffer += text;
+        if (!text.includes('CryptographyDeprecationWarning')) {
+          console.warn(`[TerminalWs Python Stderr]:`, text.trim());
+        }
+      });
+
+      proc.on('close', (code) => {
+        isProcessExited = true;
+        if (!isSshOpen) {
+          if (!hasReportedError) {
+            hasReportedError = true;
+            const isWarningLine = (l: string) =>
+              l.includes('CryptographyDeprecationWarning') ||
+              l.includes('TripleDES') ||
+              l.includes('cryptography.hazmat') ||
+              l.includes('site-packages/paramiko');
+            const cleanErr =
+              stderrBuffer
+                .split('\n')
+                .filter((l) => !isWarningLine(l) && l.trim())
+                .join('\n')
+                .trim() || `Process exited with code ${code}`;
+            sendClient({
+              type: 'status',
+              status: 'failed',
+              error: cleanErr,
+              message: `SSH connection failed: ${cleanErr}`,
+            });
+            sendClient({
+              type: 'error',
+              error: cleanErr,
+            });
             sendClient({
               type: 'data',
-              data: `\r\n\x1b[36m[Adaptive SSH]\x1b[0m Modern algorithm negotiation failed (${err.message}). Retrying with legacy cryptographic ciphers...\r\n`,
+              data: `\r\n\x1b[31m[SSH Connection Failed]\x1b[0m ${cleanErr}\r\n`,
             });
-            setTimeout(() => {
-              attemptSshConnect(true);
-            }, 300);
-            return;
           }
-
+        } else {
           sendClient({
             type: 'status',
-            status: 'failed',
-            error: err.message,
-            message: `Connection failed: ${err.message}`,
+            status: 'disconnected',
+            message: `SSH session closed (exit code ${code}).`,
           });
           sendClient({
             type: 'data',
-            data: `\r\n\x1b[33m[SSH Notice]\x1b[0m Direct SSH to ${host}:${port} unreachable (${err.message}).\r\n\x1b[90mActive in interactive terminal emulator runtime.\x1b[0m\r\n`,
+            data: `\r\n\x1b[33m[SSH Notice]\x1b[0m Connection to ${host}:${port} closed.\r\n`,
           });
-        });
-
-        sshClient.on('close', () => {
-          if (isSshConnected) {
-            sendClient({
-              type: 'status',
-              status: 'disconnected',
-              message: 'SSH connection terminated.',
-            });
-          }
-        });
-
-        const connectConfig: ConnectConfig = {
-          host,
-          port,
-          username,
-          readyTimeout: 7000,
-          keepaliveInterval: 10000,
-        };
-
-        if (password) {
-          connectConfig.password = password;
         }
+      });
 
-        if (useLegacyAlgorithms) {
-          connectConfig.algorithms = {
-            kex: [
-              'ecdh-sha2-nistp256',
-              'ecdh-sha2-nistp384',
-              'ecdh-sha2-nistp521',
-              'diffie-hellman-group16-sha512',
-              'diffie-hellman-group18-sha512',
-              'diffie-hellman-group-exchange-sha256',
-              'diffie-hellman-group14-sha256',
-              'diffie-hellman-group14-sha1',
-              'diffie-hellman-group-exchange-sha1',
-              'diffie-hellman-group1-sha1',
-            ],
-            cipher: [
-              'chacha20-poly1305@openssh.com',
-              'aes256-gcm@openssh.com',
-              'aes128-gcm@openssh.com',
-              'aes256-gcm',
-              'aes128-gcm',
-              'aes256-ctr',
-              'aes192-ctr',
-              'aes128-ctr',
-              'aes256-cbc',
-              'aes192-cbc',
-              'aes128-cbc',
-              '3des-cbc',
-            ],
-            serverHostKey: [
-              'ssh-ed25519',
-              'ecdsa-sha2-nistp256',
-              'ecdsa-sha2-nistp384',
-              'ecdsa-sha2-nistp521',
-              'rsa-sha2-512',
-              'rsa-sha2-256',
-              'ssh-rsa',
-              'ssh-dss',
-            ],
-          };
-        }
+      proc.on('error', (err) => {
+        console.error('[TerminalWs] Python process spawn error:', err);
+        sendClient({
+          type: 'status',
+          status: 'failed',
+          error: err.message,
+          message: `Failed to launch SSH Python backend: ${err.message}`,
+        });
+        sendClient({
+          type: 'error',
+          error: err.message,
+        });
+      });
 
+      clientWs.on('message', (raw: WebSocket.Data) => {
+        if (isProcessExited || !proc.stdin || !proc.stdin.writable) return;
         try {
-          sshClient.connect(connectConfig);
-        } catch (connErr: any) {
-          sendClient({
-            type: 'status',
-            status: 'failed',
-            error: connErr.message,
-          });
+          const text = typeof raw === 'string' ? raw : raw.toString();
+          let handledAsControl = false;
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === 'object') {
+              if (parsed.type === 'ping') {
+                sendClient({ type: 'pong' });
+                return;
+              } else if (parsed.type === 'resize') {
+                handledAsControl = true;
+                const cols = parsed.cols || 120;
+                const rows = parsed.rows || 36;
+                proc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'resize', cols, rows })}\n`);
+                return;
+              } else if (parsed.type === 'close') {
+                handledAsControl = true;
+                proc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
+                setTimeout(() => {
+                  try { proc.kill('SIGTERM'); } catch {}
+                }, 300);
+                return;
+              } else if (parsed.type === 'input' || parsed.type === 'stdin') {
+                handledAsControl = true;
+                const inputData = parsed.data ?? '';
+                if (typeof inputData === 'string') {
+                  proc.stdin.write(inputData);
+                } else {
+                  proc.stdin.write(String(inputData));
+                }
+                return;
+              }
+            }
+          } catch {
+            // Not a JSON control message, fall through to raw writing
+          }
+
+          if (!handledAsControl) {
+            proc.stdin.write(raw as any);
+          }
+        } catch (writeErr: any) {
+          console.warn('[TerminalWs] Input write error:', writeErr.message);
+        }
+      });
+
+      const cleanup = () => {
+        if (!isProcessExited) {
+          isProcessExited = true;
+          try {
+            if (proc.stdin && proc.stdin.writable) {
+              proc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
+              proc.stdin.end();
+            }
+          } catch {}
+          setTimeout(() => {
+            try { proc.kill('SIGTERM'); } catch {}
+            setTimeout(() => {
+              try { proc.kill('SIGKILL'); } catch {}
+            }, 1000);
+          }, 300);
         }
       };
 
-      clientWs.on('close', () => {
-        try {
-          activeSshClient?.end();
-        } catch {}
-      });
-
-      attemptSshConnect(false);
+      clientWs.on('close', cleanup);
+      clientWs.on('error', cleanup);
       return;
     }
 
-    // Default fallback when no specific host is configured
+    // Explicit error when no target host or IP is configured
     sendClient({
       type: 'status',
-      status: 'connected',
-      is_real: false,
-      message: 'Connected to interactive terminal emulator runtime.',
+      status: 'failed',
+      error: 'No target device host or IP configured for SSH connection.',
+      message: 'No target device host or IP configured for SSH connection.',
     });
   });
 }

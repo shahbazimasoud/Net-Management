@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.265.0';
+export const APP_VERSION = '1.266.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.266.0',
+    releaseDate: '2026-10-03',
+    type: 'minor',
+    title: 'فاز ۴: پیاده‌سازی نشست زنده و تعاملی SSH بر بستر وب‌سوکت با استفاده از تفکیک‌کننده بک‌اند تجهیز (Live SSH Session over WebSocket via Selected Backend)',
+    title_en: 'Phase 4: Live Interactive SSH Session over WebSocket Using Selected Backend Resolver',
+    changes: [
+      'توسعه و استانداردسازی کامل اندپوینت وب‌سوکت /ws/ssh جهت برقراری نشست‌های زنده و پایدار SSH با تجهیزات واقعی شبکه.',
+      'خواندن خودکار شناسه تجهیز (device id) و نسخه ذخیره‌شده SSH تجهیز (ssh_version) از پایگاه داده و اتصال مستقیم به محیط مجازی مناسب (Legacy Paramiko 2.12.x یا Modern Paramiko) از طریق تفکیک‌کننده یکپارچه بک‌اند بدون فالبک به پایتون سراسری سیستم.',
+      'باز کردن نشست واقعی SSH و اجرای پوسته تعاملی با شبیه‌ساز پایانه متنی (PTY invoke_shell) در پایتون و فعال ماندن مداوم ارتباط تا زمان بستن ترمینال.',
+      'جریان‌دهی بلادرنگ و بدون وقفه داده‌های خروجی تجهیز (SSH channel → Python → Node.js → WebSocket) به صورت بایت‌های خام به محض دریافت بدون بافرینگ تا انتهای دستور.',
+      'دریافت ورودی‌های کیبورد از وب‌سوکت و هدایت مستقیم و فوری بایت‌های خام به کانال SSH با پاسخگویی به کلیدهای کنترلی (مانند Ctrl+C، Enter، Backspace، Tab، کلید فاصله و Q برای توقف حالت --More-- در سیسکو).',
+      'پشتیبانی کامل از پیام‌های تغییر ابعاد پنجره (resize با سطر و ستون) و فراخوانی متد resize_pty روی کانال SSH.',
+      'مدیریت یکپارچه و مجزای نشست برای هر کلاینت وب‌سوکت همراه با پاکسازی خودکار و کامل فرآیند پایتون و نشست SSH پس از قطع ارتباط یا وقوع خطا.',
+      'عدم استفاده از هرگونه داده ساختگی یا شبیه‌سازی‌شده (Strict Zero Fake Data) و ارسال پیام‌های خطای واقعی اتصال در صورت بروز خطا.'
+    ],
+    changes_en: [
+      'Engineered authentic WebSocket SSH streaming endpoint (/ws/ssh) for persistent interactive network device sessions.',
+      'Dynamically reads target device ID and saved ssh_version, directing connection strictly through the Phase 2 backend resolver to the dedicated Python virtual environment (Legacy Paramiko 2.12.x or Modern Paramiko) with absolute prohibition of fallback to system Python.',
+      'Establishes authentic SSH connection in Python utilizing invoke_shell() with interactive PTY, maintaining the session persistently open until the client terminal disconnects.',
+      'Live bidirectional streaming of device output: SSH channel -> Python -> Node.js -> WebSocket, dispatching raw byte chunks immediately without buffering until command completion.',
+      'Accepts raw keystrokes and inputs directly from WebSocket and writes immediately to the SSH channel, supporting control sequences (Ctrl+C, Enter, Backspace, Tab, Space, and Q for Cisco --More-- pagination).',
+      'Full support for dynamic terminal dimension resize control frames (cols, rows), actively invoking resize_pty on the Paramiko SSH channel.',
+      'Dedicated one-to-one SSH session lifecycle per WebSocket connection with guaranteed process and socket cleanup upon disconnect or error.',
+      'Strict adherence to zero fake or mock output, relaying real device connection failures directly through the WebSocket.'
+    ],
+  },
   {
     version: '1.265.0',
     releaseDate: '2026-10-03',
