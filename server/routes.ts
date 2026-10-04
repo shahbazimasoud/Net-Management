@@ -2048,6 +2048,64 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
   }
 });
 
+// GET /api/devices/:id/ports - Query device interfaces live or from authoritative store (Port modal)
+apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+  try {
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', message: isEn ? 'Device not found' : 'دستگاه یافت نشد' });
+    }
+
+    // Read saved ssh_version strictly from stored device record
+    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+    const backend = resolveSshBackend(sshVersion);
+
+    let ports = Array.isArray(device.ports) ? device.ports : [];
+    const isLiveRequested = req.query.live === 'true' || req.query.live === '1';
+
+    // If ports are missing or live query explicitly requested and device is reachable, query live via resolved SSH backend
+    if ((ports.length === 0 || isLiveRequested) && device.is_online) {
+      try {
+        console.log(`[PortsList Resolver] Fetching ports live for device ${devId} using ${backend.version.toUpperCase()} backend`);
+        const result = await executeSshBridgeAction('ports-sync', device, backend.version, 25000);
+        if (result && result.success && Array.isArray(result.ports)) {
+          ports = result.ports;
+          device.ports = ports;
+          await updateDevice(device.id, { ports });
+        }
+      } catch (liveErr: any) {
+        console.warn(`[PortsList Live Fetch Warning] ${liveErr.message}`);
+      }
+    }
+
+    const activeCount = ports.filter((p: any) => p.status === 'up' && p.admin_status !== 'disabled').length;
+    const inactiveCount = ports.filter((p: any) => p.status !== 'up' || p.admin_status === 'disabled').length;
+    const adminDisabledCount = ports.filter((p: any) => p.admin_status === 'disabled').length;
+
+    return res.json({
+      success: true,
+      device,
+      ports,
+      total_ports: ports.length,
+      active_count: activeCount,
+      inactive_count: inactiveCount,
+      admin_disabled_count: adminDisabledCount,
+      is_live: Boolean(device.is_online),
+      ssh_version: backend.version,
+      paramiko_version: backend.paramikoExpected,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
+});
+
 // Authentic ICMP Ping Engine using native Linux ping command
 const execFileAsync = promisify(execFile);
 
@@ -2200,6 +2258,132 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
     }
   }
   next();
+});
+
+// POST /devices/:id/operations - Execute migrated port operations (power, mode, vlan) via resolved SSH backend
+apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, next: NextFunction) => {
+  const op = String(req.body?.operation || req.body?.action || '').trim().toLowerCase();
+  const iface = String(req.body?.interface || req.body?.iface || '').trim();
+  const params = req.body?.params || {};
+  const devId = req.params.id;
+
+  // Actions 3, 4, 5 of Port Modal migrated in Phase 5.2.1:
+  // Action 3: port-power ('shutdown', 'no_shutdown', 'disable_interface', 'enable_interface')
+  // Action 4: port-mode ('mode_trunk', 'mode_access')
+  // Action 5: port-vlan ('set_vlan', 'change_vlan', 'assign_vlan')
+  const isPortPower = ['shutdown', 'no_shutdown', 'disable_interface', 'enable_interface'].includes(op);
+  const isPortMode = ['mode_trunk', 'mode_access'].includes(op);
+  const isPortVlan = ['set_vlan', 'change_vlan', 'assign_vlan'].includes(op);
+
+  if (!isPortPower && !isPortMode && !isPortVlan) {
+    // Other operations (e.g. set_description, port_sec_*, ping) remain pending for Phase 5.2.2 or other handlers
+    return next();
+  }
+
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  try {
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', message: isEn ? 'Device not found' : 'دستگاه یافت نشد' });
+    }
+
+    // Granular RBAC validation
+    const requiredPermission = isPortPower ? 'port_power' : (isPortMode ? 'port_mode' : 'port_vlan');
+    const rbacCheck = await assertDeviceScopeAccess(req, devId, requiredPermission);
+    if (!rbacCheck.allowed) {
+      return res.status(rbacCheck.status || 403).json({
+        success: false,
+        error: rbacCheck.error || `Access denied for '${requiredPermission}'`,
+        errorFa: rbacCheck.errorFa || 'عدم دسترسی به این عملیات طبق پالیسی امنیتی',
+      });
+    }
+
+    // Read saved ssh_version strictly from stored device record (by device id), NOT from request body or default
+    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+    const backend = resolveSshBackend(sshVersion);
+    console.log(`[PortOperation Resolver] Executing '${op}' on interface '${iface}' for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
+
+    const startT = Date.now();
+    const result = await executeSshBridgeAction('port-action', {
+      device,
+      action: op,
+      interface: iface,
+      params,
+    }, backend.version, 25000);
+
+    const durationMs = Date.now() - startT;
+
+    if (!result || result.success === false) {
+      return res.status(400).json({
+        success: false,
+        error: result?.error || 'Operation failed on device',
+        message: result?.message || result?.error || 'Operation failed on device',
+        cli_command: result?.cli_command || '',
+        output: result?.output || '',
+        durationMs,
+        isReal: true,
+        ssh_version: backend.version,
+        paramiko_version: result?.paramiko_version || backend.paramikoExpected,
+      });
+    }
+
+    // State reflection in stored device record
+    let updatedPort: any = null;
+    if (Array.isArray(device.ports)) {
+      const matchPortFlexible = (p: any, targetId: string) => {
+        if (!p || !targetId) return false;
+        const tNorm = targetId.toLowerCase().replace(/\s+/g, '');
+        const pId = String(p.port_id || p.port || '').toLowerCase().replace(/\s+/g, '');
+        const pName = String(p.name || '').toLowerCase().replace(/\s+/g, '');
+        if (pId === tNorm || pName === tNorm) return true;
+        for (const [full, short] of [['gigabitethernet', 'gi'], ['tengigabitethernet', 'te'], ['fastethernet', 'fa'], ['ethernet', 'eth']]) {
+          if (tNorm.replace(short, full) === pId.replace(short, full)) return true;
+          if (tNorm.replace(full, short) === pId.replace(full, short)) return true;
+        }
+        return false;
+      };
+
+      const pIdx = device.ports.findIndex((p: any) => matchPortFlexible(p, iface));
+      if (pIdx >= 0) {
+        const p = { ...device.ports[pIdx] };
+        if (isPortPower) {
+          if (op === 'shutdown' || op === 'disable_interface') {
+            p.admin_status = 'disabled';
+            p.status = 'down';
+          } else {
+            p.admin_status = 'enabled';
+            p.status = 'up';
+          }
+        } else if (isPortMode) {
+          p.mode = op === 'mode_trunk' ? 'trunk' : 'access';
+        } else if (isPortVlan) {
+          p.vlan = Number(params.vlan || 1);
+          p.mode = 'access';
+        }
+        device.ports[pIdx] = p;
+        updatedPort = p;
+        await updateDevice(device.id, { ports: device.ports });
+      }
+    }
+
+    return res.json({
+      success: true,
+      cli_command: result.cli_command || '',
+      output: result.output || '',
+      durationMs,
+      port: updatedPort,
+      isReal: true,
+      ssh_version: backend.version,
+      paramiko_version: result.paramiko_version || backend.paramikoExpected,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
 });
 
 // Guard for terminal CLI execution

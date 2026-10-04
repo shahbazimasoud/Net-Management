@@ -91,7 +91,7 @@ export function resolveSshBackend(sshVersion?: string | null): SshBackendResolut
  * using the designated virtual environment without fallback.
  */
 export async function executeSshBridgeAction(
-  action: 'test-connection' | 'probe' | 'ports-sync' | 'info',
+  action: 'test-connection' | 'probe' | 'ports-sync' | 'info' | 'port-action',
   payload: any,
   sshVersion?: string | null,
   timeoutMs: number = 18000

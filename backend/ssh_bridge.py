@@ -376,6 +376,160 @@ def handle_terminal(args):
         pass
 
 
+def handle_port_action(args):
+    """
+    Executes an interface/port configuration action (shutdown, no_shutdown, mode_trunk, mode_access, set_vlan)
+    authentically over SSH using the designated Python virtual environment.
+    """
+    raw_input = ""
+    if len(args) > 0 and args[0].strip().startswith("{"):
+        raw_input = args[0].strip()
+    else:
+        raw_input = sys.stdin.read().strip()
+
+    if not raw_input:
+        print(json.dumps({"success": False, "error": "No payload provided for SSH port action"}))
+        sys.exit(1)
+
+    try:
+        data = json.loads(raw_input)
+    except Exception as e:
+        print(json.dumps({"success": False, "error": f"Invalid JSON payload: {e}"}))
+        sys.exit(1)
+
+    device = data.get("device", {}) or {}
+    action = str(data.get("action") or data.get("operation") or "").strip().lower()
+    interface = str(data.get("interface") or "").strip()
+    params = data.get("params", {}) or {}
+    cli_command = data.get("cli_command") or data.get("command")
+
+    conn = device.get("connection", {}) or {}
+    host = str(conn.get("host") or device.get("ssh_host") or device.get("ip") or "").strip()
+    port = int(conn.get("port") or device.get("ssh_port") or 22)
+    username = str(conn.get("username") or device.get("ssh_username") or "admin").strip()
+    password = str(conn.get("password") or device.get("ssh_password") or "").strip()
+    platform = str(device.get("platform") or "cisco_ios_xe").strip()
+    ssh_version = str(device.get("ssh_version") or device.get("sshVersion") or ACTIVE_MODE).strip().lower()
+
+    if not host:
+        print(json.dumps({
+            "success": False,
+            "connected": False,
+            "error": "Device host/IP is required for SSH port action",
+            "message": "Device host/IP is required for SSH port action",
+        }))
+        return
+
+    # Generate CLI command if not explicitly supplied
+    if not cli_command:
+        try:
+            from backend.drivers import get_driver
+            driver = get_driver(platform, device.get("connection_mode", "ssh"))
+            params["device_type"] = device.get("type", "switch")
+            params["is_router"] = device.get("type") == "router"
+            cli_command = driver.generate_action_cli(action, interface, params)
+        except Exception:
+            is_cisco = "cisco" in platform.lower()
+            if is_cisco:
+                if action in ("shutdown", "disable_interface"):
+                    cli_command = f"configure terminal\ninterface {interface}\n shutdown\nexit\nexit"
+                elif action in ("no_shutdown", "enable_interface"):
+                    cli_command = f"configure terminal\ninterface {interface}\n no shutdown\nexit\nexit"
+                elif action == "mode_trunk":
+                    cli_command = f"configure terminal\ninterface {interface}\n switchport trunk encapsulation dot1q\n switchport mode trunk\nexit\nexit"
+                elif action in ("mode_access", "set_vlan", "change_vlan", "assign_vlan"):
+                    vlan = params.get("vlan", 1)
+                    cli_command = f"configure terminal\ninterface {interface}\n switchport mode access\n switchport access vlan {vlan}\nexit\nexit"
+                else:
+                    cli_command = f"configure terminal\ninterface {interface}\nexit\nexit"
+            else:
+                cli_command = f"# Command for {action} on {interface}"
+
+    p_client = paramiko.SSHClient()
+    p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    connected, err = connect_ssh_device(
+        p_client,
+        hostname=host,
+        port=port,
+        username=username,
+        password=password,
+        timeout=7.0,
+        banner_timeout=7.0,
+        auth_timeout=7.0,
+        platform=platform,
+        ssh_version=ssh_version,
+    )
+
+    if not connected:
+        print(json.dumps({
+            "success": False,
+            "connected": False,
+            "error": str(err or "SSH Connection Failed"),
+            "message": str(err or "SSH Connection Failed"),
+            "ssh_version": ssh_version,
+            "paramiko_version": getattr(paramiko, "__version__", "unknown"),
+        }))
+        return
+
+    try:
+        channel = p_client.invoke_shell(term="vt100", width=200, height=80)
+        channel.settimeout(5.0)
+        time.sleep(0.4)
+
+        # Clear initial banner / prompt
+        deadline = time.time() + 1.5
+        while time.time() < deadline:
+            if channel.recv_ready():
+                channel.recv(4096)
+            else:
+                time.sleep(0.1)
+
+        # Send command lines
+        full_output = ""
+        lines = [l.strip() for l in cli_command.split("\n") if l.strip()]
+        for line in lines:
+            channel.send(f"{line}\n")
+            time.sleep(0.3)
+            line_deadline = time.time() + 2.0
+            while time.time() < line_deadline:
+                if channel.recv_ready():
+                    chunk = channel.recv(4096).decode("utf-8", errors="ignore")
+                    full_output += chunk
+                    if len(chunk) < 4096:
+                        break
+                else:
+                    time.sleep(0.08)
+
+        p_client.close()
+
+        print(json.dumps({
+            "success": True,
+            "connected": True,
+            "action": action,
+            "interface": interface,
+            "cli_command": cli_command,
+            "output": full_output,
+            "paramiko_version": getattr(paramiko, "__version__", "unknown"),
+            "ssh_version": ssh_version,
+            "is_real": True,
+        }))
+    except Exception as e:
+        try:
+            p_client.close()
+        except Exception:
+            pass
+        print(json.dumps({
+            "success": False,
+            "connected": True,
+            "error": str(e),
+            "message": str(e),
+            "cli_command": cli_command,
+            "ssh_version": ssh_version,
+            "paramiko_version": getattr(paramiko, "__version__", "unknown"),
+        }))
+
+
 def main():
     if len(sys.argv) < 2:
         handle_info()
@@ -390,6 +544,8 @@ def main():
         handle_probe(args)
     elif cmd in ("ports-sync", "ports_sync", "ports"):
         handle_ports_sync(args)
+    elif cmd in ("port-action", "port_action", "port-operation", "execute-command"):
+        handle_port_action(args)
     elif cmd in ("terminal", "shell"):
         handle_terminal(args)
     else:

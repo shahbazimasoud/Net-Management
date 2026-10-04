@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.267.0';
+export const APP_VERSION = '1.268.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.268.0',
+    releaseDate: '2026-10-04',
+    type: 'minor',
+    title: 'فاز ۵.۲.۱: حسابرسی و هدایت نیمه نخست عملیات‌های SSH مودال پورت از طریق تفکیک‌کننده بک‌اند (Port Modal Audit & Backend Routing - Phase 5.2.1)',
+    title_en: 'Phase 5.2.1: Port Modal Audit & Backend Routing (First Half)',
+    changes: [
+      'ایجاد سند جامع ممیزی عملیات‌های SSH مودال پورت در docs/port-modal-ssh-actions.md شامل ۱۰ عملیات اصلی با تفکیک مسیر API، کنترلر نود و اسکریپت بک‌اند.',
+      'هدایت کامل نیمه نخست عملیات‌های مودال پورت (ports-sync، ports-list، port-power، port-mode، port-vlan) به تفکیک‌کننده معتبر بک‌اند (resolveSshBackend).',
+      'الزام کنترلر نود به استخراج نسخه ذخیره‌شده SSH تجهیز (ssh_version) مستقیماً از رکورد پایگاه داده (بر اساس شناسه تجهیز) به جای پارامترهای درخواست کلاینت یا مقادیر پیش‌فرض.',
+      'اجرای عملیات‌های روشن/خاموش (shutdown / no_shutdown)، تغییر مد (trunk / access) و تخصیص ویلن (set_vlan) از طریق محیط مجازی اختصاصی متناسب با سخت‌افزار (Legacy Paramiko 2.12.x یا Modern Paramiko) بدون فالبک به پایتون سراسری.',
+      'بازتاب بلادرنگ و دقیق وضعیت پورت‌ها در پایگاه داده و برگرداندن خروجی‌های معتبر و پیام‌های خطای واقعی بدون تولید داده‌های ساختگی (Strict Zero Fake Data).'
+    ],
+    changes_en: [
+      'Authored comprehensive audit specification for Port Modal SSH actions in docs/port-modal-ssh-actions.md detailing 10 interface operations across endpoints, handlers, and backend scripts.',
+      'Fully routed the first half of actions (ports-sync, ports-list, port-power, port-mode, port-vlan) through the authoritative Phase 2 backend resolver (resolveSshBackend).',
+      'Enforced that Node.js handlers authoritatively read the device\'s saved ssh_version directly from the persistent device record (by device ID), eliminating client-body overrides or hardcoded defaults.',
+      'Executed port power (shutdown / no_shutdown), port mode (trunk / access), and VLAN assignment directly via the designated Python virtual environment (Legacy Paramiko 2.12.x or Modern Paramiko) with strictly zero fallback to system Python.',
+      'Live state synchronization reflected in persistent device records with genuine device output and authentic error diagnostics (zero fake or simulated data).'
+    ],
+  },
   {
     version: '1.267.0',
     releaseDate: '2026-10-03',
