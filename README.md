@@ -231,6 +231,7 @@ npm start
 - `stop.sh`: متوقف‌سازی سرویس در حال اجرا
 - `restart.sh`: راه‌اندازی مجدد سرور و اعمال تغییرات
 - `install.sh`: نصب کامل پکیج‌ها و تنظیمات محیطی
+- `scripts/setup-ssh-venvs.sh`: ساخت و اعتبارسنجی خودکار محیط‌های مجازی دوگانه پایتون برای بک‌اند SSH (محیط Legacy با Paramiko 2.12.x و محیط Modern با Paramiko >=3.4.0)
 
 ---
 
@@ -543,6 +544,7 @@ Open `http://localhost:3000` in your web browser.
 - `stop.sh`: Terminates active server instances
 - `restart.sh`: Restarts server and reloads configuration
 - `install.sh`: Performs environment setup and dependency installation
+- `scripts/setup-ssh-venvs.sh`: Idempotent setup and validation of dual Python virtual environments for SSH backends (Legacy venv with Paramiko 2.12.x and Modern venv with Paramiko >=3.4.0)
 
 ---
 

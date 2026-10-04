@@ -1,0 +1,4 @@
+# Modern SSH Backend Requirements (Cisco IOS-XE, Nexus, Linux, modern TLS/ciphers)
+paramiko>=3.4.0
+cryptography>=42.0.0
+websockets>=12.0

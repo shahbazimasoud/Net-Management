@@ -295,7 +295,7 @@ if command -v apt-get &>/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   wait_for_dpkg_lock
   apt-get update -y || true
-  apt-get install -y curl git python3 python3-pip traceroute dnsutils whois iputils-ping postgresql postgresql-contrib nginx openssl guacd libguac-client-rdp0 libguac-client-vnc0
+  apt-get install -y curl git python3 python3-pip python3-venv traceroute dnsutils whois iputils-ping postgresql postgresql-contrib nginx openssl guacd libguac-client-rdp0 libguac-client-vnc0
 elif command -v dnf &>/dev/null; then
   dnf install -y epel-release 2>/dev/null || true
   dnf install -y curl git python3 python3-pip traceroute bind-utils whois iputils postgresql-server postgresql-contrib guacd
@@ -446,6 +446,12 @@ if [ -n "$SUDO_USER" ]; then
   su - "$SUDO_USER" -c "cd '$APP_DIR' && export TMPDIR='$APP_DIR/.tmp' && npm install"
 else
   npm install
+fi
+
+# Provision dedicated SSH Virtual Environments (Legacy: Paramiko 2.12.x, Modern: Paramiko >=3.4.0)
+if [ -f "$APP_DIR/scripts/setup-ssh-venvs.sh" ]; then
+  echo -e "${BLUE}[4.5/7]${NC} ${BOLD}راه‌اندازی محیط‌های مجازی اختصاصی SSH (Legacy و Modern)...${NC}"
+  bash "$APP_DIR/scripts/setup-ssh-venvs.sh" "$APP_DIR" || true
 fi
 
 SYS_ARCH=$(uname -m)

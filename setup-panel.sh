@@ -427,7 +427,7 @@ safe_apt_update
 
 log_step "Installing system tools, Nginx web server, Guacamole RDP/VNC Gateway, and PostgreSQL database engine..."
 safe_apt_install \
-  git curl build-essential python3 python3-pip python3-paramiko python3-cryptography python3-websockets ca-certificates gnupg lsb-release xz-utils openssl ufw traceroute dnsutils whois iputils-ping \
+  git curl build-essential python3 python3-pip python3-venv python3-paramiko python3-cryptography python3-websockets ca-certificates gnupg lsb-release xz-utils openssl ufw traceroute dnsutils whois iputils-ping \
   postgresql postgresql-contrib postgresql-client nginx guacd libguac-client-rdp0 libguac-client-vnc0
 
 log_step "Ensuring PostgreSQL service is enabled and started..."
@@ -642,6 +642,11 @@ if ! npm install; then
   npm config set registry https://registry.npmmirror.com
   npm install || { log_error "NPM installation failed."; exit 1; }
   npm config delete registry
+fi
+
+log_step "Provisioning Dedicated SSH Virtual Environments (Legacy: Paramiko 2.12.x, Modern: Paramiko >=3.4.0)..."
+if [ -f "$INSTALL_DIR/scripts/setup-ssh-venvs.sh" ]; then
+  bash "$INSTALL_DIR/scripts/setup-ssh-venvs.sh" "$INSTALL_DIR" || true
 fi
 
 # Detect architecture for native Rollup / esbuild packages

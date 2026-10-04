@@ -41,6 +41,7 @@ import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
+import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 
 const app = express();
 const PORT = 3000;
@@ -1243,6 +1244,9 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 async function startServer() {
+  // Validate dedicated SSH Virtual Environments on startup
+  checkSshBackendsOnStartup();
+
   // Initialize Database (PostgreSQL or fallback store)
   await initDatabase();
 

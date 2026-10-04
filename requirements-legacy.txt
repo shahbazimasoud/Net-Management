@@ -1,0 +1,4 @@
+# Legacy SSH Backend Requirements (Cisco IOS 12/15, older Catalyst switches, legacy ciphers)
+paramiko==2.12.*
+cryptography>=2.8
+websockets>=10.0

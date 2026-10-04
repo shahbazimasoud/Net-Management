@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.269.0';
+export const APP_VERSION = '1.269.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.269.1',
+    releaseDate: '2026-10-04',
+    type: 'patch',
+    title: 'فاز ۶: رفع خطای ModuleNotFoundError برای ماژول paramiko و تضمین وجود محیط‌های مجازی و مسیرهای مطلق پایتون (Phase 6: Fix Paramiko ModuleNotFoundError)',
+    title_en: 'Phase 6: Fix ModuleNotFoundError for Paramiko and Ensure SSH Venvs and Absolute Resolver Paths',
+    changes: [
+      'شناسایی و رفع ریشه‌ای خطای ModuleNotFoundError: No module named paramiko در فرآیند تست و واکشی اتصال SSH (SSH V2 Test & Fetch) ناشی از عدم وجود ماژول در مفسر پایتون اجراکننده.',
+      'تضمین مسیرهای کاملاً مطلق (Absolute Paths) برای مفسرهای پایتون محیط‌های مجازی اختصاصی (backend/venv_legacy و backend/venv_modern) در تفکیک‌کننده معتبر بک‌اند با پشتیبانی از متغیرهای محیطی و مسیرهای استاندارد مانند /opt/nettopology.',
+      'ایجاد اسکریپت خودکار و ایدمپوتنت scripts/setup-ssh-venvs.sh جهت ساخت و اعتبارسنجی محیط‌های مجازی دوگانه پایتون (محیط Legacy با Paramiko 2.12.x و محیط Modern با Paramiko >=3.4.0) به همراه فایل‌های نیازمندی‌های requirements-legacy.txt و requirements-modern.txt.',
+      'تعبیه تست خودکار در زمان راه‌اندازی سرور نود (checkSshBackendsOnStartup) جهت اعتبارسنجی قابلیت فراخوانی پایتون و ایمپورت Paramiko در هر دو محیط و صدور هشدار صریح در صورت عدم نصب بدون فالبک به پایتون سراسری.',
+      'اتصال اسکریپت راه‌اندازی محیط‌های مجازی به فرآیندهای install.sh، setup-panel.sh و اسکریپت‌های package.json و مستندسازی در README.md.'
+    ],
+    changes_en: [
+      'Root-cause resolution for ModuleNotFoundError: No module named paramiko during SSH V2 Test & Fetch, preventing execution against interpreters lacking installed dependencies.',
+      'Enforced authoritative absolute path resolution for dedicated Python virtual environments (backend/venv_legacy and backend/venv_modern) within resolveSshBackend, with environment variable overrides and /opt/nettopology support.',
+      'Authored idempotent setup script scripts/setup-ssh-venvs.sh provisioning both dual Python virtual environments (Legacy: Paramiko 2.12.x, Modern: Paramiko >=3.4.0) with pinned requirements-legacy.txt and requirements-modern.txt.',
+      'Added Node.js startup verification check (checkSshBackendsOnStartup) validating Paramiko import and versions for each backend, returning clear error guidance without falling back to system Python.',
+      'Wired virtual environment setup into install.sh, setup-panel.sh, package.json scripts (setup:venvs and postinstall), and documented usage in README.md.'
+    ],
+  },
   {
     version: '1.269.0',
     releaseDate: '2026-10-04',

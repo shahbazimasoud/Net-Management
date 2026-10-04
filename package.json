@@ -1,7 +1,7 @@
 {
   "name": "nettopology",
   "private": true,
-  "version": "1.269.0",
+  "version": "1.269.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -9,7 +9,9 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "setup:venvs": "bash scripts/setup-ssh-venvs.sh",
+    "postinstall": "bash scripts/setup-ssh-venvs.sh || true"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
