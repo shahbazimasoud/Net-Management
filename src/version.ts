@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.268.0';
+export const APP_VERSION = '1.269.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.269.0',
+    releaseDate: '2026-10-04',
+    type: 'minor',
+    title: 'فاز ۵.۲.۲: تکمیل هدایت تمامی عملیات‌های باقی‌مانده مودال پورت از طریق تفکیک‌کننده بک‌اند (Phase 5.2.2: Finish Routing Port Modal SSH Actions)',
+    title_en: 'Phase 5.2.2: Complete Routing All Remaining Port Modal SSH Actions',
+    changes: [
+      'تکمیل صددرصدی مهاجرت کلیه عملیات‌های باقی‌مانده مودال پورت (شامل اقدامات ۶ الی ۱۰) شامل تنظیم توضیحات پورت (port-description)، امنیت پورت (port-security)، ویرایش مستقیم پورت (port-edit-direct)، به‌روزرسانی گروهی پورت‌ها (batch-ports-update) و ذخیره پیکربندی در حافظه پایدار (write-memory).',
+      'الزام تمامی کنترلرهای نود به استخراج مقتدرانه نسخه ذخیره‌شده SSH تجهیز (ssh_version) مستقیماً از رکورد پایگاه داده (بر اساس شناسه تجهیز) و هدایت از طریق تفکیک‌کننده فاز ۲ (resolveSshBackend).',
+      'اجرای دستورات SSH از طریق محیط‌های مجازی مجزا (venv_legacy با Paramiko 2.12.x یا venv_modern با Paramiko مدرن) بدون فراخوانی مستقیم پایتون سراسری سیستم یا ایجاد داده‌های ساختگی (Strict Zero Fake Data).',
+      'پیاده‌سازی اندپوینت‌های PUT /api/devices/:id/ports/batch و PUT /api/devices/:id/ports/:portId با پشتیبانی از تولید منعطف و مطمئن دستورات CLI سخت‌افزار سیسکو و میکروتیک.',
+      'به‌روزرسانی و نهایی‌سازی مستند ممیزی در docs/port-modal-ssh-actions.md و علامت‌گذاری ۱۰۰٪ عملیات‌ها به عنوان migrated.'
+    ],
+    changes_en: [
+      'Completed 100% migration of all remaining pending Port Modal actions (actions 6 through 10) including port description, port security toggle, direct port configuration, batch port updates, and saving configuration to NVRAM (write-memory).',
+      'Enforced authoritative extraction of the saved device ssh_version directly from persistent database records across all Node.js controllers, passing execution through the Phase 2 backend resolver.',
+      'Executed all SSH operations through dedicated Python virtual environments (venv_legacy with Paramiko 2.12.x or venv_modern with modern Paramiko) with strict zero fallback to system Python or simulated data.',
+      'Engineered PUT /api/devices/:id/ports/batch and PUT /api/devices/:id/ports/:portId endpoints with robust CLI command generation for both Cisco IOS and MikroTik RouterOS.',
+      'Updated docs/port-modal-ssh-actions.md marking 100% of interface actions as fully migrated.'
+    ],
+  },
   {
     version: '1.268.0',
     releaseDate: '2026-10-04',

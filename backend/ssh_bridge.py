@@ -440,10 +440,34 @@ def handle_port_action(args):
                 elif action in ("mode_access", "set_vlan", "change_vlan", "assign_vlan"):
                     vlan = params.get("vlan", 1)
                     cli_command = f"configure terminal\ninterface {interface}\n switchport mode access\n switchport access vlan {vlan}\nexit\nexit"
+                elif action in ("set_description", "description"):
+                    desc = (params.get("description") or "").strip()
+                    if desc:
+                        cli_command = f"configure terminal\ninterface {interface}\n description {desc}\nexit\nexit"
+                    else:
+                        cli_command = f"configure terminal\ninterface {interface}\n no description\nexit\nexit"
+                elif action in ("port_sec_enable", "enable_port_security"):
+                    max_mac = params.get("max_mac", 1)
+                    violation = params.get("violation", "restrict")
+                    cli_command = f"configure terminal\ninterface {interface}\n switchport mode access\n switchport port-security\n switchport port-security maximum {max_mac}\n switchport port-security violation {violation}\n switchport port-security mac-address sticky\nexit\nexit"
+                elif action in ("port_sec_disable", "disable_port_security"):
+                    cli_command = f"configure terminal\ninterface {interface}\n no switchport port-security\nexit\nexit"
+                elif action in ("save_config", "write_memory", "write-memory"):
+                    cli_command = "write memory"
                 else:
                     cli_command = f"configure terminal\ninterface {interface}\nexit\nexit"
             else:
-                cli_command = f"# Command for {action} on {interface}"
+                if action in ("save_config", "write_memory", "write-memory"):
+                    cli_command = "# [RouterOS Info] Configurations in MikroTik RouterOS are committed automatically to persistent storage."
+                elif action in ("set_description", "description"):
+                    desc = params.get("description", "")
+                    cli_command = f"/interface set [find name=\"{interface}\"] comment=\"{desc}\""
+                elif action in ("shutdown", "disable_interface"):
+                    cli_command = f"/interface set [find name=\"{interface}\"] disabled=yes"
+                elif action in ("no_shutdown", "enable_interface"):
+                    cli_command = f"/interface set [find name=\"{interface}\"] disabled=no"
+                else:
+                    cli_command = f"# Command for {action} on {interface}"
 
     p_client = paramiko.SSHClient()
     p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -488,7 +512,11 @@ def handle_port_action(args):
         # Send command lines
         full_output = ""
         lines = [l.strip() for l in cli_command.split("\n") if l.strip()]
+        executed_any = False
         for line in lines:
+            if line.startswith("#"):
+                continue
+            executed_any = True
             channel.send(f"{line}\n")
             time.sleep(0.3)
             line_deadline = time.time() + 2.0
@@ -502,6 +530,9 @@ def handle_port_action(args):
                     time.sleep(0.08)
 
         p_client.close()
+
+        if not executed_any and not full_output:
+            full_output = "\n".join(lines)
 
         print(json.dumps({
             "success": True,

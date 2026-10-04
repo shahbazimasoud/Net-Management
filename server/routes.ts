@@ -1659,39 +1659,69 @@ apiRouter.post('/devices/bulk-delete', async (req: Request, res: Response) => {
   }
 });
 
-// POST /devices/:id/write-memory - Save running config to NVRAM
+// POST /devices/:id/write-memory - Save running config to NVRAM via resolved SSH backend (Port modal)
 apiRouter.post('/devices/:id/write-memory', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
   try {
-    const check = await assertDeviceScopeAccess(req, req.params.id, 'write_memory');
+    const check = await assertDeviceScopeAccess(req, devId, 'write_memory');
     if (!check.allowed) {
       return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
     }
 
-    const pythonPort = process.env.BACKEND_PORT || process.env.PYTHON_PORT || '5001';
-    try {
-      const resp = await fetch(`http://127.0.0.1:${pythonPort}/api/devices/${encodeURIComponent(req.params.id)}/write-memory`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body || {}),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        return res.json(data);
-      }
-    } catch {
-      // Python backend offline fallback
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', message: isEn ? 'Device not found' : 'دستگاه یافت نشد' });
     }
 
-    const updated = await updateDevice(req.params.id, { has_unsaved_changes: false });
+    // Read saved ssh_version strictly from stored device record
+    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+    const backend = resolveSshBackend(sshVersion);
+    console.log(`[WriteMemory Resolver] Saving configuration for device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
+
+    let cliOutput = '';
+    if (device.ip || device.ssh_host) {
+      const result = await executeSshBridgeAction('port-action', {
+        device,
+        action: 'save_config',
+        operation: 'save_config',
+      }, backend.version, 25000);
+
+      if (!result || result.success === false) {
+        return res.status(400).json({
+          success: false,
+          error: result?.error || 'Failed to save configuration to NVRAM via SSH',
+          message: result?.message || result?.error || 'Failed to save configuration to NVRAM via SSH',
+          cli_command: result?.cli_command || 'write memory',
+          output: result?.output || '',
+          ssh_version: backend.version,
+          paramiko_version: backend.paramikoExpected,
+        });
+      }
+      cliOutput = result.output || '';
+    }
+
+    const updated = await updateDevice(devId, {
+      has_unsaved_changes: false,
+      last_write_memory_time: new Date().toISOString(),
+    });
+
     return res.json({
       success: true,
       device: updated,
-      message: 'Running configuration successfully saved to startup configuration (NVRAM)',
+      cli_output: cliOutput,
+      message: isEn
+        ? 'Running configuration successfully saved to startup configuration (NVRAM)'
+        : 'تنظیمات جاری با موفقیت در حافظه پایدار (NVRAM) ذخیره شد',
       message_en: 'Running configuration successfully saved to startup configuration (NVRAM)',
       message_fa: 'تنظیمات جاری با موفقیت در حافظه پایدار (NVRAM) ذخیره شد',
+      ssh_version: backend.version,
+      paramiko_version: backend.paramikoExpected,
+      isReal: true,
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message, message: err.message });
   }
 });
 
@@ -2106,6 +2136,371 @@ apiRouter.get('/devices/:id/ports', async (req: Request, res: Response) => {
   }
 });
 
+function matchPortFlexible(p: any, targetId: string): boolean {
+  if (!p || !targetId) return false;
+  const tRaw = String(targetId).trim();
+  const tNorm = tRaw.toLowerCase().replace(/\s+/g, '');
+  const pId = String(p.port_id || p.port || '').toLowerCase().replace(/\s+/g, '');
+  const pName = String(p.name || '').toLowerCase().replace(/\s+/g, '');
+  if (pId === tNorm || pName === tNorm || pId === tRaw.toLowerCase() || pName === tRaw.toLowerCase()) {
+    return true;
+  }
+  for (const [full, short] of [
+    ['gigabitethernet', 'gi'],
+    ['tengigabitethernet', 'te'],
+    ['fastethernet', 'fa'],
+    ['ethernet', 'eth'],
+  ]) {
+    if (tNorm.replace(short, full) === pId.replace(short, full)) return true;
+    if (tNorm.replace(full, short) === pId.replace(full, short)) return true;
+  }
+  return false;
+}
+
+function buildPortCliCommand(platform: string, iface: string, updates: any): string {
+  const isCisco = (platform || '').toLowerCase().includes('cisco');
+  if (isCisco) {
+    const lines: string[] = ['configure terminal', `interface ${iface}`];
+    let hasCommands = false;
+    if ('admin_status' in updates) {
+      hasCommands = true;
+      if (updates.admin_status === 'disabled') {
+        lines.push(' shutdown');
+      } else {
+        lines.push(' no shutdown');
+      }
+    }
+    if ('mode' in updates) {
+      hasCommands = true;
+      if (updates.mode === 'trunk') {
+        lines.push(' switchport trunk encapsulation dot1q');
+        lines.push(' switchport mode trunk');
+      } else {
+        lines.push(' switchport mode access');
+      }
+    }
+    if ('vlan' in updates) {
+      hasCommands = true;
+      const vlanId = Number(updates.vlan || 1);
+      lines.push(' switchport mode access');
+      lines.push(` switchport access vlan ${vlanId}`);
+    }
+    if ('description' in updates) {
+      hasCommands = true;
+      const desc = String(updates.description || '').trim();
+      if (desc) {
+        lines.push(` description ${desc}`);
+      } else {
+        lines.push(' no description');
+      }
+    }
+    if ('speed' in updates && updates.speed) {
+      hasCommands = true;
+      lines.push(` speed ${updates.speed}`);
+    }
+    if ('duplex' in updates && updates.duplex) {
+      hasCommands = true;
+      lines.push(` duplex ${updates.duplex}`);
+    }
+    if ('port_security_enabled' in updates) {
+      hasCommands = true;
+      if (updates.port_security_enabled) {
+        const maxMac = Number(updates.port_security_max_mac || 1);
+        const violation = String(updates.port_security_violation || 'restrict');
+        lines.push(' switchport mode access');
+        lines.push(' switchport port-security');
+        lines.push(` switchport port-security maximum ${maxMac}`);
+        lines.push(` switchport port-security violation ${violation}`);
+        lines.push(' switchport port-security mac-address sticky');
+      } else {
+        lines.push(' no switchport port-security');
+      }
+    }
+    if (!hasCommands) return '';
+    lines.push('exit');
+    lines.push('exit');
+    return lines.join('\n');
+  } else {
+    // MikroTik RouterOS
+    const lines: string[] = [];
+    if ('admin_status' in updates) {
+      lines.push(`/interface set [find name="${iface}"] disabled=${updates.admin_status === 'disabled' ? 'yes' : 'no'}`);
+    }
+    if ('description' in updates) {
+      lines.push(`/interface set [find name="${iface}"] comment="${updates.description || ''}"`);
+    }
+    if ('vlan' in updates) {
+      const vlanId = Number(updates.vlan || 1);
+      lines.push(`/interface bridge port set [find interface="${iface}"] pvid=${vlanId}`);
+    }
+    if ('mode' in updates && updates.mode === 'trunk') {
+      lines.push(`/interface bridge port set [find interface="${iface}"] frame-types=admit-only-vlan-tagged`);
+    }
+    return lines.join('\n');
+  }
+}
+
+// PUT /api/devices/:id/ports/batch - Batch update multiple switch ports via resolved SSH backend (Port modal)
+apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+  const portIds: string[] = Array.isArray(req.body?.port_ids) ? req.body.port_ids : [];
+  const updates = req.body?.updates || {};
+
+  try {
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', message: isEn ? 'Device not found' : 'دستگاه یافت نشد' });
+    }
+
+    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+    const backend = resolveSshBackend(sshVersion);
+    console.log(`[BatchPortsUpdate Resolver] Batch updating ${portIds.length} ports on device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
+
+    const ports = Array.isArray(device.ports) ? device.ports : [];
+    const matchedPorts: any[] = [];
+    const cliCommands: string[] = [];
+
+    for (const pid of portIds) {
+      const p = ports.find((item: any) => matchPortFlexible(item, pid));
+      if (p) {
+        matchedPorts.push(p);
+        const ifaceName = p.port_id || p.port || p.name || pid;
+        const cmd = buildPortCliCommand(device.platform || '', ifaceName, updates);
+        if (cmd) cliCommands.push(cmd);
+      }
+    }
+
+    let cliOutput = '';
+    if (cliCommands.length > 0 && (device.ip || device.ssh_host)) {
+      const combinedCli = cliCommands.join('\n');
+      const result = await executeSshBridgeAction('port-action', {
+        device,
+        action: 'batch_update',
+        cli_command: combinedCli,
+      }, backend.version, 35000);
+
+      if (!result || result.success === false) {
+        return res.status(400).json({
+          success: false,
+          error: result?.error || 'Batch update failed on device',
+          message: result?.message || result?.error || 'Batch update failed on device',
+          cli_command: combinedCli,
+          output: result?.output || '',
+          ssh_version: backend.version,
+          paramiko_version: result?.paramiko_version || backend.paramikoExpected,
+        });
+      }
+      cliOutput = result.output || '';
+    }
+
+    let updatedCount = 0;
+    for (const port of matchedPorts) {
+      updatedCount++;
+      if ('admin_status' in updates) {
+        port.admin_status = updates.admin_status;
+        if (updates.admin_status === 'disabled') {
+          port.status = 'down';
+        } else {
+          port.status = 'up';
+        }
+      }
+      if ('status' in updates && port.admin_status !== 'disabled') {
+        port.status = updates.status;
+      }
+      if ('mode' in updates) {
+        port.mode = updates.mode;
+      }
+      if ('vlan' in updates) {
+        port.vlan = Number(updates.vlan);
+        if (port.mode === 'access') {
+          port.allowed_vlans = String(updates.vlan);
+        }
+      }
+      if ('allowed_vlans' in updates) {
+        port.allowed_vlans = String(updates.allowed_vlans);
+      }
+      if ('speed' in updates) {
+        port.speed = updates.speed;
+      }
+      if ('description' in updates) {
+        port.description = String(updates.description);
+      }
+      if ('port_security_enabled' in updates) {
+        port.port_security_enabled = Boolean(updates.port_security_enabled);
+        port.port_security_status = port.port_security_enabled ? (port.status === 'up' ? 'secure-up' : 'secure-down') : 'disabled';
+      }
+      if ('port_security_mode' in updates) {
+        port.port_security_mode = updates.port_security_mode;
+      }
+      if ('port_security_max_mac' in updates) {
+        port.port_security_max_mac = Number(updates.port_security_max_mac);
+      }
+      if ('port_security_configured_mac' in updates) {
+        port.port_security_configured_mac = String(updates.port_security_configured_mac).trim();
+      }
+      if ('port_security_violation' in updates) {
+        port.port_security_violation = updates.port_security_violation;
+      }
+    }
+
+    device.has_unsaved_changes = true;
+    device.last_modified_time = new Date().toISOString();
+    await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
+
+    return res.json({
+      success: true,
+      updatedCount,
+      message: isEn ? `Successfully updated ${updatedCount} ports.` : `تغییرات با موفقیت روی ${updatedCount} پورت اعمال شد.`,
+      ports: device.ports,
+      cli_output: cliOutput,
+      isReal: true,
+      ssh_version: backend.version,
+      paramiko_version: backend.paramikoExpected,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
+});
+
+// PUT /api/devices/:id/ports/:portId - Direct single port configuration update via resolved SSH backend (Port modal)
+apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+  const rawPortId = req.params.portId || '';
+  const portId = decodeURIComponent(rawPortId).trim();
+  const updates = req.body || {};
+
+  try {
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({ success: false, error: 'Device not found', message: isEn ? 'Device not found' : 'دستگاه یافت نشد' });
+    }
+
+    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+    const backend = resolveSshBackend(sshVersion);
+    console.log(`[SinglePortUpdate Resolver] Updating port '${portId}' on device ${devId} using ${backend.version.toUpperCase()} backend (${backend.pythonBin})`);
+
+    const ports = Array.isArray(device.ports) ? device.ports : [];
+    const targetPort = ports.find((p: any) => matchPortFlexible(p, portId) || matchPortFlexible(p, rawPortId));
+    if (!targetPort) {
+      return res.status(404).json({
+        success: false,
+        error: `Port '${portId}' not found on device '${devId}'`,
+        message: isEn ? `Port '${portId}' not found on device '${devId}'` : `پورت «${portId}» روی دستگاه یافت نشد.`,
+      });
+    }
+
+    const ifaceName = targetPort.port_id || targetPort.port || targetPort.name || portId;
+    let cliOutput = '';
+
+    if (device.ip || device.ssh_host) {
+      const cliCommand = buildPortCliCommand(device.platform || '', ifaceName, updates);
+      if (cliCommand) {
+        const result = await executeSshBridgeAction('port-action', {
+          device,
+          action: 'port_edit_direct',
+          interface: ifaceName,
+          params: updates,
+          cli_command: cliCommand,
+        }, backend.version, 25000);
+
+        if (!result || result.success === false) {
+          return res.status(400).json({
+            success: false,
+            error: result?.error || 'Port configuration failed on device',
+            message: result?.message || result?.error || 'Port configuration failed on device',
+            cli_command: cliCommand,
+            output: result?.output || '',
+            ssh_version: backend.version,
+            paramiko_version: result?.paramiko_version || backend.paramikoExpected,
+          });
+        }
+        cliOutput = result.output || '';
+      }
+    }
+
+    // Apply updates
+    if ('admin_status' in updates) {
+      targetPort.admin_status = updates.admin_status;
+      if (updates.admin_status === 'disabled') {
+        targetPort.status = 'down';
+      } else {
+        targetPort.status = 'up';
+      }
+    }
+    if ('status' in updates && targetPort.admin_status !== 'disabled') {
+      targetPort.status = updates.status;
+    }
+    if ('mode' in updates) {
+      targetPort.mode = updates.mode;
+      if (updates.mode === 'trunk' && !targetPort.allowed_vlans) {
+        targetPort.allowed_vlans = '1-4094';
+      }
+    }
+    if ('vlan' in updates) {
+      targetPort.vlan = Number(updates.vlan);
+      if (targetPort.mode === 'access') {
+        targetPort.allowed_vlans = String(updates.vlan);
+      }
+    }
+    if ('allowed_vlans' in updates) {
+      targetPort.allowed_vlans = String(updates.allowed_vlans);
+    }
+    if ('speed' in updates) {
+      targetPort.speed = updates.speed;
+    }
+    if ('duplex' in updates) {
+      targetPort.duplex = updates.duplex;
+    }
+    if ('description' in updates) {
+      targetPort.description = String(updates.description).trim();
+    }
+    if ('port_security_enabled' in updates) {
+      targetPort.port_security_enabled = Boolean(updates.port_security_enabled);
+      targetPort.port_security_status = targetPort.port_security_enabled ? (targetPort.status === 'up' ? 'secure-up' : 'secure-down') : 'disabled';
+    }
+    if ('port_security_mode' in updates) {
+      targetPort.port_security_mode = updates.port_security_mode;
+    }
+    if ('port_security_max_mac' in updates) {
+      targetPort.port_security_max_mac = Number(updates.port_security_max_mac);
+    }
+    if ('port_security_configured_mac' in updates) {
+      targetPort.port_security_configured_mac = String(updates.port_security_configured_mac).trim();
+    }
+    if ('port_security_violation' in updates) {
+      targetPort.port_security_violation = updates.port_security_violation;
+    }
+
+    device.has_unsaved_changes = true;
+    device.last_modified_time = new Date().toISOString();
+    await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
+
+    return res.json({
+      success: true,
+      port: targetPort,
+      message: isEn ? `Port ${portId} updated successfully.` : `پورت ${portId} با موفقیت به‌روزرسانی شد.`,
+      cli_output: cliOutput,
+      isReal: true,
+      ssh_version: backend.version,
+      paramiko_version: backend.paramikoExpected,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
+});
+
 // Authentic ICMP Ping Engine using native Linux ping command
 const execFileAsync = promisify(execFile);
 
@@ -2267,16 +2662,20 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
   const params = req.body?.params || {};
   const devId = req.params.id;
 
-  // Actions 3, 4, 5 of Port Modal migrated in Phase 5.2.1:
+  // Actions of Port Modal migrated in Phase 5.2.1 and 5.2.2:
   // Action 3: port-power ('shutdown', 'no_shutdown', 'disable_interface', 'enable_interface')
   // Action 4: port-mode ('mode_trunk', 'mode_access')
   // Action 5: port-vlan ('set_vlan', 'change_vlan', 'assign_vlan')
+  // Action 6: port-description ('set_description', 'description')
+  // Action 7: port-security ('port_sec_enable', 'port_sec_disable', 'enable_port_security', 'disable_port_security')
   const isPortPower = ['shutdown', 'no_shutdown', 'disable_interface', 'enable_interface'].includes(op);
   const isPortMode = ['mode_trunk', 'mode_access'].includes(op);
   const isPortVlan = ['set_vlan', 'change_vlan', 'assign_vlan'].includes(op);
+  const isPortDesc = ['set_description', 'description'].includes(op);
+  const isPortSecurity = ['port_sec_enable', 'port_sec_disable', 'enable_port_security', 'disable_port_security'].includes(op);
 
-  if (!isPortPower && !isPortMode && !isPortVlan) {
-    // Other operations (e.g. set_description, port_sec_*, ping) remain pending for Phase 5.2.2 or other handlers
+  if (!isPortPower && !isPortMode && !isPortVlan && !isPortDesc && !isPortSecurity) {
+    // Other operations (e.g. ping) pass through to next middleware
     return next();
   }
 
@@ -2289,7 +2688,15 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
     }
 
     // Granular RBAC validation
-    const requiredPermission = isPortPower ? 'port_power' : (isPortMode ? 'port_mode' : 'port_vlan');
+    const requiredPermission = isPortPower
+      ? 'port_power'
+      : isPortMode
+      ? 'port_mode'
+      : isPortVlan
+      ? 'port_vlan'
+      : isPortDesc
+      ? 'port_description'
+      : 'port_security';
     const rbacCheck = await assertDeviceScopeAccess(req, devId, requiredPermission);
     if (!rbacCheck.allowed) {
       return res.status(rbacCheck.status || 403).json({
@@ -2360,10 +2767,23 @@ apiRouter.post('/devices/:id/operations', async (req: Request, res: Response, ne
         } else if (isPortVlan) {
           p.vlan = Number(params.vlan || 1);
           p.mode = 'access';
+        } else if (isPortDesc) {
+          p.description = String(params.description || '').trim();
+        } else if (isPortSecurity) {
+          if (op.includes('enable')) {
+            p.port_security_enabled = true;
+            p.port_security_status = p.status === 'up' ? 'secure-up' : 'secure-down';
+            if (params.max_mac) p.port_security_max_mac = Number(params.max_mac);
+            if (params.violation) p.port_security_violation = String(params.violation);
+          } else {
+            p.port_security_enabled = false;
+            p.port_security_status = 'disabled';
+          }
         }
         device.ports[pIdx] = p;
+        device.has_unsaved_changes = true;
         updatedPort = p;
-        await updateDevice(device.id, { ports: device.ports });
+        await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
       }
     }
 

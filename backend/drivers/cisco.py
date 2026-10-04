@@ -86,8 +86,8 @@ class CiscoDriver(NetworkDeviceDriver):
                 return f"configure terminal\ninterface {interface}\n description {desc}\nexit\nexit"
             else:
                 return f"configure terminal\ninterface {interface}\n no description\nexit\nexit"
-        elif action == "save_config":
-            return "copy running-config startup-config"
+        elif action in ("save_config", "write_memory", "write-memory"):
+            return "write memory"
         return f"# Cisco command for {action} on {interface}"
 
     def get_interface_query_commands(self) -> List[str]:
