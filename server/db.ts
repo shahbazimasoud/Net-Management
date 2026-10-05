@@ -733,73 +733,7 @@ export function convertStructuredToHierarchyNodes(
   return result;
 }
 
-const DEFAULT_CUSTOM_MAPS = [
-  {
-    id: 'map-enterprise-core',
-    name: 'شبکه ستون‌فقرات و دیتاسنتر (Backbone & Datacenter)',
-    description: 'نقشه توپولوژی ارتباطی سوییچ‌های Core، روتر مرزی و سوییچ‌های توزیع',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    deviceIds: ['dev-router-gw', 'dev-core-01', 'dev-dist-01', 'dev-acc-01', 'dev-acc-02'],
-    devicePositions: {
-      'dev-router-gw': { x: 480, y: 80 },
-      'dev-core-01': { x: 480, y: 240 },
-      'dev-dist-01': { x: 240, y: 420 },
-      'dev-acc-01': { x: 120, y: 620 },
-      'dev-acc-02': { x: 360, y: 620 }
-    },
-    links: [
-      {
-        id: 'link-gw-core',
-        sourceDeviceId: 'dev-router-gw',
-        targetDeviceId: 'dev-core-01',
-        sourceInterface: 'GigabitEthernet0/0/0',
-        targetInterface: 'FortyGigE1/0/1',
-        color: '#3b82f6',
-        type: 'fiber',
-        speed: '40Gbps',
-        status: 'connected'
-      },
-      {
-        id: 'link-core-dist',
-        sourceDeviceId: 'dev-core-01',
-        targetDeviceId: 'dev-dist-01',
-        sourceInterface: 'TenGigE1/0/1',
-        targetInterface: 'TenGigE1/1/1',
-        color: '#10b981',
-        type: 'fiber',
-        speed: '10Gbps',
-        status: 'connected'
-      },
-      {
-        id: 'link-dist-acc1',
-        sourceDeviceId: 'dev-dist-01',
-        targetDeviceId: 'dev-acc-01',
-        sourceInterface: 'GigabitEthernet1/0/1',
-        targetInterface: 'GigabitEthernet0/1',
-        color: '#6366f1',
-        type: 'copper',
-        speed: '1Gbps',
-        status: 'connected'
-      },
-      {
-        id: 'link-dist-acc2',
-        sourceDeviceId: 'dev-dist-01',
-        targetDeviceId: 'dev-acc-02',
-        sourceInterface: 'GigabitEthernet1/0/2',
-        targetInterface: 'GigabitEthernet0/1',
-        color: '#6366f1',
-        type: 'copper',
-        speed: '1Gbps',
-        status: 'connected'
-      }
-    ],
-    visibility: 'public',
-    ownerId: 'user-admin',
-    ownerName: 'admin',
-    allowedUsers: []
-  }
-];
+const DEFAULT_CUSTOM_MAPS: any[] = [];
 
 const DEFAULT_NODE_POSITIONS: Record<string, Record<string, { x: number; y: number }>> = {
   default: {
@@ -1136,8 +1070,10 @@ function loadFallbackStore(): FallbackStore {
   if (!Array.isArray(store.device_groups) || store.device_groups.length === 0) {
     store.device_groups = DEFAULT_DEVICE_GROUPS;
   }
-  if (!Array.isArray(store.custom_maps) || store.custom_maps.length === 0) {
-    store.custom_maps = DEFAULT_CUSTOM_MAPS;
+  if (!Array.isArray(store.custom_maps)) {
+    store.custom_maps = [];
+  } else {
+    store.custom_maps = store.custom_maps.filter((m: any) => m && m.id !== 'map-enterprise-core' && !m.name?.includes('ستون‌فقرات') && !m.name?.includes('ستون فقرات'));
   }
   if (!Array.isArray(store.topology_hierarchy)) {
     store.topology_hierarchy = [];
@@ -1248,11 +1184,13 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
 
   // 2. Sync Custom Maps
   try {
+    await client.query("DELETE FROM custom_maps WHERE id = 'map-enterprise-core' OR name LIKE '%ستون‌فقرات%' OR name LIKE '%ستون فقرات%'");
     const existingMapsRes = await client.query('SELECT id FROM custom_maps');
     const existingMapIds = new Set(existingMapsRes.rows.map((r: any) => r.id));
-    const mapsToSync = (initialData.custom_maps && initialData.custom_maps.length > 0)
+    const rawMapsToSync = (initialData.custom_maps && initialData.custom_maps.length > 0)
       ? initialData.custom_maps
       : DEFAULT_CUSTOM_MAPS;
+    const mapsToSync = rawMapsToSync.filter((m: any) => m && m.id !== 'map-enterprise-core' && !m.name?.includes('ستون‌فقرات') && !m.name?.includes('ستون فقرات'));
 
     for (const m of mapsToSync) {
       if (!m || !m.id) continue;
@@ -2491,6 +2429,14 @@ export async function getCustomMaps(userFilter?: MapUserFilter): Promise<any[]> 
   } else {
     allMaps = loadFallbackStore().custom_maps || [];
   }
+
+  allMaps = (allMaps || []).filter(
+    (m) =>
+      m &&
+      m.id !== 'map-enterprise-core' &&
+      !m.name?.includes('ستون‌فقرات') &&
+      !m.name?.includes('ستون فقرات')
+  );
 
   // Synchronize sticky notes from device_sticky_notes table into custom maps
   try {

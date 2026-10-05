@@ -467,7 +467,20 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       const saved = localStorage.getItem(CUSTOM_MAPS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter(
+            (m: any) =>
+              m &&
+              m.id !== 'map-enterprise-core' &&
+              !m.name?.includes('ستون‌فقرات') &&
+              !m.name?.includes('ستون فقرات') &&
+              !m.name?.includes('Backbone & Datacenter')
+          );
+          if (cleaned.length !== parsed.length) {
+            localStorage.setItem(CUSTOM_MAPS_STORAGE_KEY, JSON.stringify(cleaned));
+          }
+          return cleaned;
+        }
       }
     } catch (e) {}
     return [];
@@ -476,7 +489,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [activeMapId, setActiveMapId] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(ACTIVE_MAP_STORAGE_KEY);
-      if (saved) return saved;
+      if (saved && saved !== 'map-enterprise-core') return saved;
+      if (saved === 'map-enterprise-core') {
+        localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, 'default');
+      }
     } catch (e) {}
     return 'default';
   });
@@ -2529,9 +2545,28 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           : Array.isArray(resp?.maps)
           ? resp.maps
           : null;
-        if (Array.isArray(mapsList) && mapsList.length > 0) {
-          localStorage.setItem(CUSTOM_MAPS_STORAGE_KEY, JSON.stringify(mapsList));
-          setCustomMaps(mapsList);
+        if (Array.isArray(mapsList)) {
+          const cleaned = mapsList.filter(
+            (m: any) =>
+              m &&
+              m.id !== 'map-enterprise-core' &&
+              !m.name?.includes('ستون‌فقرات') &&
+              !m.name?.includes('ستون فقرات') &&
+              !m.name?.includes('Backbone & Datacenter')
+          );
+          try {
+            localStorage.setItem(CUSTOM_MAPS_STORAGE_KEY, JSON.stringify(cleaned));
+          } catch (e) {}
+          setCustomMaps(cleaned);
+          setActiveMapId((prev) => {
+            if (prev === 'map-enterprise-core') {
+              try {
+                localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, 'default');
+              } catch (e) {}
+              return 'default';
+            }
+            return prev;
+          });
         }
       })
       .catch(() => {});
@@ -3306,11 +3341,28 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             : Array.isArray(resp?.maps)
             ? resp.maps
             : null;
-          if (Array.isArray(mapsList) && mapsList.length > 0) {
+          if (Array.isArray(mapsList)) {
+            const cleaned = mapsList.filter(
+              (m: any) =>
+                m &&
+                m.id !== 'map-enterprise-core' &&
+                !m.name?.includes('ستون‌فقرات') &&
+                !m.name?.includes('ستون فقرات') &&
+                !m.name?.includes('Backbone & Datacenter')
+            );
             try {
-              localStorage.setItem(CUSTOM_MAPS_STORAGE_KEY, JSON.stringify(mapsList));
+              localStorage.setItem(CUSTOM_MAPS_STORAGE_KEY, JSON.stringify(cleaned));
             } catch (e) {}
-            setCustomMaps(mapsList);
+            setCustomMaps(cleaned);
+            setActiveMapId((prev) => {
+              if (prev === 'map-enterprise-core') {
+                try {
+                  localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, 'default');
+                } catch (e) {}
+                return 'default';
+              }
+              return prev;
+            });
           }
         })
         .catch(() => {});

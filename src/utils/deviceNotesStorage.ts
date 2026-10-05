@@ -21,7 +21,17 @@ export function getCustomMaps(): CustomTopologyMap[] {
     const raw = localStorage.getItem(CUSTOM_MAPS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (Array.isArray(parsed)) {
+      return parsed.filter(
+        (m: any) =>
+          m &&
+          m.id !== 'map-enterprise-core' &&
+          !m.name?.includes('ستون‌فقرات') &&
+          !m.name?.includes('ستون فقرات') &&
+          !m.name?.includes('Backbone & Datacenter')
+      );
+    }
+    return [];
   } catch (e) {
     console.error('Error loading custom maps for device notes:', e);
     return [];

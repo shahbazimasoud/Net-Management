@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.274.1';
+export const APP_VERSION = '1.274.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.274.2',
+    releaseDate: '2026-10-05',
+    type: 'patch',
+    title: 'حذف نقشه پیش‌فرض نمونه (شبکه ستون‌فقرات و دیتاسنتر) از ویو مپ شماتیک توپولوژی',
+    title_en: 'Remove Mock Backbone & Datacenter Map from Topology Schematic Map View',
+    changes: [
+      'حذف کامل نقشه ماک «شبکه ستون‌فقرات و دیتاسنتر» از پایگاه داده، فایل ذخیره‌سازی، کش مرورگر و لیست انتخاب نقشه‌های نمای شماتیک توپولوژی.',
+      'پاکسازی دستگاه‌ها و پیوندهای فرضی وابسته و تضمین خلوص ۱۰۰ درصدی داده‌های واقعی تجهیزات در نمای نقشه.',
+    ],
+    changes_en: [
+      'Completely removed mock "Backbone & Datacenter" map from the database store, fallback storage, browser cache, and topology schematic map selector.',
+      'Cleaned up all associated mock devices and links, ensuring 100% authentic device data purity across all map views.',
+    ],
+  },
   {
     version: '1.274.1',
     releaseDate: '2026-10-05',
