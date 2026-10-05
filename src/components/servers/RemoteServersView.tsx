@@ -2205,7 +2205,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                 {filteredServers.length === 0 ? (
                   <tr>
                     <td colSpan={Object.values(visibleColumns).filter(Boolean).length || 8} className="p-8 text-center text-slate-400">
-                      {isEn ? 'No remote servers found matching filters.' : 'هیچ سروری منطبق با فیلترها یافت نشد.'}
+                      {servers.length === 0
+                        ? (isEn ? 'No remote servers in the fleet yet. Click "Add Remote Server" to connect your server.' : 'هنوز هیچ سرور ریموتی در ناوگان ثبت نشده است. برای اتصال سرور، روی «افزودن سرور ریموت» کلیک کنید.')
+                        : (isEn ? 'No remote servers found matching filters.' : 'هیچ سروری منطبق با فیلترها یافت نشد.')}
                     </td>
                   </tr>
                 ) : (
@@ -2687,8 +2689,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
       {/* 7. Grid Cards View (Compact & Sleek) */}
       {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
-          {filteredServers.map((server) => {
+        filteredServers.length === 0 ? (
+          <div className={`p-12 text-center rounded-xl border ${isLightMode ? 'bg-white border-slate-200 text-slate-500' : 'spatial-glass border-white/10 text-slate-400'}`}>
+            <Server className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p className="font-semibold text-sm">
+              {servers.length === 0
+                ? (isEn ? 'No remote servers in the fleet yet.' : 'هنوز هیچ سرور ریموتی در ناوگان ثبت نشده است.')
+                : (isEn ? 'No remote servers found matching filters.' : 'هیچ سروری منطبق با فیلترها یافت نشد.')}
+            </p>
+            {servers.length === 0 && (
+              <p className="text-xs text-slate-400 mt-1">
+                {isEn ? 'Click "Add Remote Server" above to connect your authentic Linux or Windows server.' : 'برای اتصال سرور لینوکس یا ویندوز واقعی، از دکمه «افزودن سرور ریموت» در بالا استفاده کنید.'}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+            {filteredServers.map((server) => {
             const isLinux = server.os_type === 'linux';
             const reach = reachabilityCache[server.id];
 
@@ -3115,7 +3132,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               </div>
             );
           })}
-        </div>
+          </div>
+        )
       )}
 
       {/* 8. Dense Table View */}
@@ -3146,7 +3164,16 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                 </tr>
               </thead>
               <tbody className={`divide-y ${isLightMode ? 'divide-slate-200' : 'divide-white/10'} font-sans`}>
-                {filteredServers.map((server) => {
+                {filteredServers.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-slate-400">
+                      {servers.length === 0
+                        ? (isEn ? 'No remote servers in the fleet yet. Click "Add Remote Server" to connect your server.' : 'هنوز هیچ سرور ریموتی در ناوگان ثبت نشده است. برای اتصال سرور، روی «افزودن سرور ریموت» کلیک کنید.')
+                        : (isEn ? 'No remote servers found matching filters.' : 'هیچ سروری منطبق با فیلترها یافت نشد.')}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredServers.map((server) => {
                   const isLinux = server.os_type === 'linux';
 
                   return (
@@ -3352,7 +3379,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                       )}
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>

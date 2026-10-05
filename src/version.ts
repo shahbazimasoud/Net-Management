@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.274.3';
+export const APP_VERSION = '1.274.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.274.4',
+    releaseDate: '2026-10-05',
+    type: 'patch',
+    title: 'حذف کامل داده‌های ماک ناوگان سرورهای ریموت و اتوماسیون (Remote Servers & Automation Fleet)',
+    title_en: 'Purge Mock Data from Remote Servers & Automation Fleet',
+    changes: [
+      'حذف کامل ۵ سرور آزمایشی ماک (srv-web-prod01, srv-db-master, srv-ci-runner, srv-dc-corp01, srv-app-win01) از پایگاه داده، فایل ذخیره‌سازی، و هسته سیستم.',
+      'پاکسازی شناسه سرورهای ماک از گروه‌های دستگاهی (device_groups) و تنظیم مقدار اولیه خالی برای ناوگان سرورها.',
+      'بهبود وضعیت نمایش خالی (Empty State) در تمام نماهای لیستی، گرید و فشرده با پیام راهنمای چندزبانه جهت افزودن سرورهای واقعی.',
+    ],
+    changes_en: [
+      'Completely purged 5 mock seed servers (srv-web-prod01, srv-db-master, srv-ci-runner, srv-dc-corp01, srv-app-win01) from database, fallback store, and system core.',
+      'Cleaned mock server associations from device groups (device_groups) and initialized empty defaults for authentic fleet management.',
+      'Enhanced empty states across all views (List, Grid, and Compact Table) with clean bilingual guidance for registering authentic remote servers.',
+    ],
+  },
   {
     version: '1.274.3',
     releaseDate: '2026-10-05',

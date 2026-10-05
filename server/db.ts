@@ -831,145 +831,7 @@ export const DEFAULT_SERVER_CATEGORIES: ServerCategory[] = [
   },
 ];
 
-export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [
-  {
-    id: 'srv-web-prod01',
-    name: 'Web & API Gateway (Prod-01)',
-    hostname: 'web-prod01.internal',
-    ip: '192.168.10.15',
-    os_type: 'linux',
-    os_distro: 'Ubuntu 24.04 LTS',
-    environment: 'Production',
-    category: 'Web Server',
-    role: 'Nginx Reverse Proxy & Node API',
-    tags: ['web', 'nginx', 'production', 'automation-tier1', 'k8s-ingress'],
-    ssh_port: 22,
-    ssh_username: 'root',
-    ssh_password: '',
-    default_shell: 'bash',
-    installed_web_servers: ['nginx'],
-    installed_databases: [],
-    has_apache: false,
-    has_nginx: true,
-    has_postgresql: false,
-    has_mysql: false,
-    status: 'untested',
-    cpu_cores: 8,
-    ram_gb: 32,
-    disk_gb: 500,
-    uptime_str: '72 days, 14 hours',
-    location: 'Datacenter A (Rack R-04)',
-    notes: 'Main customer-facing HTTPS gateway and SSL termination point',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  },
-  {
-    id: 'srv-db-master',
-    name: 'PostgreSQL DB Master (Cluster-01)',
-    hostname: 'db-master01.internal',
-    ip: '192.168.10.20',
-    os_type: 'linux',
-    os_distro: 'Debian 12 Bookworm',
-    environment: 'Production',
-    category: 'Database Server',
-    role: 'Primary Relational Database',
-    tags: ['database', 'postgresql', 'production', 'high-priority', 'backup-daily', 'ansible-target'],
-    ssh_port: 22,
-    ssh_username: 'root',
-    ssh_password: '',
-    default_shell: 'zsh',
-    installed_web_servers: [],
-    installed_databases: ['postgresql'],
-    has_apache: false,
-    has_nginx: false,
-    has_postgresql: true,
-    has_mysql: false,
-    status: 'untested',
-    cpu_cores: 16,
-    ram_gb: 64,
-    disk_gb: 1200,
-    uptime_str: '115 days, 6 hours',
-    location: 'Datacenter A (Rack R-05)',
-    notes: 'High-availability replication leader with WAL archive',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  },
-  {
-    id: 'srv-ci-runner',
-    name: 'DevOps CI/CD Automation Worker',
-    hostname: 'runner-devops.internal',
-    ip: '192.168.10.35',
-    os_type: 'linux',
-    os_distro: 'Rocky Linux 9.4',
-    environment: 'Staging',
-    category: 'DevOps & Automation',
-    role: 'Ansible & Docker Build Engine',
-    tags: ['devops', 'ansible', 'docker', 'ci-cd', 'automation-tier1', 'staging'],
-    ssh_port: 22,
-    ssh_username: 'devops',
-    ssh_password: '',
-    default_shell: 'zsh',
-    status: 'untested',
-    cpu_cores: 8,
-    ram_gb: 32,
-    disk_gb: 400,
-    uptime_str: '28 days, 9 hours',
-    location: 'Datacenter B (Rack R-02)',
-    notes: 'Automated deployment engine with Ansible playbooks and Docker daemon',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  },
-  {
-    id: 'srv-dc-corp01',
-    name: 'Active Directory Domain Controller (DC-01)',
-    hostname: 'dc01.corp.internal',
-    ip: '192.168.10.10',
-    os_type: 'windows',
-    os_distro: 'Windows Server 2022 Datacenter',
-    environment: 'Production',
-    category: 'Directory Services',
-    role: 'Primary Domain Controller & DNS',
-    tags: ['active-directory', 'domain-controller', 'dns', 'critical', 'corp-infra'],
-    win_protocol: 'rdp',
-    win_port: 3389,
-    win_username: 'Administrator',
-    win_domain: 'CORP.INTERNAL',
-    status: 'untested',
-    cpu_cores: 8,
-    ram_gb: 32,
-    disk_gb: 300,
-    uptime_str: '142 days, 18 hours',
-    location: 'Datacenter A (Rack R-03)',
-    notes: 'FSMO role holder, Kerberos KDC, and root Active Directory authority',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  },
-  {
-    id: 'srv-app-win01',
-    name: 'Enterprise ERP & File Services',
-    hostname: 'app-win01.corp.internal',
-    ip: '192.168.10.25',
-    os_type: 'windows',
-    os_distro: 'Windows Server 2022 Standard',
-    environment: 'Production',
-    category: 'Application Server',
-    role: 'IIS Web Server & SMB Shares',
-    tags: ['iis', 'storage', 'smb', 'windows-infra', 'erp-backend'],
-    win_protocol: 'powershell',
-    win_port: 5985,
-    win_username: 'Administrator',
-    win_domain: 'CORP.INTERNAL',
-    status: 'untested',
-    cpu_cores: 12,
-    ram_gb: 48,
-    disk_gb: 2000,
-    uptime_str: '63 days, 4 hours',
-    location: 'Datacenter A (Rack R-04)',
-    notes: 'Internal IIS business applications and high-throughput network shares',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  }
-];
+export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [];
 
 function loadFallbackStore(): FallbackStore {
   let store: any = null;
@@ -1082,8 +944,13 @@ function loadFallbackStore(): FallbackStore {
   if (!Array.isArray(store.device_sticky_notes)) {
     store.device_sticky_notes = [];
   }
-  if (!Array.isArray(store.remote_servers) || store.remote_servers.length === 0) {
-    store.remote_servers = DEFAULT_REMOTE_SERVERS;
+  if (!Array.isArray(store.remote_servers)) {
+    store.remote_servers = [];
+  } else {
+    // Filter out any mock servers
+    store.remote_servers = store.remote_servers.filter(
+      (s: any) => s && !['srv-web-prod01', 'srv-db-master', 'srv-ci-runner', 'srv-dc-corp01', 'srv-app-win01'].includes(s.id)
+    );
   }
   if (!Array.isArray(store.server_categories) || store.server_categories.length === 0) {
     store.server_categories = [...DEFAULT_SERVER_CATEGORIES];
@@ -1559,10 +1426,14 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
 
   // 11. Sync Remote Servers Fleet
   try {
+    // Purge any mock servers if present
+    await client.query(
+      "DELETE FROM remote_servers WHERE id IN ('srv-web-prod01', 'srv-db-master', 'srv-ci-runner', 'srv-dc-corp01', 'srv-app-win01')"
+    );
     const srvCountRes = await client.query('SELECT count(*) as count FROM remote_servers');
     if (parseInt(srvCountRes.rows[0]?.count || '0', 10) === 0) {
       const serversToSeed = (Array.isArray(initialData.remote_servers) && initialData.remote_servers.length > 0)
-        ? initialData.remote_servers
+        ? initialData.remote_servers.filter((s: any) => s && !['srv-web-prod01', 'srv-db-master', 'srv-ci-runner', 'srv-dc-corp01', 'srv-app-win01'].includes(s.id))
         : DEFAULT_REMOTE_SERVERS;
       for (const s of serversToSeed) {
         if (!s || !s.id || !s.ip) continue;
@@ -4715,8 +4586,8 @@ export async function getAllRemoteServers(): Promise<RemoteServer[]> {
   }
 
   const store = loadFallbackStore();
-  if (!Array.isArray(store.remote_servers) || store.remote_servers.length === 0) {
-    store.remote_servers = [...DEFAULT_REMOTE_SERVERS];
+  if (!Array.isArray(store.remote_servers)) {
+    store.remote_servers = [];
     saveFallbackStore(store);
   }
   return store.remote_servers;
