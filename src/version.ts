@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.269.1';
+export const APP_VERSION = '1.270.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.270.0',
+    releaseDate: '2026-10-04',
+    type: 'minor',
+    title: 'ذخیره‌سازی و ارتباط پایدار جانمایی فیزیکی (Physical Placement) و تجهیزات در پایگاه داده (Physical Placement Database Storage)',
+    title_en: 'Persistent Database Storage and Relational Linkage for Physical Placement and Equipment',
+    changes: [
+      'ذخیره‌سازی پایدار و ساخت‌یافته کل سلسله‌مراتب فیزیکی شامل ساختمان‌ها، طبقات، واحدها، اتاق‌ها، بخش‌ها و رک‌ها در پایگاه داده PostgreSQL (جدول topology_hierarchy) و فروشگاه پشتیبان دیتابیس.',
+      'افزودن ستون‌های استقرار فیزیکی (building, floor, unit, rack, section, location, hierarchy_id) به جدول devices و ایجاد جدول رابطه‌ای جدید device_placements جهت نگهداری ارتباط مقتدرانه تجهیزات با مکان‌های فیزیکی.',
+      'به‌روزرسانی و تطبیق دوطرفه اندپوینت‌های /api/settings/hierarchy (پشتیبانی همزمان از ساختار درختی و تخت) جهت تضمین ذخیره و بازیابی بی‌درنگ تغییرات انجام‌شده در نمای استقرار فیزیکی و مودال ثبت تجهیز.',
+      'ایجاد اندپوینت‌های اختصاصی GET /api/placements و PUT /api/placements/device/:id جهت استعلام و ویرایش بلادرنگ جانمایی فیزیکی تجهیزات شبکه در دیتابیس.',
+      'همگام‌سازی کامل عملیات درگ اند دراپ و جابجایی تجهیزات با پایگاه داده و به‌روزرسانی همزمان فایل‌های network_data.json و database_store.json جهت حفظ سازگاری کامل بدون تغییر در ساختارهای موجود.'
+    ],
+    changes_en: [
+      'Engineered persistent, authoritative database storage for the entire physical hierarchy (buildings, floors, units, rooms, sections, racks) across PostgreSQL (topology_hierarchy table) and fallback store.',
+      'Added dedicated physical placement columns (building, floor, unit, rack, section, location, hierarchy_id) to the devices table and established relational table device_placements for authoritative equipment placement tracking.',
+      'Implemented bidirectional compatibility in GET & POST /api/settings/hierarchy, seamlessly handling both nested tree payloads and flat hierarchy node lists for immediate sync with Physical Placement view and AddDeviceModal.',
+      'Created dedicated GET /api/placements and PUT /api/placements/device/:id endpoints for querying and updating device physical placements directly in the database.',
+      'Fully synchronized drag-and-drop relocation and placement changes with database persistence, updating network_data.json and database_store.json in real time while preserving all existing structures and mock datasets.'
+    ],
+  },
   {
     version: '1.269.1',
     releaseDate: '2026-10-04',

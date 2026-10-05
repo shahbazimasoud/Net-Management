@@ -172,6 +172,8 @@ interface FallbackStore {
   device_groups: any[];
   custom_maps: any[];
   topology_hierarchy: any[];
+  physical_hierarchy?: PhysicalHierarchyStructured;
+  device_placements?: DevicePlacementRecord[];
   node_positions: Record<string, Record<string, { x: number; y: number }>>;
   audit_logs: any[];
   ad_config: any;
@@ -180,6 +182,30 @@ interface FallbackStore {
   server_categories?: ServerCategory[];
   user_password_vault?: UserVaultItem[];
   bulk_server_reports?: any[];
+}
+
+export interface DevicePlacementRecord {
+  id: string;
+  device_id: string;
+  building: string;
+  floor: string;
+  unit: string;
+  rack: string;
+  section: string;
+  location?: string;
+  hierarchy_id?: string;
+  position_u?: number;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PhysicalHierarchyStructured {
+  buildings: string[];
+  floors: Record<string, string[]>;
+  units: Record<string, string[]>;
+  racks: Record<string, string[]>;
+  sections: Record<string, string[]>;
 }
 
 export interface UserVaultItem {
@@ -560,6 +586,217 @@ const DEFAULT_HIERARCHY = [
     metadata: { totalU: 24, usedU: 8 }
   }
 ];
+
+export function convertHierarchyNodesToStructured(nodes: any[]): PhysicalHierarchyStructured {
+  const buildingsSet = new Set<string>();
+  const floors: Record<string, string[]> = {};
+  const units: Record<string, string[]> = {};
+  const racks: Record<string, string[]> = {};
+  const sections: Record<string, string[]> = {};
+
+  if (!Array.isArray(nodes)) {
+    return { buildings: [], floors: {}, units: {}, racks: {}, sections: {} };
+  }
+
+  const bldgIdToName = new Map<string, string>();
+  for (const n of nodes) {
+    if (n.type === 'building' && n.name) {
+      buildingsSet.add(n.name);
+      if (n.id) bldgIdToName.set(n.id, n.name);
+    }
+  }
+
+  const floorIdToInfo = new Map<string, { bldg: string; floor: string }>();
+  for (const n of nodes) {
+    if (n.type === 'floor' && n.name) {
+      let bldgName = n.metadata?.building || '';
+      if (!bldgName && n.parentId && bldgIdToName.has(n.parentId)) {
+        bldgName = bldgIdToName.get(n.parentId)!;
+      }
+      if (!bldgName) {
+        bldgName = Array.from(buildingsSet)[0] || 'Default Building';
+        buildingsSet.add(bldgName);
+      }
+      if (!floors[bldgName]) floors[bldgName] = [];
+      if (!floors[bldgName].includes(n.name)) floors[bldgName].push(n.name);
+      if (n.id) floorIdToInfo.set(n.id, { bldg: bldgName, floor: n.name });
+    }
+  }
+
+  for (const n of nodes) {
+    if (!n.name) continue;
+    let bldg = n.metadata?.building || '';
+    let flr = n.metadata?.floor || '';
+    if ((!bldg || !flr) && n.parentId && floorIdToInfo.has(n.parentId)) {
+      const info = floorIdToInfo.get(n.parentId)!;
+      bldg = info.bldg;
+      flr = info.floor;
+    }
+    if (!bldg || !flr) {
+      const parent = nodes.find((item) => item.id === n.parentId);
+      if (parent && parent.parentId && floorIdToInfo.has(parent.parentId)) {
+        const info = floorIdToInfo.get(parent.parentId)!;
+        bldg = info.bldg;
+        flr = info.floor;
+      }
+    }
+
+    if (bldg && flr) {
+      const key = `${bldg}:::${flr}`;
+      if (n.type === 'unit') {
+        if (!units[key]) units[key] = [];
+        if (!units[key].includes(n.name)) units[key].push(n.name);
+      } else if (n.type === 'rack') {
+        if (!racks[key]) racks[key] = [];
+        if (!racks[key].includes(n.name)) racks[key].push(n.name);
+      } else if (n.type === 'section') {
+        if (!sections[key]) sections[key] = [];
+        if (!sections[key].includes(n.name)) sections[key].push(n.name);
+      }
+    }
+  }
+
+  return {
+    buildings: Array.from(buildingsSet),
+    floors,
+    units,
+    racks,
+    sections,
+  };
+}
+
+export function convertStructuredToHierarchyNodes(
+  structured: Partial<PhysicalHierarchyStructured>,
+  existingNodes: any[] = []
+): any[] {
+  const result: any[] = [];
+  const bList = Array.isArray(structured.buildings) ? structured.buildings : [];
+  const fMap = structured.floors && typeof structured.floors === 'object' ? structured.floors : {};
+  const uMap = structured.units && typeof structured.units === 'object' ? structured.units : {};
+  const rMap = structured.racks && typeof structured.racks === 'object' ? structured.racks : {};
+  const sMap = structured.sections && typeof structured.sections === 'object' ? structured.sections : {};
+
+  const cleanSlug = (str: string) =>
+    str
+      .toLowerCase()
+      .replace(/[^a-z0-9\u0600-\u06FF]+/g, '-')
+      .replace(/^-|-$/g, '') || 'item';
+
+  const bldgNameToId = new Map<string, string>();
+  for (const b of bList) {
+    const existing = existingNodes.find((n) => n.type === 'building' && n.name === b);
+    const id = existing?.id || `bldg-${cleanSlug(b)}`;
+    bldgNameToId.set(b, id);
+    result.push({
+      id,
+      type: 'building',
+      parentId: null,
+      name: b,
+      description: existing?.description || `Building: ${b}`,
+      metadata: { ...(existing?.metadata || {}), address: existing?.metadata?.address || '' },
+    });
+  }
+
+  const floorKeyToId = new Map<string, string>();
+  for (const [bName, floors] of Object.entries(fMap)) {
+    const bldgId = bldgNameToId.get(bName) || `bldg-${cleanSlug(bName)}`;
+    if (!bldgNameToId.has(bName)) {
+      result.push({
+        id: bldgId,
+        type: 'building',
+        parentId: null,
+        name: bName,
+        description: `Building: ${bName}`,
+        metadata: {},
+      });
+      bldgNameToId.set(bName, bldgId);
+    }
+
+    if (Array.isArray(floors)) {
+      for (const flr of floors) {
+        const existing = existingNodes.find(
+          (n) => n.type === 'floor' && n.name === flr && (n.parentId === bldgId || n.metadata?.building === bName)
+        );
+        const id = existing?.id || `floor-${cleanSlug(bName)}-${cleanSlug(flr)}`;
+        const key = `${bName}:::${flr}`;
+        floorKeyToId.set(key, id);
+        result.push({
+          id,
+          type: 'floor',
+          parentId: bldgId,
+          name: flr,
+          description: existing?.description || `Floor ${flr} in ${bName}`,
+          metadata: { ...(existing?.metadata || {}), building: bName },
+        });
+      }
+    }
+  }
+
+  for (const [key, unitsList] of Object.entries(uMap)) {
+    const [bName, flr] = key.split(':::');
+    const floorId = floorKeyToId.get(key) || `floor-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}`;
+    if (Array.isArray(unitsList)) {
+      for (const unit of unitsList) {
+        const existing = existingNodes.find(
+          (n) => n.type === 'unit' && n.name === unit && (n.parentId === floorId || n.metadata?.floor === flr)
+        );
+        const id = existing?.id || `unit-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}-${cleanSlug(unit)}`;
+        result.push({
+          id,
+          type: 'unit',
+          parentId: floorId,
+          name: unit,
+          description: existing?.description || `Unit ${unit}`,
+          metadata: { ...(existing?.metadata || {}), building: bName, floor: flr },
+        });
+      }
+    }
+  }
+
+  for (const [key, racksList] of Object.entries(rMap)) {
+    const [bName, flr] = key.split(':::');
+    const floorId = floorKeyToId.get(key) || `floor-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}`;
+    if (Array.isArray(racksList)) {
+      for (const rack of racksList) {
+        const existing = existingNodes.find(
+          (n) => n.type === 'rack' && n.name === rack && (n.parentId === floorId || n.metadata?.floor === flr)
+        );
+        const id = existing?.id || `rack-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}-${cleanSlug(rack)}`;
+        result.push({
+          id,
+          type: 'rack',
+          parentId: floorId,
+          name: rack,
+          description: existing?.description || `Rack ${rack}`,
+          metadata: { ...(existing?.metadata || {}), building: bName, floor: flr },
+        });
+      }
+    }
+  }
+
+  for (const [key, sectionsList] of Object.entries(sMap)) {
+    const [bName, flr] = key.split(':::');
+    const floorId = floorKeyToId.get(key) || `floor-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}`;
+    if (Array.isArray(sectionsList)) {
+      for (const sec of sectionsList) {
+        const existing = existingNodes.find(
+          (n) => n.type === 'section' && n.name === sec && (n.parentId === floorId || n.metadata?.floor === flr)
+        );
+        const id = existing?.id || `sec-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}-${cleanSlug(sec)}`;
+        result.push({
+          id,
+          type: 'section',
+          parentId: floorId,
+          name: sec,
+          description: existing?.description || `Section ${sec}`,
+          metadata: { ...(existing?.metadata || {}), building: bName, floor: flr },
+        });
+      }
+    }
+  }
+
+  return result;
+}
 
 const DEFAULT_CUSTOM_MAPS = [
   {
@@ -970,6 +1207,23 @@ function loadFallbackStore(): FallbackStore {
   if (!Array.isArray(store.topology_hierarchy) || store.topology_hierarchy.length === 0) {
     store.topology_hierarchy = DEFAULT_HIERARCHY;
   }
+  if (!store.physical_hierarchy || !Array.isArray(store.physical_hierarchy.buildings)) {
+    store.physical_hierarchy = convertHierarchyNodesToStructured(store.topology_hierarchy);
+  }
+  if (!Array.isArray(store.device_placements) || store.device_placements.length === 0) {
+    store.device_placements = (store.devices || []).map((d: any) => ({
+      id: `placement-${d.id}`,
+      device_id: d.id,
+      building: d.building || '',
+      floor: d.floor || '',
+      unit: d.unit || '',
+      rack: d.rack || '',
+      section: d.section || '',
+      location: d.location || '',
+      hierarchy_id: d.hierarchy_id || '',
+      updated_at: new Date().toISOString(),
+    }));
+  }
   if (!store.node_positions || Object.keys(store.node_positions).length === 0) {
     store.node_positions = DEFAULT_NODE_POSITIONS;
   }
@@ -1282,9 +1536,18 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         : loadInitialDevices();
       for (const d of devicesToSeed) {
         await client.query(
-          `INSERT INTO devices (id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username, is_online, latency_ms, mac_address, uptime_str, ports)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-           ON CONFLICT (id) DO NOTHING`,
+          `INSERT INTO devices (
+            id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username,
+            is_online, latency_ms, mac_address, uptime_str, ports, building, floor, unit, rack, section, location, hierarchy_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+          ON CONFLICT (id) DO UPDATE SET
+            building = EXCLUDED.building,
+            floor = EXCLUDED.floor,
+            unit = EXCLUDED.unit,
+            rack = EXCLUDED.rack,
+            section = EXCLUDED.section,
+            location = EXCLUDED.location,
+            hierarchy_id = EXCLUDED.hierarchy_id`,
           [
             d.id,
             d.name,
@@ -1302,6 +1565,38 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             d.mac || d.mac_address || '',
             d.uptime || '',
             JSON.stringify(d.ports || []),
+            d.building || '',
+            d.floor || '',
+            d.unit || '',
+            d.rack || '',
+            d.section || '',
+            d.location || '',
+            d.hierarchy_id || '',
+          ]
+        );
+
+        await client.query(
+          `INSERT INTO device_placements (id, device_id, building, floor, unit, rack, section, location, hierarchy_id, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+           ON CONFLICT (id) DO UPDATE SET
+             building = EXCLUDED.building,
+             floor = EXCLUDED.floor,
+             unit = EXCLUDED.unit,
+             rack = EXCLUDED.rack,
+             section = EXCLUDED.section,
+             location = EXCLUDED.location,
+             hierarchy_id = EXCLUDED.hierarchy_id,
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            `placement-${d.id}`,
+            d.id,
+            d.building || '',
+            d.floor || '',
+            d.unit || '',
+            d.rack || '',
+            d.section || '',
+            d.location || '',
+            d.hierarchy_id || '',
           ]
         );
       }
@@ -1743,6 +2038,33 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_version VARCHAR(32) DEFAULT 'legacy'");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS building VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS floor VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS unit VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS rack VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS section VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS location VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS hierarchy_id VARCHAR(64)");
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS device_placements (
+          id VARCHAR(64) PRIMARY KEY,
+          device_id VARCHAR(64) NOT NULL,
+          building VARCHAR(128),
+          floor VARCHAR(128),
+          unit VARCHAR(128),
+          rack VARCHAR(128),
+          section VARCHAR(128),
+          hierarchy_id VARCHAR(64),
+          position_u INT,
+          notes TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_placements_device ON device_placements(device_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_placements_bldg ON device_placements(building)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_placements_floor ON device_placements(floor)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_device_placements_rack ON device_placements(rack)");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -2537,24 +2859,80 @@ export async function getHierarchy(): Promise<any[]> {
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM topology_hierarchy ORDER BY created_at ASC');
-      return res.rows.map((r) => ({
-        id: r.id,
-        type: r.type,
-        parentId: r.parent_id,
-        name: r.name,
-        description: r.description,
-        metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata,
-      }));
+      if (res.rows && res.rows.length > 0) {
+        return res.rows.map((r) => ({
+          id: r.id,
+          type: r.type,
+          parentId: r.parent_id,
+          name: r.name,
+          description: r.description,
+          metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : (r.metadata || {}),
+        }));
+      }
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in getHierarchy]', e);
     }
   }
-  return loadFallbackStore().topology_hierarchy;
+  const store = loadFallbackStore();
+  return Array.isArray(store.topology_hierarchy) ? store.topology_hierarchy : DEFAULT_HIERARCHY;
 }
 
-export async function saveHierarchy(items: any[]): Promise<void> {
+export async function getCompleteHierarchy(): Promise<{
+  nodes: any[];
+  structured: PhysicalHierarchyStructured;
+}> {
+  const nodes = await getHierarchy();
   const store = loadFallbackStore();
-  store.topology_hierarchy = items;
+  let structured: PhysicalHierarchyStructured;
+
+  if (store.physical_hierarchy && Array.isArray(store.physical_hierarchy.buildings) && store.physical_hierarchy.buildings.length > 0) {
+    structured = {
+      buildings: store.physical_hierarchy.buildings,
+      floors: store.physical_hierarchy.floors || {},
+      units: store.physical_hierarchy.units || {},
+      racks: store.physical_hierarchy.racks || {},
+      sections: store.physical_hierarchy.sections || {},
+    };
+  } else {
+    structured = convertHierarchyNodesToStructured(nodes);
+  }
+
+  return { nodes, structured };
+}
+
+export async function saveHierarchy(payload: any): Promise<{
+  nodes: any[];
+  structured: PhysicalHierarchyStructured;
+}> {
+  const store = loadFallbackStore();
+  let nodes: any[] = [];
+  let structured: PhysicalHierarchyStructured;
+
+  if (Array.isArray(payload)) {
+    nodes = payload;
+    structured = convertHierarchyNodesToStructured(nodes);
+  } else if (payload && typeof payload === 'object') {
+    if (Array.isArray(payload.hierarchy) && !payload.buildings) {
+      nodes = payload.hierarchy;
+      structured = convertHierarchyNodesToStructured(nodes);
+    } else {
+      structured = {
+        buildings: Array.isArray(payload.buildings) ? payload.buildings : [],
+        floors: payload.floors && typeof payload.floors === 'object' ? payload.floors : {},
+        units: payload.units && typeof payload.units === 'object' ? payload.units : {},
+        racks: payload.racks && typeof payload.racks === 'object' ? payload.racks : {},
+        sections: payload.sections && typeof payload.sections === 'object' ? payload.sections : {},
+      };
+      const currentNodes = Array.isArray(store.topology_hierarchy) ? store.topology_hierarchy : DEFAULT_HIERARCHY;
+      nodes = convertStructuredToHierarchyNodes(structured, currentNodes);
+    }
+  } else {
+    nodes = DEFAULT_HIERARCHY;
+    structured = convertHierarchyNodesToStructured(nodes);
+  }
+
+  store.topology_hierarchy = nodes;
+  store.physical_hierarchy = structured;
   saveFallbackStore(store);
 
   if (isPostgresReady && pool) {
@@ -2562,7 +2940,7 @@ export async function saveHierarchy(items: any[]): Promise<void> {
       const client = await pool.connect();
       await client.query('BEGIN');
       await client.query('DELETE FROM topology_hierarchy');
-      for (const item of items) {
+      for (const item of nodes) {
         await client.query(
           `INSERT INTO topology_hierarchy (id, type, parent_id, name, description, metadata)
            VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -2579,9 +2957,61 @@ export async function saveHierarchy(items: any[]): Promise<void> {
       await client.query('COMMIT');
       client.release();
     } catch (e) {
-      console.error('[DB Query Error]', e);
+      console.error('[DB Query Error in saveHierarchy]', e);
     }
   }
+
+  return { nodes, structured };
+}
+
+export async function getDevicePlacements(): Promise<DevicePlacementRecord[]> {
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM device_placements ORDER BY building ASC, floor ASC, rack ASC');
+      if (res.rows && res.rows.length > 0) {
+        return res.rows.map((r) => ({
+          id: r.id,
+          device_id: r.device_id,
+          building: r.building || '',
+          floor: r.floor || '',
+          unit: r.unit || '',
+          rack: r.rack || '',
+          section: r.section || '',
+          location: r.location || '',
+          hierarchy_id: r.hierarchy_id || '',
+          position_u: r.position_u ? Number(r.position_u) : undefined,
+          notes: r.notes || '',
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+        }));
+      }
+    } catch (e) {
+      console.warn('[DB Query Notice in getDevicePlacements]', e);
+    }
+  }
+
+  const allDevices = await getAllDevices();
+  return allDevices.map((d) => ({
+    id: `placement-${d.id}`,
+    device_id: d.id,
+    building: d.building || '',
+    floor: d.floor || '',
+    unit: d.unit || '',
+    rack: d.rack || '',
+    section: d.section || '',
+    location: d.location || '',
+    hierarchy_id: d.hierarchy_id || '',
+    position_u: d.position_u || undefined,
+    notes: d.notes || '',
+    updated_at: new Date().toISOString(),
+  }));
+}
+
+export async function updateDevicePlacement(
+  deviceId: string,
+  placement: Partial<DevicePlacementRecord>
+): Promise<any> {
+  return await updateDevice(deviceId, placement);
 }
 
 // -------------------------------------------------------------
@@ -3309,6 +3739,13 @@ export async function getAllDevices(): Promise<any[]> {
             uptime_str: r.uptime_str || '',
             ssh_version: r.ssh_version || (r.connection_data && r.connection_data.ssh_version) || 'legacy',
             sshVersion: r.ssh_version || (r.connection_data && r.connection_data.ssh_version) || 'legacy',
+            building: r.building || (r.connection_data && r.connection_data.building) || '',
+            floor: r.floor || (r.connection_data && r.connection_data.floor) || '',
+            unit: r.unit || (r.connection_data && r.connection_data.unit) || '',
+            rack: r.rack || (r.connection_data && r.connection_data.rack) || '',
+            section: r.section || (r.connection_data && r.connection_data.section) || '',
+            location: r.location || '',
+            hierarchy_id: r.hierarchy_id || '',
             ports,
           };
         });
@@ -3355,6 +3792,13 @@ export async function createDevice(deviceData: any): Promise<any> {
     uptime_str: deviceData.uptime_str || deviceData.uptime || '0 days',
     ssh_version: deviceData.ssh_version || (deviceData.connection && deviceData.connection.ssh_version) || 'legacy',
     ports: Array.isArray(deviceData.ports) ? deviceData.ports : [],
+    building: (deviceData.building || '').trim(),
+    floor: (deviceData.floor || '').trim(),
+    unit: (deviceData.unit || '').trim(),
+    rack: (deviceData.rack || '').trim(),
+    section: (deviceData.section || '').trim(),
+    location: (deviceData.location || '').trim(),
+    hierarchy_id: (deviceData.hierarchy_id || deviceData.hierarchyId || '').trim(),
   };
 
   const existingIdx = store.devices.findIndex((d: any) => d.id === id);
@@ -3363,6 +3807,29 @@ export async function createDevice(deviceData: any): Promise<any> {
   } else {
     store.devices.push(newDevice);
   }
+
+  if (!Array.isArray(store.device_placements)) {
+    store.device_placements = [];
+  }
+  const placeIdx = store.device_placements.findIndex((p: any) => p.device_id === id);
+  const placementRec: DevicePlacementRecord = {
+    id: `placement-${id}`,
+    device_id: id,
+    building: newDevice.building,
+    floor: newDevice.floor,
+    unit: newDevice.unit,
+    rack: newDevice.rack,
+    section: newDevice.section,
+    location: newDevice.location,
+    hierarchy_id: newDevice.hierarchy_id,
+    updated_at: new Date().toISOString(),
+  };
+  if (placeIdx >= 0) {
+    store.device_placements[placeIdx] = placementRec;
+  } else {
+    store.device_placements.push(placementRec);
+  }
+
   saveFallbackStore(store);
 
   // Sync to network_data.json
@@ -3390,8 +3857,9 @@ export async function createDevice(deviceData: any): Promise<any> {
     try {
       await pool.query(
         `INSERT INTO devices (
-          id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username, is_online, latency_ms, mac_address, uptime_str, ports, ssh_version
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username,
+          is_online, latency_ms, mac_address, uptime_str, ports, ssh_version, building, floor, unit, rack, section, location, hierarchy_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           ip = EXCLUDED.ip,
@@ -3408,7 +3876,14 @@ export async function createDevice(deviceData: any): Promise<any> {
           mac_address = EXCLUDED.mac_address,
           uptime_str = EXCLUDED.uptime_str,
           ports = EXCLUDED.ports,
-          ssh_version = EXCLUDED.ssh_version`,
+          ssh_version = EXCLUDED.ssh_version,
+          building = EXCLUDED.building,
+          floor = EXCLUDED.floor,
+          unit = EXCLUDED.unit,
+          rack = EXCLUDED.rack,
+          section = EXCLUDED.section,
+          location = EXCLUDED.location,
+          hierarchy_id = EXCLUDED.hierarchy_id`,
         [
           newDevice.id,
           newDevice.name,
@@ -3427,6 +3902,38 @@ export async function createDevice(deviceData: any): Promise<any> {
           newDevice.uptime_str,
           JSON.stringify(newDevice.ports),
           newDevice.ssh_version || 'legacy',
+          newDevice.building,
+          newDevice.floor,
+          newDevice.unit,
+          newDevice.rack,
+          newDevice.section,
+          newDevice.location,
+          newDevice.hierarchy_id,
+        ]
+      );
+
+      await pool.query(
+        `INSERT INTO device_placements (id, device_id, building, floor, unit, rack, section, location, hierarchy_id, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE SET
+           building = EXCLUDED.building,
+           floor = EXCLUDED.floor,
+           unit = EXCLUDED.unit,
+           rack = EXCLUDED.rack,
+           section = EXCLUDED.section,
+           location = EXCLUDED.location,
+           hierarchy_id = EXCLUDED.hierarchy_id,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          `placement-${newDevice.id}`,
+          newDevice.id,
+          newDevice.building,
+          newDevice.floor,
+          newDevice.unit,
+          newDevice.rack,
+          newDevice.section,
+          newDevice.location,
+          newDevice.hierarchy_id,
         ]
       );
     } catch (e) {
@@ -3453,6 +3960,13 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
     platform: updates.platform !== undefined ? updates.platform : existing.platform,
     role: updates.role !== undefined ? updates.role.trim() : existing.role,
     ssh_version: updates.ssh_version !== undefined ? updates.ssh_version : (existing.ssh_version || 'legacy'),
+    building: updates.building !== undefined ? updates.building.trim() : (existing.building || ''),
+    floor: updates.floor !== undefined ? updates.floor.trim() : (existing.floor || ''),
+    unit: updates.unit !== undefined ? updates.unit.trim() : (existing.unit || ''),
+    rack: updates.rack !== undefined ? updates.rack.trim() : (existing.rack || ''),
+    section: updates.section !== undefined ? updates.section.trim() : (existing.section || ''),
+    location: updates.location !== undefined ? updates.location.trim() : (existing.location || ''),
+    hierarchy_id: updates.hierarchy_id !== undefined ? updates.hierarchy_id : (existing.hierarchy_id || ''),
   };
 
   const store = loadFallbackStore();
@@ -3465,6 +3979,29 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
   } else {
     store.devices.push(updated);
   }
+
+  if (!Array.isArray(store.device_placements)) {
+    store.device_placements = [];
+  }
+  const placeIdx = store.device_placements.findIndex((p: any) => p.device_id === existing.id);
+  const placementRec: DevicePlacementRecord = {
+    id: `placement-${existing.id}`,
+    device_id: existing.id,
+    building: updated.building,
+    floor: updated.floor,
+    unit: updated.unit,
+    rack: updated.rack,
+    section: updated.section,
+    location: updated.location,
+    hierarchy_id: updated.hierarchy_id,
+    updated_at: new Date().toISOString(),
+  };
+  if (placeIdx >= 0) {
+    store.device_placements[placeIdx] = placementRec;
+  } else {
+    store.device_placements.push(placementRec);
+  }
+
   saveFallbackStore(store);
 
   // Sync to network_data.json
@@ -3495,7 +4032,8 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           name = $2, ip = $3, type = $4, model = $5, platform = $6, role = $7,
           ssh_host = $8, ssh_port = $9, ssh_username = $10, is_online = $11,
           latency_ms = $12, mac_address = $13, uptime_str = $14, ports = $15,
-          ssh_version = $16
+          ssh_version = $16, building = $17, floor = $18, unit = $19, rack = $20,
+          section = $21, location = $22, hierarchy_id = $23, updated_at = CURRENT_TIMESTAMP
         WHERE id = $1`,
         [
           updated.id,
@@ -3514,6 +4052,38 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           updated.uptime_str || '',
           JSON.stringify(updated.ports || []),
           updated.ssh_version || 'legacy',
+          updated.building || '',
+          updated.floor || '',
+          updated.unit || '',
+          updated.rack || '',
+          updated.section || '',
+          updated.location || '',
+          updated.hierarchy_id || '',
+        ]
+      );
+
+      await pool.query(
+        `INSERT INTO device_placements (id, device_id, building, floor, unit, rack, section, location, hierarchy_id, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE SET
+           building = EXCLUDED.building,
+           floor = EXCLUDED.floor,
+           unit = EXCLUDED.unit,
+           rack = EXCLUDED.rack,
+           section = EXCLUDED.section,
+           location = EXCLUDED.location,
+           hierarchy_id = EXCLUDED.hierarchy_id,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          `placement-${updated.id}`,
+          updated.id,
+          updated.building || '',
+          updated.floor || '',
+          updated.unit || '',
+          updated.rack || '',
+          updated.section || '',
+          updated.location || '',
+          updated.hierarchy_id || '',
         ]
       );
     } catch (e) {

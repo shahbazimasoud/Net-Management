@@ -2516,9 +2516,19 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     fetch('/api/settings/hierarchy')
       .then((res) => (res.ok ? res.json() : null))
       .then((dbData) => {
-        if (dbData && typeof dbData === 'object' && Array.isArray(dbData.buildings) && dbData.buildings.length > 0) {
-          localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(dbData));
-          handleHierarchyUpdate();
+        if (dbData && typeof dbData === 'object') {
+          const bldgs = Array.isArray(dbData.buildings)
+            ? dbData.buildings
+            : (Array.isArray(dbData.hierarchy)
+                ? dbData.hierarchy.filter((h: any) => h.type === 'building').map((h: any) => h.name)
+                : []);
+          if (bldgs.length > 0) {
+            localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(dbData));
+            setCustomBuildings(bldgs);
+            if (dbData.floors && typeof dbData.floors === 'object') setCustomFloors(dbData.floors);
+            if (dbData.units && typeof dbData.units === 'object') setCustomUnits(dbData.units);
+            if (dbData.racks && typeof dbData.racks === 'object') setCustomRacks(dbData.racks);
+          }
         }
       })
       .catch(() => {});
@@ -3251,14 +3261,24 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         .then((res) => (res.ok ? res.json() : null))
         .then((dbData) => {
           const hierData = dbData?.hierarchy || dbData;
-          if (hierData && typeof hierData === 'object' && Array.isArray(hierData.buildings) && hierData.buildings.length > 0) {
+          const bldgs = Array.isArray(dbData?.buildings)
+            ? dbData.buildings
+            : (Array.isArray(hierData?.buildings)
+                ? hierData.buildings
+                : (Array.isArray(dbData?.hierarchy)
+                    ? dbData.hierarchy.filter((h: any) => h.type === 'building').map((h: any) => h.name)
+                    : []));
+          if (bldgs.length > 0) {
             try {
-              localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(hierData));
+              localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(dbData));
             } catch (e) {}
-            if (Array.isArray(hierData.buildings)) setCustomBuildings(hierData.buildings);
-            if (hierData.floors && typeof hierData.floors === 'object') setCustomFloors(hierData.floors);
-            if (hierData.units && typeof hierData.units === 'object') setCustomUnits(hierData.units);
-            if (hierData.racks && typeof hierData.racks === 'object') setCustomRacks(hierData.racks);
+            setCustomBuildings(bldgs);
+            const floorsData = dbData.floors || hierData.floors;
+            const unitsData = dbData.units || hierData.units;
+            const racksData = dbData.racks || hierData.racks;
+            if (floorsData && typeof floorsData === 'object') setCustomFloors(floorsData);
+            if (unitsData && typeof unitsData === 'object') setCustomUnits(unitsData);
+            if (racksData && typeof racksData === 'object') setCustomRacks(racksData);
           }
         })
         .catch(() => {});

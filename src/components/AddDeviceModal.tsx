@@ -310,6 +310,26 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             if (parsed.units && typeof parsed.units === 'object') savedUnits = parsed.units;
             if (parsed.racks && typeof parsed.racks === 'object') savedRacks = parsed.racks;
           }
+          // Augment with latest database hierarchy
+          const dbHier = await fetch('/api/settings/hierarchy').then((r) => r.ok ? r.json() : null).catch(() => null);
+          if (dbHier?.buildings && Array.isArray(dbHier.buildings) && dbHier.buildings.length > 0) {
+            savedBuildings = Array.from(new Set([...savedBuildings, ...dbHier.buildings]));
+            if (dbHier.floors && typeof dbHier.floors === 'object') {
+              Object.entries(dbHier.floors).forEach(([b, fls]) => {
+                savedFloors[b] = Array.from(new Set([...(savedFloors[b] || []), ...(fls as string[])]));
+              });
+            }
+            if (dbHier.units && typeof dbHier.units === 'object') {
+              Object.entries(dbHier.units).forEach(([k, uns]) => {
+                savedUnits[k] = Array.from(new Set([...(savedUnits[k] || []), ...(uns as string[])]));
+              });
+            }
+            if (dbHier.racks && typeof dbHier.racks === 'object') {
+              Object.entries(dbHier.racks).forEach(([k, rks]) => {
+                savedRacks[k] = Array.from(new Set([...(savedRacks[k] || []), ...(rks as string[])]));
+              });
+            }
+          }
         } catch (e) {}
 
         const devRes = await fetchDevices().catch(() => ({ devices: [] }));
@@ -834,15 +854,18 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           if (!rMap[key]) rMap[key] = [];
           if (!rMap[key].includes(rName)) rMap[key].push(rName);
         }
-        localStorage.setItem(
-          HIERARCHY_STORAGE_KEY,
-          JSON.stringify({
-            buildings: bList,
-            floors: fMap,
-            units: uMap,
-            racks: rMap,
-          })
-        );
+        const hierPayload = {
+          buildings: bList,
+          floors: fMap,
+          units: uMap,
+          racks: rMap,
+        };
+        localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(hierPayload));
+        fetch('/api/settings/hierarchy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(hierPayload),
+        }).catch(() => {});
         window.dispatchEvent(new CustomEvent('nettopology_hierarchy_updated'));
       } catch (e) {}
 

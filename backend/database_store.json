@@ -651,9 +651,9 @@
     {
       "id": "bldg-central",
       "type": "building",
+      "parentId": null,
       "name": "ساختمان مرکزی (Central Bldg)",
       "description": "ساختمان اداری مرکزی و دیتاسنتر اصلی سازمان",
-      "parentId": null,
       "metadata": {
         "address": "تهران، خیابان ولیعصر",
         "floorsCount": 4
@@ -662,84 +662,88 @@
     {
       "id": "bldg-west",
       "type": "building",
+      "parentId": null,
       "name": "شعبه غرب (West Branch)",
       "description": "ساختمان پشتیبان و شعبه توسعه نرم‌افزار",
-      "parentId": null,
       "metadata": {
         "address": "شعبه غرب، پارک فناوری",
         "floorsCount": 2
       }
     },
     {
+      "id": "bldg-ساختمان-مهندسی-و-نوآوری",
+      "type": "building",
+      "parentId": null,
+      "name": "ساختمان مهندسی و نوآوری",
+      "description": "Building: ساختمان مهندسی و نوآوری",
+      "metadata": {
+        "address": ""
+      }
+    },
+    {
       "id": "floor-dc",
       "type": "floor",
+      "parentId": "bldg-central",
       "name": "مرکز داده (DC Floor)",
       "description": "طبقه زیرهمکف اختصاصی مرکز داده و رک‌های سرور",
-      "parentId": "bldg-central",
       "metadata": {
         "securityLevel": "High",
-        "cooling": "Precision AC"
+        "cooling": "Precision AC",
+        "building": "ساختمان مرکزی (Central Bldg)"
       }
     },
     {
       "id": "floor-1",
       "type": "floor",
+      "parentId": "bldg-central",
       "name": "طبقه ۱ (Floor 1)",
       "description": "طبقه اداری و اتاق کارشناسان شبکه",
-      "parentId": "bldg-central",
       "metadata": {
-        "usersCount": 45
+        "usersCount": 45,
+        "building": "ساختمان مرکزی (Central Bldg)"
       }
     },
     {
-      "id": "unit-server-room",
+      "id": "floor-ساختمان-مهندسی-و-نوآوری-طبقه-۲",
+      "type": "floor",
+      "parentId": "bldg-ساختمان-مهندسی-و-نوآوری",
+      "name": "طبقه ۲",
+      "description": "Floor طبقه ۲ in ساختمان مهندسی و نوآوری",
+      "metadata": {
+        "building": "ساختمان مهندسی و نوآوری"
+      }
+    },
+    {
+      "id": "unit-ساختمان-مهندسی-و-نوآوری-طبقه-۲-واحد-تحقیق-و-توسعه",
       "type": "unit",
-      "name": "اتاق سرور اصلی (Main Server Room)",
-      "description": "اتاق سرور مرکزی مجهز به سیستم اطفا حریق و کنترل تردد",
-      "parentId": "floor-dc",
+      "parentId": "floor-ساختمان-مهندسی-و-نوآوری-طبقه-۲",
+      "name": "واحد تحقیق و توسعه",
+      "description": "Unit واحد تحقیق و توسعه",
       "metadata": {
-        "doorAccess": "Biometric"
+        "building": "ساختمان مهندسی و نوآوری",
+        "floor": "طبقه ۲"
       }
     },
     {
-      "id": "unit-idf-1",
-      "type": "unit",
-      "name": "اتاق رک طبقه ۱ (IDF-1)",
-      "description": "رک‌های توزیع طبقه اول برای کلاینت‌ها",
-      "parentId": "floor-1",
-      "metadata": {}
-    },
-    {
-      "id": "rack-a01",
+      "id": "rack-ساختمان-مهندسی-و-نوآوری-طبقه-۲-rack-r-d-01",
       "type": "rack",
-      "name": "Rack-A01 (Core & WAN)",
-      "description": "رک اختصاصی تجهیزات Core و Edge سازمان",
-      "parentId": "unit-server-room",
+      "parentId": "floor-ساختمان-مهندسی-و-نوآوری-طبقه-۲",
+      "name": "Rack-R&D-01",
+      "description": "Rack Rack-R&D-01",
       "metadata": {
-        "totalU": 42,
-        "usedU": 14
+        "building": "ساختمان مهندسی و نوآوری",
+        "floor": "طبقه ۲"
       }
     },
     {
-      "id": "rack-a02",
-      "type": "rack",
-      "name": "Rack-A02 (Distribution)",
-      "description": "رک سوییچ‌های لایه توزیع و ارتباطی شعب",
-      "parentId": "unit-server-room",
+      "id": "sec-ساختمان-مهندسی-و-نوآوری-طبقه-۲-بخش-شبکه",
+      "type": "section",
+      "parentId": "floor-ساختمان-مهندسی-و-نوآوری-طبقه-۲",
+      "name": "بخش شبکه",
+      "description": "Section بخش شبکه",
       "metadata": {
-        "totalU": 42,
-        "usedU": 10
-      }
-    },
-    {
-      "id": "rack-b01",
-      "type": "rack",
-      "name": "Rack-B01 (Access Floor 1)",
-      "description": "رک توزیع کابلی طبقه ۱",
-      "parentId": "unit-idf-1",
-      "metadata": {
-        "totalU": 24,
-        "usedU": 8
+        "building": "ساختمان مهندسی و نوآوری",
+        "floor": "طبقه ۲"
       }
     }
   ],
@@ -1575,7 +1579,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9mYSveEZ33gXlwFSNZcGs5hf2rhmR8K_1KAlXpy8ggUIR0n8BK1f62l8Xan-WJl3r6RqNo6_FPlYiYhppMFBt6A=="
       },
-      "location": "Rack 01 - Shelf B"
+      "location": "Rack 01 - Shelf B",
+      "section": "بخش شبکه",
+      "ssh_version": "legacy",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-router-gw",
@@ -2172,5 +2179,158 @@
     }
   ],
   "user_password_vault": [],
-  "bulk_server_reports": []
+  "bulk_server_reports": [],
+  "physical_hierarchy": {
+    "buildings": [
+      "ساختمان مرکزی (Central Bldg)",
+      "شعبه غرب (West Branch)",
+      "ساختمان مهندسی و نوآوری"
+    ],
+    "floors": {
+      "ساختمان مرکزی (Central Bldg)": [
+        "مرکز داده (DC Floor)",
+        "طبقه ۱ (Floor 1)"
+      ],
+      "ساختمان مهندسی و نوآوری": [
+        "طبقه ۲"
+      ]
+    },
+    "units": {
+      "ساختمان مهندسی و نوآوری:::طبقه ۲": [
+        "واحد تحقیق و توسعه"
+      ]
+    },
+    "racks": {
+      "ساختمان مهندسی و نوآوری:::طبقه ۲": [
+        "Rack-R&D-01"
+      ]
+    },
+    "sections": {
+      "ساختمان مهندسی و نوآوری:::طبقه ۲": [
+        "بخش شبکه"
+      ]
+    }
+  },
+  "device_placements": [
+    {
+      "id": "placement-dev-core-01",
+      "device_id": "dev-core-01",
+      "building": "ساختمان مرکزی (Central Bldg)",
+      "floor": "طبقه ۱ (Floor 1)",
+      "unit": "اتاق سرور اصلی (Main Server Room)",
+      "rack": "Rack-A01",
+      "section": "بخش شبکه",
+      "location": "Rack 01 - Shelf B",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:19:09.671Z"
+    },
+    {
+      "id": "placement-dev-router-gw",
+      "device_id": "dev-router-gw",
+      "building": "ساختمان مرکزی (Central Bldg)",
+      "floor": "طبقه ۱ (Floor 1)",
+      "unit": "اتاق سرور اصلی (Main Server Room)",
+      "rack": "Rack-A02",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-dist-bldg-a",
+      "device_id": "dev-dist-bldg-a",
+      "building": "ساختمان مهندسی (Engineering Bldg)",
+      "floor": "طبقه ۲ (Floor 2)",
+      "unit": "واحد آزمایشگاه و R&D (Lab Unit 201)",
+      "rack": "",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-acc-bldg-a-f3",
+      "device_id": "dev-acc-bldg-a-f3",
+      "building": "ساختمان مرکزی (Central Bldg)",
+      "floor": "طبقه ۳ (Floor 3)",
+      "unit": "واحد توسعه نرم‌افزار (Dev Unit 302)",
+      "rack": "Wall-Rack-302",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-dist-bldg-b",
+      "device_id": "dev-dist-bldg-b",
+      "building": "ساختمان مهندسی (Engineering Bldg)",
+      "floor": "طبقه ۱ (Floor 1)",
+      "unit": "مرکز داده فرعی (MDF Room)",
+      "rack": "Rack-MDF-B1",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-acc-bldg-b-f2",
+      "device_id": "dev-acc-bldg-b-f2",
+      "building": "ساختمان مهندسی (Engineering Bldg)",
+      "floor": "طبقه ۲ (Floor 2)",
+      "unit": "واحد آزمایشگاه و R&D (Lab Unit 201)",
+      "rack": "Rack-ENG-201",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-ap-bldg-a-f1",
+      "device_id": "dev-ap-bldg-a-f1",
+      "building": "ساختمان مرکزی (Central Bldg)",
+      "floor": "طبقه ۱ (Floor 1)",
+      "unit": "لابی و سالن همایش (Main Lobby)",
+      "rack": "سقف کاذب لابی",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-ap-bldg-a-f3",
+      "device_id": "dev-ap-bldg-a-f3",
+      "building": "ساختمان مرکزی (Central Bldg)",
+      "floor": "طبقه ۳ (Floor 3)",
+      "unit": "واحد توسعه نرم‌افزار (Dev Unit 302)",
+      "rack": "سقف راهرو شرقی",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-ap-bldg-b-f1",
+      "device_id": "dev-ap-bldg-b-f1",
+      "building": "ساختمان مهندسی (Engineering Bldg)",
+      "floor": "طبقه ۱ (Floor 1)",
+      "unit": "مرکز داده فرعی (MDF Room)",
+      "rack": "دیواری ورودی مهندسی",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    },
+    {
+      "id": "placement-dev-mikrotik-ccr2004",
+      "device_id": "dev-mikrotik-ccr2004",
+      "building": "ساختمان اداری مرکزی",
+      "floor": "طبقه همکف",
+      "unit": "اتاق سرور و رک اصلی",
+      "rack": "R-MK-01",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-05T06:18:37.642Z"
+    }
+  ]
 }

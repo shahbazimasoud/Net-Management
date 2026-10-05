@@ -44,6 +44,9 @@ import {
   saveActiveDirectoryConfig,
   getHierarchy,
   saveHierarchy,
+  getCompleteHierarchy,
+  getDevicePlacements,
+  updateDevicePlacement,
   getAuditLogs,
   addAuditLog,
   getDeviceStickyNotes,
@@ -979,8 +982,16 @@ apiRouter.delete('/settings/node-positions', async (req: Request, res: Response)
 // Physical & Topological Hierarchy
 apiRouter.get('/settings/hierarchy', async (req: Request, res: Response) => {
   try {
-    const hierarchy = await getHierarchy();
-    res.json({ hierarchy });
+    const { nodes, structured } = await getCompleteHierarchy();
+    res.json({
+      success: true,
+      hierarchy: nodes,
+      buildings: structured.buildings,
+      floors: structured.floors,
+      units: structured.units,
+      racks: structured.racks,
+      sections: structured.sections,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -988,9 +999,61 @@ apiRouter.get('/settings/hierarchy', async (req: Request, res: Response) => {
 
 apiRouter.post('/settings/hierarchy', async (req: Request, res: Response) => {
   try {
-    const items = Array.isArray(req.body?.hierarchy) ? req.body.hierarchy : req.body;
-    await saveHierarchy(items);
-    res.json({ success: true, count: items.length });
+    const payload = req.body;
+    const { nodes, structured } = await saveHierarchy(payload);
+    res.json({
+      success: true,
+      count: nodes.length,
+      hierarchy: nodes,
+      buildings: structured.buildings,
+      floors: structured.floors,
+      units: structured.units,
+      racks: structured.racks,
+      sections: structured.sections,
+      message_en: 'Physical placement hierarchy saved successfully to database',
+      message_fa: 'سلسله‌مراتب جانمایی فیزیکی با موفقیت در دیتابیس ذخیره شد',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Device Physical Placements API
+apiRouter.get('/placements', async (req: Request, res: Response) => {
+  try {
+    const placements = await getDevicePlacements();
+    const { structured } = await getCompleteHierarchy();
+    res.json({
+      success: true,
+      placements,
+      hierarchy: structured,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.put('/placements/device/:id', async (req: Request, res: Response) => {
+  try {
+    const deviceId = req.params.id;
+    const { building, floor, unit, rack, section, location } = req.body;
+    const updated = await updateDevicePlacement(deviceId, {
+      building,
+      floor,
+      unit,
+      rack,
+      section,
+      location,
+    });
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Device not found' });
+    }
+    res.json({
+      success: true,
+      device: updated,
+      message_en: 'Device physical placement updated in database',
+      message_fa: 'جانمایی فیزیکی تجهیز در دیتابیس به‌روزرسانی شد',
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

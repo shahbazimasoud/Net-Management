@@ -83,6 +83,14 @@ CREATE TABLE IF NOT EXISTS devices (
     enable_password VARCHAR(128),
     connection_data JSONB DEFAULT '{}'::jsonb,
     ports JSONB DEFAULT '[]'::jsonb,
+    building VARCHAR(128),
+    floor VARCHAR(128),
+    unit VARCHAR(128),
+    rack VARCHAR(128),
+    section VARCHAR(128),
+    location VARCHAR(128),
+    hierarchy_id VARCHAR(64),
+    ssh_version VARCHAR(32) DEFAULT 'legacy',
     is_online BOOLEAN DEFAULT TRUE,
     latency_ms FLOAT DEFAULT 1.5,
     mac_address VARCHAR(32),
@@ -95,6 +103,44 @@ CREATE TABLE IF NOT EXISTS devices (
 
 CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip);
 CREATE INDEX IF NOT EXISTS idx_devices_platform ON devices(platform);
+CREATE INDEX IF NOT EXISTS idx_devices_building ON devices(building);
+CREATE INDEX IF NOT EXISTS idx_devices_floor ON devices(floor);
+CREATE INDEX IF NOT EXISTS idx_devices_rack ON devices(rack);
+
+-- Safe migration for existing devices table columns
+DO $$ BEGIN
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS building VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS floor VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS unit VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS rack VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS section VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS location VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS hierarchy_id VARCHAR(64);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_version VARCHAR(32) DEFAULT 'legacy';
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- 4.1 Device Physical Placements (Explicit Relational Association)
+CREATE TABLE IF NOT EXISTS device_placements (
+    id VARCHAR(64) PRIMARY KEY,
+    device_id VARCHAR(64) NOT NULL,
+    building VARCHAR(128),
+    floor VARCHAR(128),
+    unit VARCHAR(128),
+    rack VARCHAR(128),
+    section VARCHAR(128),
+    hierarchy_id VARCHAR(64),
+    position_u INT,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_placements_device ON device_placements(device_id);
+CREATE INDEX IF NOT EXISTS idx_device_placements_bldg ON device_placements(building);
+CREATE INDEX IF NOT EXISTS idx_device_placements_floor ON device_placements(floor);
+CREATE INDEX IF NOT EXISTS idx_device_placements_rack ON device_placements(rack);
 
 -- 5. Device Groups (E.g. Core, Helpdesk, Branch)
 CREATE TABLE IF NOT EXISTS device_groups (
