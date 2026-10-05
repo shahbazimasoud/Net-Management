@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.274.2';
+export const APP_VERSION = '1.274.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.274.3',
+    releaseDate: '2026-10-05',
+    type: 'patch',
+    title: 'حذف کامل نقشه و لینک‌های ماک «auto-Discovered Topology» از نمای شماتیک توپولوژی',
+    title_en: 'Remove Mock "Auto-Discovered Topology" and Simulated Links from Schematic Topology',
+    changes: [
+      'حذف کامل آیتم ماک «Auto-Discovered Topology» از سلکتور انتخاب نقشه (Map View) و اتکای صددرصدی بر نقشه‌های واقعی و اختصاصی کاربر.',
+      'پاکسازی کلیه پیوندها و اتصالات فرضی توپولوژی (topology_links) و جدول همسایگی ساختگی (cdp_lldp_neighbors) از فایل داده‌های شبکه.',
+      'طراحی کادر راهنمای خالی شکیل با دکمه مستقیم ایجاد نقشه جدید در صورت عدم وجود نقشه سفارشی در سیستم.',
+    ],
+    changes_en: [
+      'Completely removed mock "Auto-Discovered Topology" entry from the Map View selector, relying 100% on authentic user-created topology maps.',
+      'Cleaned up all simulated topology connections (topology_links) and hardcoded neighbor tables (cdp_lldp_neighbors) from network backend store.',
+      'Implemented clean empty-state guidance with direct "Create New Map" action button when no topology maps are present.',
+    ],
+  },
   {
     version: '1.274.2',
     releaseDate: '2026-10-05',

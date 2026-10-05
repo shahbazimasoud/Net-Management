@@ -489,17 +489,39 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [activeMapId, setActiveMapId] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(ACTIVE_MAP_STORAGE_KEY);
-      if (saved && saved !== 'map-enterprise-core') return saved;
-      if (saved === 'map-enterprise-core') {
-        localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, 'default');
+      if (saved && saved !== 'map-enterprise-core' && saved !== 'default') return saved;
+      if (saved === 'map-enterprise-core' || saved === 'default') {
+        localStorage.removeItem(ACTIVE_MAP_STORAGE_KEY);
       }
     } catch (e) {}
-    return 'default';
+    return customMaps[0]?.id || '';
   });
 
   const currentCustomMap = useMemo(() => {
-    if (activeMapId === 'default') return null;
+    if (!activeMapId || activeMapId === 'default') {
+      return customMaps[0] || null;
+    }
     return customMaps.find((m) => m.id === activeMapId) || null;
+  }, [customMaps, activeMapId]);
+
+  // Keep activeMapId synchronized with existing customMaps
+  useEffect(() => {
+    if (customMaps.length > 0) {
+      if (!activeMapId || activeMapId === 'default' || !customMaps.some((m) => m.id === activeMapId)) {
+        const nextId = customMaps[0].id;
+        setActiveMapId(nextId);
+        try {
+          localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, nextId);
+        } catch (e) {}
+      }
+    } else {
+      if (activeMapId) {
+        setActiveMapId('');
+        try {
+          localStorage.removeItem(ACTIVE_MAP_STORAGE_KEY);
+        } catch (e) {}
+      }
+    }
   }, [customMaps, activeMapId]);
 
   const [defaultStickyNotes, setDefaultStickyNotes] = useState<CustomTopologyStickyNote[]>(() => {
@@ -1709,29 +1731,18 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const handleSelectMap = (mapId: string) => {
     setActiveMapId(mapId);
     try {
-      localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, mapId);
-      const url = new URL(window.location.href);
-      if (mapId === 'default') {
-        url.searchParams.delete('mapId');
-      } else {
+      if (mapId) {
+        localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, mapId);
+        const url = new URL(window.location.href);
         url.searchParams.set('mapId', mapId);
+        window.history.replaceState({}, '', url.toString());
+      } else {
+        localStorage.removeItem(ACTIVE_MAP_STORAGE_KEY);
       }
-      window.history.replaceState({}, '', url.toString());
     } catch (e) {}
 
     // Reset temporary positions so coordinates do not bleed between maps
     setCustomPositions({});
-    if (mapId === 'default') {
-      fetch('/api/settings/node-positions?mapId=default')
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data?.positions && Object.keys(data.positions).length > 0) {
-            setCustomPositions(data.positions);
-            setHasSavedPositions(true);
-          }
-        })
-        .catch(() => {});
-    }
 
     setActiveTool('select');
     setCableWorkflow({ step: 'idle', sourceDevice: null, sourcePort: null, targetDevice: null, targetPort: null });
@@ -2084,20 +2095,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     });
   }, []);
 
-  // Group links by pair of connected devices to separate overlapping cables
-  const defaultLinkGroups = useMemo(() => {
-    const map = new Map<string, typeof topology.links>();
-    if (!topology?.links) return map;
-    for (const link of topology.links) {
-      const pairKey = [link.source, link.target].sort().join('___');
-      if (!map.has(pairKey)) {
-        map.set(pairKey, []);
-      }
-      map.get(pairKey)!.push(link);
-    }
-    return map;
-  }, [topology?.links]);
-
   const customLinkGroups = useMemo(() => {
     const map = new Map<string, CustomTopologyLink[]>();
     if (!currentCustomMap?.links) return map;
@@ -2164,7 +2161,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const handleDeleteCustomMap = (id: string) => {
     const updatedMaps = customMaps.filter((m) => m.id !== id);
     saveCustomMaps(updatedMaps);
-    setActiveMapId('default');
+    const nextId = updatedMaps[0]?.id || '';
+    setActiveMapId(nextId);
+    try {
+      if (nextId) localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, nextId);
+      else localStorage.removeItem(ACTIVE_MAP_STORAGE_KEY);
+    } catch (e) {}
   };
 
   const handleAddDeviceToCustomMap = (
@@ -2282,7 +2284,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     const node = allAvailableDevices.find((d) => d.id === nodeId);
     if (!node) return;
 
-    if (activeMapId !== 'default' && activeTool === 'cable') {
+    if (currentCustomMap && activeTool === 'cable') {
       if (!cableWorkflow.sourceDevice) {
         // Step 1: select source device
         setCableWorkflow((prev) => ({
@@ -2559,11 +2561,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           } catch (e) {}
           setCustomMaps(cleaned);
           setActiveMapId((prev) => {
-            if (prev === 'map-enterprise-core') {
+            if (prev === 'map-enterprise-core' || prev === 'default' || !cleaned.some((m) => m.id === prev)) {
+              const nextId = cleaned[0]?.id || '';
               try {
-                localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, 'default');
+                if (nextId) localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, nextId);
+                else localStorage.removeItem(ACTIVE_MAP_STORAGE_KEY);
               } catch (e) {}
-              return 'default';
+              return nextId;
             }
             return prev;
           });
@@ -3271,7 +3275,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       setHasSavedPositions(false);
       try {
         localStorage.removeItem('net_topology_node_positions');
-        if (activeMapId !== 'default' && currentCustomMap) {
+        if (currentCustomMap) {
           const updatedMap: CustomTopologyMap = {
             ...currentCustomMap,
             devicePositions: {},
@@ -3314,23 +3318,25 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       const authHeaders: Record<string, string> = {};
       if (token) authHeaders['Authorization'] = `Bearer ${token}`;
 
-      // 4. Fetch latest saved node positions for current map (and default) from DB
-      const targetMapId = activeMapId || 'default';
-      const posPromise = fetch(`/api/settings/node-positions?mapId=${encodeURIComponent(targetMapId)}`, {
-        headers: authHeaders,
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (data?.positions && typeof data.positions === 'object') {
-            const hasPos = Object.keys(data.positions).length > 0;
-            setCustomPositions(data.positions);
-            setHasSavedPositions(hasPos);
-            try {
-              localStorage.setItem('net_topology_node_positions', JSON.stringify(data.positions));
-            } catch (e) {}
-          }
-        })
-        .catch(() => {});
+      // 4. Fetch latest saved node positions for current map from DB
+      const targetMapId = activeMapId || '';
+      const posPromise = targetMapId
+        ? fetch(`/api/settings/node-positions?mapId=${encodeURIComponent(targetMapId)}`, {
+            headers: authHeaders,
+          })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+              if (data?.positions && typeof data.positions === 'object') {
+                const hasPos = Object.keys(data.positions).length > 0;
+                setCustomPositions(data.positions);
+                setHasSavedPositions(hasPos);
+                try {
+                  localStorage.setItem('net_topology_node_positions', JSON.stringify(data.positions));
+                } catch (e) {}
+              }
+            })
+            .catch(() => {})
+        : Promise.resolve();
 
       // 5. Fetch latest custom maps from DB (to refresh moved devices/positions/racks/links on custom maps)
       const mapsPromise = fetch('/api/settings/maps', { headers: authHeaders })
@@ -3355,11 +3361,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             } catch (e) {}
             setCustomMaps(cleaned);
             setActiveMapId((prev) => {
-              if (prev === 'map-enterprise-core') {
+              if (prev === 'map-enterprise-core' || prev === 'default' || !cleaned.some((m) => m.id === prev)) {
+                const nextId = cleaned[0]?.id || '';
                 try {
-                  localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, 'default');
+                  if (nextId) localStorage.setItem(ACTIVE_MAP_STORAGE_KEY, nextId);
+                  else localStorage.removeItem(ACTIVE_MAP_STORAGE_KEY);
                 } catch (e) {}
-                return 'default';
+                return nextId;
               }
               return prev;
             });
@@ -3418,7 +3426,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const nodePositions = useMemo(() => {
     const pos = new Map<string, { x: number; y: number }>();
 
-    if (activeMapId !== 'default' && currentCustomMap) {
+    if (currentCustomMap) {
       // In Custom Map mode
       const mapDeviceIds = currentCustomMap.deviceIds || [];
 
@@ -4219,7 +4227,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             ? `Switched to Physical View: Located "${node.name}" in Rack "${targetRack.name}"${uLabelEn}.`
             : `انتقال به نمای فیزیکی: مکان‌یابی «${node.name}» در رک «${targetRack.name}»${uLabel}.`,
         });
-      } else if (activeMapId !== 'default' && (currentCustomMap?.racks && currentCustomMap.racks.length > 0)) {
+      } else if (currentCustomMap?.racks && currentCustomMap.racks.length > 0) {
         // Custom map with racks exists, device is placed as a physical chassis on canvas
         setViewMode('schematic');
         setGlobalDeviceViewMode('physical');
@@ -4370,7 +4378,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }));
 
       // If in custom map, ensure the device is in deviceIds so the card is rendered and all aliases updated
-      if (currentCustomMap && activeMapId !== 'default') {
+      if (currentCustomMap) {
         const deviceIds = currentCustomMap.deviceIds || [];
         const aliases = getDevicePositionAliases(dev.id, currentCustomMap, allAvailableDevices);
         const posUpdates: Record<string, { x: number; y: number }> = {};
@@ -4613,7 +4621,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               : null);
           const cleanId = draggingNodeId.replace(/^hw-/, '').replace(/^radio-/, '');
 
-          if (activeMapId !== 'default' && finalCoords) {
+          if (currentCustomMap && finalCoords) {
             setCustomMaps((prevMaps) => {
               const targetMap = prevMaps.find((m) => m.id === activeMapId);
               if (!targetMap) return prevMaps;
@@ -4652,7 +4660,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               return next;
             });
           } else if (finalCoords) {
-            // Default map
+            // Unmapped devices
             const aliases = getDevicePositionAliases(draggingNodeId, null, allAvailableDevices);
             const posUpdates: Record<string, { x: number; y: number }> = {};
             aliases.forEach((aId) => {
@@ -4677,7 +4685,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }
 
       if (draggingRackId) {
-        if (dragRackOffset.current.moved && activeMapId !== 'default') {
+        if (dragRackOffset.current.moved && currentCustomMap) {
           const finalRackCoords = dragRackLatestCoords.current;
           if (finalRackCoords) {
             setCustomMaps((prevMaps) => {
@@ -4702,7 +4710,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }
 
       if (draggingTowerId) {
-        if (dragTowerOffset.current.moved && activeMapId !== 'default') {
+        if (dragTowerOffset.current.moved && currentCustomMap) {
           const finalTowerCoords = dragTowerLatestCoords.current;
           if (finalTowerCoords) {
             setCustomMaps((prevMaps) => {
@@ -4730,7 +4738,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         if (dragNoteOffset.current.moved) {
           const finalNoteCoords = dragNoteLatestCoords.current;
           if (finalNoteCoords) {
-            if (activeMapId !== 'default') {
+            if (currentCustomMap) {
               setCustomMaps((prevMaps) => {
                 const targetMap = prevMaps.find((m) => m.id === activeMapId);
                 if (!targetMap) return prevMaps;
@@ -4877,7 +4885,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     }
 
     const baseList =
-      activeMapId !== 'default' && currentCustomMap
+      currentCustomMap
         ? allAvailable.filter((n) => {
             const cleanId = n.id.replace(/^hw-/, '').replace(/^radio-/, '');
             return (
@@ -4891,7 +4899,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               (n.name && towerDeviceNames.has(n.name.trim().toLowerCase()))
             );
           })
-        : allAvailable;
+        : [];
 
     const filtered = baseList.filter((n) => {
       if (filterBuilding !== 'all' && n.building !== filterBuilding) return false;
@@ -5686,7 +5694,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   <span>{t('topology_map_selector_label')}</span>
                 </button>
                 <span className="text-[11px] text-slate-400 font-mono">
-                  {activeMapId === 'default' ? t('topology_map_auto_discovered') : (currentCustomMap?.name || activeMapId)}
+                  {currentCustomMap ? currentCustomMap.name : (isEn ? 'No Map Selected' : 'نقشه‌ای انتخاب نشده')}
                 </span>
               </div>
               <div className="text-[10px] text-slate-500">
@@ -5723,16 +5731,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 onChange={(e) => handleSelectMap(e.target.value)}
                 className="px-2.5 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-slate-100 text-xs font-medium focus:outline-none focus:border-indigo-400"
               >
-                <option value="default">{t('topology_map_auto_discovered')}</option>
-                {customMaps.map((map) => (
-                  <option key={map.id} value={map.id}>
-                    {map.visibility === 'private' ? '🔒 ' : map.visibility === 'restricted' ? '👥 ' : '🌐 '}
-                    {map.name} ({map.deviceIds?.length || 0} dev, {map.links?.length || 0} links)
+                {customMaps.length === 0 ? (
+                  <option value="" disabled>
+                    {isEn ? 'No Maps Defined (Create New Map)' : 'هیچ نقشه‌ای تعریف نشده است (نقشه جدید بسازید)'}
                   </option>
-                ))}
+                ) : (
+                  customMaps.map((map) => (
+                    <option key={map.id} value={map.id}>
+                      {map.visibility === 'private' ? '🔒 ' : map.visibility === 'restricted' ? '👥 ' : '🌐 '}
+                      {map.name} ({map.deviceIds?.length || 0} {isEn ? 'dev' : 'دستگاه'}, {map.links?.length || 0} {isEn ? 'links' : 'لینک'})
+                    </option>
+                  ))
+                )}
               </select>
 
-              {activeMapId !== 'default' && currentCustomMap && (
+              {currentCustomMap && (
                 <div className="flex items-center">
                   {currentCustomMap.visibility === 'private' ? (
                     <span
@@ -5780,7 +5793,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               </button>
 
               {/* If custom map selected: Rename & Delete buttons */}
-              {activeMapId !== 'default' && currentCustomMap && (
+              {currentCustomMap && (
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
@@ -5809,7 +5822,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             </div>
 
             {/* Custom Map Tools: Select Tool, Cable Tool, Add Device, Clear Links */}
-            {activeMapId !== 'default' && currentCustomMap && (
+            {currentCustomMap && (
               <div className="flex items-center flex-wrap gap-2">
                 <div className="flex items-center bg-slate-800/90 rounded-xl p-1 border border-white/15 shadow-inner toolbar-dark-pill force-white-text">
                   <button
@@ -5952,7 +5965,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         )}
 
         {/* Persistent Guided Cabling Banner */}
-          {activeTool === 'cable' && activeMapId !== 'default' && (
+          {activeTool === 'cable' && currentCustomMap && (
             <div className="px-4 py-2 bg-gradient-to-r from-purple-900/90 to-indigo-900/90 border-t border-purple-500/30 flex items-center justify-between text-xs text-white shadow-inner">
               <div className="flex items-center gap-2">
                 <div className="p-1 rounded bg-purple-500/30 animate-pulse">
@@ -6138,148 +6151,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               >
               {/* Draw Topology Connection Links - only visible in Card view mode */}
               {globalDeviceViewMode === 'card' && (
-                activeMapId === 'default' ? (
-                  topology?.links.map((link) => {
-                  const sourcePos = nodePositions.get(link.source);
-                  const targetPos = nodePositions.get(link.target);
-                  if (!sourcePos || !targetPos) return null;
-
-                  const isTrunk = link.type === 'trunk';
-                  const isDown = link.status === 'down';
-                  const isSelected = selectedNodeId === link.source || selectedNodeId === link.target;
-
-                  // Center coordinates of nodes (230x120 dimension)
-                  const x1 = sourcePos.x + 115;
-                  const y1 = sourcePos.y + 55;
-                  const x2 = targetPos.x + 115;
-                  const y2 = targetPos.y + 55;
-
-                  const pairKey = [link.source, link.target].sort().join('___');
-                  const group = defaultLinkGroups.get(pairKey) || [link];
-                  const indexInGroup = group.findIndex((l: any) => l.id === link.id);
-                  const totalInGroup = group.length;
-
-                  const isReversed = link.source > link.target;
-                  const curve = getLinkCurve(x1, y1, x2, y2, indexInGroup >= 0 ? indexInGroup : 0, totalInGroup, isReversed);
-
-                  return (
-                    <g key={link.id} className="transition-all pointer-events-none">
-                      {/* Link Line */}
-                      <path
-                        d={curve.pathD}
-                        fill="none"
-                        stroke={
-                          isDown
-                            ? '#ef4444'
-                            : isTrunk
-                            ? isSelected
-                              ? '#6d28d9'
-                              : '#7c3aed'
-                            : isSelected
-                            ? '#1d4ed8'
-                            : '#2563eb'
-                        }
-                        strokeWidth={isTrunk ? 3 : 2}
-                        strokeDasharray={isDown ? '6 4' : 'none'}
-                        filter={isTrunk && !isDown ? 'url(#glow-trunk)' : 'url(#glow-access)'}
-                        opacity={isSelected ? 1 : 0.85}
-                      />
-
-                      {/* Animated Live Data Flow Effect on Link */}
-                      {!isDown && showTrafficAnimation && (
-                        <g className="pointer-events-none select-none">
-                          {/* Flowing Dash Stream Overlay on Cable */}
-                          <path
-                            d={curve.pathD}
-                            fill="none"
-                            stroke={isTrunk ? '#d8b4fe' : '#93c5fd'}
-                            strokeWidth={isTrunk ? 2 : 1.5}
-                            strokeDasharray="4 12"
-                            strokeLinecap="round"
-                            opacity={0.7}
-                          >
-                            <animate
-                              attributeName="stroke-dashoffset"
-                              from="32"
-                              to="0"
-                              dur={isTrunk ? '0.9s' : '1.3s'}
-                              repeatCount="indefinite"
-                            />
-                          </path>
-
-                          {/* Forward Data Packet: Source -> Target */}
-                          <circle r={isTrunk ? 3.5 : 3} fill={isTrunk ? '#f472b6' : '#38bdf8'} filter="url(#glow-packet)">
-                            <animateMotion
-                              dur={isTrunk ? '1.8s' : '2.4s'}
-                              repeatCount="indefinite"
-                              path={curve.pathD}
-                            />
-                          </circle>
-
-                          {/* Reverse Data Packet: Target -> Source */}
-                          <circle r={isTrunk ? 2.8 : 2.4} fill={isTrunk ? '#c084fc' : '#818cf8'} filter="url(#glow-packet)" opacity={0.85}>
-                            <animateMotion
-                              dur={isTrunk ? '2.2s' : '2.9s'}
-                              repeatCount="indefinite"
-                              path={curve.pathD}
-                              calcMode="linear"
-                              keyPoints="1;0"
-                              keyTimes="0;1"
-                            />
-                          </circle>
-                        </g>
-                      )}
-
-                      {/* Port and Protocol Badges on Links */}
-                      {showPortLabels && (
-                        <g transform={`translate(${curve.midX}, ${curve.midY})`} className="pointer-events-none">
-                          <rect
-                            x="-45"
-                            y="-10"
-                            width="90"
-                            height="20"
-                            rx="4"
-                            fill="#ffffff"
-                            stroke={isTrunk ? '#c4b5fd' : '#bfdbfe'}
-                            strokeWidth="1"
-                          />
-                          <text
-                            textAnchor="middle"
-                            dominantBaseline="central"
-                            fill="#334155"
-                            fontSize="9"
-                            fontFamily="monospace"
-                            fontWeight="bold"
-                          >
-                            {link.speed || (isTrunk ? '10G' : '1G')} • {link.protocol || (isTrunk ? 'CDP' : 'LLDP')}
-                          </text>
-                        </g>
-                      )}
-
-                      {/* Source Port Tag */}
-                      {showPortLabels && (
-                        <g transform={`translate(${curve.srcTagX}, ${curve.srcTagY})`} className="pointer-events-none">
-                          <rect x="-24" y="-8" width="48" height="16" rx="3" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
-                          <text textAnchor="middle" dominantBaseline="central" fill="#4f46e5" fontSize="8" fontFamily="monospace" fontWeight="bold">
-                            {link.source_port}
-                          </text>
-                        </g>
-                      )}
-
-                      {/* Target Port Tag */}
-                      {showPortLabels && (
-                        <g transform={`translate(${curve.tgtTagX}, ${curve.tgtTagY})`} className="pointer-events-none">
-                          <rect x="-24" y="-8" width="48" height="16" rx="3" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1" />
-                          <text textAnchor="middle" dominantBaseline="central" fill="#4f46e5" fontSize="8" fontFamily="monospace" fontWeight="bold">
-                            {link.target_port}
-                          </text>
-                        </g>
-                      )}
-                    </g>
-                  );
-                })
-              ) : (
-                /* Custom Map Links Rendering */
                 currentCustomMap?.links?.map((link) => {
                   const sourcePos = nodePositions.get(link.sourceDeviceId);
                   const targetPos = nodePositions.get(link.targetDeviceId);
@@ -6580,43 +6451,65 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     </g>
                   );
                 })
-              ))}
+              )}
 
               {/* Custom Map Empty State within Canvas */}
-              {activeMapId !== 'default' && filteredNodes.length === 0 && (currentCustomMap?.racks?.length || 0) === 0 && (currentCustomMap?.towers?.length || 0) === 0 && (
-                <foreignObject x={150} y={150} width={640} height={320}>
+              {(!currentCustomMap || (filteredNodes.length === 0 && (currentCustomMap?.racks?.length || 0) === 0 && (currentCustomMap?.towers?.length || 0) === 0)) && (
+                <foreignObject x={150} y={150} width={640} height={340}>
                   <div className="p-8 rounded-2xl bg-slate-900/90 border border-white/10 shadow-2xl backdrop-blur-xl text-center space-y-4">
                     <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mx-auto">
                       <Layers className="w-6 h-6" />
                     </div>
                     <div>
                       <h4 className="text-base font-bold text-white mb-1">
-                        {t('topology_custom_empty_title')}
+                        {customMaps.length === 0
+                          ? (isEn ? 'No Topology Maps Created' : 'هیچ نقشه توپولوژی تعریف نشده است')
+                          : t('topology_custom_empty_title')}
                       </h4>
                       <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                        {t('topology_custom_empty_desc')}
+                        {customMaps.length === 0
+                          ? (isEn
+                              ? 'To begin visualizing and cabling your network, please create a new custom map.'
+                              : 'برای شروع ترسیم، جانمایی و کابل‌کشی شبکه، لطفاً یک نقشه جدید ایجاد نمایید.')
+                          : t('topology_custom_empty_desc')}
                       </p>
                     </div>
                     <div className="flex items-center justify-center gap-3 flex-wrap">
-                      {globalDeviceViewMode === 'card' && (
+                      {customMaps.length === 0 ? (
                         <button
                           type="button"
-                          onClick={() => setIsAddDeviceOpen(true)}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer"
+                          onClick={() => {
+                            setManageMapMode('create');
+                            setIsManageMapOpen(true);
+                          }}
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer"
                         >
                           <Plus className="w-4 h-4" />
-                          <span>{t('topology_tool_add_device')}</span>
+                          <span>{isEn ? 'Create New Map' : 'ایجاد نقشه جدید'}</span>
                         </button>
-                      )}
-                      {globalDeviceViewMode === 'physical' && (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenAddHardware()}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer"
-                        >
-                          <Server className="w-4 h-4" />
-                          <span>{isEn ? 'Add Rack, Tower or Hardware' : 'افزودن رک، دکل و تجهیزات'}</span>
-                        </button>
+                      ) : (
+                        <>
+                          {globalDeviceViewMode === 'card' && (
+                            <button
+                              type="button"
+                              onClick={() => setIsAddDeviceOpen(true)}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span>{t('topology_tool_add_device')}</span>
+                            </button>
+                          )}
+                          {globalDeviceViewMode === 'physical' && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAddHardware()}
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer"
+                            >
+                              <Server className="w-4 h-4" />
+                              <span>{isEn ? 'Add Rack, Tower or Hardware' : 'افزودن رک، دکل و تجهیزات'}</span>
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -6624,7 +6517,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               )}
 
               {/* Draw Custom Map Racks on Canvas - ONLY visible in Physical view mode */}
-              {globalDeviceViewMode === 'physical' && activeMapId !== 'default' && currentCustomMap?.racks && currentCustomMap.racks.map((rack) => {
+              {globalDeviceViewMode === 'physical' && currentCustomMap?.racks && currentCustomMap.racks.map((rack) => {
                 const isBeingDragged = draggingRackId === rack.id;
                 const rackHeight = 52 + rack.units * 28 + 40;
                 return (
@@ -6682,7 +6575,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               })}
 
               {/* Draw Custom Map Towers on Canvas - ONLY visible in Physical view mode */}
-              {globalDeviceViewMode === 'physical' && activeMapId !== 'default' && currentCustomMap?.towers && currentCustomMap.towers.map((tower) => {
+              {globalDeviceViewMode === 'physical' && currentCustomMap?.towers && currentCustomMap.towers.map((tower) => {
                 const isBeingDragged = draggingTowerId === tower.id;
                 const towerHeightPx = 40 + tower.heightMeters * 16 + 50;
                 return (
@@ -6815,7 +6708,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                             setInspectingRack(rack);
                             setInspectingRackId(rack.id);
                           }}
-                          onRemoveFromMap={activeMapId !== 'default' ? () => handlePromptDeleteDevice(node) : undefined}
+                          onRemoveFromMap={currentCustomMap ? () => handlePromptDeleteDevice(node) : undefined}
                           onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
                         />
                       </foreignObject>
@@ -7010,7 +6903,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                             {isOnline ? `${node.latency_ms || 1.2}ms` : 'OFF'}
                           </span>
 
-                          {activeMapId !== 'default' && (
+                          {currentCustomMap && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -7062,7 +6955,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           >
                             <span>{isEn ? 'Physical' : 'فیزیکی'}</span>
                           </button>
-                          {activeMapId !== 'default' && (
+                          {currentCustomMap && (
                             <button
                               type="button"
                               onClick={(e) => handleStartCableFromDevice(e, node)}
@@ -10047,7 +9940,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           onClose={() => setIsDiscoveryModalOpen(false)}
           devices={allAvailableDevices}
           customMaps={customMaps}
-          activeMapId={currentCustomMap?.id || 'default'}
+          activeMapId={currentCustomMap?.id || ''}
           onApplyToMap={handleApplyDiscoveredLinksAndDevices}
           isLightMode={isLightMode}
         />

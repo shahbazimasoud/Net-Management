@@ -735,18 +735,7 @@ export function convertStructuredToHierarchyNodes(
 
 const DEFAULT_CUSTOM_MAPS: any[] = [];
 
-const DEFAULT_NODE_POSITIONS: Record<string, Record<string, { x: number; y: number }>> = {
-  default: {
-    'dev-router-gw': { x: 480, y: 80 },
-    'dev-core-01': { x: 480, y: 240 },
-    'dev-dist-01': { x: 240, y: 420 },
-    'dev-core-02': { x: 720, y: 420 },
-    'dev-acc-01': { x: 120, y: 620 },
-    'dev-acc-02': { x: 360, y: 620 },
-    'dev-acc-03': { x: 600, y: 620 },
-    'dev-wan-gw': { x: 840, y: 620 }
-  }
-};
+const DEFAULT_NODE_POSITIONS: Record<string, Record<string, { x: number; y: number }>> = {};
 
 const DEFAULT_AD_CONFIG = {
   domain: 'corp.internal',

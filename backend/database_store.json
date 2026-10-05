@@ -535,46 +535,7 @@
   ],
   "custom_maps": [],
   "topology_hierarchy": [],
-  "node_positions": {
-    "default": {
-      "dev-router-gw": {
-        "x": -269,
-        "y": -183
-      },
-      "dev-core-01": {
-        "x": 480,
-        "y": 240
-      },
-      "dev-dist-01": {
-        "x": 240,
-        "y": 420
-      },
-      "dev-core-02": {
-        "x": 720,
-        "y": 420
-      },
-      "dev-acc-01": {
-        "x": 120,
-        "y": 620
-      },
-      "dev-acc-02": {
-        "x": 360,
-        "y": 620
-      },
-      "dev-acc-03": {
-        "x": 600,
-        "y": 620
-      },
-      "dev-wan-gw": {
-        "x": 840,
-        "y": 620
-      },
-      "dev-mikrotik-ccr2004": {
-        "x": 1114,
-        "y": -165
-      }
-    }
-  },
+  "node_positions": {},
   "audit_logs": [
     {
       "id": "log-1789381944786-2a0sf",
