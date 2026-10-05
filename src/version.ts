@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.272.0';
+export const APP_VERSION = '1.273.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.273.0',
+    releaseDate: '2026-10-05',
+    type: 'minor',
+    title: 'فاز ۳: سینی اختصاصی تجهیزات فاقد جانمایی فیزیکی (Unassigned Shelf) و اتصال داده‌های زنده دیتابیس (Real Placements & Unassigned Shelf)',
+    title_en: 'Phase 3: Dedicated Unassigned Equipment Shelf, Real Database Placements & Live Device Telemetry',
+    changes: [
+      'حذف کامل تولید و انتساب ساختمان فرضی «سایر ساختمان‌ها / Other Buildings» برای تجهیزات بدون مکان.',
+      'طراحی و تعبیه سینی اختصاصی و استاندارد «تجهیزات فاقد جانمایی فیزیکی (Unassigned Equipment Shelf)» با پشتیبانی کامل از کشیدن و رها کردن (Drag & Drop) دوطرفه بین سینی و کلیه طبقات و ساختمان‌ها.',
+      'اتصال مستقیم وضعیت آنلاین/آفلاین، تعداد پورت‌های زنده، مدل سخت‌افزاری و آی‌پی دستگاه‌ها به داده‌های واقعی پایگاه داده PostgreSQL.',
+      'تجهیز مودال جابجایی فیزیکی به دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز در ToolsDock، تمام‌صفحه)، کادرهای راهنمای سه‌بخشی FieldInfoTooltip، گزینه انتقال مستقیم به سینی و انطباق کامل تم تیره و روشن.',
+    ],
+    changes_en: [
+      'Completely eliminated artificial generation and attribution of "Other Buildings" fallback location for unplaced equipment.',
+      'Built dedicated Unassigned Equipment Shelf with bidirectional Drag & Drop support between the shelf and all physical buildings, floors, and racks.',
+      'Connected authentic live database telemetry (online/offline status, exact port counts, hardware model, and management IP) directly to physical cards.',
+      'Equipped the physical relocation modal with universal triad controls (Close, Minimize to ToolsDock, Fullscreen), 3-part FieldInfoTooltips, direct unassign option, and full dark/light theme ergonomics.',
+    ],
+  },
   {
     version: '1.272.0',
     releaseDate: '2026-10-05',

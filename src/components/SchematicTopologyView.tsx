@@ -49,6 +49,9 @@ import {
   Lock,
   Users,
   Radar,
+  Package,
+  PackageOpen,
+  Minus,
 } from 'lucide-react';
 import {
   TopologyData,
@@ -86,6 +89,7 @@ import { CustomMapPortSelectorModal } from './CustomMapPortSelectorModal';
 import { CustomMapLinkConfigModal } from './CustomMapLinkConfigModal';
 import { CustomMapAddDeviceModal } from './CustomMapAddDeviceModal';
 import { useModalDock } from '../context/ModalDockContext';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { CustomMapManageModal } from './CustomMapManageModal';
 import { AddRackModal } from './rack/AddRackModal';
 import { EditRackModal } from './rack/EditRackModal';
@@ -2641,8 +2645,81 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [customRelocateFloor, setCustomRelocateFloor] = useState('');
   const [customRelocateUnit, setCustomRelocateUnit] = useState('');
   const [customRelocateRack, setCustomRelocateRack] = useState('');
+  const [isRelocateMaximized, setIsRelocateMaximized] = useState(false);
+
+  // Unassigned Equipment Shelf states (Real Placements Phase 3)
+  const [isShelfCollapsed, setIsShelfCollapsed] = useState(false);
+  const [isShelfDropHovered, setIsShelfDropHovered] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleUnassignDevice = async (deviceId: string) => {
+    const dev = localNodes.find((n) => n.id === deviceId);
+    if (!dev) return;
+
+    if (!dev.building || !dev.building.trim()) {
+      setFeedbackToast({
+        type: 'info',
+        message: isEn
+          ? `Device "${dev.name}" is already in the Unassigned Shelf.`
+          : `تجهیز «${dev.name}» هم‌اکنون در سینی فاقد جانمایی قرار دارد.`,
+      });
+      setTimeout(() => setFeedbackToast(null), 3500);
+      return;
+    }
+
+    // Optimistic UI update
+    const previousNodes = [...localNodes];
+    setLocalNodes((prev) =>
+      prev.map((n) =>
+        n.id === deviceId
+          ? {
+              ...n,
+              building: '',
+              floor: '',
+              unit: '',
+              rack: '',
+            }
+          : n
+      )
+    );
+    setMovingDeviceId(deviceId);
+
+    try {
+      await updateDevice(deviceId, {
+        building: '',
+        floor: '',
+        unit: '',
+        rack: '',
+      });
+
+      setFeedbackToast({
+        type: 'success',
+        message: t('topology_physical_unassign_success', {
+          name: dev.name,
+        }) || (isEn
+          ? `Device "${dev.name}" returned to Unassigned Equipment Shelf.`
+          : `تجهیز «${dev.name}» به سینی تجهیزات فاقد جانمایی منتقل شد.`),
+      });
+      setTimeout(() => setFeedbackToast(null), 4500);
+
+      // Trigger global refresh to sync all views across the application
+      onRefresh();
+    } catch (err: any) {
+      setLocalNodes(previousNodes);
+      setFeedbackToast({
+        type: 'error',
+        message: isEn
+          ? `Failed to unassign device: ${err?.message || 'Unknown error'}`
+          : `خطا در حذف جانمایی تجهیز: ${err?.message || 'خطای ناشناخته'}`,
+      });
+      setTimeout(() => setFeedbackToast(null), 5000);
+    } finally {
+      setMovingDeviceId(null);
+      setDraggedDevice(null);
+      setDragOverTarget(null);
+    }
+  };
 
   const handleMoveDevice = async (
     deviceId: string,
@@ -2651,6 +2728,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     targetUnit?: string,
     targetRack?: string
   ) => {
+    if (targetBuilding === '__UNASSIGN__' || (!targetBuilding.trim() && !targetFloor.trim())) {
+      await handleUnassignDevice(deviceId);
+      return;
+    }
+
     const dev = localNodes.find((n) => n.id === deviceId);
     if (!dev) return;
 
@@ -2661,8 +2743,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
     if (!trimmedBuilding || !trimmedFloor) return;
 
-    const currentBuilding = dev.building || (isEn ? 'Other Buildings' : 'سایر ساختمان‌ها');
-    const currentFloor = dev.floor || (isEn ? 'Unassigned Floor' : 'طبقه نامشخص');
+    const currentBuilding = dev.building ? dev.building.trim() : '';
+    const currentFloor = dev.floor ? dev.floor.trim() : '';
     const currentUnit = dev.unit || '';
     const currentRack = dev.rack || '';
 
@@ -4867,6 +4949,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     return groups;
   }, [localNodes, customBuildings, customFloors, customUnits, customRacks, isEn]);
 
+  // Unassigned devices that have no physical building allocated in database (Real Placements Phase 3)
+  const unassignedDevices = useMemo(() => {
+    return localNodes.filter((d) => !d.building || !d.building.trim());
+  }, [localNodes]);
+
   // Helper list of all buildings for manual relocation
   const allBuildingOptions = useMemo(() => {
     const set = new Set<string>();
@@ -4980,6 +5067,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         (neonHighlightedNode.targetName && device.name && device.name.trim().toLowerCase() === neonHighlightedNode.targetName) ||
         (neonHighlightedNode.targetIp && device.ip && device.ip.trim() === neonHighlightedNode.targetIp)
       );
+    const portCount = device.total_ports || (Array.isArray(device.detected_ports) ? device.detected_ports.length : 0);
 
     return (
       <div
@@ -4993,8 +5081,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             'application/json',
             JSON.stringify({
               deviceId: device.id,
-              fromBuilding: bldgName,
-              fromFloor: floorName,
+              fromBuilding: bldgName || '',
+              fromFloor: floorName || '',
               fromUnit: unitName || '',
               fromRack: rackName || '',
             })
@@ -5004,8 +5092,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             id: device.id,
             name: device.name,
             type: device.type,
-            fromBuilding: bldgName,
-            fromFloor: floorName,
+            fromBuilding: bldgName || (isEn ? 'Unassigned Shelf' : 'سینی فاقد مکان'),
+            fromFloor: floorName || '',
             fromUnit: unitName,
             fromRack: rackName,
           });
@@ -5022,10 +5110,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             : isBeingDragged
             ? 'opacity-30 border-dashed border-cyan-400 ring-2 ring-cyan-400/40 scale-95 cursor-grabbing'
             : selectedNodeId === device.id
-            ? 'spatial-glass border-cyan-400 ring-2 ring-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.3)] cursor-grab hover:shadow-2xl'
+            ? isLightMode
+              ? 'bg-cyan-50 border-cyan-500 ring-2 ring-cyan-400/50 shadow-md cursor-grab'
+              : 'spatial-glass border-cyan-400 ring-2 ring-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.3)] cursor-grab hover:shadow-2xl'
+            : isLightMode
+            ? device.is_online
+              ? 'bg-white border-slate-200 hover:border-indigo-300 hover:shadow-md cursor-grab text-slate-800'
+              : 'bg-rose-50 border-rose-200 hover:border-rose-300 cursor-grab text-slate-800'
             : device.is_online
-            ? 'spatial-glass spatial-glass-hover border-white/10 cursor-grab hover:shadow-2xl'
-            : 'spatial-glass border-rose-500/30 bg-rose-950/20 cursor-grab'
+            ? 'spatial-glass spatial-glass-hover border-white/10 cursor-grab hover:shadow-2xl text-white'
+            : 'spatial-glass border-rose-500/30 bg-rose-950/20 cursor-grab text-white'
         }`}
         style={
           isNeonHighlighted && neonHighlightedNode
@@ -5114,7 +5208,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-1.5 min-w-0">
             <div
-              className="text-slate-400 hover:text-cyan-300 p-0.5 cursor-grab active:cursor-grabbing"
+              className={`p-0.5 cursor-grab active:cursor-grabbing transition ${
+                isLightMode ? 'text-slate-400 hover:text-indigo-600' : 'text-slate-400 hover:text-cyan-300'
+              }`}
               title={t('topology_physical_drag_hint')}
             >
               <GripVertical className="w-3.5 h-3.5" />
@@ -5136,7 +5232,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 <Wifi className="w-3 h-3" />
               )}
             </div>
-            <span className="font-bold text-xs text-white truncate font-mono">
+            <span className={`font-bold text-xs truncate font-mono ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
               {device.name}
             </span>
           </div>
@@ -5151,8 +5247,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <span
                 className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
                   device.is_online
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    ? isLightMode
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : isLightMode
+                      ? 'bg-rose-100 text-rose-800 border border-rose-300 font-semibold'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                 }`}
               >
                 {device.is_online ? 'ONLINE' : 'OFFLINE'}
@@ -5161,8 +5261,30 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           </div>
         </div>
 
-        <div className="text-[11px] font-mono font-bold text-indigo-300 mb-1">
+        <div className={`text-[11px] font-mono font-bold mb-1 ${isLightMode ? 'text-indigo-600' : 'text-indigo-300'}`}>
           {device.ip}
+        </div>
+
+        {/* Authentic Live Telemetry: Port Count & Hardware Model */}
+        <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+          <span className="flex items-center gap-1 font-mono">
+            <Cable className={`w-3 h-3 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
+            <span className={isLightMode ? 'text-slate-700 font-semibold' : 'text-slate-300 font-semibold'}>
+              {portCount > 0 ? `${portCount} ${isEn ? 'Ports' : 'پورت'}` : (isEn ? 'No Ports' : 'بدون پورت')}
+            </span>
+          </span>
+          {device.model && (
+            <span
+              title={device.model}
+              className={`text-[9px] truncate max-w-[120px] font-mono px-1.5 py-0.5 rounded border ${
+                isLightMode
+                  ? 'bg-slate-100 text-slate-600 border-slate-200'
+                  : 'bg-white/5 text-slate-300 border-white/10'
+              }`}
+            >
+              {device.model}
+            </span>
+          )}
         </div>
 
         <div className="text-[10px] text-slate-400 space-y-0.5">
@@ -5180,53 +5302,99 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           )}
         </div>
 
-        {/* Action Buttons: Inspect Ports, Card View & Manual Relocate */}
-        <div className="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between text-[10px] gap-1">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onInspectPorts(device as unknown as Device);
-            }}
-            className="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-          >
-            <Cable className="w-3 h-3" />
-            <span>{t('topology_inspect_ports_btn')}</span>
-          </button>
+        {/* Action Buttons: Inspect Ports, Card View & Manual Relocate / Unassign */}
+        <div className="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between text-[10px] gap-1 flex-wrap">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInspectPorts(device as unknown as Device);
+              }}
+              className="text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+            >
+              <Cable className="w-3 h-3" />
+              <span>{t('topology_inspect_ports_btn')}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSwitchToCardWithHighlight(device.id);
-            }}
-            className="text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-            title={isEn ? 'Switch to Card View & Highlight (Neon)' : 'مشاهده در نمای کارت با هایلایت نئونی'}
-          >
-            <CreditCard className="w-3 h-3 text-purple-400" />
-            <span>{isEn ? 'Card' : 'کارت'}</span>
-          </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSwitchToCardWithHighlight(device.id);
+              }}
+              className="text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+              title={isEn ? 'Switch to Card View & Highlight (Neon)' : 'مشاهده در نمای کارت با هایلایت نئونی'}
+            >
+              <CreditCard className="w-3 h-3 text-purple-400" />
+              <span>{isEn ? 'Card' : 'کارت'}</span>
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setRelocateDevice(device);
-              setRelocateTargetBuilding(bldgName);
-              setRelocateTargetFloor(floorName);
-              setRelocateTargetUnit(device.unit || '__NONE__');
-              setRelocateTargetRack(device.rack || '__NONE__');
-              setCustomRelocateBuilding('');
-              setCustomRelocateFloor('');
-              setCustomRelocateUnit('');
-              setCustomRelocateRack('');
-            }}
-            className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-            title={t('topology_physical_relocate_btn')}
-          >
-            <Move className="w-3 h-3" />
-            <span>{t('topology_physical_relocate_btn')}</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            {device.building && device.building.trim() ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleUnassignDevice(device.id);
+                  }}
+                  className={`hover:underline flex items-center gap-1 font-medium cursor-pointer ${
+                    isLightMode ? 'text-amber-700 hover:text-amber-800' : 'text-amber-400 hover:text-amber-300'
+                  }`}
+                  title={isEn ? 'Unassign (Move to Shelf)' : 'حذف جانمایی (انتقال به سینی)'}
+                >
+                  <PackageOpen className="w-3 h-3" />
+                  <span>{t('topology_physical_unassign_btn')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRelocateDevice(device);
+                    setRelocateTargetBuilding(bldgName);
+                    setRelocateTargetFloor(floorName);
+                    setRelocateTargetUnit(device.unit || '__NONE__');
+                    setRelocateTargetRack(device.rack || '__NONE__');
+                    setCustomRelocateBuilding('');
+                    setCustomRelocateFloor('');
+                    setCustomRelocateUnit('');
+                    setCustomRelocateRack('');
+                  }}
+                  className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  title={t('topology_physical_relocate_btn')}
+                >
+                  <Move className="w-3 h-3" />
+                  <span>{t('topology_physical_relocate_btn')}</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRelocateDevice(device);
+                  setRelocateTargetBuilding(allBuildingOptions[0] || '');
+                  setRelocateTargetFloor(allFloorOptionsForSelectedBuilding[0] || '');
+                  setRelocateTargetUnit('__NONE__');
+                  setRelocateTargetRack('__NONE__');
+                  setCustomRelocateBuilding('');
+                  setCustomRelocateFloor('');
+                  setCustomRelocateUnit('');
+                  setCustomRelocateRack('');
+                }}
+                className={`hover:underline flex items-center gap-1 font-medium cursor-pointer ${
+                  isLightMode ? 'text-indigo-600 hover:text-indigo-700' : 'text-cyan-400 hover:text-cyan-300'
+                }`}
+                title={t('topology_physical_assign_btn')}
+              >
+                <Move className="w-3 h-3" />
+                <span>{t('topology_physical_assign_btn')}</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -7165,6 +7333,171 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               </div>
             )}
 
+            {/* Unassigned Equipment Shelf (Real Placement Phase 3) */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setIsShelfDropHovered(true);
+              }}
+              onDragLeave={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                if (
+                  e.clientX <= rect.left ||
+                  e.clientX >= rect.right ||
+                  e.clientY <= rect.top ||
+                  e.clientY >= rect.bottom
+                ) {
+                  setIsShelfDropHovered(false);
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsShelfDropHovered(false);
+                let deviceId = '';
+                try {
+                  const raw = e.dataTransfer.getData('application/json');
+                  if (raw) {
+                    const parsed = JSON.parse(raw);
+                    deviceId = parsed.deviceId;
+                  }
+                } catch (err) {}
+                if (!deviceId) {
+                  deviceId =
+                    e.dataTransfer.getData('text/plain') ||
+                    (draggedDevice ? draggedDevice.id : '');
+                }
+                if (deviceId) {
+                  handleUnassignDevice(deviceId);
+                }
+              }}
+              className={`rounded-2xl border p-4 shadow-xl transition-all duration-200 ${
+                isShelfDropHovered
+                  ? isLightMode
+                    ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-400/60 shadow-lg scale-[1.005]'
+                    : 'bg-amber-950/40 border-amber-400 ring-2 ring-amber-400/50 shadow-[0_0_25px_rgba(245,158,11,0.35)] scale-[1.005]'
+                  : isLightMode
+                  ? 'bg-white border-slate-200 shadow-slate-200/50'
+                  : 'spatial-glass border-white/10'
+              }`}
+            >
+              {/* Shelf Header */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={`p-2 rounded-xl border ${
+                      unassignedDevices.length > 0
+                        ? isLightMode
+                          ? 'bg-amber-50 text-amber-600 border-amber-200'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : isLightMode
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    }`}
+                  >
+                    <Package className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4
+                        className={`text-sm font-bold flex items-center gap-1.5 ${
+                          isLightMode ? 'text-slate-900' : 'text-white'
+                        }`}
+                      >
+                        <span>{t('topology_physical_shelf_title')}</span>
+                      </h4>
+                      <span
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold border ${
+                          unassignedDevices.length > 0
+                            ? isLightMode
+                              ? 'bg-amber-100 text-amber-800 border-amber-300'
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                            : isLightMode
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        }`}
+                      >
+                        {t('topology_physical_shelf_count', { count: unassignedDevices.length })}
+                      </span>
+                    </div>
+                    <p
+                      className={`text-[11px] mt-0.5 ${
+                        isLightMode ? 'text-slate-600' : 'text-slate-400'
+                      }`}
+                    >
+                      {isShelfDropHovered
+                        ? t('topology_physical_shelf_drop_hint')
+                        : t('topology_physical_shelf_desc')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsShelfCollapsed(!isShelfCollapsed)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border ${
+                      isLightMode
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border-white/10'
+                    }`}
+                  >
+                    {isShelfCollapsed ? (
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5" />
+                        <span className="text-[11px]">{isEn ? 'Show Shelf' : 'نمایش سینی'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="w-3.5 h-3.5" />
+                        <span className="text-[11px]">{isEn ? 'Collapse' : 'جمع‌کردن'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Shelf Content */}
+              {!isShelfCollapsed && (
+                <div className="pt-3">
+                  {unassignedDevices.length === 0 ? (
+                    <div
+                      className={`p-5 rounded-xl border border-dashed text-center flex flex-col items-center justify-center gap-1.5 transition-colors ${
+                        isShelfDropHovered
+                          ? isLightMode
+                            ? 'bg-amber-100/70 border-amber-500 text-amber-900'
+                            : 'bg-amber-950/40 border-amber-400 text-amber-200'
+                          : isLightMode
+                          ? 'bg-slate-50 border-slate-200 text-slate-600'
+                          : 'bg-slate-900/40 border-white/10 text-slate-400'
+                      }`}
+                    >
+                      <CheckCircle2
+                        className={`w-5 h-5 ${
+                          isLightMode ? 'text-emerald-600' : 'text-emerald-400'
+                        }`}
+                      />
+                      <span className="text-xs font-semibold">
+                        {t('topology_physical_shelf_empty')}
+                      </span>
+                      <span className="text-[11px] opacity-80">
+                        {t('topology_physical_shelf_empty_sub')}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
+                      {unassignedDevices.map((dev) =>
+                        renderDeviceCard(dev, '', '', '', '')
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Buildings Grid / Loading / Empty State */}
             {isHierarchyLoading ? (
               <div
@@ -8106,72 +8439,212 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         </div>
       )}
 
-      {/* Modal 3: Manual Relocate Modal */}
+      {/* Modal 3: Manual Relocate Modal (Phase 3 Real Placements & Unassigned Shelf) */}
       {relocateDevice && (
         <div
           data-modal-backdrop="true"
           className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
-          onClick={() => setRelocateDevice(null)}
+          onClick={() => {
+            setRelocateDevice(null);
+            setIsRelocateMaximized(false);
+          }}
         >
           <div
-            className="relative w-full max-w-lg flex flex-col rounded-2xl bg-slate-900 border border-white/20 text-slate-100 shadow-2xl overflow-hidden my-auto"
+            className={`relative w-full flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto transition-all ${
+              isRelocateMaximized
+                ? 'fixed top-0 left-0 right-0 bottom-8 z-[100000] m-0 rounded-none max-w-none h-full'
+                : 'max-w-lg max-h-[90vh]'
+            } ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/20 text-slate-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-slate-800/60">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+            {/* Header with Universal Triad Controls (Close, Minimize to ToolsDock, Fullscreen) */}
+            <div
+              className={`flex items-center justify-between px-5 py-3.5 border-b transition-colors ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-indigo-50 text-indigo-600 border-indigo-200'
+                      : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                  }`}
+                >
                   <Move className="w-4 h-4" />
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
+                <div className="min-w-0">
+                  <h3
+                    className={`text-sm font-bold truncate ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {t('topology_physical_relocate_modal_title')}
                   </h3>
-                  <p className="text-[11px] text-slate-400 font-mono">
+                  <p
+                    className={`text-[11px] font-mono truncate ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
                     {relocateDevice.name} ({relocateDevice.ip})
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setRelocateDevice(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              {/* Triad Control Buttons */}
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Minimize to ToolsDock */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    dockModal({
+                      id: `relocate_device_${relocateDevice.id}`,
+                      labelEn: `Relocate: ${relocateDevice.name}`,
+                      labelFa: `جانمایی: ${relocateDevice.name}`,
+                      category: 'device',
+                      onRestore: () => {
+                        // modal remains in state
+                      },
+                      onClose: () => {
+                        setRelocateDevice(null);
+                        setIsRelocateMaximized(false);
+                      },
+                    });
+                    setRelocateDevice(null);
+                    setIsRelocateMaximized(false);
+                  }}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Minimize' : 'کوچک‌سازی'}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+
+                {/* Fullscreen / Window Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsRelocateMaximized(!isRelocateMaximized)}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={
+                    isRelocateMaximized
+                      ? isEn
+                        ? 'Exit Fullscreen'
+                        : 'خروج از تمام‌صفحه'
+                      : isEn
+                      ? 'Fullscreen'
+                      : 'تمام‌صفحه'
+                  }
+                >
+                  {isRelocateMaximized ? (
+                    <Minimize2 className="w-4 h-4 text-amber-400" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4 text-cyan-400" />
+                  )}
+                </button>
+
+                {/* Close */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRelocateDevice(null);
+                    setIsRelocateMaximized(false);
+                  }}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Close' : 'بستن'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Body */}
-            <div className="p-5 space-y-4 text-xs">
+            <div className="p-5 space-y-4 text-xs overflow-y-auto flex-1">
               {/* Current Placement Banner */}
-              <div className="p-3 rounded-xl bg-slate-950/60 border border-white/10 flex items-center justify-between">
-                <span className="text-slate-400">
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/60 border-white/10'
+                }`}
+              >
+                <span className={isLightMode ? 'text-slate-600 font-medium' : 'text-slate-400'}>
                   {isEn ? 'Current Location:' : 'موقعیت فعلی:'}
                 </span>
-                <span className="font-semibold text-indigo-300">
-                  {relocateDevice.building || (isEn ? 'Other Buildings' : 'سایر ساختمان‌ها')} &gt; {relocateDevice.floor || (isEn ? 'Unassigned Floor' : 'طبقه نامشخص')}
+                <span className={`font-semibold ${isLightMode ? 'text-indigo-600' : 'text-indigo-300'}`}>
+                  {relocateDevice.building && relocateDevice.building.trim()
+                    ? `${relocateDevice.building} > ${relocateDevice.floor || (isEn ? 'Unassigned Floor' : 'طبقه نامشخص')}`
+                    : (isEn ? '📦 Unassigned Equipment Shelf' : '📦 سینی تجهیزات فاقد جانمایی فیزیکی')
+                  }
                 </span>
               </div>
 
               {/* Target Building Selector */}
               <div>
-                <label className="block font-medium text-slate-300 mb-1.5">
-                  {t('topology_physical_select_target_building')}
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    className={`block font-medium ${
+                      isLightMode ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    {t('topology_physical_select_target_building')}
+                  </label>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Target Building' : 'ساختمان مقصد'}
+                    whatIsIt={
+                      isEn
+                        ? 'The physical building or site where this network equipment is stationed.'
+                        : 'ساختمان فیزیکی یا سایتی که این تجهیز شبکه در آن مستقر است.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Establishes authentic physical hierarchy and enables geographic placement visualization.'
+                        : 'برقراری سلسله‌مراتب فیزیکی واقعی و امکان نمایش تصویری محل استقرار در شبکه.'
+                    }
+                    example={
+                      isEn
+                        ? 'e.g. Central Data Center, Engineering Building, Branch 2'
+                        : 'مانند مرکز داده مرکزی، ساختمان مهندسی، شعبه ۲'
+                    }
+                  />
+                </div>
                 <select
                   value={relocateTargetBuilding}
                   onChange={(e) => {
                     setRelocateTargetBuilding(e.target.value);
                     setCustomRelocateBuilding('');
                   }}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white focus:outline-none focus:border-cyan-400"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border transition ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                      : 'bg-slate-950/80 border-white/15 text-white focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400'
+                  }`}
                 >
+                  <option value="__UNASSIGN__" className={isLightMode ? 'text-amber-700 font-semibold' : 'bg-slate-900 text-amber-400 font-semibold'}>
+                    {t('topology_physical_shelf_target_opt')}
+                  </option>
                   {allBuildingOptions.map((b) => (
-                    <option key={b} value={b} className="bg-slate-900 text-white">
+                    <option key={b} value={b} className={isLightMode ? 'text-slate-900' : 'bg-slate-900 text-white'}>
                       {b}
                     </option>
                   ))}
-                  <option value="__CUSTOM__" className="bg-slate-900 text-cyan-400">
+                  <option value="__CUSTOM__" className={isLightMode ? 'text-indigo-600 font-semibold' : 'bg-slate-900 text-cyan-400'}>
                     {isEn ? '+ Custom Building...' : '+ ساختمان سفارشی...'}
                   </option>
                 </select>
@@ -8182,132 +8655,274 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     value={customRelocateBuilding}
                     onChange={(e) => setCustomRelocateBuilding(e.target.value)}
                     placeholder={isEn ? 'Enter custom building name' : 'نام ساختمان سفارشی را وارد کنید'}
-                    className="w-full mt-2 px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
+                    className={`w-full mt-2 px-3.5 py-2.5 rounded-xl border transition ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500'
+                        : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400'
+                    }`}
                   />
                 )}
               </div>
 
-              {/* Target Floor Selector */}
-              <div>
-                <label className="block font-medium text-slate-300 mb-1.5">
-                  {t('topology_physical_select_target_floor')}
-                </label>
-                <select
-                  value={relocateTargetFloor}
-                  onChange={(e) => {
-                    setRelocateTargetFloor(e.target.value);
-                    setCustomRelocateFloor('');
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white focus:outline-none focus:border-cyan-400"
+              {/* Notice when Unassigned Shelf is selected */}
+              {relocateTargetBuilding === '__UNASSIGN__' ? (
+                <div
+                  className={`p-3 rounded-xl border flex items-center gap-2.5 text-xs transition-colors ${
+                    isLightMode
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}
                 >
-                  {allFloorOptionsForSelectedBuilding.map((f) => (
-                    <option key={f} value={f} className="bg-slate-900 text-white">
-                      {f}
-                    </option>
-                  ))}
-                  <option value="__CUSTOM__" className="bg-slate-900 text-cyan-400">
-                    {isEn ? '+ Custom Floor...' : '+ طبقه سفارشی...'}
-                  </option>
-                </select>
+                  <PackageOpen className="w-4 h-4 shrink-0" />
+                  <span>{t('topology_physical_shelf_relocate_note')}</span>
+                </div>
+              ) : (
+                <>
+                  {/* Target Floor Selector */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        className={`block font-medium ${
+                          isLightMode ? 'text-slate-700' : 'text-slate-300'
+                        }`}
+                      >
+                        {t('topology_physical_select_target_floor')}
+                      </label>
+                      <FieldInfoTooltip
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        fieldName={isEn ? 'Target Floor' : 'طبقه مقصد'}
+                        whatIsIt={
+                          isEn
+                            ? 'The floor level within the selected building housing this equipment.'
+                            : 'تراز یا طبقه استقرار داخل ساختمان انتخاب‌شده.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Separates backbone/distribution devices from office access switches.'
+                            : 'تفکیک تجهیزات توزیع و ستون فقرات از سوئیچ‌های دسترسی طبقات اداری.'
+                        }
+                        example={
+                          isEn
+                            ? 'e.g. Floor 1, Server Room Floor, NOC Room, Basement'
+                            : 'مانند طبقه ۱، طبقه سرور، اتاق مانیتورینگ، زیرزمین'
+                        }
+                      />
+                    </div>
+                    <select
+                      value={relocateTargetFloor}
+                      onChange={(e) => {
+                        setRelocateTargetFloor(e.target.value);
+                        setCustomRelocateFloor('');
+                      }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border transition ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                          : 'bg-slate-950/80 border-white/15 text-white focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400'
+                      }`}
+                    >
+                      {allFloorOptionsForSelectedBuilding.map((f) => (
+                        <option key={f} value={f} className={isLightMode ? 'text-slate-900' : 'bg-slate-900 text-white'}>
+                          {f}
+                        </option>
+                      ))}
+                      <option value="__CUSTOM__" className={isLightMode ? 'text-indigo-600 font-semibold' : 'bg-slate-900 text-cyan-400'}>
+                        {isEn ? '+ Custom Floor...' : '+ طبقه سفارشی...'}
+                      </option>
+                    </select>
 
-                {relocateTargetFloor === '__CUSTOM__' && (
-                  <input
-                    type="text"
-                    value={customRelocateFloor}
-                    onChange={(e) => setCustomRelocateFloor(e.target.value)}
-                    placeholder={isEn ? 'Enter custom floor name' : 'نام طبقه سفارشی را وارد کنید'}
-                    className="w-full mt-2 px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
-                  />
-                )}
-              </div>
+                    {relocateTargetFloor === '__CUSTOM__' && (
+                      <input
+                        type="text"
+                        value={customRelocateFloor}
+                        onChange={(e) => setCustomRelocateFloor(e.target.value)}
+                        placeholder={isEn ? 'Enter custom floor name' : 'نام طبقه سفارشی را وارد کنید'}
+                        className={`w-full mt-2 px-3.5 py-2.5 rounded-xl border transition ${
+                          isLightMode
+                            ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500'
+                            : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400'
+                        }`}
+                      />
+                    )}
+                  </div>
 
-              {/* Target Unit / Room Selector */}
-              <div>
-                <label className="block font-medium text-slate-300 mb-1.5">
-                  {t('topology_physical_select_target_unit')}
-                </label>
-                <select
-                  value={relocateTargetUnit}
-                  onChange={(e) => {
-                    setRelocateTargetUnit(e.target.value);
-                    setCustomRelocateUnit('');
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white focus:outline-none focus:border-cyan-400"
-                >
-                  <option value="__NONE__" className="bg-slate-900 text-slate-400">
-                    {isEn ? '-- None / General Floor --' : '-- بدون واحد / فضای عمومی طبقه --'}
-                  </option>
-                  {allUnitOptionsForSelectedFloor.map((u) => (
-                    <option key={u} value={u} className="bg-slate-900 text-white">
-                      {u}
-                    </option>
-                  ))}
-                  <option value="__CUSTOM__" className="bg-slate-900 text-indigo-400">
-                    {isEn ? '+ Custom Unit / Section...' : '+ بخش یا واحد سفارشی...'}
-                  </option>
-                </select>
+                  {/* Target Unit / Room Selector */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        className={`block font-medium ${
+                          isLightMode ? 'text-slate-700' : 'text-slate-300'
+                        }`}
+                      >
+                        {t('topology_physical_select_target_unit')}
+                      </label>
+                      <FieldInfoTooltip
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        fieldName={isEn ? 'Target Unit / Room' : 'واحد یا بخش مقصد'}
+                        whatIsIt={
+                          isEn
+                            ? 'The specific room, department suite, or technical partition.'
+                            : 'اتاق، واحد یا بخش اداری/فنی مشخصی که تجهیز در آن قرار دارد.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Guides on-site technicians directly to the correct room for hardware maintenance.'
+                            : 'هدایت بی‌درنگ و دقیق کارشناسان مقیم به داخل اتاق مربوطه جهت سرویس سخت‌افزاری.'
+                        }
+                        example={
+                          isEn
+                            ? 'Server Room A, Finance Dept, Security NOC'
+                            : 'اتاق سرور الف، واحد مالی، واحد حراست'
+                        }
+                      />
+                    </div>
+                    <select
+                      value={relocateTargetUnit}
+                      onChange={(e) => {
+                        setRelocateTargetUnit(e.target.value);
+                        setCustomRelocateUnit('');
+                      }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border transition ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                          : 'bg-slate-950/80 border-white/15 text-white focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400'
+                      }`}
+                    >
+                      <option value="__NONE__" className={isLightMode ? 'text-slate-500' : 'bg-slate-900 text-slate-400'}>
+                        {isEn ? '-- None / General Floor --' : '-- بدون واحد / فضای عمومی طبقه --'}
+                      </option>
+                      {allUnitOptionsForSelectedFloor.map((u) => (
+                        <option key={u} value={u} className={isLightMode ? 'text-slate-900' : 'bg-slate-900 text-white'}>
+                          {u}
+                        </option>
+                      ))}
+                      <option value="__CUSTOM__" className={isLightMode ? 'text-indigo-600 font-semibold' : 'bg-slate-900 text-indigo-400'}>
+                        {isEn ? '+ Custom Unit / Section...' : '+ بخش یا واحد سفارشی...'}
+                      </option>
+                    </select>
 
-                {relocateTargetUnit === '__CUSTOM__' && (
-                  <input
-                    type="text"
-                    value={customRelocateUnit}
-                    onChange={(e) => setCustomRelocateUnit(e.target.value)}
-                    placeholder={isEn ? 'Enter unit or room name' : 'نام واحد یا اتاق را وارد کنید'}
-                    className="w-full mt-2 px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-400"
-                  />
-                )}
-              </div>
+                    {relocateTargetUnit === '__CUSTOM__' && (
+                      <input
+                        type="text"
+                        value={customRelocateUnit}
+                        onChange={(e) => setCustomRelocateUnit(e.target.value)}
+                        placeholder={isEn ? 'Enter unit or room name' : 'نام واحد یا اتاق را وارد کنید'}
+                        className={`w-full mt-2 px-3.5 py-2.5 rounded-xl border transition ${
+                          isLightMode
+                            ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500'
+                            : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-indigo-400'
+                        }`}
+                      />
+                    )}
+                  </div>
 
-              {/* Target Rack Selector */}
-              <div>
-                <label className="block font-medium text-slate-300 mb-1.5">
-                  {t('topology_physical_select_target_rack')}
-                </label>
-                <select
-                  value={relocateTargetRack}
-                  onChange={(e) => {
-                    setRelocateTargetRack(e.target.value);
-                    setCustomRelocateRack('');
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white focus:outline-none focus:border-cyan-400"
-                >
-                  <option value="__NONE__" className="bg-slate-900 text-slate-400">
-                    {isEn ? '-- None / Standalone Equipment --' : '-- بدون رک / تجهیزات آزاد --'}
-                  </option>
-                  {allRackOptionsForSelectedFloor.map((r) => (
-                    <option key={r} value={r} className="bg-slate-900 text-white">
-                      {r}
-                    </option>
-                  ))}
-                  <option value="__CUSTOM__" className="bg-slate-900 text-cyan-400">
-                    {isEn ? '+ Custom Rack...' : '+ رک سفارشی...'}
-                  </option>
-                </select>
+                  {/* Target Rack Selector */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label
+                        className={`block font-medium ${
+                          isLightMode ? 'text-slate-700' : 'text-slate-300'
+                        }`}
+                      >
+                        {t('topology_physical_select_target_rack')}
+                      </label>
+                      <FieldInfoTooltip
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        fieldName={isEn ? 'Target Rack / Cabinet' : 'رک مقصد'}
+                        whatIsIt={
+                          isEn
+                            ? 'The equipment cabinet or 19-inch rack enclosure housing the device.'
+                            : 'رک ۱۹ اینچی یا کابینت تجهیزاتی که دستگاه در آن مونتاژ شده است.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Prevents hardware misidentification and powers rack elevation diagrams.'
+                            : 'جلوگیری از اشتباه در شناسایی تجهیزات و تغذیه نمودارهای عمودی رک (Elevation).'
+                        }
+                        example={
+                          isEn
+                            ? 'Rack-A01, Cabinet-42U, Main Switch Rack'
+                            : 'رک A01، کابینت ۴۲ یونیت، رک سوئیچ اصلی'
+                        }
+                      />
+                    </div>
+                    <select
+                      value={relocateTargetRack}
+                      onChange={(e) => {
+                        setRelocateTargetRack(e.target.value);
+                        setCustomRelocateRack('');
+                      }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl border transition ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-300 text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+                          : 'bg-slate-950/80 border-white/15 text-white focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400'
+                      }`}
+                    >
+                      <option value="__NONE__" className={isLightMode ? 'text-slate-500' : 'bg-slate-900 text-slate-400'}>
+                        {isEn ? '-- None / Standalone Equipment --' : '-- بدون رک / تجهیزات آزاد --'}
+                      </option>
+                      {allRackOptionsForSelectedFloor.map((r) => (
+                        <option key={r} value={r} className={isLightMode ? 'text-slate-900' : 'bg-slate-900 text-white'}>
+                          {r}
+                        </option>
+                      ))}
+                      <option value="__CUSTOM__" className={isLightMode ? 'text-indigo-600 font-semibold' : 'bg-slate-900 text-cyan-400'}>
+                        {isEn ? '+ Custom Rack...' : '+ رک سفارشی...'}
+                      </option>
+                    </select>
 
-                {relocateTargetRack === '__CUSTOM__' && (
-                  <input
-                    type="text"
-                    value={customRelocateRack}
-                    onChange={(e) => setCustomRelocateRack(e.target.value)}
-                    placeholder={isEn ? 'e.g. Rack-A1, Server Cabinet' : 'مانند رک اصلی، کابینت سرور ۱'}
-                    className="w-full mt-2 px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
-                  />
-                )}
-              </div>
+                    {relocateTargetRack === '__CUSTOM__' && (
+                      <input
+                        type="text"
+                        value={customRelocateRack}
+                        onChange={(e) => setCustomRelocateRack(e.target.value)}
+                        placeholder={isEn ? 'e.g. Rack-A1, Server Cabinet' : 'مانند رک اصلی، کابینت سرور ۱'}
+                        className={`w-full mt-2 px-3.5 py-2.5 rounded-xl border transition ${
+                          isLightMode
+                            ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500'
+                            : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400'
+                        }`}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-950/40 border-t border-white/10">
+            <div
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t transition-colors ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
+              }`}
+            >
               <button
                 type="button"
-                onClick={() => setRelocateDevice(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 transition cursor-pointer"
+                onClick={() => {
+                  setRelocateDevice(null);
+                  setIsRelocateMaximized(false);
+                }}
+                className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 border-slate-300'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 border-white/10'
+                }`}
               >
                 {t('topology_physical_cancel_btn')}
               </button>
               <button
                 type="button"
                 onClick={() => {
+                  if (relocateTargetBuilding === '__UNASSIGN__') {
+                    if (relocateDevice) {
+                      handleUnassignDevice(relocateDevice.id);
+                      setRelocateDevice(null);
+                      setIsRelocateMaximized(false);
+                    }
+                    return;
+                  }
+
                   const finalBldg =
                     relocateTargetBuilding === '__CUSTOM__'
                       ? customRelocateBuilding.trim()
@@ -8332,19 +8947,28 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   if (finalBldg && finalFloor && relocateDevice) {
                     handleMoveDevice(relocateDevice.id, finalBldg, finalFloor, finalUnit, finalRack);
                     setRelocateDevice(null);
+                    setIsRelocateMaximized(false);
                   }
                 }}
                 disabled={
-                  (relocateTargetBuilding === '__CUSTOM__' && !customRelocateBuilding.trim()) ||
-                  (relocateTargetFloor === '__CUSTOM__' && !customRelocateFloor.trim()) ||
-                  (relocateTargetUnit === '__CUSTOM__' && !customRelocateUnit.trim()) ||
-                  (relocateTargetRack === '__CUSTOM__' && !customRelocateRack.trim()) ||
-                  !relocateTargetBuilding ||
-                  !relocateTargetFloor
+                  relocateTargetBuilding !== '__UNASSIGN__' && (
+                    (relocateTargetBuilding === '__CUSTOM__' && !customRelocateBuilding.trim()) ||
+                    (relocateTargetFloor === '__CUSTOM__' && !customRelocateFloor.trim()) ||
+                    (relocateTargetUnit === '__CUSTOM__' && !customRelocateUnit.trim()) ||
+                    (relocateTargetRack === '__CUSTOM__' && !customRelocateRack.trim()) ||
+                    !relocateTargetBuilding ||
+                    !relocateTargetFloor
+                  )
                 }
-                className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 disabled:opacity-40 transition shadow-lg cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-medium text-white transition shadow-lg cursor-pointer disabled:opacity-40 ${
+                  relocateTargetBuilding === '__UNASSIGN__'
+                    ? 'bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500'
+                    : 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500'
+                }`}
               >
-                {t('topology_physical_confirm_relocate')}
+                {relocateTargetBuilding === '__UNASSIGN__'
+                  ? t('topology_physical_move_to_shelf')
+                  : t('topology_physical_confirm_relocate')}
               </button>
             </div>
           </div>
