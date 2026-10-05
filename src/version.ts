@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.270.0';
+export const APP_VERSION = '1.271.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.271.0',
+    releaseDate: '2026-10-05',
+    type: 'minor',
+    title: 'فاز ۱: پاک‌سازی داده‌های موک و برقراری مرجعیت صددرصدی دیتابیس برای جانمایی فیزیکی (Physical Placement Backend Authority)',
+    title_en: 'Phase 1: Elimination of Mock Hierarchy Data & Establishing 100% Database Authority for Physical Placement',
+    changes: [
+      'حذف کامل داده‌های ساختگی و تزریق خودکار DEFAULT_HIERARCHY (شامل ساختمان‌ها، طبقات و رک‌های موک) از پایگاه داده و منطق سرور.',
+      'بازنویسی متدهای واکشی و ذخیره سلسله‌مراتب (getHierarchy, getCompleteHierarchy, saveHierarchy) به‌منظور استعلام مستقیم و قطعی از جدول topology_hierarchy بدون بازگشت به مقادیر فرضی.',
+      'پاک‌سازی ارتباطات و انتسابات ساختگی فیزیکی (building, floor, unit, rack) در جداول و داده‌های پشتیبان تجهیزات جهت پایبندی کامل به قانون عدم تولید داده‌های غیرواقعی.',
+      'به‌روزرسانی اندپوینت‌های /api/settings/hierarchy و /api/placements جهت ارائه ساختار واقعی و بدون موک بر اساس محتوای اصیل پایگاه داده.'
+    ],
+    changes_en: [
+      'Completely purged fake DEFAULT_HIERARCHY mock datasets (mock buildings, floors, and racks) from database initialization and runtime fallbacks.',
+      'Refactored hierarchy retrieval and persistence methods (getHierarchy, getCompleteHierarchy, saveHierarchy) to query directly and authoritatively from PostgreSQL topology_hierarchy table with zero mock fallbacks.',
+      'Scrubbed artificial physical placement linkages (building, floor, unit, rack) across device stores and placement tables in strict accordance with the anti-mock directive.',
+      'Updated /api/settings/hierarchy and /api/placements endpoints to guarantee authentic database reflection with zero synthesized records.'
+    ],
+  },
   {
     version: '1.270.0',
     releaseDate: '2026-10-04',

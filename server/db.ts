@@ -245,7 +245,15 @@ function loadInitialDevices(): any[] {
     if (fs.existsSync(netPath)) {
       const parsed = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
       if (Array.isArray(parsed.devices) && parsed.devices.length > 0) {
-        return parsed.devices;
+        return parsed.devices.map((d: any) => ({
+          ...d,
+          building: (d.building && !d.building.includes('ساختمان مرکزی') && !d.building.includes('Central Bldg') && !d.building.includes('ساختمان مهندسی') && !d.building.includes('Engineering Bldg') && !d.building.includes('ساختمان اداری')) ? d.building : '',
+          floor: (d.floor && !d.floor.includes('Floor') && !d.floor.includes('طبقه')) ? d.floor : '',
+          unit: (d.unit && !d.unit.includes('اتاق سرور') && !d.unit.includes('Server Room') && !d.unit.includes('IDF')) ? d.unit : '',
+          rack: (d.rack && !d.rack.includes('Rack-A') && !d.rack.includes('Rack-B')) ? d.rack : '',
+          section: (d.section && !d.section.includes('بخش شبکه')) ? d.section : '',
+          hierarchy_id: d.hierarchy_id || '',
+        }));
       }
     }
   } catch (e) {
@@ -512,80 +520,7 @@ const DEFAULT_DEVICE_GROUPS = [
   }
 ];
 
-const DEFAULT_HIERARCHY = [
-  {
-    id: 'bldg-central',
-    type: 'building',
-    name: 'ساختمان مرکزی (Central Bldg)',
-    description: 'ساختمان اداری مرکزی و دیتاسنتر اصلی سازمان',
-    parentId: null,
-    metadata: { address: 'تهران، خیابان ولیعصر', floorsCount: 4 }
-  },
-  {
-    id: 'bldg-west',
-    type: 'building',
-    name: 'شعبه غرب (West Branch)',
-    description: 'ساختمان پشتیبان و شعبه توسعه نرم‌افزار',
-    parentId: null,
-    metadata: { address: 'شعبه غرب، پارک فناوری', floorsCount: 2 }
-  },
-  {
-    id: 'floor-dc',
-    type: 'floor',
-    name: 'مرکز داده (DC Floor)',
-    description: 'طبقه زیرهمکف اختصاصی مرکز داده و رک‌های سرور',
-    parentId: 'bldg-central',
-    metadata: { securityLevel: 'High', cooling: 'Precision AC' }
-  },
-  {
-    id: 'floor-1',
-    type: 'floor',
-    name: 'طبقه ۱ (Floor 1)',
-    description: 'طبقه اداری و اتاق کارشناسان شبکه',
-    parentId: 'bldg-central',
-    metadata: { usersCount: 45 }
-  },
-  {
-    id: 'unit-server-room',
-    type: 'unit',
-    name: 'اتاق سرور اصلی (Main Server Room)',
-    description: 'اتاق سرور مرکزی مجهز به سیستم اطفا حریق و کنترل تردد',
-    parentId: 'floor-dc',
-    metadata: { doorAccess: 'Biometric' }
-  },
-  {
-    id: 'unit-idf-1',
-    type: 'unit',
-    name: 'اتاق رک طبقه ۱ (IDF-1)',
-    description: 'رک‌های توزیع طبقه اول برای کلاینت‌ها',
-    parentId: 'floor-1',
-    metadata: {}
-  },
-  {
-    id: 'rack-a01',
-    type: 'rack',
-    name: 'Rack-A01 (Core & WAN)',
-    description: 'رک اختصاصی تجهیزات Core و Edge سازمان',
-    parentId: 'unit-server-room',
-    metadata: { totalU: 42, usedU: 14 }
-  },
-  {
-    id: 'rack-a02',
-    type: 'rack',
-    name: 'Rack-A02 (Distribution)',
-    description: 'رک سوییچ‌های لایه توزیع و ارتباطی شعب',
-    parentId: 'unit-server-room',
-    metadata: { totalU: 42, usedU: 10 }
-  },
-  {
-    id: 'rack-b01',
-    type: 'rack',
-    name: 'Rack-B01 (Access Floor 1)',
-    description: 'رک توزیع کابلی طبقه ۱',
-    parentId: 'unit-idf-1',
-    metadata: { totalU: 24, usedU: 8 }
-  }
-];
+const DEFAULT_HIERARCHY: any[] = [];
 
 export function convertHierarchyNodesToStructured(nodes: any[]): PhysicalHierarchyStructured {
   const buildingsSet = new Set<string>();
@@ -1204,25 +1139,14 @@ function loadFallbackStore(): FallbackStore {
   if (!Array.isArray(store.custom_maps) || store.custom_maps.length === 0) {
     store.custom_maps = DEFAULT_CUSTOM_MAPS;
   }
-  if (!Array.isArray(store.topology_hierarchy) || store.topology_hierarchy.length === 0) {
-    store.topology_hierarchy = DEFAULT_HIERARCHY;
+  if (!Array.isArray(store.topology_hierarchy)) {
+    store.topology_hierarchy = [];
   }
   if (!store.physical_hierarchy || !Array.isArray(store.physical_hierarchy.buildings)) {
     store.physical_hierarchy = convertHierarchyNodesToStructured(store.topology_hierarchy);
   }
-  if (!Array.isArray(store.device_placements) || store.device_placements.length === 0) {
-    store.device_placements = (store.devices || []).map((d: any) => ({
-      id: `placement-${d.id}`,
-      device_id: d.id,
-      building: d.building || '',
-      floor: d.floor || '',
-      unit: d.unit || '',
-      rack: d.rack || '',
-      section: d.section || '',
-      location: d.location || '',
-      hierarchy_id: d.hierarchy_id || '',
-      updated_at: new Date().toISOString(),
-    }));
+  if (!Array.isArray(store.device_placements)) {
+    store.device_placements = [];
   }
   if (!store.node_positions || Object.keys(store.node_positions).length === 0) {
     store.node_positions = DEFAULT_NODE_POSITIONS;
@@ -1629,9 +1553,9 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
   try {
     const hierCountRes = await client.query('SELECT count(*) as count FROM topology_hierarchy');
     if (parseInt(hierCountRes.rows[0]?.count || '0', 10) === 0) {
-      const hierToSeed = (initialData.topology_hierarchy && initialData.topology_hierarchy.length > 0)
+      const hierToSeed = (Array.isArray(initialData.topology_hierarchy) && initialData.topology_hierarchy.length > 0)
         ? initialData.topology_hierarchy
-        : DEFAULT_HIERARCHY;
+        : [];
       for (const h of hierToSeed) {
         await client.query(
           `INSERT INTO topology_hierarchy (id, type, parent_id, name, description, metadata)
@@ -2859,7 +2783,7 @@ export async function getHierarchy(): Promise<any[]> {
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM topology_hierarchy ORDER BY created_at ASC');
-      if (res.rows && res.rows.length > 0) {
+      if (res && Array.isArray(res.rows)) {
         return res.rows.map((r) => ({
           id: r.id,
           type: r.type,
@@ -2874,7 +2798,7 @@ export async function getHierarchy(): Promise<any[]> {
     }
   }
   const store = loadFallbackStore();
-  return Array.isArray(store.topology_hierarchy) ? store.topology_hierarchy : DEFAULT_HIERARCHY;
+  return Array.isArray(store.topology_hierarchy) ? store.topology_hierarchy : [];
 }
 
 export async function getCompleteHierarchy(): Promise<{
@@ -2882,19 +2806,23 @@ export async function getCompleteHierarchy(): Promise<{
   structured: PhysicalHierarchyStructured;
 }> {
   const nodes = await getHierarchy();
-  const store = loadFallbackStore();
   let structured: PhysicalHierarchyStructured;
 
-  if (store.physical_hierarchy && Array.isArray(store.physical_hierarchy.buildings) && store.physical_hierarchy.buildings.length > 0) {
-    structured = {
-      buildings: store.physical_hierarchy.buildings,
-      floors: store.physical_hierarchy.floors || {},
-      units: store.physical_hierarchy.units || {},
-      racks: store.physical_hierarchy.racks || {},
-      sections: store.physical_hierarchy.sections || {},
-    };
-  } else {
+  if (isPostgresReady && pool) {
     structured = convertHierarchyNodesToStructured(nodes);
+  } else {
+    const store = loadFallbackStore();
+    if (store.physical_hierarchy && Array.isArray(store.physical_hierarchy.buildings)) {
+      structured = {
+        buildings: store.physical_hierarchy.buildings,
+        floors: store.physical_hierarchy.floors || {},
+        units: store.physical_hierarchy.units || {},
+        racks: store.physical_hierarchy.racks || {},
+        sections: store.physical_hierarchy.sections || {},
+      };
+    } else {
+      structured = convertHierarchyNodesToStructured(nodes);
+    }
   }
 
   return { nodes, structured };
@@ -2923,12 +2851,18 @@ export async function saveHierarchy(payload: any): Promise<{
         racks: payload.racks && typeof payload.racks === 'object' ? payload.racks : {},
         sections: payload.sections && typeof payload.sections === 'object' ? payload.sections : {},
       };
-      const currentNodes = Array.isArray(store.topology_hierarchy) ? store.topology_hierarchy : DEFAULT_HIERARCHY;
+      const currentNodes = Array.isArray(store.topology_hierarchy) ? store.topology_hierarchy : [];
       nodes = convertStructuredToHierarchyNodes(structured, currentNodes);
     }
   } else {
-    nodes = DEFAULT_HIERARCHY;
-    structured = convertHierarchyNodesToStructured(nodes);
+    nodes = [];
+    structured = {
+      buildings: [],
+      floors: {},
+      units: {},
+      racks: {},
+      sections: {},
+    };
   }
 
   store.topology_hierarchy = nodes;
@@ -2968,7 +2902,7 @@ export async function getDevicePlacements(): Promise<DevicePlacementRecord[]> {
   if (isPostgresReady && pool) {
     try {
       const res = await pool.query('SELECT * FROM device_placements ORDER BY building ASC, floor ASC, rack ASC');
-      if (res.rows && res.rows.length > 0) {
+      if (res && Array.isArray(res.rows)) {
         return res.rows.map((r) => ({
           id: r.id,
           device_id: r.device_id,
@@ -2991,20 +2925,22 @@ export async function getDevicePlacements(): Promise<DevicePlacementRecord[]> {
   }
 
   const allDevices = await getAllDevices();
-  return allDevices.map((d) => ({
-    id: `placement-${d.id}`,
-    device_id: d.id,
-    building: d.building || '',
-    floor: d.floor || '',
-    unit: d.unit || '',
-    rack: d.rack || '',
-    section: d.section || '',
-    location: d.location || '',
-    hierarchy_id: d.hierarchy_id || '',
-    position_u: d.position_u || undefined,
-    notes: d.notes || '',
-    updated_at: new Date().toISOString(),
-  }));
+  return allDevices
+    .filter((d) => d.building || d.floor || d.unit || d.rack)
+    .map((d) => ({
+      id: `placement-${d.id}`,
+      device_id: d.id,
+      building: d.building || '',
+      floor: d.floor || '',
+      unit: d.unit || '',
+      rack: d.rack || '',
+      section: d.section || '',
+      location: d.location || '',
+      hierarchy_id: d.hierarchy_id || '',
+      position_u: d.position_u || undefined,
+      notes: d.notes || '',
+      updated_at: new Date().toISOString(),
+    }));
 }
 
 export async function updateDevicePlacement(

@@ -8,10 +8,10 @@
       "role": "Core Switch",
       "model": "Cisco Catalyst 9500-48Y4C",
       "mac": "00:50:56:A1:B2:C0",
-      "building": "ساختمان مرکزی (Central Bldg)",
-      "floor": "طبقه ۱ (Floor 1)",
-      "unit": "اتاق سرور اصلی (Main Server Room)",
-      "rack": "Rack-A01",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -39,8 +39,8 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9mYSveEZ33gXlwFSNZcGs5hf2rhmR8K_1KAlXpy8ggUIR0n8BK1f62l8Xan-WJl3r6RqNo6_FPlYiYhppMFBt6A=="
       },
-      "location": "Rack 01 - Shelf B",
-      "section": "بخش شبکه",
+      "location": "",
+      "section": "",
       "ssh_version": "legacy",
       "hierarchy_id": ""
     },
@@ -52,10 +52,10 @@
       "role": "Edge Gateway",
       "model": "Cisco ISR 4451-X",
       "mac": "00:50:56:C2:D3:E1",
-      "building": "ساختمان مرکزی (Central Bldg)",
-      "floor": "طبقه ۱ (Floor 1)",
-      "unit": "اتاق سرور اصلی (Main Server Room)",
-      "rack": "Rack-A02",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -81,7 +81,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9x2WkYgesEdMMdij4IgyVwy6mokJ06rTcBjunQU_qm3jMIQ4WSYstouamaXO3yUxjCMEh53fCRez3n9bnXjVSBw=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-dist-bldg-a",
@@ -91,9 +94,9 @@
       "role": "Distribution Switch",
       "model": "Cisco Catalyst 9300-48P",
       "mac": "00:50:56:D4:E5:F2",
-      "building": "ساختمان مهندسی (Engineering Bldg)",
-      "floor": "طبقه ۲ (Floor 2)",
-      "unit": "واحد آزمایشگاه و R&D (Lab Unit 201)",
+      "building": "",
+      "floor": "",
+      "unit": "",
       "rack": "",
       "is_online": false,
       "latency_ms": null,
@@ -120,7 +123,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9a_XU99amzm8_Xj1djmrwtht-R-ftgjvvJVzVeGiX6AENhiYRGQCbHzTf08nlu1uy4njDrbKh_gW_KrXZ7RlDYQ=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-acc-bldg-a-f3",
@@ -130,10 +136,10 @@
       "role": "Access Switch",
       "model": "Cisco Catalyst 2960X-48FPS-L",
       "mac": "00:50:56:E6:F7:03",
-      "building": "ساختمان مرکزی (Central Bldg)",
-      "floor": "طبقه ۳ (Floor 3)",
-      "unit": "واحد توسعه نرم‌افزار (Dev Unit 302)",
-      "rack": "Wall-Rack-302",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -159,7 +165,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9NL7vZKMg5cqnSTH-b4dV1GmujrZ559R0dPTV78c69VX0CSIk3eClS8XWIcA10bINHnwIAn-2GxksoaL3qCTGuw=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-dist-bldg-b",
@@ -169,10 +178,10 @@
       "role": "Distribution Switch",
       "model": "Cisco Catalyst 9300-24T",
       "mac": "00:50:56:F8:09:14",
-      "building": "ساختمان مهندسی (Engineering Bldg)",
-      "floor": "طبقه ۱ (Floor 1)",
-      "unit": "مرکز داده فرعی (MDF Room)",
-      "rack": "Rack-MDF-B1",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -198,7 +207,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir90wv_64okgbkYZcP5LmQqURlq2J_vVffFkol9pfUMnxbxN21yszUEVnGF3FUENTekqAGt1oGjqvVLwoLL0xruAg=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-acc-bldg-b-f2",
@@ -208,10 +220,10 @@
       "role": "Access Switch",
       "model": "Cisco Catalyst 9200L-24P-4G",
       "mac": "00:50:56:6C:3B:6B",
-      "building": "ساختمان مهندسی (Engineering Bldg)",
-      "floor": "طبقه ۲ (Floor 2)",
-      "unit": "واحد آزمایشگاه و R&D (Lab Unit 201)",
-      "rack": "Rack-ENG-201",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -237,7 +249,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9tPLg2tp5MNBsoHkoy4bL6OqI6OggSFl12KAOOxCGoOxs1eaDaw6zPzbcC4_5tU_xFElrE6qhlTX3HrJv4jMvqA=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-ap-bldg-a-f1",
@@ -247,10 +262,10 @@
       "role": "Wireless Access Point",
       "model": "Cisco Catalyst 9120AXI",
       "mac": "00:50:56:11:22:33",
-      "building": "ساختمان مرکزی (Central Bldg)",
-      "floor": "طبقه ۱ (Floor 1)",
-      "unit": "لابی و سالن همایش (Main Lobby)",
-      "rack": "سقف کاذب لابی",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -278,7 +293,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9tjcPLqZtO1lAZnC9uX5d62dfPriYYg9ifTdHJGK6VnKfrLlaZwqXIBxzdnoCAuQJshmxVV7Xkd7bSVMoRex2ew=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-ap-bldg-a-f3",
@@ -288,10 +306,10 @@
       "role": "Wireless Access Point",
       "model": "Cisco Catalyst 9130AX Series",
       "mac": "00:50:56:70:A7:41",
-      "building": "ساختمان مرکزی (Central Bldg)",
-      "floor": "طبقه ۳ (Floor 3)",
-      "unit": "واحد توسعه نرم‌افزار (Dev Unit 302)",
-      "rack": "سقف راهرو شرقی",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -317,7 +335,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir96Im8Y1Ns7sUJrOX5PdzDRHEtK_H0QHgbSL0vZ6EBLjANfeSKeFGHDOJ768r0E8Olz3fcc4an7WUOyPKfiigf0g=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-ap-bldg-b-f1",
@@ -327,10 +348,10 @@
       "role": "Wireless Access Point",
       "model": "Cisco Aironet 2802I",
       "mac": "00:50:56:94:B4:0F",
-      "building": "ساختمان مهندسی (Engineering Bldg)",
-      "floor": "طبقه ۱ (Floor 1)",
-      "unit": "مرکز داده فرعی (MDF Room)",
-      "rack": "دیواری ورودی مهندسی",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -356,7 +377,10 @@
         "username": "admin",
         "password": "enc:fernet:gAAAAABqqir9qe1Ks9jj65AZidE2brkjx2s4pFzYXbGRlzoX0L9VoZXvkIF7DAUbU610e11BYJNttThev5O1-2SQQQ7rYZbYuw=="
       },
-      "winbox_port": 8291
+      "winbox_port": 8291,
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-mikrotik-ccr2004",
@@ -368,10 +392,10 @@
       "platform": "mikrotik_routeros",
       "connection_mode": "simulator",
       "mac": "48:8F:5A:12:34:01",
-      "building": "ساختمان اداری مرکزی",
-      "floor": "طبقه همکف",
-      "unit": "اتاق سرور و رک اصلی",
-      "rack": "R-MK-01",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -393,7 +417,10 @@
         "password": "enc:fernet:gAAAAABqqir9Yc-nbOdFK3IYy3Mh-YHwvwy06WE2T3rolRcCUpUwKp_FrHrW2bq0k24z7nfCdmliB1EI7Doz6nUB8FwNNKllzg=="
       },
       "winbox_port": 8291,
-      "last_seen": "آفلاین"
+      "last_seen": "آفلاین",
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     },
     {
       "id": "dev-switch-8164ed",
@@ -415,10 +442,10 @@
       },
       "winbox_port": 8291,
       "mac": "00:50:56:F7:D2:0B",
-      "building": "ساختمان مرکزی (Central Bldg)",
-      "floor": "طبقه ۱ (Floor 1)",
-      "unit": "اتاق سرور اصلی (Main Server Room)",
-      "rack": "Rack-A01",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
       "is_online": false,
       "latency_ms": null,
       "packet_loss": 100,
@@ -436,7 +463,10 @@
       "ssh_status": "authenticated",
       "serial_number": "",
       "master_session_id": "",
-      "web_configs": []
+      "web_configs": [],
+      "section": "",
+      "location": "",
+      "hierarchy_id": ""
     }
   ],
   "ports": {
