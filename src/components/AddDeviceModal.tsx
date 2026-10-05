@@ -292,43 +292,25 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
       })
       .catch(() => {});
 
-    // Load physical hierarchy from localStorage and live devices
+    // Load authoritative physical hierarchy from database and live devices
     const loadHierarchy = async () => {
       try {
-        const HIERARCHY_STORAGE_KEY = 'nettopology_physical_hierarchy_v2';
         let savedBuildings: string[] = [];
         let savedFloors: Record<string, string[]> = {};
         let savedUnits: Record<string, string[]> = {};
         let savedRacks: Record<string, string[]> = {};
 
         try {
-          const raw = localStorage.getItem(HIERARCHY_STORAGE_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed.buildings)) savedBuildings = parsed.buildings;
-            if (parsed.floors && typeof parsed.floors === 'object') savedFloors = parsed.floors;
-            if (parsed.units && typeof parsed.units === 'object') savedUnits = parsed.units;
-            if (parsed.racks && typeof parsed.racks === 'object') savedRacks = parsed.racks;
-          }
-          // Augment with latest database hierarchy
-          const dbHier = await fetch('/api/settings/hierarchy').then((r) => r.ok ? r.json() : null).catch(() => null);
-          if (dbHier?.buildings && Array.isArray(dbHier.buildings) && dbHier.buildings.length > 0) {
-            savedBuildings = Array.from(new Set([...savedBuildings, ...dbHier.buildings]));
-            if (dbHier.floors && typeof dbHier.floors === 'object') {
-              Object.entries(dbHier.floors).forEach(([b, fls]) => {
-                savedFloors[b] = Array.from(new Set([...(savedFloors[b] || []), ...(fls as string[])]));
-              });
-            }
-            if (dbHier.units && typeof dbHier.units === 'object') {
-              Object.entries(dbHier.units).forEach(([k, uns]) => {
-                savedUnits[k] = Array.from(new Set([...(savedUnits[k] || []), ...(uns as string[])]));
-              });
-            }
-            if (dbHier.racks && typeof dbHier.racks === 'object') {
-              Object.entries(dbHier.racks).forEach(([k, rks]) => {
-                savedRacks[k] = Array.from(new Set([...(savedRacks[k] || []), ...(rks as string[])]));
-              });
-            }
+          const dbHier = await fetch('/api/settings/hierarchy').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          if (dbHier && typeof dbHier === 'object') {
+            savedBuildings = Array.isArray(dbHier.buildings)
+              ? dbHier.buildings
+              : (Array.isArray(dbHier.hierarchy)
+                  ? dbHier.hierarchy.filter((h: any) => h.type === 'building').map((h: any) => h.name)
+                  : []);
+            if (dbHier.floors && typeof dbHier.floors === 'object') savedFloors = dbHier.floors;
+            if (dbHier.units && typeof dbHier.units === 'object') savedUnits = dbHier.units;
+            if (dbHier.racks && typeof dbHier.racks === 'object') savedRacks = dbHier.racks;
           }
         } catch (e) {}
 

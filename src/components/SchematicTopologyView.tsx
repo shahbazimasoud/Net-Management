@@ -2428,52 +2428,14 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   // Storage key for custom physical hierarchy persistence
   const HIERARCHY_STORAGE_KEY = 'nettopology_physical_hierarchy_v2';
 
-  // Custom added buildings, floors, units, and racks with localStorage initialization
-  const [customBuildings, setCustomBuildings] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(HIERARCHY_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.buildings)) return parsed.buildings;
-      }
-    } catch (e) {}
-    return [];
-  });
+  // Custom added buildings, floors, units, and racks loaded authoritatively from database
+  const [customBuildings, setCustomBuildings] = useState<string[]>([]);
+  const [customFloors, setCustomFloors] = useState<Record<string, string[]>>({});
+  const [customUnits, setCustomUnits] = useState<Record<string, string[]>>({});
+  const [customRacks, setCustomRacks] = useState<Record<string, string[]>>({});
+  const [isHierarchyLoading, setIsHierarchyLoading] = useState(true);
 
-  const [customFloors, setCustomFloors] = useState<Record<string, string[]>>(() => {
-    try {
-      const saved = localStorage.getItem(HIERARCHY_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.floors && typeof parsed.floors === 'object') return parsed.floors;
-      }
-    } catch (e) {}
-    return {};
-  });
-
-  const [customUnits, setCustomUnits] = useState<Record<string, string[]>>(() => {
-    try {
-      const saved = localStorage.getItem(HIERARCHY_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.units && typeof parsed.units === 'object') return parsed.units;
-      }
-    } catch (e) {}
-    return {};
-  });
-
-  const [customRacks, setCustomRacks] = useState<Record<string, string[]>>(() => {
-    try {
-      const saved = localStorage.getItem(HIERARCHY_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.racks && typeof parsed.racks === 'object') return parsed.racks;
-      }
-    } catch (e) {}
-    return {};
-  });
-
-  // Helper to persist hierarchy state in localStorage and PostgreSQL backend
+  // Helper to persist hierarchy state in PostgreSQL backend and local state
   const saveHierarchyState = (
     buildings: string[],
     floors: Record<string, string[]>,
@@ -2481,13 +2443,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     racks: Record<string, string[]>
   ) => {
     try {
+      setCustomBuildings(buildings);
+      setCustomFloors(floors);
+      setCustomUnits(units);
+      setCustomRacks(racks);
+
       const payload = {
         buildings,
         floors,
         units,
         racks,
       };
-      localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(payload));
+      try {
+        localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(payload));
+      } catch (e) {}
+
       fetch('/api/settings/hierarchy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2500,19 +2470,26 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   // Keep hierarchy in sync if modified from AddDeviceModal or other views and pull initial data from database
   useEffect(() => {
     const handleHierarchyUpdate = () => {
-      try {
-        const saved = localStorage.getItem(HIERARCHY_STORAGE_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed.buildings)) setCustomBuildings(parsed.buildings);
-          if (parsed.floors && typeof parsed.floors === 'object') setCustomFloors(parsed.floors);
-          if (parsed.units && typeof parsed.units === 'object') setCustomUnits(parsed.units);
-          if (parsed.racks && typeof parsed.racks === 'object') setCustomRacks(parsed.racks);
-        }
-      } catch (e) {}
+      fetch('/api/settings/hierarchy')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((dbData) => {
+          if (dbData && typeof dbData === 'object') {
+            const bldgs = Array.isArray(dbData.buildings)
+              ? dbData.buildings
+              : (Array.isArray(dbData.hierarchy)
+                  ? dbData.hierarchy.filter((h: any) => h.type === 'building').map((h: any) => h.name)
+                  : []);
+            setCustomBuildings(bldgs);
+            setCustomFloors(dbData.floors && typeof dbData.floors === 'object' ? dbData.floors : {});
+            setCustomUnits(dbData.units && typeof dbData.units === 'object' ? dbData.units : {});
+            setCustomRacks(dbData.racks && typeof dbData.racks === 'object' ? dbData.racks : {});
+          }
+        })
+        .catch(() => {});
     };
 
-    // Load initial hierarchy from database if available
+    // Load initial hierarchy from database as authoritative source of truth
+    setIsHierarchyLoading(true);
     fetch('/api/settings/hierarchy')
       .then((res) => (res.ok ? res.json() : null))
       .then((dbData) => {
@@ -2522,16 +2499,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             : (Array.isArray(dbData.hierarchy)
                 ? dbData.hierarchy.filter((h: any) => h.type === 'building').map((h: any) => h.name)
                 : []);
-          if (bldgs.length > 0) {
-            localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(dbData));
-            setCustomBuildings(bldgs);
-            if (dbData.floors && typeof dbData.floors === 'object') setCustomFloors(dbData.floors);
-            if (dbData.units && typeof dbData.units === 'object') setCustomUnits(dbData.units);
-            if (dbData.racks && typeof dbData.racks === 'object') setCustomRacks(dbData.racks);
-          }
+          setCustomBuildings(bldgs);
+          setCustomFloors(dbData.floors && typeof dbData.floors === 'object' ? dbData.floors : {});
+          setCustomUnits(dbData.units && typeof dbData.units === 'object' ? dbData.units : {});
+          setCustomRacks(dbData.racks && typeof dbData.racks === 'object' ? dbData.racks : {});
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        setIsHierarchyLoading(false);
+      });
 
     // Load initial custom maps from database if available
     const token =
@@ -4868,10 +4845,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       }
     });
 
-    // 5. Populate from localNodes
+    // 5. Populate from localNodes only if device has an authentic building assigned
     localNodes.forEach((d) => {
-      const b = d.building || (isEn ? 'Other Buildings' : 'سایر ساختمان‌ها');
-      const f = d.floor || (isEn ? 'Unassigned Floor' : 'طبقه نامشخص');
+      if (!d.building || !d.building.trim()) return;
+      const b = d.building.trim();
+      const f = d.floor?.trim() || (isEn ? 'Unassigned Floor' : 'طبقه نامشخص');
       const floorData = ensureFloor(b, f);
       floorData.allDevices.push(d);
 
@@ -4893,14 +4871,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const allBuildingOptions = useMemo(() => {
     const set = new Set<string>();
     localNodes.forEach((n) => {
-      if (n.building) set.add(n.building);
+      if (n.building && n.building.trim()) set.add(n.building.trim());
     });
     customBuildings.forEach((b) => set.add(b));
-    if (set.size === 0) {
-      set.add(isEn ? 'Central HQ Building' : 'ساختمان مرکزی');
-    }
     return Array.from(set);
-  }, [localNodes, customBuildings, isEn]);
+  }, [localNodes, customBuildings]);
 
   // Helper list of floors for the selected building in relocation modal
   const allFloorOptionsForSelectedBuilding = useMemo(() => {
@@ -7078,17 +7053,21 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           /* VIEW 2: Physical Building & Floor Schematic Map with Drag & Drop */
           <div className="flex-1 h-full overflow-y-auto p-4 space-y-4">
             {/* Header / Guide Bar */}
-            <div className="spatial-glass p-4 rounded-xl border border-white/10 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className={`p-4 rounded-xl border shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+              isLightMode
+                ? 'bg-white border-slate-200 shadow-slate-200/50'
+                : 'spatial-glass border-white/10'
+            }`}>
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2 glow-text-cyan">
-                  <Building2 className="w-4 h-4 text-cyan-400" />
+                <h3 className={`text-sm font-bold flex items-center gap-2 ${isLightMode ? 'text-slate-900' : 'text-white glow-text-cyan'}`}>
+                  <Building2 className={`w-4 h-4 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
                   <span>{t('topology_physical_title')}</span>
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className={`text-xs mt-1 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                   {t('topology_physical_desc')}
                 </p>
-                <div className="flex items-center gap-2 mt-2 text-[11px] text-cyan-300/90 font-medium">
-                  <Move className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                <div className={`flex items-center gap-2 mt-2 text-[11px] font-medium ${isLightMode ? 'text-indigo-600' : 'text-cyan-300/90'}`}>
+                  <Move className={`w-3.5 h-3.5 animate-pulse ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
                   <span>{t('topology_physical_drag_hint')}</span>
                 </div>
               </div>
@@ -7186,79 +7165,150 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               </div>
             )}
 
-            {/* Buildings Grid */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {Object.entries(physicalHierarchy).map(([bldgName, floors]) => {
-                const totalDevicesInBldg = Object.values(floors).reduce(
-                  (acc, floorData) => acc + floorData.allDevices.length,
-                  0
-                );
-
-                return (
-                  <div
-                    key={bldgName}
-                    className="spatial-glass border border-white/10 rounded-xl p-4 shadow-xl space-y-3"
+            {/* Buildings Grid / Loading / Empty State */}
+            {isHierarchyLoading ? (
+              <div
+                className={`p-12 rounded-2xl border text-center flex flex-col items-center justify-center gap-3 transition-colors ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 shadow-slate-200/50 text-slate-700'
+                    : 'spatial-glass border-white/10 text-slate-300'
+                }`}
+              >
+                <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-medium">{t('topology_physical_loading')}</span>
+              </div>
+            ) : Object.keys(physicalHierarchy).length === 0 ? (
+              <div
+                className={`p-12 rounded-2xl border text-center flex flex-col items-center justify-center max-w-xl mx-auto space-y-4 shadow-xl transition-colors ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 shadow-slate-200/50'
+                    : 'spatial-glass border-white/10'
+                }`}
+              >
+                <div
+                  className={`p-4 rounded-2xl border ${
+                    isLightMode
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                      : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
+                  }`}
+                >
+                  <Building2 className="w-10 h-10" />
+                </div>
+                <div className="space-y-1.5">
+                  <h4 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {t('topology_physical_empty_title')}
+                  </h4>
+                  <p
+                    className={`text-xs max-w-md mx-auto leading-relaxed ${
+                      isLightMode ? 'text-slate-600' : 'text-slate-400'
+                    }`}
                   >
-                    {/* Building Title & Management Actions */}
-                    <div className="flex items-center justify-between pb-2.5 border-b border-white/10 flex-wrap gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                          <Building2 className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-sm font-bold text-white">{bldgName}</h4>
-                            <div className="flex items-center gap-1 opacity-80 hover:opacity-100">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRenameModal({
-                                    type: 'building',
-                                    building: bldgName,
-                                    currentName: bldgName,
-                                    newName: bldgName,
-                                  })
-                                }
-                                className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-white/5 transition"
-                                title={t('topology_physical_edit')}
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDeleteModal({
-                                    type: 'building',
-                                    building: bldgName,
-                                    deviceCount: totalDevicesInBldg,
-                                  })
-                                }
-                                className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-white/5 transition"
-                                title={t('topology_physical_delete')}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </div>
-                          <span className="text-[11px] text-slate-400">
-                            {t('topology_devices_in_building', { count: totalDevicesInBldg })}
-                          </span>
-                        </div>
-                      </div>
+                    {t('topology_physical_empty_desc')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddBuildingModal(true);
+                    setNewBuildingInput('');
+                  }}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-cyan-600/20 active:scale-95 transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{t('topology_physical_empty_add_btn')}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {Object.entries(physicalHierarchy).map(([bldgName, floors]) => {
+                  const totalDevicesInBldg = Object.values(floors).reduce(
+                    (acc, floorData) => acc + floorData.allDevices.length,
+                    0
+                  );
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAddFloorBuilding(bldgName);
-                          setNewFloorInput('');
-                        }}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-xs transition cursor-pointer"
-                        title={t('topology_physical_add_floor_btn')}
-                      >
-                        <Plus className="w-3.5 h-3.5 text-cyan-400" />
-                        <span className="text-[11px] font-medium">{t('topology_physical_add_floor_btn')}</span>
-                      </button>
-                    </div>
+                  return (
+                    <div
+                      key={bldgName}
+                      className={`border rounded-xl p-4 shadow-xl space-y-3 transition-colors ${
+                        isLightMode
+                          ? 'bg-white border-slate-200 shadow-slate-200/50 text-slate-800'
+                          : 'spatial-glass border-white/10 text-slate-100'
+                      }`}
+                    >
+                      {/* Building Title & Management Actions */}
+                      <div className={`flex items-center justify-between pb-2.5 border-b flex-wrap gap-2 ${
+                        isLightMode ? 'border-slate-200' : 'border-white/10'
+                      }`}>
+                        <div className="flex items-center gap-2.5">
+                          <div className={`p-2 rounded-lg border ${
+                            isLightMode
+                              ? 'bg-indigo-50 text-indigo-600 border-indigo-200'
+                              : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                          }`}>
+                            <Building2 className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className={`text-sm font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>{bldgName}</h4>
+                              <div className="flex items-center gap-1 opacity-80 hover:opacity-100">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRenameModal({
+                                      type: 'building',
+                                      building: bldgName,
+                                      currentName: bldgName,
+                                      newName: bldgName,
+                                    })
+                                  }
+                                  className={`p-1 rounded transition ${
+                                    isLightMode ? 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100' : 'text-slate-400 hover:text-cyan-300 hover:bg-white/5'
+                                  }`}
+                                  title={t('topology_physical_edit')}
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDeleteModal({
+                                      type: 'building',
+                                      building: bldgName,
+                                      deviceCount: totalDevicesInBldg,
+                                    })
+                                  }
+                                  className={`p-1 rounded transition ${
+                                    isLightMode ? 'text-slate-400 hover:text-rose-600 hover:bg-slate-100' : 'text-slate-400 hover:text-rose-400 hover:bg-white/5'
+                                  }`}
+                                  title={t('topology_physical_delete')}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                            <span className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                              {t('topology_devices_in_building', { count: totalDevicesInBldg })}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddFloorBuilding(bldgName);
+                            setNewFloorInput('');
+                          }}
+                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border ${
+                            isLightMode
+                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200'
+                              : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border-white/10'
+                          }`}
+                          title={t('topology_physical_add_floor_btn')}
+                        >
+                          <Plus className={`w-3.5 h-3.5 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
+                          <span className="text-[11px] font-medium">{t('topology_physical_add_floor_btn')}</span>
+                        </button>
+                      </div>
 
                     {/* Floors in this building */}
                     <div className="space-y-3">
@@ -7323,16 +7373,22 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                             }}
                             className={`rounded-xl p-3.5 space-y-3 transition-all duration-200 border ${
                               isFloorDropHovered
-                                ? 'bg-cyan-950/50 border-cyan-400 ring-2 ring-cyan-400/50 shadow-[0_0_25px_rgba(6,182,212,0.35)] scale-[1.01]'
+                                ? isLightMode
+                                  ? 'bg-cyan-50 border-cyan-500 ring-2 ring-cyan-400/50 shadow-lg scale-[1.01]'
+                                  : 'bg-cyan-950/50 border-cyan-400 ring-2 ring-cyan-400/50 shadow-[0_0_25px_rgba(6,182,212,0.35)] scale-[1.01]'
                                 : isAnyDragging
-                                ? 'bg-slate-900/60 border-dashed border-cyan-500/40 hover:border-cyan-400 hover:bg-cyan-950/20'
+                                ? isLightMode
+                                  ? 'bg-slate-100/80 border-dashed border-cyan-500/50 hover:border-cyan-500 hover:bg-cyan-50/50'
+                                  : 'bg-slate-900/60 border-dashed border-cyan-500/40 hover:border-cyan-400 hover:bg-cyan-950/20'
+                                : isLightMode
+                                ? 'bg-slate-50/90 border-slate-200'
                                 : 'bg-slate-900/50 border-white/5'
                             }`}
                           >
                             {/* Floor Header & Control Actions */}
                             <div className="flex items-center justify-between text-xs flex-wrap gap-2">
                               <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1.5 font-bold text-cyan-400">
+                                <div className={`flex items-center gap-1.5 font-bold ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`}>
                                   <Layers className="w-3.5 h-3.5" />
                                   <span>{floorName}</span>
                                 </div>
@@ -7740,6 +7796,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 );
               })}
             </div>
+            )}
           </div>
         )}
 

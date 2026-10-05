@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.271.0';
+export const APP_VERSION = '1.272.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.272.0',
+    releaseDate: '2026-10-05',
+    type: 'minor',
+    title: 'فاز ۲: لودینگ اصیل، حذف کَش محلی فیک و ایجاد Empty State استاندارد در جانمایی فیزیکی (Physical Placement Authentic Loading & Empty State)',
+    title_en: 'Phase 2: Authentic Database Loading, Purging Mock Cache & Standard Empty State in Physical Placement',
+    changes: [
+      'اصلاح لود اولیه در SchematicTopologyView و AddDeviceModal تا سلسله‌مراتب مکان‌های فیزیکی منحصراً و به‌طور مستقیم از پایگاه داده دریافت شود.',
+      'حذف کامل تولید مصنوعی ساختمان‌های فیک (مانند Other Buildings و Central HQ) در صورت خالی بودن دیتابیس.',
+      'طراحی و پیاده‌سازی نمای خالی استاندارد (Authentic Empty State) سازگار با تم تیره و روشن همراه با نشانگر بارگذاری (Loading Spinner) و دکمه ایجاد اولین ساختمان.',
+      'تطبیق کامل استایل‌ها و کنتراست ارگونومیک کارت‌های ساختمان و طبقات با تم فعال پنل (تیره و روشن) و پشتیبانی دوزبانه.'
+    ],
+    changes_en: [
+      'Refactored initial hierarchy loading across SchematicTopologyView and AddDeviceModal to establish PostgreSQL database as the sole single source of truth.',
+      'Completely eliminated synthetic fallback generation of mock buildings (such as Other Buildings or Central HQ) when no locations exist in the database.',
+      'Designed and integrated an authentic, theme-adaptive Empty State with loading spinner and a direct CTA button to register the first physical building.',
+      'Full theme parity across dark and light modes for building containers, floor frames, and controls with strict bilingual translation keys.'
+    ],
+  },
   {
     version: '1.271.0',
     releaseDate: '2026-10-05',
