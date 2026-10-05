@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.273.0';
+export const APP_VERSION = '1.274.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.274.0',
+    releaseDate: '2026-10-05',
+    type: 'minor',
+    title: 'فاز ۵: تست یکپارچگی، انطباق کامل تم تیره/روشن، اعتبارسنجی دوزبانگی و ارتقای نسخه (Testing, Ergonomic Theming & Full Localization Validation)',
+    title_en: 'Phase 5: Full Integration Testing, Ergonomic Dark/Light Theming, Strict Bilingual Validation & Version Upgrade',
+    changes: [
+      'تطبیق جامع و ۱۰۰ درصدی تمام مودال‌های بخش جانمایی فیزیکی (افزودن طبقه، ساختمان، واحد، رک، تغییر نام، حذف و کشوی جزئیات نود) با هر دو تم تیره و روشن.',
+      'اعتبارسنجی کامل دوزبانگی و اطمینان از عدم نمایش متن انگلیسی در حالت فارسی و بالعکس در کلیه بخش‌های جانمایی فیزیکی، سینی تجهیزات و تولتیپ‌ها.',
+      'بهبود کنتراست ارگونومیک، خطوط مرزی و تفکیک بصری در تم روشن بدون کدورت یا تیرگی نامناسب.',
+      'اجرای موفق تست‌های بیلد کامل (compile_applet) و تایپ‌چک سراسری (tsc --noEmit) بدون خطا.',
+    ],
+    changes_en: [
+      'Full 100% ergonomic adaptation of all physical placement modals (Add Floor, Add Building, Add Unit, Add Rack, Rename, Delete confirmation, and Node Detail drawer) across both dark and light modes.',
+      'Strict bilingual validation guaranteeing zero Persian text leakage in English mode and comprehensive Persian localization in Persian mode across all shelves, badges, and tooltips.',
+      'Enhanced ergonomic contrast, crisp borders, and visual separation in light mode without improper dullness or dark artifacts.',
+      'Successful end-to-end build verification (compile_applet) and global typecheck (tsc --noEmit) with zero errors.',
+    ],
+  },
   {
     version: '1.273.0',
     releaseDate: '2026-10-05',

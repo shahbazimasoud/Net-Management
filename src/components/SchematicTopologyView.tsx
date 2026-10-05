@@ -7385,7 +7385,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               }`}
             >
               {/* Shelf Header */}
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-white/10">
+              <div
+                className={`flex items-center justify-between flex-wrap gap-2 pb-3 border-b ${
+                  isLightMode ? 'border-slate-200' : 'border-white/10'
+                }`}
+              >
                 <div className="flex items-center gap-2.5">
                   <div
                     className={`p-2 rounded-xl border ${
@@ -7787,7 +7791,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                   <span>{t('topology_physical_add_rack_btn')}</span>
                                 </button>
 
-                                <span className="text-[10px] text-slate-400 bg-slate-900/80 px-2 py-0.5 rounded-lg border border-white/10 font-mono">
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-lg border font-mono ${
+                                    isLightMode
+                                      ? 'text-slate-600 bg-slate-100 border-slate-200'
+                                      : 'text-slate-400 bg-slate-900/80 border-white/10'
+                                  }`}
+                                >
                                   {t('topology_devices_on_floor', { count: floorData.allDevices.length })}
                                 </span>
                               </div>
@@ -8135,10 +8145,26 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
         {/* Node Detail Slide-out Drawer */}
         {selectedNode && (
-          <div className={`w-80 lg:w-96 spatial-glass ${isRtl ? 'border-r' : 'border-l'} border-white/10 p-4 overflow-y-auto flex flex-col z-30 shadow-2xl backdrop-blur-2xl text-slate-100`}>
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+          <div
+            className={`w-80 lg:w-96 ${
+              isLightMode
+                ? 'bg-white/95 border-slate-200 text-slate-800 shadow-slate-300/50'
+                : 'spatial-glass border-white/10 text-slate-100'
+            } ${isRtl ? 'border-r' : 'border-l'} p-4 overflow-y-auto flex flex-col z-30 shadow-2xl backdrop-blur-2xl`}
+          >
+            <div
+              className={`flex items-center justify-between pb-3 border-b ${
+                isLightMode ? 'border-slate-200' : 'border-white/10'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-indigo-50 text-indigo-600 border-indigo-200'
+                      : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                  }`}
+                >
                   {selectedNode.type === 'switch' ? (
                     <Server className="w-4 h-4" />
                   ) : selectedNode.type === 'router' ? (
@@ -8148,96 +8174,174 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   )}
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-white font-mono">{selectedNode.name}</h4>
-                  <span className="text-[11px] text-slate-400">{selectedNode.role}</span>
+                  <h4
+                    className={`text-sm font-bold font-mono ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
+                    {selectedNode.name}
+                  </h4>
+                  <span
+                    className={`text-[11px] ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
+                    {selectedNode.role}
+                  </span>
                 </div>
               </div>
               <button
                 onClick={() => setSelectedNodeId(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition"
+                className={`p-1 rounded-lg transition ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
               >
                 ✕
               </button>
             </div>
 
             {/* Quick Status Bar */}
-            <div className="my-3 p-3 rounded-xl bg-slate-900/60 border border-white/10 space-y-2 text-xs">
+            <div
+              className={`my-3 p-3 rounded-xl border space-y-2 text-xs ${
+                isLightMode
+                  ? 'bg-slate-50 border-slate-200 text-slate-700'
+                  : 'bg-slate-900/60 border-white/10 text-slate-300'
+              }`}
+            >
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">{t('topology_details_realtime_status')}</span>
+                <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                  {t('topology_details_realtime_status')}
+                </span>
                 <span
                   className={`font-semibold flex items-center gap-1 ${
-                    selectedNode.is_online ? 'text-emerald-400' : 'text-rose-400'
+                    selectedNode.is_online ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'
                   }`}
                 >
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
-                      selectedNode.is_online ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
+                      selectedNode.is_online ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
                     }`}
                   ></span>
                   {selectedNode.is_online ? 'ONLINE' : 'OFFLINE'}
                 </span>
               </div>
               <div className="flex items-center justify-between font-mono">
-                <span className="text-slate-400">{t('topology_details_ip')}</span>
-                <span className="text-indigo-300 font-bold">{selectedNode.ip}</span>
+                <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                  {t('topology_details_ip')}
+                </span>
+                <span className={`font-bold ${isLightMode ? 'text-indigo-600' : 'text-indigo-300'}`}>
+                  {selectedNode.ip}
+                </span>
               </div>
               <div className="flex items-center justify-between font-mono">
-                <span className="text-slate-400">{t('topology_details_latency')}</span>
-                <span className="text-slate-200">
+                <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                  {t('topology_details_latency')}
+                </span>
+                <span className={isLightMode ? 'text-slate-800' : 'text-slate-200'}>
                   {selectedNode.is_online ? `${selectedNode.latency_ms || 1.1} ms` : (isEn ? 'Timeout (100% loss)' : 'نامحدود (100% loss)')}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">{t('topology_details_model')}</span>
-                <span className="text-slate-200 font-mono text-[11px]">{selectedNode.model}</span>
+                <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                  {t('topology_details_model')}
+                </span>
+                <span className={`font-mono text-[11px] ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
+                  {selectedNode.model}
+                </span>
               </div>
             </div>
 
             {/* Location Specs */}
             <div className="space-y-1.5 text-xs mb-3">
-              <div className="text-[11px] font-bold text-white flex items-center gap-1.5">
+              <div className={`text-[11px] font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
                 <MapPin className="w-3.5 h-3.5 text-indigo-400" />
                 <span>{t('topology_details_location_title')}</span>
               </div>
-              <div className="p-3 rounded-xl bg-slate-900/60 border border-white/10 space-y-1.5 text-slate-300">
+              <div
+                className={`p-3 rounded-xl border space-y-1.5 ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-200 text-slate-700'
+                    : 'bg-slate-900/60 border-white/10 text-slate-300'
+                }`}
+              >
                 <div className="flex justify-between">
-                  <span className="text-slate-400">{t('topology_details_building')}</span>
-                  <span className="font-medium text-white">{selectedNode.building}</span>
+                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                    {t('topology_details_building')}
+                  </span>
+                  <span className={`font-medium ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {selectedNode.building}
+                  </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">{t('topology_details_floor')}</span>
-                  <span className="font-medium text-white">{selectedNode.floor}</span>
+                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                    {t('topology_details_floor')}
+                  </span>
+                  <span className={`font-medium ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {selectedNode.floor}
+                  </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">{t('topology_details_unit')}</span>
-                  <span className="font-medium text-white">{selectedNode.unit}</span>
+                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                    {t('topology_details_unit')}
+                  </span>
+                  <span className={`font-medium ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {selectedNode.unit}
+                  </span>
                 </div>
                 {selectedNode.rack && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">{t('topology_details_rack')}</span>
-                    <span className="font-mono text-cyan-300 font-bold">{selectedNode.rack}</span>
+                    <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                      {t('topology_details_rack')}
+                    </span>
+                    <span className={`font-mono font-bold ${isLightMode ? 'text-cyan-700' : 'text-cyan-300'}`}>
+                      {selectedNode.rack}
+                    </span>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Protocol Support */}
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-white/10 text-xs mb-3 space-y-1.5">
+            <div
+              className={`p-3 rounded-xl border text-xs mb-3 space-y-1.5 ${
+                isLightMode
+                  ? 'bg-slate-50 border-slate-200 text-slate-700'
+                  : 'bg-slate-900/60 border-white/10 text-slate-300'
+              }`}
+            >
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">{t('topology_details_cdp')}</span>
+                <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                  {t('topology_details_cdp')}
+                </span>
                 <span
                   className={
-                    selectedNode.cdp_enabled ? 'text-emerald-400 font-medium' : 'text-slate-500'
+                    selectedNode.cdp_enabled
+                      ? isLightMode
+                        ? 'text-emerald-600 font-medium'
+                        : 'text-emerald-400 font-medium'
+                      : isLightMode
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                   }
                 >
                   {selectedNode.cdp_enabled ? (isEn ? 'Active (Cisco CDP v2)' : 'فعال (Cisco CDP v2)') : (isEn ? 'Disabled' : 'غیرفعال')}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-400">{t('topology_details_lldp')}</span>
+                <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>
+                  {t('topology_details_lldp')}
+                </span>
                 <span
                   className={
-                    selectedNode.lldp_enabled ? 'text-emerald-400 font-medium' : 'text-slate-500'
+                    selectedNode.lldp_enabled
+                      ? isLightMode
+                        ? 'text-emerald-600 font-medium'
+                        : 'text-emerald-400 font-medium'
+                      : isLightMode
+                      ? 'text-slate-400'
+                      : 'text-slate-500'
                   }
                 >
                   {selectedNode.lldp_enabled ? (isEn ? 'Active (IEEE 802.1AB)' : 'فعال (IEEE 802.1AB)') : (isEn ? 'Disabled' : 'غیرفعال')}
@@ -8291,26 +8395,54 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           onClick={() => setAddFloorBuilding(null)}
         >
           <div
-            className="relative w-full max-w-md flex flex-col rounded-2xl bg-slate-900 border border-white/20 text-slate-100 shadow-2xl overflow-hidden my-auto"
+            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/20 text-slate-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-slate-800/60">
+            <div
+              className={`flex items-center justify-between px-5 py-4 border-b ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-cyan-50 text-cyan-600 border-cyan-200'
+                      : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                  }`}
+                >
                   <Layers className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3
+                    className={`text-sm font-bold ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {t('topology_physical_add_floor_btn')}
                   </h3>
-                  <p className="text-[11px] text-slate-400">{addFloorBuilding}</p>
+                  <p
+                    className={`text-[11px] ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
+                    {addFloorBuilding}
+                  </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setAddFloorBuilding(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8319,7 +8451,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             {/* Body */}
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                <label
+                  className={`block text-xs font-medium mb-1.5 ${
+                    isLightMode ? 'text-slate-700' : 'text-slate-300'
+                  }`}
+                >
                   {t('topology_physical_new_floor_name')}
                 </label>
                 <input
@@ -8332,18 +8468,30 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     }
                   }}
                   placeholder={isEn ? 'e.g. Floor 3, NOC Room, Server Room B' : 'مانند طبقه ۳، اتاق سرور ب، مرکز داده'}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:ring-cyan-500'
+                      : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:ring-cyan-400'
+                  }`}
                   autoFocus
                 />
               </div>
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-950/40 border-t border-white/10">
+            <div
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setAddFloorBuilding(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 transition cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 border-white/10'
+                }`}
               >
                 {t('topology_physical_cancel_btn')}
               </button>
@@ -8368,20 +8516,42 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           onClick={() => setShowAddBuildingModal(false)}
         >
           <div
-            className="relative w-full max-w-md flex flex-col rounded-2xl bg-slate-900 border border-white/20 text-slate-100 shadow-2xl overflow-hidden my-auto"
+            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/20 text-slate-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-slate-800/60">
+            <div
+              className={`flex items-center justify-between px-5 py-4 border-b ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-indigo-50 text-indigo-600 border-indigo-200'
+                      : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                  }`}
+                >
                   <Building2 className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3
+                    className={`text-sm font-bold ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {t('topology_physical_add_bldg_btn')}
                   </h3>
-                  <p className="text-[11px] text-slate-400">
+                  <p
+                    className={`text-[11px] ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
                     {isEn ? 'Create a new structural building in network topology' : 'تعریف ساختمان جدید در توپولوژی فیزیکی شبکه'}
                   </p>
                 </div>
@@ -8389,7 +8559,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAddBuildingModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -8398,7 +8572,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             {/* Body */}
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                <label
+                  className={`block text-xs font-medium mb-1.5 ${
+                    isLightMode ? 'text-slate-700' : 'text-slate-300'
+                  }`}
+                >
                   {t('topology_physical_new_bldg_name')}
                 </label>
                 <input
@@ -8411,18 +8589,30 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     }
                   }}
                   placeholder={isEn ? 'e.g. Engineering Building, Data Center 2' : 'مانند ساختمان مهندسی، دیتاسنتر ۲، شعبه شرق'}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:ring-cyan-500'
+                      : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:ring-cyan-400'
+                  }`}
                   autoFocus
                 />
               </div>
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-950/40 border-t border-white/10">
+            <div
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setShowAddBuildingModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 transition cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 border-white/10'
+                }`}
               >
                 {t('topology_physical_cancel_btn')}
               </button>
@@ -8983,19 +9173,41 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           onClick={() => setAddUnitModal(null)}
         >
           <div
-            className="relative w-full max-w-md flex flex-col rounded-2xl bg-slate-900 border border-white/20 text-slate-100 shadow-2xl overflow-hidden my-auto"
+            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/20 text-slate-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-slate-800/60">
+            <div
+              className={`flex items-center justify-between px-5 py-4 border-b ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-indigo-50 text-indigo-600 border-indigo-200'
+                      : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                  }`}
+                >
                   <Boxes className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3
+                    className={`text-sm font-bold ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {t('topology_physical_add_unit_btn')}
                   </h3>
-                  <p className="text-[11px] text-slate-400 font-mono">
+                  <p
+                    className={`text-[11px] font-mono ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
                     {addUnitModal.building} &gt; {addUnitModal.floor}
                   </p>
                 </div>
@@ -9003,7 +9215,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <button
                 type="button"
                 onClick={() => setAddUnitModal(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -9011,7 +9227,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                <label
+                  className={`block text-xs font-medium mb-1.5 ${
+                    isLightMode ? 'text-slate-700' : 'text-slate-300'
+                  }`}
+                >
                   {t('topology_physical_new_unit_name')}
                 </label>
                 <input
@@ -9024,17 +9244,29 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     }
                   }}
                   placeholder={isEn ? 'e.g. IT Department, Server Room 102, Finance' : 'مانند واحد فناوری اطلاعات، اتاق سرور ۱۰۲، مالی'}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-indigo-500'
+                      : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:ring-indigo-400'
+                  }`}
                   autoFocus
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-950/40 border-t border-white/10">
+            <div
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setAddUnitModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 transition cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 border-white/10'
+                }`}
               >
                 {t('topology_physical_cancel_btn')}
               </button>
@@ -9059,19 +9291,41 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           onClick={() => setAddRackModal(null)}
         >
           <div
-            className="relative w-full max-w-md flex flex-col rounded-2xl bg-slate-900 border border-white/20 text-slate-100 shadow-2xl overflow-hidden my-auto"
+            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/20 text-slate-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-slate-800/60">
+            <div
+              className={`flex items-center justify-between px-5 py-4 border-b ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-cyan-50 text-cyan-600 border-cyan-200'
+                      : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                  }`}
+                >
                   <Server className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3
+                    className={`text-sm font-bold ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {t('topology_physical_add_rack_btn')}
                   </h3>
-                  <p className="text-[11px] text-slate-400 font-mono">
+                  <p
+                    className={`text-[11px] font-mono ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
                     {addRackModal.building} &gt; {addRackModal.floor}
                   </p>
                 </div>
@@ -9079,7 +9333,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <button
                 type="button"
                 onClick={() => setAddRackModal(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -9087,7 +9345,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                <label
+                  className={`block text-xs font-medium mb-1.5 ${
+                    isLightMode ? 'text-slate-700' : 'text-slate-300'
+                  }`}
+                >
                   {t('topology_physical_new_rack_name')}
                 </label>
                 {(() => {
@@ -9106,15 +9368,17 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           }
                         }}
                         placeholder={isEn ? 'e.g. Rack-A1, 42U-Core-Rack, Distribution-B' : 'مانند رک اصلی سرور، Rack-A1، رک توزیع طبقه'}
-                        className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border text-white text-xs placeholder:text-slate-500 focus:outline-none focus:ring-1 ${
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
                           isDuplicate
-                            ? 'border-red-500/80 focus:border-red-500 focus:ring-red-500'
-                            : 'border-white/15 focus:border-cyan-400 focus:ring-cyan-400'
+                            ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:ring-cyan-500'
+                            : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:ring-cyan-400'
                         }`}
                         autoFocus
                       />
                       {isDuplicate && (
-                        <p className="mt-1.5 text-xs text-red-400 font-medium flex items-center gap-1">
+                        <p className="mt-1.5 text-xs text-red-500 font-medium flex items-center gap-1">
                           <span>⚠️</span>
                           <span>
                             {isEn
@@ -9129,11 +9393,19 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-950/40 border-t border-white/10">
+            <div
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setAddRackModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 transition cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 border-white/10'
+                }`}
               >
                 {t('topology_physical_cancel_btn')}
               </button>
@@ -9165,19 +9437,41 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           onClick={() => setRenameModal(null)}
         >
           <div
-            className="relative w-full max-w-md flex flex-col rounded-2xl bg-slate-900 border border-white/20 text-slate-100 shadow-2xl overflow-hidden my-auto"
+            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-800'
+                : 'bg-slate-900 border-white/20 text-slate-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-slate-800/60">
+            <div
+              className={`flex items-center justify-between px-5 py-4 border-b ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-cyan-50 text-cyan-600 border-cyan-200'
+                      : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                  }`}
+                >
                   <Edit2 className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3
+                    className={`text-sm font-bold ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {t('topology_physical_rename_modal_title')}
                   </h3>
-                  <p className="text-[11px] text-slate-400 font-mono">
+                  <p
+                    className={`text-[11px] font-mono ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
                     {(renameModal.type || '').toUpperCase()}: {renameModal.currentName}
                   </p>
                 </div>
@@ -9185,7 +9479,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <button
                 type="button"
                 onClick={() => setRenameModal(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -9193,7 +9491,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
             <div className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                <label
+                  className={`block text-xs font-medium mb-1.5 ${
+                    isLightMode ? 'text-slate-700' : 'text-slate-300'
+                  }`}
+                >
                   {t('topology_physical_new_name_label')}
                 </label>
                 <input
@@ -9207,17 +9509,29 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       handleRenameSubmit();
                     }
                   }}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/80 border border-white/15 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:ring-cyan-500'
+                      : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:ring-cyan-400'
+                  }`}
                   autoFocus
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-950/40 border-t border-white/10">
+            <div
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setRenameModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 transition cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 border-white/10'
+                }`}
               >
                 {t('topology_physical_cancel_btn')}
               </button>
@@ -9242,19 +9556,43 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           onClick={() => setDeleteModal(null)}
         >
           <div
-            className="relative w-full max-w-md flex flex-col rounded-2xl bg-slate-900 border border-rose-500/30 text-slate-100 shadow-2xl overflow-hidden my-auto"
+            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+              isLightMode
+                ? 'bg-white border-rose-200 text-slate-800'
+                : 'bg-slate-900 border-rose-500/30 text-slate-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-rose-500/20 bg-rose-950/40">
+            <div
+              className={`flex items-center justify-between px-5 py-4 border-b ${
+                isLightMode
+                  ? 'bg-rose-50/70 border-rose-200'
+                  : 'bg-rose-950/40 border-rose-500/20'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                <div
+                  className={`p-2 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-rose-100 text-rose-600 border-rose-300'
+                      : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                  }`}
+                >
                   <AlertTriangle className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3
+                    className={`text-sm font-bold ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     {t('topology_physical_delete_modal_title')}
                   </h3>
-                  <p className="text-[11px] text-rose-300/80 font-mono">
+                  <p
+                    className={`text-[11px] font-mono ${
+                      isLightMode ? 'text-rose-600 font-medium' : 'text-rose-300/80'
+                    }`}
+                  >
                     {(deleteModal.type || '').toUpperCase()}: {deleteModal.item || deleteModal.building}
                   </p>
                 </div>
@@ -9262,21 +9600,31 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDeleteModal(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-5 space-y-3 text-xs">
-              <p className="text-slate-200">
+              <p className={isLightMode ? 'text-slate-700' : 'text-slate-200'}>
                 {t('topology_physical_delete_confirm', {
                   name: deleteModal.item || deleteModal.building,
                 })}
               </p>
               {deleteModal.deviceCount > 0 && (
-                <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div
+                  className={`p-3 rounded-xl border flex items-start gap-2 ${
+                    isLightMode
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                      : 'bg-rose-950/40 border-rose-500/30 text-rose-200'
+                  }`}
+                >
+                  <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                   <span>
                     {t('topology_physical_delete_warning', { count: deleteModal.deviceCount })}
                   </span>
@@ -9284,11 +9632,19 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 bg-slate-950/40 border-t border-white/10">
+            <div
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setDeleteModal(null)}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 border border-white/10 transition cursor-pointer"
+                className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                  isLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 border-white/10'
+                }`}
               >
                 {t('topology_physical_cancel_btn')}
               </button>
