@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.274.0';
+export const APP_VERSION = '1.274.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.274.1',
+    releaseDate: '2026-10-05',
+    type: 'patch',
+    title: 'حذف آیتم داده‌های نمونه (Demo Data) از هدر اصلی پنل',
+    title_en: 'Remove Demo Data Item from Main Header',
+    changes: [
+      'حذف دکمه و لینک داده‌های نمونه (Demo Data) از نوار هدر اصلی برنامه در راستای انطباق کامل با داده‌های واقعی تجهیزات.',
+    ],
+    changes_en: [
+      'Removed the "Demo Data" button and link from the main navbar header to maintain 100% authentic device data purity.',
+    ],
+  },
   {
     version: '1.274.0',
     releaseDate: '2026-10-05',

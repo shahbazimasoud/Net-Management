@@ -13,7 +13,7 @@ interface NavbarProps {
   isRefreshing: boolean;
   onQuickScan: () => void;
   isScanning: boolean;
-  onResetDemo: () => void;
+  onResetDemo?: () => void;
   onlineCount?: number;
   totalDevices?: number;
   panelTheme: ThemeType;
@@ -28,7 +28,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   isRefreshing,
   onQuickScan,
   isScanning,
-  onResetDemo,
   panelTheme,
   onChangeTheme,
   onOpenReleaseNotes,
@@ -119,15 +118,6 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
           <span className="hidden lg:inline">{t('action_live_ping')}</span>
-        </button>
-
-        {/* Reset Demo Data */}
-        <button
-          onClick={onResetDemo}
-          className="hidden sm:inline text-[11px] text-slate-400 hover:text-indigo-300 underline decoration-white/20 hover:decoration-indigo-400 px-1 py-1 transition cursor-pointer"
-          title={t('action_demo_data_title')}
-        >
-          {t('action_demo_data')}
         </button>
 
         {/* Personal Password Vault Button */}
