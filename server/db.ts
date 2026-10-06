@@ -3019,9 +3019,14 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
   }
 
   const cleanUsername = (user.username || '').trim().toLowerCase();
+  const samAccount = cleanUsername.includes('@')
+    ? cleanUsername.split('@')[0]
+    : cleanUsername.includes('\\')
+    ? cleanUsername.split('\\')[1]
+    : cleanUsername;
   const userId = (user.id || '').trim();
   const roleName = (user.role || '').trim().toLowerCase();
-  const isSuperAdmin = cleanUsername === 'admin' || roleName.includes('super admin') || roleName.includes('administrator');
+  const isSuperAdmin = cleanUsername === 'admin' || samAccount === 'admin' || roleName.includes('super admin') || roleName.includes('administrator');
 
   // Load policies from PostgreSQL (or fallback store)
   const policies = await getAccessPolicies();
@@ -3029,7 +3034,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
   const userGroups = await getUserGroups();
 
   const matchingPolicies: any[] = [];
-  const userGroupIds: string[] = Array.isArray(user.groupIds)
+  const rawGroupIds: string[] = Array.isArray(user.groupIds)
     ? user.groupIds
     : Array.isArray(user.group_ids)
     ? user.group_ids
@@ -3037,26 +3042,51 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     ? JSON.parse(user.group_ids || '[]')
     : [];
 
-  const userGroupSet = new Set(userGroupIds.map((g) => (g || '').toLowerCase()));
+  const rawAdGroups: string[] = Array.isArray(user.groups)
+    ? user.groups
+    : [];
+
+  const combinedGroupList = [...rawGroupIds, ...rawAdGroups];
+  const userGroupSet = new Set(combinedGroupList.map((g) => (g || '').toLowerCase()));
 
   for (const p of policies) {
-    // 1. Direct user match by subjectId
+    // 1. Direct user match by subjectId (supports username, samAccountName, email, DN, or ID)
     if (
       (p.subjectType === 'local_user' || p.subjectType === 'ad_user') &&
-      p.subjectId &&
-      (
-        p.subjectId === userId ||
-        p.subjectId.toLowerCase() === cleanUsername ||
-        cleanUsername.startsWith(p.subjectId.toLowerCase())
-      )
+      p.subjectId
     ) {
-      matchingPolicies.push(p);
-      continue;
+      const pSub = p.subjectId.toLowerCase();
+      if (
+        p.subjectId === userId ||
+        pSub === cleanUsername ||
+        pSub === samAccount ||
+        cleanUsername === pSub ||
+        (user.email && pSub === user.email.toLowerCase()) ||
+        (user.dn && pSub === user.dn.toLowerCase())
+      ) {
+        matchingPolicies.push(p);
+        continue;
+      }
     }
 
-    // 2. Direct user group match
+    // 2. Direct user group match (supports local group IDs and AD group DN / CN)
     if (p.subjectType === 'local_group' || p.subjectType === 'ad_group') {
-      if (p.subjectId && userGroupSet.has(p.subjectId.toLowerCase())) {
+      const pSub = (p.subjectId || '').toLowerCase();
+      const pSubName = (p.subjectName || '').toLowerCase();
+
+      // Check if user has this group by ID, DN, or CN
+      const matchesGroup =
+        (pSub && userGroupSet.has(pSub)) ||
+        (pSubName && userGroupSet.has(pSubName)) ||
+        combinedGroupList.some((g) => {
+          const gLower = (g || '').toLowerCase();
+          return (
+            (pSub && (pSub === gLower || pSub.includes(`cn=${gLower},`) || pSub.endsWith(`cn=${gLower}`))) ||
+            (pSubName && (pSubName === gLower || pSubName.includes(gLower)))
+          );
+        });
+
+      if (matchesGroup) {
         matchingPolicies.push(p);
         continue;
       }
@@ -3076,7 +3106,11 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
           ? JSON.parse(matchingGroup.member_user_ids || '[]')
           : [];
         const lowerMembers = members.map((m) => (m || '').toLowerCase());
-        if (lowerMembers.includes(userId.toLowerCase()) || lowerMembers.includes(cleanUsername)) {
+        if (
+          lowerMembers.includes(userId.toLowerCase()) ||
+          lowerMembers.includes(cleanUsername) ||
+          lowerMembers.includes(samAccount)
+        ) {
           matchingPolicies.push(p);
           continue;
         }

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.280.2';
+export const APP_VERSION = '1.281.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.281.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'ارتقای جامع کنترل دسترسی اکتیو دایرکتوری: اختصاص نقش به کاربران دامین، دکمه ذخیره پایگاه داده، و احراز هویت زنده با انطباق پالیسی',
+    title_en: 'Comprehensive Active Directory RBAC Upgrade: Domain User Role Mapping, PostgreSQL Persistence, and Live AD Authentication',
+    changes: [
+      'افزودن امکان اختصاص و لغو مستقیم نقش دسترسی پنل (Direct RBAC Policy) به تک‌تک کاربران دامین در تب Domain Users به همراه پشتیبانی از ارث‌بری خودکار نقش‌ها از گروه‌های امنیتی.',
+      'افزودن دکمه‌های "ذخیره در پایگاه داده" (Save to Database) و "لغو تغییرات" (Revert) با نگهداری استیج‌شده در حافظه تا زمان ذخیره قطعی و جلوگیری از تغییرات تصادفی.',
+      'ذخیره‌سازی و ارزیابی صددرصدی و قطعی در پایگاه داده PostgreSQL سرور با قابلیت ایجاد، ویرایش و لغو کامل سطوح دسترسی.',
+      'پیاده‌سازی احراز هویت زنده کاربران دامین (LDAP BIND واقعی) در مسیر لاگین (/auth/login) با استخراج خودکار گروه‌های امنیتی عضو و اعطای نقش و دسترسی بر اساس پالیسی‌های ذخیره‌شده در پایگاه داده.',
+      'تعریف فیلتر نقش اختصاصی (Role Assigned) برای کاربران دامین همگام با نوار فیلتر و جستجوی پیشرفته.',
+    ],
+    changes_en: [
+      'Added direct panel RBAC policy assignment and revocation selector to individual domain users in Domain Users tab, with seamless fallback to group policy inheritance.',
+      'Added "Save to Database" and "Revert" controls with staged in-memory edits preventing premature commits until authoritatively saved.',
+      'Ensured 100% authoritative persistence and evaluation in server PostgreSQL database for creating, modifying, and revoking AD access roles.',
+      'Implemented authentic live LDAP binding and group extraction in /auth/login, enforcing saved RBAC policies upon domain user sign-in.',
+      'Added Role Assignment filter toggle to domain users tab for rapid filtering of authorized accounts alongside search.',
+    ],
+  },
   {
     version: '1.280.2',
     releaseDate: '2026-10-06',

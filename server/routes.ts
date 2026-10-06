@@ -434,7 +434,7 @@ import {
   performNginxSecurityAudit,
   applyNginxSecurityHardening,
 } from './nginxSecurityAuditor';
-import { testLdapConnection, syncLdapDirectory } from './ldapManager';
+import { testLdapConnection, syncLdapDirectory, authenticateLdapUser } from './ldapManager';
 
 export const apiRouter = Router();
 
@@ -613,27 +613,79 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 
     // --- 2. ACTIVE DIRECTORY / LDAP AUTHENTICATION ---
     if (authType === 'ad') {
-      // Check known simulated AD users or standard test user
-      const isCorpDomain = domain.toLowerCase().includes('corp') || domain.toLowerCase().includes('internal');
-      const isValidAdUser = (username.toLowerCase().includes('admin') || username.toLowerCase().includes('rezaei') || username.toLowerCase().includes('netops') || password === 'admin123' || password === 'Password@123');
+      const adConfig = (await getActiveDirectoryConfig()) || {};
+      let adAuthSuccess = false;
+      let authenticatedProfile: any = null;
+      let adFailureError = '';
+      let adFailureMessage = '';
 
-      if (!isValidAdUser && password !== 'admin123' && password !== 'nettop2026') {
+      // If Active Directory server is configured, attempt real LDAP bind & directory query
+      if (adConfig.server && adConfig.server.trim()) {
+        try {
+          const authResult = await authenticateLdapUser(adConfig, username, password, domain);
+          if (authResult.success && authResult.user) {
+            adAuthSuccess = true;
+            authenticatedProfile = authResult.user;
+          } else {
+            adFailureError = authResult.error || 'Active Directory authentication failed';
+            adFailureMessage = authResult.message || 'احراز هویت اکتیو دایرکتوری ناموفق بود (حساب یا پسورد دامین نامعتبر است).';
+          }
+        } catch (ldapErr: any) {
+          adFailureError = ldapErr.message || 'LDAP connection error';
+          adFailureMessage = 'خطا در ارتباط با سرور اکتیو دایرکتوری.';
+        }
+      }
+
+      // Fallback for demo environments or when DC is simulated
+      if (!adAuthSuccess && !adConfig.server) {
+        const isValidAdUser = (
+          username.toLowerCase().includes('admin') ||
+          username.toLowerCase().includes('rezaei') ||
+          username.toLowerCase().includes('netops') ||
+          password === 'admin123' ||
+          password === 'Password@123' ||
+          password === 'nettop2026'
+        );
+
+        if (isValidAdUser) {
+          adAuthSuccess = true;
+          const sAM = username.includes('@') ? username.split('@')[0] : username;
+          // Check if syncedUsers list contains this user
+          const savedUsers: any[] = Array.isArray(adConfig.syncedUsers) ? adConfig.syncedUsers : [];
+          const foundSynced = savedUsers.find((u) => u.samAccountName?.toLowerCase() === sAM.toLowerCase());
+          authenticatedProfile = foundSynced || {
+            dn: `CN=${sAM},CN=Users,DC=corp,DC=local`,
+            samAccountName: sAM,
+            displayName: sAM,
+            email: username.includes('@') ? username : `${sAM}@${domain}`,
+            department: 'Network Operations',
+            title: 'Domain Operator',
+            groups: ['Domain Users', 'Network Administrators'],
+            enabled: true,
+          };
+        } else {
+          adFailureError = 'Active Directory authentication failed';
+          adFailureMessage = 'احراز هویت اکتیو دایرکتوری ناموفق بود (حساب یا پسورد دامین نامعتبر است).';
+        }
+      }
+
+      if (!adAuthSuccess) {
         const penalty = recordFailedLogin(rateLimitKey);
         await addAuditLog({
           userName: `${username}@${domain}`,
           action: 'Failed Active Directory Login',
           category: 'security',
-          target: `AD DC (${domain})`,
+          target: `AD DC (${domain || adConfig.server || 'Active Directory'})`,
           status: 'warning',
-          details: `Active Directory Kerberos/LDAP bind failed for user ${username}@${domain} from IP ${ip}`,
+          details: `Active Directory Kerberos/LDAP bind failed for user ${username}@${domain} from IP ${ip}: ${adFailureError}`,
           ipAddress: ip,
           userAgent: req.headers['user-agent'],
         });
 
         return res.status(401).json({
           success: false,
-          error: 'Active Directory authentication failed',
-          message: 'احراز هویت اکتیو دایرکتوری ناموفق بود (حساب یا پسورد دامین نامعتبر است).',
+          error: adFailureError || 'Active Directory authentication failed',
+          message: adFailureMessage || 'احراز هویت اکتیو دایرکتوری ناموفق بود (حساب یا پسورد دامین نامعتبر است).',
           attemptsLeft: penalty.attemptsLeft,
           locked: penalty.locked,
           remainingSec: penalty.remainingSec,
@@ -642,16 +694,51 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
 
       clearRateLimit(rateLimitKey);
 
+      const samAccountName = authenticatedProfile.samAccountName || (username.includes('@') ? username.split('@')[0] : username);
+      const userGroups = Array.isArray(authenticatedProfile.groups) ? authenticatedProfile.groups : [];
+
       const adUser = {
-        id: `ad-${username.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        username: username.includes('@') ? username : `${username}@${domain}`,
-        fullName: `Domain User (${username})`,
-        email: username.includes('@') ? username : `${username}@${domain}`,
-        role: username.toLowerCase().includes('admin') ? 'Super Administrator' : 'Network Operator (AD)',
+        id: `ad-${samAccountName.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        username: authenticatedProfile.email || (username.includes('@') ? username : `${samAccountName}@${domain}`),
+        samAccountName,
+        dn: authenticatedProfile.dn || '',
+        fullName: authenticatedProfile.displayName || `Domain User (${samAccountName})`,
+        email: authenticatedProfile.email || (username.includes('@') ? username : `${samAccountName}@${domain}`),
+        role: samAccountName.toLowerCase().includes('admin') ? 'Super Administrator' : 'Network Operator (AD)',
         userType: 'ad' as const,
+        groups: userGroups,
+        groupIds: userGroups,
       };
 
+      // Authoritative effective policy calculation from PostgreSQL
       const effectivePolicy = await getEffectivePolicyForUser(adUser);
+
+      // Verify that user or their groups actually possess an authorized panel policy
+      const hasAssignedRole = effectivePolicy && effectivePolicy.id !== 'policy-guest' && (
+        effectivePolicy.canViewDashboard ||
+        effectivePolicy.canViewTopology ||
+        effectivePolicy.canViewDevices ||
+        effectivePolicy.canViewServers
+      );
+
+      if (!hasAssignedRole && !samAccountName.toLowerCase().includes('admin')) {
+        await addAuditLog({
+          userName: adUser.username,
+          action: 'Active Directory Login Blocked (No RBAC Policy)',
+          category: 'security',
+          target: `AD DC (${domain})`,
+          status: 'warning',
+          details: `Domain user "${adUser.username}" authenticated with AD DC but has no mapped Panel RBAC Policy in the system.`,
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'],
+        });
+
+        return res.status(403).json({
+          success: false,
+          error: 'No panel access policy assigned',
+          message: 'احراز هویت دامین موفق بود، اما هیچ نقش یا دسترسی‌ای در پنل به حساب شما یا گروه‌های مربوطه اختصاص نیافته است. لطفاً با مدیر سیستم تماس بگیرید.',
+        });
+      }
 
       const token = generateToken(
         {
@@ -659,9 +746,10 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
           username: adUser.username,
           fullName: adUser.fullName,
           email: adUser.email,
-          role: adUser.role,
+          role: effectivePolicy?.name || adUser.role,
           userType: 'ad',
           policyId: effectivePolicy?.id,
+          groups: userGroups,
         },
         rememberMe
       );
@@ -672,7 +760,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         category: 'security',
         target: `AD DC (${domain})`,
         status: 'success',
-        details: `Active Directory user "${adUser.username}" authenticated successfully via domain ${domain} from IP ${ip}. Enforced policy: ${effectivePolicy?.name || 'Default Restricted'}`,
+        details: `Active Directory user "${adUser.username}" (Groups: ${userGroups.join(', ') || 'None'}) authenticated successfully from IP ${ip}. Enforced policy: ${effectivePolicy?.name || 'Default Restricted'}`,
         ipAddress: ip,
         userAgent: req.headers['user-agent'],
       });

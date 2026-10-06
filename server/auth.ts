@@ -23,6 +23,7 @@ export interface UserSessionPayload {
   role: string;
   userType: 'local' | 'ad';
   policyId?: string;
+  groups?: string[];
   issuedAt: number;
   expiresAt: number;
 }

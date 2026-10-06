@@ -509,3 +509,263 @@ export async function syncLdapDirectory(
     });
   });
 }
+
+/**
+ * Authenticates a domain user against Active Directory (Kerberos/LDAP bind).
+ * Searches for the user account by samAccountName or UPN to retrieve DN, display name, email,
+ * and group memberships, then verifies credentials via direct LDAP bind.
+ */
+export async function authenticateLdapUser(
+  rawCfg: any,
+  username: string,
+  password: string,
+  domainHint?: string
+): Promise<{
+  success: boolean;
+  user?: ADUser;
+  error?: string;
+  message?: string;
+}> {
+  const cfg = normalizeADConfig(rawCfg);
+  const cleanUsername = (username || '').trim();
+  const cleanPassword = password || '';
+
+  if (!cfg.server || !cfg.server.trim()) {
+    return {
+      success: false,
+      error: 'Active Directory server host is not configured.',
+      message: 'آدرس سرور اکتیو دایرکتوری در تنظیمات پنل مشخص نشده است.',
+    };
+  }
+
+  if (!cleanUsername || !cleanPassword) {
+    return {
+      success: false,
+      error: 'Username and password are required for Active Directory login.',
+      message: 'نام کاربری و کلمه عبور الزامی است.',
+    };
+  }
+
+  // Create client for service lookup
+  let client: ldap.Client;
+  try {
+    client = createLdapClient(cfg, 10000);
+  } catch (e: any) {
+    return {
+      success: false,
+      error: `Could not initialize LDAP connection: ${e.message}`,
+      message: 'امکان اتصال به سرویس LDAP اکتیو دایرکتوری وجود ندارد.',
+    };
+  }
+
+  const sAMAccountName = cleanUsername.includes('@')
+    ? cleanUsername.split('@')[0]
+    : cleanUsername.includes('\\')
+    ? cleanUsername.split('\\')[1]
+    : cleanUsername;
+
+  const domain = domainHint || cfg.domain || 'corp.local';
+  const upn = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@${domain}`;
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = (res: { success: boolean; user?: ADUser; error?: string; message?: string }) => {
+      if (resolved) return;
+      resolved = true;
+      try {
+        client.unbind(() => {});
+        client.destroy();
+      } catch (e) {}
+      resolve(res);
+    };
+
+    client.on('error', (err) => {
+      finish({
+        success: false,
+        error: `LDAP server communication error: ${err.message}`,
+        message: 'خطا در ارتباط با سرور اکتیو دایرکتوری.',
+      });
+    });
+
+    // 1. Initial bind using service account (or anonymous fallback) to locate user's authentic DN and groups
+    const bindUser = (cfg.bindUser || '').trim();
+    const bindPass = cfg.bindPassword || '';
+
+    client.bind(bindUser, bindPass, async (bindErr) => {
+      let userEntry: ADUser | null = null;
+      let userDn = '';
+
+      if (!bindErr) {
+        // Query RootDSE if baseDn is missing
+        let searchBase = (cfg.userSearchBase || cfg.baseDn || '').trim();
+        if (!searchBase) {
+          try {
+            const rootDse = await new Promise<string>((resRoot) => {
+              client.search('', { scope: 'base', filter: '(objectClass=*)' }, (err, res) => {
+                if (err) return resRoot('');
+                let dnc = '';
+                res.on('searchEntry', (entry) => {
+                  const raw = ((entry as any).object || {}) as Record<string, any>;
+                  dnc = String(raw.defaultNamingContext || raw.defaultnamingcontext || '');
+                });
+                res.on('error', () => resRoot(''));
+                res.on('end', () => resRoot(dnc));
+              });
+            });
+            if (rootDse) searchBase = rootDse;
+          } catch (e) {}
+        }
+
+        if (searchBase) {
+          userEntry = await new Promise<ADUser | null>((resolveUser) => {
+            const safeAccount = sAMAccountName.replace(/[\*\(\)\\\/\x00]/g, '');
+            const filter = `(|(sAMAccountName=${safeAccount})(userPrincipalName=${safeAccount}@*)(mail=${safeAccount}@*))`;
+            const opts: ldap.SearchOptions = {
+              scope: 'sub',
+              filter,
+              attributes: [
+                'dn',
+                'sAMAccountName',
+                'displayName',
+                'mail',
+                'userPrincipalName',
+                'department',
+                'title',
+                'memberOf',
+                'userAccountControl',
+              ],
+              sizeLimit: 1,
+            };
+
+            client.search(searchBase, opts, (sErr, sRes) => {
+              if (sErr) return resolveUser(null);
+              let found: ADUser | null = null;
+              sRes.on('searchEntry', (entry) => {
+                const raw = ((entry as any).object || {}) as Record<string, any>;
+                const dn = String(entry.dn || raw.dn || '');
+                const sam = String(raw.sAMAccountName || raw.samaccountname || sAMAccountName);
+                const displayName = String(raw.displayName || raw.displayname || sam);
+                const email = String(raw.mail || raw.userPrincipalName || raw.userprincipalname || `${sam}@${domain}`);
+                const department = String(raw.department || '');
+                const title = String(raw.title || '');
+                const rawMemberOf = raw.memberOf || raw.memberof || [];
+                const memberOfList = Array.isArray(rawMemberOf) ? rawMemberOf : rawMemberOf ? [rawMemberOf] : [];
+                const groupNames = memberOfList.map((gDn: string) => {
+                  const match = String(gDn).match(/^CN=([^,]+)/i);
+                  return match ? match[1] : String(gDn);
+                });
+                const uac = Number(raw.userAccountControl || raw.useraccountcontrol) || 512;
+                const enabled = (uac & 2) === 0;
+
+                userDn = dn;
+                found = {
+                  dn,
+                  samAccountName: sam,
+                  displayName,
+                  email,
+                  department,
+                  title,
+                  groups: groupNames,
+                  enabled,
+                };
+              });
+              sRes.on('error', () => resolveUser(null));
+              sRes.on('end', () => resolveUser(found));
+            });
+          });
+        }
+      }
+
+      // Check if user is disabled in Active Directory
+      if (userEntry && userEntry.enabled === false) {
+        return finish({
+          success: false,
+          error: 'This Active Directory user account is disabled.',
+          message: 'این حساب کاربری اکتیو دایرکتوری در دامین غیرفعال (Disabled) شده است.',
+        });
+      }
+
+      // 2. Perform direct credential bind with the target user
+      let authClient: ldap.Client;
+      try {
+        authClient = createLdapClient(cfg, 8000);
+      } catch (err: any) {
+        return finish({
+          success: false,
+          error: `Could not initialize user authentication client: ${err.message}`,
+        });
+      }
+
+      // Preferred bind identities: User DN > UPN > Domain\User
+      const bindIdentities = [
+        userDn,
+        upn,
+        `${domain}\\${sAMAccountName}`,
+        sAMAccountName,
+      ].filter(Boolean);
+
+      let authSuccess = false;
+      let lastAuthError = '';
+
+      for (const identity of bindIdentities) {
+        const bindResult = await new Promise<boolean>((resolveBind) => {
+          authClient.bind(identity, cleanPassword, (err) => {
+            if (err) {
+              lastAuthError = err.message;
+              resolveBind(false);
+            } else {
+              resolveBind(true);
+            }
+          });
+        });
+
+        if (bindResult) {
+          authSuccess = true;
+          break;
+        }
+      }
+
+      try {
+        authClient.unbind(() => {});
+        authClient.destroy();
+      } catch (e) {}
+
+      if (!authSuccess) {
+        return finish({
+          success: false,
+          error: `Active Directory authentication failed: ${lastAuthError || 'Invalid credentials'}`,
+          message: 'احراز هویت اکتیو دایرکتوری ناموفق بود (نام کاربری یا کلمه عبور دامین اشتباه است).',
+        });
+      }
+
+      // If userEntry was not found via search (e.g. anonymous bind couldn't search), construct basic profile
+      if (!userEntry) {
+        // Check if syncedUsers in saved config has this user
+        const savedUsers: ADUser[] = Array.isArray(cfg.syncedUsers) ? cfg.syncedUsers : [];
+        const matchSaved = savedUsers.find(
+          (u) =>
+            u.samAccountName?.toLowerCase() === sAMAccountName.toLowerCase() ||
+            u.email?.toLowerCase() === upn.toLowerCase()
+        );
+
+        userEntry = matchSaved || {
+          dn: userDn || `CN=${sAMAccountName},${cfg.userSearchBase || cfg.baseDn || 'DC=corp,DC=local'}`,
+          samAccountName: sAMAccountName,
+          displayName: sAMAccountName,
+          email: upn,
+          department: '',
+          title: '',
+          groups: [],
+          enabled: true,
+        };
+      }
+
+      finish({
+        success: true,
+        user: userEntry,
+        message: `Successfully authenticated domain user ${sAMAccountName}`,
+      });
+    });
+  });
+}
+

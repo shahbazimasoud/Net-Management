@@ -17,6 +17,9 @@ import {
   ArrowRight,
   ArrowLeft,
   Filter,
+  Save,
+  Trash2,
+  Undo2,
 } from 'lucide-react';
 import { ActiveDirectoryConfig, ADSecurityGroup, ADUser, AccessPolicy } from '../../types';
 import { syncActiveDirectoryApi, saveAccessPoliciesApi } from '../../services/api';
@@ -45,17 +48,24 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Access Policies state for RBAC mapping
-  const [policies, setPolicies] = useState<AccessPolicy[]>(() => loadAccessPolicies());
+  const [persistedPolicies, setPersistedPolicies] = useState<AccessPolicy[]>(() => loadAccessPolicies());
+  const [workingPolicies, setWorkingPolicies] = useState<AccessPolicy[]>(() => loadAccessPolicies());
+  const [isSavingPolicies, setIsSavingPolicies] = useState(false);
 
   useEffect(() => {
     syncAccessPoliciesFromDatabase()
       .then((dbPolicies) => {
         if (Array.isArray(dbPolicies) && dbPolicies.length > 0) {
-          setPolicies(dbPolicies);
+          setPersistedPolicies(dbPolicies);
+          setWorkingPolicies(dbPolicies);
         }
       })
       .catch(() => {});
   }, []);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return JSON.stringify(persistedPolicies) !== JSON.stringify(workingPolicies);
+  }, [persistedPolicies, workingPolicies]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -106,94 +116,174 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
     }
   };
 
-  // Find policy assigned to a specific AD group
+  // Find policy assigned to a specific AD group in working policies
   const getPolicyForGroup = (groupDn: string): AccessPolicy | undefined => {
-    return policies.find(
+    return workingPolicies.find(
       (p) => p.subjectType === 'ad_group' && p.subjectId === groupDn
     );
   };
 
-  // Find policy inherited by a domain user through their group memberships
-  const getInheritedPoliciesForUser = (user: ADUser): AccessPolicy[] => {
-    const userGroups = user.groups || [];
-    return policies.filter(
+  // Find direct policy assigned to an AD user
+  const getDirectPolicyForUser = (user: ADUser): AccessPolicy | undefined => {
+    return workingPolicies.find(
       (p) =>
-        (p.subjectType === 'ad_group' && userGroups.some((g) => g === p.subjectName || p.subjectId.includes(g))) ||
-        (p.subjectType === 'ad_user' && (p.subjectId === user.samAccountName || p.subjectId === user.dn))
+        p.subjectType === 'ad_user' &&
+        (p.subjectId === user.samAccountName || p.subjectId === user.dn || (user.email && p.subjectId === user.email))
     );
   };
 
-  // Assign or update panel access policy for an AD group
-  const handleAssignPolicyToGroup = async (group: ADSecurityGroup, policyId: string) => {
-    try {
-      let updatedPolicies: AccessPolicy[] = [...policies];
+  // Find inherited group policies for an AD user
+  const getInheritedPoliciesForUser = (user: ADUser): AccessPolicy[] => {
+    const userGroups = user.groups || [];
+    return workingPolicies.filter(
+      (p) =>
+        p.subjectType === 'ad_group' &&
+        userGroups.some((g) => g === p.subjectName || p.subjectId.includes(g) || p.subjectId.toLowerCase() === g.toLowerCase())
+    );
+  };
 
-      if (!policyId || policyId === 'none') {
-        // Remove existing policy assignment for this group
-        updatedPolicies = updatedPolicies.filter(
-          (p) => !(p.subjectType === 'ad_group' && p.subjectId === group.dn)
+  // Assign or update panel access policy for an AD group (staged in memory until Saved)
+  const handleAssignPolicyToGroup = (group: ADSecurityGroup, policyId: string) => {
+    let updated: AccessPolicy[] = [...workingPolicies];
+
+    if (!policyId || policyId === 'none') {
+      updated = updated.filter(
+        (p) => !(p.subjectType === 'ad_group' && p.subjectId === group.dn)
+      );
+    } else {
+      const sourceTemplate = workingPolicies.find((p) => p.id === policyId) || persistedPolicies.find((p) => p.id === policyId);
+      if (!sourceTemplate) return;
+
+      const existingIdx = updated.findIndex(
+        (p) => p.subjectType === 'ad_group' && p.subjectId === group.dn
+      );
+
+      if (existingIdx >= 0) {
+        updated[existingIdx] = {
+          ...sourceTemplate,
+          id: updated[existingIdx].id,
+          name: `${sourceTemplate.name} (${group.cn})`,
+          subjectType: 'ad_group',
+          subjectId: group.dn,
+          subjectName: `${group.cn} (Active Directory)`,
+          isBuiltin: false,
+        };
+      } else {
+        const newPolicy: AccessPolicy = {
+          ...sourceTemplate,
+          id: `policy-ad-group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: `${sourceTemplate.name} (${group.cn})`,
+          description: isEn
+            ? `Panel role mapped to Active Directory security group ${group.cn}`
+            : `نقش دسترسی پنل متصل به گروه امنیتی اکتیو دایرکتوری ${group.cn}`,
+          subjectType: 'ad_group',
+          subjectId: group.dn,
+          subjectName: `${group.cn} (Active Directory)`,
+          isBuiltin: false,
+          priority: 50,
+        };
+        updated.push(newPolicy);
+      }
+    }
+
+    setWorkingPolicies(updated);
+  };
+
+  // Assign or update direct panel access policy for an individual domain user (staged in memory until Saved)
+  const handleAssignPolicyToUser = (user: ADUser, policyId: string) => {
+    let updated: AccessPolicy[] = [...workingPolicies];
+
+    if (!policyId || policyId === 'none') {
+      updated = updated.filter(
+        (p) => !(p.subjectType === 'ad_user' && (p.subjectId === user.samAccountName || p.subjectId === user.dn))
+      );
+    } else {
+      const sourceTemplate = workingPolicies.find((p) => p.id === policyId) || persistedPolicies.find((p) => p.id === policyId);
+      if (!sourceTemplate) return;
+
+      const existingIdx = updated.findIndex(
+        (p) => p.subjectType === 'ad_user' && (p.subjectId === user.samAccountName || p.subjectId === user.dn)
+      );
+
+      if (existingIdx >= 0) {
+        updated[existingIdx] = {
+          ...sourceTemplate,
+          id: updated[existingIdx].id,
+          name: `${sourceTemplate.name} (${user.displayName || user.samAccountName})`,
+          subjectType: 'ad_user',
+          subjectId: user.samAccountName,
+          subjectName: `${user.displayName || user.samAccountName} (AD User)`,
+          isBuiltin: false,
+        };
+      } else {
+        const newPolicy: AccessPolicy = {
+          ...sourceTemplate,
+          id: `policy-ad-user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: `${sourceTemplate.name} (${user.displayName || user.samAccountName})`,
+          description: isEn
+            ? `Direct panel role mapped to Active Directory domain user ${user.samAccountName}`
+            : `نقش دسترسی مستقیم پنل متصل به کاربر دامین ${user.samAccountName}`,
+          subjectType: 'ad_user',
+          subjectId: user.samAccountName,
+          subjectName: `${user.displayName || user.samAccountName} (AD User)`,
+          isBuiltin: false,
+          priority: 60,
+        };
+        updated.push(newPolicy);
+      }
+    }
+
+    setWorkingPolicies(updated);
+  };
+
+  // Persist all staged changes to server PostgreSQL database and local storage
+  const handleSaveAllPolicies = async () => {
+    setIsSavingPolicies(true);
+    try {
+      saveAccessPolicies(workingPolicies);
+      const res = (await saveAccessPoliciesApi(workingPolicies)) as any;
+      if (res.success) {
+        setPersistedPolicies(workingPolicies);
+        showToast(
+          isEn
+            ? 'All Active Directory RBAC policy assignments saved successfully to database.'
+            : 'تمامی دسترسی‌ها و نقش‌های اکتیو دایرکتوری با موفقیت در پایگاه داده سرور ذخیره شد.'
         );
       } else {
-        const sourceTemplate = policies.find((p) => p.id === policyId);
-        if (!sourceTemplate) return;
-
-        // Check if a policy already specifically targets this group
-        const existingIdx = updatedPolicies.findIndex(
-          (p) => p.subjectType === 'ad_group' && p.subjectId === group.dn
+        showToast(
+          isEn ? `Failed to save policies: ${res?.error || 'Server error'}` : 'خطا در ذخیره پالیسی‌ها در پایگاه داده'
         );
-
-        if (existingIdx >= 0) {
-          // Update the existing group policy with template capabilities
-          updatedPolicies[existingIdx] = {
-            ...sourceTemplate,
-            id: updatedPolicies[existingIdx].id,
-            name: `${sourceTemplate.name} (${group.cn})`,
-            subjectType: 'ad_group',
-            subjectId: group.dn,
-            subjectName: `${group.cn} (Active Directory)`,
-            isBuiltin: false,
-          };
-        } else {
-          // Create new policy mapping for this AD group
-          const newPolicy: AccessPolicy = {
-            ...sourceTemplate,
-            id: `policy-ad-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            name: `${sourceTemplate.name} (${group.cn})`,
-            description: isEn
-              ? `Panel role mapped to Active Directory security group ${group.cn}`
-              : `نقش دسترسی پنل متصل به گروه امنیتی اکتیو دایرکتوری ${group.cn}`,
-            subjectType: 'ad_group',
-            subjectId: group.dn,
-            subjectName: `${group.cn} (Active Directory)`,
-            isBuiltin: false,
-            priority: 50,
-          };
-          updatedPolicies.push(newPolicy);
-        }
       }
-
-      setPolicies(updatedPolicies);
-      saveAccessPolicies(updatedPolicies);
-      await saveAccessPoliciesApi(updatedPolicies).catch(() => {});
-
-      showToast(
-        policyId === 'none'
-          ? (isEn
-              ? `Removed panel access policy from group ${group.cn}`
-              : `دسترسی پنل از گروه ${group.cn} حذف شد`)
-          : (isEn
-              ? `Successfully assigned panel role to ${group.cn}`
-              : `نقش دسترسی پنل با موفقیت به گروه ${group.cn} اختصاص یافت`)
-      );
     } catch (e: any) {
-      showToast(isEn ? 'Failed to save policy mapping' : 'خطا در ذخیره اختصاص نقش');
+      showToast(isEn ? 'Failed to save policies to database' : 'خطا در ارتباط با سرور جهت ذخیره پایگاه داده');
+    } finally {
+      setIsSavingPolicies(false);
     }
+  };
+
+  // Revert all unstaged edits to the persisted database state
+  const handleRevertChanges = () => {
+    setWorkingPolicies(persistedPolicies);
+    showToast(
+      isEn
+        ? 'Reverted all unsaved modifications to database state.'
+        : 'تغییرات ذخیره‌نشده لغو و به آخرین وضعیت پایگاه داده بازگردانده شد.'
+    );
   };
 
   // Count assigned groups
   const assignedGroupsCount = useMemo(() => {
     return (config.syncedGroups || []).filter((g) => Boolean(getPolicyForGroup(g.dn))).length;
-  }, [config.syncedGroups, policies]);
+  }, [config.syncedGroups, workingPolicies]);
+
+  // Count assigned users (direct or inherited)
+  const assignedUsersCount = useMemo(() => {
+    return (config.syncedUsers || []).filter((u) => {
+      const direct = getDirectPolicyForUser(u);
+      const inherited = getInheritedPoliciesForUser(u);
+      return Boolean(direct || inherited.length > 0);
+    }).length;
+  }, [config.syncedUsers, workingPolicies]);
 
   // Filter groups with search and role assigned filter
   const filteredGroups = useMemo(() => {
@@ -211,20 +301,30 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
         (assignedPolicy && assignedPolicy.name.toLowerCase().includes(q))
       );
     });
-  }, [config.syncedGroups, searchQuery, roleFilter, policies]);
+  }, [config.syncedGroups, searchQuery, roleFilter, workingPolicies]);
 
+  // Filter users with search and role assigned filter
   const filteredUsers = useMemo(() => {
     return (config.syncedUsers || []).filter((u) => {
+      const direct = getDirectPolicyForUser(u);
+      const inherited = getInheritedPoliciesForUser(u);
+      const hasAnyRole = Boolean(direct || inherited.length > 0);
+
+      if (roleFilter === 'assigned' && !hasAnyRole) return false;
+      if (roleFilter === 'unassigned' && hasAnyRole) return false;
+
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       return (
         u.displayName.toLowerCase().includes(q) ||
         u.samAccountName.toLowerCase().includes(q) ||
         u.department.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q)
+        u.email.toLowerCase().includes(q) ||
+        (direct && direct.name.toLowerCase().includes(q)) ||
+        inherited.some((p) => p.name.toLowerCase().includes(q))
       );
     });
-  }, [config.syncedUsers, searchQuery]);
+  }, [config.syncedUsers, searchQuery, roleFilter, workingPolicies]);
 
   const isConnected = config.lastSyncStatus === 'success';
 
@@ -413,6 +513,63 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
               </div>
             )}
 
+            {activeSubTab === 'users' && (
+              <div
+                className={`flex items-center gap-1 p-1 rounded-xl border text-xs ${
+                  isLightMode
+                    ? 'bg-slate-100 border-slate-200'
+                    : 'bg-slate-900/90 border-white/10'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setRoleFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                    roleFilter === 'all'
+                      ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>{isEn ? 'All Users' : 'همه کاربران'}</span>
+                  <span className="text-[10px] font-mono opacity-80">
+                    ({(config.syncedUsers || []).length})
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRoleFilter('assigned')}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                    roleFilter === 'assigned'
+                      ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-emerald-300'
+                  }`}
+                  title={isEn ? 'Filter users with direct or inherited panel roles' : 'فیلتر کاربران دارای نقش مستقیم یا موروثی در پنل'}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{isEn ? 'Role Assigned' : 'دارای نقش'}</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/30 text-emerald-200 font-bold">
+                    {assignedUsersCount}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRoleFilter('unassigned')}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 ${
+                    roleFilter === 'unassigned'
+                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>{isEn ? 'No Role' : 'بدون نقش'}</span>
+                  <span className="text-[10px] font-mono opacity-80">
+                    {Math.max(0, (config.syncedUsers || []).length - assignedUsersCount)}
+                  </span>
+                </button>
+              </div>
+            )}
+
             <div className="relative w-full sm:w-64 min-w-[200px]">
               <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -425,6 +582,61 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Unsaved Changes Banner & Database Persistence Controls */}
+        {hasUnsavedChanges && (
+          <div
+            className={`p-3.5 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn shadow-md ${
+              isLightMode
+                ? 'bg-amber-50 border-amber-300 text-amber-900'
+                : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+              <div className="text-xs">
+                <span className="font-bold">
+                  {isEn ? 'Unsaved Role Modifications:' : 'تغییرات ذخیره‌نشده در نقش‌های دسترسی:'}
+                </span>{' '}
+                <span className="opacity-90">
+                  {isEn
+                    ? 'Role assignments are currently staged in memory. Click "Save to Database" to commit them authoritatively to PostgreSQL.'
+                    : 'نقش‌های انتساب‌یافته در حافظه موقت هستند. جهت اعمال قطعی و ذخیره در پایگاه داده سرور روی دکمه "ذخیره در پایگاه داده" کلیک کنید.'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={handleRevertChanges}
+                disabled={isSavingPolicies}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 ${
+                  isLightMode
+                    ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                    : 'border-white/20 text-slate-300 hover:bg-white/10'
+                }`}
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+                <span>{isEn ? 'Revert' : 'لغو تغییرات'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveAllPolicies}
+                disabled={isSavingPolicies}
+                className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md transition active:scale-95 cursor-pointer flex items-center gap-2 disabled:opacity-50"
+              >
+                <Save className={`w-3.5 h-3.5 ${isSavingPolicies ? 'animate-spin' : ''}`} />
+                <span>
+                  {isSavingPolicies
+                    ? (isEn ? 'Saving to Database...' : 'درحال ذخیره در دیتابیس...')
+                    : (isEn ? 'Save to Database' : 'ذخیره در پایگاه داده')}
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Sub-tab 1: Security Groups with Direct Role Assignment */}
         {activeSubTab === 'groups' && (
@@ -523,7 +735,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                             <option value="none">
                               {isEn ? '— No Panel Access (Revoke) —' : '— بدون دسترسی به پنل (فاقد نقش) —'}
                             </option>
-                            {policies
+                            {workingPolicies
                               .filter((p) => p.isBuiltin || p.subjectType !== 'ad_group' || p.subjectId === grp.dn)
                               .map((p) => (
                                 <option key={p.id} value={p.id}>
@@ -645,20 +857,60 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                         </div>
                       </div>
 
-                      {/* Inherited Role & Group Badges */}
-                      <div className="flex flex-col sm:items-end gap-1.5 shrink-0 max-w-full">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {inherited.length > 0 ? (
-                            inherited.map((p) => (
-                              <span
-                                key={p.id}
-                                className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold truncate max-w-[160px]"
-                                title={isEn ? 'Panel role granted via group policy' : 'نقش پنل اعطاشده از طریق پالیسی گروه'}
-                              >
-                                {p.name}
+                      {/* Direct Role Assignment Selector & Inherited Role / Group Badges */}
+                      <div className="flex flex-col sm:items-end gap-2 shrink-0 w-full sm:w-auto min-w-0 sm:min-w-[280px]">
+                        {/* Direct Role Selector */}
+                        <div className="w-full space-y-1">
+                          <div className="flex items-center justify-between gap-2 min-w-0">
+                            <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5 shrink-0">
+                              <Shield className="w-3 h-3 text-cyan-400" />
+                              <span>{isEn ? 'Direct Panel Role:' : 'نقش اختصاصی پنل:'}</span>
+                            </span>
+                            {getDirectPolicyForUser(user) && (
+                              <span className="text-[10px] font-mono text-cyan-300 font-semibold truncate max-w-[120px]">
+                                {getDirectPolicyForUser(user)?.name}
                               </span>
-                            ))
-                          ) : (
+                            )}
+                          </div>
+                          <select
+                            value={getDirectPolicyForUser(user)?.id || 'none'}
+                            onChange={(e) => handleAssignPolicyToUser(user, e.target.value)}
+                            className={`w-full min-w-0 px-2.5 py-1 rounded-lg border text-xs font-medium focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer truncate ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-800'
+                                : 'bg-slate-800/95 border-white/15 text-white'
+                            }`}
+                          >
+                            <option value="none">
+                              {isEn ? '— Inherit from Groups (No Direct Role) —' : '— ارث‌بری از گروه‌ها (بدون نقش مستقیم) —'}
+                            </option>
+                            {workingPolicies
+                              .filter((p) => p.isBuiltin || p.subjectType !== 'ad_user' || p.subjectId === user.samAccountName || p.subjectId === user.dn)
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+
+                        {/* Inherited Group Role Badges & Groups */}
+                        <div className="flex items-center gap-1.5 flex-wrap sm:justify-end">
+                          {inherited.length > 0 && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                              <span>{isEn ? 'Via group:' : 'از گروه:'}</span>
+                              {inherited.map((p) => (
+                                <span
+                                  key={p.id}
+                                  className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold truncate max-w-[140px]"
+                                  title={isEn ? 'Panel role granted via group policy' : 'نقش پنل اعطاشده از طریق پالیسی گروه'}
+                                >
+                                  {p.name}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          {!getDirectPolicyForUser(user) && inherited.length === 0 && (
                             <span
                               className={`text-[10px] font-mono px-2 py-0.5 rounded-md border shrink-0 ${
                                 isLightMode
@@ -671,7 +923,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-1 flex-wrap">
+                        <div className="flex items-center gap-1 flex-wrap sm:justify-end">
                           {(user.groups || []).map((g) => (
                             <span
                               key={g}
