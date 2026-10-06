@@ -166,12 +166,32 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const floatingFadeTimerRef = useRef<any>(null);
   const isDraggingFloatingRef = useRef<boolean>(false);
   const updateDisplayScaleRef = useRef<() => void>(() => {});
+  const activeSessionKeyRef = useRef<string | null>(null);
+  const isOpenRef = useRef<boolean>(isOpen);
   const [idleRemainingSec, setIdleRemainingSec] = useState<number>(900); // 15 minutes = 900s
 
   const isRdp = protocol === 'rdp' || server?.os_type === 'windows';
   const protocolName = isRdp ? 'Windows RDP Suite' : 'Linux VNC Console';
   const defaultPort = isRdp ? server?.win_port || 3389 : server?.vnc_port || 5900;
   const guacdCliCmd = 'sudo bash scripts/install-guacd.sh';
+
+  // Keep latest prop/state values in refs so connection callbacks never recreate or reset active sessions on re-render
+  const serverRef = useRef<RemoteServer | null>(server);
+  const isEnRef = useRef<boolean>(isEn);
+  const isRdpRef = useRef<boolean>(isRdp);
+  const defaultPortRef = useRef<number>(defaultPort);
+  const displayResolutionRef = useRef(displayResolution);
+  const customPasswordRef = useRef(customPassword);
+  const sessionPasswordRef = useRef(sessionPassword);
+
+  isOpenRef.current = isOpen;
+  serverRef.current = server;
+  isEnRef.current = isEn;
+  isRdpRef.current = isRdp;
+  defaultPortRef.current = defaultPort;
+  displayResolutionRef.current = displayResolution;
+  customPasswordRef.current = customPassword;
+  sessionPasswordRef.current = sessionPassword;
 
   // Trigger temporary visibility for the fading floating circle
   const triggerFloatingActivity = useCallback(() => {
@@ -561,8 +581,11 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       }
 
       const translateGuacError = (status: any) => {
+        const curIsEn = isEnRef.current;
+        const curServer = serverRef.current;
+        const curPort = defaultPortRef.current;
         const rawMsg = status?.message;
-        const parsedMsg = parseGuacErrorMessage(rawMsg, isEn);
+        const parsedMsg = parseGuacErrorMessage(rawMsg, curIsEn);
         if (parsedMsg && parsedMsg.length > 3) return parsedMsg;
 
         const rawCode = status?.code;
@@ -572,44 +595,44 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
         switch (code) {
           case 0x0200:
-            return isEn ? 'Connection completed.' : 'ارتباط برقرار شد.';
+            return curIsEn ? 'Connection completed.' : 'ارتباط برقرار شد.';
           case 0x0201:
-            return isEn ? 'Protocol or operation unsupported by target host or gateway.' : 'پروتکل یا عملیات توسط هاست یا گیت‌وی پشتیبانی نمی‌شود.';
+            return curIsEn ? 'Protocol or operation unsupported by target host or gateway.' : 'پروتکل یا عملیات توسط هاست یا گیت‌وی پشتیبانی نمی‌شود.';
           case 0x0202:
-            return isEn ? 'Internal server error occurred on remote desktop gateway.' : 'خطای داخلی در سرور گیت‌وی رخ داد.';
+            return curIsEn ? 'Internal server error occurred on remote desktop gateway.' : 'خطای داخلی در سرور گیت‌وی رخ داد.';
           case 0x0203:
-            return isEn ? 'Remote server is busy. Try again shortly.' : 'سرور مقصد مشغول است. لطفاً کمی بعد مجدداً تلاش کنید.';
+            return curIsEn ? 'Remote server is busy. Try again shortly.' : 'سرور مقصد مشغول است. لطفاً کمی بعد مجدداً تلاش کنید.';
           case 0x0204:
-            return isEn ? `Connection timed out. Target host ${server?.ip || ''}:${defaultPort} took too long to respond.` : `زمان انتظار به پایان رسید. هاست ${server?.ip || ''}:${defaultPort} پاسخ نداد.`;
+            return curIsEn ? `Connection timed out. Target host ${curServer?.ip || ''}:${curPort} took too long to respond.` : `زمان انتظار به پایان رسید. هاست ${curServer?.ip || ''}:${curPort} پاسخ نداد.`;
           case 0x0205:
-            return isEn ? `Remote host ${server?.ip || ''} encountered an upstream error or closed connection.` : `هاست ${server?.ip || ''} با خطای داخلی مواجه شد یا ارتباط را قطع کرد.`;
+            return curIsEn ? `Remote host ${curServer?.ip || ''} encountered an upstream error or closed connection.` : `هاست ${curServer?.ip || ''} با خطای داخلی مواجه شد یا ارتباط را قطع کرد.`;
           case 0x0206:
-            return isEn ? 'Target remote session resource not found.' : 'منبع نشست ریموت دسکتاپ یافت نشد.';
+            return curIsEn ? 'Target remote session resource not found.' : 'منبع نشست ریموت دسکتاپ یافت نشد.';
           case 0x0207:
-            return isEn ? 'Session conflict on target host.' : 'تداخل نشست در هاست مقصد.';
+            return curIsEn ? 'Session conflict on target host.' : 'تداخل نشست در هاست مقصد.';
           case 0x0208:
-            return isEn ? 'Remote desktop session was closed by the host.' : 'نشست ریموت دسکتاپ توسط هاست بسته شد.';
+            return curIsEn ? 'Remote desktop session was closed by the host.' : 'نشست ریموت دسکتاپ توسط هاست بسته شد.';
           case 0x0209:
-            return isEn ? `Upstream host not found. Target ${server?.ip || ''} is unreachable or DNS lookup failed.` : `سرور مقصد یافت نشد. هاست ${server?.ip || ''} در دسترس نیست یا تحلیل نام DNS ناموفق بود.`;
+            return curIsEn ? `Upstream host not found. Target ${curServer?.ip || ''} is unreachable or DNS lookup failed.` : `سرور مقصد یافت نشد. هاست ${curServer?.ip || ''} در دسترس نیست یا تحلیل نام DNS ناموفق بود.`;
           case 0x020a:
-            return isEn ? `Upstream host unavailable. Target ${server?.ip || ''}:${defaultPort} refused connection or is offline.` : `سرور مقصد در دسترس نیست. هاست ${server?.ip || ''}:${defaultPort} اتصال را رد کرد یا خاموش است.`;
+            return curIsEn ? `Upstream host unavailable. Target ${curServer?.ip || ''}:${curPort} refused connection or is offline.` : `سرور مقصد در دسترس نیست. هاست ${curServer?.ip || ''}:${curPort} اتصال را رد کرد یا خاموش است.`;
           case 0x020b:
-            return isEn ? 'Disconnected due to upstream session inactivity.' : 'قطع ارتباط به دلیل عدم فعالیت در نشست سرور مقصد.';
+            return curIsEn ? 'Disconnected due to upstream session inactivity.' : 'قطع ارتباط به دلیل عدم فعالیت در نشست سرور مقصد.';
           case 0x020c:
-            return isEn ? 'Upstream remote desktop session closed.' : 'نشست ریموت در سرور مقصد بسته شد.';
+            return curIsEn ? 'Upstream remote desktop session closed.' : 'نشست ریموت در سرور مقصد بسته شد.';
           case 0x020d:
           case 0x0300:
-            return isEn ? 'Invalid client parameters sent to gateway.' : 'پارامترهای ارسالی به گیت‌وی نامعتبر است.';
+            return curIsEn ? 'Invalid client parameters sent to gateway.' : 'پارامترهای ارسالی به گیت‌وی نامعتبر است.';
           case 0x0301:
-            return isEn ? 'Authentication failed. Check username, password, or NLA security settings.' : 'احراز هویت ناموفق بود. نام کاربری، رمز عبور یا تنظیمات NLA را بررسی کنید.';
+            return curIsEn ? 'Authentication failed. Check username, password, or NLA security settings.' : 'احراز هویت ناموفق بود. نام کاربری، رمز عبور یا تنظیمات NLA را بررسی کنید.';
           case 0x0303:
-            return isEn ? 'Remote desktop access forbidden for this account.' : 'دسترسی ریموت دسکتاپ برای این حساب کاربری مجاز نیست.';
+            return curIsEn ? 'Remote desktop access forbidden for this account.' : 'دسترسی ریموت دسکتاپ برای این حساب کاربری مجاز نیست.';
           case 0x0308:
-            return isEn ? 'Client connection timeout.' : 'زمان اتصال کلاینت منقضی شد.';
+            return curIsEn ? 'Client connection timeout.' : 'زمان اتصال کلاینت منقضی شد.';
           default:
-            return isEn
-              ? `Remote desktop error: unable to establish connection with ${server?.ip || 'host'}:${defaultPort}`
-              : `خطا در ریموت دسکتاپ: عدم امکان برقراری ارتباط با ${server?.ip || 'سرور'}:${defaultPort}`;
+            return curIsEn
+              ? `Remote desktop error: unable to establish connection with ${curServer?.ip || 'host'}:${curPort}`
+              : `خطا در ریموت دسکتاپ: عدم امکان برقراری ارتباط با ${curServer?.ip || 'سرور'}:${curPort}`;
         }
       };
 
@@ -624,8 +647,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           setConnectionStatus('connected');
           registerActivity();
           setTimeout(() => {
-            updateDisplayScale();
-            displayContainerRef.current?.focus();
+            updateDisplayScaleRef.current();
+            if (isOpenRef.current) {
+              displayContainerRef.current?.focus();
+            }
           }, 200);
         } else if (state === 5) {
           if (connectTimeoutRef.current) {
@@ -638,9 +663,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           });
           setErrorMessage((prev) => {
             if (prev) return prev;
-            return isEn
-              ? `Remote desktop connection closed. Verify host ${server?.ip || ''} is online, RDP port ${defaultPort} is accessible, and credentials/NLA security are configured.`
-              : `ارتباط ریموت دسکتاپ قطع شد. بررسی نمایید که سرور ${server?.ip || ''} روشن باشد، پورت ${defaultPort} در دسترس باشد و اطلاعات کاربری/NLA صحیح باشند.`;
+            const curIsEn = isEnRef.current;
+            const curServer = serverRef.current;
+            const curPort = defaultPortRef.current;
+            return curIsEn
+              ? `Remote desktop connection closed. Verify host ${curServer?.ip || ''} is online, RDP port ${curPort} is accessible, and credentials/NLA security are configured.`
+              : `ارتباط ریموت دسکتاپ قطع شد. بررسی نمایید که سرور ${curServer?.ip || ''} روشن باشد، پورت ${curPort} در دسترس باشد و اطلاعات کاربری/NLA صحیح باشند.`;
           });
         }
       };
@@ -683,9 +711,12 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           });
           setErrorMessage((prev) => {
             if (prev) return prev;
-            return isEn
-              ? `Guacamole tunnel closed. Host ${server?.ip || ''}:${defaultPort} did not respond or rejected handshake.`
-              : `تونل ارتباطی گوآکامولی بسته شد. هاست ${server?.ip || ''}:${defaultPort} پاسخ نداد یا اتصال را رد کرد.`;
+            const curIsEn = isEnRef.current;
+            const curServer = serverRef.current;
+            const curPort = defaultPortRef.current;
+            return curIsEn
+              ? `Guacamole tunnel closed. Host ${curServer?.ip || ''}:${curPort} did not respond or rejected handshake.`
+              : `تونل ارتباطی گوآکامولی بسته شد. هاست ${curServer?.ip || ''}:${curPort} پاسخ نداد یا اتصال را رد کرد.`;
           });
         }
       };
@@ -717,6 +748,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       displayElem.addEventListener('mouseup', syncMousePosFromEvent, true);
 
       const sendScaledMouseState = (mouseState: any) => {
+        if (!isOpenRef.current) return;
         const rect = displayElem.getBoundingClientRect();
         const dw = display.getWidth();
         const dh = display.getHeight();
@@ -741,6 +773,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       };
 
       mouse.onmousedown = (mouseState: any) => {
+        if (!isOpenRef.current) return;
         registerActivity();
         if (displayContainerRef.current && document.activeElement !== displayContainerRef.current) {
           displayContainerRef.current.focus();
@@ -748,19 +781,19 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         sendScaledMouseState(mouseState);
       };
       mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
+        if (!isOpenRef.current) return;
         registerActivity();
         sendScaledMouseState(mouseState);
       };
 
       // Keyboard input handling:
       // Bind keyboard events EXCLUSIVELY to the display container element, NEVER to the global `document`.
-      // Binding to `document` attaches a permanent capture-phase listener that executes e.preventDefault(),
-      // which intercepts and blocks keystrokes in other modals (such as Add Server or Password prompt).
       const keyTarget = displayContainerRef.current || displayElem;
       const keyboard: any = new Guacamole.Keyboard(keyTarget);
       guacKeyboardRef.current = keyboard;
 
       keyboard.onkeydown = (keysym: number) => {
+        if (!isOpenRef.current) return true;
         registerActivity();
         // Guard: If the user is typing in an input, textarea, select, or editable element anywhere, yield to browser
         const active = document.activeElement;
@@ -775,6 +808,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       };
 
       keyboard.onkeyup = (keysym: number) => {
+        if (!isOpenRef.current) return;
         registerActivity();
         const active = document.activeElement;
         if (active) {
@@ -802,17 +836,24 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       // Update status to negotiating RDP when tunnel connects
       setConnectionStatus('negotiating_rdp');
-      setConnectionStageText(isEn ? 'Negotiating NLA/TLS encryption and authenticating with Windows Server...' : 'در حال مذاکره پروتکل امنیتی NLA/TLS و احراز هویت با ویندوز سرور...');
+      setConnectionStageText(
+        isEnRef.current
+          ? 'Negotiating NLA/TLS encryption and authenticating with Windows Server...'
+          : 'در حال مذاکره پروتکل امنیتی NLA/TLS و احراز هویت با ویندوز سرور...'
+      );
 
       // 25-second smart timeout for full Active Directory / NLA authentication exchange
       connectTimeoutRef.current = setTimeout(() => {
         setConnectionStatus((curr) => {
           if (curr === 'negotiating_rdp' || curr === 'connecting_tunnel' || curr === 'requesting_token') {
             try { client.disconnect(); } catch {}
+            const curIsEn = isEnRef.current;
+            const curServer = serverRef.current;
+            const curPort = defaultPortRef.current;
             setErrorMessage(
-              isEn
-                ? `RDP connection timed out (25s). Target host ${server?.ip}:${defaultPort} did not complete authentication. Verify Windows credentials, Active Directory domain (${targetValidationInfo?.normalizedDomain || server?.win_domain || 'local'}), and NLA requirements.`
-                : `زمان اتصال RDP به پایان رسید (۲۵ ثانیه). هاست ${server?.ip}:${defaultPort} احراز هویت را کامل نکرد. رمز عبور، دامین اکتیو دایرکتوری (${targetValidationInfo?.normalizedDomain || server?.win_domain || 'local'}) و تنظیمات NLA را بررسی نمایید.`
+              curIsEn
+                ? `RDP connection timed out (25s). Target host ${curServer?.ip}:${curPort} did not complete authentication. Verify Windows credentials, Active Directory domain (${curServer?.win_domain || 'local'}), and NLA requirements.`
+                : `زمان اتصال RDP به پایان رسید (۲۵ ثانیه). هاست ${curServer?.ip}:${curPort} احراز هویت را کامل نکرد. رمز عبور، دامین اکتیو دایرکتوری (${curServer?.win_domain || 'local'}) و تنظیمات NLA را بررسی نمایید.`
             );
             return 'error';
           }
@@ -829,18 +870,23 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         connectTimeoutRef.current = null;
       }
       setConnectionStatus('error');
-      setErrorMessage(err.message || (isEn ? 'Failed to establish tunnel' : 'خطا در ایجاد تونل ارتباطی'));
+      setErrorMessage(err.message || (isEnRef.current ? 'Failed to establish tunnel' : 'خطا در ایجاد تونل ارتباطی'));
     }
-  }, [isEn, registerActivity, updateDisplayScale, server, defaultPort]);
+  }, [registerActivity]);
 
   // Step 1: Request single-use session token and verify gateway status
   const initiateConnection = useCallback(async () => {
-    if (!server) return;
+    const curServer = serverRef.current;
+    const curIsEn = isEnRef.current;
+    const curIsRdp = isRdpRef.current;
+    if (!curServer) return;
+
     cleanupConnection();
+    activeSessionKeyRef.current = `${curServer.id}:${curIsRdp ? 'rdp' : 'vnc'}`;
     setConnectionStatus('validating_target');
     setErrorMessage(null);
 
-    const [width, height] = displayResolution.split('x').map(Number);
+    const [width, height] = displayResolutionRef.current.split('x').map(Number);
     const authToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
 
     try {
@@ -851,7 +897,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
-        body: JSON.stringify({ serverId: server.id }),
+        body: JSON.stringify({ serverId: curServer.id }),
       }).catch(() => null);
 
       if (valRes && valRes.ok) {
@@ -859,9 +905,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         setTargetValidationInfo(valData);
         if (valData.reachable === false) {
           setConnectionStatus('error');
-          const errMsg = isEn
-            ? `Target Windows Server ${server.name} (${valData.targetHost}:${valData.targetPort}) is completely unreachable (${valData.error || 'Connection timed out'}). Verify the server is powered on, IP routing and VPN tunnel are operational, and port ${valData.targetPort} is open in the firewall.`
-            : `سرور ویندوزی مقصد ${server.name} (${valData.targetHost}:${valData.targetPort}) به هیچ وجه در دسترس نیست (${valData.error || 'پایان مهلت انتظار / تایم‌اوت'}). وضعیت روشن بودن سرور، روتینگ شبکه یا تونل VPN و باز بودن پورت ${valData.targetPort} در فایروال را بررسی نمایید.`;
+          const errMsg = curIsEn
+            ? `Target Windows Server ${curServer.name} (${valData.targetHost}:${valData.targetPort}) is completely unreachable (${valData.error || 'Connection timed out'}). Verify the server is powered on, IP routing and VPN tunnel are operational, and port ${valData.targetPort} is open in the firewall.`
+            : `سرور ویندوزی مقصد ${curServer.name} (${valData.targetHost}:${valData.targetPort}) به هیچ وجه در دسترس نیست (${valData.error || 'پایان مهلت انتظار / تایم‌اوت'}). وضعیت روشن بودن سرور، روتینگ شبکه یا تونل VPN و باز بودن پورت ${valData.targetPort} در فایروال را بررسی نمایید.`;
           setErrorMessage(errMsg);
           return;
         }
@@ -884,7 +930,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
       }
 
       // 3. Request single-use connection token
-      const effectivePassword = customPassword || sessionPassword;
+      const effectivePassword = customPasswordRef.current || sessionPasswordRef.current;
       const resp = await fetch('/api/remote-desktop/token', {
         method: 'POST',
         headers: {
@@ -892,8 +938,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify({
-          serverId: server.id,
-          protocol: isRdp ? 'rdp' : 'vnc',
+          serverId: curServer.id,
+          protocol: curIsRdp ? 'rdp' : 'vnc',
           width,
           height,
           dpi: 96,
@@ -915,9 +961,9 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     } catch (err: any) {
       console.error('[RemoteDesktop] Token error:', err);
       setConnectionStatus('error');
-      setErrorMessage(err.message || (isEn ? 'Failed to obtain session token' : 'خطا در دریافت توکن امنیتی'));
+      setErrorMessage(err.message || (curIsEn ? 'Failed to obtain session token' : 'خطا در دریافت توکن امنیتی'));
     }
-  }, [server, cleanupConnection, displayResolution, isRdp, connectGuacamoleTunnel, isEn]);
+  }, [cleanupConnection, connectGuacamoleTunnel]);
 
   // 1-Click Auto-Install Guacamole Daemon
   const handleAutoInstallGuacd = async () => {
@@ -967,21 +1013,52 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     setTimeout(() => setCmdCopied(false), 2000);
   };
 
-  // Reset states when modal opens
+  // Establish session when modal opens for a server; preserve session across minimize, page switches, and overlapping modals
   useEffect(() => {
-    if (isOpen && server) {
-      setActiveDurationSec(0);
-      setIdleRemainingSec(900);
-      lastActivityRef.current = Date.now();
-      initiateConnection();
-    } else {
+    if (!server) {
+      activeSessionKeyRef.current = null;
       cleanupConnection();
+      return;
     }
 
+    if (isOpen) {
+      const sessionKey = `${server.id}:${isRdp ? 'rdp' : 'vnc'}`;
+      if (activeSessionKeyRef.current !== sessionKey) {
+        activeSessionKeyRef.current = sessionKey;
+        setActiveDurationSec(0);
+        setIdleRemainingSec(900);
+        lastActivityRef.current = Date.now();
+        initiateConnection();
+      } else {
+        // Restoring an already active session from minimize: keep tunnel alive and refresh display scale
+        setTimeout(() => {
+          updateDisplayScaleRef.current();
+          displayContainerRef.current?.focus();
+        }, 50);
+      }
+    }
+  }, [isOpen, server?.id, isRdp, initiateConnection, cleanupConnection]);
+
+  // Teardown connection ONLY when component truly unmounts
+  useEffect(() => {
     return () => {
+      activeSessionKeyRef.current = null;
       cleanupConnection();
     };
-  }, [isOpen, server?.id, initiateConnection, cleanupConnection]);
+  }, [cleanupConnection]);
+
+  // Dynamically request remote display resize if user changes resolution while connected
+  useEffect(() => {
+    if (guacClientRef.current && connectionStatus === 'connected') {
+      const [w, h] = displayResolution.split('x').map(Number);
+      if (w > 0 && h > 0) {
+        try {
+          guacClientRef.current.sendSize(w, h);
+          setTimeout(() => updateDisplayScaleRef.current(), 120);
+        } catch {}
+      }
+    }
+  }, [displayResolution, connectionStatus]);
 
   // Special key macros senders
   const sendSpecialKey = (keyCombo: string) => {
@@ -1047,18 +1124,25 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     }, 1200);
   };
 
-  // Safe Close with Modal Lock Check
+  // Safe Close with Modal Lock Check — ONLY explicit Close terminates the session
   const handleAttemptClose = () => {
     if (isLocked) {
       setShowConfirmClose(true);
     } else {
+      if (isMonitorFullscreen) {
+        exitMonitorFullscreen();
+      }
+      activeSessionKeyRef.current = null;
       cleanupConnection();
       onClose();
     }
   };
 
-  // Safe Minimize with blur and keyboard reset
+  // Safe Minimize with blur and keyboard reset (keeps session & DOM canvas alive in background)
   const handleMinimize = () => {
+    if (isMonitorFullscreen) {
+      exitMonitorFullscreen();
+    }
     if (displayContainerRef.current) {
       try {
         displayContainerRef.current.blur();
@@ -1073,13 +1157,17 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   };
 
   const handleForceClose = () => {
+    if (isMonitorFullscreen) {
+      exitMonitorFullscreen();
+    }
     setShowConfirmClose(false);
     setIsLocked(false);
+    activeSessionKeyRef.current = null;
     cleanupConnection();
     onClose();
   };
 
-  if (!isOpen || !server) return null;
+  if (!server) return null;
 
   const formatSeconds = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -1099,8 +1187,11 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   return createPortal(
     <div
       ref={modalRootRef}
+      aria-hidden={!isOpen}
       className={`fixed flex flex-col items-center justify-center ${
-        isMonitorFullscreen
+        !isOpen
+          ? '-top-[20000px] -left-[20000px] w-[1024px] h-[768px] opacity-0 pointer-events-none invisible -z-50 overflow-hidden'
+          : isMonitorFullscreen
           ? 'inset-0 z-[999998] p-0 m-0 bg-black'
           : isMaximized
           ? 'z-[9999] top-0 left-0 right-0 bottom-8 p-0'

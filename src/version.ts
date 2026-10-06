@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.0';
+export const APP_VERSION = '1.283.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.1',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'حفظ پایداری سشن ریموت دسکتاپ هنگام مینیمایز، تغییر صفحه یا باز شدن مودال‌های دیگر (قطع فقط با بستن مودال)',
+    title_en: 'Preserve Remote Desktop Session Across Minimize, Page Switches & Overlapping Modals (Close Only on Explicit Close)',
+    changes: [
+      'رفع مشکل قطع شدن یا ریست شدن سشن ریموت دسکتاپ (InBrowserRemoteDesktopModal) هنگام مینیمایز کردن پنجره به نوار ابزار پایین (ToolsDock) و نگه داشتن بوم زنده Guacamole در پس‌زمینه تا زمان بازیابی فوری.',
+      'جداسازی کامل چرخه حیات اتصال وب‌سوکت Guacamole از تغییرات وضعیت رابط کاربری، باز شدن مودال‌های دیگر روی ریموت یا تغییر صفحات پنل با استفاده از مراجع پایدار (Stable Refs).',
+      'پشتیبانی از نگهداری هم‌زمان چندین نشست فعال ریموت دسکتاپ در RemoteServersView به‌طوری‌که سشن ریموت منحصراً و فقط زمانی بسته شود که کاربر دکمه بستن (Close / X) مودال را بزند.'
+    ],
+    changes_en: [
+      'Fixed remote desktop session termination when minimizing InBrowserRemoteDesktopModal to the bottom ToolsDock by keeping the portal DOM and live Guacamole canvas active offscreen.',
+      'Decoupled Guacamole WebSocket tunnel lifecycle from UI state re-renders, overlapping modals, and page navigation using stable refs.',
+      'Added persistent multi-session tracking in RemoteServersView so active remote desktop sessions are terminated exclusively when the user explicitly clicks Close.'
+    ]
+  },
   {
     version: '1.283.0',
     releaseDate: '2026-10-06',

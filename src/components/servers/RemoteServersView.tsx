@@ -386,9 +386,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [windowsModalServer, setWindowsModalServer] = useState<RemoteServer | null>(null);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
 
-  const [inBrowserRemoteServer, setInBrowserRemoteServer] = useState<RemoteServer | null>(null);
-  const [inBrowserProtocol, setInBrowserProtocol] = useState<'rdp' | 'vnc'>('rdp');
-  const [isInBrowserModalOpen, setIsInBrowserModalOpen] = useState(false);
+  const [inBrowserSessions, setInBrowserSessions] = useState<
+    Array<{
+      server: RemoteServer;
+      protocol: 'rdp' | 'vnc';
+      sessionPassword?: string;
+      isOpen: boolean;
+    }>
+  >([]);
 
   // On-Demand Password Prompt State (Zero-Storage Ephemeral Auth)
   const [isOnDemandModalOpen, setIsOnDemandModalOpen] = useState(false);
@@ -853,6 +858,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (!isServerActionAllowed(server, 'terminal', effectivePolicy)) {
       return;
     }
+    const existingSession = inBrowserSessions.find((s) => s.server.id === server.id);
+    if (existingSession) {
+      setInBrowserSessions((prev) =>
+        prev.map((s) => (s.server.id === server.id ? { ...s, isOpen: true } : s))
+      );
+      undockModal(`inbrowser_remote_${server.id}`);
+      return;
+    }
     if (server.prompt_password_on_connect) {
       setOnDemandServer(server);
       setOnDemandTarget(protocol);
@@ -860,9 +873,10 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       return;
     }
     setEphemeralRdpPassword(undefined);
-    setInBrowserRemoteServer(server);
-    setInBrowserProtocol(protocol);
-    setIsInBrowserModalOpen(true);
+    setInBrowserSessions((prev) => [
+      ...prev,
+      { server, protocol, sessionPassword: undefined, isOpen: true },
+    ]);
     undockModal(`inbrowser_remote_${server.id}`);
   };
 
@@ -879,9 +893,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       undockModal(`linux_term_${onDemandServer.id}`);
     } else {
       setEphemeralRdpPassword(sessionPassword);
-      setInBrowserRemoteServer(onDemandServer);
-      setInBrowserProtocol(onDemandTarget);
-      setIsInBrowserModalOpen(true);
+      const targetSrv = onDemandServer;
+      const targetProto = onDemandTarget;
+      setInBrowserSessions((prev) => {
+        const exists = prev.some((s) => s.server.id === targetSrv.id);
+        if (exists) {
+          return prev.map((s) =>
+            s.server.id === targetSrv.id
+              ? { ...s, protocol: targetProto, sessionPassword, isOpen: true }
+              : s
+          );
+        }
+        return [...prev, { server: targetSrv, protocol: targetProto, sessionPassword, isOpen: true }];
+      });
       undockModal(`inbrowser_remote_${onDemandServer.id}`);
     }
   };
@@ -1203,22 +1227,27 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     }
   };
 
-  const handleMinimizeInBrowserRemote = () => {
-    setIsInBrowserModalOpen(false);
-    if (inBrowserRemoteServer) {
-      dockModal({
-        id: `inbrowser_remote_${inBrowserRemoteServer.id}`,
-        labelEn: `${inBrowserRemoteServer.name} ${inBrowserProtocol.toUpperCase()}`,
-        labelFa: `ریموت ${inBrowserRemoteServer.name} (${inBrowserProtocol.toUpperCase()})`,
-        badge: inBrowserProtocol.toUpperCase(),
-        category: 'device',
-        onRestore: () => setIsInBrowserModalOpen(true),
-        onClose: () => {
-          setIsInBrowserModalOpen(false);
-          undockModal(`inbrowser_remote_${inBrowserRemoteServer.id}`);
-        },
-      });
-    }
+  const handleMinimizeInBrowserRemote = (targetServer: RemoteServer, protocol: 'rdp' | 'vnc') => {
+    const targetId = targetServer.id;
+    setInBrowserSessions((prev) =>
+      prev.map((s) => (s.server.id === targetId ? { ...s, isOpen: false } : s))
+    );
+    dockModal({
+      id: `inbrowser_remote_${targetId}`,
+      labelEn: `${targetServer.name} ${protocol.toUpperCase()}`,
+      labelFa: `ریموت ${targetServer.name} (${protocol.toUpperCase()})`,
+      badge: protocol.toUpperCase(),
+      category: 'device',
+      onRestore: () => {
+        setInBrowserSessions((prev) =>
+          prev.map((s) => (s.server.id === targetId ? { ...s, isOpen: true } : s))
+        );
+      },
+      onClose: () => {
+        setInBrowserSessions((prev) => prev.filter((s) => s.server.id !== targetId));
+        undockModal(`inbrowser_remote_${targetId}`);
+      },
+    });
   };
 
   const handleMinimizeAddEdit = () => {
@@ -3984,21 +4013,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         isEn={isEn}
       />
 
-      {/* 14. In-Browser Remote Desktop Modal (Guacamole Gateway RDP / VNC) */}
-      <InBrowserRemoteDesktopModal
-        isOpen={isInBrowserModalOpen}
-        server={inBrowserRemoteServer}
-        protocol={inBrowserProtocol}
-        sessionPassword={ephemeralRdpPassword}
-        onClose={() => {
-          setIsInBrowserModalOpen(false);
-          setEphemeralRdpPassword(undefined);
-          if (inBrowserRemoteServer) undockModal(`inbrowser_remote_${inBrowserRemoteServer.id}`);
-        }}
-        onMinimize={handleMinimizeInBrowserRemote}
-        isLightMode={isLightMode}
-        isEn={isEn}
-      />
+      {/* 14. In-Browser Remote Desktop Modals (Guacamole Gateway RDP / VNC — Persistent Sessions) */}
+      {inBrowserSessions.map((session) => (
+        <InBrowserRemoteDesktopModal
+          key={session.server.id}
+          isOpen={session.isOpen}
+          server={session.server}
+          protocol={session.protocol}
+          sessionPassword={session.sessionPassword}
+          onClose={() => {
+            setInBrowserSessions((prev) => prev.filter((s) => s.server.id !== session.server.id));
+            undockModal(`inbrowser_remote_${session.server.id}`);
+          }}
+          onMinimize={() => handleMinimizeInBrowserRemote(session.server, session.protocol)}
+          isLightMode={isLightMode}
+          isEn={isEn}
+        />
+      ))}
 
       {/* 15. On-Demand Password Prompt Modal (Zero-Storage Policy) */}
       <OnDemandPasswordModal
