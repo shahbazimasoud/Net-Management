@@ -346,18 +346,69 @@ function checkGuacdInstalled(): Promise<boolean> {
 }
 
 /**
+ * Ensure guacd's runtime environment has a writable FreeRDP certificate store ($HOME/.config/freerdp)
+ * and permissive OpenSSL configuration (@SECLEVEL=0) so FreeRDP accepts self-signed Windows RDP certificates
+ * when ignore-cert="true" is passed in the Guacamole handshake.
+ */
+function prepareGuacdCertEnvironment(): Promise<void> {
+  return new Promise((resolve) => {
+    const setupCmd = `
+      mkdir -p /tmp/guacd-home/.config/freerdp/certs /tmp/guacd-home/.config/freerdp/server 2>/dev/null || true;
+      chmod -R 777 /tmp/guacd-home 2>/dev/null || true;
+      for HDIR in /usr/sbin /var/run/guacd /run/guacd /var/lib/guacd /nonexistent /root; do
+        if [ -d "$HDIR" ] || [ "$HDIR" = "/var/lib/guacd" ]; then
+          mkdir -p "$HDIR/.config/freerdp/certs" "$HDIR/.config/freerdp/server" 2>/dev/null || true;
+          chmod -R 777 "$HDIR/.config" 2>/dev/null || true;
+        fi;
+      done;
+      cat << 'EOF' > /tmp/guacd-openssl.cnf
+openssl_conf = openssl_init
+.include /etc/ssl/openssl.cnf
+
+[openssl_init]
+ssl_conf = ssl_sect
+
+[ssl_sect]
+system_default = system_default_sect
+
+[system_default_sect]
+MinProtocol = None
+CipherString = DEFAULT:@SECLEVEL=0
+Options = UnsafeLegacyRenegotiation,ServerPreference
+EOF
+      chmod 644 /tmp/guacd-openssl.cnf 2>/dev/null || true;
+      GPID=$(pgrep -n guacd 2>/dev/null || true);
+      if [ -n "$GPID" ] && [ -r "/proc/$GPID/environ" ]; then
+        if ! tr '\\0' '\\n' < "/proc/$GPID/environ" | grep -q "OPENSSL_CONF=/tmp/guacd-openssl.cnf"; then
+          systemctl stop guacd 2>/dev/null || service guacd stop 2>/dev/null || true;
+          pkill -9 guacd 2>/dev/null || true;
+          HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf /usr/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf guacd -b 127.0.0.1 -l 4822 2>/dev/null &
+          sleep 0.5;
+        fi;
+      fi
+    `;
+    exec(setupCmd, { timeout: 6000 }, () => resolve());
+  });
+}
+
+/**
  * Auto-heal: Proactively attempt to start guacd daemon if it is installed but inactive
  */
 export function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
   return new Promise((resolve) => {
-    checkGuacdHealth(host, port).then((running) => {
-      if (running) return resolve(true);
+    prepareGuacdCertEnvironment().then(() => {
+      checkGuacdHealth(host, port).then((running) => {
+        if (running) return resolve(true);
 
-      exec('systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || /usr/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || guacd -b 127.0.0.1 -l 4822 2>/dev/null &', () => {
-        setTimeout(async () => {
-          const isLive = await checkGuacdHealth(host, port);
-          resolve(isLive);
-        }, 1200);
+        exec(
+          'HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf /usr/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf guacd -b 127.0.0.1 -l 4822 2>/dev/null || systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null &',
+          () => {
+            setTimeout(async () => {
+              const isLive = await checkGuacdHealth(host, port);
+              resolve(isLive);
+            }, 1200);
+          }
+        );
       });
     });
   });
@@ -493,6 +544,7 @@ export function verifyGuacdRdpPlugin(host: string = '127.0.0.1', port: number = 
  * Proactively ensure guacd is running on server boot and verify guacd version + RDP plugin
  */
 export async function ensureGuacdServiceRunning(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
+  await prepareGuacdCertEnvironment();
   const isLive = await checkGuacdHealth(host, port);
   if (isLive) {
     console.log(`[RemoteDesktop] guacd daemon is active and listening on ${host}:${port}`);
@@ -1049,6 +1101,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             const heightStr = String(config.height || 768);
             const dpiStr = String(config.dpi || 96);
 
+            // Parameter names MUST match guacd's hyphenated args list exactly (e.g., "ignore-cert", "color-depth")
             const params: Record<string, string> = {
               hostname: String(config.serverIp || '').trim(),
               port: String(config.port || (config.protocol === 'rdp' ? 3389 : 5900)),
@@ -1057,6 +1110,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               domain: normCreds.domain,
               security: effectiveSecurity,
               'ignore-cert': 'true',
+              'cert-tofu': 'true',
               width: widthStr,
               height: heightStr,
               dpi: dpiStr,
@@ -1064,25 +1118,43 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               ...(config.initialProgram ? { 'initial-program': config.initialProgram } : {}),
             };
 
-            const connectValues = paramNames.map((name) => {
-              if (name.startsWith('VERSION_')) return name;
-              return Object.prototype.hasOwnProperty.call(params, name) && params[name] !== undefined
-                ? String(params[name])
-                : '';
+            const matchedArgs: Record<string, string> = {};
+            const emptyArgs: string[] = [];
+
+            // Build connect values in the EXACT order of the args list returned by guacd after select
+            const connectValues = paramNames.map((rawName) => {
+              const name = rawName.trim();
+              if (name.startsWith('VERSION_')) {
+                matchedArgs[name] = name;
+                return name;
+              }
+              if (Object.prototype.hasOwnProperty.call(params, name) && params[name] !== undefined) {
+                const val = String(params[name]);
+                if (name === 'password') {
+                  matchedArgs[name] = val.length === 0 ? '<empty>' : '<redacted>';
+                } else {
+                  matchedArgs[name] = val;
+                }
+                if (val === '') {
+                  emptyArgs.push(name);
+                }
+                return val;
+              }
+              emptyArgs.push(name);
+              return '';
             });
 
             const isPasswordEmpty = passwordVal.length === 0;
-            const loggedParams: Record<string, string> = {};
-            paramNames.forEach((name, idx) => {
-              const val = connectValues[idx];
-              if (name === 'password') {
-                loggedParams[name] = isPasswordEmpty ? '<empty>' : '<redacted>';
-              } else if (val !== '') {
-                loggedParams[name] = val;
-              }
-            });
+            const ignoreCertIdx = paramNames.findIndex((n) => n.trim() === 'ignore-cert');
+            const ignoreCertSentVal = ignoreCertIdx >= 0 ? connectValues[ignoreCertIdx] : '<not-in-args>';
+
             console.log(
-              `[RemoteDesktop] Sending Guacamole connect for session ${config.id}: passwordEmpty=${isPasswordEmpty} | argsOrder=${JSON.stringify(paramNames)} | sentParams=${JSON.stringify(loggedParams)}`
+              `[RemoteDesktop] Guacamole connect debug for session ${config.id}: ` +
+                `ignore-cert="${ignoreCertSentVal}" (argIndex=${ignoreCertIdx}) | ` +
+                `security="${effectiveSecurity}" | ` +
+                `passwordEmpty=${isPasswordEmpty} | ` +
+                `matchedArgs=${JSON.stringify(matchedArgs)} | ` +
+                `emptyArgs=${JSON.stringify(emptyArgs)}`
             );
 
             guacdSocket.write(encodeGuacInstruction('size', widthStr, heightStr, dpiStr));

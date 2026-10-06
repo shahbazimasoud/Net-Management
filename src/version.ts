@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.281.1';
+export const APP_VERSION = '1.281.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.281.2',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'پذیرش گواهی‌های Self-Signed در اتصال RDP از طریق پارامتر ignore-cert و ثبت لاگ دقیق تطبیق args',
+    title_en: 'Accept Self-Signed RDP Certificates via ignore-cert and Add Detailed Guacamole Args Matching Debug Logs',
+    changes: [
+      'تضمین ارسال دقیق پارامتر خط‌تیره‌دار ignore-cert با مقدار true در دستور connect دقیقاً منطبق با ترتیب لیست args دریافتی از guacd.',
+      'ثبت لاگ دیباگ جامع شامل لیست پارامترهای تطبیق‌یافته با args (matchedArgs)، پارامترهای خالی (emptyArgs) و مقدار دقیق ارسال‌شده برای ignore-cert (بدون نمایش رمز عبور).',
+      'آماده‌سازی خودکار دایرکتوری گواهی FreeRDP و پیکربندی OpenSSL برای پذیرش گواهی‌های Self-Signed ویندوز سرور در guacd.',
+    ],
+    changes_en: [
+      'Ensured Guacamole connect instruction sends hyphenated "ignore-cert" parameter with value "true" in the exact order of guacd args list.',
+      'Added debug logging listing matched args, empty args, and the exact value and index sent for "ignore-cert" without printing the password.',
+      'Configured writable FreeRDP certificate store and permissive OpenSSL environment for guacd so self-signed Windows RDP certificates are accepted.',
+    ],
+  },
   {
     version: '1.281.1',
     releaseDate: '2026-10-06',
