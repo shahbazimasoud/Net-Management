@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.280.1';
+export const APP_VERSION = '1.280.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.280.2',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'افزودن فیلتر اختصاصی گروه‌های دارای نقش دسترسی (Role Assigned) در تب اکتیو دایرکتوری',
+    title_en: 'Add Role Assignment Filter Toggle in Active Directory Groups Tab',
+    changes: [
+      'افزودن نوار فیلتر سه‌حالته (همه گروه‌ها، دارای نقش انتساب‌یافته، فاقد نقش) در صفحه گروه‌های اکتیو دایرکتوری جهت یافتن سریع گروه‌های مجاز.',
+      'نمایش شمارنده آنلاین تعداد گروه‌های دارای نقش دسترسی در بج فیلتر.',
+      'سازگاری کامل فیلتر نقشی با فیلد جستجوی متنی و پیام‌های وضعیت بدون آیتم.',
+    ],
+    changes_en: [
+      'Added a 3-way role assignment filter toggle (All Groups, Role Assigned, No Role) to Active Directory groups view for instant discovery of mapped groups.',
+      'Included live counter badge displaying the exact count of groups with assigned panel RBAC policies.',
+      'Seamlessly synchronized with search text filtering and contextual empty-state messages.',
+    ],
+  },
   {
     version: '1.280.1',
     releaseDate: '2026-10-06',
