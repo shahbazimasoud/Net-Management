@@ -1053,7 +1053,25 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     let handshakeState: 'SELECT' | 'CONNECTING' | 'READY' = 'SELECT';
     let guacBuffer = '';
+    let clientBuffer = '';
+    let lastGuacdNopAt = Date.now();
     let errorSent = false;
+
+    // Periodic keepalive so minimized / backgrounded RDP sessions never drop
+    const keepaliveInterval = setInterval(() => {
+      if (handshakeState === 'READY') {
+        activeSession.lastActivity = Date.now();
+        try {
+          if (guacdSocket.writable) {
+            guacdSocket.write(encodeGuacInstruction('nop'));
+            lastGuacdNopAt = Date.now();
+          }
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(encodeGuacInstruction('nop'));
+          }
+        } catch {}
+      }
+    }, 5000);
 
     guacdSocket.connect(guacdPort, guacdHost, () => {
       activeSession.guacdConnected = true;
@@ -1108,6 +1126,9 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               security: effectiveSecurity,
               'ignore-cert': 'true',
               'cert-tofu': 'true',
+              'disable-copy': 'false',
+              'disable-paste': 'false',
+              'normalize-clipboard': 'preserve',
               width: widthStr,
               height: heightStr,
               dpi: dpiStr,
@@ -1183,18 +1204,41 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       }
     });
 
-    // Handle user inputs (mouse, keys, clipboard) from client
+    // Handle user inputs (mouse, keys, clipboard) and internal tunnel pings from client
     clientWs.on('message', (msg: WebSocket.Data) => {
       activeSession.lastActivity = Date.now();
-      const str = msg.toString();
+      clientBuffer += msg.toString();
 
-      // Forward directly to guacd
-      if (guacdSocket.writable) {
-        guacdSocket.write(str);
+      while (true) {
+        const next = extractNextGuacInstruction(clientBuffer);
+        if (!next) break;
+        clientBuffer = next.remaining;
+        const parsed = next.parts;
+        const opcode = parsed[0];
+
+        // Guacamole.WebSocketTunnel sends internal ping: 0.,4.ping,<len>.<timestamp>;
+        // We MUST echo it back to clientWs to prevent client-side 15s receiveTimeout,
+        // and send a standard "nop" to guacd rather than an invalid empty opcode.
+        if (opcode === '') {
+          if (parsed[1] === 'ping' && clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(encodeGuacInstruction('', 'ping', parsed[2] || String(Date.now())));
+          }
+          if (handshakeState === 'READY' && guacdSocket.writable && Date.now() - lastGuacdNopAt > 3000) {
+            guacdSocket.write(encodeGuacInstruction('nop'));
+            lastGuacdNopAt = Date.now();
+          }
+          continue;
+        }
+
+        // Forward standard Guacamole instruction to guacd
+        if (guacdSocket.writable) {
+          guacdSocket.write(next.instruction + ';');
+        }
       }
     });
 
     guacdSocket.on('error', (err: Error) => {
+      clearInterval(keepaliveInterval);
       console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
       if (clientWs.readyState === WebSocket.OPEN && !errorSent) {
         const payload = {
@@ -1209,6 +1253,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     });
 
     guacdSocket.on('close', () => {
+      clearInterval(keepaliveInterval);
       if (clientWs.readyState === WebSocket.OPEN && !errorSent) {
         const isEstablished = handshakeState === 'READY';
         const payload = isEstablished
@@ -1238,6 +1283,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     });
 
     clientWs.on('close', () => {
+      clearInterval(keepaliveInterval);
       const durationSec = Math.round((Date.now() - activeSession.startTime) / 1000);
       try {
         if (guacdSocket.writable) {

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.1';
+export const APP_VERSION = '1.283.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.2',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'رفع باگ همگام‌سازی کلیپ‌بورد ریموت دسکتاپ (Remote Clipboard Synchronization) و افزودن قابلیت ارسال و تایپ مستقیم در سرور',
+    title_en: 'Fix Remote Clipboard Synchronization Stream via Guacamole CLIPRDR & Add Direct Auto-Type in Remote Server',
+    changes: [
+      'رفع خطای ارسال متن به کلیپ‌بورد سرور ریموت با جایگزینی متد ناموجود setClipboard با استریم استاندارد پروتکل Guacamole (createClipboardStream + ArrayBufferWriter/StringWriter) جهت انتقال مستقیم متن UTF-8 به کانال CLIPRDR ویندوز سرور.',
+      'فعال‌سازی صریح پارامترهای کلیپ‌بورد RDP (disable-copy=false, disable-paste=false, normalize-clipboard=preserve) در گیت‌وی سرور.',
+      'افزودن دکمه «ارسال و تایپ در سرور» (Send & Type in Remote) و دکمه «درج از کلیپ‌بورد من» (Paste Local) در مودال کلیپ‌بورد جهت تایپ مستقیم رمز عبور یا دستورات حتی در صفحه لاگین ویندوز و CMD.'
+    ],
+    changes_en: [
+      'Fixed remote clipboard transmission by replacing the non-existent client.setClipboard call with the native Guacamole clipboard output stream (createClipboardStream + UTF-8 ArrayBufferWriter/StringWriter) over RDP CLIPRDR.',
+      'Explicitly enabled RDP clipboard parameters (disable-copy=false, disable-paste=false, normalize-clipboard=preserve) in the backend gateway handshake.',
+      'Added "Send & Type in Remote" and "Paste Local" buttons in the Remote Clipboard Synchronization modal to support direct keystroke injection on Windows login screens and consoles.'
+    ]
+  },
   {
     version: '1.283.1',
     releaseDate: '2026-10-06',

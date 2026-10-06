@@ -822,7 +822,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       // Handle server-to-client clipboard sync
       client.onclipboard = (stream: any, mimetype: string) => {
-        if (mimetype === 'text/plain') {
+        if (mimetype && mimetype.toLowerCase().startsWith('text/plain')) {
           const reader = new Guacamole.StringReader(stream);
           let text = '';
           reader.ontext = (chunk: string) => {
@@ -830,7 +830,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           };
           reader.onend = () => {
             setClipboardText(text);
+            if (text && navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(text).catch(() => {});
+            }
           };
+        } else {
+          try {
+            client.sendAck(stream.index, 'Unsupported clipboard mimetype', 0x0100);
+          } catch {}
         }
       };
 
@@ -1109,19 +1116,94 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     }
   };
 
-  // Clipboard sync
+  // Helper: Write UTF-8 text to remote server clipboard via Guacamole output stream (CLIPRDR)
+  const pushTextToRemoteClipboard = useCallback((rawText: string): boolean => {
+    if (!guacClientRef.current || !rawText) return false;
+    try {
+      const client = guacClientRef.current;
+      // Windows RDP CLIPRDR expects CRLF line breaks for multi-line text
+      const normalizedText = isRdpRef.current ? rawText.replace(/\r?\n/g, '\r\n') : rawText;
+      const stream = client.createClipboardStream('text/plain');
+      if (typeof TextEncoder !== 'undefined' && Guacamole.ArrayBufferWriter) {
+        const writer = new Guacamole.ArrayBufferWriter(stream);
+        const utf8Bytes = new TextEncoder().encode(normalizedText);
+        writer.sendData(utf8Bytes);
+        writer.sendEnd();
+      } else {
+        const writer = new Guacamole.StringWriter(stream);
+        writer.sendText(normalizedText);
+        writer.sendEnd();
+      }
+      return true;
+    } catch (err) {
+      console.error('[RemoteDesktop] Failed to push text to remote clipboard stream:', err);
+      return false;
+    }
+  }, []);
+
+  // Open Clipboard Modal safely (release Guacamole keyboard focus so textarea receives all keys)
+  const handleOpenClipboardModal = useCallback(() => {
+    if (displayContainerRef.current) {
+      try {
+        displayContainerRef.current.blur();
+      } catch {}
+    }
+    if (guacKeyboardRef.current) {
+      try {
+        guacKeyboardRef.current.reset();
+      } catch {}
+    }
+    setShowClipboardModal(true);
+  }, []);
+
+  // Clipboard sync: Send text to remote server clipboard stream
   const handleSendClipboard = () => {
     registerActivity();
-    if (!clipboardText.trim()) return;
+    if (!clipboardText) return;
 
-    if (guacClientRef.current) {
-      guacClientRef.current.setClipboard(clipboardText);
-    }
+    pushTextToRemoteClipboard(clipboardText);
     setClipboardCopied(true);
     setTimeout(() => {
       setClipboardCopied(false);
       setShowClipboardModal(false);
-    }, 1200);
+      setTimeout(() => {
+        displayContainerRef.current?.focus();
+      }, 60);
+    }, 600);
+  };
+
+  // Clipboard sync + Auto-Paste / Type directly into active remote window (works on login screen & desktop)
+  const handleSendAndPasteClipboard = () => {
+    registerActivity();
+    if (!clipboardText) return;
+
+    const textToPaste = clipboardText;
+    pushTextToRemoteClipboard(textToPaste);
+    setClipboardCopied(true);
+    setShowClipboardModal(false);
+
+    setTimeout(() => {
+      setClipboardCopied(false);
+      if (displayContainerRef.current) {
+        displayContainerRef.current.focus();
+      }
+      if (guacKeyboardRef.current && typeof guacKeyboardRef.current.type === 'function') {
+        try {
+          guacKeyboardRef.current.type(textToPaste);
+          return;
+        } catch {}
+      }
+      if (guacClientRef.current) {
+        const client = guacClientRef.current;
+        // Fallback: send Ctrl+V (Ctrl = 0xFFE3, v = 0x0076)
+        client.sendKeyEvent(1, 0xffe3);
+        client.sendKeyEvent(1, 0x0076);
+        setTimeout(() => {
+          client.sendKeyEvent(0, 0x0076);
+          client.sendKeyEvent(0, 0xffe3);
+        }, 100);
+      }
+    }, 180);
   };
 
   // Safe Close with Modal Lock Check — ONLY explicit Close terminates the session
@@ -1529,7 +1611,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             {/* Clipboard Sync Button */}
             <button
               type="button"
-              onClick={() => setShowClipboardModal(true)}
+              onClick={handleOpenClipboardModal}
               className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1 transition-colors cursor-pointer"
               title={isEn ? 'Open Clipboard Bridge' : 'پل کلیپ‌بورد'}
             >
@@ -1845,7 +1927,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                         type="button"
                         onClick={() => {
                           setFloatingToolbarExpanded(false);
-                          setShowClipboardModal(true);
+                          handleOpenClipboardModal();
                         }}
                         className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs flex items-center gap-1 cursor-pointer"
                       >
@@ -1915,6 +1997,13 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             onClick={() => {
               if (!showClipboardModal && !showConfirmClose) {
                 displayContainerRef.current?.focus();
+              }
+            }}
+            onPaste={(e) => {
+              const pasted = e.clipboardData?.getData('text/plain');
+              if (pasted) {
+                setClipboardText(pasted);
+                pushTextToRemoteClipboard(pasted);
               }
             }}
             className={`w-full h-full flex items-center justify-center overflow-hidden focus:outline-none ${
@@ -2255,54 +2344,107 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
         {/* Clipboard Bridge Dialog */}
         {showClipboardModal && (
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[999999]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div
               className={`p-5 rounded-2xl max-w-lg w-full border shadow-2xl ${
-                isLightMode ? 'bg-white border-slate-300' : 'bg-slate-900 border-slate-700'
+                isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-900 border-slate-700 text-slate-100'
               }`}
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Copy className="w-4 h-4 text-cyan-400" />
-                  <h4 className="text-sm font-bold text-slate-100">
+                  <h4 className={`text-sm font-bold ${isLightMode ? 'text-slate-900' : 'text-slate-100'}`}>
                     {isEn ? 'Remote Clipboard Synchronization' : 'همگام‌سازی کلیپ‌بورد ریموت'}
                   </h4>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowClipboardModal(false)}
-                  className="p-1 rounded text-slate-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        if (navigator.clipboard && navigator.clipboard.readText) {
+                          const localText = await navigator.clipboard.readText();
+                          if (localText) setClipboardText(localText);
+                        }
+                      } catch {}
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                        : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                    }`}
+                    title={isEn ? 'Read from your local system clipboard' : 'خواندن متن از کلیپ‌بورد سیستم شما'}
+                  >
+                    {isEn ? 'Paste Local' : 'درج از کلیپ‌بورد من'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowClipboardModal(false);
+                      setTimeout(() => displayContainerRef.current?.focus(), 50);
+                    }}
+                    className="p-1 rounded text-slate-400 hover:text-rose-400 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <p className="text-xs text-slate-400 mb-2">
+              <p className={`text-xs mb-2 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                 {isEn
-                  ? 'Paste or type text below to transfer it into the remote desktop clipboard stream:'
-                  : 'متن مورد نظر را در کادر زیر قرار دهید تا مستقیماً به کلیپ‌بورد سرور ریموت ارسال شود:'}
+                  ? 'Paste or type text below to transfer it into the remote desktop clipboard (Ctrl+V in remote) or auto-type it into the active remote field:'
+                  : 'متن مورد نظر را در کادر زیر وارد کنید تا به کلیپ‌بورد سرور ریموت منتقل شود (قابل Paste با Ctrl+V در سرور) یا مستقیماً در کادر فعال سرور تایپ گردد:'}
               </p>
               <textarea
+                autoFocus
+                dir="ltr"
                 value={clipboardText}
                 onChange={(e) => setClipboardText(e.target.value)}
-                placeholder={isEn ? 'Type or paste content here...' : 'متن یا کد را اینجا وارد کنید...'}
-                className="w-full h-32 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 font-mono text-xs resize-none focus:outline-none focus:border-cyan-500"
+                placeholder={isEn ? 'Type or paste content here...' : 'متن، دستور یا رمز عبور را اینجا وارد کنید...'}
+                className={`w-full h-32 p-2.5 rounded-xl border font-mono text-xs resize-none focus:outline-none focus:border-cyan-500 ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400'
+                    : 'bg-slate-950 border-slate-800 text-slate-200 placeholder-slate-500'
+                }`}
               />
-              <div className="flex items-center justify-between mt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-3">
                 <span className="text-[11px] text-slate-500 font-mono">
                   {clipboardText.length} {isEn ? 'characters' : 'نویسه'}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowClipboardModal(false)}
-                    className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white"
+                    onClick={() => {
+                      setShowClipboardModal(false);
+                      setTimeout(() => displayContainerRef.current?.focus(), 50);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer ${
+                      isLightMode ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-400 hover:text-white'
+                    }`}
                   >
                     {isEn ? 'Close' : 'بستن'}
                   </button>
                   <button
                     type="button"
+                    disabled={!clipboardText}
+                    onClick={handleSendAndPasteClipboard}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-400 transition-colors cursor-pointer disabled:opacity-40"
+                    title={
+                      isEn
+                        ? 'Send to remote clipboard AND type directly at cursor position (works on Windows login screen too)'
+                        : 'ارسال به کلیپ‌بورد و تایپ خودکار در محل نشانگر سرور (مناسب صفحه لاگین ویندوز، CMD و غیره)'
+                    }
+                  >
+                    <Keyboard className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Send & Type in Remote' : 'ارسال و تایپ در سرور'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!clipboardText}
                     onClick={handleSendClipboard}
-                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md transition-colors cursor-pointer disabled:opacity-40"
                   >
                     {clipboardCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>
