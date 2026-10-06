@@ -232,6 +232,24 @@ npm start
 - `restart.sh`: راه‌اندازی مجدد سرور و اعمال تغییرات
 - `install.sh`: نصب کامل پکیج‌ها و تنظیمات محیطی
 - `scripts/setup-ssh-venvs.sh`: ساخت و اعتبارسنجی خودکار محیط‌های مجازی دوگانه پایتون برای بک‌اند SSH (محیط Legacy با Paramiko 2.12.x و محیط Modern با Paramiko >=3.4.0)
+- `scripts/install-guacd.sh`: کامپایل و نصب مستقل از توزیع گیت‌وی ریموت دسکتاپ Apache Guacamole (`guacd >= 1.5.5`) از سورس رسمی آپاچی
+
+### کامپایل و نصب گیت‌وی RDP (`guacd`) از سورس رسمی (`scripts/install-guacd.sh`)
+- **چرا `guacd` از سورس کامپایل می‌شود؟** پکیج‌های پیش‌فرض مخازن توزیع‌های لینوکس (مانند `guacd 1.3.0` در Ubuntu/Debian به همراه FreeRDP 2.x و OpenSSL 3) قدیمی هستند و در مذاکره امنیتی TLS / CredSSP / NLA با ویندوز سرورهای مدرن (حتی با ارسال `ignore-cert=true`) با خطای `SSL/TLS connection failed` مواجه می‌شوند. نسخه `guacd >= 1.5.5` این مشکل را به‌طور کامل برطرف می‌کند.
+- **نحوه اجرای مجدد اسکریپت:**
+  ```bash
+  # اجرای استاندارد (در صورت فعال بودن guacd >= 1.5.5 با پلاگین RDP به صورت idempotent عبور می‌کند):
+  sudo bash scripts/install-guacd.sh
+
+  # کامپایل و نصب مجدد اجباری (Force Rebuild):
+  sudo bash scripts/install-guacd.sh --force
+  ```
+- **نحوه ارتقا یا تغییر نسخه (`GUACD_VERSION`):**
+  متغیر `GUACD_VERSION` در ابتدای فایل `scripts/install-guacd.sh` تعریف شده است (پیش‌فرض: `1.5.5`). برای ارتقای نسخه می‌توانید مقدار `GUACD_VERSION` را در بالای `scripts/install-guacd.sh` ویرایش کنید یا هنگام اجرا به صورت متغیر محیطی پاس دهید:
+  ```bash
+  sudo GUACD_VERSION=1.5.5 bash scripts/install-guacd.sh --force
+  ```
+  لاگ کامل مراحل کامپایل و نصب در مسیر `/var/log/nettopology-guacd-install.log` ذخیره می‌شود.
 
 ---
 
@@ -545,6 +563,24 @@ Open `http://localhost:3000` in your web browser.
 - `restart.sh`: Restarts server and reloads configuration
 - `install.sh`: Performs environment setup and dependency installation
 - `scripts/setup-ssh-venvs.sh`: Idempotent setup and validation of dual Python virtual environments for SSH backends (Legacy venv with Paramiko 2.12.x and Modern venv with Paramiko >=3.4.0)
+- `scripts/install-guacd.sh`: Distro-independent source build and installation script for Apache Guacamole daemon (`guacd >= 1.5.5`) with RDP support
+
+### Building `guacd` from Official Apache Source (`scripts/install-guacd.sh`)
+- **Why `guacd` is built from source:** Distro-packaged versions of `guacd` (such as `guacd 1.3.0` shipped in standard apt/dnf repositories alongside FreeRDP 2.x and OpenSSL 3) are outdated and fail TLS/CredSSP/NLA negotiation against modern Windows Server targets even when `ignore-cert=true` is enabled. Building `guacd >= 1.5.5` from official Apache source resolves this across all Debian/Ubuntu and RHEL/Rocky/Alma/CentOS/Fedora releases without relying on distro-specific package versions.
+- **How to re-run the script:**
+  ```bash
+  # Standard idempotent run (skips with exit 0 if guacd >= 1.5.5 with RDP is already running):
+  sudo bash scripts/install-guacd.sh
+
+  # Force a fresh source build and reinstall:
+  sudo bash scripts/install-guacd.sh --force
+  ```
+- **How to bump `GUACD_VERSION`:**
+  The target version is pinned in `GUACD_VERSION` at the top of `scripts/install-guacd.sh` (default `1.5.5`). To upgrade to a newer Apache release, either update `GUACD_VERSION` at the top of `scripts/install-guacd.sh` or pass it as an environment variable:
+  ```bash
+  sudo GUACD_VERSION=1.5.5 bash scripts/install-guacd.sh --force
+  ```
+  Full build and verification logs are preserved at `/var/log/nettopology-guacd-install.log`.
 
 ---
 

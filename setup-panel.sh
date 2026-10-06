@@ -2,7 +2,7 @@
 # ==============================================================================
 # NetTopology — Enterprise Cisco Network Topology & Port Security Management Panel
 # Automated VPS & Server Setup Installer
-# Supports Ubuntu 20.04/22.04/24.04, Debian 11/12, and other Debian-based systems
+# Supports Debian/Ubuntu and RHEL-family Linux distributions
 # ==============================================================================
 
 set -eo pipefail
@@ -425,18 +425,14 @@ DEBIAN_FRONTEND=noninteractive apt-get install -f -y -o Dpkg::Options::="--force
 log_step "Updating local package catalog (apt-get update)..."
 safe_apt_update
 
-log_step "Installing system tools, Nginx web server, Guacamole RDP/VNC Gateway, and PostgreSQL database engine..."
+log_step "Installing system tools, Nginx web server, and PostgreSQL database engine..."
 safe_apt_install \
   git curl build-essential python3 python3-pip python3-venv python3-paramiko python3-cryptography python3-websockets ca-certificates gnupg lsb-release xz-utils openssl ufw traceroute dnsutils whois iputils-ping \
-  postgresql postgresql-contrib postgresql-client nginx guacd libguac-client-rdp0 libguac-client-vnc0
+  postgresql postgresql-contrib postgresql-client nginx
 
 log_step "Ensuring PostgreSQL service is enabled and started..."
 systemctl enable postgresql 2>/dev/null || true
 systemctl start postgresql 2>/dev/null || service postgresql start 2>/dev/null || true
-
-log_step "Ensuring Apache Guacamole Daemon (guacd) service is enabled and started..."
-systemctl enable guacd 2>/dev/null || true
-systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || true
 
 # Wait for PostgreSQL socket to become responsive
 PG_READY=false
@@ -588,6 +584,20 @@ if [ "$(pwd)" != "$INSTALL_DIR" ]; then
 fi
 
 log_success "Project directory active: $(pwd)"
+
+# ------------------------------------------------------------------------------
+# 3.5 Apache Guacamole Daemon (guacd >= 1.5.5) Source Build & Installation
+# ------------------------------------------------------------------------------
+log_step "Building and installing Apache Guacamole Daemon (guacd >= 1.5.5) from source..."
+if [ ! -f "$INSTALL_DIR/scripts/install-guacd.sh" ]; then
+  log_error "scripts/install-guacd.sh not found in $INSTALL_DIR"
+  exit 1
+fi
+if ! bash "$INSTALL_DIR/scripts/install-guacd.sh"; then
+  log_error "Failed to build/install guacd via scripts/install-guacd.sh. Check /var/log/nettopology-guacd-install.log for the real error."
+  exit 1
+fi
+log_success "Apache Guacamole Daemon (guacd >= 1.5.5) is installed and running."
 
 # ------------------------------------------------------------------------------
 # 4. Data Preservation

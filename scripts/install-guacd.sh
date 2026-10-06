@@ -128,11 +128,11 @@ is_port_listening() {
   local port="${2:-4822}"
 
   if command -v ss >/dev/null 2>&1; then
-    if ss -tln 2>/dev/null | awk '{print $4}' | grep -E -q "(^|${host}:)${port}$"; then
+    if ss -tln 2>/dev/null | awk '{print $4}' | grep -E "(^|${host}:)${port}$" >/dev/null 2>&1; then
       return 0
     fi
   elif command -v netstat >/dev/null 2>&1; then
-    if netstat -tln 2>/dev/null | awk '{print $4}' | grep -E -q "(^|${host}:)${port}$"; then
+    if netstat -tln 2>/dev/null | awk '{print $4}' | grep -E "(^|${host}:)${port}$" >/dev/null 2>&1; then
       return 0
     fi
   fi
@@ -305,7 +305,7 @@ pkg_is_available() {
     return 1
   fi
   if [ "$PKG_MGR" = "apt-get" ]; then
-    if ! apt-cache show "$pkg" 2>/dev/null | grep -q '^Package:'; then
+    if ! apt-cache show "$pkg" 2>/dev/null | grep '^Package:' >/dev/null 2>&1; then
       return 1
     fi
     local cand
@@ -747,9 +747,27 @@ chmod 644 /etc/systemd/system/guacd.service
 # Requirement 8: daemon-reload, enable, restart, wait up to 10s for 127.0.0.1:4822
 # ------------------------------------------------------------------------------
 log_info "Reloading systemd, enabling and restarting guacd.service..."
-systemctl daemon-reload
-systemctl enable guacd.service
-systemctl restart guacd.service
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload
+  systemctl enable guacd.service
+  systemctl restart guacd.service
+else
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl enable guacd.service 2>/dev/null || true
+  if ! systemctl restart guacd.service 2>/dev/null; then
+    log_warn "systemd is not active as PID 1; launching ${NEW_GUACD_BIN} directly as user '${GUACD_USER}'..."
+    pkill -9 guacd 2>/dev/null || true
+    if command -v runuser >/dev/null 2>&1; then
+      HOME="$GUACD_HOME" LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64" OPENSSL_CONF="${OPENSSL_CNF_PATH:-}" \
+        runuser -u "$GUACD_USER" -- "$NEW_GUACD_BIN" -f -b "$GUACD_HOST" -l "$GUACD_PORT" -L info >/var/log/guacd.log 2>&1 &
+    elif command -v su >/dev/null 2>&1; then
+      su -s /bin/sh "$GUACD_USER" -c "HOME='$GUACD_HOME' LD_LIBRARY_PATH='/usr/local/lib:/usr/local/lib64' OPENSSL_CONF='${OPENSSL_CNF_PATH:-}' '$NEW_GUACD_BIN' -f -b '$GUACD_HOST' -l '$GUACD_PORT' -L info" >/var/log/guacd.log 2>&1 &
+    else
+      HOME="$GUACD_HOME" LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64" OPENSSL_CONF="${OPENSSL_CNF_PATH:-}" \
+        "$NEW_GUACD_BIN" -f -b "$GUACD_HOST" -l "$GUACD_PORT" -L info >/var/log/guacd.log 2>&1 &
+    fi
+  fi
+fi
 
 log_info "Waiting up to 10 seconds for guacd to listen on ${GUACD_HOST}:${GUACD_PORT}..."
 LISTENING=false
@@ -796,7 +814,11 @@ fi
 log_info "Final check 3/4 PASSED: libguac-client-rdp is present and loadable (${FINAL_RDP_SO})"
 
 log_info "Final check 4/4: systemd service Environment:"
-systemctl show guacd -p Environment
+if command -v systemctl >/dev/null 2>&1 && systemctl show guacd -p Environment 2>/dev/null; then
+  :
+else
+  grep '^Environment=' /etc/systemd/system/guacd.service || true
+fi
 
 # Clean up source tree (also handled by EXIT trap)
 rm -rf "$BUILD_ROOT" 2>/dev/null || true

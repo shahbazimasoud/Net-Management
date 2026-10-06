@@ -339,52 +339,39 @@ function checkGuacdHealth(host: string = '127.0.0.1', port: number = 4822): Prom
  */
 function checkGuacdInstalled(): Promise<boolean> {
   return new Promise((resolve) => {
-    exec('which guacd 2>/dev/null || command -v guacd 2>/dev/null || test -x /usr/sbin/guacd || test -x /usr/bin/guacd', (err) => {
+    exec('which guacd 2>/dev/null || command -v guacd 2>/dev/null || test -x /usr/local/sbin/guacd || test -x /usr/sbin/guacd || test -x /usr/bin/guacd', (err) => {
       resolve(!err);
     });
   });
 }
 
 /**
+ * Compare two semantic version strings (returns true if v1 < v2)
+ */
+function isSemverLessThan(v1: string, v2: string): boolean {
+  const p1 = v1.split('.').map((n) => parseInt(n.replace(/[^0-9]/g, ''), 10) || 0);
+  const p2 = v2.split('.').map((n) => parseInt(n.replace(/[^0-9]/g, ''), 10) || 0);
+  const len = Math.max(p1.length, p2.length);
+  for (let i = 0; i < len; i++) {
+    const a = p1[i] ?? 0;
+    const b = p2[i] ?? 0;
+    if (a < b) return true;
+    if (a > b) return false;
+  }
+  return false;
+}
+
+/**
  * Ensure guacd's runtime environment has a writable FreeRDP certificate store ($HOME/.config/freerdp)
- * and permissive OpenSSL configuration (@SECLEVEL=0) so FreeRDP accepts self-signed Windows RDP certificates
- * when ignore-cert="true" is passed in the Guacamole handshake.
+ * without disrupting an active systemd-managed guacd instance.
  */
 function prepareGuacdCertEnvironment(): Promise<void> {
   return new Promise((resolve) => {
     const setupCmd = `
-      mkdir -p /tmp/guacd-home/.config/freerdp/certs /tmp/guacd-home/.config/freerdp/server 2>/dev/null || true;
+      mkdir -p /var/lib/guacd/.config/freerdp/certs /var/lib/guacd/.config/freerdp/server /tmp/guacd-home/.config/freerdp/certs /tmp/guacd-home/.config/freerdp/server 2>/dev/null || true;
       chmod -R 777 /tmp/guacd-home 2>/dev/null || true;
-      for HDIR in /usr/sbin /var/run/guacd /run/guacd /var/lib/guacd /nonexistent /root; do
-        if [ -d "$HDIR" ] || [ "$HDIR" = "/var/lib/guacd" ]; then
-          mkdir -p "$HDIR/.config/freerdp/certs" "$HDIR/.config/freerdp/server" 2>/dev/null || true;
-          chmod -R 777 "$HDIR/.config" 2>/dev/null || true;
-        fi;
-      done;
-      cat << 'EOF' > /tmp/guacd-openssl.cnf
-openssl_conf = openssl_init
-.include /etc/ssl/openssl.cnf
-
-[openssl_init]
-ssl_conf = ssl_sect
-
-[ssl_sect]
-system_default = system_default_sect
-
-[system_default_sect]
-MinProtocol = None
-CipherString = DEFAULT:@SECLEVEL=0
-Options = UnsafeLegacyRenegotiation,ServerPreference
-EOF
-      chmod 644 /tmp/guacd-openssl.cnf 2>/dev/null || true;
-      GPID=$(pgrep -n guacd 2>/dev/null || true);
-      if [ -n "$GPID" ] && [ -r "/proc/$GPID/environ" ]; then
-        if ! tr '\\0' '\\n' < "/proc/$GPID/environ" | grep -q "OPENSSL_CONF=/tmp/guacd-openssl.cnf"; then
-          systemctl stop guacd 2>/dev/null || service guacd stop 2>/dev/null || true;
-          pkill -9 guacd 2>/dev/null || true;
-          HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf /usr/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf guacd -b 127.0.0.1 -l 4822 2>/dev/null &
-          sleep 0.5;
-        fi;
+      if id -u guacd >/dev/null 2>&1; then
+        chown -R guacd:guacd /var/lib/guacd 2>/dev/null || true;
       fi
     `;
     exec(setupCmd, { timeout: 6000 }, () => resolve());
@@ -401,7 +388,7 @@ export function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): 
         if (running) return resolve(true);
 
         exec(
-          'HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf /usr/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || HOME=/tmp/guacd-home OPENSSL_CONF=/tmp/guacd-openssl.cnf guacd -b 127.0.0.1 -l 4822 2>/dev/null || systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null &',
+          'systemctl start guacd 2>/dev/null || service guacd start 2>/dev/null || HOME=/var/lib/guacd /usr/local/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || HOME=/tmp/guacd-home /usr/sbin/guacd -b 127.0.0.1 -l 4822 2>/dev/null || HOME=/tmp/guacd-home guacd -b 127.0.0.1 -l 4822 2>/dev/null &',
           () => {
             setTimeout(async () => {
               const isLive = await checkGuacdHealth(host, port);
@@ -457,7 +444,8 @@ export function verifyGuacdRdpPlugin(host: string = '127.0.0.1', port: number = 
       );
 
       if (!hasValidVersion) {
-        const errMsg = 'guacd binary not found or "guacd -v" failed. Please install the guacd package.';
+        const errMsg =
+          'guacd binary not found or "guacd -v" failed. Please run "sudo bash scripts/install-guacd.sh" to build and install guacd >= 1.5.5 from source.';
         console.error(`[RemoteDesktop] ERROR: ${errMsg} (output: ${guacdVersion || 'none'})`);
         return resolve({
           guacdVersion: null,
@@ -467,7 +455,15 @@ export function verifyGuacdRdpPlugin(host: string = '127.0.0.1', port: number = 
         });
       }
 
-      console.log(`[RemoteDesktop] Verified guacd version: ${guacdVersion}`);
+      const versionNumMatch = (guacdVersion || '').match(/(\d+\.\d+\.\d+)/);
+      const parsedVersionNum = versionNumMatch ? versionNumMatch[1] : null;
+      console.log(`[RemoteDesktop] Verified guacd version: ${guacdVersion} (parsed=${parsedVersionNum || 'unknown'})`);
+
+      if (parsedVersionNum && isSemverLessThan(parsedVersionNum, '1.5.0')) {
+        console.warn(
+          `[RemoteDesktop] WARNING: Installed guacd version (${parsedVersionNum}) is < 1.5.0 and may fail RDP TLS/CredSSP negotiation with modern Windows Server. Please run "sudo bash scripts/install-guacd.sh" to build and install guacd >= 1.5.5 from source.`
+        );
+      }
 
       if (!rdpPluginPath) {
         const errMsg =
@@ -563,18 +559,19 @@ export async function ensureGuacdServiceRunning(host: string = '127.0.0.1', port
 }
 
 /**
- * Install guacd and RDP/VNC plugins on host OS using package manager
+ * Build and install guacd >= 1.5.5 from source using scripts/install-guacd.sh
  */
-function installGuacdDaemon(host: string = '127.0.0.1', port: number = 4822): Promise<{ success: boolean; output: string }> {
+function installGuacdDaemon(projectRoot: string, host: string = '127.0.0.1', port: number = 4822): Promise<{ success: boolean; output: string }> {
   return new Promise((resolve) => {
-    const cmd = `export DEBIAN_FRONTEND=noninteractive; (if command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confold" guacd libguac-client-rdp0 libguac-client-vnc0; elif command -v dnf >/dev/null 2>&1; then dnf install -y epel-release 2>/dev/null; dnf install -y guacd; elif command -v yum >/dev/null 2>&1; then yum install -y epel-release 2>/dev/null; yum install -y guacd; fi) && (systemctl enable --now guacd 2>/dev/null || service guacd start 2>/dev/null || /usr/sbin/guacd -b 127.0.0.1 -l 4822 || guacd -b 127.0.0.1 -l 4822 &)`;
+    const scriptPath = path.resolve(projectRoot, 'scripts', 'install-guacd.sh');
+    const cmd = `bash "${scriptPath}"`;
 
-    exec(cmd, { timeout: 180000 }, (error, stdout, stderr) => {
+    exec(cmd, { timeout: 600000 }, (error, stdout, stderr) => {
       const output = `${stdout || ''}\n${stderr || ''}`;
       setTimeout(async () => {
         const isLive = await checkGuacdHealth(host, port);
         resolve({
-          success: isLive || !error,
+          success: isLive && !error,
           output: output.slice(-2000),
         });
       }, 1500);
@@ -672,7 +669,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     }
 
     try {
-      const result = await installGuacdDaemon(guacdHost, guacdPort);
+      const result = await installGuacdDaemon(projectRoot, guacdHost, guacdPort);
       const isRunning = await checkGuacdHealth(guacdHost, guacdPort);
 
       await addAuditLog({

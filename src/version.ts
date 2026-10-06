@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.282.0';
+export const APP_VERSION = '1.282.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.282.1',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'جایگزینی نصب پکیج قدیمی guacd با بیلد از سورس (guacd >= 1.5.5) در اسکریپت‌های نصب، بررسی نسخه در استارتاپ و مستندسازی README',
+    title_en: 'Integrate Source-Built guacd >= 1.5.5 into Installers, Add Startup Version Warning (< 1.5.0), and Document in README',
+    changes: [
+      'حذف نصب پکیج‌های قدیمی توزیع (guacd / libguac-client-rdp0 / libguac-client-vnc0) از install.sh و setup-panel.sh و فراخوانی مستقیم scripts/install-guacd.sh با بررسی خطا.',
+      'بررسی نسخه guacd (guacd -v) در زمان راه‌اندازی سرور در server/remoteDesktopGateway.ts و ثبت هشدار صریح در صورت قدیمی بودن نسخه (< 1.5.0) جهت اجرای scripts/install-guacd.sh.',
+      'مستندسازی کامل نحوه کامپایل از سورس، علت نیاز به guacd >= 1.5.5، نحوه اجرای مجدد و ارتقای متغیر GUACD_VERSION در فایل README.md.',
+    ],
+    changes_en: [
+      'Removed legacy distro guacd and libguac-client-* package installations from install.sh and setup-panel.sh and wired scripts/install-guacd.sh with non-zero error exit.',
+      'Updated server/remoteDesktopGateway.ts startup check to log guacd -v version and emit a clear warning if guacd < 1.5.0 recommending scripts/install-guacd.sh.',
+      'Documented guacd source installation (GUACD_VERSION), rationale, manual re-run commands, and version bumping instructions in README.md.',
+    ],
+  },
   {
     version: '1.282.0',
     releaseDate: '2026-10-06',
