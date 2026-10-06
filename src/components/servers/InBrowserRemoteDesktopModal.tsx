@@ -42,7 +42,7 @@ interface InBrowserRemoteDesktopModalProps {
   isEn?: boolean;
 }
 
-type ScalingMode = 'fit' | 'native';
+type ScalingMode = 'fit' | 'fill' | 'native';
 
 interface StructuredGuacErrorPayload {
   category?: string;
@@ -89,6 +89,14 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   isEn = true,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMonitorFullscreen, setIsMonitorFullscreen] = useState(false);
+  const [floatingToolbarExpanded, setFloatingToolbarExpanded] = useState(false);
+  const [isFloatingHovered, setIsFloatingHovered] = useState(false);
+  const [isFloatingActive, setIsFloatingActive] = useState(false);
+  const [floatingPos, setFloatingPos] = useState<{ x: number; y: number }>({
+    x: typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : 600,
+    y: 32,
+  });
   const [isLocked, setIsLocked] = useState(false);
   const [showConfirmClose, setShowConfirmClose] = useState(false);
 
@@ -144,6 +152,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const [clipboardCopied, setClipboardCopied] = useState(false);
 
   // Guacamole Client and DOM refs
+  const modalRootRef = useRef<HTMLDivElement | null>(null);
   const displayContainerRef = useRef<HTMLDivElement | null>(null);
   const guacClientRef = useRef<any>(null);
   const guacTunnelRef = useRef<any>(null);
@@ -153,12 +162,184 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
   const connectTimeoutRef = useRef<any>(null);
+  const prevScalingModeRef = useRef<ScalingMode>('fit');
+  const floatingFadeTimerRef = useRef<any>(null);
+  const isDraggingFloatingRef = useRef<boolean>(false);
+  const updateDisplayScaleRef = useRef<() => void>(() => {});
   const [idleRemainingSec, setIdleRemainingSec] = useState<number>(900); // 15 minutes = 900s
 
   const isRdp = protocol === 'rdp' || server?.os_type === 'windows';
   const protocolName = isRdp ? 'Windows RDP Suite' : 'Linux VNC Console';
   const defaultPort = isRdp ? server?.win_port || 3389 : server?.vnc_port || 5900;
-  const guacdCliCmd = 'sudo apt-get install -y guacd libguac-client-rdp0 libguac-client-vnc0 && sudo systemctl enable --now guacd';
+  const guacdCliCmd = 'sudo bash scripts/install-guacd.sh';
+
+  // Trigger temporary visibility for the fading floating circle
+  const triggerFloatingActivity = useCallback(() => {
+    setIsFloatingActive(true);
+    if (floatingFadeTimerRef.current) {
+      clearTimeout(floatingFadeTimerRef.current);
+    }
+    floatingFadeTimerRef.current = setTimeout(() => {
+      setIsFloatingActive(false);
+    }, 2600);
+  }, []);
+
+  // Enter full-monitor mode (100% screen + native browser fullscreen + floating circle toolbar)
+  const enterMonitorFullscreen = useCallback(() => {
+    prevScalingModeRef.current = scalingMode;
+    setScalingMode('fill');
+    setIsMonitorFullscreen(true);
+    setFloatingToolbarExpanded(false);
+    setFloatingPos((prev) => {
+      const w = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      const h = typeof window !== 'undefined' ? window.innerHeight : 720;
+      const clampedX = prev.x > 40 && prev.x < w - 40 ? prev.x : Math.round(w / 2);
+      const clampedY = prev.y >= 24 && prev.y < h - 40 ? prev.y : 32;
+      return { x: clampedX, y: clampedY };
+    });
+    triggerFloatingActivity();
+
+    const el = modalRootRef.current as any;
+    if (el) {
+      try {
+        if (el.requestFullscreen) {
+          el.requestFullscreen().catch(() => {});
+        } else if (el.webkitRequestFullscreen) {
+          el.webkitRequestFullscreen();
+        }
+      } catch {}
+    }
+  }, [scalingMode, triggerFloatingActivity]);
+
+  // Exit full-monitor mode and restore modal view
+  const exitMonitorFullscreen = useCallback(() => {
+    setIsMonitorFullscreen(false);
+    setFloatingToolbarExpanded(false);
+    setScalingMode(prevScalingModeRef.current === 'fill' ? 'fit' : prevScalingModeRef.current);
+
+    const doc = document as any;
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      try {
+        if (doc.exitFullscreen) {
+          doc.exitFullscreen().catch(() => {});
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        }
+      } catch {}
+    }
+  }, []);
+
+  // Sync state if user exits native browser fullscreen via Esc key
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const doc = document as any;
+      const fsElem = doc.fullscreenElement || doc.webkitFullscreenElement;
+      if (!fsElem && isMonitorFullscreen) {
+        setIsMonitorFullscreen(false);
+        setFloatingToolbarExpanded(false);
+        setScalingMode(prevScalingModeRef.current === 'fill' ? 'fit' : prevScalingModeRef.current);
+      }
+      setTimeout(() => updateDisplayScaleRef.current(), 50);
+      setTimeout(() => updateDisplayScaleRef.current(), 200);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, [isMonitorFullscreen]);
+
+  // Draggable handler for the floating circle toolbar
+  const handleFloatingMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    triggerFloatingActivity();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialX = floatingPos.x;
+    const initialY = floatingPos.y;
+    let moved = false;
+    isDraggingFloatingRef.current = false;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (Math.hypot(dx, dy) > 4) {
+        moved = true;
+        isDraggingFloatingRef.current = true;
+      }
+      if (moved) {
+        const maxW = window.innerWidth || 1280;
+        const maxH = window.innerHeight || 720;
+        const nextX = Math.max(28, Math.min(maxW - 28, initialX + dx));
+        const nextY = Math.max(28, Math.min(maxH - 28, initialY + dy));
+        setFloatingPos({ x: nextX, y: nextY });
+      }
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      triggerFloatingActivity();
+      if (!moved) {
+        setFloatingToolbarExpanded((prev) => !prev);
+      }
+      setTimeout(() => {
+        isDraggingFloatingRef.current = false;
+      }, 50);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleFloatingTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    e.stopPropagation();
+    triggerFloatingActivity();
+
+    const startX = e.touches[0].clientX;
+    const startY = e.touches[0].clientY;
+    const initialX = floatingPos.x;
+    const initialY = floatingPos.y;
+    let moved = false;
+    isDraggingFloatingRef.current = false;
+
+    const onTouchMove = (moveEvent: TouchEvent) => {
+      if (moveEvent.touches.length !== 1) return;
+      const dx = moveEvent.touches[0].clientX - startX;
+      const dy = moveEvent.touches[0].clientY - startY;
+      if (Math.hypot(dx, dy) > 5) {
+        moved = true;
+        isDraggingFloatingRef.current = true;
+      }
+      if (moved) {
+        const maxW = window.innerWidth || 1280;
+        const maxH = window.innerHeight || 720;
+        const nextX = Math.max(28, Math.min(maxW - 28, initialX + dx));
+        const nextY = Math.max(28, Math.min(maxH - 28, initialY + dy));
+        setFloatingPos({ x: nextX, y: nextY });
+      }
+    };
+
+    const onTouchEnd = () => {
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      triggerFloatingActivity();
+      if (!moved) {
+        setFloatingToolbarExpanded((prev) => !prev);
+      }
+      setTimeout(() => {
+        isDraggingFloatingRef.current = false;
+      }, 50);
+    };
+
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd);
+  };
 
   // Register user activity on interaction
   const registerActivity = useCallback(() => {
@@ -222,28 +403,88 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     const display = guacClientRef.current.getDisplay();
     if (!display) return;
 
+    const displayElem = display.getElement() as HTMLElement | null;
+    if (!displayElem) return;
+    const innerDisplay = displayElem.firstElementChild as HTMLElement | null;
+
+    // Enforce LTR top-left origin so RTL panel mode never shifts the canvas or cursor
+    displayElem.dir = 'ltr';
+    displayElem.style.direction = 'ltr';
+    displayElem.style.position = 'relative';
+    displayElem.style.margin = '0';
+    displayElem.style.padding = '0';
+    displayElem.style.overflow = 'hidden';
+    if (innerDisplay) {
+      innerDisplay.dir = 'ltr';
+      innerDisplay.style.direction = 'ltr';
+      innerDisplay.style.left = '0px';
+      innerDisplay.style.top = '0px';
+      innerDisplay.style.margin = '0';
+      innerDisplay.style.transformOrigin = '0 0';
+      (innerDisplay.style as any).webkitTransformOrigin = '0 0';
+    }
+
+    const displayWidth = display.getWidth();
+    const displayHeight = display.getHeight();
+    if (displayWidth <= 0 || displayHeight <= 0) return;
+
     if (scalingMode === 'native') {
       display.scale(1.0);
+      if (innerDisplay) {
+        innerDisplay.style.transform = 'scale(1, 1)';
+      }
+      displayElem.style.width = `${displayWidth}px`;
+      displayElem.style.height = `${displayHeight}px`;
       return;
     }
 
     const container = displayContainerRef.current;
-    const containerWidth = container.clientWidth - 8;
-    const containerHeight = container.clientHeight - 8;
-    const displayWidth = display.getWidth();
-    const displayHeight = display.getHeight();
+    const pad = isMonitorFullscreen ? 0 : 4;
+    const containerWidth = Math.max(64, container.clientWidth - pad);
+    const containerHeight = Math.max(64, container.clientHeight - pad);
 
-    if (displayWidth > 0 && displayHeight > 0 && containerWidth > 0 && containerHeight > 0) {
-      const scale = Math.min(containerWidth / displayWidth, containerHeight / displayHeight);
-      display.scale(Math.max(0.2, scale));
+    if (scalingMode === 'fill') {
+      const scaleX = Math.max(0.1, containerWidth / displayWidth);
+      const scaleY = Math.max(0.1, containerHeight / displayHeight);
+      display.scale(scaleX);
+      if (innerDisplay) {
+        innerDisplay.style.transform = `scale(${scaleX}, ${scaleY})`;
+        (innerDisplay.style as any).webkitTransform = `scale(${scaleX}, ${scaleY})`;
+      }
+      displayElem.style.width = `${Math.round(displayWidth * scaleX)}px`;
+      displayElem.style.height = `${Math.round(displayHeight * scaleY)}px`;
+    } else {
+      const scale = Math.max(0.1, Math.min(containerWidth / displayWidth, containerHeight / displayHeight));
+      display.scale(scale);
+      if (innerDisplay) {
+        innerDisplay.style.transform = `scale(${scale}, ${scale})`;
+        (innerDisplay.style as any).webkitTransform = `scale(${scale}, ${scale})`;
+      }
+      displayElem.style.width = `${Math.round(displayWidth * scale)}px`;
+      displayElem.style.height = `${Math.round(displayHeight * scale)}px`;
     }
-  }, [scalingMode]);
+  }, [scalingMode, isMonitorFullscreen]);
 
-  // Window resize listener to auto-scale display
+  useEffect(() => {
+    updateDisplayScaleRef.current = updateDisplayScale;
+    updateDisplayScale();
+    const t = setTimeout(updateDisplayScale, 60);
+    return () => clearTimeout(t);
+  }, [updateDisplayScale, isMaximized, isMonitorFullscreen, showDiagnostics]);
+
+  // Window resize & ResizeObserver listener to auto-scale display
   useEffect(() => {
     window.addEventListener('resize', updateDisplayScale);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && displayContainerRef.current) {
+      observer = new ResizeObserver(() => {
+        updateDisplayScale();
+      });
+      observer.observe(displayContainerRef.current);
+    }
     return () => {
       window.removeEventListener('resize', updateDisplayScale);
+      if (observer) observer.disconnect();
     };
   }, [updateDisplayScale]);
 
@@ -288,10 +529,31 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
 
       // Attach client display element to the DOM container
       const display = client.getDisplay();
-      const displayElem = display.getElement();
-      displayElem.style.margin = 'auto';
+      const displayElem = display.getElement() as HTMLElement;
+      displayElem.dir = 'ltr';
+      displayElem.style.direction = 'ltr';
+      displayElem.style.position = 'relative';
+      displayElem.style.margin = '0';
+      displayElem.style.padding = '0';
       displayElem.style.outline = 'none';
+      displayElem.style.overflow = 'hidden';
       displayElem.tabIndex = 0;
+
+      const innerDisplay = displayElem.firstElementChild as HTMLElement | null;
+      if (innerDisplay) {
+        innerDisplay.dir = 'ltr';
+        innerDisplay.style.direction = 'ltr';
+        innerDisplay.style.left = '0px';
+        innerDisplay.style.top = '0px';
+        innerDisplay.style.margin = '0';
+        innerDisplay.style.transformOrigin = '0 0';
+        (innerDisplay.style as any).webkitTransformOrigin = '0 0';
+      }
+
+      // Immediately re-scale whenever guacd resizes the remote desktop layer
+      display.onresize = () => {
+        updateDisplayScaleRef.current();
+      };
 
       if (displayContainerRef.current) {
         displayContainerRef.current.innerHTML = '';
@@ -428,19 +690,66 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         }
       };
 
-      // Mouse input handling
+      // Mouse input handling with exact 1:1 viewport-to-remote coordinate mapping
+      if (Guacamole.Position && Guacamole.Position.prototype) {
+        Guacamole.Position.prototype.fromClientPosition = function (
+          element: HTMLElement,
+          clientX: number,
+          clientY: number
+        ) {
+          const rect = element.getBoundingClientRect();
+          this.x = clientX - rect.left;
+          this.y = clientY - rect.top;
+        };
+      }
+
       const mouse: any = new Guacamole.Mouse(displayElem);
       guacMouseRef.current = mouse;
+
+      const syncMousePosFromEvent = (e: MouseEvent) => {
+        const rect = displayElem.getBoundingClientRect();
+        if (mouse && mouse.currentState) {
+          mouse.currentState.x = e.clientX - rect.left;
+          mouse.currentState.y = e.clientY - rect.top;
+        }
+      };
+      displayElem.addEventListener('mousedown', syncMousePosFromEvent, true);
+      displayElem.addEventListener('mouseup', syncMousePosFromEvent, true);
+
+      const sendScaledMouseState = (mouseState: any) => {
+        const rect = displayElem.getBoundingClientRect();
+        const dw = display.getWidth();
+        const dh = display.getHeight();
+        if (rect.width <= 0 || rect.height <= 0 || dw <= 0 || dh <= 0) {
+          client.sendMouseState(mouseState, true);
+          return;
+        }
+        const scaleX = dw / rect.width;
+        const scaleY = dh / rect.height;
+        const clampedX = Math.max(0, Math.min(dw - 1, mouseState.x * scaleX));
+        const clampedY = Math.max(0, Math.min(dh - 1, mouseState.y * scaleY));
+        const scaledState = new Guacamole.Mouse.State({
+          x: clampedX,
+          y: clampedY,
+          left: mouseState.left,
+          middle: mouseState.middle,
+          right: mouseState.right,
+          up: mouseState.up,
+          down: mouseState.down,
+        });
+        client.sendMouseState(scaledState, false);
+      };
+
       mouse.onmousedown = (mouseState: any) => {
         registerActivity();
         if (displayContainerRef.current && document.activeElement !== displayContainerRef.current) {
           displayContainerRef.current.focus();
         }
-        client.sendMouseState(mouseState);
+        sendScaledMouseState(mouseState);
       };
       mouse.onmouseup = mouse.onmousemove = (mouseState: any) => {
         registerActivity();
-        client.sendMouseState(mouseState);
+        sendScaledMouseState(mouseState);
       };
 
       // Keyboard input handling:
@@ -780,12 +1089,22 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     return `${h.toString().padStart(2, '0')}:${rm.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const floatingMenuOpensUp =
+    typeof window !== 'undefined' ? floatingPos.y > window.innerHeight * 0.55 : false;
+  const floatingMenuClampedLeft =
+    typeof window !== 'undefined'
+      ? Math.max(210, Math.min(window.innerWidth - 210, floatingPos.x)) - floatingPos.x
+      : 0;
+
   return createPortal(
     <div
-      className={`fixed z-[9999] flex flex-col items-center justify-center ${
-        isMaximized
-          ? 'top-0 left-0 right-0 bottom-8 p-0'
-          : 'top-0 left-0 right-0 bottom-8 p-3 md:p-6 bg-black/80 backdrop-blur-md'
+      ref={modalRootRef}
+      className={`fixed flex flex-col items-center justify-center ${
+        isMonitorFullscreen
+          ? 'inset-0 z-[999998] p-0 m-0 bg-black'
+          : isMaximized
+          ? 'z-[9999] top-0 left-0 right-0 bottom-8 p-0'
+          : 'z-[9999] top-0 left-0 right-0 bottom-8 p-3 md:p-6 bg-black/80 backdrop-blur-md'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
       onClick={registerActivity}
@@ -793,7 +1112,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
     >
       <div
         className={`flex flex-col overflow-hidden transition-all duration-200 shadow-2xl ${
-          isMaximized
+          isMonitorFullscreen || isMaximized
             ? 'w-full h-full rounded-none border-none'
             : 'w-full max-w-6xl h-[92vh] rounded-2xl border'
         } ${
@@ -802,7 +1121,8 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             : 'bg-slate-950 border-slate-800 text-slate-100 shadow-cyan-950/40'
         }`}
       >
-        {/* Modal Header */}
+        {/* Modal Header (Hidden in Full-Monitor Mode) */}
+        {!isMonitorFullscreen && (
         <div
           className={`flex items-center justify-between px-4 py-3 border-b select-none ${
             isLightMode ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
@@ -883,6 +1203,21 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
               </span>
             </div>
 
+            {/* Full Monitor Screen Button */}
+            <button
+              type="button"
+              onClick={enterMonitorFullscreen}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-400 text-xs font-bold transition-colors cursor-pointer"
+              title={
+                isEn
+                  ? 'Full Monitor Screen (Fills entire monitor with floating toolbar)'
+                  : 'فول‌سایز کل مانیتور (نمایش در کل صفحه مانیتور به همراه ابزار شناور)'
+              }
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">{isEn ? 'Full Monitor' : 'فول‌سایز مانیتور'}</span>
+            </button>
+
             {/* Lock Toggle */}
             <button
               type="button"
@@ -958,8 +1293,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             </button>
           </div>
         </div>
+        )}
 
         {/* Secondary Technical Toolbar: Special Keys, Scaling, Clipboard, Diagnostics */}
+        {!isMonitorFullscreen && (
         <div
           className={`flex items-center justify-between px-4 py-2 border-b flex-wrap gap-2 text-xs select-none ${
             isLightMode ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/60 border-slate-800'
@@ -1059,16 +1396,17 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             <button
               type="button"
               onClick={() => {
-                const next = scalingMode === 'fit' ? 'native' : 'fit';
+                const next: ScalingMode =
+                  scalingMode === 'fit' ? 'fill' : scalingMode === 'fill' ? 'native' : 'fit';
                 setScalingMode(next);
                 setTimeout(updateDisplayScale, 50);
               }}
               className={`px-2 py-1 rounded border font-mono text-xs flex items-center gap-1 transition-colors cursor-pointer ${
-                scalingMode === 'fit'
+                scalingMode === 'fit' || scalingMode === 'fill'
                   ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
                   : 'bg-slate-800 border-slate-700 text-slate-300'
               }`}
-              title={isEn ? 'Toggle Display Fit' : 'تغییر مقیاس صفحه'}
+              title={isEn ? 'Toggle Display Scaling (Fit / Fill / 1:1)' : 'تغییر مقیاس صفحه (انطباق / پر کردن کامل / ۱:۱)'}
             >
               <Sliders className="w-3 h-3" />
               <span>
@@ -1076,10 +1414,25 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
                   ? isEn
                     ? 'Fit Window'
                     : 'انطباق'
+                  : scalingMode === 'fill'
+                  ? isEn
+                    ? 'Full Stretch'
+                    : 'پر کردن صفحه'
                   : isEn
                   ? '100% 1:1'
                   : 'اندازه واقعی'}
               </span>
+            </button>
+
+            {/* Full Monitor Size Button */}
+            <button
+              type="button"
+              onClick={enterMonitorFullscreen}
+              className="px-2.5 py-1 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title={isEn ? 'Expand remote desktop to full monitor size' : 'فول‌سایز کردن تصویر ریموت در کل صفحه مانیتور'}
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Full Screen Size' : 'فول‌سایز کل صفحه'}</span>
             </button>
 
             {/* Clipboard Sync Button */}
@@ -1125,9 +1478,10 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
             </button>
           </div>
         </div>
+        )}
 
         {/* Informative Diagnostics Drawer (Expandable) */}
-        {showDiagnostics && (
+        {!isMonitorFullscreen && showDiagnostics && (
           <div
             className={`px-4 py-2.5 border-b text-xs transition-all ${
               isLightMode ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-slate-900 border-slate-800 text-slate-300'
@@ -1165,17 +1519,307 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
         )}
 
         {/* Remote Desktop Canvas Viewport Container */}
-        <div 
-          className="flex-1 relative bg-black flex items-center justify-center overflow-hidden p-1 cursor-default"
+        <div
+          dir="ltr"
+          className={`flex-1 relative bg-black flex items-center justify-center overflow-hidden cursor-default ${
+            isMonitorFullscreen ? 'p-0' : 'p-1'
+          }`}
           onClick={() => {
             if (!showClipboardModal && !showConfirmClose) {
               displayContainerRef.current?.focus();
             }
           }}
         >
+          {/* Floating Draggable & Fading Circular Toolbar in Full-Monitor Mode */}
+          {isMonitorFullscreen && (
+            <div
+              dir={isEn ? 'ltr' : 'rtl'}
+              style={{
+                left: `${floatingPos.x}px`,
+                top: `${floatingPos.y}px`,
+                transform: 'translate(-50%, -50%)',
+              }}
+              onMouseEnter={() => {
+                setIsFloatingHovered(true);
+                triggerFloatingActivity();
+              }}
+              onMouseLeave={() => setIsFloatingHovered(false)}
+              onClick={(e) => e.stopPropagation()}
+              className={`fixed z-[999999] select-none transition-opacity duration-300 ${
+                isFloatingHovered || floatingToolbarExpanded || isFloatingActive
+                  ? 'opacity-100'
+                  : 'opacity-25 hover:opacity-100'
+              }`}
+            >
+              {/* Draggable Circular Orb Button */}
+              <div className="relative flex items-center justify-center">
+                <button
+                  type="button"
+                  onMouseDown={handleFloatingMouseDown}
+                  onTouchStart={handleFloatingTouchStart}
+                  title={
+                    isEn
+                      ? 'Drag to move • Click for tools & exit fullscreen'
+                      : 'برای جابجایی بکشید • برای ابزارها و کوچک کردن کلیک کنید'
+                  }
+                  className={`w-12 h-12 rounded-full flex flex-col items-center justify-center cursor-move shadow-2xl border-2 transition-transform duration-200 ${
+                    floatingToolbarExpanded
+                      ? 'bg-cyan-500 text-slate-950 border-white scale-105 shadow-cyan-500/50'
+                      : 'bg-slate-900/90 hover:bg-slate-800 text-cyan-400 border-cyan-400/60 hover:scale-105 shadow-black/80 backdrop-blur-md'
+                  }`}
+                >
+                  <Sliders className="w-4 h-4" />
+                  <span className="text-[8px] font-bold tracking-tighter leading-none mt-0.5">
+                    {isEn ? 'TOOLS' : 'ابزار'}
+                  </span>
+                </button>
+
+                {/* Quick 1-Click Shrink Badge on the Circle */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    exitMonitorFullscreen();
+                  }}
+                  title={isEn ? 'Exit Full Size (Shrink)' : 'کوچیک کردن (خروج از حالت فول‌سایز)'}
+                  className="absolute -right-2 -top-2 w-6 h-6 rounded-full bg-rose-500 hover:bg-rose-400 text-white border border-white/80 shadow-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-110"
+                >
+                  <Minimize2 className="w-3 h-3" />
+                </button>
+              </div>
+
+              {/* Expanded Floating Tools Pod */}
+              {floatingToolbarExpanded && (
+                <div
+                  style={{
+                    marginLeft: `${floatingMenuClampedLeft}px`,
+                  }}
+                  className={`absolute left-1/2 -translate-x-1/2 ${
+                    floatingMenuOpensUp ? 'bottom-14' : 'top-14'
+                  } w-[390px] max-w-[94vw] rounded-2xl bg-slate-900/95 border border-cyan-500/40 shadow-2xl backdrop-blur-xl p-3 text-slate-100 space-y-2.5`}
+                >
+                  {/* Top Row: Server Title + Shrink Button */}
+                  <div
+                    onMouseDown={handleFloatingMouseDown}
+                    onTouchStart={handleFloatingTouchStart}
+                    className="flex items-center justify-between gap-2 pb-2 border-b border-slate-800 cursor-move"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Monitor className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div className="truncate">
+                        <div className="text-xs font-bold text-white truncate">{server.name}</div>
+                        <div className="text-[10px] font-mono text-slate-400">
+                          {server.ip}:{defaultPort} • {formatSeconds(activeDurationSec)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          exitMonitorFullscreen();
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-md cursor-pointer transition-colors"
+                      >
+                        <Minimize2 className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Shrink / Restore' : 'کوچیک کردن'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFloatingToolbarExpanded(false);
+                        }}
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                        title={isEn ? 'Collapse menu' : 'بستن منوی شناور'}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scaling & Resolution Controls */}
+                  <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                    <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScalingMode('fill');
+                          setTimeout(updateDisplayScale, 40);
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                          scalingMode === 'fill'
+                            ? 'bg-cyan-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {isEn ? 'Full Stretch' : 'کل صفحه'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScalingMode('fit');
+                          setTimeout(updateDisplayScale, 40);
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                          scalingMode === 'fit'
+                            ? 'bg-cyan-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {isEn ? 'Fit Aspect' : 'انطباق'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScalingMode('native');
+                          setTimeout(updateDisplayScale, 40);
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                          scalingMode === 'native'
+                            ? 'bg-cyan-500 text-slate-950'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        1:1
+                      </button>
+                    </div>
+
+                    <select
+                      value={displayResolution}
+                      onChange={(e) => {
+                        setDisplayResolution(e.target.value as any);
+                        setTimeout(initiateConnection, 100);
+                      }}
+                      className="text-[11px] px-2 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 font-mono"
+                    >
+                      <option value="1920x1080">1920×1080</option>
+                      <option value="1600x900">1600×900</option>
+                      <option value="1280x720">1280×720</option>
+                    </select>
+                  </div>
+
+                  {/* Special Keys Row */}
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                      <Keyboard className="w-3 h-3 text-cyan-400" />
+                      <span>{isEn ? 'Send Special Keys:' : 'ارسال کلیدهای ویژه:'}</span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => sendSpecialKey('Ctrl+Alt+Del')}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 cursor-pointer"
+                      >
+                        Ctrl+Alt+Del
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendSpecialKey('WinKey')}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 cursor-pointer"
+                      >
+                        ⊞ Win
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendSpecialKey('Alt+Tab')}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 cursor-pointer"
+                      >
+                        Alt+Tab
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendSpecialKey('Esc')}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 cursor-pointer"
+                      >
+                        Esc
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendSpecialKey('Ctrl+Shift+Esc')}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-[11px] border border-slate-700 cursor-pointer"
+                      >
+                        Taskmgr
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Bottom Action Tools */}
+                  <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-800">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFloatingToolbarExpanded(false);
+                          setShowClipboardModal(true);
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{isEn ? 'Clipboard' : 'کلیپ‌بورد'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={initiateConnection}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>{isEn ? 'Reconnect' : 'اتصال مجدد'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsLocked(!isLocked)}
+                        className={`p-1.5 rounded-xl border cursor-pointer ${
+                          isLocked
+                            ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                        }`}
+                        title={isEn ? 'Lock Session' : 'قفل نشست'}
+                      >
+                        {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          exitMonitorFullscreen();
+                          handleMinimize();
+                        }}
+                        className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                        title={isEn ? 'Minimize to Dock' : 'مینیمایز به نوار پایین'}
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          exitMonitorFullscreen();
+                          handleAttemptClose();
+                        }}
+                        className="p-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-400 cursor-pointer"
+                        title={isEn ? 'Disconnect & Close' : 'قطع اتصال و بستن'}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Live Guacamole Display Element */}
           <div
             ref={displayContainerRef}
+            dir="ltr"
             tabIndex={0}
             onClick={() => {
               if (!showClipboardModal && !showConfirmClose) {

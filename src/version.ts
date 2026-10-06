@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.282.1';
+export const APP_VERSION = '1.283.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'افزودن حالت فول‌سایز کل مانیتور با دکمه دایره‌ای محوشونده و جابجایی‌پذیر در ریموت دسکتاپ و رفع کامل اختلاف موقعیت نشانگر ماوس',
+    title_en: 'Add Full-Monitor Screen Mode with Fading Draggable Circular Toolbar & Fix 1:1 Mouse Pointer Alignment in Remote Desktop',
+    changes: [
+      'افزودن دکمه «فول‌سایز کل صفحه / مانیتور» به پنجره ریموت دسکتاپ (RDP/VNC) جهت نمایش تصویر ریموت در کل صفحه مانیتور به همراه کشش کامل تصویر.',
+      'تبدیل نوار ابزار ریموت دسکتاپ در حالت فول‌سایز به یک دایره محوشونده و قابل جابجایی (Draggable) در بالای وسط صفحه حاوی ابزارهای کلید ویژه، کلیپ‌بورد، تغییر مقیاس و دکمه «کوچیک کردن».',
+      'رفع کامل اختلاف فاصله نشانگر ماوس کاربر با نشانگر ماوس داخل سرور ریموت از طریق محاسبه دقیق مختصات با getBoundingClientRect، اعمال ضریب مقیاس واقعی تصویر و تثبیت جهت LTR بوم رندرینگ.',
+    ],
+    changes_en: [
+      'Added a Full-Monitor Screen mode button in the Remote Desktop modal to expand the remote desktop across the entire monitor screen.',
+      'Implemented a fading, draggable circular floating toolbar anchored at top-center in full-monitor mode containing special keys, clipboard, scaling controls, and a shrink/restore button.',
+      'Fixed 1:1 mouse cursor alignment in Remote Desktop by translating viewport coordinates via getBoundingClientRect(), applying exact X/Y display scale factors, and enforcing LTR canvas geometry.',
+    ],
+  },
   {
     version: '1.282.1',
     releaseDate: '2026-10-06',
