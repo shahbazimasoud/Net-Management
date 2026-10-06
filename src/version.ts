@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.280.0';
+export const APP_VERSION = '1.280.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.280.1',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'اصلاح سرریز دراپ‌دان نقش دسترسی پنل (RBAC Policy) در کارت‌های گروه‌های اکتیو دایرکتوری',
+    title_en: 'Fix Panel RBAC Policy Dropdown Overflow Inside Active Directory Group Cards',
+    changes: [
+      'اصلاح چیدمان سلکتور Panel RBAC Policy در کارت‌های گروه‌های اکتیو دایرکتوری با ساختار عمودی ریسپانسیو و مهار کامل در حریم کادر کارت.',
+      'جلوگیری قطعی از بیرون‌زدگی دراپ‌دان نقش‌ها در صفحات با عرض کم، مانیتورهای کوچک و مدهای گرید.',
+      'بهبود استایل و کنتراست سلکتور در هر دو تم تیره و روشن.',
+    ],
+    changes_en: [
+      'Refactored Panel RBAC Policy selector layout inside Active Directory group cards with responsive vertical containment strictly within card boundaries.',
+      'Completely resolved dropdown visual overflow and clipping on compact screen sizes, narrow grid items, and varying resolutions.',
+      'Enhanced theme contrast and styling across both dark and light modes.',
+    ],
+  },
   {
     version: '1.280.0',
     releaseDate: '2026-10-06',

@@ -415,28 +415,41 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                       </p>
 
                       {/* RBAC Panel Permission Assignment Selector */}
-                      <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5 shrink-0">
-                          <Shield className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>{isEn ? 'Panel RBAC Policy:' : 'نقش دسترسی پنل:'}</span>
-                        </span>
+                      <div className="pt-2.5 border-t border-white/10 space-y-1.5 min-w-0">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5 shrink-0">
+                            <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>{isEn ? 'Panel RBAC Policy:' : 'نقش دسترسی پنل:'}</span>
+                          </span>
+                          {assignedPolicy && (
+                            <span className="text-[10px] font-mono text-emerald-400 truncate max-w-[140px] font-medium">
+                              {assignedPolicy.name}
+                            </span>
+                          )}
+                        </div>
 
-                        <select
-                          value={assignedPolicy?.id || 'none'}
-                          onChange={(e) => handleAssignPolicyToGroup(grp, e.target.value)}
-                          className="px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs font-medium focus:outline-none focus:border-cyan-400 cursor-pointer w-full sm:w-auto max-w-full truncate"
-                        >
-                          <option value="none">
-                            {isEn ? '— No Panel Access (Revoke) —' : '— بدون دسترسی به پنل (فاقد نقش) —'}
-                          </option>
-                          {policies
-                            .filter((p) => p.isBuiltin || p.subjectType !== 'ad_group' || p.subjectId === grp.dn)
-                            .map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                        </select>
+                        <div className="relative w-full min-w-0">
+                          <select
+                            value={assignedPolicy?.id || 'none'}
+                            onChange={(e) => handleAssignPolicyToGroup(grp, e.target.value)}
+                            className={`w-full min-w-0 px-3 py-1.5 rounded-xl border text-xs font-medium focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer truncate ${
+                              isLightMode
+                                ? 'bg-white border-slate-300 text-slate-800'
+                                : 'bg-slate-800/95 border-white/15 text-white'
+                            }`}
+                          >
+                            <option value="none">
+                              {isEn ? '— No Panel Access (Revoke) —' : '— بدون دسترسی به پنل (فاقد نقش) —'}
+                            </option>
+                            {policies
+                              .filter((p) => p.isBuiltin || p.subjectType !== 'ad_group' || p.subjectId === grp.dn)
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
                   );
