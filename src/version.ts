@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.279.2';
+export const APP_VERSION = '1.279.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.279.3',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'اصلاح تطبیق سوکت‌های فعال با قوانین فایروال لینوکس و نمایش فوری پورت‌های مجاز جدید',
+    title_en: 'Fix Linux Firewall Listening Sockets Correlation and Immediate Allowed Port Synchronization',
+    changes: [
+      'اصلاح منطق تطبیق پورت و پروتکل (matchRuleToPort) در زمان وجود پسوند پروتکل نظیر 8080/tcp یا 22/tcp در قوانین UFW فایروال.',
+      'افزودن قابلیت تجزیه خودکار پورت و پروتکل (parsePortProto) در سوکت‌ها و بخش ادغام قوانین ALLOW در خلاصه سوکت‌های گوش‌دهنده سیستم.',
+      'اصلاح پروسه استخراج قوانین شماره‌گذاری شده و بدون شماره UFW به منظور جلوگیری از نادیده گرفته شدن قوانین جدید پس از ثبت رول.',
+      'رفع مسدود شدن نادرست پورت‌های مجاز (BLOCKED) و نمایش پورت‌های جدید بلافاصله پس از ثبت قانون فایروال در بخش Listening Sockets vs Firewall Access.',
+    ],
+    changes_en: [
+      'Fixed port and protocol correlation (matchRuleToPort) when firewall rules specify protocol suffixes like 8080/tcp or 22/tcp.',
+      'Added automated port and protocol parsing (parsePortProto) across sockets and the explicit ALLOW rules integration section in listening ports summary.',
+      'Enhanced UFW parser to seamlessly handle both numbered and unnumbered status output without dropping freshly configured rules.',
+      'Resolved false BLOCKED status on listening sockets and ensured newly opened firewall ports appear immediately in the Listening Sockets vs Firewall Access matrix.',
+    ],
+  },
   {
     version: '1.279.2',
     releaseDate: '2026-10-06',

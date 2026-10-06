@@ -11,6 +11,84 @@ import {
 } from '../src/types';
 import { runAdaptiveSshCommand } from './linuxServerMonitor';
 
+// Comprehensive dictionary of standard Linux network services to port mappings
+export const WELL_KNOWN_SERVICES: Record<string, number[]> = {
+  ssh: [22],
+  openssh: [22],
+  http: [80],
+  www: [80],
+  apache: [80],
+  apache2: [80],
+  nginx: [80, 443],
+  https: [443],
+  ssl: [443],
+  dns: [53],
+  domain: [53],
+  dhcp: [67, 68],
+  dhcpv6: [546, 547],
+  'dhcpv6-client': [546],
+  ntp: [123],
+  snmp: [161, 162],
+  ftp: [20, 21],
+  ftps: [990],
+  smtp: [25, 465, 587],
+  smtps: [465],
+  submission: [587],
+  pop3: [110],
+  pop3s: [995],
+  imap: [143],
+  imaps: [993],
+  mysql: [3306],
+  mariadb: [3306],
+  postgres: [5432],
+  postgresql: [5432],
+  redis: [6379],
+  mongodb: [27017],
+  cockpit: [9090],
+  wireguard: [51820],
+  openvpn: [1194],
+  rdp: [3389],
+  vnc: [5900],
+  telnet: [23],
+  ldap: [389],
+  ldaps: [636],
+  kerberos: [88],
+  samba: [445, 139],
+  nfs: [2049],
+  rsync: [873],
+};
+
+/**
+ * Safely extracts a named section from the unified probe output
+ */
+export function extractSection(output: string, sectionName: string): string {
+  if (!output) return '';
+  const marker = `===${sectionName}===`;
+  const start = output.indexOf(marker);
+  if (start === -1) return '';
+  const contentStart = start + marker.length;
+  const nextSection = output.indexOf('===', contentStart);
+  if (nextSection === -1) {
+    return output.slice(contentStart).trim();
+  }
+  return output.slice(contentStart, nextSection).trim();
+}
+
+/**
+ * Checks whether an address is purely internal/loopback
+ */
+export function isLoopbackAddress(addr: string): boolean {
+  if (!addr) return false;
+  const clean = addr.replace(/[\[\]]/g, '').trim().toLowerCase();
+  return (
+    clean === '127.0.0.1' ||
+    clean === '::1' ||
+    clean.startsWith('127.') ||
+    clean === 'localhost' ||
+    clean === 'fe80::1'
+  );
+}
+
 export interface FirewallProvider {
   readonly backend: LinuxFirewallBackend;
   readonly displayName: string;
@@ -65,8 +143,20 @@ export class UfwFirewallProvider implements FirewallProvider {
     rules: LinuxFirewallRule[];
     activeZone?: string;
   } {
-    const lines = rawOutput.split('\n');
-    let installed = rawOutput.includes('---UFW_NUM---') || rawOutput.toLowerCase().includes('status:');
+    const rawSection = extractSection(rawOutput, 'UFW_STATUS') || rawOutput;
+    // Prefer numbered section if it exists and contains rules, otherwise use full output
+    let section = rawSection;
+    if (rawSection.includes('---UFW_NUM---')) {
+      const parts = rawSection.split('---UFW_NUM---');
+      if (/\[\s*\d+\]/.test(parts[1])) {
+        section = parts[1];
+      } else if (parts[0].toLowerCase().includes('status:')) {
+        section = parts[0];
+      }
+    }
+
+    const lines = section.split('\n');
+    let installed = rawSection.includes('---UFW_NUM---') || rawSection.toLowerCase().includes('status:') || rawOutput.includes('ufw.service') || rawOutput.includes('ufw:');
     let active = false;
     let enabled = false;
     let status: LinuxFirewallStatus = 'not_installed';
@@ -77,8 +167,9 @@ export class UfwFirewallProvider implements FirewallProvider {
     };
     const rules: LinuxFirewallRule[] = [];
 
-    // Parse status line
-    for (const line of lines) {
+    // Parse status line and default policies (check whole rawSection to never miss default policies)
+    const policyLines = rawSection.split('\n');
+    for (const line of policyLines) {
       const lower = line.toLowerCase().trim();
       if (lower.startsWith('status: active')) {
         active = true;
@@ -90,7 +181,6 @@ export class UfwFirewallProvider implements FirewallProvider {
         status = 'inactive';
       }
 
-      // Default: deny (incoming), allow (outgoing), disabled (routed)
       if (lower.startsWith('default:')) {
         const incMatch = line.match(/([a-z]+)\s*\(incoming\)/i);
         if (incMatch) defaultPolicies.incoming = incMatch[1].toUpperCase();
@@ -105,68 +195,105 @@ export class UfwFirewallProvider implements FirewallProvider {
       return { status: 'not_installed', installed: false, enabled: false, active: false, defaultPolicies, rules };
     }
 
-    // Parse numbered rules section:
+    // Parse rules from both numbered and unnumbered formats:
     // [ 1] 22/tcp                     ALLOW IN    Anywhere
-    // [ 2] 80/tcp                     ALLOW IN    Anywhere                  # HTTP Web Server
-    // [ 3] 22/tcp (v6)                ALLOW IN    Anywhere (v6)
-    let inNumberedSection = false;
+    // [ 2] 8080/tcp                   ALLOW       Anywhere
+    // 22/tcp                          ALLOW IN    Anywhere
+    // 80/tcp                          ALLOW       Anywhere
+    // 8080/tcp                        ALLOW IN    Anywhere                  # Web
+    const seenRuleSignatures = new Set<string>();
+    let fallbackRuleIndex = 1;
+
     for (const line of lines) {
-      if (line.includes('---UFW_NUM---')) {
-        inNumberedSection = true;
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('---') || trimmed.startsWith('Status:') || trimmed.startsWith('Logging:') || trimmed.startsWith('Default:') || trimmed.startsWith('New profiles:')) {
         continue;
       }
-      if (!inNumberedSection) continue;
-
-      const numMatch = line.match(/^\s*\[\s*(\d+)\]\s+(.*?)\s+(ALLOW|DENY|REJECT|LIMIT)\s+(IN|OUT|FWD|FORWARD)?\s*(.*?)(?:#(.*))?$/i);
-      if (numMatch) {
-        const ruleNumber = parseInt(numMatch[1], 10);
-        const toPart = numMatch[2].trim();
-        const action = numMatch[3].toUpperCase() as any;
-        const direction = (numMatch[4] || 'IN').toUpperCase() as any;
-        const fromPart = numMatch[5].trim();
-        const comment = numMatch[6]?.trim();
-
-        // Extract port & proto
-        let port: string | undefined = undefined;
-        let protocol: any = 'any';
-        let ipVersion: 'v4' | 'v6' | 'both' = 'v4';
-
-        if (toPart.includes('(v6)') || fromPart.includes('(v6)')) {
-          ipVersion = 'v6';
-        }
-
-        const protoMatch = toPart.match(/^([0-9,:-]+)\/([a-z]+)/i);
-        if (protoMatch) {
-          port = protoMatch[1];
-          protocol = protoMatch[2].toLowerCase() as any;
-        } else {
-          // Port name or any
-          const cleanTo = toPart.replace(/\(v6\)/g, '').trim();
-          if (/^\d+$/.test(cleanTo)) {
-            port = cleanTo;
-            protocol = 'tcp';
-          } else if (cleanTo.length > 0 && cleanTo !== 'anywhere') {
-            port = cleanTo;
-          }
-        }
-
-        const source = fromPart.replace(/\(v6\)/g, '').trim() || 'Any';
-
-        rules.push({
-          id: `ufw-${ruleNumber}`,
-          ruleNumber,
-          backend: 'ufw',
-          action,
-          direction: direction === 'FWD' ? 'FORWARD' : direction,
-          protocol,
-          port,
-          source,
-          ipVersion,
-          enabled: true,
-          comment,
-          rawRule: line.trim(),
-        });
+      if (trimmed.startsWith('To ') || trimmed.startsWith('-- ') || trimmed.startsWith('To\t') || trimmed.startsWith('--\t')) {
+        continue;
       }
+
+      let ruleNumber: number | undefined = undefined;
+      let toPart = '';
+      let action: any = 'ALLOW';
+      let direction: any = 'IN';
+      let fromPart = '';
+      let comment: string | undefined = undefined;
+
+      // 1. Try Numbered: [ 1] 22/tcp ALLOW IN Anywhere
+      const numMatch = trimmed.match(/^\[\s*(\d+)\]\s+(.*?)\s+(ALLOW|DENY|REJECT|LIMIT)\b\s*(IN|OUT|FWD|FORWARD)?\s*(.*?)(?:#(.*))?$/i);
+      if (numMatch) {
+        ruleNumber = parseInt(numMatch[1], 10);
+        toPart = numMatch[2].trim();
+        action = numMatch[3].toUpperCase();
+        direction = (numMatch[4] || 'IN').toUpperCase();
+        fromPart = numMatch[5].trim();
+        comment = numMatch[6]?.trim();
+      } else {
+        // 2. Try Unnumbered: 22/tcp ALLOW IN Anywhere
+        const unnumMatch = trimmed.match(/^(.*?)\s+(ALLOW|DENY|REJECT|LIMIT)\b\s*(IN|OUT|FWD|FORWARD)?\s*(.*?)(?:#(.*))?$/i);
+        if (unnumMatch) {
+          toPart = unnumMatch[1].trim();
+          action = unnumMatch[2].toUpperCase();
+          direction = (unnumMatch[3] || 'IN').toUpperCase();
+          fromPart = unnumMatch[4].trim();
+          comment = unnumMatch[5]?.trim();
+          ruleNumber = fallbackRuleIndex++;
+        }
+      }
+
+      if (!toPart || !action) continue;
+
+      let port: string | undefined = undefined;
+      let protocol: any = 'any';
+      let ipVersion: 'v4' | 'v6' | 'both' = 'v4';
+
+      if (toPart.includes('(v6)') || fromPart.includes('(v6)')) {
+        ipVersion = 'v6';
+      }
+
+      const cleanTo = toPart.replace(/\(v6\)/g, '').replace(/\s+on\s+[a-z0-9_-]+/i, '').trim();
+
+      const protoMatch = cleanTo.match(/^([0-9,:-]+)\/([a-z]+)/i);
+      if (protoMatch) {
+        port = protoMatch[1];
+        protocol = protoMatch[2].toLowerCase();
+      } else if (/^\d+$/.test(cleanTo)) {
+        port = cleanTo;
+        protocol = 'tcp';
+      } else if (cleanTo.includes('-') || cleanTo.includes(':') || cleanTo.includes(',')) {
+        port = cleanTo;
+        protocol = 'tcp';
+      } else if (cleanTo.length > 0 && cleanTo.toLowerCase() !== 'anywhere') {
+        const cleanLower = cleanTo.toLowerCase();
+        const mapped = WELL_KNOWN_SERVICES[cleanLower];
+        if (mapped && mapped.length > 0) {
+          port = mapped.join(',');
+          protocol = 'tcp';
+        } else {
+          port = cleanTo;
+        }
+      }
+
+      const source = fromPart.replace(/\(v6\)/g, '').trim() || 'Any';
+      const sig = `${action}:${direction}:${protocol}:${port || 'any'}:${source}:${ipVersion}`;
+      if (seenRuleSignatures.has(sig)) continue;
+      seenRuleSignatures.add(sig);
+
+      rules.push({
+        id: `ufw-${ruleNumber || fallbackRuleIndex++}`,
+        ruleNumber: ruleNumber || fallbackRuleIndex,
+        backend: 'ufw',
+        action,
+        direction: direction === 'FWD' ? 'FORWARD' : direction,
+        protocol,
+        port,
+        source,
+        ipVersion,
+        enabled: true,
+        comment: comment || (cleanTo.toLowerCase().includes('ssh') ? 'SSH Access' : undefined),
+        rawRule: trimmed,
+      });
     }
 
     return {
@@ -180,16 +307,27 @@ export class UfwFirewallProvider implements FirewallProvider {
   }
 
   buildAddRuleCommand(rule: LinuxFirewallRulePayload): string {
-    // sudo ufw [allow|deny|reject|limit] [in|out] [proto <tcp|udp>] from <source> to any port <port> comment '...'
     const action = (rule.action || 'allow').toLowerCase();
-    const dir = rule.direction === 'OUT' ? 'out' : 'in';
-    const proto = rule.protocol && rule.protocol !== 'any' && rule.protocol !== 'all' ? ` proto ${rule.protocol}` : '';
-    const src = rule.source && rule.source.trim().toLowerCase() !== 'any' ? ` from ${rule.source.trim()}` : '';
-    const port = rule.port ? ` to any port ${rule.port.trim()}` : '';
-    const comment = rule.comment ? ` comment '${rule.comment.replace(/'/g, '')}'` : '';
-    const iface = rule.interface && rule.interface !== 'any' ? ` on ${rule.interface}` : '';
+    const proto = rule.protocol && rule.protocol !== 'any' && rule.protocol !== 'all' ? rule.protocol.toLowerCase() : '';
+    const hasSource = rule.source && rule.source.trim().toLowerCase() !== 'any';
+    const commentPart = rule.comment ? ` comment '${rule.comment.replace(/'/g, '')}'` : '';
+    const ifacePart = rule.interface && rule.interface !== 'any' ? ` on ${rule.interface}` : '';
 
-    return `sudo ufw ${action} ${dir}${iface}${proto}${src}${port}${comment}`;
+    if (hasSource || rule.interface || rule.direction === 'OUT') {
+      const dir = rule.direction === 'OUT' ? 'out' : 'in';
+      const srcPart = hasSource ? ` from ${rule.source!.trim()}` : '';
+      const protoPart = proto ? ` proto ${proto}` : '';
+      const portPart = rule.port ? ` to any port ${rule.port.trim()}` : '';
+      return `sudo ufw ${action} ${dir}${ifacePart}${protoPart}${srcPart}${portPart}${commentPart}`;
+    }
+
+    // Standard simple UFW rule: sudo ufw allow 8080/tcp comment '...'
+    if (rule.port) {
+      const portSpec = proto ? `${rule.port.trim()}/${proto}` : rule.port.trim();
+      return `sudo ufw ${action} ${portSpec}${commentPart}`;
+    }
+
+    return `sudo ufw ${action} proto ${proto || 'tcp'}${commentPart}`;
   }
 
   buildDeleteRuleCommand(rule: LinuxFirewallRule): string {
@@ -252,8 +390,9 @@ export class FirewalldProvider implements FirewallProvider {
     rules: LinuxFirewallRule[];
     activeZone?: string;
   } {
-    const lines = rawOutput.split('\n');
-    let installed = rawOutput.includes('===FIREWALLD_STATUS===') || rawOutput.includes('firewall-cmd');
+    const section = extractSection(rawOutput, 'FIREWALLD_STATUS') || rawOutput;
+    const lines = section.split('\n');
+    let installed = section.includes('firewall-cmd') || rawOutput.includes('firewalld.service');
     let active = false;
     let enabled = false;
     let status: LinuxFirewallStatus = 'not_installed';
@@ -265,46 +404,31 @@ export class FirewalldProvider implements FirewallProvider {
     };
     const rules: LinuxFirewallRule[] = [];
 
-    let isSection = false;
     for (const line of lines) {
-      if (line.includes('===FIREWALLD_STATUS===')) {
-        isSection = true;
-        continue;
-      }
-      if (isSection && line.startsWith('===')) {
-        isSection = false;
-      }
-      if (isSection) {
-        const lower = line.toLowerCase().trim();
-        if (lower === 'running') {
-          active = true;
-          enabled = true;
-          status = 'active';
-        } else if (lower === 'not running') {
-          active = false;
-          status = 'inactive';
-        }
+      const lower = line.toLowerCase().trim();
+      if (lower === 'running') {
+        active = true;
+        enabled = true;
+        status = 'active';
+      } else if (lower === 'not running') {
+        active = false;
+        status = 'inactive';
       }
     }
 
-    if (!active && rawOutput.includes('firewalld.service') && rawOutput.includes('active')) {
+    if (!active && rawOutput.includes('firewalld.service') && rawOutput.includes('active') && !rawOutput.includes('firewalld:inactive')) {
       active = true;
       enabled = true;
       status = 'active';
     }
 
     // Parse list-all output
-    // public (active)
-    //   target: default
-    //   services: cockpit dhcpv6-client ssh
-    //   ports: 80/tcp 443/tcp 2222/tcp
-    //   sources: 192.168.1.0/24
     let currentZone = 'public';
     let ruleIndex = 1;
 
     for (const line of lines) {
-      const zoneHeaderMatch = line.match(/^([a-zA-Z0-9_-]+)\s*(?:\(active\))?/);
-      if (zoneHeaderMatch && !line.includes(':') && !line.startsWith(' ') && !line.startsWith('---')) {
+      const zoneHeaderMatch = line.match(/^([a-zA-Z0-9_-]+)\s+\(active\)/);
+      if (zoneHeaderMatch) {
         currentZone = zoneHeaderMatch[1];
         activeZone = currentZone;
       }
@@ -317,10 +441,13 @@ export class FirewalldProvider implements FirewallProvider {
         else if (target === 'REJECT' || target === 'DEFAULT') defaultPolicies.incoming = 'REJECT';
       }
 
-      // Services: ssh http https
+      // Services: cockpit dhcpv6-client ssh
       if (trimmed.startsWith('services:')) {
         const srvs = trimmed.replace('services:', '').trim().split(/\s+/).filter(Boolean);
         for (const s of srvs) {
+          const sLower = s.toLowerCase();
+          const mapped = WELL_KNOWN_SERVICES[sLower];
+          const portStr = mapped && mapped.length > 0 ? mapped.join(',') : (sLower === 'ssh' ? '22' : sLower === 'http' ? '80' : sLower === 'https' ? '443' : s);
           rules.push({
             id: `firewalld-svc-${s}`,
             ruleNumber: ruleIndex++,
@@ -328,7 +455,7 @@ export class FirewalldProvider implements FirewallProvider {
             action: 'ALLOW',
             direction: 'IN',
             protocol: 'tcp',
-            port: s === 'ssh' ? '22' : s === 'http' ? '80' : s === 'https' ? '443' : s,
+            port: portStr,
             source: 'Any',
             ipVersion: 'both',
             enabled: true,
@@ -482,8 +609,9 @@ export class NftablesFirewallProvider implements FirewallProvider {
     defaultPolicies: LinuxFirewallPolicies;
     rules: LinuxFirewallRule[];
   } {
-    const isInstalled = rawOutput.includes('===NFTABLES_STATUS===') || rawOutput.includes('nft list');
-    const isActive = rawOutput.includes('table ') || (rawOutput.includes('nftables.service') && rawOutput.includes('active'));
+    const section = extractSection(rawOutput, 'NFTABLES_STATUS') || rawOutput;
+    const isInstalled = section.includes('nft list') || rawOutput.includes('nftables.service');
+    const isActive = section.includes('table ') || (rawOutput.includes('nftables.service') && rawOutput.includes('active') && !rawOutput.includes('nftables:inactive'));
     const defaultPolicies: LinuxFirewallPolicies = {
       incoming: 'DROP',
       outgoing: 'ALLOW',
@@ -492,7 +620,7 @@ export class NftablesFirewallProvider implements FirewallProvider {
     const rules: LinuxFirewallRule[] = [];
 
     let ruleIndex = 1;
-    const lines = rawOutput.split('\n');
+    const lines = section.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
       // hook input ... policy drop
@@ -599,7 +727,8 @@ export class IptablesFirewallProvider implements FirewallProvider {
     defaultPolicies: LinuxFirewallPolicies;
     rules: LinuxFirewallRule[];
   } {
-    const isInstalled = rawOutput.includes('===IPTABLES_STATUS===') || rawOutput.includes('iptables');
+    const section = extractSection(rawOutput, 'IPTABLES_STATUS') || rawOutput;
+    const isInstalled = section.includes('-P INPUT') || section.includes('iptables');
     let hasRules = false;
     const defaultPolicies: LinuxFirewallPolicies = {
       incoming: 'ACCEPT',
@@ -608,7 +737,7 @@ export class IptablesFirewallProvider implements FirewallProvider {
     };
     const rules: LinuxFirewallRule[] = [];
 
-    const lines = rawOutput.split('\n');
+    const lines = section.split('\n');
     let ruleIndex = 1;
 
     for (const line of lines) {
@@ -624,7 +753,7 @@ export class IptablesFirewallProvider implements FirewallProvider {
       if (trimmed.startsWith('-A INPUT')) {
         hasRules = true;
         const protoMatch = trimmed.match(/-p\s+([a-z]+)/i);
-        const portMatch = trimmed.match(/--dport\s+([0-9,:-]+)/);
+        const portMatch = trimmed.match(/--(?:dports?|dport)\s+([0-9,:-]+)/);
         const actMatch = trimmed.match(/-j\s+([A-Z]+)/);
         const srcMatch = trimmed.match(/-s\s+([0-9./]+)/);
         const commentMatch = trimmed.match(/--comment\s+"([^"]+)"/);
@@ -662,12 +791,20 @@ export class IptablesFirewallProvider implements FirewallProvider {
 
   buildAddRuleCommand(rule: LinuxFirewallRulePayload): string {
     const proto = rule.protocol || 'tcp';
-    const port = rule.port ? `--dport ${rule.port}` : '';
+    let portPart = '';
+    if (rule.port) {
+      const p = rule.port.trim();
+      if (p.includes(',')) {
+        portPart = `-m multiport --dports ${p}`;
+      } else {
+        portPart = `--dport ${p}`;
+      }
+    }
     const src = rule.source && rule.source.toLowerCase() !== 'any' ? `-s ${rule.source}` : '';
     const action = (rule.action || 'allow').toUpperCase() === 'ALLOW' ? 'ACCEPT' : 'DROP';
     const comment = rule.comment ? `-m comment --comment "${rule.comment.replace(/"/g, '')}"` : '';
 
-    return `sudo iptables -I INPUT 1 -p ${proto} ${port} ${src} ${comment} -j ${action}`;
+    return `sudo iptables -I INPUT 1 -p ${proto} ${portPart} ${src} ${comment} -j ${action}`.replace(/\s+/g, ' ').trim();
   }
 
   buildDeleteRuleCommand(rule: LinuxFirewallRule): string {
@@ -775,81 +912,271 @@ systemctl is-active nftables.service 2>/dev/null || echo "nftables:inactive"
 
 echo "===UFW_STATUS==="
 if command -v ufw >/dev/null 2>&1; then
-  sudo -n ufw status verbose 2>/dev/null || ufw status verbose 2>/dev/null || true
+  sudo ufw status verbose 2>/dev/null || ufw status verbose 2>/dev/null || true
   echo "---UFW_NUM---"
-  sudo -n ufw status numbered 2>/dev/null || ufw status numbered 2>/dev/null || true
+  sudo ufw status numbered 2>/dev/null || ufw status numbered 2>/dev/null || true
 fi
 
 echo "===FIREWALLD_STATUS==="
 if command -v firewall-cmd >/dev/null 2>&1; then
-  sudo -n firewall-cmd --state 2>/dev/null || true
+  sudo firewall-cmd --state 2>/dev/null || firewall-cmd --state 2>/dev/null || true
   echo "---FIREWALLD_ALL---"
-  sudo -n firewall-cmd --list-all 2>/dev/null || true
+  sudo firewall-cmd --list-all 2>/dev/null || firewall-cmd --list-all 2>/dev/null || true
   echo "---FIREWALLD_RICH---"
-  sudo -n firewall-cmd --list-rich-rules 2>/dev/null || true
+  sudo firewall-cmd --list-rich-rules 2>/dev/null || firewall-cmd --list-rich-rules 2>/dev/null || true
 fi
 
 echo "===NFTABLES_STATUS==="
 if command -v nft >/dev/null 2>&1; then
-  sudo -n nft list ruleset 2>/dev/null || true
+  sudo nft list ruleset 2>/dev/null || nft list ruleset 2>/dev/null || true
 fi
 
 echo "===IPTABLES_STATUS==="
 if command -v iptables >/dev/null 2>&1; then
-  sudo -n iptables -S 2>/dev/null || sudo -n iptables -L -n -v 2>/dev/null || true
+  sudo iptables -S 2>/dev/null || iptables -S 2>/dev/null || sudo iptables -L -n -v 2>/dev/null || iptables -L -n -v 2>/dev/null || true
 fi
 
 echo "===LISTENING_PORTS==="
 ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null || true
 `;
 
-// Helper: Parse Listening Ports from ss -tulpn / netstat -tulpn
-function parseListeningPorts(output: string, rules: LinuxFirewallRule[], incomingPolicy: string): LinuxListeningPortSummary[] {
+/**
+ * Helper: Parse raw port string that may contain protocol suffix like "8080/tcp", "22/udp", "8000-8010/tcp"
+ */
+function parsePortProto(raw?: string): { port: string; proto?: string } {
+  if (!raw) return { port: '', proto: undefined };
+  let str = String(raw).trim();
+  let proto: string | undefined = undefined;
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    str = parts[0].trim();
+    proto = parts[1].trim().toLowerCase();
+  }
+  return { port: str, proto };
+}
+
+/**
+ * Checks if a rule matches a given port, protocol, and direction
+ */
+function matchRuleToPort(rule: LinuxFirewallRule, targetPort: number, targetProto: string): boolean {
+  let ruleProto = rule.protocol ? rule.protocol.toLowerCase() : undefined;
+  let parsedPort = rule.port || '';
+
+  // Handle composite port specifications like "8080/tcp" or "22/tcp"
+  if (parsedPort) {
+    const parsed = parsePortProto(parsedPort);
+    parsedPort = parsed.port;
+    if (parsed.proto && (!ruleProto || ruleProto === 'any' || ruleProto === 'all')) {
+      ruleProto = parsed.proto;
+    }
+  }
+
+  // Protocol check
+  if (ruleProto && ruleProto !== 'any' && ruleProto !== 'all') {
+    if (ruleProto.toLowerCase() !== targetProto.toLowerCase()) {
+      return false;
+    }
+  }
+
+  // Direction check: ignore OUT rules for incoming listening sockets
+  if (rule.direction === 'OUT') {
+    return false;
+  }
+
+  // If port is not specified or Any, it matches any port
+  if (!parsedPort || parsedPort.toLowerCase() === 'any' || parsedPort === '*') {
+    return true;
+  }
+
+  const rawPort = parsedPort.trim().toLowerCase();
+
+  // 1. Direct number match
+  if (rawPort === String(targetPort)) {
+    return true;
+  }
+
+  // 2. Comma-separated list: 80,443,8080
+  if (rawPort.includes(',')) {
+    const parts = rawPort.split(',').map((p) => p.trim());
+    if (parts.includes(String(targetPort))) {
+      return true;
+    }
+  }
+
+  // 3. Range: 8000-8010 or 8000:8010
+  if (rawPort.includes('-') || rawPort.includes(':')) {
+    const sep = rawPort.includes('-') ? '-' : ':';
+    const [minStr, maxStr] = rawPort.split(sep);
+    const min = parseInt(minStr, 10);
+    const max = parseInt(maxStr, 10);
+    if (!isNaN(min) && !isNaN(max) && targetPort >= min && targetPort <= max) {
+      return true;
+    }
+  }
+
+  // 4. Service name: e.g. OpenSSH, ssh, http, https, etc.
+  const cleanService = rawPort.replace(/[^a-z0-9_-]/g, '');
+  if (WELL_KNOWN_SERVICES[cleanService]?.includes(targetPort)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Helper: Parse Listening Ports from ss -tulpn / netstat -tulpn and cross-reference with firewall rules
+ */
+export function parseListeningPorts(
+  output: string,
+  rules: LinuxFirewallRule[],
+  incomingPolicy: string,
+  firewallActive: boolean = true,
+  serverSshPort: number = 22
+): LinuxListeningPortSummary[] {
   const summaries: LinuxListeningPortSummary[] = [];
   const lines = output.split('\n');
   const seen = new Set<string>();
 
   for (const line of lines) {
-    // ss format: tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1234,fd=3))
-    const m = line.match(/(tcp|udp)\s+[A-Z_0-9-]+\s+[0-9]+\s+[0-9]+\s+([0-9a-zA-Z.:*]+):([0-9]+)\s+.*?users:\(\("([^"]+)",pid=([0-9]+)/i);
-    if (m) {
-      const proto = m[1].toLowerCase();
-      const addr = m[2];
-      const port = parseInt(m[3], 10);
-      const proc = m[4];
-      const pid = parseInt(m[5], 10);
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('Netid') || trimmed.startsWith('Active') || trimmed.startsWith('Proto')) continue;
 
-      const key = `${proto}:${port}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
+    // 1. Try ss format:
+    // tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1234,fd=3))
+    // tcp LISTEN 0 128 *:22 *:* users:(("sshd",pid=1234,fd=3))
+    // tcp LISTEN 0 128 [::]:22 [::]:*
+    let proto = '';
+    let addr = '';
+    let port = 0;
+    let proc: string | undefined = undefined;
+    let pid: number | undefined = undefined;
 
-      // Check if allowed
-      let isAllowed = incomingPolicy === 'ALLOW';
-      // Look for matching rule
+    const ssMatch = trimmed.match(/^(tcp|udp)[46]?\s+[A-Z_0-9-]+\s+\d+\s+\d+\s+([^\s]+):(\d+)\s+[^\s]+(?:\s+users:\(\("([^"]+)",pid=(\d+))?/i);
+    if (ssMatch) {
+      proto = ssMatch[1].toLowerCase();
+      addr = ssMatch[2];
+      port = parseInt(ssMatch[3], 10);
+      proc = ssMatch[4];
+      pid = ssMatch[5] ? parseInt(ssMatch[5], 10) : undefined;
+    } else {
+      // 2. Try netstat format:
+      // tcp 0 0 0.0.0.0:22 0.0.0.0:* LISTEN 1234/sshd
+      const netstatMatch = trimmed.match(/^(tcp|udp)[46]?\s+\d+\s+\d+\s+([^\s]+):(\d+)\s+[^\s]+(?:\s+[A-Z]+)?(?:\s+(\d+)\/([^\s]+))?/i);
+      if (netstatMatch) {
+        proto = netstatMatch[1].toLowerCase();
+        addr = netstatMatch[2];
+        port = parseInt(netstatMatch[3], 10);
+        pid = netstatMatch[4] ? parseInt(netstatMatch[4], 10) : undefined;
+        proc = netstatMatch[5];
+      }
+    }
+
+    if (!proto || isNaN(port) || port <= 0 || port > 65535) continue;
+
+    const key = `${proto}:${port}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    // Evaluate firewall accessibility:
+    let isAllowed = false;
+
+    if (!firewallActive) {
+      // If firewall is disabled or not running, all sockets are fully reachable
+      isAllowed = true;
+    } else if (isLoopbackAddress(addr)) {
+      // Localhost/loopback (127.0.0.1, ::1) is internal only and never blocked by firewall
+      isAllowed = true;
+    } else if (port === serverSshPort) {
+      // The current management SSH connection is alive and verified open
+      isAllowed = true;
+    } else {
+      // Start with default policy
+      isAllowed = incomingPolicy === 'ALLOW' || incomingPolicy === 'ACCEPT';
+
+      // Look for explicit matching firewall rules
       for (const r of rules) {
-        if (r.action === 'ALLOW' && (r.protocol === proto || r.protocol === 'any' || r.protocol === 'all')) {
-          if (r.port === String(port) || (r.port && r.port.includes(',') && r.port.split(',').includes(String(port)))) {
+        if (matchRuleToPort(r, port, proto)) {
+          if (r.action === 'ALLOW') {
             isAllowed = true;
             break;
-          }
-        } else if ((r.action === 'DENY' || r.action === 'REJECT') && (r.protocol === proto || r.protocol === 'any')) {
-          if (r.port === String(port)) {
+          } else if (r.action === 'DENY' || r.action === 'REJECT') {
             isAllowed = false;
             break;
           }
         }
       }
+    }
 
-      summaries.push({
-        port,
-        proto,
-        process: proc,
-        pid,
-        address: addr,
-        allowedInFirewall: isAllowed,
-      });
+    summaries.push({
+      port,
+      proto,
+      process: proc,
+      pid,
+      address: addr,
+      allowedInFirewall: isAllowed,
+    });
+  }
+
+  // 3. Integrate all explicit ALLOW firewall rules into the summary so that
+  // any ports opened by the user appear immediately, even before a listening daemon starts
+  for (const r of rules) {
+    if (r.action !== 'ALLOW' || r.direction === 'OUT') continue;
+    if (!r.port || r.port.toLowerCase() === 'any' || r.port === '*') continue;
+
+    const portsToAdd: number[] = [];
+    const parsed = parsePortProto(r.port);
+    const rawPort = parsed.port.trim().toLowerCase();
+
+    if (/^\d+$/.test(rawPort)) {
+      portsToAdd.push(parseInt(rawPort, 10));
+    } else if (rawPort.includes(',')) {
+      for (const p of rawPort.split(',')) {
+        const num = parseInt(p.trim(), 10);
+        if (!isNaN(num) && num > 0 && num <= 65535) portsToAdd.push(num);
+      }
+    } else if (rawPort.includes('-') || rawPort.includes(':')) {
+      const sep = rawPort.includes('-') ? '-' : ':';
+      const [minStr, maxStr] = rawPort.split(sep);
+      const min = parseInt(minStr, 10);
+      const max = parseInt(maxStr, 10);
+      if (!isNaN(min) && !isNaN(max) && min > 0 && max <= 65535 && (max - min) <= 50) {
+        for (let p = min; p <= max; p++) portsToAdd.push(p);
+      } else if (!isNaN(min)) {
+        portsToAdd.push(min);
+      }
+    } else {
+      const cleanService = rawPort.replace(/[^a-z0-9_-]/g, '');
+      const srvPorts = WELL_KNOWN_SERVICES[cleanService];
+      if (srvPorts) {
+        portsToAdd.push(...srvPorts);
+      }
+    }
+
+    const rProto = parsed.proto || ((r.protocol && r.protocol !== 'any' && r.protocol !== 'all') ? r.protocol.toLowerCase() : 'tcp');
+
+    for (const p of portsToAdd) {
+      const key = `${rProto}:${p}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        summaries.push({
+          port: p,
+          proto: rProto,
+          process: r.comment || (r.rawRule?.startsWith('service ') ? r.rawRule : undefined) || 'Firewall Open Port',
+          address: r.source && r.source.toLowerCase() !== 'any' ? r.source : '0.0.0.0',
+          allowedInFirewall: true,
+        });
+      } else {
+        // If it was already in summaries (from ss), ensure allowedInFirewall is set to true!
+        const existing = summaries.find((s) => s.port === p && (s.proto === rProto || rProto === 'any'));
+        if (existing) {
+          existing.allowedInFirewall = true;
+        }
+      }
     }
   }
+
+  // Sort summaries numerically by port
+  summaries.sort((a, b) => a.port - b.port);
 
   return summaries;
 }
@@ -863,6 +1190,14 @@ export async function detectLinuxFirewall(
 ): Promise<LinuxFirewallInfo> {
   const out = (await runAdaptiveSshCommand(server, FIREWALL_DETECTION_SCRIPT, ephemeralPassword)) || '';
 
+  // Extract individual isolated sections
+  const ufwSection = extractSection(out, 'UFW_STATUS');
+  const firewalldSection = extractSection(out, 'FIREWALLD_STATUS');
+  const nftablesSection = extractSection(out, 'NFTABLES_STATUS');
+  const iptablesSection = extractSection(out, 'IPTABLES_STATUS');
+  const listeningSection = extractSection(out, 'LISTENING_PORTS') || out;
+  const serverSshPort = server.ssh_port || 22;
+
   // Instantiate providers
   const ufwProvider = new UfwFirewallProvider();
   const firewalldProvider = new FirewalldProvider();
@@ -872,9 +1207,9 @@ export async function detectLinuxFirewall(
 
   // Evaluate which provider is active
   // 1. Check UFW
-  const ufwParsed = ufwProvider.parseStatus(out);
+  const ufwParsed = ufwProvider.parseStatus(ufwSection || out);
   if (ufwParsed.active) {
-    const listening = parseListeningPorts(out, ufwParsed.rules, ufwParsed.defaultPolicies.incoming);
+    const listening = parseListeningPorts(listeningSection, ufwParsed.rules, ufwParsed.defaultPolicies.incoming, true, serverSshPort);
     return {
       backend: 'ufw',
       status: 'active',
@@ -892,9 +1227,9 @@ export async function detectLinuxFirewall(
   }
 
   // 2. Check firewalld
-  const fwdParsed = firewalldProvider.parseStatus(out);
+  const fwdParsed = firewalldProvider.parseStatus(firewalldSection || out);
   if (fwdParsed.active) {
-    const listening = parseListeningPorts(out, fwdParsed.rules, fwdParsed.defaultPolicies.incoming);
+    const listening = parseListeningPorts(listeningSection, fwdParsed.rules, fwdParsed.defaultPolicies.incoming, true, serverSshPort);
     return {
       backend: 'firewalld',
       status: 'active',
@@ -913,9 +1248,9 @@ export async function detectLinuxFirewall(
   }
 
   // 3. Check nftables
-  const nftParsed = nftablesProvider.parseStatus(out);
+  const nftParsed = nftablesProvider.parseStatus(nftablesSection || out);
   if (nftParsed.active) {
-    const listening = parseListeningPorts(out, nftParsed.rules, nftParsed.defaultPolicies.incoming);
+    const listening = parseListeningPorts(listeningSection, nftParsed.rules, nftParsed.defaultPolicies.incoming, true, serverSshPort);
     return {
       backend: 'nftables',
       status: 'active',
@@ -933,9 +1268,9 @@ export async function detectLinuxFirewall(
   }
 
   // 4. Check iptables
-  const iptParsed = iptablesProvider.parseStatus(out);
+  const iptParsed = iptablesProvider.parseStatus(iptablesSection || out);
   if (iptParsed.active) {
-    const listening = parseListeningPorts(out, iptParsed.rules, iptParsed.defaultPolicies.incoming);
+    const listening = parseListeningPorts(listeningSection, iptParsed.rules, iptParsed.defaultPolicies.incoming, true, serverSshPort);
     return {
       backend: 'iptables',
       status: 'active',
@@ -962,11 +1297,11 @@ export async function detectLinuxFirewall(
       enabled: false,
       active: false,
       defaultPolicies: ufwParsed.defaultPolicies,
-      rulesCount: 0,
-      rules: [],
+      rulesCount: ufwParsed.rules.length,
+      rules: ufwParsed.rules,
       capabilities: ufwProvider.capabilities,
       rawStatusOutput: out,
-      listeningPortsSummary: parseListeningPorts(out, [], 'ALLOW'),
+      listeningPortsSummary: parseListeningPorts(listeningSection, ufwParsed.rules, 'ALLOW', false, serverSshPort),
     };
   }
 
@@ -979,11 +1314,11 @@ export async function detectLinuxFirewall(
       enabled: false,
       active: false,
       defaultPolicies: fwdParsed.defaultPolicies,
-      rulesCount: 0,
-      rules: [],
+      rulesCount: fwdParsed.rules.length,
+      rules: fwdParsed.rules,
       capabilities: firewalldProvider.capabilities,
       rawStatusOutput: out,
-      listeningPortsSummary: parseListeningPorts(out, [], 'ALLOW'),
+      listeningPortsSummary: parseListeningPorts(listeningSection, fwdParsed.rules, 'ALLOW', false, serverSshPort),
     };
   }
 
@@ -1004,7 +1339,7 @@ export async function detectLinuxFirewall(
     rules: [],
     capabilities: noFwProvider.capabilities,
     rawStatusOutput: out,
-    listeningPortsSummary: parseListeningPorts(out, [], 'ALLOW'),
+    listeningPortsSummary: parseListeningPorts(listeningSection, [], 'ALLOW', false, serverSshPort),
   };
 }
 
