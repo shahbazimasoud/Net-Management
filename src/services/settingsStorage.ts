@@ -7,7 +7,8 @@ import {
   LocalGroup,
   ADSecurityGroup,
   ADUser,
-  CustomTopologyStickyNote
+  CustomTopologyStickyNote,
+  PanelGeneralSettings
 } from '../types';
 
 export const STORAGE_KEYS = {
@@ -18,6 +19,7 @@ export const STORAGE_KEYS = {
   LOCAL_USERS: 'nettopology_local_users_v1',
   LOCAL_GROUPS: 'nettopology_local_groups_v1',
   DEVICE_STICKY_NOTES: 'nettopology_device_sticky_notes_v1',
+  GENERAL_SETTINGS: 'nettopology_general_settings_v1',
 };
 
 // Initial Seed: Local Groups
@@ -701,6 +703,97 @@ export async function syncActiveDirectoryConfigFromDatabase(): Promise<ActiveDir
     // Offline or fallback
   }
   return loadActiveDirectoryConfig();
+}
+
+// ----------------------------------------------------------------------------
+// General Panel Configuration Storage
+// ----------------------------------------------------------------------------
+export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
+  panelPort: 3000,
+  panelTitle: 'NetTopology Pro',
+  panelSubtitle: 'Enterprise Network Discovery & Infrastructure Management',
+  logoType: 'default',
+  logoPreset: 'network',
+  logoCustomUrl: '',
+  defaultTheme: 'obsidian',
+  defaultLanguage: 'fa',
+  telemetryRefreshIntervalSec: 10,
+  sessionInactivityTimeoutMin: 60,
+  defaultDeviceProtocol: 'ssh',
+  systemDebugLogging: false,
+  updatedAt: '2026-10-06 00:00:00',
+  updatedBy: 'admin',
+};
+
+export function loadGeneralSettings(): PanelGeneralSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.GENERAL_SETTINGS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        ...DEFAULT_PANEL_GENERAL_SETTINGS,
+        ...parsed,
+      };
+    }
+  } catch (err) {
+    console.error('Error loading general settings from localStorage', err);
+  }
+  return DEFAULT_PANEL_GENERAL_SETTINGS;
+}
+
+export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings>): Promise<PanelGeneralSettings> {
+  const current = loadGeneralSettings();
+  const merged: PanelGeneralSettings = {
+    ...current,
+    ...settings,
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(merged));
+  } catch (err) {
+    console.warn('LocalStorage save warning:', err);
+  }
+
+  try {
+    const res = await fetch('/api/settings/general', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({ settings: merged }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.settings) {
+        localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(data.settings));
+        return data.settings;
+      }
+    }
+  } catch (err) {
+    console.warn('Network sync warning for general settings:', err);
+  }
+
+  return merged;
+}
+
+export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSettings> {
+  try {
+    const res = await fetch('/api/settings/general', {
+      headers: getAuthHeaders(),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.settings) {
+        localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(data.settings));
+        return data.settings;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch general settings from database, using cached:', err);
+  }
+  return loadGeneralSettings();
 }
 
 let inMemoryPolicies: AccessPolicy[] = [];

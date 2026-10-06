@@ -182,6 +182,7 @@ interface FallbackStore {
   server_categories?: ServerCategory[];
   user_password_vault?: UserVaultItem[];
   bulk_server_reports?: any[];
+  general_settings?: PanelGeneralSettings;
 }
 
 export interface DevicePlacementRecord {
@@ -4016,6 +4017,74 @@ export async function saveActiveDirectoryConfig(config: any): Promise<void> {
       console.error('[DB Query Error]', e);
     }
   }
+}
+
+// -------------------------------------------------------------
+// General Panel Settings
+// -------------------------------------------------------------
+export interface PanelGeneralSettings {
+  panelPort: number;
+  panelTitle: string;
+  panelSubtitle: string;
+  logoType: 'default' | 'preset' | 'custom_url';
+  logoPreset: 'network' | 'shield' | 'server' | 'router' | 'cpu' | 'globe';
+  logoCustomUrl?: string;
+  defaultTheme: 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
+  defaultLanguage: 'fa' | 'en';
+  telemetryRefreshIntervalSec: number;
+  sessionInactivityTimeoutMin: number;
+  defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
+  systemDebugLogging: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
+  panelPort: 3000,
+  panelTitle: 'NetTopology Pro',
+  panelSubtitle: 'Enterprise Network Discovery & Infrastructure Management',
+  logoType: 'default',
+  logoPreset: 'network',
+  logoCustomUrl: '',
+  defaultTheme: 'obsidian',
+  defaultLanguage: 'fa',
+  telemetryRefreshIntervalSec: 10,
+  sessionInactivityTimeoutMin: 60,
+  defaultDeviceProtocol: 'ssh',
+  systemDebugLogging: false,
+  updatedAt: '2026-10-06 00:00:00',
+  updatedBy: 'admin',
+};
+
+export async function getGeneralSettings(): Promise<PanelGeneralSettings> {
+  const store = loadFallbackStore();
+  return store.general_settings || DEFAULT_GENERAL_SETTINGS;
+}
+
+export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings>, updatedBy: string = 'admin'): Promise<PanelGeneralSettings> {
+  const store = loadFallbackStore();
+  const current = store.general_settings || DEFAULT_GENERAL_SETTINGS;
+  const updated: PanelGeneralSettings = {
+    ...current,
+    ...settings,
+    panelPort: Number(settings.panelPort) || current.panelPort || 3000,
+    panelTitle: String(settings.panelTitle || current.panelTitle).trim() || 'NetTopology Pro',
+    panelSubtitle: String(settings.panelSubtitle !== undefined ? settings.panelSubtitle : current.panelSubtitle).trim(),
+    logoType: (settings.logoType as any) || current.logoType || 'default',
+    logoPreset: (settings.logoPreset as any) || current.logoPreset || 'network',
+    logoCustomUrl: settings.logoCustomUrl !== undefined ? settings.logoCustomUrl : current.logoCustomUrl,
+    defaultTheme: (settings.defaultTheme as any) || current.defaultTheme || 'obsidian',
+    defaultLanguage: (settings.defaultLanguage as any) || current.defaultLanguage || 'fa',
+    telemetryRefreshIntervalSec: Number(settings.telemetryRefreshIntervalSec) || current.telemetryRefreshIntervalSec || 10,
+    sessionInactivityTimeoutMin: Number(settings.sessionInactivityTimeoutMin) !== undefined ? Number(settings.sessionInactivityTimeoutMin) : current.sessionInactivityTimeoutMin,
+    defaultDeviceProtocol: (settings.defaultDeviceProtocol as any) || current.defaultDeviceProtocol || 'ssh',
+    systemDebugLogging: Boolean(settings.systemDebugLogging !== undefined ? settings.systemDebugLogging : current.systemDebugLogging),
+    updatedAt: new Date().toISOString(),
+    updatedBy,
+  };
+  store.general_settings = updated;
+  saveFallbackStore(store);
+  return updated;
 }
 
 // -------------------------------------------------------------

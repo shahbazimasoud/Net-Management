@@ -42,6 +42,8 @@ import {
   isDeviceActionPermitted,
   getActiveDirectoryConfig,
   saveActiveDirectoryConfig,
+  getGeneralSettings,
+  saveGeneralSettings,
   getHierarchy,
   saveHierarchy,
   getCompleteHierarchy,
@@ -1182,6 +1184,33 @@ apiRouter.post(['/settings/active-directory', '/active-directory'], async (req: 
     res.json({ success: true, config: configToSave });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// General Panel Settings Endpoints
+apiRouter.get(['/settings/general', '/system/general-settings'], async (_req: Request, res: Response) => {
+  try {
+    const settings = await getGeneralSettings();
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post(['/settings/general', '/system/general-settings'], async (req: Request, res: Response) => {
+  try {
+    const settingsToSave = req.body?.settings || req.body;
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+    const saved = await saveGeneralSettings(settingsToSave, updatedBy);
+    res.json({ success: true, settings: saved, message: 'General settings saved successfully' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

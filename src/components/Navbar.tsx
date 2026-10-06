@@ -1,5 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { RefreshCw, Zap, Palette, ChevronDown, Check, Globe, User, ShieldCheck, FileText, ArrowUpCircle, Sparkles, LogOut, Lock } from 'lucide-react';
+import {
+  RefreshCw,
+  Zap,
+  Palette,
+  ChevronDown,
+  Check,
+  Globe,
+  User,
+  ShieldCheck,
+  FileText,
+  ArrowUpCircle,
+  Sparkles,
+  LogOut,
+  Lock,
+  Network,
+  Router,
+  Server,
+  Cpu
+} from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useLanguage } from '../i18n';
 import { useUpdate } from '../context/UpdateContext';
@@ -22,6 +40,11 @@ interface NavbarProps {
   onOpenSettings?: () => void;
   onOpenPasswordVault?: () => void;
   onOpenUpdateSettings?: () => void;
+  customTitle?: string;
+  customSubtitle?: string;
+  logoType?: 'default' | 'preset' | 'custom_url';
+  logoPreset?: string;
+  logoCustomUrl?: string;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,6 +58,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSettings,
   onOpenPasswordVault,
   onOpenUpdateSettings,
+  customTitle,
+  customSubtitle,
+  logoType = 'default',
+  logoPreset = 'network',
+  logoCustomUrl,
 }) => {
   const { t, language, setLanguage, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
@@ -81,17 +109,45 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="h-14 spatial-glass text-white flex items-center justify-between px-4 lg:px-6 shrink-0 border-b border-white/10 sticky top-0 z-50 shadow-xl backdrop-blur-xl">
       {/* Brand & Identity */}
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs font-mono pulse-glow-cyan border border-white/20">
-          NT
-        </div>
+        {logoType === 'custom_url' && logoCustomUrl ? (
+          <img
+            src={logoCustomUrl}
+            alt="Logo"
+            className="w-8 h-8 rounded-xl object-contain shadow-[0_0_15px_rgba(99,102,241,0.5)] border border-white/20 p-0.5 bg-black/40 shrink-0"
+          />
+        ) : logoType === 'preset' ? (
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs border border-white/20 shrink-0">
+            {logoPreset === 'shield' ? (
+              <ShieldCheck className="w-4 h-4 text-white" />
+            ) : logoPreset === 'server' ? (
+              <Server className="w-4 h-4 text-white" />
+            ) : logoPreset === 'router' ? (
+              <Router className="w-4 h-4 text-white" />
+            ) : logoPreset === 'cpu' ? (
+              <Cpu className="w-4 h-4 text-white" />
+            ) : logoPreset === 'globe' ? (
+              <Globe className="w-4 h-4 text-white" />
+            ) : (
+              <Network className="w-4 h-4 text-white" />
+            )}
+          </div>
+        ) : (
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs font-mono pulse-glow-cyan border border-white/20 shrink-0">
+            NT
+          </div>
+        )}
+
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-sm sm:text-base font-bold tracking-tight text-white font-mono glow-text-cyan flex items-center gap-1.5">
-              {t('app_title')} <span className="text-indigo-400 text-[11px] font-semibold px-1.5 py-0.2 rounded bg-indigo-500/20 border border-indigo-500/30">{t('app_edition')}</span>
+              <span>{customTitle || t('app_title')}</span>
+              <span className="text-indigo-400 text-[11px] font-semibold px-1.5 py-0.2 rounded bg-indigo-500/20 border border-indigo-500/30">
+                {t('app_edition')}
+              </span>
             </h1>
           </div>
-          <p className="text-[10px] text-slate-400 hidden sm:block font-sans">
-            {t('app_subtitle')}
+          <p className="text-[10px] text-slate-400 hidden sm:block font-sans truncate max-w-[320px]">
+            {customSubtitle || t('app_subtitle')}
           </p>
         </div>
       </div>

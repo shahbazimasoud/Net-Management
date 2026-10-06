@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.277.0';
+export const APP_VERSION = '1.278.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.278.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'افزودن ماژول تنظیمات عمومی پنل (تغییر پورت وب، تایتل، لوگو، تم و زبان پیش‌فرض)',
+    title_en: 'Add Panel General Settings Module (Web Port, Title, Custom Logo, Default Theme & Language)',
+    changes: [
+      'افزودن فرم کامل تنظیمات عمومی سامانه ذیل بخش سیتینگ (General Settings) با قابلیت شخصی‌سازی تایتل، زیرعنوان و هویت سازمانی.',
+      'قابلیت تغییر و ذخیره پورت وب پنل (Listening TCP Port) با اعتبارسنجی دقیق و بدون داده‌های شبیه‌سازی‌شده.',
+      'پشتیبانی از شخصی‌سازی لوگوی هدر شامل ۶ پریست گرافیکی شبکه و امکان آپلود مستقیم فایل یا درج آدرس اینترنتی لوگو همراه با پیش‌نمایش زنده.',
+      'امکان تعیین تم رنگی پیش‌فرض (Obsidian، Emerald، Cobalt، Rose، Amber، Light) و زبان پیش‌فرض سامانه (فارسی / انگلیسی).',
+      'تنظیم پارامترهای تلمتری زنده پورت‌ها، مدت زمان انقضای نشست کاربران و ذخیره‌سازی دائمی در پایگاه داده سرور.',
+    ],
+    changes_en: [
+      'Added comprehensive General Settings module under the Settings section with customizable application title, subtitle, and branding.',
+      'Enabled configuring and persisting the panel web listening port (TCP Port) with robust server-side validation and authentic persistence.',
+      'Supported custom branding logos with 6 high-tech network presets, custom image/SVG URL input, and direct file upload with real-time live header preview.',
+      'Configurable default visual themes (Obsidian, Emerald, Cobalt, Rose, Amber, Light) and default system language (Persian / English).',
+      'Operational parameters for live telemetry polling intervals, session inactivity timeout, and authoritative database storage.',
+    ],
+  },
   {
     version: '1.277.0',
     releaseDate: '2026-10-06',

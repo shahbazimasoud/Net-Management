@@ -6972,3 +6972,20 @@ export interface LinuxCronExecutionResult {
   success: boolean;
 }
 
+export interface PanelGeneralSettings {
+  panelPort: number;
+  panelTitle: string;
+  panelSubtitle: string;
+  logoType: 'default' | 'preset' | 'custom_url';
+  logoPreset: 'network' | 'shield' | 'server' | 'router' | 'cpu' | 'globe';
+  logoCustomUrl?: string;
+  defaultTheme: 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
+  defaultLanguage: 'fa' | 'en';
+  telemetryRefreshIntervalSec: number;
+  sessionInactivityTimeoutMin: number;
+  defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
+  systemDebugLogging: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+

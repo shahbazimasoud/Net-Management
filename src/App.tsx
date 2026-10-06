@@ -75,8 +75,10 @@ import {
   loadActiveDirectoryConfig,
   saveActiveDirectoryConfig,
   syncActiveDirectoryConfigFromDatabase,
+  loadGeneralSettings,
+  syncGeneralSettingsFromDatabase,
 } from './services/settingsStorage';
-import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig } from './types';
+import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig, PanelGeneralSettings } from './types';
 import { isDeviceActionPermitted } from './utils/rbac';
 
 export default function App() {
@@ -276,6 +278,20 @@ export default function App() {
     }
     return saved;
   });
+
+  // General Panel Configuration State
+  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
+
+  useEffect(() => {
+    syncGeneralSettingsFromDatabase().then((settings) => {
+      if (settings) {
+        setGeneralSettings(settings);
+        if (settings.panelTitle && typeof document !== 'undefined') {
+          document.title = settings.panelTitle;
+        }
+      }
+    });
+  }, []);
 
   const changeTheme = (newTheme: ThemeType) => {
     setPanelTheme(newTheme);
@@ -833,6 +849,11 @@ export default function App() {
           onOpenSettings={() => setActiveTab('settings')}
           onOpenPasswordVault={() => handleOpenTool('password_vault')}
           onOpenUpdateSettings={() => setActiveTab('settings-update')}
+          customTitle={generalSettings.panelTitle}
+          customSubtitle={generalSettings.panelSubtitle}
+          logoType={generalSettings.logoType}
+          logoPreset={generalSettings.logoPreset}
+          logoCustomUrl={generalSettings.logoCustomUrl}
         />
       )}
 
@@ -952,6 +973,12 @@ export default function App() {
               panelTheme={panelTheme}
               onChangeTheme={changeTheme}
               onNavigateToTab={(tab) => setActiveTab(tab as any)}
+              onSettingsSaved={(newSettings) => {
+                setGeneralSettings(newSettings);
+                if (newSettings.panelTitle && typeof document !== 'undefined') {
+                  document.title = newSettings.panelTitle;
+                }
+              }}
             />
           )}
 

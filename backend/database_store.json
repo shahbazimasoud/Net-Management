@@ -1848,5 +1848,21 @@
     "racks": {},
     "sections": {}
   },
-  "device_placements": []
+  "device_placements": [],
+  "general_settings": {
+    "panelPort": 3000,
+    "panelTitle": "NetTopology Pro",
+    "panelSubtitle": "Enterprise Network Discovery & Infrastructure Management",
+    "logoType": "default",
+    "logoPreset": "network",
+    "logoCustomUrl": "",
+    "defaultTheme": "obsidian",
+    "defaultLanguage": "fa",
+    "telemetryRefreshIntervalSec": 10,
+    "sessionInactivityTimeoutMin": 60,
+    "defaultDeviceProtocol": "ssh",
+    "systemDebugLogging": false,
+    "updatedAt": "2026-10-06T07:43:28.986Z",
+    "updatedBy": "admin"
+  }
 }
