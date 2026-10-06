@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.279.1';
+export const APP_VERSION = '1.279.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.279.2',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'اصلاح عدم خروج تگ نقش دسترسی (Role Assigned) از کادر کارت‌های اکتیو دایرکتوری و LDAP',
+    title_en: 'Fix Role Assigned Tag Overflow on Active Directory & LDAP Integration Cards',
+    changes: [
+      'اصلاح چیدمان فلکس‌باکس و مهار عرض تگ وضعیت انتساب نقش (Role Assigned / No Role Assigned) در کارت‌های گروه‌های امنیتی و کاربران دامین در صفحه اکتیو دایرکتوری و LDAP.',
+      'افزودن خصوصیات min-w-0، flex-1، truncate و overflow-hidden به کارت‌ها و کانتینرهای متنی جهت جلوگیری قطعی از بیرون زدن برچسب‌ها در ابعاد مختلف صفحه و حالت راست‌به‌چپ (RTL).',
+      'تجهیز تگ‌های نقش به آیکون متناسب، تول‌تیپ کامل و انطباق رنگ‌بندی با تم روشن و تم تیره.',
+    ],
+    changes_en: [
+      'Fixed flexbox layout and badge containment for the "Role Assigned / No Role Assigned" tag on Active Directory security group and domain user cards.',
+      'Enforced min-w-0, flex-1, text truncation, and card overflow-hidden to unconditionally prevent tag overflow across various screen resolutions and RTL mode.',
+      'Enhanced role badges with contextual icons, full hover tooltips, and seamless light/dark theme contrast compliance.',
+    ],
+  },
   {
     version: '1.279.1',
     releaseDate: '2026-10-06',

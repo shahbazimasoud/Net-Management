@@ -354,26 +354,28 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                   return (
                     <div
                       key={grp.dn || grp.cn}
-                      className={`p-4 rounded-xl border transition space-y-3 ${
+                      className={`p-4 rounded-xl border transition space-y-3 overflow-hidden ${
                         isLightMode
-                          ? 'bg-slate-50 border-slate-200 hover:border-cyan-500/50'
-                          : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/40'
+                          ? 'bg-slate-50 border-slate-200 hover:border-cyan-500/50 text-slate-900'
+                          : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/40 text-white'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 shrink-0">
-                            <Users className="w-5 h-5" />
+                      <div className="flex items-start justify-between gap-3 min-w-0">
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                          <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 shrink-0 mt-0.5">
+                            <Users className="w-4 h-4 sm:w-5 sm:h-5" />
                           </div>
-                          <div>
-                            <div className="font-bold text-xs sm:text-sm text-white flex items-center gap-2">
-                              <span>{grp.cn}</span>
-                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-xs sm:text-sm flex items-center gap-1.5 flex-wrap">
+                              <span className="truncate max-w-[140px] sm:max-w-[200px]" title={grp.cn}>
+                                {grp.cn}
+                              </span>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shrink-0">
                                 {grp.memberCount} {isEn ? 'Members' : 'عضو'}
                               </span>
                             </div>
                             <div
-                              className="text-[10px] text-slate-400 font-mono truncate max-w-[280px]"
+                              className="text-[10px] text-slate-400 font-mono truncate w-full mt-0.5"
                               title={grp.dn}
                             >
                               {grp.dn}
@@ -381,15 +383,28 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                           </div>
                         </div>
 
-                        {assignedPolicy ? (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0 font-semibold">
-                            {assignedPolicy.name}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-white/5 shrink-0">
-                            {isEn ? 'No Role Assigned' : 'بدون نقش پنل'}
-                          </span>
-                        )}
+                        <div className="shrink-0 flex items-center">
+                          {assignedPolicy ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold max-w-[130px] sm:max-w-[170px] truncate"
+                              title={`${isEn ? 'Assigned Role:' : 'نقش انتساب‌یافته:'} ${assignedPolicy.name}`}
+                            >
+                              <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
+                              <span className="truncate">{assignedPolicy.name}</span>
+                            </span>
+                          ) : (
+                            <span
+                              className={`inline-flex items-center text-[10px] font-mono px-2 py-0.5 rounded-md border shrink-0 whitespace-nowrap ${
+                                isLightMode
+                                  ? 'bg-slate-200 text-slate-600 border-slate-300'
+                                  : 'bg-slate-800 text-slate-400 border-white/5'
+                              }`}
+                              title={isEn ? 'No Role Assigned' : 'بدون نقش پنل'}
+                            >
+                              {isEn ? 'No Role Assigned' : 'بدون نقش پنل'}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <p className="text-xs text-slate-300 leading-relaxed">
@@ -401,7 +416,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
 
                       {/* RBAC Panel Permission Assignment Selector */}
                       <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5 shrink-0">
                           <Shield className="w-3.5 h-3.5 text-indigo-400" />
                           <span>{isEn ? 'Panel RBAC Policy:' : 'نقش دسترسی پنل:'}</span>
                         </span>
@@ -409,7 +424,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                         <select
                           value={assignedPolicy?.id || 'none'}
                           onChange={(e) => handleAssignPolicyToGroup(grp, e.target.value)}
-                          className="px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs font-medium focus:outline-none focus:border-cyan-400 cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs font-medium focus:outline-none focus:border-cyan-400 cursor-pointer w-full sm:w-auto max-w-full truncate"
                         >
                           <option value="none">
                             {isEn ? '— No Panel Access (Revoke) —' : '— بدون دسترسی به پنل (فاقد نقش) —'}
@@ -487,57 +502,63 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                   return (
                     <div
                       key={user.samAccountName || user.dn}
-                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border transition ${
+                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border transition overflow-hidden ${
                         isLightMode
-                          ? 'bg-slate-50 border-slate-200 hover:border-cyan-500/50'
-                          : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/40'
+                          ? 'bg-slate-50 border-slate-200 hover:border-cyan-500/50 text-slate-900'
+                          : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/40 text-white'
                       }`}
                     >
-                      <div className="flex items-center gap-3.5">
+                      <div className="flex items-center gap-3.5 min-w-0 flex-1">
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-600 flex items-center justify-center font-bold text-white text-xs shrink-0 shadow-md">
                           {user.samAccountName ? user.samAccountName.slice(0, 2).toUpperCase() : 'AD'}
                         </div>
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-xs sm:text-sm text-white">
+                            <span className="font-bold text-xs sm:text-sm truncate max-w-[200px]" title={user.displayName || user.samAccountName}>
                               {user.displayName || user.samAccountName}
                             </span>
-                            <span className="text-[10px] font-mono text-cyan-300">
+                            <span className="text-[10px] font-mono text-cyan-300 shrink-0">
                               ({user.samAccountName})
                             </span>
                             {user.enabled ? (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
+                              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium shrink-0">
                                 {isEn ? 'Active' : 'فعال'}
                               </span>
                             ) : (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-medium">
+                              <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-medium shrink-0">
                                 {isEn ? 'Disabled' : 'غیرفعال'}
                               </span>
                             )}
                           </div>
-                          <div className="text-[11px] text-slate-400 mt-0.5">
+                          <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-full">
                             {user.department ? `${user.department} • ` : ''}
                             {user.title ? `${user.title} • ` : ''}
-                            <span className="font-mono">{user.email}</span>
+                            <span className="font-mono truncate">{user.email}</span>
                           </div>
                         </div>
                       </div>
 
                       {/* Inherited Role & Group Badges */}
-                      <div className="flex flex-col sm:items-end gap-1.5 shrink-0">
+                      <div className="flex flex-col sm:items-end gap-1.5 shrink-0 max-w-full">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {inherited.length > 0 ? (
                             inherited.map((p) => (
                               <span
                                 key={p.id}
-                                className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold"
+                                className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold truncate max-w-[160px]"
                                 title={isEn ? 'Panel role granted via group policy' : 'نقش پنل اعطاشده از طریق پالیسی گروه'}
                               >
                                 {p.name}
                               </span>
                             ))
                           ) : (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-white/5">
+                            <span
+                              className={`text-[10px] font-mono px-2 py-0.5 rounded-md border shrink-0 ${
+                                isLightMode
+                                  ? 'bg-slate-200 text-slate-600 border-slate-300'
+                                  : 'bg-slate-800 text-slate-400 border-white/5'
+                              }`}
+                            >
                               {isEn ? 'No Panel Role' : 'بدون نقش پنل'}
                             </span>
                           )}
