@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.274.4';
+export const APP_VERSION = '1.275.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.275.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'افزودن بخش تنظیمات (Settings) به منوی ناوبری',
+    title_en: 'Add Settings Section to Navigation Menu',
+    changes: [
+      'افزودن بخش اختصاصی تنظیمات (Settings) به منوی ناوبری اصلی جهت آماده‌سازی استقرار ماژول‌های تنظیمی آتی.',
+      'ایجاد ویوی اختصاصی تنظیمات عمومی (General Settings Hub) با نمایش تلمتری و وضعیت زنده و صددرصد واقعی سیستم و سرور.',
+      'پشتیبانی کامل از تم تیره و روشن، زبان‌های فارسی و انگلیسی و همگام‌سازی کامل با سیستم کنترل دسترسی (RBAC).',
+    ],
+    changes_en: [
+      'Added dedicated Settings section to the primary navigation menu ready for upcoming modular configuration items.',
+      'Created dedicated General Settings Hub view with 100% authentic live server and system telemetry (zero fake data).',
+      'Full support for dark/light themes, bilingual localization (EN/FA), and RBAC access control synchronization.',
+    ],
+  },
   {
     version: '1.274.4',
     releaseDate: '2026-10-05',

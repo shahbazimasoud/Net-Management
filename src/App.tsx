@@ -19,6 +19,7 @@ import { ReleaseNotesModal } from './components/ReleaseNotesModal';
 import { TopologyDiscoveryModal } from './components/TopologyDiscoveryModal';
 import { BulkDeviceConfigModal } from './components/BulkDeviceConfigModal';
 import { SettingsView } from './components/settings/SettingsView';
+import { GeneralSettingsView } from './components/settings/GeneralSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
@@ -930,8 +931,15 @@ export default function App() {
             />
           )}
 
-          {(activeTab === 'settings' ||
-            activeTab === 'settings-groups' ||
+          {(activeTab === 'general-settings' || activeTab === 'settings') && (
+            <GeneralSettingsView
+              isLightMode={panelTheme === 'light'}
+              panelTheme={panelTheme}
+              onChangeTheme={changeTheme}
+            />
+          )}
+
+          {(activeTab === 'settings-groups' ||
             activeTab === 'settings-users' ||
             activeTab === 'settings-ad' ||
             activeTab === 'settings-rbac' ||

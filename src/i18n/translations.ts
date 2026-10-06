@@ -88,7 +88,9 @@ export const translations = {
     parent_monitor_title: 'Monitoring & Analysis',
     parent_monitor_tag: 'MONITOR',
     parent_system_title: 'System & Security',
-    parent_system_tag: 'SETTINGS',
+    parent_system_tag: 'SECURITY',
+    parent_settings_title: 'Settings',
+    parent_settings_tag: 'SETTINGS',
 
     // Sidebar Children Items
     tab_dashboard: 'Network Dashboard',
@@ -102,6 +104,8 @@ export const translations = {
     tab_ports: 'Ports & VLANs Telemetry',
     tab_scanner: 'CDP/LLDP Discovery Scanner',
     tab_settings: 'Settings & Access Control',
+    tab_settings_general: 'General Settings',
+    tab_settings_hub: 'Settings Hub',
     tab_settings_groups: 'Device Grouping',
     tab_settings_users: 'Local Users & Groups',
     tab_settings_ad: 'Active Directory / LDAP',
@@ -750,8 +754,10 @@ export const translations = {
     parent_servers_tag: 'SERVERS',
     parent_monitor_title: 'پایش و آنالیز',
     parent_monitor_tag: 'MONITOR',
-    parent_system_title: 'تنظیمات و امنیت',
-    parent_system_tag: 'SETTINGS',
+    parent_system_title: 'سیستم و امنیت',
+    parent_system_tag: 'SECURITY',
+    parent_settings_title: 'تنظیمات (Settings)',
+    parent_settings_tag: 'SETTINGS',
 
     // Sidebar Children Items
     tab_dashboard: 'داشبورد وضعیت شبکه',
@@ -765,6 +771,8 @@ export const translations = {
     tab_ports: 'پایش پورت‌ها و ویلن‌ها',
     tab_scanner: 'اسکن همسایگی CDP/LLDP',
     tab_settings: 'تنظیمات و سطوح دسترسی (RBAC)',
+    tab_settings_general: 'تنظیمات عمومی (سیتینگ)',
+    tab_settings_hub: 'پیشخوان تنظیمات',
     tab_settings_groups: 'گروه‌بندی دیوایس‌ها',
     tab_settings_users: 'کاربران و گروه‌های محلی',
     tab_settings_ad: 'اتصال به اکتیو دایرکتوری',

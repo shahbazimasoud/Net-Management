@@ -20,7 +20,8 @@ import {
   ScrollText,
   Terminal,
   Monitor,
-  Tags
+  Tags,
+  Sliders
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
@@ -43,7 +44,8 @@ export type ActiveTab =
   | 'settings-users'
   | 'settings-ad'
   | 'settings-rbac'
-  | 'settings-backup';
+  | 'settings-backup'
+  | 'general-settings';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -64,7 +66,7 @@ interface NavItem {
 }
 
 interface NavParentGroup {
-  id: 'infra' | 'servers' | 'monitor' | 'system';
+  id: 'infra' | 'servers' | 'monitor' | 'system' | 'settings';
   titleKey: string;
   tagKey: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -217,6 +219,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
       ],
     },
+    {
+      id: 'settings',
+      titleKey: 'parent_settings_title',
+      tagKey: 'parent_settings_tag',
+      icon: Settings,
+      colorClass: 'text-sky-400 border-sky-500/30 bg-sky-500/10',
+      items: [
+        {
+          id: 'general-settings',
+          labelKey: 'tab_settings_general',
+          icon: Sliders,
+          badge: 'New',
+        },
+      ],
+    },
   ], [devicesCount]);
 
   // Filter modules and parent accordions based on user's effective RBAC policy
@@ -235,7 +252,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Keep expanded parent synced with activeTab so active item is always visible
   useEffect(() => {
     const parentForActive = visibleNavGroups.find((g) =>
-      g.items.some((i) => i.id === activeTab || (activeTab === 'settings' && g.id === 'system'))
+      g.items.some((i) => i.id === activeTab || (activeTab === 'settings' && g.id === 'settings'))
     );
     if (parentForActive) {
       if (parentForActive.id !== expandedParentId) {
@@ -251,6 +268,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (isCollapsed) {
       onToggleCollapse(); // Auto expand sidebar if collapsed
       setExpandedParentId(groupId);
+      if (groupId === 'settings') {
+        setActiveTab('general-settings');
+      }
       return;
     }
 
@@ -260,12 +280,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } else {
       // Open this parent and close others
       setExpandedParentId(groupId);
+      if (groupId === 'settings') {
+        setActiveTab('general-settings');
+      }
     }
   };
 
   const renderChildItem = (item: NavItem) => {
     const Icon = item.icon;
-    const isActive = activeTab === item.id || (activeTab === 'settings' && item.id === 'settings-groups');
+    const isActive =
+      activeTab === item.id ||
+      (activeTab === 'settings' && item.id === 'general-settings');
     const label = t(item.labelKey as any);
 
     return (

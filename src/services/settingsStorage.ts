@@ -1030,6 +1030,7 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy): boolean {
     case 'logs':
       return policy.canViewLogs !== undefined ? Boolean(policy.canViewLogs) : Boolean(policy.canViewSettings);
     case 'settings':
+    case 'general-settings':
     case 'settings-groups':
     case 'settings-users':
     case 'settings-ad':
