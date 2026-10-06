@@ -400,7 +400,7 @@ export const InBrowserRemoteDesktopModal: React.FC<InBrowserRemoteDesktopModalPr
           connectTimeoutRef.current = null;
         }
         setConnectionStatus('error');
-        setErrorMessage(translateGuacError(status));
+        setErrorMessage((prev) => prev || translateGuacError(status));
       };
 
       tunnel.onstatechange = (state: number) => {

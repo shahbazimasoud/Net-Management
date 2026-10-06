@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.281.0';
+export const APP_VERSION = '1.281.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.281.1',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'اصلاح هندشیک امنیتی Guacamole RDP، ترتیب پارامترهای args، ذخیره‌سازی رمز عبور ویندوز و بررسی پلاگین guacd در زمان راه‌اندازی',
+    title_en: 'Fix Guacamole RDP Security Handshake, Strict Args Ordering, Windows Password Persistence, and Startup Plugin Verification',
+    changes: [
+      'ارسال مقادیر دستور connect دقیقاً به ترتیب لیست args دریافتی از guacd به همراه مقدار رشته خالی برای پارامترهای ناشناخته.',
+      'ارسال اجباری و استاندارد پارامترهای hostname، port، username (بدون پیشوند دامین)، password، domain مجزا، security (پیش‌فرض any)، ignore-cert=true، width، height، dpi و color-depth=24.',
+      'افزودن تنظیم اختیاری rdp_security (any | nla | tls | rdp با پیش‌فرض any) برای هر سرور و رفع مشکل حذف رمز عبور ویندوز (win_password) و دامین پیش‌فرض در پایگاه داده PostgreSQL.',
+      'ثبت لاگ دقیق پارامترهای ارسالی بدون نمایش رمز عبور، وضعیت خالی بودن رمز عبور و متن خطای خام دریافتی از guacd و ارسال مستقیم پیام خطای واقعی guacd به رابط کاربری.',
+      'بررسی نسخه guacd (guacd -v) و قابل بارگذاری بودن پلاگین libguac-client-rdp در زمان راه‌اندازی سرور.',
+    ],
+    changes_en: [
+      'Updated Guacamole handshake after select to read guacd args reply and send connect values in the exact order of the args list (empty string for unknown parameters).',
+      'Ensured hostname, port, username (user only, no DOMAIN\\ prefix), password, separate domain, security ("any" by default), ignore-cert ("true"), width, height, dpi, and color-depth (24) are always sent.',
+      'Added optional per-server rdp_security ("any" | "nla" | "tls" | "rdp", defaulting to "any") and fixed PostgreSQL win_password persistence and legacy CORP.INTERNAL domain default.',
+      'Added sanitized handshake logging (sent params, passwordEmpty flag, raw guacd error text) and forwarded guacd real error messages directly to the UI.',
+      'Added startup verification for guacd version (guacd -v) and libguac-client-rdp loadability.',
+    ],
+  },
   {
     version: '1.281.0',
     releaseDate: '2026-10-06',

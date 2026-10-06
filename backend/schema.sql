@@ -300,7 +300,9 @@ CREATE TABLE IF NOT EXISTS remote_servers (
     win_protocol VARCHAR(32) DEFAULT 'rdp', -- 'rdp' | 'powershell' | 'winrm'
     win_port INT DEFAULT 3389,
     win_username VARCHAR(64) DEFAULT 'Administrator',
-    win_domain VARCHAR(64) DEFAULT 'CORP.INTERNAL',
+    win_password TEXT DEFAULT '',
+    win_domain VARCHAR(64) DEFAULT '',
+    rdp_security VARCHAR(16) DEFAULT 'any', -- 'any' | 'nla' | 'tls' | 'rdp'
     status VARCHAR(32) DEFAULT 'untested', -- 'online' | 'offline' | 'unreachable' | 'untested'
     cpu_cores INT,
     ram_gb NUMERIC,

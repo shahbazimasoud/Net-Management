@@ -1484,6 +1484,7 @@ export interface RemoteServer {
   win_domain?: string;
   win_username?: string;
   win_password?: string;
+  rdp_security?: 'any' | 'nla' | 'tls' | 'rdp';
   vnc_port?: number;
   vnc_username?: string;
   vnc_password?: string;

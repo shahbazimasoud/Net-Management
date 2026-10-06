@@ -129,6 +129,7 @@ export interface RemoteServer {
   win_username?: string;
   win_password?: string;
   win_domain?: string;
+  rdp_security?: 'any' | 'nla' | 'tls' | 'rdp';
   vnc_port?: number;
   vnc_username?: string;
   vnc_password?: string;
@@ -1442,13 +1443,13 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
           `INSERT INTO remote_servers (
             id, name, hostname, ip, os_type, os_distro, environment, category, role, tags,
             ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
-            win_protocol, win_port, win_username, win_domain,
+            win_protocol, win_port, win_username, win_password, win_domain, rdp_security,
             status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
             prompt_password_on_connect,
             installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
             created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)
            ON CONFLICT (id) DO NOTHING`,
           [
             s.id,
@@ -1469,7 +1470,9 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             s.win_protocol || 'rdp',
             s.win_port || 3389,
             s.win_username || 'Administrator',
-            s.win_domain || 'CORP.INTERNAL',
+            s.win_password || '',
+            s.win_domain && s.win_domain !== 'CORP.INTERNAL' ? s.win_domain : '',
+            s.rdp_security || 'any',
             s.status || 'online',
             s.cpu_cores ?? null,
             s.ram_gb ?? null,
@@ -1740,6 +1743,10 @@ export async function initDatabase(): Promise<void> {
 
     try {
       await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS prompt_password_on_connect BOOLEAN DEFAULT FALSE');
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS win_password TEXT DEFAULT ''");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS rdp_security VARCHAR(16) DEFAULT 'any'");
+      await client.query("ALTER TABLE remote_servers ALTER COLUMN win_domain SET DEFAULT ''");
+      await client.query("UPDATE remote_servers SET win_domain = '' WHERE win_domain = 'CORP.INTERNAL'");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS installed_web_servers JSONB NOT NULL DEFAULT '[]'::jsonb");
       await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS installed_databases JSONB NOT NULL DEFAULT '[]'::jsonb");
       await client.query('ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS has_apache BOOLEAN DEFAULT FALSE');
@@ -4651,7 +4658,11 @@ function rowToRemoteServer(r: any): RemoteServer {
     win_protocol: (r.win_protocol || 'rdp') as 'rdp' | 'powershell' | 'winrm',
     win_port: Number(r.win_port) || 3389,
     win_username: r.win_username || 'Administrator',
-    win_domain: r.win_domain || 'CORP.INTERNAL',
+    win_password: r.win_password || '',
+    win_domain: r.win_domain && r.win_domain !== 'CORP.INTERNAL' ? r.win_domain : '',
+    rdp_security: (['any', 'nla', 'tls', 'rdp'].includes(String(r.rdp_security || '').toLowerCase())
+      ? String(r.rdp_security).toLowerCase()
+      : 'any') as 'any' | 'nla' | 'tls' | 'rdp',
     prompt_password_on_connect: Boolean(r.prompt_password_on_connect),
     installed_web_servers: Array.isArray(r.installed_web_servers)
       ? r.installed_web_servers
@@ -4712,10 +4723,29 @@ export async function getAllRemoteServers(): Promise<RemoteServer[]> {
     try {
       const res = await pool.query('SELECT * FROM remote_servers ORDER BY created_at DESC');
       if (res.rows && res.rows.length > 0) {
-        const list = res.rows.map(rowToRemoteServer);
+        const store = loadFallbackStore();
+        const existingById = new Map<string, any>();
+        if (Array.isArray(store.remote_servers)) {
+          for (const existing of store.remote_servers) {
+            if (existing?.id) existingById.set(existing.id, existing);
+          }
+        }
+        const list = res.rows.map((r: any) => {
+          const mapped = rowToRemoteServer(r);
+          const local = existingById.get(mapped.id);
+          if (local) {
+            if (!mapped.win_password && local.win_password) {
+              mapped.win_password = local.win_password;
+              pool?.query('UPDATE remote_servers SET win_password = $1 WHERE id = $2', [local.win_password, mapped.id]).catch(() => {});
+            }
+            if ((!mapped.rdp_security || mapped.rdp_security === 'any') && local.rdp_security) {
+              mapped.rdp_security = local.rdp_security;
+            }
+          }
+          return mapped;
+        });
         // Keep fallback store synchronized with PostgreSQL
         try {
-          const store = loadFallbackStore();
           store.remote_servers = list;
           saveFallbackStore(store);
         } catch {
@@ -4759,6 +4789,14 @@ export async function getRemoteServerById(id: string): Promise<RemoteServer | nu
             (s) => s.id === srv.id || s.id.toLowerCase() === srv.id.toLowerCase()
           );
           if (fIdx >= 0) {
+            const local = store.remote_servers[fIdx];
+            if (!srv.win_password && local.win_password) {
+              srv.win_password = local.win_password;
+              pool?.query('UPDATE remote_servers SET win_password = $1 WHERE id = $2', [local.win_password, srv.id]).catch(() => {});
+            }
+            if ((!srv.rdp_security || srv.rdp_security === 'any') && local.rdp_security) {
+              srv.rdp_security = local.rdp_security;
+            }
             store.remote_servers[fIdx] = srv;
           } else {
             store.remote_servers.push(srv);
@@ -4807,7 +4845,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     win_port: Number(data.win_port) || 3389,
     win_username: data.win_username?.trim() || 'Administrator',
     win_password: data.prompt_password_on_connect ? '' : (data.win_password || ''),
-    win_domain: data.win_domain?.trim() || 'CORP.INTERNAL',
+    win_domain: data.win_domain?.trim() && data.win_domain.trim() !== 'CORP.INTERNAL' ? data.win_domain.trim() : '',
+    rdp_security: (['any', 'nla', 'tls', 'rdp'].includes(String(data.rdp_security || '').toLowerCase())
+      ? String(data.rdp_security).toLowerCase()
+      : 'any') as 'any' | 'nla' | 'tls' | 'rdp',
     vnc_port: Number(data.vnc_port) || 5900,
     vnc_username: data.vnc_username?.trim() || '',
     vnc_password: data.prompt_password_on_connect ? '' : (data.vnc_password || ''),
@@ -4868,7 +4909,7 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
         `INSERT INTO remote_servers (
           id, name, hostname, ip, os_type, os_distro, environment, category, role, tags,
           ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
-          win_protocol, win_port, win_username, win_domain,
+          win_protocol, win_port, win_username, win_password, win_domain, rdp_security,
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
           prompt_password_on_connect,
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
@@ -4876,7 +4917,7 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           server_type, mysql_port, mysql_user, mysql_password, mysql_database, web_http_port, web_https_port,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -4895,7 +4936,9 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           win_protocol = EXCLUDED.win_protocol,
           win_port = EXCLUDED.win_port,
           win_username = EXCLUDED.win_username,
+          win_password = EXCLUDED.win_password,
           win_domain = EXCLUDED.win_domain,
+          rdp_security = EXCLUDED.rdp_security,
           status = EXCLUDED.status,
           cpu_cores = EXCLUDED.cpu_cores,
           ram_gb = EXCLUDED.ram_gb,
@@ -4941,7 +4984,9 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           newServer.win_protocol || 'rdp',
           newServer.win_port || 3389,
           newServer.win_username || 'Administrator',
+          newServer.win_password || '',
           newServer.win_domain || '',
+          newServer.rdp_security || 'any',
           newServer.status,
           newServer.cpu_cores ?? null,
           newServer.ram_gb ?? null,
@@ -5036,7 +5081,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     win_password: updates.prompt_password_on_connect
       ? ''
       : (updates.win_password !== undefined ? updates.win_password : (current as any).win_password || ''),
-    win_domain: updates.win_domain !== undefined ? updates.win_domain.trim() : current.win_domain,
+    win_domain: updates.win_domain !== undefined ? updates.win_domain.trim() : (current.win_domain && current.win_domain !== 'CORP.INTERNAL' ? current.win_domain : ''),
+    rdp_security: (updates.rdp_security !== undefined
+      ? (['any', 'nla', 'tls', 'rdp'].includes(String(updates.rdp_security).toLowerCase()) ? String(updates.rdp_security).toLowerCase() : 'any')
+      : (current.rdp_security || 'any')) as 'any' | 'nla' | 'tls' | 'rdp',
     vnc_port: updates.vnc_port !== undefined ? Number(updates.vnc_port) : (current as any).vnc_port,
     vnc_username: updates.vnc_username !== undefined ? updates.vnc_username.trim() : (current as any).vnc_username,
     vnc_password: updates.prompt_password_on_connect
@@ -5130,7 +5178,7 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
         `INSERT INTO remote_servers (
           id, name, hostname, ip, os_type, os_distro, environment, category, role, tags,
           ssh_port, ssh_username, ssh_password, ssh_key_path, default_shell,
-          win_protocol, win_port, win_username, win_domain,
+          win_protocol, win_port, win_username, win_password, win_domain, rdp_security,
           status, cpu_cores, ram_gb, disk_gb, uptime_str, location, notes,
           prompt_password_on_connect,
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
@@ -5138,7 +5186,7 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           server_type, mysql_port, mysql_user, mysql_password, mysql_database, web_http_port, web_https_port,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -5157,7 +5205,9 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           win_protocol = EXCLUDED.win_protocol,
           win_port = EXCLUDED.win_port,
           win_username = EXCLUDED.win_username,
+          win_password = EXCLUDED.win_password,
           win_domain = EXCLUDED.win_domain,
+          rdp_security = EXCLUDED.rdp_security,
           status = EXCLUDED.status,
           cpu_cores = EXCLUDED.cpu_cores,
           ram_gb = EXCLUDED.ram_gb,
@@ -5203,7 +5253,9 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           updated.win_protocol,
           updated.win_port,
           updated.win_username,
-          updated.win_domain,
+          updated.win_password || '',
+          updated.win_domain || '',
+          updated.rdp_security || 'any',
           updated.status,
           updated.cpu_cores,
           updated.ram_gb,

@@ -7,7 +7,55 @@ import { exec } from 'child_process';
 import { Express, Request, Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyToken } from './auth';
-import { addAuditLog } from './db';
+import { addAuditLog, getRemoteServerById } from './db';
+
+export type RdpSecurityType = 'any' | 'nla' | 'tls' | 'rdp';
+
+function normalizeRdpSecurity(rawSecurity?: string): RdpSecurityType {
+  const val = String(rawSecurity || 'any').trim().toLowerCase();
+  if (val === 'nla' || val === 'tls' || val === 'rdp' || val === 'any') {
+    return val;
+  }
+  return 'any';
+}
+
+async function resolveTargetServerRecord(serverId: string, projectRoot: string): Promise<any | null> {
+  let dbRecord: any = null;
+  try {
+    dbRecord = await getRemoteServerById(serverId);
+  } catch (err: any) {
+    console.warn('[RemoteDesktop] Notice reading server from db:', err.message);
+  }
+
+  let fileRecord: any = null;
+  try {
+    const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
+    if (fs.existsSync(storePath)) {
+      const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+      fileRecord = (store.remote_servers || []).find(
+        (s: any) => s.id === serverId || s.name === serverId || s.ip === serverId
+      );
+    }
+  } catch (err: any) {
+    console.warn('[RemoteDesktop] Error reading server database_store.json:', err.message);
+  }
+
+  if (!dbRecord && !fileRecord) return null;
+  if (dbRecord && fileRecord) {
+    return {
+      ...fileRecord,
+      ...dbRecord,
+      win_password: dbRecord.win_password || fileRecord.win_password || '',
+      vnc_password: dbRecord.vnc_password || fileRecord.vnc_password || '',
+      rdp_security: normalizeRdpSecurity(dbRecord.rdp_security || fileRecord.rdp_security),
+    };
+  }
+  const single = dbRecord || fileRecord;
+  return {
+    ...single,
+    rdp_security: normalizeRdpSecurity(single.rdp_security),
+  };
+}
 
 interface RemoteSessionConfig {
   id: string;
@@ -148,6 +196,10 @@ export function normalizeRdpCredentials(rawUsername?: string, rawDomain?: string
     if (!domain) {
       domain = parts[1].trim();
     }
+  }
+
+  if (domain.toUpperCase() === 'CORP.INTERNAL') {
+    domain = '';
   }
 
   return { username, domain };
@@ -312,12 +364,139 @@ export function tryStartGuacd(host: string = '127.0.0.1', port: number = 4822): 
 }
 
 /**
- * Proactively ensure guacd is running on server boot
+ * Verify guacd version (guacd -v) and RDP plugin presence (libguac-client-rdp loadable) at startup.
+ * Logs a clear error if guacd or libguac-client-rdp is missing or fails to load.
+ */
+export function verifyGuacdRdpPlugin(host: string = '127.0.0.1', port: number = 4822): Promise<{
+  guacdVersion: string | null;
+  rdpPluginPath: string | null;
+  rdpPluginLoadable: boolean;
+  error: string | null;
+}> {
+  return new Promise((resolve) => {
+    const cmd = `
+      VER=$(guacd -v 2>&1 || /usr/sbin/guacd -v 2>&1 || /usr/local/sbin/guacd -v 2>&1 || true);
+      echo "GUACD_VER:$VER";
+      RDP_SO=$(ldconfig -p 2>/dev/null | grep 'libguac-client-rdp\\.so' | awk '{print $NF}' | head -n 1);
+      if [ -z "$RDP_SO" ]; then
+        RDP_SO=$(find /usr/lib /usr/lib64 /usr/local/lib /lib -name 'libguac-client-rdp.so*' 2>/dev/null | head -n 1);
+      fi;
+      echo "RDP_SO:$RDP_SO";
+      if [ -n "$RDP_SO" ] && [ -e "$RDP_SO" ]; then
+        MISSING=$(ldd "$RDP_SO" 2>&1 | grep "not found" || true);
+        echo "RDP_MISSING:$MISSING";
+      fi
+    `;
+
+    exec(cmd, { timeout: 8000 }, (_err, stdout) => {
+      const out = stdout || '';
+      const verMatch = out.match(/GUACD_VER:(.*)/);
+      const soMatch = out.match(/RDP_SO:(.*)/);
+      const missingMatch = out.match(/RDP_MISSING:(.*)/);
+
+      const guacdVersion = verMatch && verMatch[1] ? verMatch[1].trim() : null;
+      const rdpPluginPath = soMatch && soMatch[1] ? soMatch[1].trim() : null;
+      const missingDeps = missingMatch && missingMatch[1] ? missingMatch[1].trim() : '';
+
+      const hasValidVersion = Boolean(
+        guacdVersion &&
+          (guacdVersion.toLowerCase().includes('guacamole') ||
+            guacdVersion.toLowerCase().includes('guacd') ||
+            /\d+\.\d+/.test(guacdVersion))
+      );
+
+      if (!hasValidVersion) {
+        const errMsg = 'guacd binary not found or "guacd -v" failed. Please install the guacd package.';
+        console.error(`[RemoteDesktop] ERROR: ${errMsg} (output: ${guacdVersion || 'none'})`);
+        return resolve({
+          guacdVersion: null,
+          rdpPluginPath: null,
+          rdpPluginLoadable: false,
+          error: errMsg,
+        });
+      }
+
+      console.log(`[RemoteDesktop] Verified guacd version: ${guacdVersion}`);
+
+      if (!rdpPluginPath) {
+        const errMsg =
+          'RDP plugin (libguac-client-rdp.so) is MISSING! Install libguac-client-rdp0 so guacd can negotiate RDP connections.';
+        console.error(`[RemoteDesktop] ERROR: ${errMsg}`);
+        return resolve({
+          guacdVersion,
+          rdpPluginPath: null,
+          rdpPluginLoadable: false,
+          error: errMsg,
+        });
+      }
+
+      if (missingDeps) {
+        const errMsg = `RDP plugin (${rdpPluginPath}) is present but NOT loadable due to missing shared libraries: ${missingDeps}`;
+        console.error(`[RemoteDesktop] ERROR: ${errMsg}`);
+        return resolve({
+          guacdVersion,
+          rdpPluginPath,
+          rdpPluginLoadable: false,
+          error: errMsg,
+        });
+      }
+
+      // Also verify live against guacd daemon via "select,3.rdp;" if listening
+      const probeSocket = new net.Socket();
+      let probeBuffer = '';
+      let settled = false;
+      const finish = (loadable: boolean, errStr: string | null) => {
+        if (settled) return;
+        settled = true;
+        try {
+          probeSocket.destroy();
+        } catch {}
+        if (!loadable && errStr) {
+          console.error(`[RemoteDesktop] ERROR: ${errStr}`);
+        } else {
+          console.log(`[RemoteDesktop] Verified RDP plugin loadable: ${rdpPluginPath}`);
+        }
+        resolve({
+          guacdVersion,
+          rdpPluginPath,
+          rdpPluginLoadable: loadable,
+          error: errStr,
+        });
+      };
+
+      probeSocket.setTimeout(1500);
+      probeSocket.once('connect', () => {
+        probeSocket.write(encodeGuacInstruction('select', 'rdp'));
+      });
+      probeSocket.on('data', (chunk: Buffer) => {
+        probeBuffer += chunk.toString('utf-8');
+        const next = extractNextGuacInstruction(probeBuffer);
+        if (!next) return;
+        const [op, ...rest] = next.parts;
+        if (op === 'args') {
+          console.log(`[RemoteDesktop] guacd live RDP args verified (${rest.length} args): ${rest.join(', ')}`);
+          finish(true, null);
+        } else if (op === 'error') {
+          finish(false, `guacd rejected protocol "rdp" during startup check: ${rest[0] || 'libguac-client-rdp not loadable'}`);
+        } else {
+          finish(true, null);
+        }
+      });
+      probeSocket.once('timeout', () => finish(true, null));
+      probeSocket.once('error', () => finish(true, null));
+      probeSocket.connect(port, host);
+    });
+  });
+}
+
+/**
+ * Proactively ensure guacd is running on server boot and verify guacd version + RDP plugin
  */
 export async function ensureGuacdServiceRunning(host: string = '127.0.0.1', port: number = 4822): Promise<boolean> {
   const isLive = await checkGuacdHealth(host, port);
   if (isLive) {
     console.log(`[RemoteDesktop] guacd daemon is active and listening on ${host}:${port}`);
+    await verifyGuacdRdpPlugin(host, port);
     return true;
   }
   console.log(`[RemoteDesktop] guacd daemon is not listening on ${host}:${port}. Attempting auto-start...`);
@@ -327,6 +506,7 @@ export async function ensureGuacdServiceRunning(host: string = '127.0.0.1', port
   } else {
     console.warn(`[RemoteDesktop] Could not auto-start guacd on ${host}:${port}. Please ensure guacd package is installed.`);
   }
+  await verifyGuacdRdpPlugin(host, port);
   return started;
 }
 
@@ -471,17 +651,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     const { serverId } = req.body;
     if (!serverId) return res.status(400).json({ error: 'Missing serverId' });
 
-    let serverRecord: any = null;
-    try {
-      const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
-      if (fs.existsSync(storePath)) {
-        const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
-        serverRecord = (store.remote_servers || []).find((s: any) => s.id === serverId || s.name === serverId);
-      }
-    } catch (err: any) {
-      return res.status(500).json({ error: err.message });
-    }
-
+    const serverRecord = await resolveTargetServerRecord(serverId, projectRoot);
     if (!serverRecord) return res.status(404).json({ error: 'Server not found' });
 
     const isRdp = serverRecord.os_type === 'windows';
@@ -491,6 +661,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     const { reachable, latencyMs, error } = await checkTcpReachability(targetHost, targetPort, 2500);
     const guacdRunning = await checkGuacdHealth(guacdHost, guacdPort);
     const norm = normalizeRdpCredentials(serverRecord.win_username, serverRecord.win_domain);
+    const rdpSecurity = normalizeRdpSecurity(serverRecord.rdp_security);
 
     res.json({
       success: true,
@@ -504,6 +675,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       guacdRunning,
       normalizedUser: norm.username,
       normalizedDomain: norm.domain,
+      rdpSecurity,
       hasPasswordConfigured: Boolean(serverRecord.win_password || serverRecord.vnc_password),
     });
   });
@@ -527,23 +699,14 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       });
     }
 
-    const { serverId, protocol = 'rdp', width = 1920, height = 1080, dpi = 96, sessionPassword } = req.body;
+    const { serverId, protocol = 'rdp', width = 1920, height = 1080, dpi = 96, sessionPassword, rdp_security, security } = req.body;
 
     if (!serverId) {
       return res.status(400).json({ error: 'Missing required parameter: serverId' });
     }
 
-    // Resolve server details from database_store.json
-    let serverRecord: any = null;
-    try {
-      const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
-      if (fs.existsSync(storePath)) {
-        const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
-        serverRecord = (store.remote_servers || []).find((s: any) => s.id === serverId || s.name === serverId);
-      }
-    } catch (err: any) {
-      console.warn('[RemoteDesktop] Error reading server database:', err.message);
-    }
+    // Resolve server details from PostgreSQL and database_store.json
+    const serverRecord = await resolveTargetServerRecord(serverId, projectRoot);
 
     if (!serverRecord) {
       return res.status(404).json({ error: `Server not found with ID ${serverId}` });
@@ -596,6 +759,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     const targetPassword = isEphemeralAuth
       ? sessionPassword
       : (isRdp ? serverRecord.win_password || '' : serverRecord.vnc_password || '');
+    const targetSecurity = normalizeRdpSecurity(rdp_security || security || serverRecord.rdp_security || 'any');
 
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const sessionId = `rdp-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
@@ -611,6 +775,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       username: targetUsername,
       password: targetPassword,
       domain: targetDomain,
+      security: targetSecurity,
       width: Math.max(800, Math.min(width, 3840)),
       height: Math.max(600, Math.min(height, 2160)),
       dpi: Math.max(72, Math.min(dpi, 192)),
@@ -860,35 +1025,67 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
         const parsed = next.parts;
         const opcode = parsed[0];
 
+        if (opcode === 'error') {
+          const rawErrMsg = parsed[1] || 'Remote server connection error';
+          const rawErrCode = parsed[2] || '516';
+          console.error(
+            `[RemoteDesktop] guacd raw error for session ${config.id} (state=${handshakeState}, target=${config.serverIp}:${config.port}, code=${rawErrCode}): ${rawErrMsg}`
+          );
+          errorSent = true;
+          if (clientWs.readyState === WebSocket.OPEN) {
+            // Forward guacd's real error message directly to the UI
+            clientWs.send(encodeGuacInstruction('error', rawErrMsg, rawErrCode));
+          }
+          continue;
+        }
+
         if (handshakeState === 'SELECT') {
           if (opcode === 'args') {
             const paramNames = parsed.slice(1);
+            const normCreds = normalizeRdpCredentials(config.username, config.domain);
+            const effectiveSecurity = normalizeRdpSecurity(config.security);
+            const passwordVal = config.password || '';
+            const widthStr = String(config.width || 1024);
+            const heightStr = String(config.height || 768);
+            const dpiStr = String(config.dpi || 96);
+
             const params: Record<string, string> = {
-              hostname: config.serverIp,
+              hostname: String(config.serverIp || '').trim(),
               port: String(config.port || (config.protocol === 'rdp' ? 3389 : 5900)),
-              username: config.username || '',
-              password: config.password || '',
-              domain: config.domain || '',
-              security: config.security || 'any',
+              username: normCreds.username,
+              password: passwordVal,
+              domain: normCreds.domain,
+              security: effectiveSecurity,
               'ignore-cert': 'true',
-              'resize-method': 'display-update',
-              'enable-font-smoothing': 'true',
-              'enable-theming': 'true',
-              'enable-wallpaper': 'false',
-              'disable-auth': 'false',
+              width: widthStr,
+              height: heightStr,
+              dpi: dpiStr,
               'color-depth': '24',
-              width: String(config.width || 1024),
-              height: String(config.height || 768),
-              dpi: String(config.dpi || 96),
-              'initial-program': config.initialProgram || '',
+              ...(config.initialProgram ? { 'initial-program': config.initialProgram } : {}),
             };
 
-            const connectValues = paramNames.map((name, idx) => {
-              if (idx === 0) return name; // First param is protocol version (e.g. VERSION_1_3_0)
-              return params[name] !== undefined ? params[name] : '';
+            const connectValues = paramNames.map((name) => {
+              if (name.startsWith('VERSION_')) return name;
+              return Object.prototype.hasOwnProperty.call(params, name) && params[name] !== undefined
+                ? String(params[name])
+                : '';
             });
 
-            guacdSocket.write(encodeGuacInstruction('size', config.width, config.height, config.dpi));
+            const isPasswordEmpty = passwordVal.length === 0;
+            const loggedParams: Record<string, string> = {};
+            paramNames.forEach((name, idx) => {
+              const val = connectValues[idx];
+              if (name === 'password') {
+                loggedParams[name] = isPasswordEmpty ? '<empty>' : '<redacted>';
+              } else if (val !== '') {
+                loggedParams[name] = val;
+              }
+            });
+            console.log(
+              `[RemoteDesktop] Sending Guacamole connect for session ${config.id}: passwordEmpty=${isPasswordEmpty} | argsOrder=${JSON.stringify(paramNames)} | sentParams=${JSON.stringify(loggedParams)}`
+            );
+
+            guacdSocket.write(encodeGuacInstruction('size', widthStr, heightStr, dpiStr));
             guacdSocket.write(encodeGuacInstruction('audio', 'audio/L16'));
             guacdSocket.write(encodeGuacInstruction('video'));
             guacdSocket.write(encodeGuacInstruction('image', 'image/png', 'image/jpeg', 'image/webp'));
@@ -906,14 +1103,6 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
               clientWs.send(instructionStr + ';');
             }
             handshakeState = 'READY';
-          } else if (opcode === 'error') {
-            const rawErrMsg = parsed[1] || 'Remote server connection error';
-            console.warn(`[RemoteDesktop] guacd error during handshake: ${rawErrMsg}`);
-            const structured = parseStructuredGuacError(rawErrMsg, config.serverIp, config.port, config.domain);
-            if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(encodeGuacInstruction('error', JSON.stringify(structured), structured.code));
-              errorSent = true;
-            }
           }
         } else {
           // handshakeState === 'READY'
@@ -972,7 +1161,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
       setTimeout(() => {
         try {
           if (clientWs.readyState === WebSocket.OPEN) {
-            clientWs.close(4504, 'Remote session closed');
+            clientWs.close(1000);
           }
         } catch {}
       }, 150);
