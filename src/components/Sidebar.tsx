@@ -29,6 +29,8 @@ import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
 import { isTabAllowed } from '../services/settingsStorage';
 import { useUpdate } from '../context/UpdateContext';
+import { useAuth, AuthUser } from '../context/AuthContext';
+import { isUserSuperAdmin } from '../utils/rbac';
 
 export type ActiveTab =
   | 'dashboard'
@@ -61,6 +63,7 @@ interface SidebarProps {
   onToggleCollapse: () => void;
   onOpenReleaseNotes?: () => void;
   effectivePolicy?: AccessPolicy;
+  user?: AuthUser | null;
 }
 
 interface NavItem {
@@ -88,9 +91,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   onOpenReleaseNotes,
   effectivePolicy,
+  user,
 }) => {
   const { t, isRtl } = useLanguage();
   const { updateInfo } = useUpdate();
+  const { user: authUser } = useAuth();
+  const currentUser = user || authUser;
+  const isSuper = isUserSuperAdmin(currentUser, effectivePolicy);
   const hasUpdate = Boolean(updateInfo?.hasUpdate);
 
   const navGroups: NavParentGroup[] = useMemo(() => [
@@ -258,12 +265,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Filter modules and parent accordions based on user's effective RBAC policy
   const visibleNavGroups = useMemo(() => {
     return navGroups
+      .filter((group) => {
+        // STRICT RBAC RULE: Settings menu and System administration are exclusively visible to Super Admin!
+        if (group.id === 'settings' || group.id === 'system') {
+          return isSuper;
+        }
+        return true;
+      })
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => isTabAllowed(item.id, effectivePolicy)),
+        items: group.items.filter((item) => isTabAllowed(item.id, effectivePolicy, currentUser)),
       }))
       .filter((group) => group.items.length > 0);
-  }, [navGroups, effectivePolicy]);
+  }, [navGroups, effectivePolicy, currentUser, isSuper]);
 
   // Which parent accordion is currently expanded (Default state is open: first available or 'infra')
   const [expandedParentId, setExpandedParentId] = useState<string>('infra');
@@ -284,6 +298,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Accordion toggle: Clicking a parent opens it, and closes all other parents
   const handleParentClick = (groupId: string) => {
+    if ((groupId === 'settings' || groupId === 'system') && !isSuper) {
+      return; // Denied to non-superadmin
+    }
+
     if (isCollapsed) {
       onToggleCollapse(); // Auto expand sidebar if collapsed
       setExpandedParentId(groupId);

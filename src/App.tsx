@@ -79,11 +79,11 @@ import {
   syncGeneralSettingsFromDatabase,
 } from './services/settingsStorage';
 import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig, PanelGeneralSettings } from './types';
-import { isDeviceActionPermitted } from './utils/rbac';
+import { isDeviceActionPermitted, isUserSuperAdmin } from './utils/rbac';
 
 export default function App() {
-  const { t, isRtl, isEn } = useLanguage();
-  const { isAuthenticated, isLoading: isAuthLoading, user, effectivePolicy: authEffectivePolicy } = useAuth();
+  const { t, isRtl, isEn, setLanguage } = useLanguage();
+  const { isAuthenticated, isLoading: isAuthLoading, user, effectivePolicy: authEffectivePolicy, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [devices, setDevices] = useState<Device[]>([]);
   const [topology, setTopology] = useState<TopologyData | null>(null);
@@ -236,9 +236,11 @@ export default function App() {
     };
   }, [topology, authorizedDevices, effectivePolicy]);
 
+  const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
+
   // Enforce access control: Automatically route user to an accessible tab if current tab is denied
   useEffect(() => {
-    if (effectivePolicy && !isTabAllowed(activeTab, effectivePolicy)) {
+    if (effectivePolicy && !isTabAllowed(activeTab, effectivePolicy, user)) {
       const candidateTabs: ActiveTab[] = [
         'dashboard',
         'schematic',
@@ -248,14 +250,13 @@ export default function App() {
         'scanner',
         'templates',
         'logs',
-        'settings-groups',
       ];
-      const firstAllowed = candidateTabs.find((t) => isTabAllowed(t, effectivePolicy)) || 'dashboard';
+      const firstAllowed = candidateTabs.find((t) => isTabAllowed(t, effectivePolicy, user)) || 'dashboard';
       if (firstAllowed !== activeTab) {
         setActiveTab(firstAllowed);
       }
     }
-  }, [effectivePolicy, activeTab]);
+  }, [effectivePolicy, activeTab, user]);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -279,21 +280,7 @@ export default function App() {
     return saved;
   });
 
-  // General Panel Configuration State
-  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
-
-  useEffect(() => {
-    syncGeneralSettingsFromDatabase().then((settings) => {
-      if (settings) {
-        setGeneralSettings(settings);
-        if (settings.panelTitle && typeof document !== 'undefined') {
-          document.title = settings.panelTitle;
-        }
-      }
-    });
-  }, []);
-
-  const changeTheme = (newTheme: ThemeType) => {
+  const changeTheme = useCallback((newTheme: ThemeType) => {
     setPanelTheme(newTheme);
     localStorage.setItem('panel_theme', newTheme);
     localStorage.setItem('theme_mode', newTheme === 'light' ? 'light' : 'dark');
@@ -306,7 +293,112 @@ export default function App() {
         document.documentElement.classList.remove('light');
       }
     }
-  };
+  }, []);
+
+  // General Panel Configuration State
+  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
+
+  // Apply settings to entire panel
+  const applyGlobalSettings = useCallback((settings: PanelGeneralSettings) => {
+    setGeneralSettings(settings);
+    if (settings.panelTitle && typeof document !== 'undefined') {
+      document.title = settings.panelTitle;
+    }
+    if (settings.defaultTheme) {
+      changeTheme(settings.defaultTheme);
+    }
+    if (settings.defaultLanguage && (settings.defaultLanguage === 'fa' || settings.defaultLanguage === 'en')) {
+      setLanguage(settings.defaultLanguage);
+    }
+  }, [changeTheme, setLanguage]);
+
+  useEffect(() => {
+    syncGeneralSettingsFromDatabase().then((settings) => {
+      if (settings) {
+        applyGlobalSettings(settings);
+      }
+    }).catch(() => {});
+  }, [applyGlobalSettings]);
+
+  // Listen for real-time global settings changes broadcast across the panel
+  useEffect(() => {
+    const handleSettingsChanged = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      const updated = detail?.settings as PanelGeneralSettings | undefined;
+      if (updated) {
+        applyGlobalSettings(updated);
+      }
+    };
+    window.addEventListener('nettopology_general_settings_changed', handleSettingsChanged);
+    return () => {
+      window.removeEventListener('nettopology_general_settings_changed', handleSettingsChanged);
+    };
+  }, [applyGlobalSettings]);
+
+  // Re-sync general settings when window regains focus to synchronize multi-user/multi-session changes
+  useEffect(() => {
+    const handleFocus = () => {
+      syncGeneralSettingsFromDatabase().then((settings) => {
+        if (settings) applyGlobalSettings(settings);
+      }).catch(() => {});
+    };
+
+    // Cross-tab synchronization via storage event
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'nettopology_general_settings_v1' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed) applyGlobalSettings(parsed);
+        } catch {}
+      }
+    };
+
+    // Periodic synchronization from PostgreSQL database (propagates Super Admin changes to all clients)
+    const pollTimer = setInterval(() => {
+      syncGeneralSettingsFromDatabase().then((settings) => {
+        if (settings) applyGlobalSettings(settings);
+      }).catch(() => {});
+    }, 20000);
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('storage', handleStorage);
+      clearInterval(pollTimer);
+    };
+  }, [applyGlobalSettings]);
+
+  // Session Inactivity Auto-Logout across entire panel
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const timeoutMin = generalSettings.sessionInactivityTimeoutMin || 60;
+    const timeoutMs = timeoutMin * 60 * 1000;
+
+    let timer: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        showToast(
+          isEn
+            ? 'Session timed out due to inactivity. Logging out...'
+            : 'نشست کاربری به دلیل عدم فعالیت منقضی شد. در حال خروج...'
+        );
+        logout();
+      }, timeoutMs);
+    };
+
+    resetTimer();
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    activityEvents.forEach((ev) => window.addEventListener(ev, resetTimer, { passive: true }));
+
+    return () => {
+      clearTimeout(timer);
+      activityEvents.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [isAuthenticated, generalSettings.sessionInactivityTimeoutMin, logout, isEn, showToast]);
 
   // Collapsible sidebar state with local storage persistence
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -657,13 +749,15 @@ export default function App() {
     loadData();
   }, [loadData]);
 
-  // Periodic reachability polling every 30s
+  // Periodic reachability polling dynamically driven by general settings
   useEffect(() => {
+    const intervalSec = generalSettings.telemetryRefreshIntervalSec || 10;
+    const intervalMs = Math.max(5, intervalSec) * 1000;
     const timer = setInterval(() => {
       refreshStatusesQuietly();
-    }, 30000);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, []);
+  }, [generalSettings.telemetryRefreshIntervalSec]);
 
   const refreshStatusesQuietly = async () => {
     try {
@@ -873,6 +967,7 @@ export default function App() {
             onToggleCollapse={toggleSidebarCollapse}
             onOpenReleaseNotes={handleOpenReleaseNotes}
             effectivePolicy={effectivePolicy}
+            user={user}
           />
         )}
 
@@ -967,22 +1062,36 @@ export default function App() {
             />
           )}
 
-          {(activeTab === 'general-settings' || activeTab === 'settings') && (
+          {/* Strict RBAC Guard: Settings menu and all its sub-items are exclusively reserved for Super Admin */}
+          {!isSuperAdmin && (activeTab.startsWith('settings') || activeTab === 'general-settings' || activeTab === 'settings') && (
+            <div className="p-8 text-center text-slate-400">
+              <p className="text-rose-400 font-bold mb-3">
+                {isEn
+                  ? 'Access Denied: Only Super Administrator can access Settings and system configuration.'
+                  : 'عدم دسترسی: منوی تنظیمات و مدیریت سیستم منحصراً برای مدیر ارشد (Super Admin) قابل دسترسی است.'}
+              </p>
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs hover:bg-indigo-500 cursor-pointer"
+              >
+                {isEn ? 'Return to Dashboard' : 'بازگشت به داشبورد'}
+              </button>
+            </div>
+          )}
+
+          {(activeTab === 'general-settings' || activeTab === 'settings') && isSuperAdmin && (
             <GeneralSettingsView
               isLightMode={panelTheme === 'light'}
               panelTheme={panelTheme}
               onChangeTheme={changeTheme}
               onNavigateToTab={(tab) => setActiveTab(tab as any)}
               onSettingsSaved={(newSettings) => {
-                setGeneralSettings(newSettings);
-                if (newSettings.panelTitle && typeof document !== 'undefined') {
-                  document.title = newSettings.panelTitle;
-                }
+                applyGlobalSettings(newSettings);
               }}
             />
           )}
 
-          {activeTab === 'settings-ldap' && (
+          {activeTab === 'settings-ldap' && isSuperAdmin && (
             <LdapConnectionSettingsView
               config={adConfig}
               onSaveConfig={handleSaveAdConfig}
@@ -991,7 +1100,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'settings-update' && (
+          {activeTab === 'settings-update' && isSuperAdmin && (
             <PanelUpdateSettingsView isLightMode={panelTheme === 'light'} />
           )}
 
@@ -999,7 +1108,7 @@ export default function App() {
             activeTab === 'settings-users' ||
             activeTab === 'settings-ad' ||
             activeTab === 'settings-rbac' ||
-            activeTab === 'settings-backup') && (
+            activeTab === 'settings-backup') && isSuperAdmin && (
             <SettingsView
               devices={devices}
               isLightMode={panelTheme === 'light'}
@@ -1016,17 +1125,14 @@ export default function App() {
                   : 'groups'
               }
               onSelectSubTab={(sub) => {
-                setActiveTab(
-                  sub === 'users'
-                    ? 'settings-users'
-                    : sub === 'ad'
-                    ? 'settings-ad'
-                    : sub === 'rbac'
-                    ? 'settings-rbac'
-                    : sub === 'backup'
-                    ? 'settings-backup'
-                    : 'settings-groups'
-                );
+                const targetMap: Record<string, ActiveTab> = {
+                  groups: 'settings-groups',
+                  users: 'settings-users',
+                  ad: 'settings-ad',
+                  rbac: 'settings-rbac',
+                  backup: 'settings-backup',
+                };
+                setActiveTab(targetMap[sub] || 'settings-groups');
               }}
               onRefreshAllData={loadData}
             />

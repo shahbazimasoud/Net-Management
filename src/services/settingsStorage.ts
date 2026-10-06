@@ -749,11 +749,7 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     updatedAt: new Date().toISOString(),
   };
 
-  try {
-    localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(merged));
-  } catch (err) {
-    console.warn('LocalStorage save warning:', err);
-  }
+  let finalSettings = merged;
 
   try {
     const res = await fetch('/api/settings/general', {
@@ -767,15 +763,27 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     if (res.ok) {
       const data = await res.json();
       if (data?.settings) {
-        localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(data.settings));
-        return data.settings;
+        finalSettings = data.settings;
       }
     }
   } catch (err) {
     console.warn('Network sync warning for general settings:', err);
   }
 
-  return merged;
+  try {
+    localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(finalSettings));
+  } catch (err) {
+    console.warn('LocalStorage save warning:', err);
+  }
+
+  // Broadcast system-wide event across this window and all tabs/components
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('nettopology_general_settings_changed', { detail: { settings: finalSettings } })
+    );
+  }
+
+  return finalSettings;
 }
 
 export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSettings> {
@@ -787,6 +795,11 @@ export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSet
       const data = await res.json();
       if (data?.settings) {
         localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(data.settings));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('nettopology_general_settings_changed', { detail: { settings: data.settings } })
+          );
+        }
         return data.settings;
       }
     }
@@ -1098,30 +1111,40 @@ export function getEffectiveUserPolicy(
   });
 }
 
-export function isTabAllowed(tabId: string, policy?: AccessPolicy): boolean {
-  if (!policy) return true;
-  if (policy.id === 'policy-super-admin') return true;
+export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, user?: any): boolean {
+  if (!policy && !user) return false;
+
+  const isSuperAdmin =
+    policy?.id === 'policy-super-admin' ||
+    ((policy?.priority || 0) >= 100 && policy?.targetScope === 'all') ||
+    (user && (
+      (user.username || '').toLowerCase() === 'admin' ||
+      (user.role || '').toLowerCase().includes('super admin') ||
+      (user.role || '').toLowerCase().includes('administrator')
+    ));
+
+  if (isSuperAdmin) return true;
 
   switch (tabId) {
     case 'dashboard':
-      return Boolean(policy.canViewDashboard);
+      return Boolean(policy?.canViewDashboard);
     case 'schematic':
-      return Boolean(policy.canViewTopology);
+      return Boolean(policy?.canViewTopology);
     case 'devices':
-      return Boolean(policy.canViewDevices);
+      return Boolean(policy?.canViewDevices);
     case 'templates':
-      return Boolean(policy.canViewTemplates);
+      return Boolean(policy?.canViewTemplates);
     case 'remote-servers':
     case 'remote-linux':
     case 'remote-windows':
     case 'remote-tags':
-      return policy.canViewServers !== undefined ? Boolean(policy.canViewServers) : Boolean(policy.canViewDevices);
+      return policy?.canViewServers !== undefined ? Boolean(policy?.canViewServers) : Boolean(policy?.canViewDevices);
     case 'ports':
-      return Boolean(policy.canViewPorts);
+      return Boolean(policy?.canViewPorts);
     case 'scanner':
-      return Boolean(policy.canViewScanner);
+      return Boolean(policy?.canViewScanner);
     case 'logs':
-      return policy.canViewLogs !== undefined ? Boolean(policy.canViewLogs) : Boolean(policy.canViewSettings);
+      return policy?.canViewLogs !== undefined ? Boolean(policy?.canViewLogs) : false;
     case 'settings':
     case 'general-settings':
     case 'settings-ldap':
@@ -1131,7 +1154,8 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy): boolean {
     case 'settings-ad':
     case 'settings-rbac':
     case 'settings-backup':
-      return Boolean(policy.canViewSettings);
+      // STRICT RBAC RULE: Settings menu and all its sub-menu items are exclusively reserved for Super Admin!
+      return false;
     default:
       return true;
   }

@@ -1788,6 +1788,16 @@ export async function initDatabase(): Promise<void> {
       await client.query("CREATE INDEX IF NOT EXISTS idx_device_placements_bldg ON device_placements(building)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_device_placements_floor ON device_placements(floor)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_device_placements_rack ON device_placements(rack)");
+
+      // 14. Sync Panel General Settings
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS panel_general_settings (
+          id VARCHAR(64) PRIMARY KEY,
+          settings JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -4057,6 +4067,19 @@ export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
 };
 
 export async function getGeneralSettings(): Promise<PanelGeneralSettings> {
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(`SELECT settings FROM panel_general_settings WHERE id = 'default'`);
+      if (res.rows.length > 0 && res.rows[0].settings) {
+        return {
+          ...DEFAULT_GENERAL_SETTINGS,
+          ...res.rows[0].settings,
+        };
+      }
+    } catch (e) {
+      console.warn('[DB] Fallback to file store for general_settings:', e);
+    }
+  }
   const store = loadFallbackStore();
   return store.general_settings || DEFAULT_GENERAL_SETTINGS;
 }
@@ -4084,6 +4107,23 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
   };
   store.general_settings = updated;
   saveFallbackStore(store);
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO panel_general_settings (id, settings, updated_at, updated_by)
+         VALUES ('default', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           settings = EXCLUDED.settings,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = EXCLUDED.updated_by`,
+        [JSON.stringify(updated), updatedBy]
+      );
+    } catch (e) {
+      console.error('[DB] Error saving general_settings to PostgreSQL:', e);
+    }
+  }
+
   return updated;
 }
 

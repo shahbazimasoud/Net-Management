@@ -21,6 +21,8 @@ import { ActiveDirectoryConfig, ADTestResult } from '../../types';
 import { testActiveDirectoryConnectionApi, syncActiveDirectoryApi } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useLanguage } from '../../i18n';
+import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
 import { APP_VERSION } from '../../version';
 
 interface LdapConnectionSettingsViewProps {
@@ -37,6 +39,8 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
   isLightMode = false,
 }) => {
   const { isRtl, isEn } = useLanguage();
+  const { user, effectivePolicy } = useAuth();
+  const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
   const [formData, setFormData] = useState<ActiveDirectoryConfig>({ ...config });
   const [showPassword, setShowPassword] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -158,6 +162,18 @@ export const LdapConnectionSettingsView: React.FC<LdapConnectionSettingsViewProp
 
   const isConnected = formData.lastSyncStatus === 'success';
   const isFailed = formData.lastSyncStatus === 'failed';
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="p-8 text-center text-slate-400">
+        <p className="text-rose-400 font-bold mb-3">
+          {isEn
+            ? 'Access Denied: Only Super Administrator can access LDAP / Active Directory connection settings.'
+            : 'عدم دسترسی: تنظیمات اتصال اکتیو دایرکتوری و LDAP منحصراً برای مدیر ارشد (Super Admin) قابل دسترسی است.'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div

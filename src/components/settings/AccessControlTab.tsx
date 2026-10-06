@@ -1306,7 +1306,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                         canViewScanner: true,
                         canViewTemplates: true,
                         canViewLogs: true,
-                        canViewSettings: true,
+                        canViewSettings: isSuper,
                         canCheckUpdate: isSuper,
                         canPerformUpdate: isSuper,
                       });
@@ -1350,7 +1350,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   { key: 'canViewScanner', label: isEn ? 'Discovery Scanner' : 'اسکنر همسایگی', icon: Radio },
                   { key: 'canViewTemplates', label: isEn ? 'Templates' : 'الگوهای کانفیگ', icon: FileText },
                   { key: 'canViewLogs', label: isEn ? 'Audit & System Logs' : 'لاگ‌ها و رویدادها', icon: FileText },
-                  { key: 'canViewSettings', label: isEn ? 'Settings & Security' : 'تنظیمات و دسترسی', icon: Lock },
+                  { key: 'canViewSettings', label: isEn ? 'Settings & Security (Super Admin Only)' : 'تنظیمات و دسترسی (فقط سوپر ادمین)', icon: Lock, isSuperAdminRestricted: true },
                   { key: 'canCheckUpdate', label: isEn ? 'Check Updates (Super Admin Only)' : 'بررسی آپدیت (فقط سوپر ادمین)', icon: RefreshCw, isSuperAdminRestricted: true },
                   { key: 'canPerformUpdate', label: isEn ? 'Apply Updates (Super Admin Only)' : 'اعمال آپدیت (فقط سوپر ادمین)', icon: DownloadCloud, isSuperAdminRestricted: true },
                 ].map(({ key, label, icon: ModuleIcon, isSuperAdminRestricted }: any) => {

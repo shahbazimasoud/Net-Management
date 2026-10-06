@@ -44,7 +44,25 @@ import { registerCertConverterRoutes } from './server/certConverter';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 
 const app = express();
-const PORT = 3000;
+
+const getPort = (): number => {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const val = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(val)) return val;
+  }
+  return process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+};
+
+const getHost = (): string => {
+  const hostArgIndex = process.argv.indexOf('--host');
+  if (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) {
+    return process.argv[hostArgIndex + 1];
+  }
+  return process.env.HOST || '0.0.0.0';
+};
+
+const PORT = getPort();
 const PYTHON_PORT = process.env.BACKEND_PORT ? parseInt(process.env.BACKEND_PORT, 10) : (process.env.PYTHON_PORT ? parseInt(process.env.PYTHON_PORT, 10) : 5001);
 const PYTHON_WS_PORT = process.env.PYTHON_WS_PORT ? parseInt(process.env.PYTHON_WS_PORT, 10) : PYTHON_PORT + 1;
 
@@ -1252,9 +1270,16 @@ async function startServer() {
 
   const isProd = process.env.NODE_ENV === 'production' || path.basename(currentDir) === 'dist';
 
+  const HOST = getHost();
+  const server = http.createServer(app);
+
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1267,8 +1292,13 @@ async function startServer() {
     });
   }
 
-  const HOST = process.env.HOST || '0.0.0.0';
-  const server = http.createServer(app);
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Server Error] Port ${PORT} is already in use.`);
+    } else {
+      console.error('[Server Error]', err);
+    }
+  });
 
   // Setup native WebSocket terminal engine for interactive SSH/CLI sessions
   setupTerminalWebSocket(server, PYTHON_PORT, projectRoot, PYTHON_WS_PORT);

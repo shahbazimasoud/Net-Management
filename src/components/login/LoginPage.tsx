@@ -3,6 +3,8 @@ import { useLanguage } from '../../i18n';
 import { useAuth, AuthUser } from '../../context/AuthContext';
 import { NetworkGlobe3D, GlobeThemeType } from './NetworkGlobe3D';
 import { APP_VERSION } from '../../version';
+import { loadGeneralSettings, syncGeneralSettingsFromDatabase } from '../../services/settingsStorage';
+import { PanelGeneralSettings } from '../../types';
 import {
   ShieldCheck,
   Server,
@@ -19,7 +21,10 @@ import {
   Layers,
   Palette,
   Sun,
-  Moon
+  Moon,
+  Network,
+  Router,
+  Cpu
 } from 'lucide-react';
 
 interface LoginPageProps {
@@ -44,6 +49,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 }) => {
   const { isEn, language, setLanguage, isRtl } = useLanguage();
   const { login } = useAuth();
+  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
 
   // Local or propagated theme state
   const [theme, setTheme] = useState<GlobeThemeType>(() => {
@@ -87,6 +93,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   useEffect(() => {
     // Initial sync of theme on mount
     handleSelectTheme(theme);
+    syncGeneralSettingsFromDatabase().then((synced) => {
+      if (synced) {
+        setGeneralSettings(synced);
+        if (synced.defaultTheme && !localStorage.getItem('panel_theme')) {
+          handleSelectTheme(synced.defaultTheme as GlobeThemeType);
+        }
+      }
+    }).catch(() => {});
   }, []);
 
   const [authType, setAuthType] = useState<'local' | 'ad'>('local');
@@ -215,9 +229,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         <div>
           <div className="flex items-center justify-between gap-2 mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs font-mono border border-white/20">
-                NT
-              </div>
+              {generalSettings.logoType === 'custom_url' && generalSettings.logoCustomUrl ? (
+                <img
+                  src={generalSettings.logoCustomUrl}
+                  alt="Logo"
+                  className="w-9 h-9 rounded-xl object-contain shadow-[0_0_15px_rgba(99,102,241,0.5)] border border-white/20 p-0.5 bg-black/40 shrink-0"
+                />
+              ) : generalSettings.logoType === 'preset' ? (
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs border border-white/20 shrink-0">
+                  {generalSettings.logoPreset === 'shield' ? (
+                    <ShieldCheck className="w-5 h-5 text-white" />
+                  ) : generalSettings.logoPreset === 'server' ? (
+                    <Server className="w-5 h-5 text-white" />
+                  ) : generalSettings.logoPreset === 'router' ? (
+                    <Router className="w-5 h-5 text-white" />
+                  ) : generalSettings.logoPreset === 'cpu' ? (
+                    <Cpu className="w-5 h-5 text-white" />
+                  ) : generalSettings.logoPreset === 'globe' ? (
+                    <Globe className="w-5 h-5 text-white" />
+                  ) : (
+                    <Network className="w-5 h-5 text-white" />
+                  )}
+                </div>
+              ) : (
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs font-mono border border-white/20">
+                  NT
+                </div>
+              )}
               <div>
                 <div className="flex items-center gap-2">
                   <span
@@ -225,7 +263,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       isLight ? 'text-slate-900' : 'text-white'
                     }`}
                   >
-                    NetTopology
+                    {generalSettings.panelTitle || 'NetTopology'}
                   </span>
                   <span
                     className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
@@ -238,7 +276,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   </span>
                 </div>
                 <p className={`text-[10px] font-sans ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {isEn ? 'Enterprise Operations Center' : 'مرکز عملیات و امنیت شبکه'}
+                  {generalSettings.panelSubtitle || (isEn ? 'Enterprise Operations Center' : 'مرکز عملیات و امنیت شبکه')}
                 </p>
               </div>
             </div>

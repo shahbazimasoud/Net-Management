@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
 import { APP_VERSION } from '../../version';
 import { ThemeType } from '../Navbar';
 import { PanelGeneralSettings } from '../../types';
@@ -266,6 +267,20 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
         return <Network className={sizeClass} />;
     }
   };
+
+  const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="p-8 text-center text-slate-400">
+        <p className="text-rose-400 font-bold mb-3">
+          {isEn
+            ? 'Access Denied: Only Super Administrator can access General Settings.'
+            : 'عدم دسترسی: تنظیمات عمومی پنل منحصراً برای مدیر ارشد (Super Admin) قابل دسترسی است.'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div

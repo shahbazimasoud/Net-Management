@@ -17,6 +17,13 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const saved = localStorage.getItem('app_language') as Language;
       if (saved === 'fa' || saved === 'en') return saved;
+      const rawSettings = localStorage.getItem('nettopology_general_settings_v1');
+      if (rawSettings) {
+        const parsed = JSON.parse(rawSettings);
+        if (parsed?.defaultLanguage === 'fa' || parsed?.defaultLanguage === 'en') {
+          return parsed.defaultLanguage;
+        }
+      }
     } catch (e) {}
     return 'en'; // Default language is English as required
   });
@@ -27,6 +34,24 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       localStorage.setItem('app_language', lang);
     } catch (e) {}
   };
+
+  // Listen for system-wide settings updates broadcast by Super Admin
+  useEffect(() => {
+    const handleSettingsChanged = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      const newLang = detail?.settings?.defaultLanguage;
+      if (newLang === 'fa' || newLang === 'en') {
+        setLanguageState(newLang);
+        try {
+          localStorage.setItem('app_language', newLang);
+        } catch (err) {}
+      }
+    };
+    window.addEventListener('nettopology_general_settings_changed', handleSettingsChanged);
+    return () => {
+      window.removeEventListener('nettopology_general_settings_changed', handleSettingsChanged);
+    };
+  }, []);
 
   const isRtl = language === 'fa';
   const isEn = language === 'en';

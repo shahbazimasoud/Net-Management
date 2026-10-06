@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.278.0';
+export const APP_VERSION = '1.279.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.279.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'انحصار قطعی دسترسی به منو و زیرمنوهای تنظیمات برای سوپر ادمین و اعمال سراسری تنظیمات به کل پنل',
+    title_en: 'Strict Super Admin Exclusive Access for Settings & System-Wide Panel Settings Propagation',
+    changes: [
+      'محدودسازی قطعی و ۱۰۰٪ دسترسی به منوی تنظیمات (Settings)، مدیریت سیستم و تمامی زیرمنوهای آن منحصراً برای سوپر ادمین (Super Admin).',
+      'فیلتر شدن کامل آیتم‌های تنظیمات و سیستم در سایدبار و ناوبری هدر برای سایر کاربران و هدایت خودکار یا نمایش پیام عدم دسترسی در صورت تلاش برای ورود مستقیم.',
+      'اعمال بلادرنگ و سراسری تغییرات تنظیمات عمومی (General Settings) نظیر تایتل، لوگو، تم، زبان، بازه رفرش تلمتری و تایم‌اوت نشست به تمام سشن‌ها و کاربران پنل.',
+      'همگام‌سازی مستمر تغییرات از پایگاه داده و اشتراک رویدادها میان تب‌های مرورگر بدون وابستگی به سشن فعلی.',
+      'امن‌سازی اندپوینت‌های ذخیره‌سازی تنظیمات در بک‌اند سرور با اعتبارسنجی احراز هویت توکن سوپر ادمین.',
+    ],
+    changes_en: [
+      'Enforced strict, 100% authoritative access control restricting Settings navigation, System administration, and all sub-menus exclusively to Super Administrator.',
+      'Completely filtered out Settings and System accordions from the sidebar and profile dropdown for non-superadmin accounts, with automatic safe rerouting and access-denied guards.',
+      'Real-time global panel-wide propagation of General Settings (title, logo, theme, language, telemetry interval, inactivity timeout) across all user sessions and clients.',
+      'Continuous multi-tab and periodic database synchronization ensuring Super Admin changes apply panel-wide rather than only in the current session.',
+      'Hardened backend API routes with cryptographic token verification to ensure only authenticated Super Administrators can modify system configuration.',
+    ],
+  },
   {
     version: '1.278.0',
     releaseDate: '2026-10-06',

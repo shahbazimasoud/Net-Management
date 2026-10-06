@@ -1199,14 +1199,24 @@ apiRouter.get(['/settings/general', '/system/general-settings'], async (_req: Re
 
 apiRouter.post(['/settings/general', '/system/general-settings'], async (req: Request, res: Response) => {
   try {
-    const settingsToSave = req.body?.settings || req.body;
     let updatedBy = 'admin';
     const authHeader = req.headers.authorization || '';
     if (authHeader) {
       const token = authHeader.replace(/^Bearer\s+/i, '').trim();
       const decoded = verifyToken(token);
+      if (!decoded) {
+        return res.status(401).json({ success: false, error: 'Unauthorized: Invalid authentication session' });
+      }
+      const isSuper =
+        decoded.username.toLowerCase() === 'admin' ||
+        (decoded.role || '').toLowerCase().includes('super admin') ||
+        (decoded.role || '').toLowerCase().includes('administrator');
+      if (!isSuper) {
+        return res.status(403).json({ success: false, error: 'Forbidden: Only Super Administrator can modify system settings' });
+      }
       if (decoded?.username) updatedBy = decoded.username;
     }
+    const settingsToSave = req.body?.settings || req.body;
     const saved = await saveGeneralSettings(settingsToSave, updatedBy);
     res.json({ success: true, settings: saved, message: 'General settings saved successfully' });
   } catch (err: any) {

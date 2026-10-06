@@ -796,24 +796,47 @@ export function hasAnyDeviceActionPermitted(
 }
 
 /**
+ * Universally evaluates whether an active session user and/or effective AccessPolicy
+ * corresponds to a Super Administrator with supreme system authority.
+ */
+export function isUserSuperAdmin(
+  user?: { username?: string; role?: string } | null | undefined,
+  policy?: AccessPolicy | any | null | undefined
+): boolean {
+  if (!user && !policy) return false;
+  const username = (user?.username || '').toLowerCase().trim();
+  const role = (user?.role || '').toLowerCase().trim();
+  return (
+    username === 'admin' ||
+    role.includes('super admin') ||
+    role.includes('administrator') ||
+    policy?.id === 'policy-super-admin' ||
+    ((policy?.priority || 0) >= 100 && policy?.targetScope === 'all')
+  );
+}
+
+/**
+ * Strict RBAC rule: ONLY Super Administrator profiles possess the authority to access
+ * the Settings navigation menu and all configuration sub-menus.
+ */
+export function canUserAccessSettings(
+  user?: { username?: string; role?: string } | null | undefined,
+  policy?: AccessPolicy | any | null | undefined
+): boolean {
+  return isUserSuperAdmin(user, policy);
+}
+
+/**
  * Evaluates whether a user or active policy is authorized to check for software updates.
  * Strict RBAC rule: ONLY Super Administrator profiles possess the authority to check for software updates.
  * Access is authoritative and linked to the Super Admin policy in the database.
  */
 export function canUserCheckUpdate(
-  user: { username?: string; role?: string } | null | undefined,
-  policy: AccessPolicy | any | null | undefined
+  user?: { username?: string; role?: string } | null | undefined,
+  policy?: AccessPolicy | any | null | undefined
 ): boolean {
   if (!user && !policy) return false;
-  const username = (user?.username || '').toLowerCase();
-  const role = (user?.role || '').toLowerCase();
-  const isSuperAdmin =
-    username === 'admin' ||
-    role.includes('super admin') ||
-    role.includes('administrator') ||
-    policy?.id === 'policy-super-admin' ||
-    ((policy?.priority || 0) >= 100 && policy?.targetScope === 'all');
-  if (!isSuperAdmin) return false;
+  if (!isUserSuperAdmin(user, policy)) return false;
   return policy?.canCheckUpdate !== false;
 }
 
@@ -823,18 +846,10 @@ export function canUserCheckUpdate(
  * Access is authoritative and linked to the Super Admin policy in the database.
  */
 export function canUserPerformUpdate(
-  user: { username?: string; role?: string } | null | undefined,
-  policy: AccessPolicy | any | null | undefined
+  user?: { username?: string; role?: string } | null | undefined,
+  policy?: AccessPolicy | any | null | undefined
 ): boolean {
   if (!user && !policy) return false;
-  const username = (user?.username || '').toLowerCase();
-  const role = (user?.role || '').toLowerCase();
-  const isSuperAdmin =
-    username === 'admin' ||
-    role.includes('super admin') ||
-    role.includes('administrator') ||
-    policy?.id === 'policy-super-admin' ||
-    ((policy?.priority || 0) >= 100 && policy?.targetScope === 'all');
-  if (!isSuperAdmin) return false;
+  if (!isUserSuperAdmin(user, policy)) return false;
   return policy?.canPerformUpdate !== false;
 }

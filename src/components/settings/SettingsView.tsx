@@ -44,6 +44,8 @@ import { AccessControlTab } from './AccessControlTab';
 import { LocalUsersTab } from './LocalUsersTab';
 import { BackupPortalTab } from './BackupPortalTab';
 import { useLanguage } from '../../i18n';
+import { useAuth } from '../../context/AuthContext';
+import { isUserSuperAdmin } from '../../utils/rbac';
 
 export type SettingsSubTab = 'groups' | 'users' | 'ad' | 'rbac' | 'backup';
 
@@ -67,6 +69,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onNavigateToLdapSettings,
 }) => {
   const { isRtl, isEn } = useLanguage();
+  const { user, effectivePolicy } = useAuth();
+  const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
   const [internalTab, setInternalTab] = useState<SettingsSubTab>(externalSubTab || 'groups');
 
   useEffect(() => {
@@ -208,6 +212,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
     }
   };
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="p-8 text-center text-slate-400">
+        <p className="text-rose-400 font-bold mb-3">
+          {isEn
+            ? 'Access Denied: Only Super Administrator can access System Settings.'
+            : 'عدم دسترسی: منوی تنظیمات سیستم منحصراً برای مدیر ارشد (Super Admin) قابل دسترسی است.'}
+        </p>
+      </div>
+    );
+  }
 
   const currentMeta = subMenuMeta[activeTab];
   const CurrentIcon = currentMeta.icon;
