@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.281.2';
+export const APP_VERSION = '1.282.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.282.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'افزودن اسکریپت کامپایل و نصب مستقل از توزیع برای گیت‌وی Apache Guacamole (guacd >= 1.5.5) از سورس رسمی',
+    title_en: 'Add Distro-Independent Apache Guacamole (guacd >= 1.5.5) Source Build & Installation Script',
+    changes: [
+      'ایجاد اسکریپت idempotent در مسیر scripts/install-guacd.sh برای کامپایل و نصب guacd >= 1.5.5 از سورس رسمی Apache بدون وابستگی به شماره نسخه توزیع (Ubuntu/Debian/RHEL/Rocky/Alma/Fedora).',
+      'انتخاب هوشمند اولین پکیج موجود (First Available Candidate) برای پیش‌نیازهای کامپایل (FreeRDP، JPEG، UUID، Cairo، PNG، OpenSSL و پکیج‌های اختیاری) و بررسی حتمی فعال بودن پشتیبانی RDP در خروجی configure.',
+      'حذف ایمن پکیج‌های قدیمی توزیع تنها پس از موفقیت بیلد، ساخت کاربر سیستمی guacd با پوشه خانگی قابل نوشتن برای گواهی‌های FreeRDP، تنظیم سرویس systemd روی 127.0.0.1:4822 و اعتبارسنجی نهایی نسخه و پلاگین libguac-client-rdp.',
+    ],
+    changes_en: [
+      'Added idempotent scripts/install-guacd.sh to build and install guacd >= 1.5.5 from official Apache source tarballs across Debian/Ubuntu and RHEL/Rocky/Alma/CentOS/Fedora without branching on VERSION_ID.',
+      'Implemented first-available-candidate dependency resolution for required (FreeRDP, JPEG, UUID, Cairo, PNG, SSL) and optional build packages, enforcing RDP support verification in ./configure summary.',
+      'Added post-build cleanup of legacy distro guacd packages, dedicated non-root guacd user with writable $HOME/.config/freerdp directory, systemd unit bound to 127.0.0.1:4822, and strict final checks.',
+    ],
+  },
   {
     version: '1.281.2',
     releaseDate: '2026-10-06',
