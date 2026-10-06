@@ -265,25 +265,49 @@ export default function App() {
     }, 5000);
   }, []);
 
-  // Theme State (Default to obsidian cyber spatial glass)
+  // Theme State (User personal preference takes priority, falling back to Super Admin system default)
   const [panelTheme, setPanelTheme] = useState<ThemeType>(() => {
-    const saved = (localStorage.getItem('panel_theme') as ThemeType) || 'obsidian';
-    if (typeof document !== 'undefined') {
-      if (saved === 'light') {
-        document.documentElement.classList.remove('dark');
-        document.documentElement.classList.add('light');
-      } else {
-        document.documentElement.classList.add('dark');
-        document.documentElement.classList.remove('light');
+    try {
+      const userCustomized = localStorage.getItem('user_customized_theme') === 'true';
+      const saved = (localStorage.getItem('panel_theme') as ThemeType);
+      if (userCustomized && saved) {
+        if (typeof document !== 'undefined') {
+          if (saved === 'light') {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.classList.add('light');
+          } else {
+            document.documentElement.classList.add('dark');
+            document.documentElement.classList.remove('light');
+          }
+        }
+        return saved;
       }
+      const initialSettings = loadGeneralSettings();
+      const activeTheme = initialSettings?.defaultTheme || saved || 'obsidian';
+      if (typeof document !== 'undefined') {
+        if (activeTheme === 'light') {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+        } else {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+        }
+      }
+      return activeTheme;
+    } catch {
+      return 'obsidian';
     }
-    return saved;
   });
 
-  const changeTheme = useCallback((newTheme: ThemeType) => {
+  const changeTheme = useCallback((newTheme: ThemeType, isUserAction: boolean = true) => {
     setPanelTheme(newTheme);
-    localStorage.setItem('panel_theme', newTheme);
-    localStorage.setItem('theme_mode', newTheme === 'light' ? 'light' : 'dark');
+    try {
+      localStorage.setItem('panel_theme', newTheme);
+      localStorage.setItem('theme_mode', newTheme === 'light' ? 'light' : 'dark');
+      if (isUserAction) {
+        localStorage.setItem('user_customized_theme', 'true');
+      }
+    } catch {}
     if (typeof document !== 'undefined') {
       if (newTheme === 'light') {
         document.documentElement.classList.remove('dark');
@@ -295,20 +319,32 @@ export default function App() {
     }
   }, []);
 
+  const resetThemeToDefault = useCallback(() => {
+    try {
+      localStorage.removeItem('user_customized_theme');
+    } catch {}
+    const defaultTheme = generalSettings?.defaultTheme || 'obsidian';
+    changeTheme(defaultTheme, false);
+  }, [generalSettings, changeTheme]);
+
   // General Panel Configuration State
   const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
 
-  // Apply settings to entire panel
+  // Apply settings to entire panel (Super Admin default configuration for new sessions)
   const applyGlobalSettings = useCallback((settings: PanelGeneralSettings) => {
     setGeneralSettings(settings);
     if (settings.panelTitle && typeof document !== 'undefined') {
       document.title = settings.panelTitle;
     }
-    if (settings.defaultTheme) {
-      changeTheme(settings.defaultTheme);
+    // Only apply default theme if user has NOT explicitly chosen a personal theme preference
+    const userHasCustomTheme = localStorage.getItem('user_customized_theme') === 'true';
+    if (!userHasCustomTheme && settings.defaultTheme) {
+      changeTheme(settings.defaultTheme, false);
     }
-    if (settings.defaultLanguage && (settings.defaultLanguage === 'fa' || settings.defaultLanguage === 'en')) {
-      setLanguage(settings.defaultLanguage);
+    // Only apply default language if user has NOT explicitly chosen a personal language preference
+    const userHasCustomLanguage = localStorage.getItem('user_customized_language') === 'true';
+    if (!userHasCustomLanguage && settings.defaultLanguage && (settings.defaultLanguage === 'fa' || settings.defaultLanguage === 'en')) {
+      setLanguage(settings.defaultLanguage, false);
     }
   }, [changeTheme, setLanguage]);
 
@@ -939,6 +975,7 @@ export default function App() {
           totalDevices={authorizedDevices.length}
           panelTheme={panelTheme}
           onChangeTheme={changeTheme}
+          onResetThemeToDefault={resetThemeToDefault}
           onOpenReleaseNotes={handleOpenReleaseNotes}
           onOpenSettings={() => setActiveTab('settings')}
           onOpenPasswordVault={() => handleOpenTool('password_vault')}

@@ -36,6 +36,7 @@ interface NavbarProps {
   totalDevices?: number;
   panelTheme: ThemeType;
   onChangeTheme: (theme: ThemeType) => void;
+  onResetThemeToDefault?: () => void;
   onOpenReleaseNotes?: () => void;
   onOpenSettings?: () => void;
   onOpenPasswordVault?: () => void;
@@ -54,6 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   isScanning,
   panelTheme,
   onChangeTheme,
+  onResetThemeToDefault,
   onOpenReleaseNotes,
   onOpenSettings,
   onOpenPasswordVault,
@@ -64,7 +66,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   logoPreset = 'network',
   logoCustomUrl,
 }) => {
-  const { t, language, setLanguage, isRtl, isEn } = useLanguage();
+  const { t, language, setLanguage, resetToDefaultLanguage, isCustomizedByUser, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
   const { user, logout, effectivePolicy } = useAuth();
   const isSuperAdmin = isUserSuperAdmin(user, effectivePolicy);
@@ -72,6 +74,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const canCheck = canUserCheckUpdate(user, effectivePolicy);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  const isThemeCustomized = typeof window !== 'undefined' && localStorage.getItem('user_customized_theme') === 'true';
 
   const displayName = user?.fullName || user?.username || (isEn ? 'Admin' : 'مدیر');
   const displayRole = user?.role || (isEn ? 'Super Administrator' : 'مدیر ارشد سیستم');
@@ -281,8 +285,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {/* Section 1: Language Switcher */}
                 <div className="mb-3">
                   <div className="px-1 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>{t('profile_language_title')}</span>
-                    <Globe className="w-3 h-3 text-cyan-400" />
+                    <div className="flex items-center gap-1.5">
+                      <span>{t('profile_language_title')}</span>
+                      {isCustomizedByUser ? (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-normal">
+                          {t('profile_custom_badge')}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/10 text-slate-400 font-normal">
+                          {t('profile_default_badge')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {isCustomizedByUser && (
+                        <button
+                          type="button"
+                          onClick={() => resetToDefaultLanguage()}
+                          className="text-[9px] text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                          title={isEn ? 'Reset to system default language' : 'بازنشانی به زبان پیش‌فرض سامانه'}
+                        >
+                          {t('profile_reset_to_default')}
+                        </button>
+                      )}
+                      <Globe className="w-3 h-3 text-cyan-400" />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-1.5 mt-1">
@@ -317,8 +344,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {/* Section 2: Theme Switcher */}
                 <div className="mb-3">
                   <div className="px-1 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                    <span>{t('profile_theme_title')}</span>
-                    <Palette className="w-3 h-3 text-indigo-400" />
+                    <div className="flex items-center gap-1.5">
+                      <span>{t('profile_theme_title')}</span>
+                      {isThemeCustomized ? (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-normal">
+                          {t('profile_custom_badge')}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/10 text-slate-400 font-normal">
+                          {t('profile_default_badge')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {isThemeCustomized && onResetThemeToDefault && (
+                        <button
+                          type="button"
+                          onClick={() => onResetThemeToDefault()}
+                          className="text-[9px] text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
+                          title={isEn ? 'Reset to system default theme' : 'بازنشانی به تم پیش‌فرض سامانه'}
+                        >
+                          {t('profile_reset_to_default')}
+                        </button>
+                      )}
+                      <Palette className="w-3 h-3 text-indigo-400" />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-1.5 mt-1">

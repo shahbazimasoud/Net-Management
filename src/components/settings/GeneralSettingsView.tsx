@@ -158,13 +158,15 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
         document.title = saved.panelTitle;
       }
 
-      // If default language was changed, apply immediately
-      if (saved.defaultLanguage && saved.defaultLanguage !== language) {
-        setLanguage(saved.defaultLanguage);
+      // If default language was changed, only apply to current view if user has no personal preference
+      const userHasCustomLang = localStorage.getItem('user_customized_language') === 'true';
+      if (!userHasCustomLang && saved.defaultLanguage && saved.defaultLanguage !== language) {
+        setLanguage(saved.defaultLanguage, false);
       }
 
-      // If default theme was changed and onChangeTheme callback provided
-      if (saved.defaultTheme && onChangeTheme && saved.defaultTheme !== panelTheme) {
+      // If default theme was changed and onChangeTheme callback provided, only apply if user has no personal preference
+      const userHasCustomTheme = localStorage.getItem('user_customized_theme') === 'true';
+      if (!userHasCustomTheme && saved.defaultTheme && onChangeTheme && saved.defaultTheme !== panelTheme) {
         onChangeTheme(saved.defaultTheme);
       }
 
@@ -798,7 +800,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       {isEn ? 'Default Theme & Visual Style' : 'تم و استایل گرافیکی پیش‌فرض'}
                     </h3>
                     <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {isEn ? 'Set system-wide theme applied to new sessions' : 'انتخاب تم رنگی پایه برای نشست‌های جدید'}
+                      {isEn ? 'Default base theme for new sessions (users can customize freely in profile)' : 'تم رنگی پیش‌فرض سامانه برای نشست‌های جدید (کاربران می‌توانند تم اختصاصی خود را برگزینند)'}
                     </p>
                   </div>
                 </div>
@@ -852,10 +854,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   </div>
                   <div>
                     <h3 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                      {isEn ? 'Language & Session Policy' : 'زبان پیش‌فرض و انقضای نشست'}
+                      {isEn ? 'Default Language & Session Security' : 'زبان پیش‌فرض و انقضای نشست'}
                     </h3>
                     <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                      {isEn ? 'Primary system language and session inactivity timeout' : 'تنظیم زبان پیش‌فرض پنل و امنیت ورود کاربران'}
+                      {isEn ? 'Default language for new sessions (users can choose their own language in profile)' : 'زبان پیش‌فرض سامانه برای نشست‌های تازه (با امکان انتخاب آزادانه زبان توسط هر کاربر)'}
                     </p>
                   </div>
                 </div>
@@ -873,10 +875,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     isEn={isEn}
                     isLightMode={isLightMode}
                     title={isEn ? 'Default Language' : 'زبان پیش‌فرض'}
-                    infoWhatEn="The primary language loaded automatically when users access the login portal."
-                    infoWhatFa="زبان اصلی پنل هنگام بارگذاری اولیه صفحه ورود و صفحات سامانه."
-                    infoWhyEn="Ensures localized accessibility according to enterprise standards."
-                    infoWhyFa="سهولت کاربری و تطابق با استاندارد اداری سازمان."
+                    infoWhatEn="The default interface language for new sessions and users without a personal language selection."
+                    infoWhatFa="زبان اصلی پیش‌فرض سامانه هنگام بارگذاری اولیه برای کاربران جدیدی که هنوز زبان اختصاصی تعیین نکرده‌اند."
+                    infoWhyEn="Sets the organizational standard upon first login while ensuring every user can switch to their preferred language at any time."
+                    infoWhyFa="تعیین استاندارد اداری سامانه در ورود اول ضمن تضمین آزادی کامل هر کاربر جهت جابجایی زبان در هر لحظه."
                     infoExampleEn="Persian (فارسی - RTL) or English (LTR)"
                     infoExampleFa="فارسی (پیش‌فرض سیستم) یا انگلیسی"
                   />

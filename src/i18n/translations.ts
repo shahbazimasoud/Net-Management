@@ -39,6 +39,11 @@ export const translations = {
     profile_language_title: 'Interface Language',
     profile_theme_title: 'Color Palette & Theme',
     profile_active_session: 'Active Session',
+    profile_personal_preference: 'Personal Preference',
+    profile_system_default: 'System Default',
+    profile_reset_to_default: 'Follow System Default',
+    profile_custom_badge: 'Custom',
+    profile_default_badge: 'Default',
 
     // Update System & Release Checker
     update_available_title: 'New Version Available!',
@@ -708,6 +713,11 @@ export const translations = {
     profile_language_title: 'زبان رابط کاربری',
     profile_theme_title: 'تم و پالت رنگی',
     profile_active_session: 'نشست فعال',
+    profile_personal_preference: 'انتخاب اختصاصی شما',
+    profile_system_default: 'پیش‌فرض سامانه',
+    profile_reset_to_default: 'پیروی از پیش‌فرض سامانه',
+    profile_custom_badge: 'شخصی',
+    profile_default_badge: 'پیش‌فرض',
 
     // Update System & Release Checker
     update_available_title: 'نگارش جدید در دسترس است!',

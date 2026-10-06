@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.279.3';
+export const APP_VERSION = '1.279.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.279.4',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'اولویت قطعی تم و زبان شخصی کاربران نسبت به مقادیر پیش‌فرض تعیین‌شده توسط سوپر ادمین',
+    title_en: 'Strict Preservation of User Personal Theme and Language Preferences Over Super Admin System Defaults',
+    changes: [
+      'اصلاح رفتار سیستم به‌گونه‌ای که تم و زبان تعیین‌شده توسط سوپر ادمین در تنظیمات عمومی صرفاً به عنوان پیش‌فرض سامانه (Default) برای کاربران جدید و سشن‌های بدون شخصی‌سازی عمل کند.',
+      'جلوگیری قطعی از بازنویسی یا ریست شدن تم و زبان اختصاصی انتخاب‌شده توسط هر کاربر در زمان رفرش دوره‌ای تلمتری، تغییر فوکوس مرورگر، یا ذخیره تنظیمات جدید توسط سوپر ادمین.',
+      'تجهیز منوی پروفایل به برچسب‌های تفکیک‌کننده تم و زبان شخصی (Custom) از پیش‌فرض سامانه (Default) به همراه دکمه بازنشانی آزادانه به پیش‌فرض سامانه.',
+      'اعمال کامل تم و زبان اختصاصی کاربر بر صفحه لاگین و کل محیط کاربری بدون ایجاد محدودیت برای کاربران عادی.',
+    ],
+    changes_en: [
+      'Refined panel configuration so that theme and language set by Super Admin strictly serve as system defaults for new sessions and uncustomized user profiles.',
+      'Guaranteed zero overwrite of individual users personal theme and language selections during periodic background syncs, multi-tab events, window focus, or admin updates.',
+      'Equipped the profile menu with visual indicators distinguishing custom personal preferences from system defaults, with an optional quick reset to system default.',
+      'Preserved custom user visual styles and localization seamlessly across login portals and main workspace without restricting non-admin users.',
+    ],
+  },
   {
     version: '1.279.3',
     releaseDate: '2026-10-06',

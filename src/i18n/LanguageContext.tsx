@@ -3,11 +3,13 @@ import { translations, TranslationKey, Language } from './translations';
 
 interface LanguageContextType {
   language: Language;
-  setLanguage: (lang: Language) => void;
+  setLanguage: (lang: Language, isUserAction?: boolean) => void;
+  resetToDefaultLanguage: () => void;
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   isRtl: boolean;
   isEn: boolean;
   isFa: boolean;
+  isCustomizedByUser: boolean;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -15,8 +17,11 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
     try {
+      const userCustomized = localStorage.getItem('user_customized_language') === 'true';
       const saved = localStorage.getItem('app_language') as Language;
-      if (saved === 'fa' || saved === 'en') return saved;
+      if (userCustomized && (saved === 'fa' || saved === 'en')) {
+        return saved;
+      }
       const rawSettings = localStorage.getItem('nettopology_general_settings_v1');
       if (rawSettings) {
         const parsed = JSON.parse(rawSettings);
@@ -24,14 +29,44 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           return parsed.defaultLanguage;
         }
       }
+      if (saved === 'fa' || saved === 'en') return saved;
     } catch (e) {}
     return 'en'; // Default language is English as required
   });
 
-  const setLanguage = (lang: Language) => {
+  const [isCustomizedByUser, setIsCustomizedByUser] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('user_customized_language') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const setLanguage = (lang: Language, isUserAction: boolean = true) => {
     setLanguageState(lang);
     try {
       localStorage.setItem('app_language', lang);
+      if (isUserAction) {
+        localStorage.setItem('user_customized_language', 'true');
+        setIsCustomizedByUser(true);
+      }
+    } catch (e) {}
+  };
+
+  const resetToDefaultLanguage = () => {
+    try {
+      localStorage.removeItem('user_customized_language');
+      setIsCustomizedByUser(false);
+      const rawSettings = localStorage.getItem('nettopology_general_settings_v1');
+      let fallbackLang: Language = 'en';
+      if (rawSettings) {
+        const parsed = JSON.parse(rawSettings);
+        if (parsed?.defaultLanguage === 'fa' || parsed?.defaultLanguage === 'en') {
+          fallbackLang = parsed.defaultLanguage;
+        }
+      }
+      setLanguageState(fallbackLang);
+      localStorage.setItem('app_language', fallbackLang);
     } catch (e) {}
   };
 
@@ -41,10 +76,15 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const detail = (e as CustomEvent)?.detail;
       const newLang = detail?.settings?.defaultLanguage;
       if (newLang === 'fa' || newLang === 'en') {
-        setLanguageState(newLang);
-        try {
-          localStorage.setItem('app_language', newLang);
-        } catch (err) {}
+        // STRICT RULE: Super Admin sets DEFAULT language for uncustomized users/sessions.
+        // If current user explicitly chose their own language, NEVER override it!
+        const userCustomized = localStorage.getItem('user_customized_language') === 'true';
+        if (!userCustomized) {
+          setLanguageState(newLang);
+          try {
+            localStorage.setItem('app_language', newLang);
+          } catch (err) {}
+        }
       }
     };
     window.addEventListener('nettopology_general_settings_changed', handleSettingsChanged);
@@ -76,7 +116,18 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, t, isRtl, isEn, isFa }}>
+    <LanguageContext.Provider
+      value={{
+        language,
+        setLanguage,
+        resetToDefaultLanguage,
+        t,
+        isRtl,
+        isEn,
+        isFa,
+        isCustomizedByUser,
+      }}
+    >
       {children}
     </LanguageContext.Provider>
   );

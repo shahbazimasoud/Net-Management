@@ -51,11 +51,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const { login } = useAuth();
   const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
 
-  // Local or propagated theme state
+  // Local or propagated theme state (respect user preference if customized, fallback to system default)
   const [theme, setTheme] = useState<GlobeThemeType>(() => {
     if (propTheme) return propTheme;
-    const saved = (localStorage.getItem('panel_theme') as GlobeThemeType) || 'obsidian';
-    return saved;
+    const userCustomized = localStorage.getItem('user_customized_theme') === 'true';
+    const saved = localStorage.getItem('panel_theme') as GlobeThemeType;
+    if (userCustomized && saved) return saved;
+    const initialSettings = loadGeneralSettings();
+    return (initialSettings?.defaultTheme as GlobeThemeType) || saved || 'obsidian';
   });
 
   const [showThemePicker, setShowThemePicker] = useState(false);
@@ -63,10 +66,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const isLight = theme === 'light';
 
   // Apply theme to HTML documentElement
-  const handleSelectTheme = (newTheme: GlobeThemeType) => {
+  const handleSelectTheme = (newTheme: GlobeThemeType, isUserAction: boolean = true) => {
     setTheme(newTheme);
     localStorage.setItem('panel_theme', newTheme);
     localStorage.setItem('theme_mode', newTheme === 'light' ? 'light' : 'dark');
+    if (isUserAction) {
+      localStorage.setItem('user_customized_theme', 'true');
+    }
 
     if (typeof document !== 'undefined') {
       // Remove previous theme classes
@@ -92,12 +98,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   useEffect(() => {
     // Initial sync of theme on mount
-    handleSelectTheme(theme);
+    handleSelectTheme(theme, false);
     syncGeneralSettingsFromDatabase().then((synced) => {
       if (synced) {
         setGeneralSettings(synced);
-        if (synced.defaultTheme && !localStorage.getItem('panel_theme')) {
-          handleSelectTheme(synced.defaultTheme as GlobeThemeType);
+        const userHasCustomTheme = localStorage.getItem('user_customized_theme') === 'true';
+        if (synced.defaultTheme && !userHasCustomTheme) {
+          handleSelectTheme(synced.defaultTheme as GlobeThemeType, false);
         }
       }
     }).catch(() => {});
