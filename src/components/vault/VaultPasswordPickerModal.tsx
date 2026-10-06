@@ -380,8 +380,8 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
               </p>
               <p className="text-[11px] text-slate-500 text-center max-w-sm">
                 {isEn
-                  ? 'You can add credentials via the Password Vault modal in the top bar or profile menu.'
-                  : 'می‌توانید کلمات عبور خود را از طریق دکمه «ولت گذرواژه‌ها» در نوار بالا یا منوی پروفایل ثبت نمایید.'}
+                  ? 'You can add credentials via the Password Vault modal in the top bar.'
+                  : 'می‌توانید کلمات عبور خود را از طریق دکمه «ولت گذرواژه‌ها» در نوار بالا ثبت نمایید.'}
               </p>
             </div>
           ) : (

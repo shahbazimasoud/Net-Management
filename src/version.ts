@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.279.0';
+export const APP_VERSION = '1.279.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.279.1',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'حذف آیتم‌های تکراری و بهینه‌سازی منوی پروفایل',
+    title_en: 'Streamline Profile Menu and Remove Redundant Items',
+    changes: [
+      'حذف بنر تکراری نسخه جدید از منوی پروفایل و حفظ دکمه یکپارچه بررسی به‌روزرسانی (Check for Updates).',
+      'حذف دکمه ولت گذرواژه‌ها (My Password Vault) از منوی پروفایل با تکیه بر دسترسی مستقیم آن از نوار هدر بالای پنل.',
+      'حذف میانبر تنظیمات و کنترل دسترسی (Settings & RBAC) از منوی پروفایل با توجه به میزبانی اختصاصی آن در منوی سیستم (System).',
+    ],
+    changes_en: [
+      'Removed redundant "New version available" notification banner from the profile menu, retaining the unified "Check for Updates" action.',
+      'Removed "My Password Vault" button from the profile dropdown menu in favor of the dedicated header action button.',
+      'Removed "Settings & RBAC" shortcut from the profile dropdown menu since it is already natively managed under the System menu.',
+    ],
+  },
   {
     version: '1.279.0',
     releaseDate: '2026-10-06',

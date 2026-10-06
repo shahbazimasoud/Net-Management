@@ -346,69 +346,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </div>
 
-                {/* Section 2.4: Personal Password Vault */}
-                {onOpenPasswordVault && (
-                  <div className="mb-2">
-                    <button
-                      id="profile-dropdown-vault-btn"
-                      onClick={() => {
-                        setProfileOpen(false);
-                        onOpenPasswordVault();
-                      }}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 border border-cyan-500/30 text-cyan-200 text-xs font-semibold transition cursor-pointer shadow-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Lock className="w-4 h-4 text-cyan-400" />
-                        <span>{isEn ? 'My Password Vault' : 'ولت گذرواژه‌های من'}</span>
-                      </div>
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/30 text-cyan-100">
-                        AES-256
-                      </span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Section 2.5: Settings & RBAC Quick Nav (Strictly Super Admin Only) */}
-                {onOpenSettings && isSuperAdmin && (
-                  <div className="mb-3">
-                    <button
-                      onClick={() => {
-                        setProfileOpen(false);
-                        onOpenSettings();
-                      }}
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-indigo-500/20 hover:from-amber-500/30 hover:to-indigo-500/30 border border-amber-500/30 text-amber-200 text-xs font-semibold transition cursor-pointer shadow-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-amber-400" />
-                        <span>{t('tab_settings')}</span>
-                      </div>
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/30 text-amber-100">
-                        RBAC
-                      </span>
-                    </button>
-                  </div>
-                )}
-
                 {/* Section 3: Check for Updates & Release Notes (Super Admin Only) */}
                 {isSuperAdmin && (
                   <div className="pt-2 border-t border-white/10 space-y-2">
-                    {hasUpdate && (
-                      <div className="p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-between text-xs text-rose-200">
-                        <div className="flex items-center gap-2">
-                          <span className="relative flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,1)]"></span>
-                          </span>
-                          <span className="font-semibold text-[11px]">
-                            {isEn ? `New version v${updateInfo?.latestVersion} available` : `نسخه جدید v${updateInfo?.latestVersion} موجود است`}
-                          </span>
-                        </div>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/25 text-rose-200 border border-rose-500/40 font-bold uppercase">
-                          {isEn ? 'NEW' : 'جدید'}
-                        </span>
-                      </div>
-                    )}
-
                     <button
                       onClick={() => {
                         setProfileOpen(false);
