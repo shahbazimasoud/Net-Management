@@ -1862,7 +1862,7 @@
     "sessionInactivityTimeoutMin": 60,
     "defaultDeviceProtocol": "ssh",
     "systemDebugLogging": false,
-    "updatedAt": "2026-10-06T07:43:28.986Z",
+    "updatedAt": "2026-10-06T07:51:49.935Z",
     "updatedBy": "admin"
   }
 }
