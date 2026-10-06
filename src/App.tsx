@@ -265,6 +265,9 @@ export default function App() {
     }, 5000);
   }, []);
 
+  // General Panel Configuration State
+  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
+
   // Theme State (User personal preference takes priority, falling back to Super Admin system default)
   const [panelTheme, setPanelTheme] = useState<ThemeType>(() => {
     try {
@@ -326,9 +329,6 @@ export default function App() {
     const defaultTheme = generalSettings?.defaultTheme || 'obsidian';
     changeTheme(defaultTheme, false);
   }, [generalSettings, changeTheme]);
-
-  // General Panel Configuration State
-  const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
 
   // Apply settings to entire panel (Super Admin default configuration for new sessions)
   const applyGlobalSettings = useCallback((settings: PanelGeneralSettings) => {

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.279.4';
+export const APP_VERSION = '1.279.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.279.5',
+    releaseDate: '2026-10-06',
+    type: 'patch',
+    title: 'رفع خطای عدم مقداردهی اولیه تنظیمات عمومی پیش از دسترسی در کامپوننت ریشه',
+    title_en: 'Fix Temporal Dead Zone Initialization Error for General Settings State in App Root',
+    changes: [
+      'اصلاح ترتیب مقداردهی هوک‌های استیت در کامپوننت App و انتقال تعریف generalSettings به پیش از استفاده در تابع resetThemeToDefault.',
+      'رفع کامل خطای زمان اجرای React ErrorBoundary با عنوان Cannot access generalSettings before initialization.',
+      'تضمین اجرای بی‌نقص بارگذاری پنل و ثبات نشست‌های کاربری.',
+    ],
+    changes_en: [
+      'Corrected hook initialization ordering in the App component by declaring generalSettings before its reference in resetThemeToDefault.',
+      'Completely resolved React ErrorBoundary runtime failure: Cannot access generalSettings before initialization.',
+      'Guaranteed seamless portal mounting and resilient user session startup.',
+    ],
+  },
   {
     version: '1.279.4',
     releaseDate: '2026-10-06',
