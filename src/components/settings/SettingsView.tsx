@@ -54,6 +54,7 @@ interface SettingsViewProps {
   onSelectSubTab?: (subTab: SettingsSubTab) => void;
   onRefreshAllData?: () => void;
   isLightMode?: boolean;
+  onNavigateToLdapSettings?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -63,6 +64,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSelectSubTab,
   onRefreshAllData,
   isLightMode,
+  onNavigateToLdapSettings,
 }) => {
   const { isRtl, isEn } = useLanguage();
   const [internalTab, setInternalTab] = useState<SettingsSubTab>(externalSubTab || 'groups');
@@ -360,6 +362,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <ActiveDirectoryTab
             config={adConfig}
             onSaveConfig={handleSaveAdConfig}
+            onNavigateToConnectionSettings={onNavigateToLdapSettings}
+            isLightMode={isLightMode}
           />
         )}
 

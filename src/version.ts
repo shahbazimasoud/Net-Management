@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.275.0';
+export const APP_VERSION = '1.276.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.276.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'انتقال پارامترهای اتصال دامین کنترلر به سیتینگ و اختصاص صفحه AD به مدیریت کاربران و دسترسی‌ها',
+    title_en: 'Relocate Domain Controller Connection to Settings and Focus AD Integration on Users, Groups & RBAC Access',
+    changes: [
+      'انتقال کامل فرم پارامترهای اتصال به دامین کنترلر (Domain Controller Connection Parameters) و کنسول عیب‌یابی به یک زیرمنوی اختصاصی در بخش سیتینگ (Settings -> Domain Controller Connection).',
+      'بازطراحی صفحه یکپارچه‌سازی اکتیو دایرکتوری جهت تمرکز صددرصدی بر نمایش کاربران و گروه‌های همگام‌شده و اختصاص بی‌واسطه نقش‌ها و سطوح دسترسی پنل (RBAC).',
+      'تجهیز گروه‌های امنیتی AD به سلکتور تعیین مستقیم نقش پنل و نمایش نقش‌های مؤثر کاربران دامین به‌صورت زنده و بدون داده‌های شبیه‌سازی‌شده.',
+      'افزودن دکمه‌های ناوبری سریع دوجانبه میان صفحه مدیریت دسترسی‌های دایرکتوری و صفحه پیکربندی اتصال دامین کنترلر در سیتینگ.',
+    ],
+    changes_en: [
+      'Relocated Domain Controller Connection Parameters and diagnostic console to a dedicated submenu in Settings (Settings -> Domain Controller Connection).',
+      'Redesigned the Active Directory integration tab to focus exclusively on exploring synchronized domain users/groups and assigning panel access control (RBAC).',
+      'Equipped AD security groups with direct panel role assignment selectors and displayed inherited panel access per user with authentic live telemetry (zero fake data).',
+      'Added seamless bidirectional navigation actions between the Directory Access page and the Domain Controller Connection Settings page.',
+    ],
+  },
   {
     version: '1.275.0',
     releaseDate: '2026-10-06',

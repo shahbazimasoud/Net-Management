@@ -20,6 +20,7 @@ import { TopologyDiscoveryModal } from './components/TopologyDiscoveryModal';
 import { BulkDeviceConfigModal } from './components/BulkDeviceConfigModal';
 import { SettingsView } from './components/settings/SettingsView';
 import { GeneralSettingsView } from './components/settings/GeneralSettingsView';
+import { LdapConnectionSettingsView } from './components/settings/LdapConnectionSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
@@ -70,8 +71,11 @@ import {
   loadLocalGroups,
   loadDeviceGroups,
   loadSimulatedRoleId,
+  loadActiveDirectoryConfig,
+  saveActiveDirectoryConfig,
+  syncActiveDirectoryConfigFromDatabase,
 } from './services/settingsStorage';
-import { AccessPolicy, LocalGroup, DeviceGroup } from './types';
+import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig } from './types';
 import { isDeviceActionPermitted } from './utils/rbac';
 
 export default function App() {
@@ -90,6 +94,7 @@ export default function App() {
   const [localGroups, setLocalGroups] = useState<LocalGroup[]>([]);
   const [deviceGroups, setDeviceGroups] = useState<DeviceGroup[]>([]);
   const [simulatedRoleId, setSimulatedRoleId] = useState<string>('actual-user');
+  const [adConfig, setAdConfig] = useState<ActiveDirectoryConfig>(() => loadActiveDirectoryConfig());
 
   // Synchronize policies & groups from database
   useEffect(() => {
@@ -103,8 +108,16 @@ export default function App() {
       syncDeviceGroupsFromDatabase().then((dg) => {
         if (Array.isArray(dg) && dg.length > 0) setDeviceGroups(dg);
       }).catch(() => {});
+      syncActiveDirectoryConfigFromDatabase().then((cfg) => {
+        if (cfg) setAdConfig(cfg);
+      }).catch(() => {});
     }
   }, [isAuthenticated]);
+
+  const handleSaveAdConfig = (updated: ActiveDirectoryConfig) => {
+    setAdConfig(updated);
+    saveActiveDirectoryConfig(updated);
+  };
 
   // Listen for real-time RBAC policy and simulated role events
   useEffect(() => {
@@ -939,6 +952,15 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'settings-ldap' && (
+            <LdapConnectionSettingsView
+              config={adConfig}
+              onSaveConfig={handleSaveAdConfig}
+              onNavigateToDirectory={() => setActiveTab('settings-ad')}
+              isLightMode={panelTheme === 'light'}
+            />
+          )}
+
           {(activeTab === 'settings-groups' ||
             activeTab === 'settings-users' ||
             activeTab === 'settings-ad' ||
@@ -947,6 +969,7 @@ export default function App() {
             <SettingsView
               devices={devices}
               isLightMode={panelTheme === 'light'}
+              onNavigateToLdapSettings={() => setActiveTab('settings-ldap')}
               activeSubTab={
                 activeTab === 'settings-users'
                   ? 'users'

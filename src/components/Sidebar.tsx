@@ -21,7 +21,8 @@ import {
   Terminal,
   Monitor,
   Tags,
-  Sliders
+  Sliders,
+  KeyRound
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
@@ -45,7 +46,8 @@ export type ActiveTab =
   | 'settings-ad'
   | 'settings-rbac'
   | 'settings-backup'
-  | 'general-settings';
+  | 'general-settings'
+  | 'settings-ldap';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -230,7 +232,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'general-settings',
           labelKey: 'tab_settings_general',
           icon: Sliders,
-          badge: 'New',
+          badge: 'Ready',
+        },
+        {
+          id: 'settings-ldap',
+          labelKey: 'tab_settings_ldap',
+          icon: KeyRound,
+          badge: 'LDAP',
         },
       ],
     },
