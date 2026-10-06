@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -15,6 +15,8 @@ import {
   Globe,
   Radio,
   Plus,
+  Pencil,
+  Save,
 } from 'lucide-react';
 import {
   RemoteServer,
@@ -26,7 +28,7 @@ import {
   LinuxFirewallRulePayload,
   LinuxFirewallInfo,
 } from '../../types';
-import { addLinuxFirewallRule } from '../../services/api';
+import { addLinuxFirewallRule, updateLinuxFirewallRule } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 interface LinuxAddFirewallRuleModalProps {
@@ -41,6 +43,9 @@ interface LinuxAddFirewallRuleModalProps {
   onSuccess: (updatedInfo?: LinuxFirewallInfo) => void;
   isLightMode?: boolean;
   isEn?: boolean;
+  editMode?: boolean;
+  initialRule?: Partial<LinuxFirewallRulePayload>;
+  originalRuleToReplace?: LinuxFirewallRule;
 }
 
 interface CommonServicePreset {
@@ -76,6 +81,9 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
   onSuccess,
   isLightMode = false,
   isEn = true,
+  editMode = false,
+  initialRule,
+  originalRuleToReplace,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -83,7 +91,7 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
   const [action, setAction] = useState<LinuxFirewallAction>('ALLOW');
   const [direction, setDirection] = useState<LinuxFirewallDirection>('IN');
   const [protocol, setProtocol] = useState<LinuxFirewallProtocol>('tcp');
-  const [port, setPort] = useState('80');
+  const [port, setPort] = useState('');
   const [source, setSource] = useState('Any');
   const [ipVersion, setIpVersion] = useState<'v4' | 'v6' | 'both'>('both');
   const [comment, setComment] = useState('');
@@ -91,6 +99,30 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
   // UI state
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Synchronize initial state when modal opens or initialRule changes
+  useEffect(() => {
+    if (isOpen) {
+      if (initialRule) {
+        setAction(initialRule.action || 'ALLOW');
+        setDirection(initialRule.direction || 'IN');
+        setProtocol(initialRule.protocol || 'tcp');
+        setPort(initialRule.port !== undefined ? String(initialRule.port) : '');
+        setSource(initialRule.source || 'Any');
+        setIpVersion(initialRule.ipVersion || 'both');
+        setComment(initialRule.comment || '');
+      } else {
+        setAction('ALLOW');
+        setDirection('IN');
+        setProtocol('tcp');
+        setPort('');
+        setSource('Any');
+        setIpVersion('both');
+        setComment('');
+      }
+      setError(null);
+    }
+  }, [isOpen, initialRule]);
 
   // Apply a preset
   const handleApplyPreset = (preset: CommonServicePreset) => {
@@ -108,6 +140,9 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
     const cleanPort = port.trim();
 
     for (const r of existingRules) {
+      if (originalRuleToReplace && (r.id === originalRuleToReplace.id || r.ruleNumber === originalRuleToReplace.ruleNumber)) {
+        continue;
+      }
       if (r.port === cleanPort && (r.protocol === protocol || r.protocol === 'any' || protocol === 'any')) {
         if (r.action === action && r.direction === direction) {
           return {
@@ -127,7 +162,7 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
       }
     }
     return null;
-  }, [port, protocol, action, direction, existingRules, isEn]);
+  }, [port, protocol, action, direction, existingRules, originalRuleToReplace, isEn]);
 
   // Live preview command
   const previewCommand = useMemo(() => {
@@ -153,12 +188,17 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
     }
     if (backend === 'nftables') {
       const a = act === 'allow' ? 'accept' : 'drop';
-      return `sudo nft add rule inet filter input ${protocol} dport ${port} ${a}`;
+      const pPart = port ? ` dport ${port.trim()}` : '';
+      const cPart = comment ? ` comment "${comment.replace(/"/g, '')}"` : '';
+      const sPart = source && source.toLowerCase() !== 'any' ? ` ip saddr ${source.trim()}` : '';
+      return `sudo nft add rule inet filter input ${sPart ? sPart + ' ' : ''}${protocol}${pPart} ${a}${cPart}`.replace(/\s+/g, ' ').trim();
     }
     if (backend === 'iptables') {
       const a = act === 'allow' ? 'ACCEPT' : 'DROP';
-      const s = source && source.toLowerCase() !== 'any' ? ` -s ${source}` : '';
-      return `sudo iptables -I INPUT 1 -p ${protocol} --dport ${port}${s} -j ${a}`;
+      const s = source && source.toLowerCase() !== 'any' ? ` -s ${source.trim()}` : '';
+      const p = port ? ` --dport ${port.trim()}` : '';
+      const c = comment ? ` -m comment --comment "${comment.replace(/"/g, '')}"` : '';
+      return `sudo iptables -I INPUT 1 -p ${protocol}${p}${s}${c} -j ${a}`.replace(/\s+/g, ' ').trim();
     }
     return 'sudo ...';
   }, [backend, action, direction, protocol, port, source, comment, activeZone, ipVersion]);
@@ -198,7 +238,20 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
 
     setSaving(true);
     try {
-      const res = await addLinuxFirewallRule(server.id, payload, backend, activeZone, ephemeralPassword);
+      let res;
+      if (editMode) {
+        res = await updateLinuxFirewallRule(
+          server.id,
+          payload,
+          originalRuleToReplace,
+          backend,
+          activeZone,
+          ephemeralPassword
+        );
+      } else {
+        res = await addLinuxFirewallRule(server.id, payload, backend, activeZone, ephemeralPassword);
+      }
+
       if (res.success) {
         onSuccess(res.info);
         onClose();
@@ -214,10 +267,10 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
 
   const modalContent = (
     <div
-      className={`fixed z-[70] flex flex-col transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col transition-all duration-300 ${
         isMaximized
-          ? 'top-0 left-0 right-0 bottom-8 p-0 w-full h-auto rounded-none border-none'
-          : 'inset-0 items-center justify-center p-4 bg-black/60 backdrop-blur-sm'
+          ? 'p-0 w-full h-full rounded-none border-none'
+          : 'items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -235,25 +288,36 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
           }`}
         >
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-purple-500/15 text-purple-400 border border-purple-500/20">
-              <Shield className="w-5 h-5" />
+            <div className={`p-2.5 rounded-xl border ${
+              editMode
+                ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20'
+                : 'bg-purple-500/15 text-purple-400 border-purple-500/20'
+            }`}>
+              {editMode ? <Pencil className="w-5 h-5" /> : <Shield className="w-5 h-5" />}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm font-bold">
-                  {isEn ? 'Add Firewall Rule' : 'افزودن قانون فایروال'}
+                  {editMode
+                    ? isEn ? 'Edit Firewall Access Rule' : 'ویرایش قانون دسترسی فایروال'
+                    : isEn ? 'Add Firewall Rule' : 'افزودن قانون فایروال'}
                 </h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-semibold uppercase">
                   {backend}
                 </span>
+                {editMode && port && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-semibold">
+                    {isEn ? `PORT ${port}` : `پورت ${port}`}
+                  </span>
+                )}
                 <FieldInfoTooltip
-                  title={isEn ? 'Firewall Packet Filter Rule' : 'قانون فیلتر فایروال'}
-                  infoWhatEn="Creates an explicit ingress or egress packet filter rule for port, protocol, and source address."
-                  infoWhatFa="یک قانون فیلتر ورودی یا خروجی برای پورت، پروتکل و آدرس مبدا ایجاد می‌کند."
+                  title={editMode ? (isEn ? 'Edit Firewall Rule' : 'ویرایش قانون فایروال') : (isEn ? 'Firewall Packet Filter Rule' : 'قانون فیلتر فایروال')}
+                  infoWhatEn="Creates or updates an explicit ingress or egress packet filter rule for port, protocol, and source address."
+                  infoWhatFa="یک قانون فیلتر ورودی یا خروجی برای پورت، پروتکل و آدرس مبدا ایجاد یا ویرایش می‌کند."
                   infoWhyEn="Controls network traffic allowed to communicate with server applications, databases, and admin services."
                   infoWhyFa="ترافیک مجاز شبکه را برای سرویس‌ها، دیتابیس‌ها و پورت‌های مدیریتی تعیین می‌کند."
-                  infoExampleEn="Allow TCP 443 from Any (HTTPS Web), or Allow TCP 22 from 192.168.1.0/24 (SSH)."
-                  infoExampleFa="مجاز کردن پورت ۴۴۳ برای کل شبکه، یا مجاز کردن پورت ۲۲ فقط برای رنج مشخص."
+                  infoExampleEn="Allow TCP 8080 from Any, or restrict SSH port 22 to a specific subnet."
+                  infoExampleFa="مجاز کردن پورت ۸۰۸۰ برای کل شبکه، یا محدود کردن پورت ۲۲ فقط برای رنج مشخص."
                   isEn={isEn}
                   isLightMode={isLightMode}
                 />
@@ -565,10 +629,24 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-slate-950 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+              className={`px-5 py-2 rounded-xl text-slate-950 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 shadow-sm ${
+                editMode ? 'bg-cyan-500 hover:bg-cyan-400' : 'bg-purple-500 hover:bg-purple-400'
+              }`}
             >
-              <Plus className={`w-3.5 h-3.5 ${saving ? 'animate-spin' : ''}`} />
-              <span>{saving ? (isEn ? 'Applying Rule...' : 'در حال ثبت قانون...') : (isEn ? 'Add Firewall Rule' : 'ثبت قانون فایروال')}</span>
+              {editMode ? (
+                <Save className={`w-3.5 h-3.5 ${saving ? 'animate-spin' : ''}`} />
+              ) : (
+                <Plus className={`w-3.5 h-3.5 ${saving ? 'animate-spin' : ''}`} />
+              )}
+              <span>
+                {saving
+                  ? editMode
+                    ? (isEn ? 'Saving Changes...' : 'در حال ذخیره تغییرات...')
+                    : (isEn ? 'Applying Rule...' : 'در حال ثبت قانون...')
+                  : editMode
+                  ? (isEn ? 'Save Changes' : 'ذخیره تغییرات')
+                  : (isEn ? 'Add Firewall Rule' : 'ثبت قانون فایروال')}
+              </span>
             </button>
           </div>
         </form>

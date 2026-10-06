@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.279.5';
+export const APP_VERSION = '1.280.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.280.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'رفع خطای سینتکس فایروال لینوکس، امکان ویرایش قوانین پورت‌ها و نمایش تمایزیافته دسترسی‌های سراسری Any/All',
+    title_en: 'Fix Linux Firewall Syntax Quoting, Enable Direct Port Rule Editing, and Differentiate Any/All Wildcard Policies',
+    changes: [
+      'رفع خطای نحوی دیمون‌های nftables و iptables ناشی از نقل‌قول ناقص کامنت‌ها در دستورات اجرایی شل و رفع خطای syntax error, unexpected number.',
+      'افزودن امکان ویرایش مستقیم قوانین فایروال برای تمامی پورت‌های گوش‌دهنده و فعال در لیست Listening Sockets vs Firewall Access.',
+      'طراحی و اعمال نشانگرها و برچسب‌های متمایز بصری برای پورت‌های باز سراسری (ALL / ANY) ناشی از سیاست‌های پیش‌فرض یا قوانین Wildcard.',
+      'تجهیز جدول قوانین فیلترینگ بسته‌ها به دکمه ویرایش برای تغییر آسان پارامترهای اکشن، سورس، پورت و پروتکل بدون نیاز به حذف و بازنویسی دستی.',
+    ],
+    changes_en: [
+      'Resolved nftables and iptables syntax parsing error caused by unquoted shell comments, fixing the syntax error, unexpected number failure on custom ports.',
+      'Added direct firewall access rule editing capability for active listening daemon ports within the Listening Sockets vs Firewall Access section.',
+      'Introduced distinct visual indicators and badges for ports open via wildcard policies or default rules (ALL / ANY) versus explicit port-specific rules.',
+      'Added in-place rule editing directly inside the configured packet filter rules table for quick adjustments to actions, sources, ports, and protocols.',
+    ],
+  },
   {
     version: '1.279.5',
     releaseDate: '2026-10-06',

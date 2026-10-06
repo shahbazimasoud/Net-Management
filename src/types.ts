@@ -6771,6 +6771,7 @@ export type LinuxFirewallProtocol = 'tcp' | 'udp' | 'icmp' | 'any' | 'all';
 export interface LinuxFirewallRule {
   id: string;
   ruleNumber?: number;
+  handle?: number;
   backend: LinuxFirewallBackend;
   action: LinuxFirewallAction;
   direction: LinuxFirewallDirection;
@@ -6811,6 +6812,8 @@ export interface LinuxListeningPortSummary {
   pid?: number;
   address?: string;
   allowedInFirewall: boolean;
+  isOpenByAnyPolicy?: boolean;
+  matchingRule?: LinuxFirewallRule;
 }
 
 export interface LinuxFirewallInfo {
@@ -6828,6 +6831,8 @@ export interface LinuxFirewallInfo {
   activeZone?: string;
   rawStatusOutput?: string;
   listeningPortsSummary?: LinuxListeningPortSummary[];
+  isAnyPortOpen?: boolean;
+  anyPortOpenReason?: string;
 }
 
 export interface LinuxFirewallRulePayload {

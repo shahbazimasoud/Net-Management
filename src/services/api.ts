@@ -6378,6 +6378,22 @@ export async function deleteLinuxFirewallRule(
   return res.json().catch(() => ({ success: false, message: 'Network error', error: 'Failed to delete firewall rule' }));
 }
 
+export async function updateLinuxFirewallRule(
+  serverId: string,
+  newRule: LinuxFirewallRulePayload,
+  oldRule?: LinuxFirewallRule,
+  backend?: string,
+  activeZone?: string,
+  ephemeralPassword?: string
+): Promise<{ success: boolean; message: string; info?: LinuxFirewallInfo; error?: string }> {
+  const res = await fetch(`${API_BASE}/remote-servers/${encodeURIComponent(serverId)}/firewall/rule/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newRule, oldRule, backend, activeZone, password: ephemeralPassword }),
+  });
+  return res.json().catch(() => ({ success: false, message: 'Network error', error: 'Failed to update firewall rule' }));
+}
+
 // ============================================================================
 // LINUX FILE EXPLORER CLIENT API
 // ============================================================================

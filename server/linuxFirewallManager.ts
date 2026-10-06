@@ -636,9 +636,13 @@ export class NftablesFirewallProvider implements FirewallProvider {
         const protoMatch = trimmed.match(/(tcp|udp)/);
         const commentMatch = trimmed.match(/comment\s+"([^"]+)"/);
 
+        const handleMatch = trimmed.match(/#\s+handle\s+(\d+)/);
+        const ruleNum = handleMatch ? parseInt(handleMatch[1], 10) : ruleIndex++;
+
         rules.push({
-          id: `nft-${ruleIndex}`,
-          ruleNumber: ruleIndex++,
+          id: `nft-${ruleNum}`,
+          ruleNumber: ruleNum,
+          handle: handleMatch ? parseInt(handleMatch[1], 10) : undefined,
           backend: 'nftables',
           action: act as any,
           direction: 'IN',
@@ -664,16 +668,46 @@ export class NftablesFirewallProvider implements FirewallProvider {
   }
 
   buildAddRuleCommand(rule: LinuxFirewallRulePayload): string {
-    const proto = rule.protocol || 'tcp';
-    const port = rule.port || '22';
-    const action = (rule.action || 'allow').toLowerCase() === 'allow' ? 'accept' : 'drop';
-    const comment = rule.comment ? ` comment "${rule.comment.replace(/"/g, '')}"` : '';
+    const action = (rule.action || 'allow').toLowerCase() === 'allow' ? 'accept' : rule.action?.toLowerCase() === 'reject' ? 'reject' : 'drop';
+    const proto = rule.protocol && rule.protocol !== 'any' && rule.protocol !== 'all' ? rule.protocol.toLowerCase() : '';
 
-    return `sudo nft add rule inet filter input ${proto} dport ${port} ${action}${comment}`;
+    let portPart = '';
+    if (rule.port && rule.port.trim() && rule.port.trim().toLowerCase() !== 'any' && rule.port.trim() !== '*') {
+      const p = rule.port.trim();
+      if (p.includes(',')) {
+        const ports = p.split(',').map((x) => x.trim()).filter(Boolean).join(', ');
+        portPart = `dport { ${ports} }`;
+      } else if (p.includes(':') || p.includes('-')) {
+        portPart = `dport ${p.replace(':', '-')}`;
+      } else {
+        portPart = `dport ${p}`;
+      }
+    }
+
+    let srcPart = '';
+    if (rule.source && rule.source.trim().toLowerCase() !== 'any' && rule.source.trim() !== '*') {
+      const isV6 = rule.source.includes(':') || rule.ipVersion === 'v6';
+      srcPart = `${isV6 ? 'ip6' : 'ip'} saddr ${rule.source.trim()}`;
+    }
+
+    const protoPart = proto && proto !== 'icmp' ? `${proto} ` : proto === 'icmp' ? 'ip protocol icmp ' : '';
+    const cleanComment = (rule.comment || '').replace(/["'\\]/g, '').trim();
+    // In nftables, comments MUST be quoted strings. Using single quotes around double quotes preserves double quotes across bash:
+    const commentPart = cleanComment ? ` comment '"${cleanComment}"'` : '';
+
+    const ruleSpec = `${srcPart ? srcPart + ' ' : ''}${protoPart}${portPart ? portPart + ' ' : ''}${action}${commentPart}`.trim();
+
+    return `sudo nft add table inet filter 2>/dev/null || true; sudo nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }' 2>/dev/null || true; sudo nft add rule inet filter input ${ruleSpec}`;
   }
 
   buildDeleteRuleCommand(rule: LinuxFirewallRule): string {
-    return 'sudo nft -a list table inet filter 2>/dev/null || true';
+    const handle = rule.handle || rule.ruleNumber;
+    if (handle) {
+      return `sudo nft delete rule inet filter input handle ${handle} 2>/dev/null || true`;
+    }
+    const port = rule.port || '';
+    const proto = rule.protocol || 'tcp';
+    return `H=$(sudo nft -a list table inet filter 2>/dev/null | grep -E "${proto}.*dport.*${port}" | grep -oE "handle [0-9]+" | awk '{print $2}' | head -n 1); [ -n "$H" ] && sudo nft delete rule inet filter input handle $H 2>/dev/null || true`;
   }
 
   buildToggleCommand(enable: boolean): string {
@@ -802,7 +836,8 @@ export class IptablesFirewallProvider implements FirewallProvider {
     }
     const src = rule.source && rule.source.toLowerCase() !== 'any' ? `-s ${rule.source}` : '';
     const action = (rule.action || 'allow').toUpperCase() === 'ALLOW' ? 'ACCEPT' : 'DROP';
-    const comment = rule.comment ? `-m comment --comment "${rule.comment.replace(/"/g, '')}"` : '';
+    const cleanComment = (rule.comment || '').replace(/["'\\]/g, '').trim();
+    const comment = cleanComment ? `-m comment --comment '"${cleanComment}"'` : '';
 
     return `sudo iptables -I INPUT 1 -p ${proto} ${portPart} ${src} ${comment} -j ${action}`.replace(/\s+/g, ' ').trim();
   }
@@ -1079,30 +1114,51 @@ export function parseListeningPorts(
 
     // Evaluate firewall accessibility:
     let isAllowed = false;
+    let isAnyRule = false;
+    let matchingRule: LinuxFirewallRule | undefined = undefined;
 
     if (!firewallActive) {
       // If firewall is disabled or not running, all sockets are fully reachable
       isAllowed = true;
+      isAnyRule = true;
     } else if (isLoopbackAddress(addr)) {
       // Localhost/loopback (127.0.0.1, ::1) is internal only and never blocked by firewall
       isAllowed = true;
     } else if (port === serverSshPort) {
       // The current management SSH connection is alive and verified open
       isAllowed = true;
+      for (const r of rules) {
+        if (matchRuleToPort(r, port, proto)) {
+          matchingRule = r;
+          break;
+        }
+      }
     } else {
-      // Start with default policy
-      isAllowed = incomingPolicy === 'ALLOW' || incomingPolicy === 'ACCEPT';
+      let matchedByExplicitRule = false;
 
       // Look for explicit matching firewall rules
       for (const r of rules) {
         if (matchRuleToPort(r, port, proto)) {
+          matchingRule = r;
+          matchedByExplicitRule = true;
           if (r.action === 'ALLOW') {
             isAllowed = true;
-            break;
+            if (!r.port || r.port.toLowerCase() === 'any' || r.port === '*' || r.port === 'all') {
+              isAnyRule = true;
+            }
           } else if (r.action === 'DENY' || r.action === 'REJECT') {
             isAllowed = false;
-            break;
           }
+          break;
+        }
+      }
+
+      if (!matchedByExplicitRule) {
+        if (incomingPolicy === 'ALLOW' || incomingPolicy === 'ACCEPT') {
+          isAllowed = true;
+          isAnyRule = true;
+        } else {
+          isAllowed = false;
         }
       }
     }
@@ -1114,6 +1170,8 @@ export function parseListeningPorts(
       pid,
       address: addr,
       allowedInFirewall: isAllowed,
+      isOpenByAnyPolicy: isAllowed && isAnyRule,
+      matchingRule,
     });
   }
 
@@ -1164,12 +1222,17 @@ export function parseListeningPorts(
           process: r.comment || (r.rawRule?.startsWith('service ') ? r.rawRule : undefined) || 'Firewall Open Port',
           address: r.source && r.source.toLowerCase() !== 'any' ? r.source : '0.0.0.0',
           allowedInFirewall: true,
+          isOpenByAnyPolicy: false,
+          matchingRule: r,
         });
       } else {
         // If it was already in summaries (from ss), ensure allowedInFirewall is set to true!
         const existing = summaries.find((s) => s.port === p && (s.proto === rProto || rProto === 'any'));
         if (existing) {
           existing.allowedInFirewall = true;
+          if (!existing.matchingRule) {
+            existing.matchingRule = r;
+          }
         }
       }
     }
@@ -1179,6 +1242,43 @@ export function parseListeningPorts(
   summaries.sort((a, b) => a.port - b.port);
 
   return summaries;
+}
+
+function checkIsAnyPortOpen(
+  rules: LinuxFirewallRule[],
+  defaultPolicies: LinuxFirewallPolicies,
+  isFirewallActive: boolean
+): { isAnyPortOpen: boolean; anyPortOpenReason?: string } {
+  if (!isFirewallActive) {
+    return {
+      isAnyPortOpen: true,
+      anyPortOpenReason: 'Firewall daemon is inactive or not running (all network ports are open).',
+    };
+  }
+  const hasWildcardAllow = rules.some(
+    (r) =>
+      r.action === 'ALLOW' &&
+      r.direction !== 'OUT' &&
+      (!r.port || r.port.toLowerCase() === 'any' || r.port === '*' || r.port === 'all')
+  );
+  const isPolicyAllow =
+    defaultPolicies.incoming === 'ALLOW' ||
+    defaultPolicies.incoming === 'ACCEPT' ||
+    String(defaultPolicies.incoming).includes('ALLOW');
+
+  if (hasWildcardAllow) {
+    return {
+      isAnyPortOpen: true,
+      anyPortOpenReason: 'Wildcard firewall rule (Any/All) allows incoming traffic without port restrictions.',
+    };
+  }
+  if (isPolicyAllow) {
+    return {
+      isAnyPortOpen: true,
+      anyPortOpenReason: 'Default incoming policy is set to ALLOW (all inbound ports unrestricted).',
+    };
+  }
+  return { isAnyPortOpen: false };
 }
 
 /**
@@ -1223,6 +1323,7 @@ export async function detectLinuxFirewall(
       capabilities: ufwProvider.capabilities,
       rawStatusOutput: out,
       listeningPortsSummary: listening,
+      ...checkIsAnyPortOpen(ufwParsed.rules, ufwParsed.defaultPolicies, true),
     };
   }
 
@@ -1244,6 +1345,7 @@ export async function detectLinuxFirewall(
       activeZone: fwdParsed.activeZone,
       rawStatusOutput: out,
       listeningPortsSummary: listening,
+      ...checkIsAnyPortOpen(fwdParsed.rules, fwdParsed.defaultPolicies, true),
     };
   }
 
@@ -1264,6 +1366,7 @@ export async function detectLinuxFirewall(
       capabilities: nftablesProvider.capabilities,
       rawStatusOutput: out,
       listeningPortsSummary: listening,
+      ...checkIsAnyPortOpen(nftParsed.rules, nftParsed.defaultPolicies, true),
     };
   }
 
@@ -1284,6 +1387,7 @@ export async function detectLinuxFirewall(
       capabilities: iptablesProvider.capabilities,
       rawStatusOutput: out,
       listeningPortsSummary: listening,
+      ...checkIsAnyPortOpen(iptParsed.rules, iptParsed.defaultPolicies, true),
     };
   }
 
@@ -1302,6 +1406,7 @@ export async function detectLinuxFirewall(
       capabilities: ufwProvider.capabilities,
       rawStatusOutput: out,
       listeningPortsSummary: parseListeningPorts(listeningSection, ufwParsed.rules, 'ALLOW', false, serverSshPort),
+      ...checkIsAnyPortOpen(ufwParsed.rules, ufwParsed.defaultPolicies, false),
     };
   }
 
@@ -1319,6 +1424,7 @@ export async function detectLinuxFirewall(
       capabilities: firewalldProvider.capabilities,
       rawStatusOutput: out,
       listeningPortsSummary: parseListeningPorts(listeningSection, fwdParsed.rules, 'ALLOW', false, serverSshPort),
+      ...checkIsAnyPortOpen(fwdParsed.rules, fwdParsed.defaultPolicies, false),
     };
   }
 
@@ -1340,6 +1446,8 @@ export async function detectLinuxFirewall(
     capabilities: noFwProvider.capabilities,
     rawStatusOutput: out,
     listeningPortsSummary: parseListeningPorts(listeningSection, [], 'ALLOW', false, serverSshPort),
+    isAnyPortOpen: true,
+    anyPortOpenReason: 'No firewall is active or installed on this system (all ports open).',
   };
 }
 

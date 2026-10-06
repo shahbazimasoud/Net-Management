@@ -11419,6 +11419,54 @@ const handleFirewallDeleteRule = async (req: Request, res: Response) => {
 apiRouter.delete('/remote-servers/:id/firewall/rule', handleFirewallDeleteRule);
 apiRouter.post('/remote-servers/:id/firewall/rule/delete', handleFirewallDeleteRule);
 
+// POST /api/remote-servers/:id/firewall/rule/update - Update / Edit a firewall rule
+apiRouter.post('/remote-servers/:id/firewall/rule/update', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { oldRule, newRule, backend, activeZone, password } = req.body;
+
+    if (!newRule || !backend) {
+      return res.status(400).json({ success: false, error: 'New rule payload and backend are required' });
+    }
+
+    const server = await getRemoteServerById(id);
+    if (!server) {
+      return res.status(404).json({ success: false, error: 'Server not found' });
+    }
+
+    // 1. If oldRule is provided, delete it first
+    if (oldRule) {
+      try {
+        await deleteFirewallRule(server, oldRule, activeZone, password);
+      } catch (delErr) {
+        console.warn(`[LinuxFirewall Update]: Old rule deletion warning:`, delErr);
+      }
+    }
+
+    // 2. Add the new rule
+    const result = await addFirewallRule(server, newRule, backend, activeZone, password);
+
+    // Audit log
+    await addAuditLog({
+      userName: 'Administrator',
+      action: `Firewall Rule Updated (${newRule.action} ${newRule.port || newRule.protocol})`,
+      category: 'security',
+      target: `${server.name || server.ip} (${backend.toUpperCase()})`,
+      status: result.success ? 'success' : 'error',
+      details: `${result.message} ${result.error || ''}`,
+      ipAddress: getClientIp(req),
+    }).catch(() => {});
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error(`[LinuxFirewall Update Rule Error for server ${req.params.id}]:`, err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to update firewall rule',
+    });
+  }
+});
+
 // POST /api/remote-servers/:id/proxy-action - Configure or clear persistent system proxy
 apiRouter.post('/remote-servers/:id/proxy-action', async (req: Request, res: Response) => {
   try {
