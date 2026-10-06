@@ -21,6 +21,7 @@ interface NavbarProps {
   onOpenReleaseNotes?: () => void;
   onOpenSettings?: () => void;
   onOpenPasswordVault?: () => void;
+  onOpenUpdateSettings?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -33,6 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenReleaseNotes,
   onOpenSettings,
   onOpenPasswordVault,
+  onOpenUpdateSettings,
 }) => {
   const { t, language, setLanguage, isRtl, isEn } = useLanguage();
   const { updateInfo, checking, checkUpdate, checkFeedback, dismissFeedback } = useUpdate();
@@ -219,44 +221,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 </div>
 
-                {/* Prominent Update Notification Banner if New Version Exists */}
-                {hasUpdate && (
-                  <div className="mb-3 p-2.5 rounded-xl bg-gradient-to-br from-rose-950/60 via-purple-950/40 to-slate-900/60 border border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.25)]">
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
-                        </span>
-                        <span className="text-xs font-bold text-white font-mono">
-                          v{updateInfo?.latestVersion}
-                        </span>
-                        <span className="px-1.5 py-0.2 text-[9px] font-bold uppercase rounded bg-rose-500/30 text-rose-200 border border-rose-500/40">
-                          {t('update_available_badge')}
-                        </span>
-                      </div>
-                      <Sparkles className="w-3.5 h-3.5 text-rose-400" />
-                    </div>
-
-                    <p className="text-[11px] text-slate-200 leading-snug line-clamp-2 mb-2 font-medium">
-                      {isEn
-                        ? (updateInfo?.releaseNote?.title_en || (updateInfo?.latestVersion ? `Release v${updateInfo.latestVersion}: Enhancements & Fixes` : t('update_ready_to_install')))
-                        : (updateInfo?.releaseNote?.title || t('update_ready_to_install'))}
-                    </p>
-
-                    <button
-                      onClick={() => {
-                        setProfileOpen(false);
-                        if (onOpenReleaseNotes) onOpenReleaseNotes();
-                      }}
-                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-medium text-xs shadow-[0_0_12px_rgba(244,63,94,0.4)] transition cursor-pointer active:scale-98"
-                    >
-                      <ArrowUpCircle className="w-3.5 h-3.5 text-rose-200" />
-                      <span>{t('update_btn_view_release')}</span>
-                    </button>
-                  </div>
-                )}
-
                 {/* Section 1: Language Switcher */}
                 <div className="mb-3">
                   <div className="px-1 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
@@ -368,85 +332,54 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 )}
 
-                {/* Section 3: Release Notes & Check for Updates */}
+                {/* Section 3: Check for Updates & Release Notes (Navigates to Settings -> Update) */}
                 <div className="pt-2 border-t border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={() => {
-                        setProfileOpen(false);
-                        if (onOpenReleaseNotes) onOpenReleaseNotes();
-                      }}
-                      className="flex items-center gap-1.5 text-xs text-indigo-300 hover:text-indigo-200 transition cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-indigo-400" />
-                      <span className="font-mono font-semibold">v{APP_VERSION}</span>
-                      <span>{t('sidebar_release_notes')}</span>
-                      {hasUpdate && (
-                        <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.8)] animate-ping" />
-                      )}
-                    </button>
-
-                    {hasUpdate && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                        {isEn ? 'Update' : 'آپدیت'}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Prominent Direct GitHub Check Button (Super Administrator Exclusive) */}
-                  {canCheck ? (
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const result = await checkUpdate(false, true);
-                        if (result.hasUpdate && onOpenReleaseNotes) {
-                          setProfileOpen(false);
-                          onOpenReleaseNotes();
-                        }
-                      }}
-                      disabled={checking}
-                      className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-cyan-100 border border-cyan-500/25 hover:border-cyan-500/40 text-xs font-semibold transition cursor-pointer active:scale-98 disabled:opacity-50"
-                      title={t('update_btn_check_now')}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${checking ? 'animate-spin' : ''}`} />
-                      <span>
-                        {checking
-                          ? (isEn ? 'Checking GitHub...' : 'در حال بررسی گیت‌هاب...')
-                          : (isEn ? 'Check for Updates' : 'بررسی نسخه جدید (GitHub)')}
-                      </span>
-                    </button>
-                  ) : (
-                    <div
-                      className="w-full flex items-center justify-center gap-1.5 py-1 px-2.5 rounded-lg bg-slate-800/40 border border-white/5 text-[11px] text-slate-400 select-none"
-                      title={isEn ? 'Update operations are restricted to Super Administrator' : 'بررسی و ارتقای سیستم تنها برای مدیر ارشد مجاز است'}
-                    >
-                      <Lock className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span>{isEn ? 'Updates Managed by Super Admin' : 'مدیریت ارتقا مختص مدیر ارشد'}</span>
-                    </div>
-                  )}
-
-                  {/* Live Status / Toast Feedback */}
-                  {checkFeedback && checkFeedback.type !== 'update_available' && (
-                    <div
-                      className={`text-[11px] p-2 rounded-xl border transition-all flex items-center justify-between gap-2 ${
-                        checkFeedback.type === 'checking'
-                          ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
-                          : checkFeedback.type === 'latest'
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                          : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5 leading-tight">
-                        {checkFeedback.type === 'checking' && (
-                          <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin shrink-0" />
-                        )}
-                        {checkFeedback.type === 'latest' && (
-                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        )}
-                        <span>{isEn ? checkFeedback.message_en : checkFeedback.message}</span>
+                  {hasUpdate && (
+                    <div className="p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-between text-xs text-rose-200">
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,1)]"></span>
+                        </span>
+                        <span className="font-semibold text-[11px]">
+                          {isEn ? `New version v${updateInfo?.latestVersion} available` : `نسخه جدید v${updateInfo?.latestVersion} موجود است`}
+                        </span>
                       </div>
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-rose-500/25 text-rose-200 border border-rose-500/40 font-bold uppercase">
+                        {isEn ? 'NEW' : 'جدید'}
+                      </span>
                     </div>
                   )}
+
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false);
+                      if (onOpenUpdateSettings) {
+                        onOpenUpdateSettings();
+                      } else if (onOpenReleaseNotes) {
+                        onOpenReleaseNotes();
+                      }
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500/15 to-indigo-500/15 hover:from-purple-500/25 hover:to-indigo-500/25 border border-purple-500/25 text-purple-200 text-xs font-semibold transition cursor-pointer shadow-xs active:scale-98"
+                    title={isEn ? 'Open Panel Updates and Release Notes in Settings' : 'باز کردن صفحه ارتقا و به‌روزرسانی پنل در سیتینگ'}
+                  >
+                    <div className="flex items-center gap-2">
+                      <ArrowUpCircle className="w-4 h-4 text-purple-400" />
+                      <span>{isEn ? 'Check for Updates' : 'بررسی نسخه جدید و آپدیت'}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300">
+                        v{APP_VERSION}
+                      </span>
+                      {hasUpdate && (
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-90"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,1)]"></span>
+                        </span>
+                      )}
+                    </div>
+                  </button>
                 </div>
 
                 {/* Section 4: Log Out Action */}

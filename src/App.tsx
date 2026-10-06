@@ -21,6 +21,7 @@ import { BulkDeviceConfigModal } from './components/BulkDeviceConfigModal';
 import { SettingsView } from './components/settings/SettingsView';
 import { GeneralSettingsView } from './components/settings/GeneralSettingsView';
 import { LdapConnectionSettingsView } from './components/settings/LdapConnectionSettingsView';
+import { PanelUpdateSettingsView } from './components/settings/PanelUpdateSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
@@ -831,6 +832,7 @@ export default function App() {
           onOpenReleaseNotes={handleOpenReleaseNotes}
           onOpenSettings={() => setActiveTab('settings')}
           onOpenPasswordVault={() => handleOpenTool('password_vault')}
+          onOpenUpdateSettings={() => setActiveTab('settings-update')}
         />
       )}
 
@@ -949,6 +951,7 @@ export default function App() {
               isLightMode={panelTheme === 'light'}
               panelTheme={panelTheme}
               onChangeTheme={changeTheme}
+              onNavigateToTab={(tab) => setActiveTab(tab as any)}
             />
           )}
 
@@ -959,6 +962,10 @@ export default function App() {
               onNavigateToDirectory={() => setActiveTab('settings-ad')}
               isLightMode={panelTheme === 'light'}
             />
+          )}
+
+          {activeTab === 'settings-update' && (
+            <PanelUpdateSettingsView isLightMode={panelTheme === 'light'} />
           )}
 
           {(activeTab === 'settings-groups' ||

@@ -26,6 +26,7 @@ interface GeneralSettingsViewProps {
   isLightMode?: boolean;
   panelTheme?: ThemeType;
   onChangeTheme?: (theme: ThemeType) => void;
+  onNavigateToTab?: (tab: 'settings-ldap' | 'settings-update' | string) => void;
 }
 
 interface BackendHealthData {
@@ -40,6 +41,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   isLightMode = false,
   panelTheme = 'obsidian',
   onChangeTheme,
+  onNavigateToTab,
 }) => {
   const { isEn } = useLanguage();
   const { user, effectivePolicy } = useAuth();
@@ -213,16 +215,80 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <div className="text-xs">
+                  <div className="text-xs flex-1">
                     <span className="font-bold text-emerald-400">
-                      {isEn ? 'Phase 1 (Complete): ' : 'فاز ۱ (تکمیل شده): '}
+                      {isEn ? 'Phase 1: ' : 'فاز ۱: '}
                     </span>
                     <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
                       {isEn
-                        ? 'Navigation menu entry "Settings" created with live telemetry and clean architecture.'
+                        ? 'Navigation menu entry "Settings" initialized with live telemetry & modular framework.'
                         : 'افزودن آیتم "سیتینگ" به منوی ناوبری با تلمتری زنده سیستم و معماری ماژولار.'}
                     </span>
                   </div>
+                </div>
+
+                <div
+                  className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-200'
+                      : 'bg-white/[0.02] border-white/5'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
+                      <Check className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-bold text-emerald-400">
+                        {isEn ? 'Phase 2: ' : 'فاز ۲: '}
+                      </span>
+                      <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
+                        {isEn
+                          ? 'Domain Controller Connection parameters relocated under Settings.'
+                          : 'انتقال پارامترهای اتصال دامین کنترلر به عنوان زیرمنو در سیتینگ.'}
+                      </span>
+                    </div>
+                  </div>
+                  {onNavigateToTab && (
+                    <button
+                      onClick={() => onNavigateToTab('settings-ldap')}
+                      className="px-3 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-400 text-xs font-semibold transition shrink-0 cursor-pointer"
+                    >
+                      {isEn ? 'Open LDAP' : 'تنظیمات LDAP'}
+                    </button>
+                  )}
+                </div>
+
+                <div
+                  className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-200'
+                      : 'bg-white/[0.02] border-white/5'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
+                      <Check className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-bold text-emerald-400">
+                        {isEn ? 'Phase 3: ' : 'فاز ۳: '}
+                      </span>
+                      <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
+                        {isEn
+                          ? 'Panel Updates, Release Notes, and 1-Click Update relocated under Settings.'
+                          : 'انتقال ارتقا و به‌روزرسانی پنل و ریلیز نوت‌ها به عنوان زیرمنو در سیتینگ.'}
+                      </span>
+                    </div>
+                  </div>
+                  {onNavigateToTab && (
+                    <button
+                      onClick={() => onNavigateToTab('settings-update')}
+                      className="px-3 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-xs font-semibold transition shrink-0 cursor-pointer"
+                    >
+                      {isEn ? 'Open Updates' : 'ارتقای پنل'}
+                    </button>
+                  )}
                 </div>
 
                 <div
@@ -233,11 +299,11 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   }`}
                 >
                   <div className="w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/40 text-sky-400 flex items-center justify-center text-xs font-bold shrink-0">
-                    2
+                    +
                   </div>
                   <div className="text-xs">
                     <span className="font-bold text-sky-400">
-                      {isEn ? 'Phase 2+ (Awaiting Brief): ' : 'فازهای بعدی (در انتظار اعلام آیتم‌ها): '}
+                      {isEn ? 'Subsequent Phases: ' : 'فازهای بعدی: '}
                     </span>
                     <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
                       {isEn

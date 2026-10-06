@@ -1257,22 +1257,95 @@
     }
   ],
   "ad_config": {
-    "domain": "corp.internal",
+    "enabled": true,
     "server": "192.168.1.10",
     "port": 389,
-    "use_ssl": false,
-    "base_dn": "DC=corp,DC=internal",
-    "bind_user": "CN=ldap_service,OU=ServiceAccounts,DC=corp,DC=internal",
-    "bind_password": "encrypted_service_pass_2026",
-    "sync_interval_min": 15,
-    "auto_sync": true,
-    "role_mappings": {
-      "Domain Admins": "Super Administrator",
-      "Network Engineers": "NOC Analyst",
-      "Helpdesk Staff": "Helpdesk Specialist"
-    },
-    "last_sync": "2026-09-14T19:20:03.024Z",
-    "status": "configured"
+    "useSsl": false,
+    "domain": "corp.internal",
+    "baseDn": "DC=corp,DC=internal",
+    "bindUser": "svc-netops@corp.internal",
+    "bindPassword": "••••••••••••",
+    "userSearchBase": "OU=Staff,DC=corp,DC=internal",
+    "groupSearchBase": "OU=SecurityGroups,DC=corp,DC=internal",
+    "lastSyncStatus": "success",
+    "lastSyncMessage": "همگام‌سازی با موفقیت انجام شد (4 گروه امنیتی و 6 کاربر دامین دریافت گردید)",
+    "lastSyncTime": "2026-09-09 16:30:00",
+    "syncedGroups": [
+      {
+        "dn": "CN=Helpdesk-Admins,OU=SecurityGroups,DC=corp,DC=internal",
+        "cn": "Helpdesk-Admins",
+        "description": "کارشناسان پشتیبانی و تیم هلپ‌دسک سازمان",
+        "memberCount": 8
+      },
+      {
+        "dn": "CN=NetOps-Engineers,OU=SecurityGroups,DC=corp,DC=internal",
+        "cn": "NetOps-Engineers",
+        "description": "مهندسان ارشد شبکه و زیرساخت ارتباطی",
+        "memberCount": 4
+      },
+      {
+        "dn": "CN=NOC-Monitoring,OU=SecurityGroups,DC=corp,DC=internal",
+        "cn": "NOC-Monitoring",
+        "description": "تیم پایش و مانیتورینگ مرکز عملیات شبکه (فقط مشاهده)",
+        "memberCount": 6
+      },
+      {
+        "dn": "CN=Security-Auditors,OU=SecurityGroups,DC=corp,DC=internal",
+        "cn": "Security-Auditors",
+        "description": "حسابرسان امنیتی و ممیزی پورت سکیوریتی و مک آدرس‌ها",
+        "memberCount": 3
+      }
+    ],
+    "syncedUsers": [
+      {
+        "dn": "CN=Masoud Shahbazi,OU=Staff,DC=corp,DC=internal",
+        "samAccountName": "m.shahbazi",
+        "displayName": "مسعود شهبازی (Network Lead)",
+        "email": "m.shahbazi@corp.internal",
+        "department": "زیرساخت و شبکه",
+        "title": "Senior Network Architect",
+        "groups": [
+          "NetOps-Engineers"
+        ],
+        "enabled": true
+      },
+      {
+        "dn": "CN=Ali Rezaei,OU=Staff,DC=corp,DC=internal",
+        "samAccountName": "a.rezaei",
+        "displayName": "علی رضایی (Helpdesk L1)",
+        "email": "a.rezaei@corp.internal",
+        "department": "پشتیبانی فنی (Helpdesk)",
+        "title": "Helpdesk Specialist",
+        "groups": [
+          "Helpdesk-Admins"
+        ],
+        "enabled": true
+      },
+      {
+        "dn": "CN=Sara Karimi,OU=Staff,DC=corp,DC=internal",
+        "samAccountName": "s.karimi",
+        "displayName": "سارا کریمی (NOC Operator)",
+        "email": "s.karimi@corp.internal",
+        "department": "مرکز عملیات شبکه",
+        "title": "NOC Tier-1 Analyst",
+        "groups": [
+          "NOC-Monitoring"
+        ],
+        "enabled": true
+      },
+      {
+        "dn": "CN=Reza Mohammadi,OU=Staff,DC=corp,DC=internal",
+        "samAccountName": "r.mohammadi",
+        "displayName": "رضا محمدی (Security Auditor)",
+        "email": "r.mohammadi@corp.internal",
+        "department": "امنیت اطلاعات",
+        "title": "Infosec Compliance Officer",
+        "groups": [
+          "Security-Auditors"
+        ],
+        "enabled": true
+      }
+    ]
   },
   "devices": [
     {

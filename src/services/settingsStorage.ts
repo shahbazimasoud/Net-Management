@@ -1032,6 +1032,7 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy): boolean {
     case 'settings':
     case 'general-settings':
     case 'settings-ldap':
+    case 'settings-update':
     case 'settings-groups':
     case 'settings-users':
     case 'settings-ad':

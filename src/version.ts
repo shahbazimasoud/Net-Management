@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.276.0';
+export const APP_VERSION = '1.277.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.277.0',
+    releaseDate: '2026-10-06',
+    type: 'minor',
+    title: 'انتقال بخش ارتقا و به‌روزرسانی پنل و ریلیز نوت‌ها به زیرمنوی سیتینگ و نمایش نشانگر آپدیت در پروفایل',
+    title_en: 'Relocate Panel Updates & Release Notes to Settings Submenu with Profile Notification Indicator',
+    changes: [
+      'افزودن زیرمنوی اختصاصی ارتقا و به‌روزرسانی پنل (Panel Updates & Release Notes) ذیل بخش تنظیمات (Settings) در سایدبار.',
+      'انتقال قابلیت بررسی نسخه جدید گیت‌هاب، اجرای اتوماتیک پایپ‌لاین به‌روزرسانی و تاریخچه کامل و قابل جستجوی ریلیز نوت‌ها به صفحه تنظیمات.',
+      'پایش و نمایش زنده وضعیت نسخه پایدار سامانه (Your panel is running the latest version) و استریم لاگ‌های ترمینال هنگام ارتقا با داده‌های واقعی.',
+      'بهینه‌سازی منوی پروفایل کاربر در هدر با نمایش نقطه چشمک‌زن قرمز در صورت وجود آپدیت و هدایت مستقیم کاربر به صفحه آپدیت با کلیک روی Check for Updates.',
+    ],
+    changes_en: [
+      'Added dedicated "Panel Updates & Release Notes" submenu under the Settings navigation section in the sidebar.',
+      'Relocated GitHub update verification, automated one-click update pipeline, and comprehensive searchable changelog history to the new Settings view.',
+      'Real-time live telemetry displaying running version status ("Your panel is running the latest version") and streaming terminal logs during upgrades with authentic data.',
+      'Streamlined user profile dropdown with a pulsing red notification dot when a new version is detected and instant routing to the update page on clicking "Check for Updates".',
+    ],
+  },
   {
     version: '1.276.0',
     releaseDate: '2026-10-06',

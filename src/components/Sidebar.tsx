@@ -22,11 +22,13 @@ import {
   Monitor,
   Tags,
   Sliders,
-  KeyRound
+  KeyRound,
+  ArrowUpCircle
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
 import { isTabAllowed } from '../services/settingsStorage';
+import { useUpdate } from '../context/UpdateContext';
 
 export type ActiveTab =
   | 'dashboard'
@@ -47,7 +49,8 @@ export type ActiveTab =
   | 'settings-rbac'
   | 'settings-backup'
   | 'general-settings'
-  | 'settings-ldap';
+  | 'settings-ldap'
+  | 'settings-update';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -87,6 +90,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   effectivePolicy,
 }) => {
   const { t, isRtl } = useLanguage();
+  const { updateInfo } = useUpdate();
+  const hasUpdate = Boolean(updateInfo?.hasUpdate);
 
   const navGroups: NavParentGroup[] = useMemo(() => [
     {
@@ -240,9 +245,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: KeyRound,
           badge: 'LDAP',
         },
+        {
+          id: 'settings-update',
+          labelKey: 'tab_settings_update',
+          icon: ArrowUpCircle,
+          badge: hasUpdate ? 'Update' : null,
+        },
       ],
     },
-  ], [devicesCount]);
+  ], [devicesCount, hasUpdate]);
 
   // Filter modules and parent accordions based on user's effective RBAC policy
   const visibleNavGroups = useMemo(() => {
