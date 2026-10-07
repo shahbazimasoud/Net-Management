@@ -254,6 +254,7 @@ def handle_terminal(args):
     cols = int(cfg.get("cols") or 120)
     rows = int(cfg.get("rows") or 36)
     ssh_version = cfg.get("ssh_version") or ACTIVE_MODE
+    prefer_interactive = bool(cfg.get("prefer_interactive", False))
 
     p_client = paramiko.SSHClient()
     p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -269,6 +270,7 @@ def handle_terminal(args):
         auth_timeout=10.0,
         platform=platform,
         ssh_version=ssh_version,
+        prefer_interactive=prefer_interactive,
     )
 
     if not connected:

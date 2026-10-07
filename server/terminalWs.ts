@@ -179,6 +179,40 @@ export function setupTerminalWebSocket(
       }
     };
 
+    // Extract language preference
+    const rawLang = parsedUrl.searchParams.get('lang') || parsedUrl.searchParams.get('language') || 'fa';
+    const isEn = rawLang.toLowerCase() === 'en';
+
+    const formatTerminalError = (err: string): string => {
+      const eLower = (err || '').toLowerCase();
+      if (eLower.includes('illegal info request') || eLower.includes('keyboard-interactive')) {
+        return isEn
+          ? 'Interactive authentication challenge rejected by device (Keyboard-Interactive)'
+          : 'عدم تطابق پرامپت تعاملی احراز هویت توسط تجهیز (Keyboard-Interactive)';
+      }
+      if (eLower.includes('authentication') || eLower.includes('denied') || eLower.includes('invalid username')) {
+        return isEn
+          ? `Authentication failed: Invalid username or password for user '${username}'`
+          : `احراز هویت ناموفق بود: نام کاربری یا کلمه عبور کاربر '${username}' نادرست است`;
+      }
+      if (eLower.includes('timed out') || eLower.includes('timeout')) {
+        return isEn
+          ? `Connection timed out connecting to ${host}:${port}`
+          : `مهلت زمان اتصال به ${host}:${port} به پایان رسید`;
+      }
+      if (eLower.includes('refused')) {
+        return isEn
+          ? `Connection refused by ${host}:${port}`
+          : `اتصال توسط پورت ${port} در ${host} رد شد (Connection refused)`;
+      }
+      if (eLower.includes('unreachable') || eLower.includes('no route')) {
+        return isEn
+          ? `Host ${host} is unreachable`
+          : `آدرس ${host} در شبکه در دسترس نیست`;
+      }
+      return err;
+    };
+
     // Resolve device platform and SSH backend version (legacy vs modern) using single backend resolver
     let devPlatform = parsedUrl.searchParams.get('platform') || '';
     let devSshVersion = parsedUrl.searchParams.get('ssh_version') || parsedUrl.searchParams.get('sshVersion') || '';
@@ -209,206 +243,281 @@ export function setupTerminalWebSocket(
         host,
         port,
         ssh_version: backendRes.version,
-        message: `Connecting to ${host}:${port} via SSH v2 (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})...`,
+        message: isEn
+          ? `Connecting to ${host}:${port} via SSH v2 (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})...`
+          : `در حال اتصال به ${host}:${port} از طریق SSH v2 (${backendRes.version === 'modern' ? 'مدرن' : 'لگاسی'})...`,
       });
 
-      const configPayload = {
-        host,
-        port,
-        username,
-        password,
-        platform: devPlatform || 'cisco_ios_xe',
-        term: 'xterm-256color',
-        cols: 120,
-        rows: 36,
-        ssh_version: backendRes.version,
-      };
-      const configJson = JSON.stringify(configPayload);
-
+      let activeProc: ChildProcess | null = null;
       let isSshOpen = false;
       let hasReportedError = false;
       let isProcessExited = false;
-      let stdoutBuffer = '';
-      let stderrBuffer = '';
+      let hasRetriedInteractive = false;
 
-      const proc: ChildProcess = spawn(backendRes.pythonBin, [backendRes.scriptPath, 'terminal', configJson], {
-        cwd: projectRoot,
-        env: backendRes.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      const startSshProcess = (preferInteractive = false) => {
+        const configPayload = {
+          host,
+          port,
+          username,
+          password,
+          platform: devPlatform || 'cisco_ios_xe',
+          term: 'xterm-256color',
+          cols: 120,
+          rows: 36,
+          ssh_version: backendRes.version,
+          prefer_interactive: preferInteractive,
+        };
+        const configJson = JSON.stringify(configPayload);
 
-      proc.stdout?.on('data', (chunk: Buffer) => {
-        if (!isSshOpen) {
-          stdoutBuffer += chunk.toString('utf-8');
-          if (stdoutBuffer.includes('__NETMGMT_SSH_OPEN__:')) {
-            const lines = stdoutBuffer.split('\n');
-            let remaining = '';
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i];
-              if (line.startsWith('__NETMGMT_SSH_OPEN__:')) {
-                isSshOpen = true;
-                try {
-                  const meta = JSON.parse(line.replace('__NETMGMT_SSH_OPEN__:', '').trim());
-                  sendClient({
-                    type: 'status',
-                    status: 'connected',
-                    is_real: true,
-                    host,
-                    port,
-                    username,
-                    ssh_version: backendRes.version,
-                    kex: meta.kex,
-                    paramiko_version: meta.version,
-                    message: `Live SSH connected to ${host}:${port} (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})`,
-                  });
-                } catch {
-                  sendClient({
-                    type: 'status',
-                    status: 'connected',
-                    is_real: true,
-                    host,
-                    port,
-                    username,
-                    ssh_version: backendRes.version,
-                    message: `Live SSH connected to ${host}:${port}`,
-                  });
+        let stdoutBuffer = '';
+        let stderrBuffer = '';
+
+        const proc: ChildProcess = spawn(backendRes.pythonBin, [backendRes.scriptPath, 'terminal', configJson], {
+          cwd: projectRoot,
+          env: backendRes.env,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        activeProc = proc;
+
+        proc.stdout?.on('data', (chunk: Buffer) => {
+          if (!isSshOpen) {
+            stdoutBuffer += chunk.toString('utf-8');
+            if (stdoutBuffer.includes('__NETMGMT_SSH_OPEN__:')) {
+              const lines = stdoutBuffer.split('\n');
+              let remaining = '';
+              for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.startsWith('__NETMGMT_SSH_OPEN__:')) {
+                  isSshOpen = true;
+                  try {
+                    const meta = JSON.parse(line.replace('__NETMGMT_SSH_OPEN__:', '').trim());
+                    sendClient({
+                      type: 'status',
+                      status: 'connected',
+                      is_real: true,
+                      host,
+                      port,
+                      username,
+                      ssh_version: backendRes.version,
+                      kex: meta.kex,
+                      paramiko_version: meta.version,
+                      message: isEn
+                        ? `Live SSH connected to ${host}:${port} (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})`
+                        : `ارتباط زنده SSH با ${host}:${port} برقرار شد (${backendRes.version === 'modern' ? 'مدرن' : 'لگاسی'})`,
+                    });
+                  } catch {
+                    sendClient({
+                      type: 'status',
+                      status: 'connected',
+                      is_real: true,
+                      host,
+                      port,
+                      username,
+                      ssh_version: backendRes.version,
+                      message: isEn ? `Live SSH connected to ${host}:${port}` : `ارتباط زنده SSH با ${host}:${port} برقرار شد`,
+                    });
+                  }
+                  remaining = lines.slice(i + 1).join('\n');
+                  break;
+                } else if (line.startsWith('__NETMGMT_SSH_ERROR__:')) {
+                  hasReportedError = true;
+                  try {
+                    const errMeta = JSON.parse(line.replace('__NETMGMT_SSH_ERROR__:', '').trim());
+                    const rawErr = String(errMeta.error || '');
+                    if (!hasRetriedInteractive && (rawErr.toLowerCase().includes('illegal info request') || rawErr.toLowerCase().includes('keyboard-interactive'))) {
+                      hasRetriedInteractive = true;
+                      sendClient({
+                        type: 'status',
+                        status: 'connecting',
+                        message: isEn
+                          ? `Interactive challenge detected. Re-negotiating in Keyboard-Interactive mode...`
+                          : `پرامپت تعاملی احراز هویت شناسایی شد. در حال اتصال مجدد در حالت Keyboard-Interactive...`,
+                      });
+                      sendClient({
+                        type: 'data',
+                        data: `\r\n\x1b[36m[Adaptive SSH]\x1b[0m ${isEn ? 'Switching to Keyboard-Interactive mode...' : 'تغییر به متد احراز هویت تعاملی (Keyboard-Interactive)...'}\r\n`,
+                      });
+                      setTimeout(() => {
+                        startSshProcess(true);
+                      }, 250);
+                      return;
+                    }
+                    const formatted = formatTerminalError(rawErr);
+                    sendClient({
+                      type: 'status',
+                      status: 'failed',
+                      error: formatted,
+                      message: isEn ? `SSH Connection Failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
+                    });
+                    sendClient({
+                      type: 'error',
+                      error: formatted,
+                    });
+                  } catch {
+                    const fallbackErr = formatTerminalError(line);
+                    sendClient({
+                      type: 'status',
+                      status: 'failed',
+                      error: fallbackErr,
+                      message: isEn ? `SSH Connection Failed: ${fallbackErr}` : `خطای اتصال SSH: ${fallbackErr}`,
+                    });
+                  }
+                  return;
                 }
-                remaining = lines.slice(i + 1).join('\n');
-                break;
-              } else if (line.startsWith('__NETMGMT_SSH_ERROR__:')) {
-                hasReportedError = true;
-                try {
-                  const errMeta = JSON.parse(line.replace('__NETMGMT_SSH_ERROR__:', '').trim());
+              }
+              if (isSshOpen && remaining) {
+                sendClient({
+                  type: 'data',
+                  data: remaining,
+                });
+              }
+            } else if (stdoutBuffer.includes('__NETMGMT_SSH_ERROR__:')) {
+              hasReportedError = true;
+              const errLine = stdoutBuffer.split('\n').find((l) => l.startsWith('__NETMGMT_SSH_ERROR__:')) || '';
+              try {
+                const errMeta = JSON.parse(errLine.replace('__NETMGMT_SSH_ERROR__:', '').trim());
+                const rawErr = String(errMeta.error || '');
+                if (!hasRetriedInteractive && (rawErr.toLowerCase().includes('illegal info request') || rawErr.toLowerCase().includes('keyboard-interactive'))) {
+                  hasRetriedInteractive = true;
                   sendClient({
                     type: 'status',
-                    status: 'failed',
-                    error: errMeta.error,
-                    message: `SSH Connection Failed: ${errMeta.error}`,
+                    status: 'connecting',
+                    message: isEn
+                      ? `Interactive challenge detected. Re-negotiating in Keyboard-Interactive mode...`
+                      : `پرامپت تعاملی احراز هویت شناسایی شد. در حال اتصال مجدد در حالت Keyboard-Interactive...`,
                   });
                   sendClient({
-                    type: 'error',
-                    error: errMeta.error,
+                    type: 'data',
+                    data: `\r\n\x1b[36m[Adaptive SSH]\x1b[0m ${isEn ? 'Switching to Keyboard-Interactive mode...' : 'تغییر به متد احراز هویت تعاملی (Keyboard-Interactive)...'}\r\n`,
                   });
-                } catch {
-                  sendClient({
-                    type: 'status',
-                    status: 'failed',
-                    error: line,
-                    message: line,
-                  });
+                  setTimeout(() => {
+                    startSshProcess(true);
+                  }, 250);
+                  return;
                 }
-                return;
+                const formatted = formatTerminalError(rawErr);
+                sendClient({
+                  type: 'status',
+                  status: 'failed',
+                  error: formatted,
+                  message: isEn ? `SSH Connection Failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
+                });
+                sendClient({
+                  type: 'error',
+                  error: formatted,
+                });
+              } catch {
+                const fallbackErr = formatTerminalError(stdoutBuffer.trim());
+                sendClient({
+                  type: 'status',
+                  status: 'failed',
+                  error: fallbackErr,
+                  message: isEn ? `SSH Connection Failed: ${fallbackErr}` : `خطای اتصال SSH: ${fallbackErr}`,
+                });
               }
             }
-            if (isSshOpen && remaining) {
-              sendClient({
-                type: 'data',
-                data: remaining,
-              });
-            }
-          } else if (stdoutBuffer.includes('__NETMGMT_SSH_ERROR__:')) {
-            hasReportedError = true;
-            const errLine = stdoutBuffer.split('\n').find((l) => l.startsWith('__NETMGMT_SSH_ERROR__:')) || '';
-            try {
-              const errMeta = JSON.parse(errLine.replace('__NETMGMT_SSH_ERROR__:', '').trim());
+          } else {
+            // Stream device output live: SSH channel -> Python -> Node -> WebSocket
+            const dataStr = chunk.toString('utf-8');
+            sendClient({
+              type: 'data',
+              data: dataStr,
+            });
+          }
+        });
+
+        proc.stderr?.on('data', (chunk: Buffer) => {
+          const text = chunk.toString('utf-8');
+          stderrBuffer += text;
+          if (!text.includes('CryptographyDeprecationWarning')) {
+            console.warn(`[TerminalWs Python Stderr]:`, text.trim());
+          }
+        });
+
+        proc.on('close', (code) => {
+          if (!isSshOpen) {
+            if (!hasReportedError) {
+              const isWarningLine = (l: string) =>
+                l.includes('CryptographyDeprecationWarning') ||
+                l.includes('TripleDES') ||
+                l.includes('cryptography.hazmat') ||
+                l.includes('site-packages/paramiko');
+              const cleanErr =
+                stderrBuffer
+                  .split('\n')
+                  .filter((l) => !isWarningLine(l) && l.trim())
+                  .join('\n')
+                  .trim() || `Process exited with code ${code}`;
+
+              if (!hasRetriedInteractive && (cleanErr.toLowerCase().includes('illegal info request') || cleanErr.toLowerCase().includes('keyboard-interactive'))) {
+                hasRetriedInteractive = true;
+                sendClient({
+                  type: 'status',
+                  status: 'connecting',
+                  message: isEn
+                    ? `Interactive challenge detected. Re-negotiating in Keyboard-Interactive mode...`
+                    : `پرامپت تعاملی احراز هویت شناسایی شد. در حال اتصال مجدد در حالت Keyboard-Interactive...`,
+                });
+                sendClient({
+                  type: 'data',
+                  data: `\r\n\x1b[36m[Adaptive SSH]\x1b[0m ${isEn ? 'Switching to Keyboard-Interactive mode...' : 'تغییر به متد احراز هویت تعاملی (Keyboard-Interactive)...'}\r\n`,
+                });
+                setTimeout(() => {
+                  startSshProcess(true);
+                }, 250);
+                return;
+              }
+
+              hasReportedError = true;
+              const formatted = formatTerminalError(cleanErr);
               sendClient({
                 type: 'status',
                 status: 'failed',
-                error: errMeta.error,
-                message: `SSH Connection Failed: ${errMeta.error}`,
+                error: formatted,
+                message: isEn ? `SSH connection failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
               });
               sendClient({
                 type: 'error',
-                error: errMeta.error,
+                error: formatted,
               });
-            } catch {
               sendClient({
-                type: 'status',
-                status: 'failed',
-                error: stdoutBuffer.trim(),
-                message: stdoutBuffer.trim(),
+                type: 'data',
+                data: `\r\n\x1b[31m[${isEn ? 'SSH Connection Failed' : 'خطای اتصال SSH'}]\x1b[0m ${formatted}\r\n`,
               });
             }
-          }
-        } else {
-          // Stream device output live: SSH channel -> Python -> Node -> WebSocket
-          // Raw bytes/chunks as they arrive, no buffering
-          const dataStr = chunk.toString('utf-8');
-          sendClient({
-            type: 'data',
-            data: dataStr,
-          });
-        }
-      });
-
-      proc.stderr?.on('data', (chunk: Buffer) => {
-        const text = chunk.toString('utf-8');
-        stderrBuffer += text;
-        if (!text.includes('CryptographyDeprecationWarning')) {
-          console.warn(`[TerminalWs Python Stderr]:`, text.trim());
-        }
-      });
-
-      proc.on('close', (code) => {
-        isProcessExited = true;
-        if (!isSshOpen) {
-          if (!hasReportedError) {
-            hasReportedError = true;
-            const isWarningLine = (l: string) =>
-              l.includes('CryptographyDeprecationWarning') ||
-              l.includes('TripleDES') ||
-              l.includes('cryptography.hazmat') ||
-              l.includes('site-packages/paramiko');
-            const cleanErr =
-              stderrBuffer
-                .split('\n')
-                .filter((l) => !isWarningLine(l) && l.trim())
-                .join('\n')
-                .trim() || `Process exited with code ${code}`;
+          } else {
             sendClient({
               type: 'status',
-              status: 'failed',
-              error: cleanErr,
-              message: `SSH connection failed: ${cleanErr}`,
-            });
-            sendClient({
-              type: 'error',
-              error: cleanErr,
+              status: 'disconnected',
+              message: isEn ? `SSH session closed (exit code ${code}).` : `نشست SSH بسته شد (کد خروج ${code}).`,
             });
             sendClient({
               type: 'data',
-              data: `\r\n\x1b[31m[SSH Connection Failed]\x1b[0m ${cleanErr}\r\n`,
+              data: `\r\n\x1b[33m[${isEn ? 'SSH Notice' : 'اعلان SSH'}]\x1b[0m ${isEn ? `Connection to ${host}:${port} closed.` : `ارتباط با ${host}:${port} قطع شد.`}\r\n`,
             });
           }
-        } else {
+        });
+
+        proc.on('error', (err) => {
+          console.error('[TerminalWs] Python process spawn error:', err);
           sendClient({
             type: 'status',
-            status: 'disconnected',
-            message: `SSH session closed (exit code ${code}).`,
+            status: 'failed',
+            error: err.message,
+            message: isEn ? `Failed to launch SSH Python backend: ${err.message}` : `راه‌اندازی بک‌اند پایتون SSH ناموفق بود: ${err.message}`,
           });
           sendClient({
-            type: 'data',
-            data: `\r\n\x1b[33m[SSH Notice]\x1b[0m Connection to ${host}:${port} closed.\r\n`,
+            type: 'error',
+            error: err.message,
           });
-        }
-      });
+        });
+      };
 
-      proc.on('error', (err) => {
-        console.error('[TerminalWs] Python process spawn error:', err);
-        sendClient({
-          type: 'status',
-          status: 'failed',
-          error: err.message,
-          message: `Failed to launch SSH Python backend: ${err.message}`,
-        });
-        sendClient({
-          type: 'error',
-          error: err.message,
-        });
-      });
+      // Launch session
+      startSshProcess(false);
 
       clientWs.on('message', (raw: WebSocket.Data) => {
-        if (isProcessExited || !proc.stdin || !proc.stdin.writable) return;
+        if (!activeProc || isProcessExited || !activeProc.stdin || !activeProc.stdin.writable) return;
         try {
           const text = typeof raw === 'string' ? raw : raw.toString();
           let handledAsControl = false;
@@ -422,22 +531,22 @@ export function setupTerminalWebSocket(
                 handledAsControl = true;
                 const cols = parsed.cols || 120;
                 const rows = parsed.rows || 36;
-                proc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'resize', cols, rows })}\n`);
+                activeProc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'resize', cols, rows })}\n`);
                 return;
               } else if (parsed.type === 'close') {
                 handledAsControl = true;
-                proc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
+                activeProc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
                 setTimeout(() => {
-                  try { proc.kill('SIGTERM'); } catch {}
+                  try { activeProc?.kill('SIGTERM'); } catch {}
                 }, 300);
                 return;
               } else if (parsed.type === 'input' || parsed.type === 'stdin') {
                 handledAsControl = true;
                 const inputData = parsed.data ?? '';
                 if (typeof inputData === 'string') {
-                  proc.stdin.write(inputData);
+                  activeProc.stdin.write(inputData);
                 } else {
-                  proc.stdin.write(String(inputData));
+                  activeProc.stdin.write(String(inputData));
                 }
                 return;
               }
@@ -447,7 +556,7 @@ export function setupTerminalWebSocket(
           }
 
           if (!handledAsControl) {
-            proc.stdin.write(raw as any);
+            activeProc.stdin.write(raw as any);
           }
         } catch (writeErr: any) {
           console.warn('[TerminalWs] Input write error:', writeErr.message);
@@ -458,15 +567,15 @@ export function setupTerminalWebSocket(
         if (!isProcessExited) {
           isProcessExited = true;
           try {
-            if (proc.stdin && proc.stdin.writable) {
-              proc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
-              proc.stdin.end();
+            if (activeProc && activeProc.stdin && activeProc.stdin.writable) {
+              activeProc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
+              activeProc.stdin.end();
             }
           } catch {}
           setTimeout(() => {
-            try { proc.kill('SIGTERM'); } catch {}
+            try { activeProc?.kill('SIGTERM'); } catch {}
             setTimeout(() => {
-              try { proc.kill('SIGKILL'); } catch {}
+              try { activeProc?.kill('SIGKILL'); } catch {}
             }, 1000);
           }, 300);
         }

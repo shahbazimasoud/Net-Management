@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.5';
+export const APP_VERSION = '1.283.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.6',
+    releaseDate: '2026-10-07',
+    type: 'patch',
+    title: 'تقویت لایه وب‌سوکت ترمینال، فرمت‌بندی دوزبانه خطاها و بازتلاش خودکار در حالت تعاملی (فاز ۳)',
+    title_en: 'Hardened Terminal WebSocket Layer, Bilingual Error Formatting & Auto-Retry in Interactive Mode (Phase 3)',
+    changes: [
+      'پیاده‌سازی مکانیزم بازتلاش خودکار (Auto-Retry Resilience) در لایه گیت‌وی وب‌سوکت terminalWs.ts هنگام دریافت خطای چالش تعاملی بدون قطع اتصال کاربر.',
+      'افزودن تابع فرمت‌بندی هوشمند و دوزبانه formatTerminalError جهت نمایش پیام‌های خطای خوانا و شفاف در هر دو زبان فارسی و انگلیسی (عدم نمایش متن فارسی در حالت انگلیسی).',
+      'حذف خطاهای تکراری متوالی و هماهنگ‌سازی رویدادهای status و error با استانداردهای اعلان‌های سیستم.',
+      'مدیریت یکپارچه رویدادهای ورودی، تغییر اندازه PTY و خروج تمیز نشست‌های SSH در سمت سرور.'
+    ],
+    changes_en: [
+      'Implemented automatic retry resilience in the terminalWs.ts WebSocket gateway layer upon detecting interactive authentication challenges without dropping the user connection.',
+      'Added intelligent bilingual formatTerminalError function to present clear, human-readable error messages strictly aligned with active language mode (Zero Persian text in English mode).',
+      'Eliminated duplicate status and error message bursts while harmonizing status notifications with system telemetry standards.',
+      'Unified client input event routing, PTY resize control, and clean session shutdown lifecycle on the backend.'
+    ]
+  },
   {
     version: '1.283.5',
     releaseDate: '2026-10-07',

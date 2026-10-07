@@ -884,7 +884,8 @@ def connect_ssh_device(
     auth_timeout: float = 6.0,
     on_fallback_log: Optional[Any] = None,
     platform: str = "",
-    ssh_version: Optional[str] = None
+    ssh_version: Optional[str] = None,
+    prefer_interactive: bool = False
 ) -> Tuple[bool, Optional[str]]:
     """
     Connects to a network device using the Two-Tier Adaptive Negotiation Engine:
@@ -966,7 +967,9 @@ def connect_ssh_device(
                 auth_timeout=auth_timeout
             )
 
-        auth_ok, auth_err = authenticate_transport(transport1, username=username, password=password)
+        auth_ok, auth_err = authenticate_transport(
+            transport1, username=username, password=password, prefer_interactive=prefer_interactive
+        )
 
         if auth_ok:
             # Succeeded on Tier 1 (Modern Fast Path)!
@@ -1081,7 +1084,9 @@ def connect_ssh_device(
         )
 
         transport2.start_client(timeout=banner_timeout + 2.0)
-        auth_ok2, auth_err2 = authenticate_transport(transport2, username=username, password=password)
+        auth_ok2, auth_err2 = authenticate_transport(
+            transport2, username=username, password=password, prefer_interactive=prefer_interactive
+        )
 
         if auth_ok2:
             # Succeeded on Tier 2 (Legacy Fallback)!
