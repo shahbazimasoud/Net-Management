@@ -305,31 +305,98 @@ def is_handshake_or_algo_mismatch(exc: Exception) -> bool:
     return any(ind in msg for ind in algo_indicators)
 
 
-def authenticate_transport(transport: Any, username: str, password: str) -> Tuple[bool, Optional[str]]:
+def create_interactive_handler(username: str, password: str):
     """
-    Authenticates an active transport using password authentication,
-    falling back to keyboard-interactive (AAA / TACACS+ / RADIUS) if needed.
+    Creates an intelligent, boundary-safe keyboard-interactive handler for Paramiko.
+    Accurately handles Cisco TACACS+/RADIUS, Linux PAM, banner acknowledgments,
+    and multi-factor or secondary password prompts.
+    """
+    def interactive_handler(title: str, instructions: str, prompt_list: list) -> list:
+        responses = []
+        for prompt_text, echo in prompt_list:
+            p_clean = (prompt_text or "").strip().lower()
+            if "user" in p_clean or "login" in p_clean:
+                responses.append(username or "admin")
+            elif "pass" in p_clean or "code" in p_clean or "key" in p_clean or "secret" in p_clean or not p_clean:
+                responses.append(password if password is not None else "")
+            else:
+                responses.append(password if password is not None else "")
+        return responses
+    return interactive_handler
+
+
+def authenticate_transport(
+    transport: Any,
+    username: str,
+    password: str,
+    prefer_interactive: bool = False
+) -> Tuple[bool, Optional[str]]:
+    """
+    Authenticates an active transport using adaptive authentication methods.
+    Supports standard password authentication as well as keyboard-interactive (AAA / TACACS+ / RADIUS / PAM).
+    Proactively checks server supported authentication methods (via auth_none probe),
+    and seamlessly handles 'Illegal info request from server' exceptions.
     """
     import paramiko
     auth_ok = False
     err_msg = None
+    interactive_handler = create_interactive_handler(username, password)
 
+    # 1. Proactively inspect supported authentication methods if not explicitly specified
+    preferred_method = "interactive" if prefer_interactive else None
+    if not preferred_method:
+        try:
+            transport.auth_none(username)
+            if transport.is_authenticated():
+                return True, None
+        except paramiko.BadAuthenticationType as e_bad:
+            allowed = getattr(e_bad, "allowed_types", []) or []
+            if "keyboard-interactive" in allowed and "password" not in allowed:
+                preferred_method = "interactive"
+            elif "password" in allowed:
+                preferred_method = "password"
+        except Exception:
+            pass
+
+    # 2. If keyboard-interactive is preferred or exclusively supported
+    if preferred_method == "interactive":
+        try:
+            transport.auth_interactive(username=username, handler=interactive_handler)
+            if transport.is_authenticated():
+                return True, None
+        except Exception as e_int:
+            err_msg = str(e_int)
+            # If interactive failed, attempt password as secondary fallback
+            try:
+                transport.auth_password(username=username, password=password)
+                if transport.is_authenticated():
+                    return True, None
+            except Exception:
+                pass
+        return False, err_msg or f"Interactive authentication failed for user '{username}'"
+
+    # 3. Standard password attempt with intelligent keyboard-interactive fallback
     try:
         transport.auth_password(username=username, password=password)
         auth_ok = transport.is_authenticated()
-    except (paramiko.BadAuthenticationType, paramiko.AuthenticationException) as e:
+        if auth_ok:
+            return True, None
+    except (paramiko.BadAuthenticationType, paramiko.AuthenticationException, paramiko.SSHException) as e:
         err_msg = str(e)
-        # Fallback to keyboard-interactive prompt
-        def interactive_handler(title, instructions, prompt_list):
-            return [password for _ in prompt_list]
-        try:
-            transport.auth_interactive(username=username, handler=interactive_handler)
-            auth_ok = transport.is_authenticated()
-            if auth_ok:
-                err_msg = None
-        except Exception as e_int:
-            auth_ok = False
-            err_msg = str(e_int)
+        is_info_request = (
+            "illegal info request" in err_msg.lower() or
+            "info request" in err_msg.lower() or
+            isinstance(e, paramiko.BadAuthenticationType)
+        )
+        if is_info_request or not auth_ok:
+            try:
+                transport.auth_interactive(username=username, handler=interactive_handler)
+                auth_ok = transport.is_authenticated()
+                if auth_ok:
+                    return True, None
+            except Exception as e_int:
+                auth_ok = False
+                err_msg = str(e_int)
     except Exception as e_other:
         auth_ok = False
         err_msg = str(e_other)
@@ -505,14 +572,26 @@ def _authenticate_mikrotik_transport(
     transport: Any,
     username: str,
     password: str = "",
-    timeout: float = 6.0
+    timeout: float = 6.0,
+    prefer_interactive: bool = False
 ) -> Tuple[bool, Optional[str]]:
     """
     Helper to authenticate MikroTik transport handling password and keyboard-interactive cleanly,
     and auth_none only if password is truly empty.
     """
+    import paramiko
     user_to_try = username or "admin"
     auth_err = None
+    interactive_handler = create_interactive_handler(user_to_try, password or "")
+
+    # If interactive is preferred or previously requested
+    if prefer_interactive and password:
+        try:
+            transport.auth_interactive(username=user_to_try, handler=interactive_handler)
+            if transport.is_authenticated():
+                return True, None
+        except Exception as e_int:
+            auth_err = str(e_int)
 
     # 1. If password is provided, attempt standard password authentication
     if password:
@@ -526,8 +605,6 @@ def _authenticate_mikrotik_transport(
         # 2. If password authentication failed, try keyboard-interactive prompt with the password
         if not transport.is_authenticated():
             try:
-                def interactive_handler(title, instructions, prompt_list):
-                    return [password for _ in prompt_list]
                 transport.auth_interactive(username=user_to_try, handler=interactive_handler)
                 if transport.is_authenticated():
                     return True, None
@@ -903,6 +980,46 @@ def connect_ssh_device(
             )
             return True, None
         else:
+            # If server requested interactive auth (e.g. Illegal info request occurred), reconnect with interactive mode
+            if "illegal info request" in str(auth_err or "").lower() or "info request" in str(auth_err or "").lower():
+                logger.info(f"[SSH Tier 1 Fast Path] Server requested keyboard-interactive. Reconnecting to {hostname}:{port} in interactive mode...")
+                try:
+                    transport1.close()
+                except Exception:
+                    pass
+                if sock1:
+                    try:
+                        sock1.close()
+                    except Exception:
+                        pass
+
+                sock1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock1.settimeout(timeout)
+                sock1.connect((hostname, port))
+
+                transport1 = paramiko.Transport(sock1)
+                apply_security_options_safely(
+                    transport1,
+                    kex_candidates=TIER1_MODERN_KEX,
+                    key_candidates=TIER1_MODERN_KEYS,
+                    cipher_candidates=TIER1_MODERN_CIPHERS,
+                    mac_candidates=TIER1_MODERN_MACS
+                )
+                transport1.start_client(timeout=banner_timeout)
+                auth_ok, auth_err = authenticate_transport(
+                    transport1, username=username, password=password, prefer_interactive=True
+                )
+                if auth_ok:
+                    client._transport = transport1
+                    client._negotiation_info = extract_negotiation_info(transport1, "tier1_modern_interactive")
+                    logger.info(
+                        f"[SSH Tier 1 Fast Path (Interactive)] Connected to {hostname}:{port} | "
+                        f"KEX: {client._negotiation_info['kex']} | "
+                        f"Cipher: {client._negotiation_info['cipher']} | "
+                        f"Key: {client._negotiation_info['key_type']}"
+                    )
+                    return True, None
+
             tier1_auth_failed = True
             tier1_error = auth_err or f"Authentication rejected for user '{username}'"
     except Exception as e:
@@ -978,6 +1095,45 @@ def connect_ssh_device(
             )
             return True, None
         else:
+            if "illegal info request" in str(auth_err2 or "").lower() or "info request" in str(auth_err2 or "").lower():
+                logger.info(f"[SSH Tier 2 Fallback] Server requested keyboard-interactive. Reconnecting to {hostname}:{port} in interactive mode...")
+                try:
+                    transport2.close()
+                except Exception:
+                    pass
+                if sock2:
+                    try:
+                        sock2.close()
+                    except Exception:
+                        pass
+
+                sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock2.settimeout(timeout + 2.0)
+                sock2.connect((hostname, port))
+
+                transport2 = paramiko.Transport(sock2)
+                apply_security_options_safely(
+                    transport2,
+                    kex_candidates=TIER2_LEGACY_KEX,
+                    key_candidates=TIER2_LEGACY_KEYS,
+                    cipher_candidates=TIER2_LEGACY_CIPHERS,
+                    mac_candidates=TIER2_LEGACY_MACS
+                )
+                transport2.start_client(timeout=banner_timeout + 2.0)
+                auth_ok2, auth_err2 = authenticate_transport(
+                    transport2, username=username, password=password, prefer_interactive=True
+                )
+                if auth_ok2:
+                    client._transport = transport2
+                    client._negotiation_info = extract_negotiation_info(transport2, "tier2_legacy_interactive")
+                    logger.info(
+                        f"[SSH Tier 2 Fallback (Interactive) SUCCESS] Connected to {hostname}:{port} | "
+                        f"KEX: {client._negotiation_info['kex']} | "
+                        f"Cipher: {client._negotiation_info['cipher']} | "
+                        f"Key: {client._negotiation_info['key_type']}"
+                    )
+                    return True, None
+
             tier2_error = auth_err2 or f"Invalid username or password for user '{username}'"
     except Exception as e2:
         tier2_error = str(e2).strip() or "Legacy handshake failed"

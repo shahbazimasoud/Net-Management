@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.3';
+export const APP_VERSION = '1.283.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.4',
+    releaseDate: '2026-10-07',
+    type: 'patch',
+    title: 'رفع خطای Illegal info request و پیاده‌سازی احراز هویت تطبیقی Keyboard-Interactive در تجهیزات شبکه (فاز ۱)',
+    title_en: 'Fix Illegal Info Request Error & Implement Adaptive Keyboard-Interactive Authentication for Network Devices (Phase 1)',
+    changes: [
+      'اصلاح ریشه‌ای متد authenticate_transport در موتور ssh_compat.py جهت پشتیبانی صریح از کلاس استثنای SSHException در کنار AuthenticationException.',
+      'پیاده‌سازی هندلر هوشمند و ایمن create_interactive_handler جهت مدیریت خودکار چالش‌های TACACS+، RADIUS، PAM لینوکس، پرامپت‌های رمز عبور و تأیید بنرهای سیسکو.',
+      'پایش پیش‌دستانه شیوه‌های احراز هویت مجاز از طریق کاوشگر auth_none و انتخاب مستقیم متد keyboard-interactive در صورت عدم پذیرش رمز عبور ساده.',
+      'افزودن قابلیت اتصال مجدد تمیز (Clean Reconnection) در حالت prefer_interactive در هر دو لایه مدرن (Tier 1) و لگاسی (Tier 2) در صورت دریافت خطای Info Request.',
+      'ارتقای مدیریت خطای احراز هویت در ماژول network_terminal.py و _authenticate_mikrotik_transport برای جلوگیری قطعی از بروز خطای Illegal info request from server.'
+    ],
+    changes_en: [
+      'Resolved the root cause of the "Illegal info request from server" SSHException in ssh_compat.py by expanding exception capture beyond AuthenticationException to base SSHException.',
+      'Implemented an intelligent, boundary-safe create_interactive_handler to automatically resolve Cisco TACACS+, RADIUS, Linux PAM challenges, password prompts, and banner acknowledgments.',
+      'Added proactive authentication method detection via auth_none probe to directly engage keyboard-interactive mode when password authentication is disallowed by the remote device.',
+      'Implemented clean socket and transport reconnection with prefer_interactive mode in both Modern (Tier 1) and Legacy (Tier 2) paths upon detecting info-request challenge.',
+      'Upgraded authentication error handling in network_terminal.py and _authenticate_mikrotik_transport to completely prevent Illegal info request exceptions.'
+    ]
+  },
   {
     version: '1.283.3',
     releaseDate: '2026-10-07',

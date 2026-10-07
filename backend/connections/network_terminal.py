@@ -194,15 +194,24 @@ class NetworkTerminalSession:
         try:
             transport.auth_password(username=self.username, password=self.password)
             auth_success = transport.is_authenticated()
-        except paramiko.BadAuthenticationType:
+        except (paramiko.BadAuthenticationType, paramiko.AuthenticationException, paramiko.SSHException) as e:
             # Fallback to interactive authentication
             def interactive_handler(title, instructions, prompt_list):
-                return [self.password for _ in prompt_list]
+                res = []
+                for p_text, echo in prompt_list:
+                    p_clean = (p_text or "").strip().lower()
+                    if "user" in p_clean or "login" in p_clean:
+                        res.append(self.username or "admin")
+                    elif "pass" in p_clean or "code" in p_clean or "key" in p_clean or not p_clean:
+                        res.append(self.password or "")
+                    else:
+                        res.append(self.password or "")
+                return res
             try:
                 transport.auth_interactive(username=self.username, handler=interactive_handler)
                 auth_success = transport.is_authenticated()
-            except Exception as e:
-                raise paramiko.AuthenticationException(f"Interactive authentication failed: {e}")
+            except Exception as e_int:
+                raise paramiko.AuthenticationException(f"Interactive authentication failed: {e_int}")
 
         if not auth_success:
             raise paramiko.AuthenticationException(f"Invalid username or password for user '{self.username}'")
