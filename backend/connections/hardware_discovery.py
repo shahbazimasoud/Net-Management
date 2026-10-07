@@ -660,12 +660,20 @@ def execute_real_hardware_probe(
     try:
         channel = p_client.invoke_shell(term='vt100', width=200, height=80)
         channel.settimeout(4.0)
-        time.sleep(0.5)
+        time.sleep(0.3)
+
+        # Wake up CLI prompt and dismiss any banner or MOTD
+        channel.send("\r\n")
+        time.sleep(0.3)
 
         # Discard initial prompt/banner from buffer
         if channel.recv_ready():
             initial_data = channel.recv(4096).decode('utf-8', errors='ignore')
             raw_output_accumulated += initial_data
+
+        if password and any(p_prompt in raw_output_accumulated.lower() for p_prompt in ["password:", "passcode:"]):
+            channel.send(f"{password}\r\n")
+            time.sleep(0.4)
 
         is_cisco = "cisco" in platform.lower()
         is_mikrotik = "mikrotik" in platform.lower()

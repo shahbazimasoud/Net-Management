@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.4';
+export const APP_VERSION = '1.283.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.5',
+    releaseDate: '2026-10-07',
+    type: 'patch',
+    title: 'ارتقای تعاملات PTY، مدیریت خودکار پرامپت‌ها و رفع مسدودسازی بنرهای ورود در ترمینال تجهیزات (فاز ۲)',
+    title_en: 'Enhanced PTY Interactions, Auto-Prompt Management & Login Banner Clearance for Equipment Terminal (Phase 2)',
+    changes: [
+      'پیاده‌سازی مکانیزم بیدارباش خودکار پرامپت CLI (Prompt Wake-Up) در ماژول‌های handle_terminal و handle_port_action جهت رفع توقف سیسکو پشت بنرهای ورود و پیام‌های تأیید.',
+      'افزودن پاسخ‌دهی خودکار به پرامپت‌های ثانویه ورود (مانند Password: یا Passcode:) در ماژول‌های ports-sync، port-action و کاوشگر سخت‌افزار hardware_discovery.',
+      'جلوگیری از قطع ارتباط ناخواسته در دستورات زنده اینونتوری و هماهنگ‌سازی پورت‌ها هنگام مواجهه با TACACS+ و AAA.',
+      'جداسازی کامل استریم باینری استاندارد خروجی (stdout) از پیام‌های عیب‌یابی (stderr) جهت حفظ یکپارچگی فریم‌های JSON و پایدارسازی استریم PTY.'
+    ],
+    changes_en: [
+      'Implemented automatic CLI prompt wake-up mechanism in handle_terminal and handle_port_action to resolve Cisco hanging on login banners and acknowledgement prompts.',
+      'Added automated secondary prompt handling (Password:, Passcode:) across ports-sync, port-action, and hardware_discovery probe routines.',
+      'Prevented accidental session teardowns during live equipment inventory and port synchronization when encountering TACACS+ and AAA challenges.',
+      'Completely isolated raw binary PTY stdout stream from stderr diagnostic logs to preserve JSON framing integrity and stabilize interactive terminal sessions.'
+    ]
+  },
   {
     version: '1.283.4',
     releaseDate: '2026-10-07',

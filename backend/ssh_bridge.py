@@ -154,7 +154,20 @@ def handle_ports_sync(args):
     try:
         channel = p_client.invoke_shell(term="vt100", width=200, height=80)
         channel.settimeout(5.0)
-        time.sleep(0.5)
+        time.sleep(0.4)
+
+        # Wake up CLI prompt and dismiss any banner or MOTD
+        channel.send("\r\n")
+        time.sleep(0.3)
+
+        # Clear buffer and check if device prompted for secondary password/TACACS
+        init_buffer = ""
+        while channel.recv_ready():
+            init_buffer += channel.recv(4096).decode("utf-8", errors="ignore")
+
+        if password and any(p_prompt in init_buffer.lower() for p_prompt in ["password:", "passcode:"]):
+            channel.send(f"{password}\r\n")
+            time.sleep(0.4)
 
         is_cisco = "cisco" in platform.lower()
         commands = [
@@ -284,6 +297,16 @@ def handle_terminal(args):
     sys.stdout.flush()
 
     stop_event = threading.Event()
+
+    # Cisco prompt wake-up: many Cisco switches wait for an initial Return/Enter to display prompt
+    def wake_cisco_prompt():
+        time.sleep(0.35)
+        if not stop_event.is_set():
+            try:
+                channel.send("\r\n")
+            except Exception:
+                pass
+    threading.Thread(target=wake_cisco_prompt, daemon=True).start()
 
     def sig_handler(signum, frame):
         stop_event.set()
@@ -499,15 +522,24 @@ def handle_port_action(args):
     try:
         channel = p_client.invoke_shell(term="vt100", width=200, height=80)
         channel.settimeout(5.0)
-        time.sleep(0.4)
+        time.sleep(0.3)
 
-        # Clear initial banner / prompt
+        # Wake up CLI prompt and dismiss any banner
+        channel.send("\r\n")
+        time.sleep(0.3)
+
+        # Clear initial banner / prompt and check for secondary prompt
+        init_buffer = ""
         deadline = time.time() + 1.5
         while time.time() < deadline:
             if channel.recv_ready():
-                channel.recv(4096)
+                init_buffer += channel.recv(4096).decode("utf-8", errors="ignore")
             else:
                 time.sleep(0.1)
+
+        if password and any(p_prompt in init_buffer.lower() for p_prompt in ["password:", "passcode:"]):
+            channel.send(f"{password}\r\n")
+            time.sleep(0.4)
 
         # Send command lines
         full_output = ""
