@@ -3107,7 +3107,7 @@ apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response)
         'test-connection',
         { ...req.body, lang: isEn ? 'en' : 'fa', is_en: isEn, ssh_version: backendRes.version },
         backendRes.version,
-        18000
+        35000
       );
 
       if (pythonData && pythonData.success) {

@@ -131,35 +131,63 @@ def ensure_paramiko_compatibility(mode: Optional[str] = None) -> bool:
     try:
         # In Modern mode, legacy algorithms are strictly prohibited
         if not is_modern_mode(mode):
-            # 1. Register legacy KEX if supported (Legacy mode only)
+            legacy_kex = (
+                'diffie-hellman-group1-sha1',
+                'diffie-hellman-group14-sha1',
+                'diffie-hellman-group-exchange-sha1',
+                'diffie-hellman-group-exchange-sha256',
+            )
+            legacy_keys = (
+                'ssh-rsa',
+                'ssh-dss',
+                'rsa-sha2-256',
+                'rsa-sha2-512',
+            )
+            legacy_ciphers = (
+                'aes128-cbc',
+                '3des-cbc',
+                'aes256-cbc',
+                'aes192-cbc',
+            )
+            legacy_macs = (
+                'hmac-sha1',
+                'hmac-sha1-96',
+                'hmac-md5',
+                'hmac-md5-96',
+                'hmac-sha2-256',
+            )
+
+            # 1. Register legacy KEX prioritized at FRONT (Legacy mode only)
             if hasattr(paramiko.Transport, '_preferred_kex'):
                 existing_kex = list(paramiko.Transport._preferred_kex)
-                for k in [
-                    'diffie-hellman-group1-sha1',
-                    'diffie-hellman-group14-sha1',
-                    'diffie-hellman-group-exchange-sha1',
-                    'diffie-hellman-group-exchange-sha256',
-                ]:
-                    if k not in existing_kex:
-                        existing_kex.append(k)
-                paramiko.Transport._preferred_kex = tuple(existing_kex)
+                paramiko.Transport._preferred_kex = tuple(
+                    list(legacy_kex) + [k for k in existing_kex if k not in legacy_kex]
+                )
 
-            # 2. Register legacy Host Keys (ssh-rsa, ssh-dss) (Legacy mode only)
+            # 2. Register legacy Host Keys prioritized at FRONT (Legacy mode only)
             if hasattr(paramiko.Transport, '_preferred_keys'):
                 existing_keys = list(paramiko.Transport._preferred_keys)
-                for k in ['ssh-rsa', 'ssh-dss', 'rsa-sha2-256', 'rsa-sha2-512']:
-                    if k not in existing_keys:
-                        existing_keys.append(k)
-                paramiko.Transport._preferred_keys = tuple(existing_keys)
+                paramiko.Transport._preferred_keys = tuple(
+                    list(legacy_keys) + [k for k in existing_keys if k not in legacy_keys]
+                )
 
-            # 3. Register legacy CBC ciphers (aes128-cbc, 3des-cbc) if in _cipher_info (Legacy mode only)
+            # 3. Register legacy CBC ciphers prioritized at FRONT (Legacy mode only)
             if hasattr(paramiko.Transport, '_preferred_ciphers'):
                 existing_ciphers = list(paramiko.Transport._preferred_ciphers)
                 valid_ciphers = getattr(paramiko.Transport, '_cipher_info', {})
-                for c in ['aes128-cbc', '3des-cbc', 'aes256-cbc']:
-                    if c not in existing_ciphers and c in valid_ciphers:
-                        existing_ciphers.append(c)
-                paramiko.Transport._preferred_ciphers = tuple(existing_ciphers)
+                ciphers_to_add = [c for c in legacy_ciphers if c in valid_ciphers]
+                paramiko.Transport._preferred_ciphers = tuple(
+                    ciphers_to_add + [c for c in existing_ciphers if c not in ciphers_to_add]
+                )
+
+            # 4. Register legacy MACs prioritized at FRONT (Legacy mode only)
+            if hasattr(paramiko.Transport, '_preferred_macs'):
+                existing_macs = list(paramiko.Transport._preferred_macs)
+                valid_macs = getattr(paramiko.Transport, '_mac_info', {})
+                macs_to_add = [m for m in legacy_macs if m in valid_macs]
+                paramiko.Transport._preferred_macs = tuple(
+                    macs_to_add + [m for m in existing_macs if m not in macs_to_add]
+                )
 
         # Instrument _parse_kex_init to record the exact negotiated KEX
         orig_parse_kex_init = getattr(paramiko.Transport, '_parse_kex_init', None)
@@ -217,6 +245,8 @@ def apply_security_options_safely(
         if filtered:
             try:
                 sec.kex = filtered
+                if hasattr(transport, '_preferred_kex'):
+                    transport._preferred_kex = filtered
             except Exception:
                 pass
 
@@ -230,6 +260,8 @@ def apply_security_options_safely(
         if filtered:
             try:
                 sec.key_types = filtered
+                if hasattr(transport, '_preferred_keys'):
+                    transport._preferred_keys = filtered
             except Exception:
                 pass
 
@@ -243,6 +275,8 @@ def apply_security_options_safely(
         if filtered:
             try:
                 sec.ciphers = filtered
+                if hasattr(transport, '_preferred_ciphers'):
+                    transport._preferred_ciphers = filtered
             except Exception:
                 pass
 
@@ -256,6 +290,8 @@ def apply_security_options_safely(
         if filtered:
             try:
                 sec.digests = filtered
+                if hasattr(transport, '_preferred_macs'):
+                    transport._preferred_macs = filtered
             except Exception:
                 pass
 
@@ -334,42 +370,37 @@ def authenticate_transport(
 ) -> Tuple[bool, Optional[str]]:
     """
     Authenticates an active transport using adaptive authentication methods.
-    Supports standard password authentication as well as keyboard-interactive (AAA / TACACS+ / RADIUS / PAM).
-    Proactively checks server supported authentication methods (via auth_none probe),
-    and seamlessly handles 'Illegal info request from server' and 'No existing session' exceptions.
+    Task 1: plain auth_password must be the FIRST and normal path on a fresh transport.
+    Do NOT switch to keyboard-interactive unless the server's allowed methods
+    (from BadAuthenticationType.allowed_types or explicit interactive requirement)
+    list it and password failed.
+    Never probe auth_none prematurely when a password is provided (prevents Cisco session reset).
     """
     import paramiko
     auth_ok = False
     err_msg = None
-    interactive_handler = create_interactive_handler(username, password)
+    prompts_received = []
+
+    def tracking_interactive_handler(title: str, instructions: str, prompt_list: list) -> list:
+        responses = []
+        for prompt_text, echo in prompt_list:
+            p_clean = (prompt_text or "").strip().lower()
+            prompts_received.append(prompt_text)
+            if "user" in p_clean or "login" in p_clean:
+                responses.append(username or "admin")
+            else:
+                responses.append(password if password is not None else "")
+        return responses
 
     # Check if transport is alive before attempting authentication
     if not getattr(transport, 'active', True) or not transport.is_active():
         return False, "No existing session (transport inactive before authentication)"
 
-    # 1. Proactively inspect supported authentication methods if not explicitly specified
-    preferred_method = "interactive" if prefer_interactive else None
-    if not preferred_method:
-        try:
-            transport.auth_none(username)
-            if transport.is_authenticated():
-                return True, None
-        except paramiko.BadAuthenticationType as e_bad:
-            allowed = getattr(e_bad, "allowed_types", []) or []
-            if "keyboard-interactive" in allowed and "password" not in allowed:
-                preferred_method = "interactive"
-            elif "password" in allowed:
-                preferred_method = "password"
-        except (paramiko.SSHException, Exception) as e_probe:
-            p_str = str(e_probe).lower()
-            if "info request" in p_str or "keyboard-interactive" in p_str or "no existing session" in p_str:
-                preferred_method = "interactive"
-
-    # 2. If keyboard-interactive is preferred or exclusively supported
-    if preferred_method == "interactive":
+    # PATH A: If caller specifically requested interactive mode on a fresh transport
+    if prefer_interactive:
         if getattr(transport, 'active', True) and transport.is_active():
             try:
-                transport.auth_interactive(username=username, handler=interactive_handler)
+                transport.auth_interactive(username=username, handler=tracking_interactive_handler)
                 if transport.is_authenticated():
                     return True, None
             except Exception as e_int:
@@ -386,44 +417,47 @@ def authenticate_transport(
         else:
             return False, "No existing session (transport inactive before interactive auth)"
 
-    # 3. Standard password attempt with intelligent keyboard-interactive fallback
+    # PATH B: FIRST and normal path on a fresh transport -> Plain auth_password!
+    # No auth_none probe beforehand!
     try:
         transport.auth_password(username=username, password=password)
-        auth_ok = transport.is_authenticated()
-        if auth_ok:
+        if transport.is_authenticated():
             return True, None
-    except (paramiko.BadAuthenticationType, paramiko.AuthenticationException, paramiko.SSHException) as e:
-        err_msg = str(e)
-        is_info_request = (
-            "illegal info request" in err_msg.lower() or
-            "info request" in err_msg.lower() or
-            "no existing session" in err_msg.lower() or
-            isinstance(e, paramiko.BadAuthenticationType)
-        )
-        if is_info_request:
-            # If transport is still active, try auth_interactive in-place:
+        return False, f"Password authentication rejected for user '{username}'"
+    except paramiko.BadAuthenticationType as e_bad:
+        allowed = getattr(e_bad, "allowed_types", []) or []
+        # Do not switch to keyboard-interactive unless the server's allowed methods list it
+        if "keyboard-interactive" in allowed and "password" not in allowed:
             if getattr(transport, 'active', True) and transport.is_active():
                 try:
-                    transport.auth_interactive(username=username, handler=interactive_handler)
-                    auth_ok = transport.is_authenticated()
-                    if auth_ok:
+                    transport.auth_interactive(username=username, handler=tracking_interactive_handler)
+                    if transport.is_authenticated():
                         return True, None
                 except Exception as e_int:
-                    auth_ok = False
-                    err_msg = str(e_int)
-            else:
-                # In Paramiko, receiving an unexpected info request while auth_method != 'keyboard-interactive'
-                # causes the transport thread to terminate/close the session.
-                # Signal explicitly so caller can execute a clean reconnect in interactive mode.
-                auth_ok = False
-                err_msg = "Illegal info request from server (Keyboard-Interactive challenge required, session reset)"
-        else:
-            auth_ok = False
+                    return False, f"Keyboard-interactive auth failed for user '{username}': {e_int}"
+            return False, f"Server required keyboard-interactive (allowed methods: {allowed}); session reset"
+        return False, f"Authentication rejected for user '{username}'. Allowed methods: {allowed}"
+    except paramiko.AuthenticationException as e_auth:
+        return False, f"Authentication failed: invalid username or password for user '{username}'"
+    except paramiko.SSHException as e_ssh:
+        err_msg = str(e_ssh)
+        is_info_request = (
+            "illegal info request" in err_msg.lower() or
+            "keyboard-interactive" in err_msg.lower() or
+            "info request" in err_msg.lower()
+        )
+        if is_info_request:
+            if getattr(transport, 'active', True) and transport.is_active():
+                try:
+                    transport.auth_interactive(username=username, handler=tracking_interactive_handler)
+                    if transport.is_authenticated():
+                        return True, None
+                except Exception as e_int:
+                    return False, f"Interactive authentication challenge failed: {e_int}"
+            return False, "Illegal info request from server (Keyboard-Interactive challenge required, session reset)"
+        return False, err_msg
     except Exception as e_other:
-        auth_ok = False
-        err_msg = str(e_other)
-
-    return auth_ok, err_msg
+        return False, str(e_other)
 
 
 def extract_negotiation_info(transport: Any, tier_name: str) -> Dict[str, Any]:
@@ -941,8 +975,139 @@ def connect_ssh_device(
             ssh_version=ssh_version
         )
 
+    is_legacy_target = (ssh_version and "legacy" in str(ssh_version).lower()) or not is_modern_mode(ssh_version)
+
     # --------------------------------------------------------------------------
-    # Attempt 1: Tier 1 - Modern Fast Path
+    # Branch 1: Legacy Mode Target (Cisco Catalyst 2960/3560/3750, IOS 12/15)
+    # When legacy mode is designated, connect DIRECTLY with Legacy algorithms & 30s timeouts.
+    # Strictly avoids sending unsupported modern KEX packets to group1-only devices.
+    # --------------------------------------------------------------------------
+    if is_legacy_target:
+        logger.info(
+            f"[SSH Legacy Engine] Initiating direct legacy connection to {hostname}:{port} "
+            f"(DH Group 1/14, ssh-rsa, AES-CBC)..."
+        )
+        if on_fallback_log and callable(on_fallback_log):
+            try:
+                on_fallback_log(f"Connecting to {hostname}:{port} via Legacy SSH (DH Group 1/14, CBC)...")
+            except Exception:
+                pass
+
+        leg_timeout = max(timeout, 30.0)
+        leg_banner_timeout = max(banner_timeout, 30.0)
+        sock_leg = None
+        transport_leg = None
+        leg_error = None
+
+        try:
+            sock_leg = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock_leg.settimeout(leg_timeout)
+            sock_leg.connect((hostname, port))
+
+            transport_leg = paramiko.Transport(sock_leg)
+            apply_security_options_safely(
+                transport_leg,
+                kex_candidates=TIER2_LEGACY_KEX,
+                key_candidates=TIER2_LEGACY_KEYS,
+                cipher_candidates=TIER2_LEGACY_CIPHERS,
+                mac_candidates=TIER2_LEGACY_MACS
+            )
+            if hasattr(transport_leg, '_preferred_kex'):
+                transport_leg._preferred_kex = TIER2_LEGACY_KEX
+            if hasattr(transport_leg, '_preferred_keys'):
+                transport_leg._preferred_keys = TIER2_LEGACY_KEYS
+            if hasattr(transport_leg, '_preferred_ciphers'):
+                transport_leg._preferred_ciphers = TIER2_LEGACY_CIPHERS
+            if hasattr(transport_leg, '_preferred_macs'):
+                transport_leg._preferred_macs = TIER2_LEGACY_MACS
+
+            transport_leg.start_client(timeout=leg_banner_timeout)
+            auth_ok, auth_err = authenticate_transport(
+                transport_leg, username=username, password=password, prefer_interactive=prefer_interactive
+            )
+
+            if auth_ok and getattr(transport_leg, 'active', True) and transport_leg.is_active():
+                client._transport = transport_leg
+                client._negotiation_info = extract_negotiation_info(transport_leg, "tier2_legacy")
+                logger.info(
+                    f"[SSH Legacy SUCCESS] Connected to {hostname}:{port} | "
+                    f"KEX: {client._negotiation_info['kex']} | "
+                    f"Cipher: {client._negotiation_info['cipher']} | "
+                    f"Key: {client._negotiation_info['key_type']}"
+                )
+                return True, None
+
+            is_interactive_needed = any(kw in str(auth_err or "").lower() for kw in [
+                "illegal info request", "info request", "keyboard-interactive", "session reset"
+            ])
+            if is_interactive_needed and not prefer_interactive:
+                logger.info(f"[SSH Legacy Engine] Server requested interactive challenge. Reconnecting cleanly to {hostname}:{port}...")
+                try:
+                    transport_leg.close()
+                except Exception:
+                    pass
+                if sock_leg:
+                    try:
+                        sock_leg.close()
+                    except Exception:
+                        pass
+
+                sock_leg = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock_leg.settimeout(leg_timeout)
+                sock_leg.connect((hostname, port))
+
+                transport_leg = paramiko.Transport(sock_leg)
+                apply_security_options_safely(
+                    transport_leg,
+                    kex_candidates=TIER2_LEGACY_KEX,
+                    key_candidates=TIER2_LEGACY_KEYS,
+                    cipher_candidates=TIER2_LEGACY_CIPHERS,
+                    mac_candidates=TIER2_LEGACY_MACS
+                )
+                if hasattr(transport_leg, '_preferred_kex'):
+                    transport_leg._preferred_kex = TIER2_LEGACY_KEX
+                if hasattr(transport_leg, '_preferred_keys'):
+                    transport_leg._preferred_keys = TIER2_LEGACY_KEYS
+                if hasattr(transport_leg, '_preferred_ciphers'):
+                    transport_leg._preferred_ciphers = TIER2_LEGACY_CIPHERS
+                if hasattr(transport_leg, '_preferred_macs'):
+                    transport_leg._preferred_macs = TIER2_LEGACY_MACS
+
+                transport_leg.start_client(timeout=leg_banner_timeout)
+                auth_ok, auth_err = authenticate_transport(
+                    transport_leg, username=username, password=password, prefer_interactive=True
+                )
+                if auth_ok and getattr(transport_leg, 'active', True) and transport_leg.is_active():
+                    client._transport = transport_leg
+                    client._negotiation_info = extract_negotiation_info(transport_leg, "tier2_legacy_interactive")
+                    logger.info(
+                        f"[SSH Legacy (Interactive) SUCCESS] Connected to {hostname}:{port} | "
+                        f"KEX: {client._negotiation_info['kex']} | "
+                        f"Cipher: {client._negotiation_info['cipher']} | "
+                        f"Key: {client._negotiation_info['key_type']}"
+                    )
+                    return True, None
+
+            leg_error = auth_err or f"Authentication failed for user '{username}' on {hostname}:{port}"
+        except Exception as e_leg:
+            leg_error = str(e_leg).strip() or "Legacy handshake failed"
+        finally:
+            if not getattr(client, '_transport', None) or client._transport is not transport_leg:
+                if transport_leg:
+                    try:
+                        transport_leg.close()
+                    except Exception:
+                        pass
+                if sock_leg:
+                    try:
+                        sock_leg.close()
+                    except Exception:
+                        pass
+
+        return False, leg_error or f"Legacy connection failed on {hostname}:{port}"
+
+    # --------------------------------------------------------------------------
+    # Branch 2: Tier 1 - Modern Fast Path
     # --------------------------------------------------------------------------
     sock1 = None
     transport1 = None

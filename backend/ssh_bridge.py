@@ -79,8 +79,8 @@ def handle_probe(args):
     default_port = 23 if proto == "telnet" else 22
     port = int(data.get("ssh_port") or data.get("port") or default_port)
     username = str(data.get("ssh_username") or data.get("username") or "admin").strip()
-    password = str(data.get("ssh_password") or data.get("password") or "").strip()
-    enable_password = str(data.get("enable_password") or "").strip()
+    password = str(data.get("ssh_password") if data.get("ssh_password") is not None else (data.get("password") or ""))
+    enable_password = str(data.get("enable_password") if data.get("enable_password") is not None else "")
     platform = str(data.get("platform") or "cisco_ios_xe").strip()
     lang = str(data.get("lang") or "en").strip()
     ssh_version = str(data.get("ssh_version") or data.get("sshVersion") or ACTIVE_MODE).strip().lower()
@@ -122,22 +122,23 @@ def handle_ports_sync(args):
     host = str(conn.get("host") or device.get("ssh_host") or device.get("ip") or "").strip()
     port = int(conn.get("port") or device.get("ssh_port") or 22)
     username = str(conn.get("username") or device.get("ssh_username") or "admin").strip()
-    password = str(conn.get("password") or device.get("ssh_password") or "").strip()
+    password = str(conn.get("password") if conn.get("password") is not None else (device.get("ssh_password") or ""))
     platform = str(device.get("platform") or "cisco_ios_xe").strip()
     ssh_version = str(device.get("ssh_version") or device.get("sshVersion") or ACTIVE_MODE).strip().lower()
 
     p_client = paramiko.SSHClient()
     p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+    sync_timeout = 30.0 if "legacy" in ssh_version else 10.0
     connected, err = connect_ssh_device(
         p_client,
         hostname=host,
         port=port,
         username=username,
         password=password,
-        timeout=7.0,
-        banner_timeout=7.0,
-        auth_timeout=7.0,
+        timeout=sync_timeout,
+        banner_timeout=sync_timeout,
+        auth_timeout=sync_timeout,
         platform=platform,
         ssh_version=ssh_version,
     )
@@ -256,6 +257,8 @@ def handle_terminal(args):
     ssh_version = cfg.get("ssh_version") or ACTIVE_MODE
     prefer_interactive = bool(cfg.get("prefer_interactive", False))
 
+    term_timeout = 30.0 if "legacy" in str(ssh_version).lower() else 10.0
+
     p_client = paramiko.SSHClient()
     p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -265,9 +268,9 @@ def handle_terminal(args):
         port=port,
         username=username,
         password=password,
-        timeout=10.0,
-        banner_timeout=10.0,
-        auth_timeout=10.0,
+        timeout=term_timeout,
+        banner_timeout=term_timeout,
+        auth_timeout=term_timeout,
         platform=platform,
         ssh_version=ssh_version,
         prefer_interactive=prefer_interactive,
@@ -283,7 +286,13 @@ def handle_terminal(args):
 
     channel = None
     try:
-        channel = p_client.invoke_shell(term=term, width=cols, height=rows)
+        transport = getattr(p_client, '_transport', None) or p_client.get_transport()
+        if transport and getattr(transport, 'active', True) and transport.is_active():
+            channel = transport.open_session(timeout=term_timeout)
+            channel.get_pty(term=term, width=cols, height=rows)
+            channel.invoke_shell()
+        else:
+            channel = p_client.invoke_shell(term=term, width=cols, height=rows)
     except Exception as e_invoke:
         if "no existing session" in str(e_invoke).lower() or "session" in str(e_invoke).lower():
             try:
@@ -298,16 +307,22 @@ def handle_terminal(args):
                 port=port,
                 username=username,
                 password=password,
-                timeout=10.0,
-                banner_timeout=10.0,
-                auth_timeout=10.0,
+                timeout=term_timeout,
+                banner_timeout=term_timeout,
+                auth_timeout=term_timeout,
                 platform=platform,
                 ssh_version=ssh_version,
                 prefer_interactive=True,
             )
             if reconnected and getattr(p_client, '_transport', None) and p_client._transport.is_active():
                 try:
-                    channel = p_client.invoke_shell(term=term, width=cols, height=rows)
+                    t_re = getattr(p_client, '_transport', None) or p_client.get_transport()
+                    if t_re and getattr(t_re, 'active', True) and t_re.is_active():
+                        channel = t_re.open_session(timeout=term_timeout)
+                        channel.get_pty(term=term, width=cols, height=rows)
+                        channel.invoke_shell()
+                    else:
+                        channel = p_client.invoke_shell(term=term, width=cols, height=rows)
                 except Exception as e_re_invoke:
                     err_msg = str(e_re_invoke)
                     sys.stdout.write(f"__NETMGMT_SSH_ERROR__:{json.dumps({'error': err_msg})}\n")

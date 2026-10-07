@@ -289,12 +289,15 @@ export function setupTerminalWebSocket(
         let stdoutBuffer = '';
         let stderrBuffer = '';
 
-        const proc: ChildProcess = spawn(backendRes.pythonBin, [backendRes.scriptPath, 'terminal', configJson], {
+        const proc: ChildProcess = spawn(backendRes.pythonBin, [backendRes.scriptPath, 'terminal'], {
           cwd: projectRoot,
           env: backendRes.env,
           stdio: ['pipe', 'pipe', 'pipe'],
         });
         activeProc = proc;
+
+        // Pipe configuration JSON safely via stdin without CLI argument or shell interpolation
+        proc.stdin?.write(configJson + '\n');
 
         proc.stdout?.on('data', (chunk: Buffer) => {
           if (!isSshOpen) {
