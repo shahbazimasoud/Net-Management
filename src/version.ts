@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.6';
+export const APP_VERSION = '1.283.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.7',
+    releaseDate: '2026-10-07',
+    type: 'patch',
+    title: 'تکمیل آزمون‌های اعتبارسنجی جامع، تأیید بیلد پروژه و نهایی‌سازی بسته ۴ مرحله‌ای احراز هویت تطبیقی SSH (فاز ۴)',
+    title_en: 'Comprehensive Validation Suite, Build Verification & SSH Adaptive Auth 4-Phase Release Finalization (Phase 4)',
+    changes: [
+      'اجرای آزمون‌های اعتبارسنجی و صحت‌سنجی کامل سینتکس و ماژول‌های پایتون و تایپ‌اسکریپت در تمام لایه‌های اتصال.',
+      'تأیید موفقیت‌آمیز بیلد کامل کلاینت (Vite) و باندل سرور Node.js (esbuild) بدون هرگونه خطا یا وقفه.',
+      'همگام‌سازی نسخه‌ها و نهایی‌سازی معماری ۴ فاز برای حل ریشه‌ای خطای Illegal info request from server در تجهیزات شبکه.',
+      'آماده‌سازی پلتفرم و گزارش کامل وضعیت جهت تست و صحت‌سنجی نهایی روی سخت‌افزار واقعی تجهیزات.'
+    ],
+    changes_en: [
+      'Executed comprehensive validation checks verifying syntax and integrity across Python and TypeScript connection modules.',
+      'Successfully validated full client production build (Vite) and Node.js server bundle (esbuild) with zero build errors.',
+      'Synchronized versioning and finalized the complete 4-phase architecture to resolve the Illegal info request from server root cause on network gear.',
+      'Prepared platform verification evidence and readiness report for final on-premise hardware testing.'
+    ]
+  },
   {
     version: '1.283.6',
     releaseDate: '2026-10-07',
