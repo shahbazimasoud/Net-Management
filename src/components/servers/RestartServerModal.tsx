@@ -110,7 +110,7 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
   const [password, setPassword] = useState<string>('');
   const requiresPassword = React.useMemo(() => {
     return targetServers.some(
-      (s) => s.prompt_password_on_connect && !s.ssh_password && !s.win_password
+      (s) => s.prompt_password_on_connect && !s.ssh_password && !s.win_password && !s.win_password_set
     );
   }, [targetServers]);
 

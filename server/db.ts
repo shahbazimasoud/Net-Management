@@ -121,6 +121,7 @@ export interface RemoteServer {
   ssh_port?: number;
   ssh_username?: string;
   ssh_password?: string;
+  ssh_password_set?: boolean;
   ssh_key_path?: string;
   ssh_key?: string;
   default_shell?: 'bash' | 'zsh' | 'sh';
@@ -128,6 +129,7 @@ export interface RemoteServer {
   win_port?: number;
   win_username?: string;
   win_password?: string;
+  win_password_set?: boolean;
   win_domain?: string;
   rdp_security?: 'any' | 'nla' | 'tls' | 'rdp';
   vnc_port?: number;
@@ -4659,6 +4661,7 @@ function rowToRemoteServer(r: any): RemoteServer {
     win_port: Number(r.win_port) || 3389,
     win_username: r.win_username || 'Administrator',
     win_password: r.win_password || '',
+    win_password_set: Boolean(r.win_password && String(r.win_password).trim().length > 0),
     win_domain: r.win_domain && r.win_domain !== 'CORP.INTERNAL' ? r.win_domain : '',
     rdp_security: (['any', 'nla', 'tls', 'rdp'].includes(String(r.rdp_security || '').toLowerCase())
       ? String(r.rdp_security).toLowerCase()
@@ -4706,6 +4709,10 @@ function rowToRemoteServer(r: any): RemoteServer {
 export function sanitizeRemoteServerForClient(s: RemoteServer): RemoteServer {
   return {
     ...s,
+    win_password_set: Boolean(
+      s.win_password_set || (s.win_password && String(s.win_password).trim().length > 0)
+    ),
+    win_password: '', // Stripped to ensure zero-leak credential confidentiality
     postgres_password_set: Boolean(
       s.postgres_password_set || (s.postgres_password && String(s.postgres_password).trim().length > 0)
     ),
@@ -4845,6 +4852,7 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     win_port: Number(data.win_port) || 3389,
     win_username: data.win_username?.trim() || 'Administrator',
     win_password: data.prompt_password_on_connect ? '' : (data.win_password || ''),
+    win_password_set: Boolean(!data.prompt_password_on_connect && data.win_password && String(data.win_password).trim().length > 0),
     win_domain: data.win_domain?.trim() && data.win_domain.trim() !== 'CORP.INTERNAL' ? data.win_domain.trim() : '',
     rdp_security: (['any', 'nla', 'tls', 'rdp'].includes(String(data.rdp_security || '').toLowerCase())
       ? String(data.rdp_security).toLowerCase()
@@ -5072,7 +5080,9 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     ssh_username: updates.ssh_username !== undefined ? updates.ssh_username.trim() : current.ssh_username,
     ssh_password: updates.prompt_password_on_connect
       ? ''
-      : (updates.ssh_password !== undefined ? updates.ssh_password : current.ssh_password),
+      : (updates.ssh_password !== undefined && updates.ssh_password.trim() !== ''
+          ? updates.ssh_password.trim()
+          : (current.ssh_password || '')),
     ssh_key_path: updates.ssh_key_path !== undefined ? updates.ssh_key_path : current.ssh_key_path,
     default_shell: updates.default_shell !== undefined ? updates.default_shell : current.default_shell,
     win_protocol: updates.win_protocol !== undefined ? updates.win_protocol : current.win_protocol,
@@ -5080,7 +5090,13 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     win_username: updates.win_username !== undefined ? updates.win_username.trim() : current.win_username,
     win_password: updates.prompt_password_on_connect
       ? ''
-      : (updates.win_password !== undefined ? updates.win_password : (current as any).win_password || ''),
+      : (updates.win_password !== undefined && updates.win_password.trim() !== ''
+          ? updates.win_password.trim()
+          : ((current as any).win_password || '')),
+    win_password_set: Boolean(
+      (updates.win_password !== undefined && updates.win_password.trim().length > 0) ||
+      (!updates.prompt_password_on_connect && ((current as any).win_password && String((current as any).win_password).trim().length > 0))
+    ),
     win_domain: updates.win_domain !== undefined ? updates.win_domain.trim() : (current.win_domain && current.win_domain !== 'CORP.INTERNAL' ? current.win_domain : ''),
     rdp_security: (updates.rdp_security !== undefined
       ? (['any', 'nla', 'tls', 'rdp'].includes(String(updates.rdp_security).toLowerCase()) ? String(updates.rdp_security).toLowerCase() : 'any')

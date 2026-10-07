@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.2';
+export const APP_VERSION = '1.283.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.3',
+    releaseDate: '2026-10-07',
+    type: 'patch',
+    title: 'ارتقای امنیت گذرواژه ویندوز در مودال ویرایش سرور و تخلیه خودکار پسورد',
+    title_en: 'Enhanced Windows Password Security in Edit Server Modal with Auto-Clear Field',
+    changes: [
+      'تخلیه خودکار و نمایش خالی فیلد Windows Password در مودال ویرایش سرور (Edit Server) به منظور ارتقای امنیت و عدم نمایش رمز عبور در کلاینت (مشابه رفتار فیلد SSH Password در مودال Edit Device Properties).',
+      'حفظ هوشمندانه رمز عبور ویندوز قبلی در پایگاه داده در صورت خالی گذاشتن فیلد توسط کاربر هنگام ذخیره، همراه با راهنمای شفاف و نشانگر ثبت رمز در پایگاه داده.',
+      'پاک‌سازی (Sanitize) گذرواژه ویندوز در خروجی ای‌پی‌آی سرور و جلوگیری از ارسال متن آشکار گذرواژه به سمت مرورگر (Zero-Leak Credential Security).',
+      'تجهیز فیلد رمز عبور ویندوز به کادر راهنمای سه‌بخشی Info (این چیست، چرا لازم است و مثال کاربردی) منطبق با استانداردهای جامع مودال‌ها.'
+    ],
+    changes_en: [
+      'Automatically cleared and emptied the Windows Password field in the Edit Server modal upon opening to prevent in-client credential exposure, perfectly aligning with SSH Password behavior in Edit Device Properties modal.',
+      'Implemented intelligent password preservation so leaving the field blank preserves the existing database credential, complete with contextual hint text and "Saved in DB" status badge.',
+      'Sanitized Windows passwords in the backend API response to ensure zero plain-text credential transmission to the browser client (Zero-Leak Credential Security).',
+      'Equipped the Windows Password field with a 3-part FieldInfoTooltip (What is it, Why needed, Practical example) adhering to universal modal architectural guidelines.'
+    ]
+  },
   {
     version: '1.283.2',
     releaseDate: '2026-10-06',

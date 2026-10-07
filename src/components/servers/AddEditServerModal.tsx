@@ -230,13 +230,15 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setPromptPasswordOnConnect(Boolean(serverToEdit.prompt_password_on_connect));
         setSshPort(serverToEdit.ssh_port || 22);
         setSshUsername(serverToEdit.ssh_username || 'root');
-        setSshPassword(serverToEdit.ssh_password || '');
+        setSshPassword('');
+        setShowSshPassword(false);
         setDefaultShell(serverToEdit.default_shell || 'bash');
         setWinProtocol(serverToEdit.win_protocol || 'rdp');
         setWinPort(serverToEdit.win_port || (serverToEdit.win_protocol === 'winrm' ? 5985 : 3389));
         setWinDomain(serverToEdit.win_domain || '');
         setWinUsername(serverToEdit.win_username || 'Administrator');
-        setWinPassword(serverToEdit.win_password || '');
+        setWinPassword('');
+        setShowWinPassword(false);
         setCpuCores(serverToEdit.cpu_cores !== undefined && serverToEdit.cpu_cores !== null ? serverToEdit.cpu_cores : '');
         setRamGb(serverToEdit.ram_gb !== undefined && serverToEdit.ram_gb !== null ? serverToEdit.ram_gb : '');
         setDiskGb(serverToEdit.disk_gb !== undefined && serverToEdit.disk_gb !== null ? serverToEdit.disk_gb : '');
@@ -581,7 +583,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
           ? {
               ssh_port: Number(sshPort) || 22,
               ssh_username: sshUsername.trim() || 'root',
-              ssh_password: promptPasswordOnConnect ? '' : sshPassword,
+              ssh_password: promptPasswordOnConnect
+                ? ''
+                : (sshPassword.trim().length > 0 ? sshPassword : (serverToEdit ? undefined : '')),
               default_shell: defaultShell,
             }
           : {
@@ -589,7 +593,9 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               win_port: Number(winPort) || (winProtocol === 'winrm' ? 5985 : 3389),
               win_domain: winDomain.trim() || undefined,
               win_username: winUsername.trim() || 'Administrator',
-              win_password: promptPasswordOnConnect ? '' : winPassword,
+              win_password: promptPasswordOnConnect
+                ? ''
+                : (winPassword.trim().length > 0 ? winPassword : (serverToEdit ? undefined : '')),
             }),
       };
 
@@ -1976,7 +1982,14 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               {/* SSH Password / Auth Key */}
               <div className="space-y-1 text-xs">
                 <label className="font-medium text-slate-300 flex items-center justify-between">
-                  <span>{isEn ? 'SSH Password / Private Key Passphrase' : 'رمز عبور SSH / کلید خصوصی'}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>{isEn ? 'SSH Password / Private Key Passphrase' : 'رمز عبور SSH / کلید خصوصی'}</span>
+                    {serverToEdit && ((serverToEdit as any).ssh_password_set || Boolean(serverToEdit.ssh_password)) && !promptPasswordOnConnect && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono border border-emerald-500/30">
+                        {isEn ? 'Saved in DB' : 'در دیتابیس ثبت شده'}
+                      </span>
+                    )}
+                  </span>
                   <div className="flex items-center gap-2">
                     {!promptPasswordOnConnect && (
                       <button
@@ -2037,6 +2050,14 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                       {showSshPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
+                )}
+
+                {serverToEdit && !promptPasswordOnConnect && (
+                  <p className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isEn
+                      ? 'Leave blank to preserve current password.'
+                      : 'برای حفظ رمز عبور فعلی، این فیلد را خالی بگذارید.'}
+                  </p>
                 )}
 
                 {/* Save to Personal Vault prompt and instant button */}
@@ -2176,7 +2197,34 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                 {/* Password */}
                 <div className="space-y-1">
                   <label className="font-medium text-slate-300 flex items-center justify-between">
-                    <span>{isEn ? 'Windows Password' : 'رمز عبور ویندوز'}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span>{isEn ? 'Windows Password' : 'رمز عبور ویندوز'}</span>
+                      {serverToEdit && ((serverToEdit as any).win_password_set || Boolean(serverToEdit.win_password)) && !promptPasswordOnConnect && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono border border-emerald-500/30">
+                          {isEn ? 'Saved in DB' : 'در دیتابیس ثبت شده'}
+                        </span>
+                      )}
+                      <FieldInfoTooltip
+                        title={isEn ? 'Windows Password' : 'رمز عبور ویندوز'}
+                        whatIsIt={
+                          isEn
+                            ? 'The administrative credential used to authenticate via RDP, WinRM, or PowerShell remoting.'
+                            : 'گذرواژه حساب کاربری مدیر (Administrator) جهت احراز هویت اتصالات ریموت دسکتاپ، WinRM یا پاورشل.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Enables direct one-click remote desktop sessions. To maximize security, the password is never displayed or populated when editing; leave blank to keep the existing stored password.'
+                            : 'امکان اتصال بی‌واسطه به ریموت دسکتاپ را فراهم می‌سازد. جهت رعایت استانداردهای امنیتی، رمز عبور هرگز در حالت ویرایش نمایش داده نشده و خالی می‌ماند؛ با خالی گذاشتن آن، رمز فعلی در سرور بدون تغییر حفظ می‌شود.'
+                        }
+                        example={
+                          isEn
+                            ? 'Complex password (e.g. P@ssw0rd2026!) or leave blank to keep existing password'
+                            : 'رمز عبور پیچیده (مانند P@ssw0rd2026!) یا خالی گذاشتن برای حفظ رمز موجود'
+                        }
+                        isLightMode={isLightMode}
+                        isEn={isEn}
+                      />
+                    </span>
                     <div className="flex items-center gap-2">
                       {!promptPasswordOnConnect && (
                         <button
@@ -2237,6 +2285,14 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                         {showWinPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
                     </div>
+                  )}
+
+                  {serverToEdit && !promptPasswordOnConnect && (
+                    <p className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn
+                        ? 'Leave blank to preserve current password.'
+                        : 'برای حفظ رمز عبور فعلی، این فیلد را خالی بگذارید.'}
+                    </p>
                   )}
 
                   {/* Save to Personal Vault prompt and instant button */}

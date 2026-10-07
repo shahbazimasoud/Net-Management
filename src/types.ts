@@ -1477,6 +1477,7 @@ export interface RemoteServer {
   ssh_port?: number;
   ssh_username?: string;
   ssh_password?: string;
+  ssh_password_set?: boolean;
   ssh_key?: string;
   default_shell?: 'bash' | 'zsh' | 'sh';
   win_protocol?: 'rdp' | 'powershell' | 'winrm' | 'ssh';
@@ -1484,6 +1485,7 @@ export interface RemoteServer {
   win_domain?: string;
   win_username?: string;
   win_password?: string;
+  win_password_set?: boolean;
   rdp_security?: 'any' | 'nla' | 'tls' | 'rdp';
   vnc_port?: number;
   vnc_username?: string;
