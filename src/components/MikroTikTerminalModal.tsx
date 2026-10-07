@@ -471,14 +471,50 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
     // Connect to real hardware via interactive WebSocket streaming with keepalive
     try {
-      const devSshVersion = (curDev as any).ssh_version || (curDev as any).sshVersion;
+      const foundInAll = allDevices?.find((d) => d.id === curDev.id || (d.name && d.name.toLowerCase() === curDev.name?.toLowerCase()));
+      const fullDev = foundInAll ? { ...foundInAll, ...curDev } : curDev;
+      const effectiveHost = (
+        curDev?.ssh_host ||
+        curDev?.connection?.host ||
+        curDev?.ip ||
+        fullDev?.ssh_host ||
+        fullDev?.connection?.host ||
+        fullDev?.ip ||
+        targetHost
+      ).trim();
+      const effectivePort = Number(
+        curDev?.ssh_port ||
+        curDev?.connection?.port ||
+        fullDev?.ssh_port ||
+        fullDev?.connection?.port ||
+        targetPort ||
+        22
+      );
+      const effectiveUser = (
+        curDev?.ssh_username ||
+        curDev?.connection?.username ||
+        fullDev?.ssh_username ||
+        fullDev?.connection?.username ||
+        (curDev as any)?.user ||
+        'admin'
+      ).trim();
+      const effectivePass = (
+        curDev?.ssh_password ||
+        (curDev?.connection as any)?.password ||
+        fullDev?.ssh_password ||
+        (fullDev?.connection as any)?.password ||
+        ''
+      );
+      const devPlatform = curDev?.platform || fullDev?.platform || 'mikrotik_routeros';
+      const devSshVersion = curDev?.ssh_version || (curDev as any)?.sshVersion || fullDev?.ssh_version || (fullDev as any)?.sshVersion;
+
       const wsUrl = getTerminalWebSocketUrl(curDev.id, connProtocol, 'Super Admin', {
-        ip: curDev.ip,
-        ssh_host: curDev.ssh_host,
-        ssh_port: curDev.ssh_port,
-        ssh_username: curDev.ssh_username,
-        ssh_password: curDev.ssh_password || '',
-        platform: curDev.platform || 'mikrotik_routeros',
+        ip: effectiveHost || curDev.ip,
+        ssh_host: effectiveHost,
+        ssh_port: effectivePort,
+        ssh_username: effectiveUser,
+        ssh_password: effectivePass,
+        platform: devPlatform,
         ssh_version: devSshVersion,
       });
       const ws = new WebSocket(wsUrl);

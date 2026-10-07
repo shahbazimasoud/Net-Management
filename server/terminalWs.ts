@@ -1,14 +1,57 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { spawn, ChildProcess } from 'child_process';
+import crypto from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
+import { Client, ConnectConfig } from 'ssh2';
 import { resolveSshBackend } from './sshBackendResolver';
 
 /**
+ * Safely decrypts Fernet-encrypted tokens ('enc:fernet:...') using Node.js crypto
+ */
+function decryptFernetCredential(encrypted: string, projectRoot: string): string {
+  if (!encrypted || typeof encrypted !== 'string') return '';
+  if (!encrypted.startsWith('enc:fernet:')) return encrypted;
+
+  const tokenStr = encrypted.replace(/^enc:fernet:/, '');
+  try {
+    const raw = Buffer.from(tokenStr.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    if (raw.length < 57) return encrypted;
+
+    // Resolve 32-byte encryption key
+    let keyBuffer: Buffer | null = null;
+    const envKey = process.env.NETTOP_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY;
+    if (envKey) {
+      keyBuffer = Buffer.from(envKey.trim().replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    } else {
+      const keyPath = path.resolve(projectRoot, 'backend', 'security', '.secret.key');
+      if (fs.existsSync(keyPath)) {
+        const rawKey = fs.readFileSync(keyPath, 'utf-8').trim();
+        keyBuffer = Buffer.from(rawKey.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+      }
+    }
+
+    if (!keyBuffer || keyBuffer.length !== 32) return encrypted;
+
+    const encKey = keyBuffer.subarray(16, 32);
+    const iv = raw.subarray(9, 25);
+    const ciphertext = raw.subarray(25, raw.length - 32);
+
+    const decipher = crypto.createDecipheriv('aes-128-cbc', encKey, iv);
+    decipher.setAutoPadding(true);
+    let decrypted = decipher.update(ciphertext, undefined, 'utf-8');
+    decrypted += decipher.final('utf-8');
+    return decrypted;
+  } catch {
+    return encrypted;
+  }
+}
+
+/**
  * Terminal WebSocket Gateway
- * Supports native direct ssh2 client for real Linux remote servers and switches
- * with full interactive PTY streaming, input forwarding, and clean fallback.
+ * Supports native direct ssh2 client for real switches (Cisco, MikroTik) and Linux servers
+ * with full interactive PTY streaming, broad cipher suite negotiation, input forwarding,
+ * and seamless credential resolution.
  */
 export function setupTerminalWebSocket(
   server: http.Server,
@@ -53,120 +96,158 @@ export function setupTerminalWebSocket(
     }
 
     let rawHost = parsedUrl.searchParams.get('host') || parsedUrl.searchParams.get('ip') || '';
-    let host = rawHost === 'undefined' || rawHost === 'null' ? '' : rawHost;
+    let host = rawHost === 'undefined' || rawHost === 'null' ? '' : rawHost.trim();
     let portStr = parsedUrl.searchParams.get('port') || '22';
     let port = parseInt(portStr === 'undefined' || portStr === 'null' ? '22' : portStr, 10) || 22;
-    let rawUser = parsedUrl.searchParams.get('username') || parsedUrl.searchParams.get('user') || 'root';
-    let username = rawUser === 'undefined' || rawUser === 'null' ? 'root' : rawUser;
+    let rawUser = (parsedUrl.searchParams.get('username') || parsedUrl.searchParams.get('user') || '').trim();
+    let username = rawUser === 'undefined' || rawUser === 'null' ? '' : rawUser;
     let rawPassword = parsedUrl.searchParams.get('password') || '';
     let password = rawPassword === 'undefined' || rawPassword === 'null' ? '' : rawPassword;
     const shell = parsedUrl.searchParams.get('shell') || 'bash';
+    let devPlatform = parsedUrl.searchParams.get('platform') || '';
+    let devSshVersion = parsedUrl.searchParams.get('ssh_version') || parsedUrl.searchParams.get('sshVersion') || '';
 
-    // If host is not in query params or empty, look up in database_store.json
-    if (!host && deviceId && deviceId !== 'undefined' && deviceId !== 'null') {
-      try {
-        const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
-        if (fs.existsSync(storePath)) {
-          const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
-          const srv = (store.remote_servers || []).find(
-            (s: any) => s.id === deviceId || s.name === deviceId || s.hostname === deviceId
-          );
-          if (srv) {
-            host = srv.ip || srv.hostname || '';
-            port = srv.ssh_port || 22;
-            username = srv.ssh_username || 'root';
-            if (!password && !srv.prompt_password_on_connect) {
-              password = srv.ssh_password || '';
-            }
+    // Extract language preference
+    const rawLang = parsedUrl.searchParams.get('lang') || parsedUrl.searchParams.get('language') || 'fa';
+    const isEn = rawLang.toLowerCase() === 'en';
 
-            // Authoritative server scope check
-            const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
-            if (token) {
-              try {
-                const { verifyToken } = await import('./auth');
-                const payload = verifyToken(token);
-                if (payload) {
-                  const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
-                  const eff = await getEffectivePolicyForUser(payload);
-                  const cleanU = (payload.username || '').toLowerCase();
-                  const cleanR = (payload.role || '').toLowerCase();
-                  const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
-                  if (!isSuper && eff) {
-                    if (Array.isArray(eff.allowedServerIds)) {
-                      const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
-                      if (!allowedSet.has((srv.id || '').toLowerCase()) && !allowedSet.has((srv.name || '').toLowerCase())) {
-                        clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this server based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n' }));
-                        clientWs.close(4003, 'Forbidden');
-                        return;
-                      }
-                    }
-                    if (!isServerActionPermitted(eff, srv.id, 'terminal')) {
-                      clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: Terminal and remote shell access to this server is prohibited by your RBAC access policy.\x1b[0m\r\n' }));
+    // Authoritative lookup in database_store.json and network_data.json
+    try {
+      const storePaths = [
+        path.resolve(projectRoot, 'backend', 'database_store.json'),
+        path.resolve(projectRoot, 'backend', 'network_data.json'),
+      ];
+
+      for (const storePath of storePaths) {
+        if (!fs.existsSync(storePath)) continue;
+        const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+
+        // Check remote Linux/Windows servers
+        const srv = (store.remote_servers || []).find(
+          (s: any) =>
+            (deviceId && (s.id === deviceId || s.name === deviceId || s.hostname === deviceId)) ||
+            (host && (s.ip === host || s.hostname === host))
+        );
+
+        if (srv) {
+          if (!host) host = srv.ip || srv.hostname || '';
+          if (!port || port === 22) port = srv.ssh_port || 22;
+          if (!username) username = srv.ssh_username || 'root';
+          if (!password && !srv.prompt_password_on_connect) {
+            password = srv.ssh_password || '';
+          }
+          if (!devPlatform) devPlatform = 'generic_linux';
+
+          // Authoritative server scope check in PostgreSQL
+          const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+          if (token) {
+            try {
+              const { verifyToken } = await import('./auth');
+              const payload = verifyToken(token);
+              if (payload) {
+                const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
+                const eff = await getEffectivePolicyForUser(payload);
+                const cleanU = (payload.username || '').toLowerCase();
+                const cleanR = (payload.role || '').toLowerCase();
+                const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
+                if (!isSuper && eff) {
+                  if (Array.isArray(eff.allowedServerIds)) {
+                    const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+                    if (!allowedSet.has((srv.id || '').toLowerCase()) && !allowedSet.has((srv.name || '').toLowerCase())) {
+                      clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this server based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n' }));
                       clientWs.close(4003, 'Forbidden');
                       return;
                     }
                   }
-                }
-              } catch (authErr: any) {
-                console.warn('[TerminalWs] Scope verification notice:', authErr.message);
-              }
-            }
-          } else {
-            const dev = (store.devices || []).find((d: any) => d.id === deviceId || d.name === deviceId);
-            if (dev) {
-              host = dev.ip || '';
-              port = dev.connection?.port || dev.ssh_port || 22;
-              username = dev.connection?.username || dev.ssh_username || 'admin';
-              if (!password) {
-                password = dev.connection?.password || dev.ssh_password || '';
-              }
-
-              // Authoritative network equipment scope & terminal permission check
-              const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
-              if (token) {
-                try {
-                  const { verifyToken } = await import('./auth');
-                  const payload = verifyToken(token);
-                  if (payload) {
-                    const { getEffectivePolicyForUser, isDeviceActionPermitted } = await import('./db');
-                    const eff = await getEffectivePolicyForUser(payload);
-                    const cleanU = (payload.username || '').toLowerCase();
-                    const cleanR = (payload.role || '').toLowerCase();
-                    const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
-                    if (!isSuper && eff) {
-                      // 1. Device scope check (PostgreSQL device groups)
-                      if (Array.isArray(eff.allowedDeviceIds)) {
-                        const allowedSet = new Set(eff.allowedDeviceIds.map((id: string) => (id || '').trim().toLowerCase()));
-                        if (!allowedSet.has((dev.id || '').toLowerCase()) && !allowedSet.has((dev.name || '').toLowerCase())) {
-                          clientWs.send(JSON.stringify({
-                            type: 'output',
-                            data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this network device based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n'
-                          }));
-                          clientWs.close(4003, 'Forbidden');
-                          return;
-                        }
-                      }
-                      // 2. Granular device terminal action check
-                      if (!isDeviceActionPermitted(eff, dev.id, 'terminal')) {
-                        clientWs.send(JSON.stringify({
-                          type: 'output',
-                          data: '\r\n\x1b[31m[Access Denied]: Terminal and interactive CLI access to this network device is prohibited by your RBAC access policy in PostgreSQL.\x1b[0m\r\n'
-                        }));
-                        clientWs.close(4003, 'Forbidden');
-                        return;
-                      }
-                    }
+                  if (!isServerActionPermitted(eff, srv.id, 'terminal')) {
+                    clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: Terminal and remote shell access to this server is prohibited by your RBAC access policy.\x1b[0m\r\n' }));
+                    clientWs.close(4003, 'Forbidden');
+                    return;
                   }
-                } catch (authErr: any) {
-                  console.warn('[TerminalWs] Device scope verification notice:', authErr.message);
                 }
               }
+            } catch (authErr: any) {
+              console.warn('[TerminalWs] Scope verification notice:', authErr.message);
             }
           }
+          break;
         }
-      } catch (err) {
-        console.warn('[TerminalWs] Database store lookup warning:', err);
+
+        // Check network devices (Cisco, MikroTik, switches, routers)
+        const dev = (store.devices || []).find(
+          (d: any) =>
+            (deviceId && (d.id === deviceId || d.name === deviceId)) ||
+            (host && (d.ip === host || d.ssh_host === host || d.connection?.host === host))
+        );
+
+        if (dev) {
+          if (!host) host = dev.ssh_host || dev.connection?.host || dev.ip || '';
+          if (!port || port === 22) port = dev.connection?.port || dev.ssh_port || 22;
+          if (!username) username = dev.connection?.username || dev.ssh_username || 'admin';
+          if (!password) {
+            password = dev.connection?.password || dev.ssh_password || '';
+          }
+          if (!devPlatform) {
+            devPlatform = dev.platform || dev.device_type || '';
+          }
+          if (!devSshVersion) {
+            devSshVersion = dev.ssh_version || dev.sshVersion || (dev.platform?.includes('modern') ? 'modern' : 'legacy');
+          }
+
+          // Authoritative network equipment scope & terminal permission check in PostgreSQL
+          const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+          if (token) {
+            try {
+              const { verifyToken } = await import('./auth');
+              const payload = verifyToken(token);
+              if (payload) {
+                const { getEffectivePolicyForUser, isDeviceActionPermitted } = await import('./db');
+                const eff = await getEffectivePolicyForUser(payload);
+                const cleanU = (payload.username || '').toLowerCase();
+                const cleanR = (payload.role || '').toLowerCase();
+                const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
+                if (!isSuper && eff) {
+                  if (Array.isArray(eff.allowedDeviceIds)) {
+                    const allowedSet = new Set(eff.allowedDeviceIds.map((id: string) => (id || '').trim().toLowerCase()));
+                    if (!allowedSet.has((dev.id || '').toLowerCase()) && !allowedSet.has((dev.name || '').toLowerCase())) {
+                      clientWs.send(JSON.stringify({
+                        type: 'output',
+                        data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this network device based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n'
+                      }));
+                      clientWs.close(4003, 'Forbidden');
+                      return;
+                    }
+                  }
+                  if (!isDeviceActionPermitted(eff, dev.id, 'terminal')) {
+                    clientWs.send(JSON.stringify({
+                      type: 'output',
+                      data: '\r\n\x1b[31m[Access Denied]: Terminal and interactive CLI access to this network device is prohibited by your RBAC access policy in PostgreSQL.\x1b[0m\r\n'
+                    }));
+                    clientWs.close(4003, 'Forbidden');
+                    return;
+                  }
+                }
+              }
+            } catch (authErr: any) {
+              console.warn('[TerminalWs] Device scope verification notice:', authErr.message);
+            }
+          }
+          break;
+        }
       }
+    } catch (err) {
+      console.warn('[TerminalWs] Database store lookup warning:', err);
+    }
+
+    // Decrypt credentials if stored encrypted
+    if (password && password.startsWith('enc:fernet:')) {
+      password = decryptFernetCredential(password, projectRoot);
+    }
+
+    // Ensure username is never empty and appropriately defaulted
+    if (!username) {
+      const isLinux = devPlatform.toLowerCase().includes('linux') || shell === 'bash';
+      username = isLinux ? 'root' : 'admin';
     }
 
     const sendClient = (payload: any) => {
@@ -177,21 +258,6 @@ export function setupTerminalWebSocket(
           clientWs.send(JSON.stringify(payload));
         }
       }
-    };
-
-    // Extract language preference
-    const rawLang = parsedUrl.searchParams.get('lang') || parsedUrl.searchParams.get('language') || 'fa';
-    const isEn = rawLang.toLowerCase() === 'en';
-
-    const isInteractiveChallenge = (errStr: string): boolean => {
-      const l = (errStr || '').toLowerCase();
-      return (
-        l.includes('illegal info request') ||
-        l.includes('keyboard-interactive') ||
-        l.includes('no existing session') ||
-        l.includes('info request') ||
-        l.includes('session reset')
-      );
     };
 
     const formatTerminalError = (err: string): string => {
@@ -207,10 +273,11 @@ export function setupTerminalWebSocket(
           ? 'Interactive session challenge (Keyboard-Interactive authentication required by device)'
           : 'چالش نشست تعاملی (نیاز به احراز هویت تعاملی Keyboard-Interactive توسط تجهیز)';
       }
-      if (eLower.includes('authentication') || eLower.includes('denied') || eLower.includes('invalid username')) {
+      if (eLower.includes('authentication') || eLower.includes('denied') || eLower.includes('invalid username') || eLower.includes('auth failed')) {
+        const uDisplay = (username || '').trim() || 'admin';
         return isEn
-          ? `Authentication failed: Invalid username or password for user '${username}'`
-          : `احراز هویت ناموفق بود: نام کاربری یا کلمه عبور کاربر '${username}' نادرست است`;
+          ? `Authentication failed: Invalid username or password for user '${uDisplay}'`
+          : `احراز هویت ناموفق بود: نام کاربری یا کلمه عبور کاربر '${uDisplay}' نادرست است`;
       }
       if (eLower.includes('timed out') || eLower.includes('timeout')) {
         return isEn
@@ -230,314 +297,141 @@ export function setupTerminalWebSocket(
       return err;
     };
 
-    // Resolve device platform and SSH backend version (legacy vs modern) using single backend resolver
-    let devPlatform = parsedUrl.searchParams.get('platform') || '';
-    let devSshVersion = parsedUrl.searchParams.get('ssh_version') || parsedUrl.searchParams.get('sshVersion') || '';
-    if ((!devPlatform || !devSshVersion) && deviceId) {
-      try {
-        const storePath = path.resolve(projectRoot, 'backend', 'database_store.json');
-        if (fs.existsSync(storePath)) {
-          const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
-          const foundDev = (store.devices || []).find((d: any) => d.id === deviceId || d.name === deviceId);
-          if (foundDev) {
-            if (!devPlatform) {
-              devPlatform = foundDev.platform || foundDev.device_type || '';
-            }
-            if (!devSshVersion) {
-              devSshVersion = foundDev.ssh_version || foundDev.sshVersion || (foundDev.platform?.includes('modern') ? 'modern' : 'legacy');
-            }
-          }
-        }
-      } catch {}
-    }
-    const backendRes = resolveSshBackend(devSshVersion);
-
-    // If host is configured, establish live interactive SSH session via resolved Python Paramiko backend
+    // If host is configured, establish live interactive SSH session via native Node.js ssh2 client
     if (host && host !== '0.0.0.0') {
       sendClient({
         type: 'status',
         status: 'connecting',
         host,
         port,
-        ssh_version: backendRes.version,
+        ssh_version: devSshVersion || 'v2',
         message: isEn
-          ? `Connecting to ${host}:${port} via SSH v2 (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})...`
-          : `در حال اتصال به ${host}:${port} از طریق SSH v2 (${backendRes.version === 'modern' ? 'مدرن' : 'لگاسی'})...`,
+          ? `Connecting to ${host}:${port} via SSH v2 (${devSshVersion === 'modern' ? 'Modern' : 'Adaptive'})...`
+          : `در حال اتصال به ${host}:${port} از طریق SSH v2 (${devSshVersion === 'modern' ? 'مدرن' : 'تطبیقی'})...`,
       });
 
-      let activeProc: ChildProcess | null = null;
-      let isSshOpen = false;
-      let hasReportedError = false;
-      let isProcessExited = false;
-      let hasRetriedInteractive = false;
+      const sshConn = new Client();
+      let activeStream: any = null;
+      let isConnected = false;
+      let isCleanedUp = false;
 
-      const startSshProcess = (preferInteractive = false) => {
-        const configPayload = {
-          host,
-          port,
-          username,
-          password,
-          platform: devPlatform || 'cisco_ios_xe',
-          term: 'xterm-256color',
-          cols: 120,
-          rows: 36,
-          ssh_version: backendRes.version,
-          prefer_interactive: preferInteractive,
-        };
-        const configJson = JSON.stringify(configPayload);
-
-        let stdoutBuffer = '';
-        let stderrBuffer = '';
-
-        const proc: ChildProcess = spawn(backendRes.pythonBin, [backendRes.scriptPath, 'terminal'], {
-          cwd: projectRoot,
-          env: backendRes.env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-        activeProc = proc;
-
-        // Pipe configuration JSON safely via stdin without CLI argument or shell interpolation
-        proc.stdin?.write(configJson + '\n');
-
-        proc.stdout?.on('data', (chunk: Buffer) => {
-          if (!isSshOpen) {
-            stdoutBuffer += chunk.toString('utf-8');
-            if (stdoutBuffer.includes('__NETMGMT_SSH_OPEN__:')) {
-              const lines = stdoutBuffer.split('\n');
-              let remaining = '';
-              for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                if (line.startsWith('__NETMGMT_SSH_OPEN__:')) {
-                  isSshOpen = true;
-                  try {
-                    const meta = JSON.parse(line.replace('__NETMGMT_SSH_OPEN__:', '').trim());
-                    sendClient({
-                      type: 'status',
-                      status: 'connected',
-                      is_real: true,
-                      host,
-                      port,
-                      username,
-                      ssh_version: backendRes.version,
-                      kex: meta.kex,
-                      paramiko_version: meta.version,
-                      message: isEn
-                        ? `Live SSH connected to ${host}:${port} (${backendRes.version === 'modern' ? 'Modern' : 'Legacy'})`
-                        : `ارتباط زنده SSH با ${host}:${port} برقرار شد (${backendRes.version === 'modern' ? 'مدرن' : 'لگاسی'})`,
-                    });
-                  } catch {
-                    sendClient({
-                      type: 'status',
-                      status: 'connected',
-                      is_real: true,
-                      host,
-                      port,
-                      username,
-                      ssh_version: backendRes.version,
-                      message: isEn ? `Live SSH connected to ${host}:${port}` : `ارتباط زنده SSH با ${host}:${port} برقرار شد`,
-                    });
-                  }
-                  remaining = lines.slice(i + 1).join('\n');
-                  break;
-                } else if (line.startsWith('__NETMGMT_SSH_ERROR__:')) {
-                  hasReportedError = true;
-                  try {
-                    const errMeta = JSON.parse(line.replace('__NETMGMT_SSH_ERROR__:', '').trim());
-                    const rawErr = String(errMeta.error || '');
-                    if (!hasRetriedInteractive && isInteractiveChallenge(rawErr)) {
-                      hasRetriedInteractive = true;
-                      sendClient({
-                        type: 'status',
-                        status: 'connecting',
-                        message: isEn
-                          ? `Interactive challenge detected. Re-negotiating in Keyboard-Interactive mode...`
-                          : `پرامپت تعاملی احراز هویت شناسایی شد. در حال اتصال مجدد در حالت Keyboard-Interactive...`,
-                      });
-                      sendClient({
-                        type: 'data',
-                        data: `\r\n\x1b[36m[Adaptive SSH]\x1b[0m ${isEn ? 'Switching to Keyboard-Interactive mode...' : 'تغییر به متد احراز هویت تعاملی (Keyboard-Interactive)...'}\r\n`,
-                      });
-                      setTimeout(() => {
-                        startSshProcess(true);
-                      }, 250);
-                      return;
-                    }
-                    const formatted = formatTerminalError(rawErr);
-                    sendClient({
-                      type: 'status',
-                      status: 'failed',
-                      error: formatted,
-                      message: isEn ? `SSH Connection Failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
-                    });
-                    sendClient({
-                      type: 'error',
-                      error: formatted,
-                    });
-                  } catch {
-                    const fallbackErr = formatTerminalError(line);
-                    sendClient({
-                      type: 'status',
-                      status: 'failed',
-                      error: fallbackErr,
-                      message: isEn ? `SSH Connection Failed: ${fallbackErr}` : `خطای اتصال SSH: ${fallbackErr}`,
-                    });
-                  }
-                  return;
-                }
-              }
-              if (isSshOpen && remaining) {
-                sendClient({
-                  type: 'data',
-                  data: remaining,
-                });
-              }
-            } else if (stdoutBuffer.includes('__NETMGMT_SSH_ERROR__:')) {
-              hasReportedError = true;
-              const errLine = stdoutBuffer.split('\n').find((l) => l.startsWith('__NETMGMT_SSH_ERROR__:')) || '';
-              try {
-                const errMeta = JSON.parse(errLine.replace('__NETMGMT_SSH_ERROR__:', '').trim());
-                const rawErr = String(errMeta.error || '');
-                if (!hasRetriedInteractive && isInteractiveChallenge(rawErr)) {
-                  hasRetriedInteractive = true;
-                  sendClient({
-                    type: 'status',
-                    status: 'connecting',
-                    message: isEn
-                      ? `Interactive challenge detected. Re-negotiating in Keyboard-Interactive mode...`
-                      : `پرامپت تعاملی احراز هویت شناسایی شد. در حال اتصال مجدد در حالت Keyboard-Interactive...`,
-                  });
-                  sendClient({
-                    type: 'data',
-                    data: `\r\n\x1b[36m[Adaptive SSH]\x1b[0m ${isEn ? 'Switching to Keyboard-Interactive mode...' : 'تغییر به متد احراز هویت تعاملی (Keyboard-Interactive)...'}\r\n`,
-                  });
-                  setTimeout(() => {
-                    startSshProcess(true);
-                  }, 250);
-                  return;
-                }
-                const formatted = formatTerminalError(rawErr);
-                sendClient({
-                  type: 'status',
-                  status: 'failed',
-                  error: formatted,
-                  message: isEn ? `SSH Connection Failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
-                });
-                sendClient({
-                  type: 'error',
-                  error: formatted,
-                });
-              } catch {
-                const fallbackErr = formatTerminalError(stdoutBuffer.trim());
-                sendClient({
-                  type: 'status',
-                  status: 'failed',
-                  error: fallbackErr,
-                  message: isEn ? `SSH Connection Failed: ${fallbackErr}` : `خطای اتصال SSH: ${fallbackErr}`,
-                });
-              }
+      const cleanup = () => {
+        if (!isCleanedUp) {
+          isCleanedUp = true;
+          try {
+            if (activeStream) {
+              activeStream.end();
             }
-          } else {
-            // Stream device output live: SSH channel -> Python -> Node -> WebSocket
-            const dataStr = chunk.toString('utf-8');
-            sendClient({
-              type: 'data',
-              data: dataStr,
-            });
-          }
+          } catch {}
+          try {
+            sshConn.end();
+          } catch {}
+        }
+      };
+
+      sshConn.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+        const answers = prompts.map((p) => {
+          if (/user/i.test(p.prompt)) return username;
+          return password;
         });
+        finish(answers.length > 0 ? answers : [password]);
+      });
 
-        proc.stderr?.on('data', (chunk: Buffer) => {
-          const text = chunk.toString('utf-8');
-          stderrBuffer += text;
-          if (!text.includes('CryptographyDeprecationWarning')) {
-            console.warn(`[TerminalWs Python Stderr]:`, text.trim());
-          }
-        });
+      sshConn.on('error', (err: any) => {
+        if (!isConnected) {
+          const rawErr = err?.message || 'SSH connection error';
+          const formatted = formatTerminalError(rawErr);
+          sendClient({
+            type: 'status',
+            status: 'failed',
+            error: formatted,
+            message: isEn ? `SSH Connection Failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
+          });
+          sendClient({
+            type: 'error',
+            error: formatted,
+          });
+          sendClient({
+            type: 'data',
+            data: `\r\n\x1b[31m[${isEn ? 'SSH Connection Failed' : 'خطای اتصال SSH'}]\x1b[0m ${formatted}\r\n`,
+          });
+        }
+        cleanup();
+      });
 
-        proc.on('close', (code) => {
-          if (!isSshOpen) {
-            if (!hasReportedError) {
-              const isWarningLine = (l: string) =>
-                l.includes('CryptographyDeprecationWarning') ||
-                l.includes('TripleDES') ||
-                l.includes('cryptography.hazmat') ||
-                l.includes('site-packages/paramiko');
-              const cleanErr =
-                stderrBuffer
-                  .split('\n')
-                  .filter((l) => !isWarningLine(l) && l.trim())
-                  .join('\n')
-                  .trim() || `Process exited with code ${code}`;
-
-              if (!hasRetriedInteractive && isInteractiveChallenge(cleanErr)) {
-                hasRetriedInteractive = true;
-                sendClient({
-                  type: 'status',
-                  status: 'connecting',
-                  message: isEn
-                    ? `Interactive challenge detected. Re-negotiating in Keyboard-Interactive mode...`
-                    : `پرامپت تعاملی احراز هویت شناسایی شد. در حال اتصال مجدد در حالت Keyboard-Interactive...`,
-                });
-                sendClient({
-                  type: 'data',
-                  data: `\r\n\x1b[36m[Adaptive SSH]\x1b[0m ${isEn ? 'Switching to Keyboard-Interactive mode...' : 'تغییر به متد احراز هویت تعاملی (Keyboard-Interactive)...'}\r\n`,
-                });
-                setTimeout(() => {
-                  startSshProcess(true);
-                }, 250);
-                return;
-              }
-
-              hasReportedError = true;
-              const formatted = formatTerminalError(cleanErr);
+      sshConn.on('ready', () => {
+        isConnected = true;
+        sshConn.shell(
+          {
+            term: 'xterm-256color',
+            cols: 120,
+            rows: 36,
+          },
+          (err: any, stream: any) => {
+            if (err) {
+              const formatted = formatTerminalError(err.message);
               sendClient({
                 type: 'status',
                 status: 'failed',
                 error: formatted,
-                message: isEn ? `SSH connection failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
+                message: isEn ? `Failed to allocate terminal shell: ${formatted}` : `خطا در ایجاد پوسته ترمینال: ${formatted}`,
               });
               sendClient({
                 type: 'error',
                 error: formatted,
               });
-              sendClient({
-                type: 'data',
-                data: `\r\n\x1b[31m[${isEn ? 'SSH Connection Failed' : 'خطای اتصال SSH'}]\x1b[0m ${formatted}\r\n`,
-              });
+              cleanup();
+              return;
             }
-          } else {
+
+            activeStream = stream;
+
             sendClient({
               type: 'status',
-              status: 'disconnected',
-              message: isEn ? `SSH session closed (exit code ${code}).` : `نشست SSH بسته شد (کد خروج ${code}).`,
+              status: 'connected',
+              is_real: true,
+              host,
+              port,
+              username,
+              ssh_version: devSshVersion || 'v2',
+              message: isEn
+                ? `Live SSH connected to ${host}:${port}`
+                : `ارتباط زنده SSH با ${host}:${port} برقرار شد`,
             });
-            sendClient({
-              type: 'data',
-              data: `\r\n\x1b[33m[${isEn ? 'SSH Notice' : 'اعلان SSH'}]\x1b[0m ${isEn ? `Connection to ${host}:${port} closed.` : `ارتباط با ${host}:${port} قطع شد.`}\r\n`,
+
+            // Forward device output live directly to browser WebSocket
+            stream.on('data', (chunk: Buffer) => {
+              sendClient({
+                type: 'data',
+                data: chunk.toString('utf-8'),
+              });
+            });
+
+            stream.on('close', () => {
+              sendClient({
+                type: 'status',
+                status: 'disconnected',
+                message: isEn ? `SSH session closed.` : `نشست SSH بسته شد.`,
+              });
+              cleanup();
             });
           }
-        });
+        );
+      });
 
-        proc.on('error', (err) => {
-          console.error('[TerminalWs] Python process spawn error:', err);
+      sshConn.on('close', () => {
+        if (isConnected) {
           sendClient({
             type: 'status',
-            status: 'failed',
-            error: err.message,
-            message: isEn ? `Failed to launch SSH Python backend: ${err.message}` : `راه‌اندازی بک‌اند پایتون SSH ناموفق بود: ${err.message}`,
+            status: 'disconnected',
+            message: isEn ? `SSH connection closed.` : `ارتباط با تجهیز قطع شد.`,
           });
-          sendClient({
-            type: 'error',
-            error: err.message,
-          });
-        });
-      };
+        }
+        cleanup();
+      });
 
-      // Launch session
-      startSshProcess(false);
-
+      // Handle messages from browser WebSocket
       clientWs.on('message', (raw: WebSocket.Data) => {
-        if (!activeProc || isProcessExited || !activeProc.stdin || !activeProc.stdin.writable) return;
         try {
           const text = typeof raw === 'string' ? raw : raw.toString();
           let handledAsControl = false;
@@ -549,60 +443,115 @@ export function setupTerminalWebSocket(
                 return;
               } else if (parsed.type === 'resize') {
                 handledAsControl = true;
-                const cols = parsed.cols || 120;
-                const rows = parsed.rows || 36;
-                activeProc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'resize', cols, rows })}\n`);
+                const cols = Number(parsed.cols) || 120;
+                const rows = Number(parsed.rows) || 36;
+                if (activeStream && typeof activeStream.setWindow === 'function') {
+                  activeStream.setWindow(rows, cols, 0, 0);
+                }
                 return;
               } else if (parsed.type === 'close') {
                 handledAsControl = true;
-                activeProc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
-                setTimeout(() => {
-                  try { activeProc?.kill('SIGTERM'); } catch {}
-                }, 300);
+                cleanup();
                 return;
               } else if (parsed.type === 'input' || parsed.type === 'stdin') {
                 handledAsControl = true;
                 const inputData = parsed.data ?? '';
-                if (typeof inputData === 'string') {
-                  activeProc.stdin.write(inputData);
-                } else {
-                  activeProc.stdin.write(String(inputData));
+                if (activeStream && activeStream.writable) {
+                  activeStream.write(typeof inputData === 'string' ? inputData : String(inputData));
                 }
                 return;
               }
             }
           } catch {
-            // Not a JSON control message, fall through to raw writing
+            // Not a JSON control message
           }
 
-          if (!handledAsControl) {
-            activeProc.stdin.write(raw as any);
+          if (!handledAsControl && activeStream && activeStream.writable) {
+            activeStream.write(raw as any);
           }
         } catch (writeErr: any) {
           console.warn('[TerminalWs] Input write error:', writeErr.message);
         }
       });
 
-      const cleanup = () => {
-        if (!isProcessExited) {
-          isProcessExited = true;
-          try {
-            if (activeProc && activeProc.stdin && activeProc.stdin.writable) {
-              activeProc.stdin.write(`\x00__NETMGMT_CTL__:${JSON.stringify({ action: 'close' })}\n`);
-              activeProc.stdin.end();
-            }
-          } catch {}
-          setTimeout(() => {
-            try { activeProc?.kill('SIGTERM'); } catch {}
-            setTimeout(() => {
-              try { activeProc?.kill('SIGKILL'); } catch {}
-            }, 1000);
-          }, 300);
-        }
-      };
-
       clientWs.on('close', cleanup);
       clientWs.on('error', cleanup);
+
+      // Connect with broad, adaptive cipher suites covering modern and legacy equipment
+      const connectOptions: ConnectConfig = {
+        host,
+        port,
+        username,
+        password,
+        readyTimeout: 15000,
+        keepaliveInterval: 10000,
+        tryKeyboard: true,
+        algorithms: {
+          kex: [
+            'curve25519-sha256',
+            'curve25519-sha256@libssh.org',
+            'ecdh-sha2-nistp256',
+            'ecdh-sha2-nistp384',
+            'ecdh-sha2-nistp521',
+            'diffie-hellman-group16-sha512',
+            'diffie-hellman-group18-sha512',
+            'diffie-hellman-group-exchange-sha256',
+            'diffie-hellman-group14-sha256',
+            'diffie-hellman-group14-sha1',
+            'diffie-hellman-group-exchange-sha1',
+            'diffie-hellman-group1-sha1',
+          ],
+          cipher: [
+            'chacha20-poly1305@openssh.com',
+            'aes256-gcm@openssh.com',
+            'aes128-gcm@openssh.com',
+            'aes256-gcm',
+            'aes128-gcm',
+            'aes256-ctr',
+            'aes192-ctr',
+            'aes128-ctr',
+            'aes256-cbc',
+            'aes192-cbc',
+            'aes128-cbc',
+            '3des-cbc',
+          ],
+          serverHostKey: [
+            'ssh-ed25519',
+            'ecdsa-sha2-nistp256',
+            'ecdsa-sha2-nistp384',
+            'ecdsa-sha2-nistp521',
+            'rsa-sha2-512',
+            'rsa-sha2-256',
+            'ssh-rsa',
+            'ssh-dss',
+          ],
+          hmac: [
+            'hmac-sha2-256-etm@openssh.com',
+            'hmac-sha2-512-etm@openssh.com',
+            'hmac-sha2-256',
+            'hmac-sha2-512',
+            'hmac-sha1',
+            'hmac-sha1-96',
+            'hmac-md5',
+          ],
+        },
+      };
+
+      try {
+        sshConn.connect(connectOptions);
+      } catch (connErr: any) {
+        const formatted = formatTerminalError(connErr.message);
+        sendClient({
+          type: 'status',
+          status: 'failed',
+          error: formatted,
+          message: isEn ? `SSH Connection Failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
+        });
+        sendClient({
+          type: 'error',
+          error: formatted,
+        });
+      }
       return;
     }
 
@@ -610,8 +559,8 @@ export function setupTerminalWebSocket(
     sendClient({
       type: 'status',
       status: 'failed',
-      error: 'No target device host or IP configured for SSH connection.',
-      message: 'No target device host or IP configured for SSH connection.',
+      error: isEn ? 'No target device host or IP configured for SSH connection.' : 'آدرس IP یا هاست مقصد جهت اتصال SSH تنظیم نشده است.',
+      message: isEn ? 'No target device host or IP configured for SSH connection.' : 'آدرس IP یا هاست مقصد جهت اتصال SSH تنظیم نشده است.',
     });
   });
 }

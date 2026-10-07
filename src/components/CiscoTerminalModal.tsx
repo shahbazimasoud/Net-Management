@@ -639,31 +639,33 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     if (isOpen && device) {
       const curDev = device;
       activeDevIdRef.current = curDev.id;
-      const fullDev = allDevices?.find((d) => d.id === curDev.id || (d.name && d.name.toLowerCase() === curDev.name?.toLowerCase())) || curDev;
-      const connProtocol = (fullDev?.connection_protocol || fullDev?.connection?.protocol || curDev?.connection_protocol || curDev?.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
-      const devHost = (fullDev?.name || curDev?.name || 'SWITCH').toUpperCase();
+      const foundInAll = allDevices?.find((d) => d.id === curDev.id || (d.name && d.name.toLowerCase() === curDev.name?.toLowerCase()));
+      // Preserve active in-memory credentials from curDev over sanitized allDevices
+      const fullDev = foundInAll ? { ...foundInAll, ...curDev } : curDev;
+      const connProtocol = (curDev?.connection_protocol || curDev?.connection?.protocol || fullDev?.connection_protocol || fullDev?.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
+      const devHost = (curDev?.name || fullDev?.name || 'SWITCH').toUpperCase();
       const targetHost = (
-        fullDev?.ssh_host ||
-        fullDev?.connection?.host ||
-        fullDev?.ip ||
-        (fullDev?.connection as any)?.ip ||
         curDev?.ssh_host ||
         curDev?.connection?.host ||
         curDev?.ip ||
+        (curDev?.connection as any)?.ip ||
+        fullDev?.ssh_host ||
+        fullDev?.connection?.host ||
+        fullDev?.ip ||
         ''
       ).trim();
       const sshPort = Number(
-        fullDev?.ssh_port ||
-        fullDev?.connection?.port ||
         curDev?.ssh_port ||
         curDev?.connection?.port ||
+        fullDev?.ssh_port ||
+        fullDev?.connection?.port ||
         (connProtocol === 'telnet' ? 23 : 22)
       );
       const sshUser = (
-        fullDev?.ssh_username ||
-        fullDev?.connection?.username ||
         curDev?.ssh_username ||
         curDev?.connection?.username ||
+        fullDev?.ssh_username ||
+        fullDev?.connection?.username ||
         'admin'
       ).trim();
 
@@ -697,11 +699,11 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
       // Connect interactive WebSocket tunnel with device parameters
       try {
-        const pass = fullDev?.ssh_password || (fullDev?.connection as any)?.password || curDev?.ssh_password || (curDev?.connection as any)?.password || '';
-        const enablePass = fullDev?.enable_password || curDev?.enable_password || '';
-        const devPlatform = fullDev?.platform || curDev?.platform || fullDev?.type || curDev?.type || '';
+        const pass = curDev?.ssh_password || (curDev?.connection as any)?.password || fullDev?.ssh_password || (fullDev?.connection as any)?.password || '';
+        const enablePass = curDev?.enable_password || fullDev?.enable_password || '';
+        const devPlatform = curDev?.platform || fullDev?.platform || curDev?.type || fullDev?.type || '';
 
-        const devSshVersion = fullDev?.ssh_version || curDev?.ssh_version || (fullDev as any)?.sshVersion || (curDev as any)?.sshVersion;
+        const devSshVersion = curDev?.ssh_version || (curDev as any)?.sshVersion || fullDev?.ssh_version || (fullDev as any)?.sshVersion;
 
         const wsUrl = getTerminalWebSocketUrl(curDev.id, connProtocol, 'Super Admin', {
           ip: targetHost || curDev.ip,

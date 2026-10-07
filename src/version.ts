@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.8';
+export const APP_VERSION = '1.283.9';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.9',
+    releaseDate: '2026-10-07',
+    type: 'patch',
+    title: 'همگام‌سازی اطلاعات احراز هویت SSH از مودال ثبت تجهیز با کنسول ترمینال و پیاده‌سازی اتصال نیتیو SSH2',
+    title_en: 'Synchronize SSH credentials from Add Device modal to terminal console and implement native SSH2 streaming gateway',
+    changes: [
+      'انتقال مستقیم و بدون اتلاف مشخصات احراز هویت SSH (نام کاربری، رمز عبور، پورت، هاست و پلتفرم) از مودال ثبت تجهیز (AddDeviceModal) به کنسول ترمینال (CiscoTerminalModal و MikroTikTerminalModal) در حالت‌های Save & Terminal و باز کردن مستقیم.',
+      'جلوگیری از بازنویسی یا پاک شدن اطلاعات کاربری توسط آبجکت‌های سنیتایز شده در allDevices و اولویت قطعی مشخصات وارد شده کاربر در نشست فعال.',
+      'تجهیز گیت‌وی وب‌سوکت ترمینال (/server/terminalWs.ts) به موتور نیتیو Node.js ssh2 با پشتیبانی کامل از سایفرهای مدرن و لگاسی، احراز هویت تعاملی (keyboard-interactive)، تخصیص PTY و فورواردینگ ورودی/خروجی.',
+      'اصلاح بازیابی مشخصات از پایگاه داده و جلوگیری از نام کاربری خالی با فالبک هوشمند بر اساس نوع تجهیز (admin برای تجهیزات شبکه و root برای سرورها).',
+      'افزودن دکمه دسترسی سریع به ترمینال در بنر موفقیت تست SSH مودال ثبت تجهیز.'
+    ],
+    changes_en: [
+      'Directly passed and synchronized in-memory SSH credentials (username, password, port, host, platform) from AddDeviceModal to CiscoTerminalModal and MikroTikTerminalModal for both Save & Terminal and direct terminal actions.',
+      'Prevented sanitized device objects in allDevices from overriding active credentials, ensuring in-memory device credentials take precedence.',
+      'Equipped terminal WebSocket gateway (/server/terminalWs.ts) with native Node.js ssh2 engine featuring broad cipher suites, keyboard-interactive authentication, interactive PTY allocation, and bidirectional streaming.',
+      'Refined database store lookup and prevented empty usernames by intelligently defaulting based on target device type (admin for network equipment, root for servers).',
+      'Added a quick terminal launch button within the SSH test success banner in the Add Device modal.'
+    ]
+  },
   {
     version: '1.283.8',
     releaseDate: '2026-10-07',

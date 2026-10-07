@@ -547,11 +547,12 @@ export function getTerminalWebSocketUrl(
   if (protocol) query.set('protocol', protocol);
   if (role) query.set('role', role);
   if (deviceInfo) {
-    const h = deviceInfo.ssh_host || deviceInfo.ip;
+    const h = (deviceInfo.ssh_host || deviceInfo.ip || '').trim();
     if (h) query.set('host', h);
     if (deviceInfo.ssh_port) query.set('port', String(deviceInfo.ssh_port));
-    if (deviceInfo.ssh_username) query.set('username', deviceInfo.ssh_username);
-    const pass = deviceInfo.ssh_password || deviceInfo.password;
+    const u = (deviceInfo.ssh_username || '').trim();
+    if (u) query.set('username', u);
+    const pass = deviceInfo.ssh_password || deviceInfo.password || '';
     if (pass) query.set('password', pass);
     if (deviceInfo.enable_password) query.set('enable_password', deviceInfo.enable_password);
     if (deviceInfo.platform) query.set('platform', deviceInfo.platform);

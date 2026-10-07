@@ -207,6 +207,8 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
 
   const handleOpenDirectTerminal = () => {
     const targetHost = (sshHost || ip || '').trim();
+    const cleanUser = sshUsername.trim() || 'admin';
+    const cleanPort = Number(sshPort) || (connectionProtocol === 'telnet' ? 23 : 22);
     const constructedDevice: Device = {
       id: `dev-preview-${Date.now()}`,
       name: name.trim() || targetHost || 'New Device',
@@ -225,11 +227,21 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
       lldp_enabled: true,
       connection_protocol: connectionProtocol,
       ssh_host: targetHost,
-      ssh_port: Number(sshPort) || (connectionProtocol === 'telnet' ? 23 : 22),
-      ssh_username: sshUsername.trim() || 'admin',
+      ssh_port: cleanPort,
+      ssh_username: cleanUser,
       ssh_password: sshPassword,
       enable_password: enablePassword,
       platform: platform,
+      ssh_version: sshVersion,
+      connection: {
+        protocol: connectionProtocol,
+        host: targetHost,
+        port: cleanPort,
+        username: cleanUser,
+        password: sshPassword,
+        connection_timeout: 4000,
+        ssh_version: sshVersion,
+      },
     };
 
     if (onOpenTerminal) {
@@ -882,9 +894,32 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         setSshTestResult(null);
         setPingTestResult(null);
       } else if (action === 'save_terminal') {
-        const devForTerminal: Device = (created as Device) || {
+        const cleanUser = sshUsername.trim() || 'admin';
+        const targetHost = (sshHost.trim() || ip.trim());
+        const cleanPort = Number(sshPort) || (connectionProtocol === 'telnet' ? 23 : 22);
+        const devForTerminal: Device = {
           ...devicePayload,
-          id: `dev-${Date.now()}`,
+          ...(created || {}),
+          id: (created as Device)?.id || `dev-${Date.now()}`,
+          name: name.trim() || targetHost || 'New Device',
+          ip: ip.trim() || targetHost,
+          ssh_host: targetHost,
+          ssh_port: cleanPort,
+          ssh_username: cleanUser,
+          ssh_password: sshPassword,
+          enable_password: enablePassword,
+          platform: platform,
+          ssh_version: sshVersion,
+          connection_protocol: connectionProtocol,
+          connection: {
+            protocol: connectionProtocol,
+            host: targetHost,
+            port: cleanPort,
+            username: cleanUser,
+            password: sshPassword,
+            connection_timeout: 4000,
+            ssh_version: sshVersion,
+          },
         };
         onClose();
         if (onOpenTerminal) {
@@ -1722,6 +1757,25 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                           {sshTestResult.negotiation?.cipher || (sshTestResult as any).ssh_negotiation?.cipher || '—'}
                         </span>
                       </div>
+                    </div>
+                  )}
+
+                  {sshTestResult.success && (
+                    <div className="mt-2.5 pt-2 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
+                        {isEn
+                          ? 'Credentials verified! Launch interactive CLI terminal directly with these tested credentials:'
+                          : 'احراز هویت با موفقیت تایید شد! ورود مستقیم به کنسول ترمینال با همین مشخصات:'}
+                      </div>
+                      <button
+                        type="button"
+                        id="btn-open-terminal-verified"
+                        onClick={handleOpenDirectTerminal}
+                        className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition shadow-xs cursor-pointer"
+                      >
+                        <Terminal className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Open Terminal with These Credentials' : 'ورود به کنسول ترمینال با این مشخصات'}</span>
+                      </button>
                     </div>
                   )}
                 </div>
