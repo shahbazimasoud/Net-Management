@@ -281,7 +281,55 @@ def handle_terminal(args):
         sys.stderr.flush()
         sys.exit(1)
 
-    channel = p_client.invoke_shell(term=term, width=cols, height=rows)
+    channel = None
+    try:
+        channel = p_client.invoke_shell(term=term, width=cols, height=rows)
+    except Exception as e_invoke:
+        if "no existing session" in str(e_invoke).lower() or "session" in str(e_invoke).lower():
+            try:
+                p_client.close()
+            except Exception:
+                pass
+            p_client = paramiko.SSHClient()
+            p_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            reconnected, re_err = connect_ssh_device(
+                p_client,
+                hostname=host,
+                port=port,
+                username=username,
+                password=password,
+                timeout=10.0,
+                banner_timeout=10.0,
+                auth_timeout=10.0,
+                platform=platform,
+                ssh_version=ssh_version,
+                prefer_interactive=True,
+            )
+            if reconnected and getattr(p_client, '_transport', None) and p_client._transport.is_active():
+                try:
+                    channel = p_client.invoke_shell(term=term, width=cols, height=rows)
+                except Exception as e_re_invoke:
+                    err_msg = str(e_re_invoke)
+                    sys.stdout.write(f"__NETMGMT_SSH_ERROR__:{json.dumps({'error': err_msg})}\n")
+                    sys.stdout.flush()
+                    sys.stderr.write(f"SSH Connection Failed: {err_msg}\n")
+                    sys.stderr.flush()
+                    sys.exit(1)
+            else:
+                err_msg = str(re_err or e_invoke)
+                sys.stdout.write(f"__NETMGMT_SSH_ERROR__:{json.dumps({'error': err_msg})}\n")
+                sys.stdout.flush()
+                sys.stderr.write(f"SSH Connection Failed: {err_msg}\n")
+                sys.stderr.flush()
+                sys.exit(1)
+        else:
+            err_msg = str(e_invoke)
+            sys.stdout.write(f"__NETMGMT_SSH_ERROR__:{json.dumps({'error': err_msg})}\n")
+            sys.stdout.flush()
+            sys.stderr.write(f"SSH Connection Failed: {err_msg}\n")
+            sys.stderr.flush()
+            sys.exit(1)
+
     channel.settimeout(0.0)
 
     # Inform wrapper that channel is open

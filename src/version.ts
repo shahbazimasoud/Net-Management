@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.7';
+export const APP_VERSION = '1.283.8';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.283.8',
+    releaseDate: '2026-10-07',
+    type: 'patch',
+    title: 'رفع ریشه‌ای خطای No existing session از طریق مدیریت بسته‌شدن نشست در چالش‌های احراز هویت و اتصال مجدد تعاملی',
+    title_en: 'Root-Cause Resolution for No existing session Error via Resilient Session Lifecycle & Adaptive Interactive Reconnect',
+    changes: [
+      'ریشه‌یابی و رفع خطای No existing session ناشی از تلاش برای فراخوانی auth_interactive یا invoke_shell بر روی نشست‌هایی که پس از دریافت Info Request از سوی تجهیز بسته شده بودند.',
+      'افزودن بررسی وضعیت فعال بودن نشست (is_active) در ماژول authenticate_transport و جلوگیری از ابطال سوکت با اتصال تمیز مجدد در حالت تعاملی (Keyboard-Interactive).',
+      'تجهیز ماژول‌های ssh_bridge.py و network_terminal.py به مکانیزم بازتلاش خودکار در صورت بروز خطای No existing session هنگام بازگشایی کانال شل (invoke_shell).',
+      'ارتقای لایه گیت‌وی وب‌سوکت terminalWs.ts جهت شناسایی هوشمند خطای No existing session و فعال‌سازی خودکار نشست تعاملی با فرمت‌بندی استاندارد دوزبانه.'
+    ],
+    changes_en: [
+      'Diagnosed and resolved the root cause of "No existing session" occurring when invoking auth_interactive or invoke_shell on transports invalidated after server Info Request challenge.',
+      'Added strict transport vitality validation (is_active) in authenticate_transport with seamless fresh socket reconnect in Keyboard-Interactive mode.',
+      'Equipped ssh_bridge.py and network_terminal.py with automated self-healing retry upon encountering "No existing session" during shell channel invocation (invoke_shell).',
+      'Enhanced terminalWs.ts WebSocket gateway to intelligently detect "No existing session" challenges and automatically re-negotiate in Keyboard-Interactive mode with strict bilingual formatting.'
+    ]
+  },
   {
     version: '1.283.7',
     releaseDate: '2026-10-07',

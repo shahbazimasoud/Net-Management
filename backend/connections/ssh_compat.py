@@ -301,6 +301,7 @@ def is_handshake_or_algo_mismatch(exc: Exception) -> bool:
         "closed by remote",
         "packet",
         "session closed",
+        "no existing session",
     ]
     return any(ind in msg for ind in algo_indicators)
 
@@ -335,12 +336,16 @@ def authenticate_transport(
     Authenticates an active transport using adaptive authentication methods.
     Supports standard password authentication as well as keyboard-interactive (AAA / TACACS+ / RADIUS / PAM).
     Proactively checks server supported authentication methods (via auth_none probe),
-    and seamlessly handles 'Illegal info request from server' exceptions.
+    and seamlessly handles 'Illegal info request from server' and 'No existing session' exceptions.
     """
     import paramiko
     auth_ok = False
     err_msg = None
     interactive_handler = create_interactive_handler(username, password)
+
+    # Check if transport is alive before attempting authentication
+    if not getattr(transport, 'active', True) or not transport.is_active():
+        return False, "No existing session (transport inactive before authentication)"
 
     # 1. Proactively inspect supported authentication methods if not explicitly specified
     preferred_method = "interactive" if prefer_interactive else None
@@ -355,25 +360,31 @@ def authenticate_transport(
                 preferred_method = "interactive"
             elif "password" in allowed:
                 preferred_method = "password"
-        except Exception:
-            pass
+        except (paramiko.SSHException, Exception) as e_probe:
+            p_str = str(e_probe).lower()
+            if "info request" in p_str or "keyboard-interactive" in p_str or "no existing session" in p_str:
+                preferred_method = "interactive"
 
     # 2. If keyboard-interactive is preferred or exclusively supported
     if preferred_method == "interactive":
-        try:
-            transport.auth_interactive(username=username, handler=interactive_handler)
-            if transport.is_authenticated():
-                return True, None
-        except Exception as e_int:
-            err_msg = str(e_int)
-            # If interactive failed, attempt password as secondary fallback
+        if getattr(transport, 'active', True) and transport.is_active():
             try:
-                transport.auth_password(username=username, password=password)
+                transport.auth_interactive(username=username, handler=interactive_handler)
                 if transport.is_authenticated():
                     return True, None
-            except Exception:
-                pass
-        return False, err_msg or f"Interactive authentication failed for user '{username}'"
+            except Exception as e_int:
+                err_msg = str(e_int)
+                # If interactive failed on active transport, attempt password as secondary fallback
+                if getattr(transport, 'active', True) and transport.is_active():
+                    try:
+                        transport.auth_password(username=username, password=password)
+                        if transport.is_authenticated():
+                            return True, None
+                    except Exception:
+                        pass
+            return False, err_msg or f"Interactive authentication failed for user '{username}'"
+        else:
+            return False, "No existing session (transport inactive before interactive auth)"
 
     # 3. Standard password attempt with intelligent keyboard-interactive fallback
     try:
@@ -386,17 +397,28 @@ def authenticate_transport(
         is_info_request = (
             "illegal info request" in err_msg.lower() or
             "info request" in err_msg.lower() or
+            "no existing session" in err_msg.lower() or
             isinstance(e, paramiko.BadAuthenticationType)
         )
-        if is_info_request or not auth_ok:
-            try:
-                transport.auth_interactive(username=username, handler=interactive_handler)
-                auth_ok = transport.is_authenticated()
-                if auth_ok:
-                    return True, None
-            except Exception as e_int:
+        if is_info_request:
+            # If transport is still active, try auth_interactive in-place:
+            if getattr(transport, 'active', True) and transport.is_active():
+                try:
+                    transport.auth_interactive(username=username, handler=interactive_handler)
+                    auth_ok = transport.is_authenticated()
+                    if auth_ok:
+                        return True, None
+                except Exception as e_int:
+                    auth_ok = False
+                    err_msg = str(e_int)
+            else:
+                # In Paramiko, receiving an unexpected info request while auth_method != 'keyboard-interactive'
+                # causes the transport thread to terminate/close the session.
+                # Signal explicitly so caller can execute a clean reconnect in interactive mode.
                 auth_ok = False
-                err_msg = str(e_int)
+                err_msg = "Illegal info request from server (Keyboard-Interactive challenge required, session reset)"
+        else:
+            auth_ok = False
     except Exception as e_other:
         auth_ok = False
         err_msg = str(e_other)
@@ -971,7 +993,7 @@ def connect_ssh_device(
             transport1, username=username, password=password, prefer_interactive=prefer_interactive
         )
 
-        if auth_ok:
+        if auth_ok and getattr(transport1, 'active', True) and transport1.is_active():
             # Succeeded on Tier 1 (Modern Fast Path)!
             client._transport = transport1
             client._negotiation_info = extract_negotiation_info(transport1, "tier1_modern")
@@ -983,8 +1005,11 @@ def connect_ssh_device(
             )
             return True, None
         else:
-            # If server requested interactive auth (e.g. Illegal info request occurred), reconnect with interactive mode
-            if "illegal info request" in str(auth_err or "").lower() or "info request" in str(auth_err or "").lower():
+            # If server requested interactive auth or closed session due to info request, reconnect with interactive mode
+            is_interactive_needed = any(kw in str(auth_err or "").lower() for kw in [
+                "illegal info request", "info request", "keyboard-interactive", "no existing session", "session reset"
+            ])
+            if is_interactive_needed and not prefer_interactive:
                 logger.info(f"[SSH Tier 1 Fast Path] Server requested keyboard-interactive. Reconnecting to {hostname}:{port} in interactive mode...")
                 try:
                     transport1.close()
@@ -1012,7 +1037,7 @@ def connect_ssh_device(
                 auth_ok, auth_err = authenticate_transport(
                     transport1, username=username, password=password, prefer_interactive=True
                 )
-                if auth_ok:
+                if auth_ok and getattr(transport1, 'active', True) and transport1.is_active():
                     client._transport = transport1
                     client._negotiation_info = extract_negotiation_info(transport1, "tier1_modern_interactive")
                     logger.info(
@@ -1041,7 +1066,7 @@ def connect_ssh_device(
                     pass
 
     # If the modern attempt failed strictly due to invalid credentials, do not retry
-    if tier1_auth_failed:
+    if tier1_auth_failed and not any(kw in str(tier1_error or "").lower() for kw in ["illegal info request", "info request", "keyboard-interactive", "no existing session", "session reset"]):
         return False, f"Invalid username or password for user '{username}' on {hostname}:{port}"
 
     # If the error is NOT an algorithm/handshake mismatch (e.g. host unreachable, connection refused), do not retry
@@ -1088,7 +1113,7 @@ def connect_ssh_device(
             transport2, username=username, password=password, prefer_interactive=prefer_interactive
         )
 
-        if auth_ok2:
+        if auth_ok2 and getattr(transport2, 'active', True) and transport2.is_active():
             # Succeeded on Tier 2 (Legacy Fallback)!
             client._transport = transport2
             client._negotiation_info = extract_negotiation_info(transport2, "tier2_legacy_fallback")
@@ -1100,7 +1125,10 @@ def connect_ssh_device(
             )
             return True, None
         else:
-            if "illegal info request" in str(auth_err2 or "").lower() or "info request" in str(auth_err2 or "").lower():
+            is_interactive_needed2 = any(kw in str(auth_err2 or "").lower() for kw in [
+                "illegal info request", "info request", "keyboard-interactive", "no existing session", "session reset"
+            ])
+            if is_interactive_needed2 and not prefer_interactive:
                 logger.info(f"[SSH Tier 2 Fallback] Server requested keyboard-interactive. Reconnecting to {hostname}:{port} in interactive mode...")
                 try:
                     transport2.close()
@@ -1128,7 +1156,7 @@ def connect_ssh_device(
                 auth_ok2, auth_err2 = authenticate_transport(
                     transport2, username=username, password=password, prefer_interactive=True
                 )
-                if auth_ok2:
+                if auth_ok2 and getattr(transport2, 'active', True) and transport2.is_active():
                     client._transport = transport2
                     client._negotiation_info = extract_negotiation_info(transport2, "tier2_legacy_interactive")
                     logger.info(
@@ -1204,8 +1232,8 @@ def open_adaptive_shell_channel(
         platform=platform
     )
 
-    if not connected or not getattr(client, '_transport', None):
-        return None, None, None, {}, err or "Connection failed"
+    if not connected or not getattr(client, '_transport', None) or not client._transport.is_active():
+        return None, None, None, {}, err or "Connection failed (session inactive)"
 
     transport = client._transport
     info = getattr(client, '_negotiation_info', {})
@@ -1217,6 +1245,40 @@ def open_adaptive_shell_channel(
         channel.settimeout(0.0)  # Non-blocking for event loops
         return channel, transport, client, info, None
     except Exception as e:
+        if "no existing session" in str(e).lower() or "session" in str(e).lower():
+            logger.warning(f"[SSH Shell] Channel creation encountered '{e}'. Reconnecting on fresh interactive transport...")
+            try:
+                transport.close()
+            except Exception:
+                pass
+            client2 = paramiko.SSHClient()
+            client2.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            conn2, err2 = connect_ssh_device(
+                client2,
+                hostname=hostname,
+                port=port,
+                username=username,
+                password=password,
+                timeout=timeout,
+                banner_timeout=timeout,
+                auth_timeout=timeout,
+                on_fallback_log=fallback_cb,
+                platform=platform,
+                prefer_interactive=True
+            )
+            if conn2 and getattr(client2, '_transport', None) and client2._transport.is_active():
+                t2 = client2._transport
+                try:
+                    ch2 = t2.open_session(timeout=timeout)
+                    ch2.get_pty(term=term_name, width=cols, height=rows)
+                    ch2.invoke_shell()
+                    ch2.settimeout(0.0)
+                    return ch2, t2, client2, getattr(client2, '_negotiation_info', {}), None
+                except Exception as e2:
+                    try:
+                        t2.close()
+                    except Exception:
+                        pass
         try:
             transport.close()
         except Exception:

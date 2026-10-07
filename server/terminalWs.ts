@@ -183,12 +183,29 @@ export function setupTerminalWebSocket(
     const rawLang = parsedUrl.searchParams.get('lang') || parsedUrl.searchParams.get('language') || 'fa';
     const isEn = rawLang.toLowerCase() === 'en';
 
+    const isInteractiveChallenge = (errStr: string): boolean => {
+      const l = (errStr || '').toLowerCase();
+      return (
+        l.includes('illegal info request') ||
+        l.includes('keyboard-interactive') ||
+        l.includes('no existing session') ||
+        l.includes('info request') ||
+        l.includes('session reset')
+      );
+    };
+
     const formatTerminalError = (err: string): string => {
       const eLower = (err || '').toLowerCase();
-      if (eLower.includes('illegal info request') || eLower.includes('keyboard-interactive')) {
+      if (
+        eLower.includes('no existing session') ||
+        eLower.includes('illegal info request') ||
+        eLower.includes('keyboard-interactive') ||
+        eLower.includes('session closed') ||
+        eLower.includes('session reset')
+      ) {
         return isEn
-          ? 'Interactive authentication challenge rejected by device (Keyboard-Interactive)'
-          : 'عدم تطابق پرامپت تعاملی احراز هویت توسط تجهیز (Keyboard-Interactive)';
+          ? 'Interactive session challenge (Keyboard-Interactive authentication required by device)'
+          : 'چالش نشست تعاملی (نیاز به احراز هویت تعاملی Keyboard-Interactive توسط تجهیز)';
       }
       if (eLower.includes('authentication') || eLower.includes('denied') || eLower.includes('invalid username')) {
         return isEn
@@ -324,7 +341,7 @@ export function setupTerminalWebSocket(
                   try {
                     const errMeta = JSON.parse(line.replace('__NETMGMT_SSH_ERROR__:', '').trim());
                     const rawErr = String(errMeta.error || '');
-                    if (!hasRetriedInteractive && (rawErr.toLowerCase().includes('illegal info request') || rawErr.toLowerCase().includes('keyboard-interactive'))) {
+                    if (!hasRetriedInteractive && isInteractiveChallenge(rawErr)) {
                       hasRetriedInteractive = true;
                       sendClient({
                         type: 'status',
@@ -377,7 +394,7 @@ export function setupTerminalWebSocket(
               try {
                 const errMeta = JSON.parse(errLine.replace('__NETMGMT_SSH_ERROR__:', '').trim());
                 const rawErr = String(errMeta.error || '');
-                if (!hasRetriedInteractive && (rawErr.toLowerCase().includes('illegal info request') || rawErr.toLowerCase().includes('keyboard-interactive'))) {
+                if (!hasRetriedInteractive && isInteractiveChallenge(rawErr)) {
                   hasRetriedInteractive = true;
                   sendClient({
                     type: 'status',
@@ -449,7 +466,7 @@ export function setupTerminalWebSocket(
                   .join('\n')
                   .trim() || `Process exited with code ${code}`;
 
-              if (!hasRetriedInteractive && (cleanErr.toLowerCase().includes('illegal info request') || cleanErr.toLowerCase().includes('keyboard-interactive'))) {
+              if (!hasRetriedInteractive && isInteractiveChallenge(cleanErr)) {
                 hasRetriedInteractive = true;
                 sendClient({
                   type: 'status',

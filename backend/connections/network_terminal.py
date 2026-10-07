@@ -207,11 +207,33 @@ class NetworkTerminalSession:
                     else:
                         res.append(self.password or "")
                 return res
-            try:
-                transport.auth_interactive(username=self.username, handler=interactive_handler)
-                auth_success = transport.is_authenticated()
-            except Exception as e_int:
-                raise paramiko.AuthenticationException(f"Interactive authentication failed: {e_int}")
+
+            if getattr(transport, 'active', True) and transport.is_active():
+                try:
+                    transport.auth_interactive(username=self.username, handler=interactive_handler)
+                    auth_success = transport.is_authenticated()
+                except Exception:
+                    auth_success = False
+
+            if not auth_success:
+                # If session was closed by server during password attempt, reconnect cleanly on fresh socket
+                try:
+                    transport.close()
+                except Exception:
+                    pass
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(timeout)
+                    sock.connect((self.host, self.port))
+                    transport = paramiko.Transport(sock)
+                    sec = transport.get_security_options()
+                    sec.kex = ('diffie-hellman-group14-sha1', 'diffie-hellman-group-exchange-sha1', 'diffie-hellman-group1-sha1') + tuple(k for k in sec.kex if k not in ('diffie-hellman-group14-sha1', 'diffie-hellman-group-exchange-sha1', 'diffie-hellman-group1-sha1'))
+                    sec.key_types = ('ssh-rsa', 'ssh-dss') + tuple(k for k in sec.key_types if k not in ('ssh-rsa', 'ssh-dss'))
+                    transport.start_client(timeout=timeout)
+                    transport.auth_interactive(username=self.username, handler=interactive_handler)
+                    auth_success = transport.is_authenticated()
+                except Exception as e_fresh:
+                    auth_success = False
 
         if not auth_success:
             raise paramiko.AuthenticationException(f"Invalid username or password for user '{self.username}'")
