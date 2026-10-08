@@ -491,54 +491,68 @@ export function setupTerminalWebSocket(
       // Handle messages from browser WebSocket: raw keystrokes and JSON control messages
       clientWs.on('message', (raw: WebSocket.Data) => {
         try {
-          if (Buffer.isBuffer(raw)) {
-            if (activeStream && activeStream.writable) {
-              activeStream.write(raw);
-              return;
-            }
+          // Normalize raw WebSocket data into text
+          let text = '';
+          if (typeof raw === 'string') {
+            text = raw;
+          } else if (Buffer.isBuffer(raw)) {
+            text = raw.toString('utf-8');
+          } else if (Array.isArray(raw)) {
+            text = Buffer.concat(raw).toString('utf-8');
+          } else if (raw instanceof ArrayBuffer) {
+            text = Buffer.from(raw).toString('utf-8');
+          } else {
+            text = String(raw);
           }
 
-          const text = typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf-8') : String(raw);
           let handledAsControl = false;
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed && typeof parsed === 'object') {
-              if (parsed.type === 'ping') {
-                sendClient({ type: 'pong' });
-                return;
-              } else if (parsed.type === 'resize') {
-                handledAsControl = true;
-                const cols = parseInt(parsed.cols, 10) || 120;
-                const rows = parseInt(parsed.rows, 10) || 36;
-                currentCols = cols;
-                currentRows = rows;
-                if (activeStream && typeof activeStream.setWindow === 'function') {
-                  try {
-                    activeStream.setWindow(rows, cols, 0, 0);
-                  } catch (resizeErr: any) {
-                    console.warn('[TerminalWs] setWindow resize error:', resizeErr?.message);
+          const trimmed = text.trim();
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              const parsed = JSON.parse(trimmed);
+              if (parsed && typeof parsed === 'object') {
+                if (parsed.type === 'ping') {
+                  sendClient({ type: 'pong' });
+                  return;
+                } else if (parsed.type === 'resize') {
+                  handledAsControl = true;
+                  const cols = parseInt(parsed.cols, 10) || 120;
+                  const rows = parseInt(parsed.rows, 10) || 36;
+                  currentCols = cols;
+                  currentRows = rows;
+                  if (activeStream && typeof activeStream.setWindow === 'function') {
+                    try {
+                      activeStream.setWindow(rows, cols, 0, 0);
+                    } catch (resizeErr: any) {
+                      console.warn('[TerminalWs] setWindow resize error:', resizeErr?.message);
+                    }
                   }
+                  return;
+                } else if (parsed.type === 'close') {
+                  handledAsControl = true;
+                  cleanup();
+                  return;
+                } else if (parsed.type === 'input' || parsed.type === 'stdin') {
+                  handledAsControl = true;
+                  const inputData = parsed.data !== undefined ? parsed.data : '';
+                  if (activeStream && activeStream.writable) {
+                    activeStream.write(typeof inputData === 'string' ? inputData : String(inputData));
+                  }
+                  return;
                 }
-                return;
-              } else if (parsed.type === 'close') {
-                handledAsControl = true;
-                cleanup();
-                return;
-              } else if (parsed.type === 'input' || parsed.type === 'stdin') {
-                handledAsControl = true;
-                const inputData = parsed.data ?? '';
-                if (activeStream && activeStream.writable) {
-                  activeStream.write(typeof inputData === 'string' ? inputData : String(inputData));
-                }
-                return;
               }
+            } catch {
+              // Not valid JSON: proceed to treat as raw keystroke data
             }
-          } catch {
-            // Not a JSON control message: treat as raw keystroke data
           }
 
+          // Not a recognized JSON control message: send raw input directly to active PTY stream
           if (!handledAsControl && activeStream && activeStream.writable) {
-            activeStream.write(text);
+            if (Buffer.isBuffer(raw)) {
+              activeStream.write(raw);
+            } else {
+              activeStream.write(text);
+            }
           }
         } catch (writeErr: any) {
           console.warn('[TerminalWs] Input write error:', writeErr.message);

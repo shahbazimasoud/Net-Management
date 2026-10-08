@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.289.0';
+export const APP_VERSION = '1.289.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.289.1',
+    releaseDate: '2026-10-08',
+    type: 'patch',
+    title: 'رفع باگ نشت بسته‌های کنترلی JSON و تغییر ابعاد (resize/input) به شل SSH ترمینال سرورهای لینوکس',
+    title_en: 'Fix JSON control frames and resize/input payload leakage to SSH shell in Linux server terminal',
+    changes: [
+      'رفع باگ تقدم ناصحیح چک Buffer در هندلر پیام‌های وب‌سوکت سمت سرور (/server/terminalWs.ts) که باعث می‌شد پیام‌های کنترلی وب‌سوکت مرورگر نظیر {"type":"resize","cols":148,"rows":28} و بسته‌های ورودی کلیدها {"type":"input","data":"..."} پیش از بررسی JSON مستقیماً به استریم شل لینوکس دستگاه تزریق شده و روی خط فرمان ظاهر شوند.',
+      'تجزیه استاندارد پیام‌های JSON دریافتی در وب‌سوکت، اعمال صحیح ابعاد ترمینال به متد setWindow(rows, cols, 0, 0) شل SSH بدون ارسال متن به خط فرمان، و استخراج انحصاری کاراکترهای فیلد data در بسته‌های type: input.',
+      'حفظ کامل سازگاری با کلاینت‌های متفرقه با نگارش مستقیم داده‌های متنی یا باینری خام در صورت عدم استفاده از ساختار کنترلی JSON.'
+    ],
+    changes_en: [
+      'Fixed premature Buffer write check in SSH terminal WebSocket message handler (/server/terminalWs.ts) that caused browser WebSocket control frames such as {"type":"resize","cols":148,"rows":28} and keystroke input packets {"type":"input","data":"..."} to be written raw into the remote Linux shell stdin before JSON parsing.',
+      'Correctly parsed incoming JSON frames, dispatching terminal geometry to setWindow(rows, cols, 0, 0) on the active SSH channel without command-line leakage, and extracting solely pure keystroke data from input message envelopes.',
+      'Preserved full compatibility for raw binary buffers and unadorned text keystrokes when JSON control framing is absent.'
+    ]
+  },
   {
     version: '1.289.0',
     releaseDate: '2026-10-08',
