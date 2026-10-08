@@ -260,6 +260,25 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
             return false;
           }
 
+          // Ctrl+W: Word erase in bash/readline/vi/nano. Prevent browser close tab!
+          if ((event.ctrlKey || event.metaKey) && (event.key === 'w' || event.key === 'W')) {
+            event.preventDefault();
+            onDataRef.current?.('\x17');
+            return false;
+          }
+
+          // Ctrl+R: Reverse search in bash / redo in nano. Prevent browser page reload!
+          if ((event.ctrlKey || event.metaKey) && (event.key === 'r' || event.key === 'R')) {
+            event.preventDefault();
+            onDataRef.current?.('\x12');
+            return false;
+          }
+
+          // Escape: vi / nano / bash command mode
+          if (event.key === 'Escape') {
+            return true;
+          }
+
           // Arrow keys, Home, End, PageUp, PageDown: let xterm handle escape codes
           if (
             ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(

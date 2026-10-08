@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.287.0';
+export const APP_VERSION = '1.288.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.288.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'یکپارچه‌سازی ترمینال SSH سرورهای ریموت با xterm.js، ارسال بلادرنگ کلیدها و پشتیبانی کامل برنامه‌های تعاملی (فاز ۲ از ۳)',
+    title_en: 'Server SSH terminal uses xterm.js with real-time keystroke streaming (vi, nano, top supported) (Phase 2 of 3)',
+    changes: [
+      'جایگزینی کامل بخش ورودی جداگانه و کادر لاگ‌های متنی در ترمینال سرورهای ریموت (LinuxTerminalModal) با کامپوننت بومی و بهینه‌سازی‌شده xterm.js.',
+      'ارسال بلادرنگ تک‌تک کلیدهای فشرده‌شده بدون بافرسازی خطی یا اکوی محلی به وب‌سوکت و نمایش خروجی‌های اکو و رندر بازگشتی مستقیماً از سرور ریموت لینوکس (پشتیبانی کامل از vi، nano، top، htop و less).',
+      'نگارش مستقیم بایت‌ها و داده‌های دریافتی به xterm با پشتیبانی کامل از ArrayBuffer، Blob و رشته متنی و دیکودینگ بلادرنگ با TextDecoder و فلگ { stream: true } بدون مخدوش شدن دنباله‌های رنگی و کنترلی ANSI.',
+      'مدیریت تطبیقی ابعاد با افزونه FitAddon و ResizeObserver هنگام باز شدن، بازیابی، تغییر اندازه پنجره و تمام‌صفحه و ارسال ابعاد اولیه و تغییر یافته (cols و rows) به شل SSH.',
+      'مدیریت کلیدهای میانبر استاندارد (Tab، Ctrl+C، Ctrl+Z، Ctrl+D، Ctrl+W، Ctrl+R، Esc، کلیدهای جهتی، Home/End، PageUp/PageDown) و جلوگیری قطعی از تداخل یا سرقت رویدادها توسط مرورگر.',
+      'پشتیبانی از کپی خودکار متن با ماوس یا کلیدهای Ctrl+Shift+C، پیست با کلیک راست یا Ctrl+Shift+V، و رفتار هوشمند Ctrl+C (کپی در صورت انتخاب متن و ارسال سیگنال وقفه در غیر این صورت).',
+      'نمایش شفاف و بدون داده‌های جعلی خطاهای واقعی ارتباط و قطع سوکت با رنگ قرمز در داخل محیط ترمینال.',
+      'حفظ کامل ساختار ظاهری، نوار عنوان، دکمه‌های کنترلی، قابلیت‌های تقسیم صفحه (Split View) و کدهای پاپ‌آپ پیشنهادات هوشمند (Intellisense) جهت اتصال مجدد در فاز ۳.'
+    ],
+    changes_en: [
+      'Replaced legacy separate input box and line-based display in Linux server terminal (LinuxTerminalModal) with native high-performance xterm.js terminal.',
+      'Streamed raw keystrokes immediately on every input event without line buffering or local echo, enabling authentic server-side echo and full interactive tools support (vi, nano, top, htop, less, man).',
+      'Processed incoming byte streams and text using TextDecoder with { stream: true }, writing directly to xterm without altering ANSI control codes or breaking UTF-8 character boundaries.',
+      'Integrated FitAddon with ResizeObserver for automated terminal geometry synchronization on modal open, restore, window resize, and maximize, sending real cols and rows to the SSH PTY.',
+      'Implemented comprehensive keyboard event handling (Tab, Ctrl+C, Ctrl+Z, Ctrl+D, Ctrl+W, Ctrl+R, Esc, arrow keys, Home/End, PageUp/PageDown) with browser interception prevention.',
+      'Supported automatic mouse-selection copy, Ctrl+Shift+C copy, right-click and Ctrl+Shift+V paste, and context-sensitive Ctrl+C (copy when text is selected, interrupt signal otherwise).',
+      'Rendered authentic connection and socket errors in bold red directly inside the terminal window with zero synthetic or mock telemetry.',
+      'Preserved modal aesthetics, title bars, multi-pane split layouts, and command-suggestion popup infrastructure for Phase 3 integration.'
+    ]
+  },
   {
     version: '1.287.0',
     releaseDate: '2026-10-08',

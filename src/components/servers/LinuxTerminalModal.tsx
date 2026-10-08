@@ -54,6 +54,7 @@ import {
   registerVfsEntry,
   removeVfsEntry,
 } from './linuxIntellisense';
+import XtermTerminal, { XtermTerminalHandle } from '../terminal/XtermTerminal';
 
 export interface LinuxTerminalModalProps {
   isOpen: boolean;
@@ -545,8 +546,35 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const scrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const wsRefs = useRef<Record<string, WebSocket | null>>({});
+  const xtermRefs = useRef<Record<string, XtermTerminalHandle | null>>({});
+  const textDecodersRef = useRef<Record<string, TextDecoder>>({});
   const lastConnectedServerIdRef = useRef<string | null>(null);
   const prevIsOpenRef = useRef<boolean>(false);
+
+  const getTextDecoder = useCallback((paneId: string): TextDecoder => {
+    if (!textDecodersRef.current[paneId]) {
+      textDecodersRef.current[paneId] = new TextDecoder('utf-8');
+    }
+    return textDecodersRef.current[paneId];
+  }, []);
+
+  // Send raw keystrokes or input directly to target pane's WebSocket
+  const sendInput = useCallback((paneId: string, data: string) => {
+    const ws = wsRefs.current[paneId];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data }));
+    }
+  }, []);
+
+  // Send terminal resize events (cols, rows) directly to remote PTY
+  const sendResize = useCallback((paneId: string, cols: number, rows: number) => {
+    const ws = wsRefs.current[paneId];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      } catch {}
+    }
+  }, []);
 
   const panesRef = useRef<TerminalPane[]>(panes);
   panesRef.current = panes;
@@ -905,177 +933,111 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       try {
         const ws = new WebSocket(wsUrl);
         wsRefs.current[paneId] = ws;
+        const textDecoder = getTextDecoder(paneId);
 
         ws.onopen = () => {
           setPanes((prev) =>
             prev.map((p) => (p.id === paneId ? { ...p, isConnecting: true } : p))
           );
-          inputRefs.current[paneId]?.focus();
+          // Send initial dimensions immediately after socket opens
+          setTimeout(() => {
+            xtermRefs.current[paneId]?.fit();
+            const term = xtermRefs.current[paneId]?.getTerminal();
+            const initialCols = term?.cols && term.cols > 0 ? term.cols : 120;
+            const initialRows = term?.rows && term.rows > 0 ? term.rows : 36;
+            sendResize(paneId, initialCols, initialRows);
+            xtermRefs.current[paneId]?.focus();
+          }, 50);
         };
 
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'data') {
-              const rawData = msg.data || '';
-
-              // Detect working directory from remote prompt or OSC 7 if present
-              let detectedCwd: string | null = null;
-              const osc7Match = rawData.match(/\x1b\]7;file:\/\/[^/]+([^\x07\x1b]+)(?:\x07|\x1b\\)/);
-              if (osc7Match && osc7Match[1]) {
-                try {
-                  detectedCwd = decodeURIComponent(osc7Match[1]);
-                } catch {
-                  detectedCwd = osc7Match[1];
-                }
-              } else {
-                const clean = rawData.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
-                const promptMatch = clean.match(/(?:^|[\r\n])(?:\[?[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+(?:\s+|:)([^#$\]\r\n]+)[#$\]]|➜\s+[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\s+([^ \r\n]+))\s*$/);
-                if (promptMatch) {
-                  detectedCwd = (promptMatch[1] || promptMatch[2] || '').trim();
-                }
+        ws.onmessage = async (event) => {
+          let text = '';
+          if (event.data instanceof ArrayBuffer) {
+            text = textDecoder.decode(event.data, { stream: true });
+          } else if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
+            try {
+              const buf = await event.data.arrayBuffer();
+              text = textDecoder.decode(buf, { stream: true });
+            } catch {}
+          } else if (typeof event.data === 'string') {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === 'pong') {
+                return;
               }
-
-              setPanes((prev) =>
-                prev.map((p) => {
-                  if (p.id !== paneId) return p;
-                  return {
-                    ...p,
-                    cwd: detectedCwd || p.cwd,
-                    lines: [
-                      ...p.lines,
-                      {
-                        id: Math.random().toString(),
-                        type: 'output',
-                        text: rawData,
-                        timestamp: new Date().toLocaleTimeString(),
-                      },
-                    ],
-                  };
-                })
-              );
-            } else if (msg.type === 'status') {
-              if (msg.status === 'connected') {
+              if (msg.type === 'data' && msg.data) {
+                xtermRefs.current[paneId]?.write(msg.data);
+                return;
+              } else if (msg.type === 'status') {
+                if (msg.status === 'connected') {
+                  setPanes((prev) =>
+                    prev.map((p) => (p.id === paneId ? { ...p, isConnected: true, isConnecting: false } : p))
+                  );
+                  setTimeout(() => {
+                    xtermRefs.current[paneId]?.fit();
+                    const term = xtermRefs.current[paneId]?.getTerminal();
+                    const cols = term?.cols && term.cols > 0 ? term.cols : 120;
+                    const rows = term?.rows && term.rows > 0 ? term.rows : 36;
+                    sendResize(paneId, cols, rows);
+                    xtermRefs.current[paneId]?.focus();
+                  }, 60);
+                  return;
+                } else if (msg.status === 'failed' || msg.status === 'disconnected') {
+                  setPanes((prev) =>
+                    prev.map((p) => (p.id === paneId ? { ...p, isConnected: false, isConnecting: false } : p))
+                  );
+                  const failText = msg.error || msg.message || (isEn ? 'Disconnected from server' : 'ارتباط با سرور قطع شد');
+                  xtermRefs.current[paneId]?.write(`\r\n\x1b[31m[${isEn ? 'DISCONNECTED' : 'قطع ارتباط'}]\x1b[0m ${failText}\r\n`);
+                  return;
+                }
+              } else if (msg.type === 'error') {
                 setPanes((prev) =>
-                  prev.map((p) => {
-                    if (p.id !== paneId) return p;
-                    return {
-                      ...p,
-                      isConnected: true,
-                      isConnecting: false,
-                      lines: [
-                        ...p.lines,
-                        {
-                          id: Math.random().toString(),
-                          type: 'system',
-                          text:
-                            msg.message ||
-                            `[Connected] Live SSH channel established with ${targetServer.ip} on /bin/${targetShell}.`,
-                          timestamp: new Date().toLocaleTimeString(),
-                        },
-                      ],
-                    };
-                  })
+                  prev.map((p) => (p.id === paneId ? { ...p, isConnected: false, isConnecting: false } : p))
                 );
-              } else if (msg.status === 'failed' || msg.status === 'disconnected') {
-                setPanes((prev) =>
-                  prev.map((p) => {
-                    if (p.id !== paneId) return p;
-                    return {
-                      ...p,
-                      isConnected: false,
-                      isConnecting: false,
-                      lines: [
-                        ...p.lines,
-                        {
-                          id: Math.random().toString(),
-                          type: 'system',
-                          text:
-                            msg.message ||
-                            `[Notice] Remote host unreachable over direct socket bridge; switched seamlessly to server command emulator runtime.`,
-                          timestamp: new Date().toLocaleTimeString(),
-                        },
-                      ],
-                    };
-                  })
-                );
+                const errText = msg.error || msg.message || (isEn ? 'Connection error' : 'خطای ارتباط');
+                xtermRefs.current[paneId]?.write(`\r\n\x1b[31m[${isEn ? 'ERROR' : 'خطا'}]\x1b[0m ${errText}\r\n`);
+                return;
               }
-            } else if (msg.type === 'error') {
-              setPanes((prev) =>
-                prev.map((p) => {
-                  if (p.id !== paneId) return p;
-                  return {
-                    ...p,
-                    isConnected: false,
-                    isConnecting: false,
-                    lines: [
-                      ...p.lines,
-                      {
-                        id: Math.random().toString(),
-                        type: 'error',
-                        text: `[Error] ${msg.error || 'Connection failure'}`,
-                        timestamp: new Date().toLocaleTimeString(),
-                      },
-                    ],
-                  };
-                })
-              );
+            } catch {
+              text = event.data;
             }
-          } catch {
-            setPanes((prev) =>
-              prev.map((p) => {
-                if (p.id !== paneId) return p;
-                return {
-                  ...p,
-                  lines: [
-                    ...p.lines,
-                    {
-                      id: Math.random().toString(),
-                      type: 'output',
-                      text: String(event.data),
-                      timestamp: new Date().toLocaleTimeString(),
-                    },
-                  ],
-                };
-              })
+          }
+
+          if (text) {
+            xtermRefs.current[paneId]?.write(text);
+          }
+        };
+
+        ws.onclose = (ev) => {
+          setPanes((prev) =>
+            prev.map((p) => (p.id === paneId ? { ...p, isConnected: false, isConnecting: false } : p))
+          );
+          if (!ev.wasClean) {
+            const reason = ev.reason ? `: ${ev.reason}` : '';
+            xtermRefs.current[paneId]?.write(
+              `\r\n\x1b[31m[${isEn ? 'CONNECTION CLOSED' : 'اتصال بسته شد'}]\x1b[0m (${ev.code}${reason})\r\n`
             );
           }
         };
 
-        ws.onclose = () => {
+        ws.onerror = () => {
           setPanes((prev) =>
             prev.map((p) => (p.id === paneId ? { ...p, isConnected: false, isConnecting: false } : p))
           );
-        };
-
-        ws.onerror = () => {
-          setPanes((prev) =>
-            prev.map((p) => {
-              if (p.id !== paneId) return p;
-              return {
-                ...p,
-                isConnected: false,
-                isConnecting: false,
-                lines: [
-                  ...p.lines,
-                  {
-                    id: Math.random().toString(),
-                    type: 'system',
-                    text: `[Notice] Operating in high-fidelity local interactive emulation mode (${targetServer.ip} / ${targetShell}).`,
-                    timestamp: new Date().toLocaleTimeString(),
-                  },
-                ],
-              };
-            })
+          xtermRefs.current[paneId]?.write(
+            `\r\n\x1b[31m[${isEn ? 'SOCKET ERROR' : 'خطای سوکت'}]\x1b[0m ${isEn ? 'WebSocket connection encountered an error' : 'خطا در ارتباط وب‌سوکت'}\r\n`
           );
         };
-      } catch {
+      } catch (err: any) {
         setPanes((prev) =>
           prev.map((p) => (p.id === paneId ? { ...p, isConnecting: false, isConnected: false } : p))
         );
+        xtermRefs.current[paneId]?.write(
+          `\r\n\x1b[31m[${isEn ? 'CONNECTION FAILED' : 'شکست اتصال'}]\x1b[0m ${err?.message || 'Error'}\r\n`
+        );
       }
     },
-    [server, initialShell, sessionPassword]
+    [server, initialShell, sessionPassword, sendResize, isEn, getTextDecoder]
   );
 
   // Close sockets when modal is closed or unmounted
@@ -1140,7 +1102,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         // Connect after state settles, exactly like handleAddSplitPane
         const timer = setTimeout(() => {
           connectPaneSession('pane-1', initialShell, sessionPassword, effectiveSrv);
-          inputRefs.current['pane-1']?.focus();
+          xtermRefs.current['pane-1']?.focus();
         }, 100);
 
         return () => {
@@ -1158,6 +1120,27 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       }
     }
   }, [isOpen, server?.id, initialShell, sessionPassword, connectPaneSession]);
+
+  // Trigger fit and send resize on modal open, restore, or maximize changes
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = setTimeout(() => {
+      panes.forEach((pane) => {
+        const handle = xtermRefs.current[pane.id];
+        if (handle) {
+          handle.fit();
+          const term = handle.getTerminal();
+          if (term && term.cols > 0 && term.rows > 0) {
+            sendResize(pane.id, term.cols, term.rows);
+          }
+        }
+      });
+      if (activePaneId && xtermRefs.current[activePaneId]) {
+        xtermRefs.current[activePaneId]?.focus();
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [isOpen, isMaximized, panes.length, layoutMode, sendResize, activePaneId]);
 
   // Auto-scroll each pane to bottom
   useEffect(() => {
@@ -1581,7 +1564,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     // Connect new pane session
     setTimeout(() => {
       connectPaneSession(newId, shellToUse, effectivePwd, validSrv);
-      inputRefs.current[newId]?.focus();
+      xtermRefs.current[newId]?.focus();
     }, 100);
   };
 
@@ -1591,15 +1574,21 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     // Close socket
     if (wsRefs.current[paneId]) {
       try {
+        wsRefs.current[paneId]?.send(JSON.stringify({ type: 'close' }));
         wsRefs.current[paneId]?.close();
       } catch {}
       delete wsRefs.current[paneId];
     }
+    delete xtermRefs.current[paneId];
+    delete textDecodersRef.current[paneId];
 
     const remaining = panes.filter((p) => p.id !== paneId);
     setPanes(remaining);
     if (activePaneId === paneId && remaining.length > 0) {
       setActivePaneId(remaining[0].id);
+      setTimeout(() => {
+        xtermRefs.current[remaining[0].id]?.focus();
+      }, 50);
     }
     if (remaining.length === 1) {
       setLayoutMode('single');
@@ -1612,10 +1601,13 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     prevIsOpenRef.current = false;
     Object.values(wsRefs.current).forEach((ws) => {
       try {
+        ws?.send(JSON.stringify({ type: 'close' }));
         ws?.close();
       } catch {}
     });
     wsRefs.current = {};
+    xtermRefs.current = {};
+    textDecodersRef.current = {};
     onClose();
   };
 
@@ -1632,7 +1624,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   // Clear specific pane
   const handleClearPane = (paneId: string) => {
     setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, lines: [] } : p)));
-    inputRefs.current[paneId]?.focus();
+    xtermRefs.current[paneId]?.clear();
+    sendInput(paneId, '\x0c');
+    xtermRefs.current[paneId]?.focus();
   };
 
   // Copy Snippet
@@ -1647,7 +1641,8 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     setPanes((prev) =>
       prev.map((p) => (p.id === activePaneId ? { ...p, inputVal: cmd } : p))
     );
-    inputRefs.current[activePaneId]?.focus();
+    sendInput(activePaneId, cmd);
+    xtermRefs.current[activePaneId]?.focus();
   };
 
   // Submit Password for on-demand auth
@@ -1665,6 +1660,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
     const targetPane = panes.find((p) => p.id === paneId);
     const paneServer = (paneId === 'pane-1' && server?.id ? server : targetPane?.server?.id ? targetPane.server : server);
     connectPaneSession(paneId, undefined, pwd, paneServer);
+    setTimeout(() => {
+      xtermRefs.current[paneId]?.focus();
+    }, 100);
   };
 
   // Filtered snippets for sidebar
@@ -2141,157 +2139,67 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                       </div>
                     </div>
                   ) : (
-                    /* Interactive Console */
+                    /* Interactive xterm.js Terminal Area */
                     <div
-                      ref={(el) => {
-                        scrollRefs.current[pane.id] = el;
+                      onClick={() => {
+                        setActivePaneId(pane.id);
+                        xtermRefs.current[pane.id]?.focus();
                       }}
-                      onClick={() => inputRefs.current[pane.id]?.focus()}
-                      className="flex-1 overflow-y-auto p-3.5 font-mono text-slate-200 select-text cursor-text relative flex flex-col min-h-0"
+                      className="flex-1 overflow-hidden relative flex flex-col min-h-0 bg-slate-950 p-1"
                     >
-                      {/* MOTD Banner */}
-                      {pane.lines.length === 0 && (
-                        <div className="mb-3 pb-2.5 border-b border-slate-800/80 text-xs text-slate-400 select-none">
-                          <div className="text-emerald-400 font-bold text-xs">
-                            Welcome to {paneServer?.os_distro || 'Linux'} on {paneServer?.name} ({getServerHostName(paneServer)})
+                      <XtermTerminal
+                        ref={(el) => {
+                          xtermRefs.current[pane.id] = el;
+                        }}
+                        onData={(data) => {
+                          sendInput(pane.id, data);
+                        }}
+                        onResize={(cols, rows) => {
+                          sendResize(pane.id, cols, rows);
+                        }}
+                        theme={{
+                          background: '#020617',
+                          foreground: '#f1f5f9',
+                          cursor: '#10b981',
+                          cursorAccent: '#020617',
+                          selectionBackground: 'rgba(16, 185, 129, 0.3)',
+                        }}
+                        autoFocus={isActive}
+                        className="w-full h-full"
+                      />
+
+                      {/* Preserved Floating Intellisense Candidate Dropdown (Re-attaching in Phase 3) */}
+                      {isActive && showIntellisensePopup && intellisense.candidates.length > 0 && (
+                        <div
+                          className="absolute bottom-3 left-4 z-30 w-full max-w-md rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl p-1.5 backdrop-blur-md max-h-48 overflow-y-auto space-y-1"
+                        >
+                          <div className="flex items-center justify-between px-2 py-0.5 text-[10px] font-bold text-slate-400 border-b border-slate-800 select-none">
+                            <span>{isEn ? 'Linux Intellisense (Press Tab to Fill)' : 'پیشنهادات هوشمند (Tab برای تکمیل)'}</span>
+                            <span className="text-indigo-400 font-mono">{intellisense.candidates.length} options</span>
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            * System load: 0.24, 0.31, 0.28 • Memory: {paneServer?.ram_gb || 16} GB • Shell: /bin/{pane.selectedShell} • Path: {currentPaneCwd}
-                          </div>
-                          <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
-                            <span>Tab for Intellisense autocompletion</span>
-                            <span className="text-emerald-500 font-bold">● READY</span>
-                          </div>
+
+                          {intellisense.candidates.slice(0, 8).map((cand, cIdx) => (
+                            <button
+                              key={cIdx}
+                              type="button"
+                              onClick={() => {
+                                const chosen = cand.fullCompletedInput || cand.insertText;
+                                sendInput(pane.id, chosen);
+                                setShowIntellisensePopup(false);
+                                xtermRefs.current[pane.id]?.focus();
+                              }}
+                              className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between gap-2 text-xs transition cursor-pointer ${
+                                cIdx === intellisenseIndex ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="font-mono text-emerald-400 font-semibold">{cand.label}</span>
+                              <span className="text-[11px] text-slate-400 truncate text-right">
+                                {isEn ? cand.detail : cand.detailFa}
+                              </span>
+                            </button>
+                          ))}
                         </div>
                       )}
-
-                      {/* Render Lines with Clean ANSI Color Formatter! */}
-                      <div className="space-y-0.5 text-xs sm:text-[13px]">
-                        {pane.lines.map((l) => {
-                          if (l.type === 'system') {
-                            return (
-                              <div key={l.id} className="text-cyan-400/90 text-xs py-0.5 flex items-baseline gap-2">
-                                <span className="text-cyan-600 shrink-0 select-none">[{l.timestamp}]</span>
-                                <span>{stripAnsi(l.text)}</span>
-                              </div>
-                            );
-                          }
-                          if (l.type === 'error') {
-                            return (
-                              <div key={l.id} className="text-rose-400 text-xs py-0.5 flex items-baseline gap-2">
-                                <span className="text-rose-600 shrink-0 select-none">[{l.timestamp}]</span>
-                                <span>{stripAnsi(l.text)}</span>
-                              </div>
-                            );
-                          }
-                          if (l.type === 'info') {
-                            return (
-                              <div key={l.id} className="text-slate-300 text-xs py-0.5 font-mono leading-relaxed whitespace-pre-wrap">
-                                {renderAnsiFormattedText(l.text, l.id)}
-                              </div>
-                            );
-                          }
-                          if (l.type === 'prompt-command') {
-                            return (
-                              <div key={l.id} className="text-emerald-300 font-bold py-0.5 flex items-baseline flex-wrap">
-                                <span className="text-emerald-400 select-none me-1.5 font-mono">
-                                  {l.prompt || getPromptString(pane.selectedShell, currentPaneCwd, paneServer)}
-                                </span>
-                                <span className="text-white font-mono">{l.text}</span>
-                              </div>
-                            );
-                          }
-                          return (
-                            <pre
-                              key={l.id}
-                              className="text-slate-200 whitespace-pre-wrap font-mono leading-relaxed break-all py-0.5 text-xs sm:text-[13px]"
-                            >
-                              {renderAnsiFormattedText(l.text, l.id)}
-                            </pre>
-                          );
-                        })}
-                      </div>
-
-                      {/* Interactive Prompt & Input with Ghost Autocomplete! */}
-                      <div className="flex items-center flex-wrap pt-1 mt-auto relative">
-                        <span className="text-emerald-400 font-bold text-xs sm:text-sm select-none font-mono whitespace-nowrap me-1.5">
-                          {getPromptString(pane.selectedShell, currentPaneCwd, paneServer)}
-                        </span>
-                        <div className="flex-1 min-w-[200px] flex items-center relative">
-                          <input
-                            ref={(el) => {
-                              inputRefs.current[pane.id] = el;
-                            }}
-                            type="text"
-                            value={pane.inputVal}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setPanes((prev) =>
-                                prev.map((p) => (p.id === pane.id ? { ...p, inputVal: val } : p))
-                              );
-                              if (!showIntellisensePopup && val.trim().length > 0) {
-                                setShowIntellisensePopup(true);
-                              }
-                            }}
-                            onKeyDown={(e) => handleKeyDownOnPane(e, pane.id, pane)}
-                            className="w-full bg-transparent text-white font-mono text-xs sm:text-sm outline-none border-none p-0 focus:ring-0 z-10"
-                            autoFocus={isActive}
-                            autoComplete="off"
-                            autoCapitalize="off"
-                            spellCheck="false"
-                          />
-
-                          {/* Inline Ghost Suggestion Text ahead of Cursor (Tab to complete!) */}
-                          {ghostText && (
-                            <span
-                              className="absolute top-0 pointer-events-none font-mono text-xs sm:text-sm text-slate-500 whitespace-pre select-none"
-                              style={{
-                                left: `${pane.inputVal.length * 7.8}px`,
-                              }}
-                            >
-                              {ghostText}
-                              <span className="text-[10px] text-slate-600 bg-slate-900 border border-slate-800 rounded px-1 ml-2">
-                                Tab ⇥
-                              </span>
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Floating Intellisense Candidate Dropdown */}
-                        {isActive && showIntellisensePopup && intellisense.candidates.length > 0 && (
-                          <div
-                            className="absolute bottom-full mb-1 left-0 z-30 w-full max-w-md rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl p-1.5 backdrop-blur-md max-h-48 overflow-y-auto space-y-1"
-                          >
-                            <div className="flex items-center justify-between px-2 py-0.5 text-[10px] font-bold text-slate-400 border-b border-slate-800 select-none">
-                              <span>{isEn ? 'Linux Intellisense (Press Tab to Fill)' : 'پیشنهادات هوشمند (Tab برای تکمیل)'}</span>
-                              <span className="text-indigo-400 font-mono">{intellisense.candidates.length} options</span>
-                            </div>
-
-                            {intellisense.candidates.slice(0, 8).map((cand, cIdx) => (
-                              <button
-                                key={cIdx}
-                                type="button"
-                                onClick={() => {
-                                  const chosen = cand.fullCompletedInput || cand.insertText;
-                                  setPanes((prev) =>
-                                    prev.map((p) => (p.id === pane.id ? { ...p, inputVal: chosen } : p))
-                                  );
-                                  setShowIntellisensePopup(false);
-                                  inputRefs.current[pane.id]?.focus();
-                                }}
-                                className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between gap-2 text-xs transition cursor-pointer ${
-                                  cIdx === intellisenseIndex ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
-                                }`}
-                              >
-                                <span className="font-mono text-emerald-400 font-semibold">{cand.label}</span>
-                                <span className="text-[11px] text-slate-400 truncate text-right">
-                                  {isEn ? cand.detail : cand.detailFa}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
                     </div>
                   )}
                 </div>
