@@ -726,9 +726,12 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
         ws.onopen = () => {
           xtermRef.current?.fit();
-          setTimeout(() => {
-            sendResize();
-          }, 50);
+          const term = xtermRef.current?.getTerminal();
+          const cols = term?.cols || 120;
+          const rows = term?.rows || 36;
+          try {
+            ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+          } catch {}
 
           // Setup periodic keepalive ping every 20s to ensure tunnel does not drop while modal is open
           if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -831,45 +834,19 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     }
   }, [isOpen, device?.id]);
 
-  // Window resize handler to forward terminal cols/rows
+  // Trigger fit and send resize on modal open, restore, or maximize/fullscreen changes
   useEffect(() => {
     if (!isOpen) return;
-    const handleWinResize = () => {
-      sendResize();
-    };
-    window.addEventListener('resize', handleWinResize);
-    return () => window.removeEventListener('resize', handleWinResize);
-  }, [isOpen, sendResize]);
-
-  // Global keydown handler when terminal is open: handles Ctrl+C and Cisco --More-- pagination
-  useEffect(() => {
-    if (!isOpen) return;
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      // 1. Ctrl+C anywhere in terminal sends ETX (\x03)
-      if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-        if (!window.getSelection()?.toString()) {
-          sendRawInput('\x03');
-          setCurrentInput('');
-        }
-        return;
+    const timer = setTimeout(() => {
+      xtermRef.current?.fit();
+      const term = xtermRef.current?.getTerminal();
+      if (term && term.cols > 0 && term.rows > 0) {
+        sendResizeDimensions(term.cols, term.rows);
       }
-      // 2. Cisco --More-- pagination: Space (next page), q/Q (quit), Enter (next line)
-      if (isMoreActive) {
-        if (e.key === ' ' || e.code === 'Space') {
-          e.preventDefault();
-          sendRawInput(' ');
-        } else if (e.key === 'q' || e.key === 'Q') {
-          e.preventDefault();
-          sendRawInput('q');
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          sendRawInput('\r');
-        }
-      }
-    };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, [isOpen, isMoreActive]);
+      xtermRef.current?.focus();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [isOpen, isFullscreen, isEmbedded, sendResizeDimensions]);
 
   // Auto scroll to bottom of terminal
   useEffect(() => {

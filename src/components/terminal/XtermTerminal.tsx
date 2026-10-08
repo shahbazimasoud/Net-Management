@@ -84,6 +84,26 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
     const onResizeRef = useRef(onResize);
     onResizeRef.current = onResize;
 
+    // Track last fitted dimensions to avoid redundant resize callbacks
+    const lastDimsRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
+
+    const performFit = () => {
+      if (!containerRef.current || !fitAddonRef.current || !terminalRef.current) return;
+      try {
+        fitAddonRef.current.fit();
+        const currentCols = terminalRef.current.cols;
+        const currentRows = terminalRef.current.rows;
+        if (
+          currentCols > 0 &&
+          currentRows > 0 &&
+          (currentCols !== lastDimsRef.current.cols || currentRows !== lastDimsRef.current.rows)
+        ) {
+          lastDimsRef.current = { cols: currentCols, rows: currentRows };
+          onResizeRef.current?.(currentCols, currentRows);
+        }
+      } catch {}
+    };
+
     // Expose imperative handle methods to parent components via ref
     useImperativeHandle(
       ref,
@@ -98,9 +118,7 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
           terminalRef.current?.clear();
         },
         fit: () => {
-          try {
-            fitAddonRef.current?.fit();
-          } catch {}
+          performFit();
         },
         focus: () => {
           terminalRef.current?.focus();
@@ -121,7 +139,8 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
     }, [onWriteRef]);
 
     useEffect(() => {
-      if (!containerRef.current) return;
+      const container = containerRef.current;
+      if (!container) return;
 
       // 1. Create ONE Terminal instance with specified properties
       const termOptions: ITerminalOptions = {
@@ -146,15 +165,10 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
       term.loadAddon(fitAddon);
 
       // 3. Open terminal in container DOM node
-      term.open(containerRef.current);
+      term.open(container);
 
       // Initial fit & focus
-      try {
-        fitAddon.fit();
-        if (term.cols && term.rows) {
-          onResizeRef.current?.(term.cols, term.rows);
-        }
-      } catch {}
+      performFit();
 
       if (autoFocus) {
         setTimeout(() => {
@@ -162,45 +176,204 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
         }, 50);
       }
 
-      // 4. Attach input listener (no duplicate listeners on re-render)
+      // 4. Attach input listener: stream every keystroke immediately
       const dataDisposable = term.onData((data) => {
         onDataRef.current?.(data);
       });
 
       // 5. Attach resize listener
       const resizeDisposable = term.onResize(({ cols, rows }) => {
-        onResizeRef.current?.(cols, rows);
+        if (cols !== lastDimsRef.current.cols || rows !== lastDimsRef.current.rows) {
+          lastDimsRef.current = { cols, rows };
+          onResizeRef.current?.(cols, rows);
+        }
       });
 
-      // 6. Handle container dimension changes via ResizeObserver & window resize
-      const handleResize = () => {
-        if (!containerRef.current || !fitAddonRef.current || !terminalRef.current) return;
-        try {
-          fitAddonRef.current.fit();
-          const currentCols = terminalRef.current.cols;
-          const currentRows = terminalRef.current.rows;
-          if (currentCols && currentRows) {
-            onResizeRef.current?.(currentCols, currentRows);
+      // 6. Custom Key Event Handler:
+      // Prevent browser from stealing Tab, Ctrl+C, Ctrl+Z, Ctrl+D, arrow keys, Home/End
+      term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+        if (event.type === 'keydown') {
+          // Tab key: Cisco command autocomplete. Prevent browser focus jump!
+          if (event.key === 'Tab') {
+            event.preventDefault();
+            // Let xterm send '\t'
+            return true;
           }
-        } catch {}
-      };
 
+          // Ctrl+C / Cmd+C handling:
+          if ((event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
+            if (event.shiftKey) {
+              // Ctrl+Shift+C: Explicit copy of current selection
+              event.preventDefault();
+              const sel = term.getSelection();
+              if (sel) {
+                try {
+                  navigator.clipboard.writeText(sel);
+                } catch {}
+              }
+              return false;
+            }
+
+            // Standard Ctrl+C:
+            // "Ctrl+C with a selection copies, without a selection it sends the interrupt to the device."
+            if (term.hasSelection()) {
+              event.preventDefault();
+              const sel = term.getSelection();
+              if (sel) {
+                try {
+                  navigator.clipboard.writeText(sel);
+                } catch {}
+              }
+              return false;
+            } else {
+              // Without selection: send interrupt (\x03) to target device
+              event.preventDefault();
+              onDataRef.current?.('\x03');
+              return false;
+            }
+          }
+
+          // Ctrl+Shift+V: Paste from clipboard
+          if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'v' || event.key === 'V')) {
+            event.preventDefault();
+            try {
+              navigator.clipboard.readText().then((clipText) => {
+                if (clipText) {
+                  onDataRef.current?.(clipText);
+                }
+              });
+            } catch {}
+            return false;
+          }
+
+          // Ctrl+Z: Cisco IOS exit from config mode or suspend job. Prevent browser undo!
+          if ((event.ctrlKey || event.metaKey) && (event.key === 'z' || event.key === 'Z')) {
+            event.preventDefault();
+            onDataRef.current?.('\x1a');
+            return false;
+          }
+
+          // Ctrl+D: EOF / Logout. Prevent browser bookmark popup!
+          if ((event.ctrlKey || event.metaKey) && (event.key === 'd' || event.key === 'D')) {
+            event.preventDefault();
+            onDataRef.current?.('\x04');
+            return false;
+          }
+
+          // Arrow keys, Home, End, PageUp, PageDown: let xterm handle escape codes
+          if (
+            ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(
+              event.key
+            )
+          ) {
+            return true;
+          }
+
+          // Enter, Backspace, Space, Q: let xterm process directly
+          if (['Enter', 'Backspace', ' ', 'q', 'Q'].includes(event.key)) {
+            return true;
+          }
+        }
+
+        return true;
+      });
+
+      // 7. Copy/Paste Handling:
+      // (a) Mouse selection copies:
+      const selectionDisposable = term.onSelectionChange(() => {
+        if (term.hasSelection()) {
+          const sel = term.getSelection();
+          if (sel && sel.length > 0) {
+            try {
+              navigator.clipboard.writeText(sel);
+            } catch {}
+          }
+        }
+      });
+
+      // (b) Mouseup check for selection copy:
+      const handleMouseUp = () => {
+        if (term.hasSelection()) {
+          const sel = term.getSelection();
+          if (sel && sel.length > 0) {
+            try {
+              navigator.clipboard.writeText(sel);
+            } catch {}
+          }
+        }
+      };
+      container.addEventListener('mouseup', handleMouseUp);
+
+      // (c) Right-click paste (PuTTY / Linux terminal behavior):
+      const handleContextMenu = async (e: MouseEvent) => {
+        e.preventDefault();
+        if (term.hasSelection()) {
+          // If text is selected on right-click, copy it
+          const sel = term.getSelection();
+          if (sel) {
+            try {
+              await navigator.clipboard.writeText(sel);
+            } catch {}
+          }
+        } else {
+          // Without selection, right-click pastes text from clipboard into socket
+          try {
+            const clipText = await navigator.clipboard.readText();
+            if (clipText) {
+              onDataRef.current?.(clipText);
+            }
+          } catch (err) {
+            console.warn('Right-click clipboard paste failed:', err);
+          }
+        }
+      };
+      container.addEventListener('contextmenu', handleContextMenu);
+
+      // (d) Native browser paste listener on container:
+      const handlePaste = (e: ClipboardEvent) => {
+        e.preventDefault();
+        const text = e.clipboardData?.getData('text');
+        if (text) {
+          onDataRef.current?.(text);
+        }
+      };
+      container.addEventListener('paste', handlePaste);
+
+      // (e) Click to focus terminal:
+      const handleClick = () => {
+        term.focus();
+      };
+      container.addEventListener('click', handleClick);
+
+      // 8. Handle container dimension changes via ResizeObserver & window resize
       let resizeObserver: ResizeObserver | null = null;
-      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(() => {
-          requestAnimationFrame(handleResize);
+          requestAnimationFrame(() => {
+            performFit();
+          });
         });
-        resizeObserver.observe(containerRef.current);
+        resizeObserver.observe(container);
       }
 
-      window.addEventListener('resize', handleResize);
+      const handleWindowResize = () => {
+        performFit();
+      };
+      window.addEventListener('resize', handleWindowResize);
 
-      // 7. Cleanup and dispose on unmount
+      // 9. Cleanup and dispose on unmount
       return () => {
-        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('resize', handleWindowResize);
+        container.removeEventListener('mouseup', handleMouseUp);
+        container.removeEventListener('contextmenu', handleContextMenu);
+        container.removeEventListener('paste', handlePaste);
+        container.removeEventListener('click', handleClick);
+
         if (resizeObserver) {
           resizeObserver.disconnect();
         }
+
+        selectionDisposable.dispose();
         dataDisposable.dispose();
         resizeDisposable.dispose();
 

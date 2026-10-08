@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.285.0';
+export const APP_VERSION = '1.286.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.286.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'مدیریت خودکار ابعاد ترمینال، کلیدهای میانبر استاندارد و کپی/پیست در xterm.js (فاز ۳ از ۳)',
+    title_en: 'Terminal resize, key handling and copy/paste for xterm.js (Phase 3 of 3)',
+    changes: [
+      'یکپارچه‌سازی کامل FitAddon با رویدادهای باز شدن، تغییر اندازه پنجره مرورگر، بیشینه‌سازی/کمینه‌سازی مودال و ناظر ابعاد ResizeObserver روی کانتینر.',
+      'ارسال فوری و خودکار پیام‌های resize (شامل سطر و ستون جدید PTY) پس از برقراری وب‌سوکت و با هر تغییر در اندازه صفحه.',
+      'پشتیبانی دقیق از کلیدهای ناوبری و فرمان شامل Enter، Backspace، Tab (تکمیل خودکار دستورات سیسکو)، کلیدهای جهت‌نما، Home/End و کنترل صفحه کلید در وضعیت --More-- (کلیدهای Space و Q).',
+      'جلوگیری از مداخله مرورگر در کلیدهای Tab، Ctrl+C، Ctrl+Z و Ctrl+D توسط attachCustomKeyEventHandler.',
+      'پیاده‌سازی رفتار استاندارد کپی و پیست: کپی خودکار با انتخاب ماوس یا Ctrl+Shift+C، پیست با کلیک راست و Ctrl+Shift+V، و رفتار هوشمند Ctrl+C (کپی در صورت وجود متن انتخاب‌شده، یا ارسال سیگنال وقفه \\x03 در صورت نبود متن انتخاب‌شده).',
+      'فوکوس خودکار ترمینال هنگام باز شدن و هنگام بازیابی از داک پایین، به همراه آزادسازی کامل حافظه، وب‌سوکت و رویدادها هنگام بستن پنجره.'
+    ],
+    changes_en: [
+      'Integrated FitAddon with terminal open, window resize, modal maximize/minimize/restore transitions, and ResizeObserver on the container.',
+      'Sent initial terminal dimensions (cols, rows) immediately upon WebSocket connection and forwarded PTY resize payloads on every geometry change.',
+      'Ensured native terminal ergonomics for Enter, Backspace, Tab (Cisco auto-completion), arrow keys (command history), Home/End, and --More-- pagination (Space and Q).',
+      'Prevented browser interception of Tab, Ctrl+C, Ctrl+Z, and Ctrl+D via attachCustomKeyEventHandler while the terminal is active.',
+      'Implemented standard terminal copy/paste: mouse selection auto-copy, Ctrl+Shift+C copy, right-click and Ctrl+Shift+V paste, plus smart Ctrl+C (copy when text is selected, interrupt \\x03 when nothing is selected).',
+      'Enabled automatic terminal focus on modal open and dock restoration, alongside leak-free teardown and listener disposal upon session closing.'
+    ]
+  },
   {
     version: '1.285.0',
     releaseDate: '2026-10-08',

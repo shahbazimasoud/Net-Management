@@ -528,9 +528,12 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
       ws.onopen = () => {
         xtermRef.current?.fit();
-        setTimeout(() => {
-          sendResize();
-        }, 50);
+        const term = xtermRef.current?.getTerminal();
+        const cols = term?.cols || 120;
+        const rows = term?.rows || 36;
+        try {
+          ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+        } catch {}
 
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = setInterval(() => {
@@ -630,30 +633,19 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     };
   }, [device?.id, isOpen]);
 
-  // Window resize handler to forward terminal cols/rows
+  // Trigger fit and send resize on modal open, restore, or maximize/fullscreen changes
   useEffect(() => {
     if (!isOpen) return;
-    const handleWinResize = () => {
-      sendResize();
-    };
-    window.addEventListener('resize', handleWinResize);
-    return () => window.removeEventListener('resize', handleWinResize);
-  }, [isOpen, isFullScreen]);
-
-  // Global keydown handler when terminal is open
-  useEffect(() => {
-    if (!isOpen) return;
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-        if (!window.getSelection()?.toString()) {
-          sendRawInput('\x03');
-          setInput('');
-        }
+    const timer = setTimeout(() => {
+      xtermRef.current?.fit();
+      const term = xtermRef.current?.getTerminal();
+      if (term && term.cols > 0 && term.rows > 0) {
+        sendResizeDimensions(term.cols, term.rows);
       }
-    };
-    window.addEventListener('keydown', onGlobalKeyDown);
-    return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, [isOpen]);
+      xtermRef.current?.focus();
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [isOpen, isFullScreen, isEmbedded, sendResizeDimensions]);
 
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
