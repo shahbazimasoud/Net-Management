@@ -50,6 +50,7 @@ import { renderAnsiFormattedText, stripAnsi } from './terminalAnsi';
 import {
   getIntellisense,
   IntellisenseResult,
+  IntellisenseCandidate,
   LINUX_COMMANDS_CATALOG,
   registerVfsEntry,
   removeVfsEntry,
@@ -581,9 +582,35 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const serverRef = useRef<RemoteServer | null>(server);
   serverRef.current = server;
 
-  // Intellisense State for active pane
+  const activePaneIdRef = useRef<string>(activePaneId);
+  activePaneIdRef.current = activePaneId;
+
+  // Local Line Buffer & Intellisense State for active pane
+  const lineBuffersRef = useRef<Record<string, string>>({});
+  const [activeLineBuffer, setActiveLineBuffer] = useState<string>('');
   const [intellisenseIndex, setIntellisenseIndex] = useState<number>(0);
   const [showIntellisensePopup, setShowIntellisensePopup] = useState<boolean>(false);
+  const isAlternateBufferRef = useRef<Record<string, boolean>>({});
+  const [isAlternateBuffer, setIsAlternateBuffer] = useState<Record<string, boolean>>({});
+  const [cursorCoords, setCursorCoords] = useState<{ cursorX: number; cursorY: number }>({ cursorX: 0, cursorY: 0 });
+  const paneContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const resetPaneLineBuffer = useCallback((paneId: string) => {
+    lineBuffersRef.current[paneId] = '';
+    if (paneId === activePaneIdRef.current) {
+      setActiveLineBuffer('');
+      setShowIntellisensePopup(false);
+      setIntellisenseIndex(0);
+    }
+  }, []);
+
+  useEffect(() => {
+    const currentBuf = lineBuffersRef.current[activePaneId] || '';
+    setActiveLineBuffer(currentBuf);
+    if (currentBuf.trim().length === 0 || isAlternateBufferRef.current[activePaneId]) {
+      setShowIntellisensePopup(false);
+    }
+  }, [activePaneId]);
 
   // Inline password input state when prompt_password_on_connect is active
   const [passwordInputs, setPasswordInputs] = useState<Record<string, string>>({});
@@ -892,6 +919,11 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         wsRefs.current[paneId] = null;
       }
 
+      // Reset local line buffer and alternate buffer flag on new session
+      resetPaneLineBuffer(paneId);
+      isAlternateBufferRef.current[paneId] = false;
+      setIsAlternateBuffer((prev) => ({ ...prev, [paneId]: false }));
+
       // Guard against connecting without password if prompt_password_on_connect is true
       if (targetServer.prompt_password_on_connect && !targetPassword) {
         setPanes((prev) =>
@@ -967,9 +999,34 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
               }
               if (msg.type === 'data' && msg.data) {
                 xtermRefs.current[paneId]?.write(msg.data);
+                const raw = msg.data;
+                const osc7Match = raw.match(/\x1b\]7;file:\/\/[^/]+([^\x07\x1b]+)(?:\x07|\x1b\\)/);
+                if (osc7Match && osc7Match[1]) {
+                  try {
+                    const detected = decodeURIComponent(osc7Match[1]);
+                    setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, cwd: detected } : p)));
+                  } catch {}
+                  resetPaneLineBuffer(paneId);
+                } else {
+                  const clean = raw.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+                  const promptMatch = clean.match(/(?:^|[\r\n])(?:\[?[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+(?:\s+|:)([^#$\]\r\n]+)[#$\]]|➜\s+[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\s+([^ \r\n]+))\s*$/);
+                  if (promptMatch) {
+                    const detected = (promptMatch[1] || promptMatch[2] || '').trim();
+                    if (detected) {
+                      setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, cwd: detected } : p)));
+                    }
+                    resetPaneLineBuffer(paneId);
+                  }
+                  if (/(?:\[sudo\]\s+)?password(?: for [^:]+)?:?\s*$/i.test(clean.trim())) {
+                    resetPaneLineBuffer(paneId);
+                  }
+                }
                 return;
               } else if (msg.type === 'status') {
                 if (msg.status === 'connected') {
+                  resetPaneLineBuffer(paneId);
+                  isAlternateBufferRef.current[paneId] = false;
+                  setIsAlternateBuffer((prev) => ({ ...prev, [paneId]: false }));
                   setPanes((prev) =>
                     prev.map((p) => (p.id === paneId ? { ...p, isConnected: true, isConnecting: false } : p))
                   );
@@ -1005,6 +1062,27 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
           if (text) {
             xtermRefs.current[paneId]?.write(text);
+            const osc7Match = text.match(/\x1b\]7;file:\/\/[^/]+([^\x07\x1b]+)(?:\x07|\x1b\\)/);
+            if (osc7Match && osc7Match[1]) {
+              try {
+                const detected = decodeURIComponent(osc7Match[1]);
+                setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, cwd: detected } : p)));
+              } catch {}
+              resetPaneLineBuffer(paneId);
+            } else {
+              const clean = text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+              const promptMatch = clean.match(/(?:^|[\r\n])(?:\[?[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+(?:\s+|:)([^#$\]\r\n]+)[#$\]]|➜\s+[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\s+([^ \r\n]+))\s*$/);
+              if (promptMatch) {
+                const detected = (promptMatch[1] || promptMatch[2] || '').trim();
+                if (detected) {
+                  setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, cwd: detected } : p)));
+                }
+                resetPaneLineBuffer(paneId);
+              }
+              if (/(?:\[sudo\]\s+)?password(?: for [^:]+)?:?\s*$/i.test(clean.trim())) {
+                resetPaneLineBuffer(paneId);
+              }
+            }
           }
         };
 
@@ -1037,7 +1115,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         );
       }
     },
-    [server, initialShell, sessionPassword, sendResize, isEn, getTextDecoder]
+    [server, initialShell, sessionPassword, sendResize, isEn, getTextDecoder, resetPaneLineBuffer]
   );
 
   // Close sockets when modal is closed or unmounted
@@ -1155,6 +1233,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   // Execute Command on target pane
   const executeCommandOnPane = useCallback(
     (paneId: string, cmdToRun: string) => {
+      resetPaneLineBuffer(paneId);
       const trimmed = cmdToRun.trim();
       if (!trimmed) return;
 
@@ -1321,14 +1400,236 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   }, [panes, activePaneId]);
 
   const activeIntellisense = useMemo<IntellisenseResult>(() => {
-    if (!activePane || activePane.isPasswordPromptActive) {
+    if (
+      !activePane ||
+      activePane.isPasswordPromptActive ||
+      isAlternateBuffer[activePane.id] ||
+      !activeLineBuffer ||
+      activeLineBuffer.trim().length === 0
+    ) {
       return { ghostSuggestion: '', completedInput: '', candidates: [], exactMatch: false };
     }
     const srv = resolveValidServer(activePane?.server, server);
     const homeDir = getServerHomeDir(srv);
     const currentCwd = activePane.cwd || homeDir;
-    return getIntellisense(activePane.inputVal, currentCwd, homeDir);
-  }, [activePane, server]);
+    return getIntellisense(activeLineBuffer, currentCwd, homeDir);
+  }, [activePane, activeLineBuffer, server, isAlternateBuffer]);
+
+  // Apply selected Intellisense candidate
+  const applySuggestion = useCallback(
+    (paneId: string, cand: IntellisenseCandidate) => {
+      const currentBuf = lineBuffersRef.current[paneId] || '';
+      const target = cand.fullCompletedInput || cand.insertText || cand.label || '';
+      let remaining = '';
+
+      if (target.toLowerCase().startsWith(currentBuf.toLowerCase())) {
+        remaining = target.slice(currentBuf.length);
+      } else {
+        const lastSpaceIdx = currentBuf.lastIndexOf(' ');
+        const lastToken = lastSpaceIdx >= 0 ? currentBuf.slice(lastSpaceIdx + 1) : currentBuf;
+        const textToMatch = cand.insertText || cand.label;
+        if (textToMatch && textToMatch.toLowerCase().startsWith(lastToken.toLowerCase())) {
+          remaining = textToMatch.slice(lastToken.length);
+        } else {
+          remaining = target;
+        }
+      }
+
+      if (remaining) {
+        sendInput(paneId, remaining);
+      }
+
+      const updated = currentBuf + remaining;
+      lineBuffersRef.current[paneId] = updated;
+      if (paneId === activePaneIdRef.current) {
+        setActiveLineBuffer(updated);
+      }
+      setShowIntellisensePopup(false);
+      setIntellisenseIndex(0);
+      xtermRefs.current[paneId]?.focus();
+    },
+    [sendInput]
+  );
+
+  // Handle raw terminal keystrokes from xterm onData
+  const handleTerminalData = useCallback(
+    (paneId: string, data: string) => {
+      // 1. Immediately send keystroke to WebSocket PTY stream without delay or buffering
+      sendInput(paneId, data);
+
+      // 2. If in full-screen alternate buffer (vi, nano, top, htop, less, man) or password prompt, suppress popup
+      if (
+        isAlternateBufferRef.current[paneId] ||
+        panesRef.current.find((p) => p.id === paneId)?.isPasswordPromptActive
+      ) {
+        resetPaneLineBuffer(paneId);
+        return;
+      }
+
+      // 3. Multi-character chunks (pasted text or ANSI escapes)
+      if (data.length > 1) {
+        if (data.startsWith('\x1b')) {
+          // Arrow keys or ANSI escapes: shell takes over cursor navigation, hide popup
+          if (paneId === activePaneIdRef.current) {
+            setShowIntellisensePopup(false);
+          }
+          return;
+        }
+        // Pasted text: reset buffer and hide popup
+        resetPaneLineBuffer(paneId);
+        return;
+      }
+
+      // 4. Single-keystroke maintenance for Intellisense popup
+      let buf = lineBuffersRef.current[paneId] || '';
+
+      if (data === '\r' || data === '\n') {
+        // Enter: command executed, clear buffer and hide popup
+        buf = '';
+        if (paneId === activePaneIdRef.current) {
+          setShowIntellisensePopup(false);
+          setIntellisenseIndex(0);
+        }
+      } else if (data === '\x03' || data === '\x15' || data === '\x1b') {
+        // Ctrl+C (\x03), Ctrl+U (\x15), Esc (\x1b): abort line, clear buffer and hide popup
+        buf = '';
+        if (paneId === activePaneIdRef.current) {
+          setShowIntellisensePopup(false);
+          setIntellisenseIndex(0);
+        }
+      } else if (data === '\x7f' || data === '\b') {
+        // Backspace: delete previous character
+        buf = buf.length > 0 ? buf.slice(0, -1) : '';
+        if (buf.trim().length === 0 && paneId === activePaneIdRef.current) {
+          setShowIntellisensePopup(false);
+          setIntellisenseIndex(0);
+        }
+      } else if (data === '\t') {
+        // Tab: shell takes over autocompletion
+        if (paneId === activePaneIdRef.current) {
+          setShowIntellisensePopup(false);
+        }
+      } else if (data.charCodeAt(0) >= 32) {
+        // Printable character: append to buffer and trigger popup if non-empty
+        buf = buf + data;
+        if (buf.trim().length > 0 && paneId === activePaneIdRef.current) {
+          setShowIntellisensePopup(true);
+          setIntellisenseIndex(0);
+        }
+      } else {
+        // Other control keys: Ctrl+D, Ctrl+Z, etc.
+        buf = '';
+        if (paneId === activePaneIdRef.current) {
+          setShowIntellisensePopup(false);
+        }
+      }
+
+      lineBuffersRef.current[paneId] = buf;
+      if (paneId === activePaneIdRef.current) {
+        setActiveLineBuffer(buf);
+      }
+    },
+    [sendInput, resetPaneLineBuffer]
+  );
+
+  // Custom key handler to intercept Up, Down, Tab, Enter, Esc for Intellisense popup navigation
+  const handleCustomKeyEvent = useCallback(
+    (event: KeyboardEvent, paneId: string): boolean | undefined => {
+      if (event.type !== 'keydown') return undefined;
+      if (paneId !== activePaneIdRef.current) return undefined;
+
+      // Never intercept keys when running in alternate screen (vi, nano, top, etc.)
+      if (isAlternateBufferRef.current[paneId]) {
+        return undefined;
+      }
+
+      // Only intercept keys when popup is active and visible with candidates
+      if (
+        !showIntellisensePopup ||
+        !activeIntellisense.candidates ||
+        activeIntellisense.candidates.length === 0
+      ) {
+        return undefined;
+      }
+
+      const candidates = activeIntellisense.candidates.slice(0, 8);
+      if (candidates.length === 0) return undefined;
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setIntellisenseIndex((prev) => (prev + 1) % candidates.length);
+        return false; // Consumed by popup
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setIntellisenseIndex((prev) => (prev - 1 + candidates.length) % candidates.length);
+        return false; // Consumed by popup
+      }
+
+      if (event.key === 'Tab' || event.key === 'Enter') {
+        event.preventDefault();
+        const chosen = candidates[intellisenseIndex] || candidates[0];
+        if (chosen) {
+          applySuggestion(paneId, chosen);
+        }
+        return false; // Consumed by popup
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setShowIntellisensePopup(false);
+        return false; // Consumed by popup
+      }
+
+      return undefined;
+    },
+    [showIntellisensePopup, activeIntellisense, intellisenseIndex, applySuggestion]
+  );
+
+  // Handle paste events on terminal
+  const handleTerminalPaste = useCallback(
+    (paneId: string) => {
+      resetPaneLineBuffer(paneId);
+    },
+    [resetPaneLineBuffer]
+  );
+
+  // Handle terminal buffer type changes (normal vs alternate buffer for vi/nano/top)
+  const handleBufferTypeChange = useCallback(
+    (paneId: string, type: 'normal' | 'alternate') => {
+      const isAlt = type === 'alternate';
+      isAlternateBufferRef.current[paneId] = isAlt;
+      setIsAlternateBuffer((prev) => ({ ...prev, [paneId]: isAlt }));
+      if (isAlt) {
+        resetPaneLineBuffer(paneId);
+      }
+    },
+    [resetPaneLineBuffer]
+  );
+
+  // Calculate dynamic floating position for Intellisense popup above terminal cursor
+  const getPopupPositionStyle = useCallback((paneId: string): React.CSSProperties => {
+    const coords = xtermRefs.current[paneId]?.getCursorCoordinates();
+    const container = paneContainerRefs.current[paneId];
+    if (!coords || !container) {
+      return { bottom: '16px', left: '16px' };
+    }
+    const containerHeight = container.clientHeight || 400;
+    const containerWidth = container.clientWidth || 600;
+
+    const cursorPixelY = coords.cursorY * coords.cellHeight;
+    const cursorPixelX = coords.cursorX * coords.cellWidth;
+
+    const distFromBottom = Math.max(16, containerHeight - cursorPixelY + 8);
+    const maxLeft = Math.max(16, containerWidth - 460);
+    const safeLeft = Math.min(Math.max(16, cursorPixelX), maxLeft);
+
+    return {
+      bottom: `${distFromBottom}px`,
+      left: `${safeLeft}px`,
+    };
+  }, []);
 
   // Handle Tab key and command history on a pane
   const handleKeyDownOnPane = (
@@ -1624,6 +1925,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   // Clear specific pane
   const handleClearPane = (paneId: string) => {
     setPanes((prev) => prev.map((p) => (p.id === paneId ? { ...p, lines: [] } : p)));
+    resetPaneLineBuffer(paneId);
     xtermRefs.current[paneId]?.clear();
     sendInput(paneId, '\x0c');
     xtermRefs.current[paneId]?.focus();
@@ -1638,6 +1940,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Insert Snippet to active pane
   const handleInsertSnippet = (cmd: string) => {
+    resetPaneLineBuffer(activePaneId);
     setPanes((prev) =>
       prev.map((p) => (p.id === activePaneId ? { ...p, inputVal: cmd } : p))
     );
@@ -2141,6 +2444,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                   ) : (
                     /* Interactive xterm.js Terminal Area */
                     <div
+                      ref={(el) => {
+                        paneContainerRefs.current[pane.id] = el;
+                      }}
                       onClick={() => {
                         setActivePaneId(pane.id);
                         xtermRefs.current[pane.id]?.focus();
@@ -2152,11 +2458,15 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                           xtermRefs.current[pane.id] = el;
                         }}
                         onData={(data) => {
-                          sendInput(pane.id, data);
+                          handleTerminalData(pane.id, data);
                         }}
                         onResize={(cols, rows) => {
                           sendResize(pane.id, cols, rows);
                         }}
+                        customKeyEventHandler={(event) => handleCustomKeyEvent(event, pane.id)}
+                        onPaste={() => handleTerminalPaste(pane.id)}
+                        onCursorMove={(coords) => setCursorCoords(coords)}
+                        onBufferTypeChange={(type) => handleBufferTypeChange(pane.id, type)}
                         theme={{
                           background: '#020617',
                           foreground: '#f1f5f9',
@@ -2168,38 +2478,41 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                         className="w-full h-full"
                       />
 
-                      {/* Preserved Floating Intellisense Candidate Dropdown (Re-attaching in Phase 3) */}
-                      {isActive && showIntellisensePopup && intellisense.candidates.length > 0 && (
-                        <div
-                          className="absolute bottom-3 left-4 z-30 w-full max-w-md rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl p-1.5 backdrop-blur-md max-h-48 overflow-y-auto space-y-1"
-                        >
-                          <div className="flex items-center justify-between px-2 py-0.5 text-[10px] font-bold text-slate-400 border-b border-slate-800 select-none">
-                            <span>{isEn ? 'Linux Intellisense (Press Tab to Fill)' : 'پیشنهادات هوشمند (Tab برای تکمیل)'}</span>
-                            <span className="text-indigo-400 font-mono">{intellisense.candidates.length} options</span>
-                          </div>
+                      {/* Re-attached Floating Intellisense Candidate Dropdown */}
+                      {isActive &&
+                        showIntellisensePopup &&
+                        activeIntellisense.candidates.length > 0 &&
+                        !pane.isPasswordPromptActive &&
+                        !isAlternateBuffer[pane.id] && (
+                          <div
+                            style={getPopupPositionStyle(pane.id)}
+                            className="absolute z-30 w-full max-w-md rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl p-1.5 backdrop-blur-md max-h-48 overflow-y-auto space-y-1"
+                          >
+                            <div className="flex items-center justify-between px-2 py-0.5 text-[10px] font-bold text-slate-400 border-b border-slate-800 select-none">
+                              <span>{isEn ? 'Linux Intellisense (Press Tab / Enter to Fill)' : 'پیشنهادات هوشمند (Tab یا Enter برای تکمیل)'}</span>
+                              <span className="text-indigo-400 font-mono">{activeIntellisense.candidates.length} options</span>
+                            </div>
 
-                          {intellisense.candidates.slice(0, 8).map((cand, cIdx) => (
-                            <button
-                              key={cIdx}
-                              type="button"
-                              onClick={() => {
-                                const chosen = cand.fullCompletedInput || cand.insertText;
-                                sendInput(pane.id, chosen);
-                                setShowIntellisensePopup(false);
-                                xtermRefs.current[pane.id]?.focus();
-                              }}
-                              className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between gap-2 text-xs transition cursor-pointer ${
-                                cIdx === intellisenseIndex ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
-                              }`}
-                            >
-                              <span className="font-mono text-emerald-400 font-semibold">{cand.label}</span>
-                              <span className="text-[11px] text-slate-400 truncate text-right">
-                                {isEn ? cand.detail : cand.detailFa}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                            {activeIntellisense.candidates.slice(0, 8).map((cand, cIdx) => (
+                              <button
+                                key={cIdx}
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  applySuggestion(pane.id, cand);
+                                }}
+                                className={`w-full text-left px-2 py-1 rounded-lg flex items-center justify-between gap-2 text-xs transition cursor-pointer ${
+                                  cIdx === intellisenseIndex ? 'bg-indigo-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="font-mono text-emerald-400 font-semibold">{cand.label}</span>
+                                <span className="text-[11px] text-slate-400 truncate text-right">
+                                  {isEn ? cand.detail : cand.detailFa}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                     </div>
                   )}
                 </div>

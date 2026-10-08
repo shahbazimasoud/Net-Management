@@ -11,6 +11,13 @@ export interface XtermTerminalHandle {
   focus: () => void;
   getTerminal: () => Terminal | null;
   getFitAddon: () => FitAddon | null;
+  getCursorCoordinates: () => {
+    cursorX: number;
+    cursorY: number;
+    cellWidth: number;
+    cellHeight: number;
+    isAlternate: boolean;
+  } | null;
 }
 
 export interface XtermTerminalProps {
@@ -20,6 +27,14 @@ export interface XtermTerminalProps {
   onResize?: (cols: number, rows: number) => void;
   /** Optional external write function or ref passed by parent */
   onWriteRef?: (writeFn: (data: string | Uint8Array) => void) => void;
+  /** Optional custom key event handler to intercept keys before xterm handles them. Return false to consume the event. */
+  customKeyEventHandler?: (event: KeyboardEvent) => boolean | undefined;
+  /** Optional callback invoked when a paste action occurs */
+  onPaste?: () => void;
+  /** Optional callback invoked when the terminal cursor moves */
+  onCursorMove?: (coords: { cursorX: number; cursorY: number }) => void;
+  /** Optional callback invoked when the terminal buffer switches between normal and alternate (vi, nano, top) */
+  onBufferTypeChange?: (type: 'normal' | 'alternate') => void;
   /** Additional CSS class names for the terminal container */
   className?: string;
   /** Inline style overrides for the terminal container */
@@ -64,6 +79,10 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
       onData,
       onResize,
       onWriteRef,
+      customKeyEventHandler,
+      onPaste,
+      onCursorMove,
+      onBufferTypeChange,
       className = '',
       style,
       theme,
@@ -83,6 +102,18 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
 
     const onResizeRef = useRef(onResize);
     onResizeRef.current = onResize;
+
+    const customKeyEventHandlerRef = useRef(customKeyEventHandler);
+    customKeyEventHandlerRef.current = customKeyEventHandler;
+
+    const onPasteRef = useRef(onPaste);
+    onPasteRef.current = onPaste;
+
+    const onCursorMoveRef = useRef(onCursorMove);
+    onCursorMoveRef.current = onCursorMove;
+
+    const onBufferTypeChangeRef = useRef(onBufferTypeChange);
+    onBufferTypeChangeRef.current = onBufferTypeChange;
 
     // Track last fitted dimensions to avoid redundant resize callbacks
     const lastDimsRef = useRef<{ cols: number; rows: number }>({ cols: 0, rows: 0 });
@@ -125,6 +156,24 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
         },
         getTerminal: () => terminalRef.current,
         getFitAddon: () => fitAddonRef.current,
+        getCursorCoordinates: () => {
+          if (!terminalRef.current || !containerRef.current) return null;
+          const term = terminalRef.current;
+          const container = containerRef.current;
+          const cellWidth =
+            (term as any)._core?._renderService?.dimensions?.actualCellWidth ||
+            container.clientWidth / Math.max(1, term.cols);
+          const cellHeight =
+            (term as any)._core?._renderService?.dimensions?.actualCellHeight ||
+            container.clientHeight / Math.max(1, term.rows);
+          return {
+            cursorX: term.buffer.active.cursorX,
+            cursorY: term.buffer.active.cursorY,
+            cellWidth,
+            cellHeight,
+            isAlternate: term.buffer.active.type === 'alternate',
+          };
+        },
       }),
       []
     );
@@ -189,10 +238,31 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
         }
       });
 
+      // 5b. Attach cursor move listener
+      const cursorDisposable = term.onCursorMove(() => {
+        onCursorMoveRef.current?.({
+          cursorX: term.buffer.active.cursorX,
+          cursorY: term.buffer.active.cursorY,
+        });
+      });
+
+      // 5c. Attach buffer change listener (detect normal vs alternate buffer for vi/nano/top)
+      const bufferDisposable = term.buffer.onBufferChange((buffer) => {
+        onBufferTypeChangeRef.current?.(buffer.type);
+      });
+
       // 6. Custom Key Event Handler:
       // Prevent browser from stealing Tab, Ctrl+C, Ctrl+Z, Ctrl+D, arrow keys, Home/End
       term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
         if (event.type === 'keydown') {
+          // Allow parent to intercept keys first (e.g. intellisense popup consuming Up/Down/Enter/Tab/Esc)
+          if (customKeyEventHandlerRef.current) {
+            const customHandled = customKeyEventHandlerRef.current(event);
+            if (customHandled === false) {
+              return false;
+            }
+          }
+
           // Tab key: Cisco command autocomplete. Prevent browser focus jump!
           if (event.key === 'Tab') {
             event.preventDefault();
@@ -236,6 +306,7 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
           // Ctrl+Shift+V: Paste from clipboard
           if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'v' || event.key === 'V')) {
             event.preventDefault();
+            onPasteRef.current?.();
             try {
               navigator.clipboard.readText().then((clipText) => {
                 if (clipText) {
@@ -337,6 +408,7 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
         } else {
           // Without selection, right-click pastes text from clipboard into socket
           try {
+            onPasteRef.current?.();
             const clipText = await navigator.clipboard.readText();
             if (clipText) {
               onDataRef.current?.(clipText);
@@ -351,6 +423,7 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
       // (d) Native browser paste listener on container:
       const handlePaste = (e: ClipboardEvent) => {
         e.preventDefault();
+        onPasteRef.current?.();
         const text = e.clipboardData?.getData('text');
         if (text) {
           onDataRef.current?.(text);
@@ -395,6 +468,8 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
         selectionDisposable.dispose();
         dataDisposable.dispose();
         resizeDisposable.dispose();
+        cursorDisposable.dispose();
+        bufferDisposable.dispose();
 
         try {
           fitAddon.dispose();

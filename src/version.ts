@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.288.0';
+export const APP_VERSION = '1.289.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.289.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'اتصال مجدد پاپ‌آپ پیشنهادات هوشمند (Intellisense) به ترمینال تعاملی xterm سرورهای ریموت (فاز ۳ از ۳)',
+    title_en: 'Restore command suggestion popup on server xterm terminal (Phase 3 of 3)',
+    changes: [
+      'اتصال مجدد پاپ‌آپ پیشنهادات هوشمند دستورات لینوکس (Intellisense) به محیط xterm.js بدون تاخیر در ارسال داده‌ها به شل.',
+      'مدیریت بافر خط محلی همگام‌شده با رویدادهای term.onData (افزودن کاراکترهای متنی، حذف با Backspace، پاکسازی با Enter، Ctrl+C، Ctrl+U و Esc).',
+      'تطبیق پویا و هوشمند موقعیت پاپ‌آپ پیشنهادات بالای مکان‌نمای ترمینال (Cursor) بر اساس مختصات سطر و ستون و اندازه سلول با مهار کامل درون کادر ترمینال.',
+      'ناوبری آسان میان گزینه‌ها با کلیدهای Up/Down و اعمال پیشنهاد با Enter/Tab یا کلیک ماوس و ارسال تنها کاراکترهای باقی‌مانده (تکمیل‌کننده) به استریم SSH.',
+      'پشتیبانی از عدم تداخل قطعی در برنامه‌های تمام‌صفحه تعاملی مانند vi، nano، top، htop، less با بررسی بافر جایگزین (alternate buffer).',
+      'غیرفعال‌سازی خودکار پاپ‌آپ در هنگام پیست متن و پرامپت دریافت رمز عبور جهت امنیت و یکپارچگی اطلاعات.',
+      'پاکسازی خودکار بافر هنگام نمایش مجدد پرامپت سرور، دستور پاکسازی صفحه (clear) و اتصال مجدد نشست.'
+    ],
+    changes_en: [
+      'Re-attached Linux command suggestion popup (Intellisense) to the interactive server xterm terminal with zero keystroke delay.',
+      'Maintained responsive local line buffer driven by term.onData keystrokes with Backspace truncation and reset on Enter, Ctrl+C, Ctrl+U, and Esc.',
+      'Positioned floating suggestions dynamically above the xterm terminal cursor based on row/column coordinates and font cell metrics, clamped safely inside container.',
+      'Enabled keyboard navigation (Up/Down) and completion (Enter/Tab/Click) sending only the missing remaining characters to the SSH PTY stream.',
+      'Automatically suppressed and hid the suggestion popup inside full-screen alternate buffer programs (vi, nano, top, htop, less, man) to prevent any interference.',
+      'Disabled popup during pasted text input and password prompts for data privacy and terminal integrity.',
+      'Reset line buffer on shell prompt re-detection, terminal screen clear, and session reconnection.'
+    ]
+  },
   {
     version: '1.288.0',
     releaseDate: '2026-10-08',
