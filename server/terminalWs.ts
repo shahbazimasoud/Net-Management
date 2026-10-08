@@ -2,6 +2,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { StringDecoder } from 'string_decoder';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Client, ConnectConfig } from 'ssh2';
 import { resolveSshBackend } from './sshBackendResolver';
@@ -299,6 +300,11 @@ export function setupTerminalWebSocket(
 
     // If host is configured, establish live interactive SSH session via native Node.js ssh2 client
     if (host && host !== '0.0.0.0') {
+      const queryCols = parseInt(parsedUrl.searchParams.get('cols') || '', 10);
+      const queryRows = parseInt(parsedUrl.searchParams.get('rows') || '', 10);
+      let currentCols = queryCols > 0 && queryCols <= 500 ? queryCols : 120;
+      let currentRows = queryRows > 0 && queryRows <= 200 ? queryRows : 36;
+
       sendClient({
         type: 'status',
         status: 'connecting',
@@ -320,12 +326,21 @@ export function setupTerminalWebSocket(
           isCleanedUp = true;
           try {
             if (activeStream) {
+              activeStream.removeAllListeners();
               activeStream.end();
+              if (typeof activeStream.destroy === 'function') {
+                activeStream.destroy();
+              }
             }
           } catch {}
           try {
+            sshConn.removeAllListeners();
             sshConn.end();
+            if (typeof (sshConn as any).destroy === 'function') {
+              (sshConn as any).destroy();
+            }
           } catch {}
+          activeStream = null;
         }
       };
 
@@ -344,16 +359,16 @@ export function setupTerminalWebSocket(
           sendClient({
             type: 'status',
             status: 'failed',
-            error: formatted,
+            error: rawErr,
             message: isEn ? `SSH Connection Failed: ${formatted}` : `خطای اتصال SSH: ${formatted}`,
           });
           sendClient({
             type: 'error',
-            error: formatted,
+            error: rawErr,
           });
           sendClient({
             type: 'data',
-            data: `\r\n\x1b[31m[${isEn ? 'SSH Connection Failed' : 'خطای اتصال SSH'}]\x1b[0m ${formatted}\r\n`,
+            data: `\r\n\x1b[31m[${isEn ? 'SSH Connection Failed' : 'خطای اتصال SSH'}]\x1b[0m ${rawErr}\r\n`,
           });
         }
         cleanup();
@@ -364,21 +379,26 @@ export function setupTerminalWebSocket(
         sshConn.shell(
           {
             term: 'xterm-256color',
-            cols: 120,
-            rows: 36,
+            cols: currentCols,
+            rows: currentRows,
           },
           (err: any, stream: any) => {
             if (err) {
-              const formatted = formatTerminalError(err.message);
+              const rawErr = err.message || 'Failed to allocate terminal shell';
+              const formatted = formatTerminalError(rawErr);
               sendClient({
                 type: 'status',
                 status: 'failed',
-                error: formatted,
+                error: rawErr,
                 message: isEn ? `Failed to allocate terminal shell: ${formatted}` : `خطا در ایجاد پوسته ترمینال: ${formatted}`,
               });
               sendClient({
                 type: 'error',
-                error: formatted,
+                error: rawErr,
+              });
+              sendClient({
+                type: 'data',
+                data: `\r\n\x1b[31m[Shell Allocation Error]\x1b[0m ${rawErr}\r\n`,
               });
               cleanup();
               return;
@@ -399,12 +419,50 @@ export function setupTerminalWebSocket(
                 : `ارتباط زنده SSH با ${host}:${port} برقرار شد`,
             });
 
-            // Forward device output live directly to browser WebSocket
+            // Stream stdout & stderr as raw bytes, unbuffered, without line splitting or ANSI alteration
+            const stdoutDecoder = new StringDecoder('utf-8');
+            const stderrDecoder = new StringDecoder('utf-8');
+
             stream.on('data', (chunk: Buffer) => {
+              const text = stdoutDecoder.write(chunk);
+              if (text) {
+                sendClient({
+                  type: 'data',
+                  data: text,
+                });
+              }
+            });
+
+            if (stream.stderr) {
+              stream.stderr.on('data', (chunk: Buffer) => {
+                const text = stderrDecoder.write(chunk);
+                if (text) {
+                  sendClient({
+                    type: 'data',
+                    data: text,
+                  });
+                }
+              });
+            }
+
+            stream.on('end', () => {
+              const remainingStdout = stdoutDecoder.end();
+              if (remainingStdout) {
+                sendClient({ type: 'data', data: remainingStdout });
+              }
+              const remainingStderr = stderrDecoder.end();
+              if (remainingStderr) {
+                sendClient({ type: 'data', data: remainingStderr });
+              }
+            });
+
+            stream.on('error', (streamErr: any) => {
+              const rawErr = streamErr?.message || 'SSH stream error';
               sendClient({
                 type: 'data',
-                data: chunk.toString('utf-8'),
+                data: `\r\n\x1b[31m[SSH Stream Error]\x1b[0m ${rawErr}\r\n`,
               });
+              cleanup();
             });
 
             stream.on('close', () => {
@@ -430,10 +488,17 @@ export function setupTerminalWebSocket(
         cleanup();
       });
 
-      // Handle messages from browser WebSocket
+      // Handle messages from browser WebSocket: raw keystrokes and JSON control messages
       clientWs.on('message', (raw: WebSocket.Data) => {
         try {
-          const text = typeof raw === 'string' ? raw : raw.toString();
+          if (Buffer.isBuffer(raw)) {
+            if (activeStream && activeStream.writable) {
+              activeStream.write(raw);
+              return;
+            }
+          }
+
+          const text = typeof raw === 'string' ? raw : Buffer.isBuffer(raw) ? raw.toString('utf-8') : String(raw);
           let handledAsControl = false;
           try {
             const parsed = JSON.parse(text);
@@ -443,10 +508,16 @@ export function setupTerminalWebSocket(
                 return;
               } else if (parsed.type === 'resize') {
                 handledAsControl = true;
-                const cols = Number(parsed.cols) || 120;
-                const rows = Number(parsed.rows) || 36;
+                const cols = parseInt(parsed.cols, 10) || 120;
+                const rows = parseInt(parsed.rows, 10) || 36;
+                currentCols = cols;
+                currentRows = rows;
                 if (activeStream && typeof activeStream.setWindow === 'function') {
-                  activeStream.setWindow(rows, cols, 0, 0);
+                  try {
+                    activeStream.setWindow(rows, cols, 0, 0);
+                  } catch (resizeErr: any) {
+                    console.warn('[TerminalWs] setWindow resize error:', resizeErr?.message);
+                  }
                 }
                 return;
               } else if (parsed.type === 'close') {
@@ -463,11 +534,11 @@ export function setupTerminalWebSocket(
               }
             }
           } catch {
-            // Not a JSON control message
+            // Not a JSON control message: treat as raw keystroke data
           }
 
           if (!handledAsControl && activeStream && activeStream.writable) {
-            activeStream.write(raw as any);
+            activeStream.write(text);
           }
         } catch (writeErr: any) {
           console.warn('[TerminalWs] Input write error:', writeErr.message);

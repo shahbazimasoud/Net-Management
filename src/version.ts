@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.286.0';
+export const APP_VERSION = '1.287.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.287.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'راه‌اندازی پوسته تعاملی PTY و استریمینگ بلادرنگ بایت‌ها برای ترمینال سرورهای ریموت لینوکس (فاز ۱ از ۳)',
+    title_en: 'Real PTY Shell and Unbuffered Byte Streaming for Linux Server SSH Terminal Backend (Phase 1 of 3)',
+    changes: [
+      'راه‌اندازی نشست شل تعاملی واقعی با تخصیص PTY استاندارد و نوع ترمینال xterm-256color و ابعاد اولیه (cols و rows) در کتابخانه ssh2 برای سرورهای لینوکسی در بخش Remote Servers.',
+      'استریمینگ بدون بافر و بدون شکستن خطوط داده‌های خروجی stdout و stderr روی وب‌سوکت با حفظ کامل سکانس‌های رنگی و کنترلی ANSI (مناسب برای vi، nano، top، htop و less).',
+      'حفظ مرز کاراکترهای چندبایتی UTF-8 با استفاده از StringDecoder در استریم خروجی جهت جلوگیری از شکست کاراکترهای فارسی و خطوط ترسیمی کنسول.',
+      'دریافت مستقیم و بلادرنگ ورودی خام کلیدها از وب‌سوکت و نگارش فوری به استریم PTY سرور، به همراه پردازش پیام‌های تغییر اندازه پنجره (resize) با فراخوانی متد setWindow(rows, cols, 0, 0).',
+      'مدیریت مستقل نشست‌ها (یک نشست SSH اختصاصی به ازای هر اتصال)، آزادسازی پاکیزه اتصالات و لیسنرها هنگام قطع وب‌سوکت، و ارسال خطاهای واقعی احراز هویت یا شبکه بدون خروجی ساختگی یا شبیه‌سازی‌شده.',
+      'ثبت مستندات فنی معماری و پروتکل‌های وب‌سوکت در فایل docs/server-terminal-notes.md.'
+    ],
+    changes_en: [
+      'Configured authentic interactive shell sessions with standard PTY allocation (term: xterm-256color) and initial cols/rows using ssh2 for Linux hosts in Remote Servers & Automation Fleet.',
+      'Streamed unbuffered raw stdout and stderr bytes over the WebSocket without line-splitting or ANSI sequence modification (fully supporting interactive tools like vi, nano, top, htop, and less).',
+      'Preserved multi-byte UTF-8 character boundaries using StringDecoder across stream chunks to ensure flawless rendering of non-ASCII characters and box-drawing symbols.',
+      'Accepted both raw keystrokes and JSON control messages, writing data directly to the active SSH stream and handling window resize events via setWindow(rows, cols, 0, 0).',
+      'Maintained strict single-session lifecycle per terminal connection with complete listener teardown on socket close/error and transparent forwarding of authentic SSH error messages without simulated data.',
+      'Authored comprehensive architectural and message protocol documentation in docs/server-terminal-notes.md.'
+    ]
+  },
   {
     version: '1.286.0',
     releaseDate: '2026-10-08',
