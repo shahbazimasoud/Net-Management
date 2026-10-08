@@ -118,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <img
             src={logoCustomUrl}
             alt="Logo"
-            className="w-8 h-8 rounded-xl object-contain shadow-[0_0_15px_rgba(99,102,241,0.5)] border border-white/20 p-0.5 bg-black/40 shrink-0"
+            className="w-8 h-8 min-w-8 min-h-8 max-w-8 max-h-8 rounded-xl object-contain shadow-[0_0_15px_rgba(99,102,241,0.5)] border border-white/20 p-0.5 bg-black/40 shrink-0"
           />
         ) : logoType === 'preset' ? (
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs border border-white/20 shrink-0">

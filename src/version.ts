@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.290.0';
+export const APP_VERSION = '1.291.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.291.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'افزودن ماژول تنظیم فاو‌آیکون پنل (Favicon) و پشتیبانی جامع از آپلود و انطباق خودکار لوگوی PNG به اندازه پنل',
+    title_en: 'Panel Favicon Customizer Module & Adaptive PNG Logo Rescaling/Fitting in General Settings',
+    changes: [
+      'افزودن بخش جامع تنظیم فاو‌آیکون پنل (Favicon) در General Settings با ۴ حالت کاری: پیش‌فرض شبکه (Default)، همگام با لوگوی پنل (Same as Logo)، آیکون‌های وکتور از پیش تعریف‌شده (Presets) و آپلود فایل اختصاصی یا آدرس URL (Custom / Upload).',
+      'طراحی ویجت پیش‌نمایش زنده تب مرورگر (Simulated Browser Tab Live Preview) با نمایش دقیق عنوان پنل، آیکون فاو‌آیکون و برچسب وضعیت اعمال لحظه‌ای در تب مرورگر.',
+      'به‌روزرسانی دینامیک تگ‌های link rel="icon" و rel="shortcut icon" در سربرگ مرورگر به صورت آنی پس از تغییر یا بازنشانی تنظیمات عمومی.',
+      'پشتیبانی کامل از فایل‌های تصویری با فرمت PNG (با پس‌زمینه شفاف)، SVG، JPG و WebP در بخش لوگوی اختصاصی.',
+      'طراحی موتور مقیاس‌بندی و انطباق خودکار ابعاد لوگو با کانواس اختصاصی، که هر فایل آپلود شده با هر رزولوشن و نسبتی را به صورت خودکار با حفظ تناسب و مرکزچین به ابعاد دقیق و استاندارد لوگوی پنل تبدیل و فیت می‌کند.',
+      'تعبیه پیش‌نمایش دوگانه لوگو در ابعاد هدر ناوبری (۳۲ پیکسل) و صفحه ورود به سامانه (۳۶ پیکسل) همراه با نمایش متادیتای سایز اولیه در برابر سایز انطباق‌یافته.',
+      'انطباق کامل دوزبانه (فارسی و انگلیسی) و مجهز شدن تمامی المان‌ها به تولتیپ‌های سه‌بخشی استاندارد FieldInfoTooltip.'
+    ],
+    changes_en: [
+      'Added comprehensive Panel Favicon Customizer in General Settings supporting 4 operation modes: Default Network SVG, Same as Logo, Vector Presets, and Custom URL / Icon File Upload.',
+      'Designed Simulated Browser Tab Live Preview widget rendering page title, favicon icon, and real-time live browser tab application indicator.',
+      'Dynamic in-memory and DOM updating of <link rel="icon"> and <link rel="shortcut icon"> elements immediately reflecting administrator adjustments.',
+      'Full support for PNG images (with alpha channel transparency), SVG, JPG, and WebP in panel custom branding logo upload.',
+      'Engineered client-side canvas auto-scaling and aspect-ratio contain engine that scales and fits any uploaded image size/resolution to exact panel logo dimensions without distortion.',
+      'Integrated dual viewport mockup previews displaying logo in navbar (32px) and login view (36px) with original vs fitted resolution indicators.',
+      '100% strict bilingual English and Persian localization with boundary-safe 3-part FieldInfoTooltip components.'
+    ]
+  },
   {
     version: '1.290.0',
     releaseDate: '2026-10-08',

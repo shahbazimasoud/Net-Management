@@ -240,7 +240,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <img
                   src={generalSettings.logoCustomUrl}
                   alt="Logo"
-                  className="w-9 h-9 rounded-xl object-contain shadow-[0_0_15px_rgba(99,102,241,0.5)] border border-white/20 p-0.5 bg-black/40 shrink-0"
+                  className="w-9 h-9 min-w-9 min-h-9 max-w-9 max-h-9 rounded-xl object-contain shadow-[0_0_15px_rgba(99,102,241,0.5)] border border-white/20 p-0.5 bg-black/40 shrink-0"
                 />
               ) : generalSettings.logoType === 'preset' ? (
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs border border-white/20 shrink-0">

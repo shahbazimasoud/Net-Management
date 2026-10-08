@@ -37,6 +37,7 @@ import { HeaderAnalyzerModal } from './components/tools/HeaderAnalyzerModal';
 import { UpsCalculatorModal } from './components/tools/UpsCalculatorModal';
 import { HostCheckerModal } from './components/tools/HostCheckerModal';
 import { PasswordVaultModal } from './components/vault/PasswordVaultModal';
+import { updateDocumentFavicon } from './utils/favicon';
 import { Wrench, ChevronUp } from 'lucide-react';
 import { APP_VERSION } from './version';
 import { Device, TopologyData, isMikroTikDevice } from './types';
@@ -336,6 +337,8 @@ export default function App() {
     if (settings.panelTitle && typeof document !== 'undefined') {
       document.title = settings.panelTitle;
     }
+    // Update browser tab favicon dynamically
+    updateDocumentFavicon(settings);
     // Only apply default theme if user has NOT explicitly chosen a personal theme preference
     const userHasCustomTheme = localStorage.getItem('user_customized_theme') === 'true';
     if (!userHasCustomTheme && settings.defaultTheme) {

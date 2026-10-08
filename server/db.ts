@@ -4082,6 +4082,9 @@ export interface PanelGeneralSettings {
   logoType: 'default' | 'preset' | 'custom_url';
   logoPreset: 'network' | 'shield' | 'server' | 'router' | 'cpu' | 'globe';
   logoCustomUrl?: string;
+  faviconType?: 'default' | 'same_as_logo' | 'custom_url' | 'preset';
+  faviconCustomUrl?: string;
+  faviconPreset?: 'network' | 'shield' | 'server' | 'router' | 'cpu' | 'globe';
   defaultTheme: 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
   defaultLanguage: 'fa' | 'en';
   telemetryRefreshIntervalSec: number;
@@ -4099,6 +4102,9 @@ export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
   logoType: 'default',
   logoPreset: 'network',
   logoCustomUrl: '',
+  faviconType: 'default',
+  faviconCustomUrl: '',
+  faviconPreset: 'network',
   defaultTheme: 'obsidian',
   defaultLanguage: 'fa',
   telemetryRefreshIntervalSec: 10,
@@ -4139,6 +4145,9 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     logoType: (settings.logoType as any) || current.logoType || 'default',
     logoPreset: (settings.logoPreset as any) || current.logoPreset || 'network',
     logoCustomUrl: settings.logoCustomUrl !== undefined ? settings.logoCustomUrl : current.logoCustomUrl,
+    faviconType: (settings.faviconType as any) || current.faviconType || 'default',
+    faviconCustomUrl: settings.faviconCustomUrl !== undefined ? settings.faviconCustomUrl : (current.faviconCustomUrl || ''),
+    faviconPreset: (settings.faviconPreset as any) || current.faviconPreset || 'network',
     defaultTheme: (settings.defaultTheme as any) || current.defaultTheme || 'obsidian',
     defaultLanguage: (settings.defaultLanguage as any) || current.defaultLanguage || 'fa',
     telemetryRefreshIntervalSec: Number(settings.telemetryRefreshIntervalSec) || current.telemetryRefreshIntervalSec || 10,

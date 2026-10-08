@@ -40,6 +40,12 @@ import {
   DEFAULT_PANEL_GENERAL_SETTINGS
 } from '../../services/settingsStorage';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import {
+  resolveFaviconUrl,
+  updateDocumentFavicon,
+  scaleImageToPanelLogo,
+  getPresetFaviconDataUrl,
+} from '../../utils/favicon';
 
 interface GeneralSettingsViewProps {
   isLightMode?: boolean;
@@ -81,12 +87,20 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   const [lastCheckTime, setLastCheckTime] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [logoUploadInfo, setLogoUploadInfo] = useState<{
+    originalSize: string;
+    scaledSize: string;
+    format: string;
+  } | null>(null);
+  const [isProcessingLogo, setIsProcessingLogo] = useState(false);
+  const [isProcessingFavicon, setIsProcessingFavicon] = useState(false);
 
   // Load latest settings from database on mount
   useEffect(() => {
     syncGeneralSettingsFromDatabase().then((synced) => {
       if (synced) {
         setFormData(synced);
+        updateDocumentFavicon(synced);
       }
     });
   }, []);
@@ -146,6 +160,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
     try {
       const saved = await saveGeneralSettings(formData);
       setFormData(saved);
+      updateDocumentFavicon(saved);
       setSaveFeedback({
         type: 'success',
         message: isEn
@@ -195,6 +210,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
       : 'آیا از بازنشانی تنظیمات عمومی پنل به مقادیر پیش‌فرض اطمینان دارید؟';
     if (window.confirm(confirmMsg)) {
       setFormData(DEFAULT_PANEL_GENERAL_SETTINGS);
+      updateDocumentFavicon(DEFAULT_PANEL_GENERAL_SETTINGS);
+      setLogoUploadInfo(null);
       setSaveFeedback({
         type: 'success',
         message: isEn
@@ -204,31 +221,83 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
     }
   };
 
-  // Handle Logo File Upload (convert to base64 data URL)
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Logo File Upload (supports PNG, SVG, JPG, WebP - auto scales/fits to panel logo size)
+  const handleLogoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      alert(isEn ? 'Please select a valid image file.' : 'لطفاً یک فایل تصویری معتبر انتخاب نمایید.');
+    if (!file.type.startsWith('image/') && !file.name.toLowerCase().endsWith('.svg') && !file.name.toLowerCase().endsWith('.ico')) {
+      alert(isEn ? 'Please select a valid image file (PNG, SVG, JPG, WebP).' : 'لطفاً یک فایل تصویری معتبر (PNG، SVG، JPG، WebP) انتخاب نمایید.');
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      alert(isEn ? 'Image size must be less than 2MB.' : 'حجم تصویر باید کمتر از ۲ مگابایت باشد.');
+    if (file.size > 10 * 1024 * 1024) {
+      alert(isEn ? 'Image size must be less than 10MB.' : 'حجم تصویر باید کمتر از ۱۰ مگابایت باشد.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      setFormData((prev) => ({
-        ...prev,
-        logoType: 'custom_url',
-        logoCustomUrl: base64,
-      }));
-    };
-    reader.readAsDataURL(file);
+    setIsProcessingLogo(true);
+    try {
+      // Scale and fit any size/resolution image to panel standard 256x256 high-DPI square canvas with transparent background
+      const result = await scaleImageToPanelLogo(file, 256);
+      setFormData((prev) => {
+        const next = {
+          ...prev,
+          logoType: 'custom_url' as const,
+          logoCustomUrl: result.dataUrl,
+        };
+        if (next.faviconType === 'same_as_logo') {
+          updateDocumentFavicon(next);
+        }
+        return next;
+      });
+
+      setLogoUploadInfo({
+        originalSize: `${result.originalWidth}×${result.originalHeight}`,
+        scaledSize: '256×256 (PNG)',
+        format: result.format.toUpperCase(),
+      });
+    } catch (err: any) {
+      alert(isEn ? 'Failed to process logo image.' : 'خطا در پردازش تصویر لوگو.');
+    } finally {
+      setIsProcessingLogo(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle Favicon File Upload (supports ICO, PNG, SVG - auto scales to favicon size)
+  const handleFaviconFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/') && !file.name.toLowerCase().endsWith('.ico') && !file.name.toLowerCase().endsWith('.svg')) {
+      alert(isEn ? 'Please select a valid icon file (ICO, PNG, SVG).' : 'لطفاً یک فایل آیکون معتبر (ICO، PNG، SVG) انتخاب نمایید.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert(isEn ? 'Icon size must be less than 5MB.' : 'حجم آیکون باید کمتر از ۵ مگابایت باشد.');
+      return;
+    }
+
+    setIsProcessingFavicon(true);
+    try {
+      const result = await scaleImageToPanelLogo(file, 64);
+      setFormData((prev) => {
+        const next = {
+          ...prev,
+          faviconType: 'custom_url' as const,
+          faviconCustomUrl: result.dataUrl,
+        };
+        updateDocumentFavicon(next);
+        return next;
+      });
+    } catch (err: any) {
+      alert(isEn ? 'Failed to process favicon.' : 'خطا در پردازش فایل فاو‌آیکون.');
+    } finally {
+      setIsProcessingFavicon(false);
+      e.target.value = '';
+    }
   };
 
   // Theme options available
@@ -517,19 +586,25 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       isEn={isEn}
                       isLightMode={isLightMode}
                       title={isEn ? 'Logo Selection' : 'انتخاب لوگو'}
-                      infoWhatEn="Determines whether the header displays a high-tech built-in SVG icon or custom company logo."
-                      infoWhatFa="تعیین نوع نشان هدر سامانه بین آیکون‌های وکتور شبکه یا لوگوی اختصاصی سازمان."
-                      infoWhyEn="Ensures platform branding matches organizational identity guidelines."
-                      infoWhyFa="انطباق کامل ظاهر پنل با برند و هویت بصری سازمانی."
-                      infoExampleEn="Select 'Network Node' or upload organizational PNG/SVG"
-                      infoExampleFa="انتخاب آیکون نود شبکه یا بارگذاری فایل SVG/PNG اختصاصی"
+                      infoWhatEn="Determines whether the header displays a high-tech built-in SVG icon or custom company logo (PNG/SVG)."
+                      infoWhatFa="تعیین نوع نشان هدر سامانه بین آیکون‌های وکتور شبکه یا لوگوی اختصاصی سازمان (PNG با پس‌زمینه شفاف یا SVG)."
+                      infoWhyEn="Ensures platform branding matches organizational identity guidelines and seamlessly scales to panel logo bounds."
+                      infoWhyFa="انطباق کامل ظاهر پنل با برند و هویت بصری سازمانی با مقیاس‌بندی و انطباق خودکار بر ابعاد لوگوی پنل."
+                      infoExampleEn="Upload an organizational PNG (any resolution) or select 'Network Node'"
+                      infoExampleFa="بارگذاری فایل PNG سازمانی در هر سایز و ابعادی یا انتخاب آیکون نود شبکه"
                     />
                   </label>
 
                   <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-white/10 text-[11px]">
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, logoType: 'preset' })}
+                      onClick={() => {
+                        const next = { ...formData, logoType: 'preset' as const };
+                        setFormData(next);
+                        if (next.faviconType === 'same_as_logo') {
+                          updateDocumentFavicon(next);
+                        }
+                      }}
                       className={`px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
                         formData.logoType !== 'custom_url'
                           ? 'bg-indigo-600 text-white font-bold'
@@ -540,7 +615,13 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, logoType: 'custom_url' })}
+                      onClick={() => {
+                        const next = { ...formData, logoType: 'custom_url' as const };
+                        setFormData(next);
+                        if (next.faviconType === 'same_as_logo') {
+                          updateDocumentFavicon(next);
+                        }
+                      }}
                       className={`px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
                         formData.logoType === 'custom_url'
                           ? 'bg-indigo-600 text-white font-bold'
@@ -553,44 +634,108 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 </div>
 
                 {formData.logoType === 'custom_url' ? (
-                  /* Custom URL / Upload Box */
+                  /* Custom URL / Upload Box with PNG & Auto-scaling */
                   <div className={`p-4 rounded-xl border space-y-3 ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-white/10'}`}>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         value={formData.logoCustomUrl || ''}
-                        onChange={(e) => setFormData({ ...formData, logoCustomUrl: e.target.value })}
-                        placeholder={isEn ? 'Enter Image / SVG URL (https://...)' : 'آدرس اینترنتی مستقیم لوگو (https://...)'}
+                        onChange={(e) => {
+                          const next = { ...formData, logoCustomUrl: e.target.value };
+                          setFormData(next);
+                          if (next.faviconType === 'same_as_logo') {
+                            updateDocumentFavicon(next);
+                          }
+                        }}
+                        placeholder={isEn ? 'Enter Image URL (PNG, SVG, HTTPS...)' : 'آدرس اینترنتی مستقیم لوگو (PNG، SVG، HTTPS...)'}
                         className={`flex-1 px-3 py-1.5 rounded-lg text-xs border focus:outline-none focus:border-indigo-500 ${
                           isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-white/10 text-white'
                         }`}
                       />
                       <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold cursor-pointer transition shrink-0">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>{isEn ? 'Upload File' : 'آپلود فایل'}</span>
+                        {isProcessingLogo ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-300" />
+                        ) : (
+                          <Upload className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isProcessingLogo ? (isEn ? 'Scaling...' : 'در حال پردازش...') : (isEn ? 'Upload PNG / SVG' : 'آپلود PNG / SVG')}</span>
                         <input
                           type="file"
-                          accept="image/*,.svg"
+                          accept=".png,.jpg,.jpeg,.svg,.webp,.ico,image/png,image/svg+xml,image/*"
                           onChange={handleLogoFileUpload}
+                          disabled={isProcessingLogo}
                           className="hidden"
                         />
                       </label>
                     </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span>
+                        {isEn
+                          ? 'PNG (with transparency) & SVG supported. Any uploaded image automatically scales to fit the panel logo size.'
+                          : 'پشتیبانی کامل از فرمت PNG (با پس‌زمینه شفاف) و SVG. تصویر در هر اندازه‌ای آپلود شود، خودکار به ابعاد لوگوی پنل تبدیل و فیت می‌شود.'}
+                      </span>
+                    </div>
+
                     {formData.logoCustomUrl && (
-                      <div className="flex items-center justify-between p-2 rounded-lg bg-black/20 border border-white/5">
-                        <div className="flex items-center gap-2">
-                          <img src={formData.logoCustomUrl} alt="Custom Logo" className="w-8 h-8 rounded object-contain bg-white/5 p-1" />
-                          <span className="text-xs text-slate-300 font-mono truncate max-w-[200px]">
-                            {formData.logoCustomUrl.startsWith('data:') ? (isEn ? 'Local File Loaded' : 'فایل بارگذاری شد') : formData.logoCustomUrl}
-                          </span>
+                      <div className="p-3 rounded-lg bg-black/25 border border-white/5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 min-w-8 min-h-8 max-w-8 max-h-8 rounded-xl object-contain shadow-[0_0_15px_rgba(99,102,241,0.5)] border border-white/20 p-0.5 bg-black/40 flex items-center justify-center shrink-0">
+                              <img
+                                src={formData.logoCustomUrl}
+                                alt="Custom Logo"
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-200 font-mono truncate max-w-[220px]">
+                                {formData.logoCustomUrl.startsWith('data:')
+                                  ? (isEn ? 'Auto-Scaled Image Loaded' : 'لوگوی بهینه‌شده بارگذاری شد')
+                                  : formData.logoCustomUrl}
+                              </div>
+                              {logoUploadInfo && (
+                                <div className="text-[10px] text-indigo-300 font-mono flex items-center gap-2">
+                                  <span>{isEn ? `Original: ${logoUploadInfo.originalSize}` : `سایز اولیه: ${logoUploadInfo.originalSize}`}</span>
+                                  <span>→</span>
+                                  <span className="text-emerald-400 font-bold">{isEn ? `Fitted: ${logoUploadInfo.scaledSize}` : `انطباق: ${logoUploadInfo.scaledSize}`}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = { ...formData, logoCustomUrl: '' };
+                              setFormData(next);
+                              setLogoUploadInfo(null);
+                              if (next.faviconType === 'same_as_logo') {
+                                updateDocumentFavicon(next);
+                              }
+                            }}
+                            className="text-xs text-rose-400 hover:text-rose-300 cursor-pointer font-bold px-2 py-1"
+                          >
+                            {isEn ? 'Remove' : 'حذف'}
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, logoCustomUrl: '' })}
-                          className="text-xs text-rose-400 hover:text-rose-300 cursor-pointer font-bold px-2 py-1"
-                        >
-                          {isEn ? 'Remove' : 'حذف'}
-                        </button>
+
+                        {/* Dual Viewport Preview Mockup */}
+                        <div className="pt-2 border-t border-white/5 flex items-center gap-4 text-[11px] text-slate-400">
+                          <span className="text-slate-500 font-mono text-[10px]">{isEn ? 'Display Previews:' : 'پیش‌نمایش در سامانه:'}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400">{isEn ? 'Navbar (32px):' : 'هدر (۳۲px):'}</span>
+                            <div className="w-6 h-6 rounded-lg bg-black/40 border border-white/20 p-0.5 flex items-center justify-center">
+                              <img src={formData.logoCustomUrl} alt="Nav Preview" className="w-full h-full object-contain" />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400">{isEn ? 'Login (36px):' : 'لاگین (۳۶px):'}</span>
+                            <div className="w-7 h-7 rounded-lg bg-black/40 border border-white/20 p-0.5 flex items-center justify-center">
+                              <img src={formData.logoCustomUrl} alt="Login Preview" className="w-full h-full object-contain" />
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -604,7 +749,13 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         <button
                           key={p.id}
                           type="button"
-                          onClick={() => setFormData({ ...formData, logoType: 'preset', logoPreset: p.id as any })}
+                          onClick={() => {
+                            const next = { ...formData, logoType: 'preset' as const, logoPreset: p.id as any };
+                            setFormData(next);
+                            if (next.faviconType === 'same_as_logo') {
+                              updateDocumentFavicon(next);
+                            }
+                          }}
                           className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs transition cursor-pointer text-left ${
                             isSelected
                               ? 'bg-indigo-600/25 border-indigo-500 text-white font-bold shadow-sm'
@@ -622,6 +773,227 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       );
                     })}
                   </div>
+                )}
+              </div>
+
+              {/* Item: Panel Favicon (Browser Tab Icon) */}
+              <div className="space-y-3 pt-3 border-t border-white/10">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                    <span>{isEn ? 'Panel Favicon (Browser Tab Icon)' : 'فاو‌آیکون پنل (نشان تب مرورگر / Favicon)'}</span>
+                    <FieldInfoTooltip
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      title={isEn ? 'Browser Favicon Setup' : 'تنظیم فاو‌آیکون مرورگر'}
+                      infoWhatEn="The miniature icon displayed in the browser tab and bookmarks beside the application title."
+                      infoWhatFa="آیکون گرافیکی کوچکی که در نوار تب‌های مرورگر و بوک‌مارک‌ها کنار عنوان پنل دیده می‌شود."
+                      infoWhyEn="Ensures corporate brand consistency across open tabs and enables instant visual identification."
+                      infoWhyFa="شخصی‌سازی صددرصدی تجربه کاربری، متمایزسازی تب‌های باز پنل از سایر سایت‌ها و یکپارچگی هویت بصری سازمانی."
+                      infoExampleEn="Select 'Same as Logo', a network vector preset, or upload an organizational PNG/ICO/SVG."
+                      infoExampleFa="انتخاب گزینه «همانند لوگوی پنل»، آیکون‌های وکتور شبکه، یا بارگذاری فایل اختصاصی PNG/ICO/SVG."
+                    />
+                  </label>
+
+                  {/* Mode Selector Buttons */}
+                  <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-900 border border-white/10 text-[11px] overflow-x-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...formData, faviconType: 'default' as const };
+                        setFormData(next);
+                        updateDocumentFavicon(next);
+                      }}
+                      className={`px-2 py-1 rounded-md transition cursor-pointer font-medium whitespace-nowrap ${
+                        (formData.faviconType || 'default') === 'default'
+                          ? 'bg-indigo-600 text-white font-bold'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {isEn ? 'Default' : 'پیش‌فرض'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...formData, faviconType: 'same_as_logo' as const };
+                        setFormData(next);
+                        updateDocumentFavicon(next);
+                      }}
+                      className={`px-2 py-1 rounded-md transition cursor-pointer font-medium whitespace-nowrap ${
+                        formData.faviconType === 'same_as_logo'
+                          ? 'bg-indigo-600 text-white font-bold'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {isEn ? 'Same as Logo' : 'همانند لوگوی پنل'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...formData, faviconType: 'preset' as const };
+                        setFormData(next);
+                        updateDocumentFavicon(next);
+                      }}
+                      className={`px-2 py-1 rounded-md transition cursor-pointer font-medium whitespace-nowrap ${
+                        formData.faviconType === 'preset'
+                          ? 'bg-indigo-600 text-white font-bold'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {isEn ? 'Presets' : 'آیکون‌ها'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = { ...formData, faviconType: 'custom_url' as const };
+                        setFormData(next);
+                        updateDocumentFavicon(next);
+                      }}
+                      className={`px-2 py-1 rounded-md transition cursor-pointer font-medium whitespace-nowrap ${
+                        formData.faviconType === 'custom_url'
+                          ? 'bg-indigo-600 text-white font-bold'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {isEn ? 'Upload / URL' : 'آپلود / آدرس'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Simulated Browser Tab Live Preview */}
+                <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
+                  isLightMode ? 'bg-slate-100/90 border-slate-300' : 'bg-slate-950/70 border-white/10'
+                }`}>
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider shrink-0">
+                      {isEn ? 'Browser Tab Preview:' : 'پیش‌نمایش تب مرورگر:'}
+                    </span>
+                    {/* Tab mockup */}
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs max-w-[280px] shadow-sm ${
+                      isLightMode
+                        ? 'bg-white border-slate-300 text-slate-800'
+                        : 'bg-slate-900 border-indigo-500/30 text-slate-200'
+                    }`}>
+                      <img
+                        src={resolveFaviconUrl(formData).href}
+                        alt="Favicon"
+                        className="w-4 h-4 object-contain rounded shrink-0"
+                      />
+                      <span className="font-semibold text-[11px] truncate">
+                        {formData.panelTitle || 'NetTopology Pro'}
+                      </span>
+                      <span className="text-slate-400 text-[10px] ml-auto pl-1 shrink-0">×</span>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] text-emerald-400 font-mono hidden sm:inline-block">
+                    {isEn ? '● Live in Browser' : '● اعمال لحظه‌ای در تب مرورگر'}
+                  </span>
+                </div>
+
+                {/* Content based on faviconType */}
+                {formData.faviconType === 'custom_url' && (
+                  <div className={`p-4 rounded-xl border space-y-3 ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-white/10'}`}>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={formData.faviconCustomUrl || ''}
+                        onChange={(e) => {
+                          const next = { ...formData, faviconCustomUrl: e.target.value };
+                          setFormData(next);
+                          updateDocumentFavicon(next);
+                        }}
+                        placeholder={isEn ? 'Enter Favicon URL (ICO, PNG, SVG)' : 'آدرس اینترنتی مستقیم فاو‌آیکون (ICO, PNG, SVG)'}
+                        className={`flex-1 px-3 py-1.5 rounded-lg text-xs border focus:outline-none focus:border-indigo-500 ${
+                          isLightMode ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-white/10 text-white'
+                        }`}
+                      />
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold cursor-pointer transition shrink-0">
+                        {isProcessingFavicon ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-300" />
+                        ) : (
+                          <Upload className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isProcessingFavicon ? (isEn ? 'Scaling...' : 'در حال پردازش...') : (isEn ? 'Upload Icon' : 'آپلود آیکون')}</span>
+                        <input
+                          type="file"
+                          accept=".ico,.png,.svg,.webp,image/*"
+                          onChange={handleFaviconFileUpload}
+                          disabled={isProcessingFavicon}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    {formData.faviconCustomUrl && (
+                      <div className="flex items-center justify-between p-2 rounded-lg bg-black/20 border border-white/5">
+                        <div className="flex items-center gap-2">
+                          <img src={formData.faviconCustomUrl} alt="Custom Favicon" className="w-6 h-6 rounded object-contain bg-white/5 p-0.5" />
+                          <span className="text-xs text-slate-300 font-mono truncate max-w-[240px]">
+                            {formData.faviconCustomUrl.startsWith('data:') ? (isEn ? 'Custom Icon Loaded' : 'آیکون بارگذاری شد') : formData.faviconCustomUrl}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = { ...formData, faviconCustomUrl: '' };
+                            setFormData(next);
+                            updateDocumentFavicon(next);
+                          }}
+                          className="text-xs text-rose-400 hover:text-rose-300 cursor-pointer font-bold px-2 py-1"
+                        >
+                          {isEn ? 'Remove' : 'حذف'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {formData.faviconType === 'preset' && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {presetLogos.map((p) => {
+                      const Icon = p.icon;
+                      const isSelected = (formData.faviconPreset || 'network') === p.id;
+                      return (
+                        <button
+                          key={`fav-${p.id}`}
+                          type="button"
+                          onClick={() => {
+                            const next = { ...formData, faviconPreset: p.id as any };
+                            setFormData(next);
+                            updateDocumentFavicon(next);
+                          }}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs transition cursor-pointer text-left ${
+                            isSelected
+                              ? 'bg-indigo-600/25 border-indigo-500 text-white font-bold shadow-sm'
+                              : isLightMode
+                              ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              : 'bg-slate-900/40 border-white/5 text-slate-300 hover:bg-white/5'
+                          }`}
+                        >
+                          <div className={`w-6 h-6 rounded-lg bg-gradient-to-tr ${p.color} flex items-center justify-center text-white shrink-0`}>
+                            <Icon className="w-3.5 h-3.5" />
+                          </div>
+                          <span className="truncate text-xs">{isEn ? p.labelEn : p.labelFa}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400 ml-auto shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {formData.faviconType === 'same_as_logo' && (
+                  <p className={`text-[11px] ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                    {isEn
+                      ? 'Favicon automatically synchronizes with the active panel logo and graphic style.'
+                      : 'فاو‌آیکون به صورت خودکار و هوشمند با لوگوی فعال پنل و سبک گرافیکی آن هماهنگ می‌شود.'}
+                  </p>
+                )}
+
+                {formData.faviconType === 'default' && (
+                  <p className={`text-[11px] ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                    {isEn
+                      ? 'Using standard high-tech NetTopology network node vector favicon.'
+                      : 'استفاده از فاو‌آیکون استاندارد وکتور نود شبکه NetTopology.'}
+                  </p>
                 )}
               </div>
             </div>

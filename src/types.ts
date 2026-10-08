@@ -6987,6 +6987,9 @@ export interface PanelGeneralSettings {
   logoType: 'default' | 'preset' | 'custom_url';
   logoPreset: 'network' | 'shield' | 'server' | 'router' | 'cpu' | 'globe';
   logoCustomUrl?: string;
+  faviconType?: 'default' | 'same_as_logo' | 'custom_url' | 'preset';
+  faviconCustomUrl?: string;
+  faviconPreset?: 'network' | 'shield' | 'server' | 'router' | 'cpu' | 'globe';
   defaultTheme: 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
   defaultLanguage: 'fa' | 'en';
   telemetryRefreshIntervalSec: number;
