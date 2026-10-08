@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.283.9';
+export const APP_VERSION = '1.284.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.284.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'افزودن وابستگی‌های xterm.js و پیاده‌سازی کامپوننت پایه ترمینال XtermTerminal (فاز ۱ از ۳)',
+    title_en: 'Add xterm.js dependencies and base XtermTerminal component (Phase 1 of 3)',
+    changes: [
+      'افزودن پکیج‌های @xterm/xterm و @xterm/addon-fit به عنوان وابستگی‌های پروژه.',
+      'ایجاد کامپوننت پایه XtermTerminal با یک نمونه پایدار Terminal، ادان FitAddon، مدیریت تغییر ابعاد (ResizeObserver)، تم تیره و هندل ارجاع (Imperative Handle).',
+      'ایمپورت استایل‌های نیتیو xterm.css و آماده‌سازی برای جایگزینی رندرینگ متنی با ترمینال استاندارد در فازهای بعدی بدون دستکاری در رابط فعلی.'
+    ],
+    changes_en: [
+      'Added @xterm/xterm and @xterm/addon-fit dependencies to package.json.',
+      'Created base XtermTerminal component with a single Terminal instance, FitAddon integration, ResizeObserver-based dimension handling, dark theme palette, and imperative ref handle.',
+      'Imported native xterm.css and prepared terminal foundation for subsequent inline replacement phases without altering existing CLI UI.'
+    ]
+  },
   {
     version: '1.283.9',
     releaseDate: '2026-10-07',
