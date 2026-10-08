@@ -451,6 +451,31 @@ const LINUX_COMMAND_SNIPPETS: SnippetItem[] = [
   },
 ];
 
+/**
+ * Persists and retrieves executed terminal commands in localStorage per server.
+ */
+function getSavedTerminalHistory(serverId?: string): string[] {
+  if (!serverId) return [];
+  try {
+    const raw = localStorage.getItem(`linux_terminal_history_${serverId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+      }
+    }
+  } catch {}
+  return [];
+}
+
+function saveTerminalHistory(serverId: string | undefined, history: string[]) {
+  if (!serverId) return;
+  try {
+    const trimmed = history.slice(-200);
+    localStorage.setItem(`linux_terminal_history_${serverId}`, JSON.stringify(trimmed));
+  } catch {}
+}
+
 export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   isOpen,
   server,
@@ -466,6 +491,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<'snippets' | 'specs' | 'history'>('snippets');
   const [snippetSearch, setSnippetSearch] = useState('');
+  const [historySearch, setHistorySearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
@@ -488,6 +514,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const [panes, setPanes] = useState<TerminalPane[]>(() => {
     const srv = resolveValidServer(server, null);
     const initialHome = getServerHomeDir(srv);
+    const initialHistory = getSavedTerminalHistory(srv?.id);
     return [
       {
         id: 'pane-1',
@@ -496,7 +523,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         selectedShell: initialShell,
         lines: [],
         inputVal: '',
-        history: [],
+        history: initialHistory,
         historyIdx: -1,
         isConnected: false,
         isConnecting: false,
@@ -603,6 +630,51 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       setIntellisenseIndex(0);
     }
   }, []);
+
+  // Add executed command to pane history and persist to localStorage
+  const addCommandToHistory = useCallback(
+    (paneId: string, cmd: string) => {
+      const trimmed = cmd.trim();
+      if (!trimmed) return;
+
+      setPanes((prev) =>
+        prev.map((p) => {
+          if (p.id !== paneId) return p;
+          if (p.history.length > 0 && p.history[p.history.length - 1] === trimmed) {
+            return p;
+          }
+          const updatedHistory = [...p.history, trimmed].slice(-200);
+          const srv = resolveValidServer(p.server, server);
+          if (srv?.id) {
+            saveTerminalHistory(srv.id, updatedHistory);
+          }
+          return {
+            ...p,
+            history: updatedHistory,
+            historyIdx: -1,
+          };
+        })
+      );
+    },
+    [server]
+  );
+
+  // Clear command history for a pane and remove from localStorage
+  const clearPaneHistory = useCallback(
+    (paneId: string) => {
+      const targetPane = panesRef.current.find((p) => p.id === paneId);
+      const srv = resolveValidServer(targetPane?.server, server);
+      if (srv?.id) {
+        try {
+          localStorage.removeItem(`linux_terminal_history_${srv.id}`);
+        } catch {}
+      }
+      setPanes((prev) =>
+        prev.map((p) => (p.id === paneId ? { ...p, history: [], historyIdx: -1 } : p))
+      );
+    },
+    [server]
+  );
 
   useEffect(() => {
     const currentBuf = lineBuffersRef.current[activePaneId] || '';
@@ -1164,7 +1236,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           selectedShell: initialShell,
           lines: [],
           inputVal: '',
-          history: [],
+          history: getSavedTerminalHistory(effectiveSrv?.id),
           historyIdx: -1,
           isConnected: false,
           isConnecting: true,
@@ -1328,13 +1400,21 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
             });
           }
 
+          const updatedHistory = p.history.length > 0 && p.history[p.history.length - 1] === trimmed
+            ? p.history
+            : [...p.history, trimmed].slice(-200);
+          const srv = resolveValidServer(p.server, server);
+          if (srv?.id) {
+            saveTerminalHistory(srv.id, updatedHistory);
+          }
+
           return {
             ...p,
             cwd: newCwd,
             previousCwd: newPreviousCwd,
             inputVal: '',
             historyIdx: -1,
-            history: [...p.history, trimmed],
+            history: updatedHistory,
             lines: newLines,
           };
         })
@@ -1398,6 +1478,14 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
   const activePane = useMemo(() => {
     return panes.find((p) => p.id === activePaneId) || panes[0];
   }, [panes, activePaneId]);
+
+  // Filtered command history for sidebar (newest commands at top)
+  const filteredHistory = useMemo(() => {
+    const list = [...(activePane?.history || [])].reverse();
+    if (!historySearch.trim()) return list;
+    const q = historySearch.trim().toLowerCase();
+    return list.filter((c) => c.toLowerCase().includes(q));
+  }, [activePane?.history, historySearch]);
 
   const activeIntellisense = useMemo<IntellisenseResult>(() => {
     if (
@@ -1475,8 +1563,24 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
           }
           return;
         }
-        // Pasted text: reset buffer and hide popup
-        resetPaneLineBuffer(paneId);
+        // Pasted text / command chunk:
+        let curBuf = lineBuffersRef.current[paneId] || '';
+        if (data.includes('\r') || data.includes('\n')) {
+          const lines = (curBuf + data).split(/[\r\n]+/);
+          const executed = (data.endsWith('\r') || data.endsWith('\n')) ? lines : lines.slice(0, -1);
+          executed.forEach((c) => {
+            const t = c.trim();
+            if (t) addCommandToHistory(paneId, t);
+          });
+          curBuf = (data.endsWith('\r') || data.endsWith('\n')) ? '' : (lines[lines.length - 1] || '');
+        } else {
+          curBuf = curBuf + data;
+        }
+        lineBuffersRef.current[paneId] = curBuf;
+        if (paneId === activePaneIdRef.current) {
+          setActiveLineBuffer(curBuf);
+          setShowIntellisensePopup(false);
+        }
         return;
       }
 
@@ -1484,7 +1588,11 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       let buf = lineBuffersRef.current[paneId] || '';
 
       if (data === '\r' || data === '\n') {
-        // Enter: command executed, clear buffer and hide popup
+        // Enter: command executed, add to history, clear buffer and hide popup
+        const executed = buf.trim();
+        if (executed) {
+          addCommandToHistory(paneId, executed);
+        }
         buf = '';
         if (paneId === activePaneIdRef.current) {
           setShowIntellisensePopup(false);
@@ -1529,7 +1637,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
         setActiveLineBuffer(buf);
       }
     },
-    [sendInput, resetPaneLineBuffer]
+    [sendInput, resetPaneLineBuffer, addCommandToHistory]
   );
 
   // Custom key handler to intercept Up, Down, Tab, Enter, Esc for Intellisense popup navigation
@@ -1835,7 +1943,7 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
       selectedShell: shellToUse,
       lines: [],
       inputVal: '',
-      history: [],
+      history: getSavedTerminalHistory(validSrv?.id),
       historyIdx: -1,
       isConnected: false,
       isConnecting: false,
@@ -1940,11 +2048,9 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
 
   // Insert Snippet to active pane
   const handleInsertSnippet = (cmd: string) => {
-    resetPaneLineBuffer(activePaneId);
-    setPanes((prev) =>
-      prev.map((p) => (p.id === activePaneId ? { ...p, inputVal: cmd } : p))
-    );
     sendInput(activePaneId, cmd);
+    lineBuffersRef.current[activePaneId] = cmd;
+    setActiveLineBuffer(cmd);
     xtermRefs.current[activePaneId]?.focus();
   };
 
@@ -2738,19 +2844,69 @@ export const LinuxTerminalModal: React.FC<LinuxTerminalModalProps> = ({
                 )}
 
                 {sidebarTab === 'history' && (
-                  <div className="space-y-1.5">
-                    {activePane.history.length === 0 ? (
+                  <div className="space-y-2">
+                    {/* Search and Clear toolbar */}
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <div className="relative flex-1">
+                        <Search
+                          className={`w-3.5 h-3.5 text-slate-400 absolute ${
+                            isEn ? 'left-2.5' : 'right-2.5'
+                          } top-1/2 -translate-y-1/2`}
+                        />
+                        <input
+                          type="text"
+                          value={historySearch}
+                          onChange={(e) => setHistorySearch(e.target.value)}
+                          placeholder={isEn ? 'Search history...' : 'جستجو در تاریخچه...'}
+                          className={`w-full ${
+                            isEn ? 'pl-8 pr-3' : 'pr-8 pl-3'
+                          } py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 transition`}
+                        />
+                      </div>
+                      {activePane?.history && activePane.history.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => clearPaneHistory(activePaneId)}
+                          title={isEn ? 'Clear history' : 'پاکسازی تاریخچه'}
+                          className="p-1.5 rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 transition cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {filteredHistory.length === 0 ? (
                       <div className="text-center py-8 text-xs text-slate-500">
-                        {isEn ? 'No commands executed yet.' : 'هنوز دستوری اجرا نشده است.'}
+                        {historySearch
+                          ? isEn
+                            ? 'No matching commands found.'
+                            : 'دستور منطبقی یافت نشد.'
+                          : isEn
+                          ? 'No commands executed yet.'
+                          : 'هنوز دستوری اجرا نشده است.'}
                       </div>
                     ) : (
-                      activePane.history.map((hCmd, idx) => (
+                      filteredHistory.map((hCmd, idx) => (
                         <div
                           key={idx}
                           className="flex items-center justify-between p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 font-mono text-xs text-slate-300 group"
                         >
-                          <span className="truncate flex-1 me-2">{hCmd}</span>
+                          <span className="truncate flex-1 me-2 select-all" title={hCmd}>
+                            {hCmd}
+                          </span>
                           <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100">
+                            <button
+                              type="button"
+                              onClick={() => handleCopySnippet(hCmd)}
+                              title={isEn ? 'Copy' : 'کپی'}
+                              className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              {copiedCmd === hCmd ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
                             <button
                               type="button"
                               onClick={() => handleInsertSnippet(hCmd)}

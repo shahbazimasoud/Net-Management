@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.289.1';
+export const APP_VERSION = '1.289.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.289.2',
+    releaseDate: '2026-10-08',
+    type: 'patch',
+    title: 'رفع مشکل ذخیره‌سازی و استفاده مجدد از تاریخچه دستورات در سایدبار ترمینال سرورهای لینوکس',
+    title_en: 'Fix command history recording, persistence and reuse in Linux terminal sidebar',
+    changes: [
+      'ثبت بلادرنگ دستورات تایپ‌شده در ترمینال xterm و دستورات پیست‌شده چندخطی در تب تاریخچه (History) سایدبار هنگام فشردن کلید Enter یا ارسال دستور.',
+      'ذخیره‌سازی پایدار و ماندگار تاریخچه دستورات در localStorage مرورگر به تفکیک شناسه هر سرور جهت امکان استفاده مجدد در نشست‌های بعدی.',
+      'ارتقای رابط کاربری تب تاریخچه در سایدبار شامل نوار جستجوی زنده، دکمه کپی دستور، دکمه درج در ترمینال، دکمه اجرای مستقیم، دکمه پاکسازی تاریخچه، و مرتب‌سازی از جدیدترین به قدیمی‌ترین.'
+    ],
+    changes_en: [
+      'Captured and recorded interactive keystrokes and multi-line pasted commands into the sidebar History tab upon Enter keypress or command dispatch.',
+      'Persisted executed command history per-server in browser localStorage (up to 200 entries) allowing instant reuse across sessions and modal restarts.',
+      'Enhanced History tab interface with real-time command search filter, Copy, Insert, Run, Clear History actions, and reverse-chronological ordering.'
+    ]
+  },
   {
     version: '1.289.1',
     releaseDate: '2026-10-08',
