@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.291.0';
+export const APP_VERSION = '1.292.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.292.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'افزودن زیرمنوی کنترل و مدیریت سرویس‌های سرور پنل (فرانت‌اند، وب‌سرور Nginx، هسته API، موتور کاوش پایتون و پایگاه داده)',
+    title_en: 'Panel Host Services & Daemons Management Module in Settings Submenu',
+    changes: [
+      'افزودن زیرمنوی جدید «کنترل سرویس‌های سرور پنل» (Panel Host Services) تحت گروه تنظیمات منوی کناری (Sidebar Settings) جهت مدیریت کامل سرویس‌های میزبان.',
+      'طراحی داشبورد جامع پایش تلمتری سرور شامل مشخصات پردازنده، درصد بار سیستم، مصرف لحظه‌ای رم، زمان آپتایم و نسخه کرنل هاست با داده‌های زنده و واقعی.',
+      'پشتیبانی از پایش و چرخه حیات سرویس‌های کلیدی شامل وب‌سرور Nginx، سرور اصلی اپلیکیشن Node.js، موتور کاوش شبکه Python 3، پایگاه داده PostgreSQL، حافظه کش Redis، دیمن SSH و سرپرست Control Plane.',
+      'پیاده‌سازی عملیات کنترلی زنده: راه‌اندازی (Start)، توقف (Stop با پنجره تایید ایمنی)، راه‌اندازی مجدد (Restart) و بارگذاری مجدد کانفیگ (Reload) با اتصال مستقیم به شل سرور و ثبت لاگ امنیتی در پایگاه داده.',
+      'تجهیز به پنجره مودال پیشرفته نمایش زنده لاگ‌های سرویس (Live Log Viewer) با استریم بلادرنگ، فیلتر جستجوی خطوط لاگ، دکمه کپی، قابلیت تمام‌صفحه و انطباق کامل با استاندارد پنج‌گانه مودال‌ها (مینیمایز، تمام‌صفحه، بستن، و حفظ حریم فوتر).',
+      'فیلتر هوشمند سرویس‌ها بر اساس دسته‌بندی (همه، فرانت‌اند و وب، بک‌اند و موتور کاوش، دیتابیس و کش، دیمن‌های سیستم)، وضعیت اجرا، و جستجوی لحظه‌ای نام، پورت یا PID.',
+      'انطباق صددرصدی با تم تیره و روشن پنل و رعایت کامل قوانین دوزبانگی بدون نشت متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Added "Panel Host Services" module under Settings submenu for complete lifecycle and status control of server services.',
+      'Engineered authentic server telemetry bar displaying host CPU model, load percentage, real RAM utilization, uptime, and kernel release directly from host OS.',
+      'Integrated real-time monitoring and control for Nginx Web Server, Node.js Core API, Python 3 Network Discovery Daemon, PostgreSQL Relational Database, Redis Cache, OpenSSH Daemon, and Control Plane API.',
+      'Enabled real lifecycle operations: Start, Stop (with safety confirmation dialog), Restart, and Reload with live command execution and audit log persistence.',
+      'Engineered terminal-style Live Service Log Viewer modal with auto-tail streaming, log text filtering, copy to clipboard, and universal triple header controls (Minimize, Maximize, Close).',
+      'Implemented category filters (All, Frontend & Web, Backend & Discovery, Database & Cache, System Daemons), status toggles, and instant search across service names, ports, and PIDs.',
+      'Guaranteed 100% strict bilingual English and Persian localization with ergonomic light/dark theme adaptability and zero Persian leakage in English mode.'
+    ]
+  },
   {
     version: '1.291.0',
     releaseDate: '2026-10-08',

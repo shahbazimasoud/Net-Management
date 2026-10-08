@@ -51,7 +51,7 @@ interface GeneralSettingsViewProps {
   isLightMode?: boolean;
   panelTheme?: ThemeType;
   onChangeTheme?: (theme: ThemeType) => void;
-  onNavigateToTab?: (tab: 'settings-ldap' | 'settings-update' | string) => void;
+  onNavigateToTab?: (tab: 'settings-ldap' | 'settings-update' | 'settings-services' | string) => void;
   onSettingsSaved?: (newSettings: PanelGeneralSettings) => void;
 }
 
@@ -1641,6 +1641,32 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   <Sliders className="w-3.5 h-3.5" />
                   <span>{isEn ? 'Configure Now' : 'ویرایش تنظیمات'}</span>
                 </button>
+              </div>
+
+              {/* Phase 5: Host Services Manager */}
+              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center text-xs font-bold shrink-0">
+                    <Check className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs">
+                    <span className="font-bold text-emerald-400">{isEn ? 'Phase 5: ' : 'فاز ۵: '}</span>
+                    <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
+                      {isEn
+                        ? 'Host Services & Daemons: real-time telemetry, start/stop/restart/reload and log inspection for Web Server, Core API, Python Discovery & PostgreSQL.'
+                        : 'مدیریت و کنترل سرویس‌های هاست: پایش لحظه‌ای، استارت/استاپ/ریستارت/ریلود و مشاهده لاگ‌های وب‌سرور، هسته API، موتور کاوش و دیتابیس.'}
+                    </span>
+                  </div>
+                </div>
+                {onNavigateToTab && (
+                  <button
+                    onClick={() => onNavigateToTab('settings-services')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-xs font-semibold transition shrink-0 cursor-pointer"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Host Services' : 'سرویس‌های هاست'}</span>
+                  </button>
+                )}
               </div>
 
               {/* Next Phases */}

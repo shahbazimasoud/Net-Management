@@ -20,6 +20,7 @@ import { TopologyDiscoveryModal } from './components/TopologyDiscoveryModal';
 import { BulkDeviceConfigModal } from './components/BulkDeviceConfigModal';
 import { SettingsView } from './components/settings/SettingsView';
 import { GeneralSettingsView } from './components/settings/GeneralSettingsView';
+import { PanelServicesView } from './components/settings/PanelServicesView';
 import { LdapConnectionSettingsView } from './components/settings/LdapConnectionSettingsView';
 import { PanelUpdateSettingsView } from './components/settings/PanelUpdateSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
@@ -1129,6 +1130,10 @@ export default function App() {
                 applyGlobalSettings(newSettings);
               }}
             />
+          )}
+
+          {activeTab === 'settings-services' && isSuperAdmin && (
+            <PanelServicesView isLightMode={panelTheme === 'light'} />
           )}
 
           {activeTab === 'settings-ldap' && isSuperAdmin && (

@@ -51,6 +51,7 @@ export type ActiveTab =
   | 'settings-rbac'
   | 'settings-backup'
   | 'general-settings'
+  | 'settings-services'
   | 'settings-ldap'
   | 'settings-update';
 
@@ -245,6 +246,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_settings_general',
           icon: Sliders,
           badge: 'Ready',
+        },
+        {
+          id: 'settings-services',
+          labelKey: 'tab_settings_services',
+          icon: Activity,
+          badge: 'Host',
         },
         {
           id: 'settings-ldap',

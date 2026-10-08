@@ -4,6 +4,12 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import {
+  getAllPanelServices,
+  getHostServerMetrics,
+  executeHostServiceAction,
+  getHostServiceLogs,
+} from './panelServices';
+import {
   hashPassword,
   verifyPassword,
   generateToken,
@@ -13913,5 +13919,101 @@ apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Decryption failed: ' + err.message });
   }
 });
+
+// ============================================================================
+// HOST SERVER SERVICES & DAEMONS MANAGEMENT ENDPOINTS
+// ============================================================================
+
+// GET /api/panel/services - Query live status of all host services and system metrics
+apiRouter.get('/panel/services', async (req: Request, res: Response) => {
+  try {
+    const [services, metrics] = await Promise.all([
+      getAllPanelServices(),
+      getHostServerMetrics(),
+    ]);
+
+    res.json({
+      success: true,
+      services,
+      metrics,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[API /panel/services error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to query host services: ' + err.message,
+    });
+  }
+});
+
+// POST /api/panel/services/action - Trigger service start, stop, restart, or reload
+apiRouter.post('/panel/services/action', async (req: Request, res: Response) => {
+  try {
+    const { serviceId, action } = req.body;
+    if (!serviceId || !action) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: serviceId and action',
+      });
+    }
+
+    if (!['start', 'stop', 'restart', 'reload'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid service action "${action}". Allowed: start, stop, restart, reload`,
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    let userName = 'admin';
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const decoded = verifyToken(authHeader.substring(7));
+      if (decoded?.username) {
+        userName = decoded.username;
+      }
+    }
+
+    const ip = getClientIp(req);
+    const userAgent = req.headers['user-agent'] as string | undefined;
+
+    const result = await executeHostServiceAction(serviceId, action, {
+      userName,
+      ipAddress: ip,
+      userAgent,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('[API /panel/services/action error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Service action failed: ' + err.message,
+    });
+  }
+});
+
+// GET /api/panel/services/logs - Fetch live log stream for target service
+apiRouter.get('/panel/services/logs', async (req: Request, res: Response) => {
+  try {
+    const serviceId = String(req.query.serviceId || 'node_server');
+    const lines = parseInt(String(req.query.lines || '80'), 10) || 80;
+
+    const logData = await getHostServiceLogs(serviceId, lines);
+    res.json({
+      success: true,
+      serviceId: logData.serviceId,
+      logs: logData.logs,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[API /panel/services/logs error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve service logs: ' + err.message,
+    });
+  }
+});
+
 
 

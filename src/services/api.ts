@@ -7037,3 +7037,162 @@ export async function fetchVaultItems(): Promise<{ success: boolean; items?: any
   }
 }
 
+// ----------------------------------------------------------------------------
+// Host Server Services & Daemons API
+// ----------------------------------------------------------------------------
+
+export interface PanelServiceDto {
+  id: string;
+  name: string;
+  name_fa: string;
+  category: 'frontend' | 'backend' | 'database' | 'system';
+  serviceName: string;
+  description: string;
+  description_fa: string;
+  status: 'running' | 'stopped' | 'failed' | 'unknown';
+  pids: number[];
+  cpuPercent: number;
+  memoryMb: number;
+  uptimeSeconds: number;
+  ports: number[];
+  portsActive: boolean;
+  canStart: boolean;
+  canStop: boolean;
+  canRestart: boolean;
+  canReload: boolean;
+  lastChecked: string;
+  logFile?: string;
+  details?: string;
+}
+
+export interface PanelServerMetricsDto {
+  hostname: string;
+  platform: string;
+  osRelease: string;
+  kernelVersion: string;
+  uptimeSeconds: number;
+  cpuModel: string;
+  cpuCores: number;
+  cpuLoadPercent: number;
+  totalMemoryMb: number;
+  freeMemoryMb: number;
+  usedMemoryMb: number;
+  memoryUsagePercent: number;
+  loadAverage: number[];
+}
+
+export async function fetchPanelServices(): Promise<{
+  success: boolean;
+  services: PanelServiceDto[];
+  metrics: PanelServerMetricsDto;
+  timestamp: string;
+  error?: string;
+}> {
+  try {
+    const token =
+      localStorage.getItem('nettopology_auth_token_v1') ||
+      sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE}/panel/services`, { headers });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    console.error('[fetchPanelServices error]', err);
+    return {
+      success: false,
+      services: [],
+      metrics: {
+        hostname: 'localhost',
+        platform: 'linux',
+        osRelease: '',
+        kernelVersion: '',
+        uptimeSeconds: 0,
+        cpuModel: '',
+        cpuCores: 1,
+        cpuLoadPercent: 0,
+        totalMemoryMb: 0,
+        freeMemoryMb: 0,
+        usedMemoryMb: 0,
+        memoryUsagePercent: 0,
+        loadAverage: [0, 0, 0],
+      },
+      timestamp: new Date().toISOString(),
+      error: err?.message || 'Failed to fetch host services',
+    };
+  }
+}
+
+export async function executePanelServiceAction(
+  serviceId: string,
+  action: 'start' | 'stop' | 'restart' | 'reload'
+): Promise<{
+  success: boolean;
+  message: string;
+  output: string;
+  error?: string;
+}> {
+  try {
+    const token =
+      localStorage.getItem('nettopology_auth_token_v1') ||
+      sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE}/panel/services/action`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ serviceId, action }),
+    });
+
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    console.error('[executePanelServiceAction error]', err);
+    return {
+      success: false,
+      message: err?.message || 'Failed to execute service action',
+      output: err?.message || '',
+      error: err?.message,
+    };
+  }
+}
+
+export async function fetchPanelServiceLogs(
+  serviceId: string,
+  lines = 80
+): Promise<{
+  success: boolean;
+  serviceId: string;
+  logs: string[];
+  error?: string;
+}> {
+  try {
+    const token =
+      localStorage.getItem('nettopology_auth_token_v1') ||
+      sessionStorage.getItem('nettopology_auth_token_v1');
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(
+      `${API_BASE}/panel/services/logs?serviceId=${encodeURIComponent(serviceId)}&lines=${lines}`,
+      { headers }
+    );
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    console.error('[fetchPanelServiceLogs error]', err);
+    return {
+      success: false,
+      serviceId,
+      logs: [`Error fetching logs: ${err?.message}`],
+      error: err?.message,
+    };
+  }
+}
+
+
