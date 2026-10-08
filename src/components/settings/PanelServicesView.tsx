@@ -257,7 +257,7 @@ export const PanelServicesView: React.FC<PanelServicesViewProps> = ({
     { id: 'all', labelEn: 'All Services', labelFa: 'همه سرویس‌ها', icon: Layers },
     { id: 'frontend', labelEn: 'Frontend & Web', labelFa: 'فرانت‌اند و وب‌سرور', icon: Globe },
     { id: 'backend', labelEn: 'Backend & Discovery', labelFa: 'بک‌اند و موتور کاوش', icon: Cpu },
-    { id: 'database', labelEn: 'Database & Cache', labelFa: 'دیتابیس و کش', icon: Database },
+    { id: 'database', labelEn: 'Database Engine', labelFa: 'موتور پایگاه داده', icon: Database },
     { id: 'system', labelEn: 'System Daemons', labelFa: 'سرویس‌های سیستم', icon: Server },
   ];
 

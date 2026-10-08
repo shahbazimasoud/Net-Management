@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.292.0';
+export const APP_VERSION = '1.292.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.292.1',
+    releaseDate: '2026-10-08',
+    type: 'patch',
+    title: 'اصلاح و پالایش سرویس‌های سرور پنل (حذف سرویس‌های بلااستفاده Redis و Control Plane)',
+    title_en: 'Panel Host Services Cleanup & Removal of Unused Redis and Supervisor Daemons',
+    changes: [
+      'حذف کامل سرویس‌ها و دیمن‌های بلااستفاده Redis (کش سرور) و Control Plane Supervisor از لیست سرویس‌های سرور پنل در بخش تنظیمات.',
+      'پالایش سرویس‌های قابل مدیریت هاست و محدودسازی آنها به کامپوننت‌های واقعی پنل (هسته سرور Node.js، موتور کاوش شبکه Python 3، پایگاه داده PostgreSQL، وب‌سرور Nginx و گیت‌وی اختیاری Apache Guacamole).',
+      'بهبود استعلام وضعیت و بررسی سلامت پایگاه داده PostgreSQL با دستور pg_isready و اتصال زنده بدون نمایش هشدارهای کاذب عدم شناسایی سرویس.'
+    ],
+    changes_en: [
+      'Completely removed phantom and unused Redis In-Memory Cache and Control Plane Supervisor daemons from the Panel Host Services dashboard.',
+      'Refined host services list to authentic active panel components (Node.js Core API, Python 3 Network Discovery Daemon, PostgreSQL Relational Database, Nginx Web Server, and optional Apache Guacamole Gateway).',
+      'Enhanced PostgreSQL database health probing with live pg_isready checks, preventing false-positive unrecognized service errors.'
+    ]
+  },
   {
     version: '1.292.0',
     releaseDate: '2026-10-08',

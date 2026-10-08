@@ -311,102 +311,51 @@ export async function getAllPanelServices(): Promise<HostServiceItem[]> {
     details: isPgRunning ? 'PostgreSQL server active on port 5432' : 'PostgreSQL daemon stopped or running externally',
   };
 
-  // 5. Redis In-Memory Cache
-  const redisProcs = procs.filter((p) => p.comm === 'redis-server' || p.comm === 'redis');
-  const redisPort6379 = await checkTcpPort(6379);
-  const redisServiceCheck = checkSystemctlOrService('redis-server');
-  const isRedisRunning = redisProcs.length > 0 || redisPort6379 || redisServiceCheck.active;
+  // 5. Apache Guacamole Remote Desktop Gateway (guacd) - only included when installed or active on host
+  const guacdProcs = procs.filter((p) => p.comm === 'guacd');
+  const guacdPort4822 = await checkTcpPort(4822);
+  const guacdServiceCheck = checkSystemctlOrService('guacd');
+  const isGuacdInstalled =
+    fs.existsSync('/usr/sbin/guacd') ||
+    fs.existsSync('/usr/local/sbin/guacd') ||
+    fs.existsSync('/etc/systemd/system/guacd.service');
+  const isGuacdRunning = guacdProcs.length > 0 || guacdPort4822 || guacdServiceCheck.active;
 
-  const redisCpu = redisProcs.reduce((acc, p) => acc + p.cpu, 0);
-  const redisMem = Math.round(redisProcs.reduce((acc, p) => acc + p.rssKb, 0) / 1024);
+  const guacdCpu = guacdProcs.reduce((acc, p) => acc + p.cpu, 0);
+  const guacdMem = Math.round(guacdProcs.reduce((acc, p) => acc + p.rssKb, 0) / 1024);
 
-  const redisItem: HostServiceItem = {
-    id: 'redis',
-    name: 'Redis In-Memory Cache & Session Broker',
-    name_fa: 'حافظه سریع ردیس و کش جلسات (Redis)',
-    category: 'database',
-    serviceName: 'redis-server',
-    description: 'High-speed in-memory data store for accelerated session validation and pub/sub message broadcasting.',
-    description_fa: 'کش پرسرعت در حافظه رم برای جلسات کاربران و تبادل پیام‌های بلادرنگ بین پروسس‌ها.',
-    status: isRedisRunning ? 'running' : 'stopped',
-    pids: redisProcs.map((p) => p.pid),
-    cpuPercent: Math.round(redisCpu * 10) / 10,
-    memoryMb: redisMem,
-    uptimeSeconds: isRedisRunning ? Math.round(os.uptime()) : 0,
-    ports: [6379],
-    portsActive: redisPort6379,
-    canStart: true,
-    canStop: true,
-    canRestart: true,
-    canReload: true,
-    lastChecked: now,
-    details: isRedisRunning ? 'Redis server listening on 6379' : 'Redis service currently inactive',
-  };
+  const guacdItem: HostServiceItem | null =
+    isGuacdRunning || isGuacdInstalled
+      ? {
+          id: 'guacd',
+          name: 'Apache Guacamole Remote Desktop Gateway (guacd)',
+          name_fa: 'گیت‌وی دسکتاپ راه دور آپاچی گوآکامولی (guacd)',
+          category: 'backend',
+          serviceName: 'guacd',
+          description: 'Protocol gateway proxy translating browser WebSockets to native RDP and VNC remote desktop sessions.',
+          description_fa: 'پروکسی گیت‌وی جهت تبدیل ارتباط وب‌سوکت مرورگر به سشن‌های بومی ریموت دسکتاپ RDP و VNC.',
+          status: isGuacdRunning ? 'running' : 'stopped',
+          pids: guacdProcs.map((p) => p.pid),
+          cpuPercent: Math.round(guacdCpu * 10) / 10,
+          memoryMb: guacdMem,
+          uptimeSeconds: isGuacdRunning ? Math.round(os.uptime()) : 0,
+          ports: [4822],
+          portsActive: guacdPort4822,
+          canStart: true,
+          canStop: true,
+          canRestart: true,
+          canReload: false,
+          lastChecked: now,
+          details: isGuacdRunning ? 'Apache Guacamole proxy active on port 4822' : 'Guacamole gateway daemon standby',
+        }
+      : null;
 
-  // 6. OpenSSH Host Remote Daemon
-  const sshProcs = procs.filter((p) => p.comm === 'sshd');
-  const sshPort22 = await checkTcpPort(22);
-  const sshServiceCheck = checkSystemctlOrService('ssh');
-  const isSshRunning = sshProcs.length > 0 || sshPort22 || sshServiceCheck.active;
+  const servicesList: HostServiceItem[] = [nginxItem, nodeItem, pyItem, pgItem];
+  if (guacdItem) {
+    servicesList.push(guacdItem);
+  }
 
-  const sshCpu = sshProcs.reduce((acc, p) => acc + p.cpu, 0);
-  const sshMem = Math.round(sshProcs.reduce((acc, p) => acc + p.rssKb, 0) / 1024);
-
-  const sshItem: HostServiceItem = {
-    id: 'sshd',
-    name: 'OpenSSH Host Daemon',
-    name_fa: 'دیمن دسترسی امن سرور میزبان (OpenSSH Daemon)',
-    category: 'system',
-    serviceName: 'ssh',
-    description: 'System-level secure shell listening daemon providing terminal access and secure file transport.',
-    description_fa: 'دیمن SSH سرور میزبان جهت اتصالات امن راه دور مدیران و انتقال فایل SFTP.',
-    status: isSshRunning ? 'running' : 'stopped',
-    pids: sshProcs.map((p) => p.pid),
-    cpuPercent: Math.round(sshCpu * 10) / 10,
-    memoryMb: sshMem,
-    uptimeSeconds: isSshRunning ? Math.round(os.uptime()) : 0,
-    ports: [22],
-    portsActive: sshPort22,
-    canStart: true,
-    canStop: true,
-    canRestart: true,
-    canReload: true,
-    lastChecked: now,
-    details: isSshRunning ? 'OpenSSH server active on port 22' : 'SSH service standby',
-  };
-
-  // 7. Control Plane Supervisor
-  const cpProcs = procs.filter((p) => p.args.includes('control-plane-api'));
-  const cpPort8000 = await checkTcpPort(8000);
-  const isCpRunning = cpProcs.length > 0 || cpPort8000;
-
-  const cpCpu = cpProcs.reduce((acc, p) => acc + p.cpu, 0);
-  const cpMem = Math.round(cpProcs.reduce((acc, p) => acc + p.rssKb, 0) / 1024);
-
-  const cpItem: HostServiceItem = {
-    id: 'control_plane',
-    name: 'Panel Container Control Plane Supervisor',
-    name_fa: 'سرویس نظارت و کنترل پلین پنل (Control Plane API)',
-    category: 'system',
-    serviceName: 'control-plane-api',
-    description: 'System supervisor monitoring container resource allocation, proxy forwarding, and health checks.',
-    description_fa: 'دیمن ناظر سرور برای پایش سلامت کانتینر، فورواردینگ پورت‌ها و مدیریت تسک‌ها.',
-    status: isCpRunning ? 'running' : 'stopped',
-    pids: cpProcs.map((p) => p.pid),
-    cpuPercent: Math.round(cpCpu * 10) / 10,
-    memoryMb: cpMem,
-    uptimeSeconds: Math.round(os.uptime()),
-    ports: [8000],
-    portsActive: cpPort8000,
-    canStart: false,
-    canStop: false,
-    canRestart: true,
-    canReload: false,
-    lastChecked: now,
-    details: cpProcs[0] ? `Supervisory service PID: ${cpProcs[0].pid}` : 'Control Plane active',
-  };
-
-  return [nginxItem, nodeItem, pyItem, pgItem, redisItem, sshItem, cpItem];
+  return servicesList;
 }
 
 export async function executeHostServiceAction(
@@ -477,23 +426,9 @@ export async function executeHostServiceAction(
         break;
       }
 
-      case 'redis': {
-        serviceHumanName = 'Redis Server';
-        cmd = `systemctl ${action} redis-server 2>&1 || service redis-server ${action} 2>&1 || service redis ${action} 2>&1`;
-        break;
-      }
-
-      case 'sshd': {
-        serviceHumanName = 'OpenSSH Server';
-        cmd = `systemctl ${action} ssh 2>&1 || service ssh ${action} 2>&1 || service sshd ${action} 2>&1`;
-        break;
-      }
-
-      case 'control_plane': {
-        serviceHumanName = 'Control Plane API';
-        if (action === 'restart') {
-          cmd = 'pkill -HUP -f "control-plane-api" 2>&1 || true';
-        }
+      case 'guacd': {
+        serviceHumanName = 'Apache Guacamole Gateway';
+        cmd = `systemctl ${action} guacd 2>&1 || service guacd ${action} 2>&1`;
         break;
       }
 
@@ -595,8 +530,26 @@ export async function getHostServiceLogs(serviceId: string, linesCount = 100): P
 
       case 'postgresql': {
         try {
-          const statusOut = execSync('service postgresql status 2>&1 || true', { encoding: 'utf-8' });
-          result.push(...statusOut.trim().split('\n'));
+          const isReady = execSync('pg_isready -h localhost -p 5432 2>&1 || true', { encoding: 'utf-8' }).trim();
+          if (isReady) {
+            result.push(`[PostgreSQL Connection Probe] ${isReady}`);
+          }
+        } catch {}
+        try {
+          const statusOut = execSync('systemctl status postgresql --no-pager 2>&1 || service postgresql status 2>&1 || true', { encoding: 'utf-8' });
+          if (statusOut.trim()) {
+            result.push(...statusOut.trim().split('\n'));
+          }
+        } catch {}
+        break;
+      }
+
+      case 'guacd': {
+        try {
+          const statusOut = execSync('systemctl status guacd --no-pager 2>&1 || service guacd status 2>&1 || true', { encoding: 'utf-8' });
+          if (statusOut.trim()) {
+            result.push(...statusOut.trim().split('\n'));
+          }
         } catch {}
         break;
       }
