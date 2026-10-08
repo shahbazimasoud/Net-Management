@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Terminal as TerminalIcon,
   X,
@@ -35,6 +35,7 @@ import { fetchDevicePorts, syncDevicePorts, sshConnect, sshExecute, sshDisconnec
 import { CompactTerminalFaceplate } from './terminal/CompactTerminalFaceplate';
 import { WinBoxLauncherModal } from './terminal/WinBoxLauncherModal';
 import { renderAnsiFormattedText, stripAnsi } from './servers/terminalAnsi';
+import { XtermTerminal, XtermTerminalHandle } from './XtermTerminal';
 
 export interface MikroTikTerminalModalProps {
   device: Device | null;
@@ -126,6 +127,8 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   const activeSessionIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const terminalScreenRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<XtermTerminalHandle | null>(null);
+  const textDecoderRef = useRef<TextDecoder | null>(null);
 
   // Send raw input keystroke or buffer directly to active WebSocket session
   const sendRawInput = (data: string) => {
@@ -134,22 +137,21 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
     }
   };
 
-  // Send terminal resize events (cols, rows) to the socket
+  // Send terminal resize events (cols, rows) directly from xterm.js fit addon
+  const sendResizeDimensions = useCallback((cols: number, rows: number) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
+      } catch {}
+    }
+  }, []);
+
+  // Send terminal resize events (cols, rows) to the socket fallback
   const sendResize = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      let cols = 120;
-      let rows = 36;
-      if (terminalScreenRef.current) {
-        const width = terminalScreenRef.current.clientWidth;
-        const height = terminalScreenRef.current.clientHeight;
-        if (width > 0 && height > 0) {
-          cols = Math.max(80, Math.floor(width / 7.5));
-          rows = Math.max(24, Math.floor(height / 17));
-        }
-      } else if (isFullScreen) {
-        cols = 160;
-        rows = 48;
-      }
+      const term = xtermRef.current?.getTerminal();
+      const cols = term?.cols || 120;
+      const rows = term?.rows || 36;
       try {
         wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
       } catch {}
@@ -518,9 +520,14 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
         ssh_version: devSshVersion,
       });
       const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 
+      const textDecoder = textDecoderRef.current || new TextDecoder('utf-8');
+      textDecoderRef.current = textDecoder;
+
       ws.onopen = () => {
+        xtermRef.current?.fit();
         setTimeout(() => {
           sendResize();
         }, 50);
@@ -535,69 +542,76 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
         }, 20000);
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         if (!isSubscribed) return;
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'pong') {
-            return;
-          }
-          if (msg.type === 'data' && msg.data) {
-            appendStreamText(msg.data);
-          } else if (msg.type === 'status') {
-            if (msg.status === 'connected') {
-              setSshSessionMode('real_ssh');
-              setSshLatency(msg.latency_ms || 2.1);
-              setLines((prev) => [
-                ...prev,
-                {
-                  id: 'sys-mtk-live-' + Date.now(),
-                  type: 'system',
-                  text: isEn
-                    ? `[REAL ${(connProtocol || 'ssh').toUpperCase()} ESTABLISHED] Connected to ${targetHost}:${targetPort} in ${msg.latency_ms || 2}ms.\nSession: Persistent WebSocket SSH Tunnel Active.`
-                    : `[اتصال زنده ${(connProtocol || 'ssh').toUpperCase()} برقرار شد] اتصال به ${targetHost}:${targetPort} در ${msg.latency_ms || 2} میلی‌ثانیه برقرار شد.\nنشست: تانل پایدار سوکت فعال است.`,
-                },
-              ]);
-              setTimeout(() => sendResize(), 100);
-            } else if (msg.status === 'failed' || msg.status === 'disconnected') {
-              setSshSessionMode('failed');
-              setLines((prev) => [
-                ...prev,
-                {
-                  id: 'ws-fail-' + Date.now(),
-                  type: 'error',
-                  text: `[CONNECTION STATUS] ${msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد')}`,
-                },
-              ]);
+        let text = '';
+        if (event.data instanceof ArrayBuffer) {
+          text = textDecoder.decode(event.data, { stream: true });
+        } else if (typeof event.data === 'string') {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'pong') {
+              return;
             }
-          } else if (msg.type === 'error') {
-            setSshSessionMode('failed');
-            setLines((prev) => [
-              ...prev,
-              {
-                id: 'ws-err-' + Date.now(),
-                type: 'error',
-                text: `[TERMINAL ERROR] ${msg.error || (isEn ? 'Connection error' : 'خطای ارتباط')}`,
-              },
-            ]);
+            if (msg.type === 'data' && msg.data) {
+              xtermRef.current?.write(msg.data);
+              return;
+            } else if (msg.type === 'status') {
+              if (msg.status === 'connected') {
+                setSshSessionMode('real_ssh');
+                setSshLatency(msg.latency_ms || 2.1);
+                setTimeout(() => sendResize(), 100);
+                return;
+              } else if (msg.status === 'failed' || msg.status === 'disconnected') {
+                setSshSessionMode('failed');
+                const failText = msg.error || msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد');
+                xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'DISCONNECTED' : 'قطع ارتباط'}]\x1b[0m ${failText}\r\n`);
+                return;
+              }
+            } else if (msg.type === 'error') {
+              setSshSessionMode('failed');
+              const errText = msg.error || msg.message || (isEn ? 'Connection error' : 'خطای ارتباط');
+              xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'ERROR' : 'خطا'}]\x1b[0m ${errText}\r\n`);
+              return;
+            }
+          } catch {
+            text = event.data;
           }
-        } catch {
-          // ignore
+        } else if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
+          try {
+            const buf = await event.data.arrayBuffer();
+            text = textDecoder.decode(buf, { stream: true });
+          } catch {}
+        }
+
+        if (text) {
+          xtermRef.current?.write(text);
         }
       };
 
-      ws.onclose = () => {
+      ws.onerror = () => {
+        xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'SOCKET ERROR' : 'خطای سوکت'}]\x1b[0m ${isEn ? 'WebSocket connection encountered an error' : 'خطا در برقراری ارتباط وب‌سوکت'}\r\n`);
+      };
+
+      ws.onclose = (ev) => {
         if (pingIntervalRef.current) {
           clearInterval(pingIntervalRef.current);
           pingIntervalRef.current = null;
         }
         if (isSubscribed) {
           setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
+          if (!ev.wasClean) {
+            const reason = ev.reason ? `: ${ev.reason}` : '';
+            xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION CLOSED' : 'اتصال بسته شد'}]\x1b[0m (${ev.code}${reason})\r\n`);
+          }
         }
       };
-    } catch {
-      // ws not available
+    } catch (err: any) {
+      setSshSessionMode('failed');
+      xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION FAILED' : 'شکست اتصال'}]\x1b[0m ${err?.message || 'Error'}\r\n`);
     }
+
+    setTimeout(() => xtermRef.current?.focus(), 150);
 
     return () => {
       isSubscribed = false;
@@ -1081,108 +1095,24 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             ref={terminalScreenRef}
             className="flex-1 flex flex-col p-4 overflow-y-auto font-mono text-xs leading-relaxed transition-colors"
             style={{ backgroundColor: currentBg, color: screenTextColor }}
-            onClick={() => inputRef.current?.focus()}
+            onClick={() => xtermRef.current?.focus()}
           >
-            <div className="flex-1 space-y-1.5 overflow-y-auto">
-              {lines.map((l) => (
-                <div key={l.id} className="whitespace-pre-wrap">
-                  {l.type === 'system' && (
-                    <span className={`${screenSystemColor} font-semibold opacity-95`}>{l.text}</span>
-                  )}
-                  {l.type === 'input' && (
-                    <span className={`${screenInputColor} font-bold`}>{l.text}</span>
-                  )}
-                  {l.type === 'output' && (
-                    <span className={`${screenOutputColor}`}>{renderAnsiFormattedText(l.text, l.id)}</span>
-                  )}
-                  {l.type === 'error' && (
-                    <span className={`${screenErrorColor} font-bold`}>{l.text}</span>
-                  )}
-                </div>
-              ))}
-              <div ref={terminalEndRef} />
-            </div>
-
-            {/* Input Prompt Row */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendCommand();
+            {/* Real inline xterm.js terminal */}
+            <XtermTerminal
+              ref={xtermRef}
+              onData={(data) => {
+                sendRawInput(data);
               }}
-              className={`mt-3 flex items-center gap-2 border-t pt-2 shrink-0 ${
-                isScreenLight ? 'border-slate-300/80' : 'border-slate-800/80'
-              }`}
-            >
-              <span className={`shrink-0 select-none ${screenPromptColor}`}>
-                {prompt}
-              </span>
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-                    e.preventDefault();
-                    sendRawInput('\x03');
-                    setInput('');
-                    return;
-                  }
-                  if (e.key === 'Tab') {
-                    e.preventDefault();
-                    if (input) {
-                      sendRawInput(input + '\t');
-                      setInput('');
-                    } else {
-                      sendRawInput('\t');
-                    }
-                    return;
-                  }
-                  if (e.key === 'Backspace' && input.length === 0) {
-                    sendRawInput('\x08');
-                    return;
-                  }
-                  if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    if (history.length > 0 && historyIndex < history.length - 1) {
-                      const next = historyIndex + 1;
-                      setHistoryIndex(next);
-                      setInput(history[next]);
-                    }
-                  } else if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (historyIndex > 0) {
-                      const prev = historyIndex - 1;
-                      setHistoryIndex(prev);
-                      setInput(history[prev]);
-                    } else if (historyIndex === 0) {
-                      setHistoryIndex(-1);
-                      setInput('');
-                    }
-                  }
-                }}
-                className={`flex-1 bg-transparent border-none outline-none font-mono text-xs focus:ring-0 ${
-                  isScreenLight ? 'text-slate-900 placeholder:text-slate-400' : 'text-white placeholder:text-slate-500'
-                }`}
-                placeholder={
-                  isEn
-                    ? "Type a RouterOS command (e.g. '/interface print')..."
-                    : "دستور روتر او اس را وارد کنید (مانند '/interface print')..."
-                }
-                autoFocus
-              />
-              <button
-                type="submit"
-                className={`px-3 py-1 rounded font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-xs ${
-                  isLightMode
-                    ? 'bg-cyan-600 hover:bg-cyan-700 text-white'
-                    : 'bg-cyan-500 hover:bg-cyan-400 text-black'
-                }`}
-              >
-                <Send className="w-3 h-3" />
-                <span>{isEn ? 'Send' : 'ارسال'}</span>
-              </button>
-            </form>
+              onResize={(cols, rows) => {
+                sendResizeDimensions(cols, rows);
+              }}
+              theme={{
+                background: currentBg,
+                foreground: screenTextColor,
+              }}
+              className="flex-1 w-full h-full"
+              autoFocus={true}
+            />
           </div>
 
           {/* RouterOS Command Guide / Interfaces Sidebar */}

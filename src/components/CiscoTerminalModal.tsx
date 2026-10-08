@@ -50,6 +50,7 @@ import { logDeviceCommand, evaluateCommandRisk } from '../services/auditLogger';
 import { CompactTerminalFaceplate } from './terminal/CompactTerminalFaceplate';
 import { CiscoWriteConfirmModal, WriteChangeItem } from './CiscoWriteConfirmModal';
 import { renderAnsiFormattedText, stripAnsi } from './servers/terminalAnsi';
+import { XtermTerminal, XtermTerminalHandle } from './XtermTerminal';
 
 export interface CiscoTerminalModalProps {
   device: Device | null;
@@ -239,6 +240,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const terminalScreenRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<XtermTerminalHandle | null>(null);
+  const textDecoderRef = useRef<TextDecoder | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const historyDropdownRef = useRef<HTMLDivElement>(null);
   const activeSessionIdRef = useRef<string | null>(null);
@@ -254,27 +257,26 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     }
   };
 
-  // Send terminal resize events (cols, rows) to the socket
-  const sendResize = useCallback(() => {
+  // Send terminal resize events (cols, rows) directly from xterm.js fit addon
+  const sendResizeDimensions = useCallback((cols: number, rows: number) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      let cols = 120;
-      let rows = 36;
-      if (terminalScreenRef.current) {
-        const width = terminalScreenRef.current.clientWidth;
-        const height = terminalScreenRef.current.clientHeight;
-        if (width > 0 && height > 0) {
-          cols = Math.max(80, Math.floor(width / 7.5));
-          rows = Math.max(24, Math.floor(height / 17));
-        }
-      } else if (isFullscreen) {
-        cols = 160;
-        rows = 48;
-      }
       try {
         wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
       } catch {}
     }
-  }, [isFullscreen]);
+  }, []);
+
+  // Send terminal resize events (cols, rows) to the socket fallback
+  const sendResize = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const term = xtermRef.current?.getTerminal();
+      const cols = term?.cols || 120;
+      const rows = term?.rows || 36;
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'resize', cols, rows }));
+      } catch {}
+    }
+  }, []);
 
   // Detect if Cisco --More-- is currently active in the last terminal output
   const isMoreActive = useMemo(() => {
@@ -716,10 +718,14 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           ssh_version: devSshVersion,
         });
         const ws = new WebSocket(wsUrl);
+        ws.binaryType = 'arraybuffer';
         wsRef.current = ws;
 
+        const textDecoder = textDecoderRef.current || new TextDecoder('utf-8');
+        textDecoderRef.current = textDecoder;
+
         ws.onopen = () => {
-          // Send terminal dimensions to socket on connection establishment
+          xtermRef.current?.fit();
           setTimeout(() => {
             sendResize();
           }, 50);
@@ -735,83 +741,74 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           }, 20000);
         };
 
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'pong') {
-              // Keepalive acknowledged
-              return;
-            }
-            if (msg.type === 'data' && msg.data) {
-              appendStreamText(msg.data);
-            } else if (msg.type === 'status') {
-              if (msg.status === 'connected') {
-                setSshSessionMode('real_ssh');
-                setSshLatency(msg.latency_ms || 2.2);
-                appendLines([
-                  {
-                    id: 'sys-ssh-ok-' + Date.now(),
-                    type: 'success',
-                    text: isEn
-                      ? `[LIVE ${(connProtocol || 'ssh').toUpperCase()} ESTABLISHED] Connected to ${targetHost}:${sshPort} in ${msg.latency_ms || 2}ms.\nSession: Persistent WebSocket SSH Tunnel Active. Commands execute directly on hardware.`
-                      : `[اتصال زنده ${(connProtocol || 'ssh').toUpperCase()} برقرار شد] اتصال به ${targetHost}:${sshPort} در ${msg.latency_ms || 2} میلی‌ثانیه برقرار شد.\nنشست: تانل پایدار سوکت فعال است و دستورات مستقیماً روی سخت‌افزار اجرا می‌شوند.`,
-                  },
-                ]);
-                setTimeout(() => sendResize(), 100);
-              } else if (msg.status === 'failed' || msg.status === 'disconnected') {
-                setSshSessionMode('failed');
-                appendLines([
-                  {
-                    id: 'ws-status-fail-' + Date.now(),
-                    type: 'system',
-                    text: `[CONNECTION STATUS] ${msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد')}`,
-                  },
-                ]);
+        ws.onmessage = async (event) => {
+          let text = '';
+          if (event.data instanceof ArrayBuffer) {
+            text = textDecoder.decode(event.data, { stream: true });
+          } else if (typeof event.data === 'string') {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.type === 'pong') {
+                return;
               }
-            } else if (msg.type === 'error') {
-              setSshSessionMode('failed');
-              appendLines([
-                {
-                  id: 'ws-err-' + Date.now(),
-                  type: 'error',
-                  text: `[TERMINAL ERROR] ${msg.error || (isEn ? 'Connection error' : 'خطای ارتباط')}`,
-                },
-              ]);
+              if (msg.type === 'data' && msg.data) {
+                xtermRef.current?.write(msg.data);
+                return;
+              } else if (msg.type === 'status') {
+                if (msg.status === 'connected') {
+                  setSshSessionMode('real_ssh');
+                  setSshLatency(msg.latency_ms || 2.2);
+                  setTimeout(() => sendResize(), 100);
+                  return;
+                } else if (msg.status === 'failed' || msg.status === 'disconnected') {
+                  setSshSessionMode('failed');
+                  const failText = msg.error || msg.message || (isEn ? 'Disconnected from device' : 'ارتباط با تجهیز قطع شد');
+                  xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'DISCONNECTED' : 'قطع ارتباط'}]\x1b[0m ${failText}\r\n`);
+                  return;
+                }
+              } else if (msg.type === 'error') {
+                setSshSessionMode('failed');
+                const errText = msg.error || msg.message || (isEn ? 'Connection error' : 'خطای ارتباط');
+                xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'ERROR' : 'خطا'}]\x1b[0m ${errText}\r\n`);
+                return;
+              }
+            } catch {
+              text = event.data;
             }
-          } catch {
-            const rawStr = String(event.data || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-            if (rawStr && rawStr !== getPrompt().trim()) {
-              appendLines([
-                {
-                  id: 'ws-raw-' + Date.now(),
-                  type: 'output',
-                  text: rawStr,
-                },
-              ]);
-            }
+          } else if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
+            try {
+              const buf = await event.data.arrayBuffer();
+              text = textDecoder.decode(buf, { stream: true });
+            } catch {}
+          }
+
+          if (text) {
+            xtermRef.current?.write(text);
           }
         };
 
-        ws.onclose = () => {
+        ws.onerror = () => {
+          xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'SOCKET ERROR' : 'خطای سوکت'}]\x1b[0m ${isEn ? 'WebSocket connection encountered an error' : 'خطا در ارتباط وب‌سوکت'}\r\n`);
+        };
+
+        ws.onclose = (ev) => {
           if (pingIntervalRef.current) {
             clearInterval(pingIntervalRef.current);
             pingIntervalRef.current = null;
           }
           setSshSessionMode((prev) => (prev === 'real_ssh' ? 'failed' : prev));
+          if (!ev.wasClean) {
+            const reason = ev.reason ? `: ${ev.reason}` : '';
+            xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION CLOSED' : 'اتصال بسته شد'}]\x1b[0m (${ev.code}${reason})\r\n`);
+          }
         };
       } catch (err: any) {
         setSshSessionMode('failed');
-        appendLines([
-          {
-            id: 'ws-err-catch',
-            type: 'system',
-            text: `[SOCKET ERROR] Could not initialize WebSocket: ${err?.message || 'Error'}`,
-          },
-        ]);
+        xtermRef.current?.write(`\r\n\x1b[31m[${isEn ? 'CONNECTION FAILED' : 'شکست اتصال'}]\x1b[0m ${err?.message || 'Error'}\r\n`);
       }
 
       const timer = setTimeout(() => {
-        if (inputRef.current) inputRef.current.focus();
+        xtermRef.current?.focus();
       }, 150);
 
       return () => {
@@ -2137,198 +2134,24 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
               '--cisco-terminal-bg': terminalBgColor,
               '--cisco-terminal-color': terminalTextColor,
             } as React.CSSProperties}
-            onClick={() => inputRef.current?.focus()}
+            onClick={() => xtermRef.current?.focus()}
           >
-            {/* Output Lines Canvas */}
-            <div className="flex-1 overflow-y-auto space-y-1 pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-700" dir="ltr">
-              {lines.map((line) => {
-                if (line.type === 'input') {
-                  return (
-                    <div key={line.id} className="font-bold" style={{ color: terminalTextColor }}>
-                      {line.text}
-                    </div>
-                  );
-                }
-                if (line.type === 'system') {
-                  return (
-                    <div key={line.id} className="font-medium italic opacity-90" style={{ color: terminalTextColor }}>
-                      {line.text}
-                    </div>
-                  );
-                }
-                if (line.type === 'error') {
-                  return (
-                    <div
-                      key={line.id}
-                      className={`${
-                        isTerminalWhiteBg
-                          ? 'text-rose-700 pl-2 border-l-2 border-rose-500 bg-rose-100/60 py-0.5'
-                          : 'text-rose-300 pl-2 border-l-2 border-rose-500/60 bg-rose-500/10 py-0.5'
-                      } font-medium whitespace-pre-wrap`}
-                    >
-                      {line.text}
-                    </div>
-                  );
-                }
-                if (line.type === 'success') {
-                  return (
-                    <div
-                      key={line.id}
-                      className={`${
-                        isTerminalWhiteBg
-                          ? 'text-emerald-800 pl-2 border-l-2 border-emerald-500 bg-emerald-100/60 py-0.5'
-                          : 'text-emerald-300 pl-2 border-l-2 border-emerald-500/60 bg-emerald-500/10 py-0.5'
-                      } font-bold whitespace-pre-wrap`}
-                    >
-                      {line.text}
-                    </div>
-                  );
-                }
-                const isLoginBanner =
-                  line.id === 'sys-3' ||
-                  line.id === 'sys-4' ||
-                  line.id === 'sys-ssh-banner' ||
-                  line.text.includes('User Access Verification') ||
-                  line.text.includes('Username:') ||
-                  line.text.includes('Password:') ||
-                  line.text.includes('****************');
-
-                return (
-                  <div
-                    key={line.id}
-                    className={`${isLoginBanner ? 'font-semibold' : ''} whitespace-pre-wrap font-mono`}
-                    style={{ color: terminalTextColor }}
-                  >
-                    {renderAnsiFormattedText(line.text, line.id)}
-                  </div>
-                );
-              })}
-              <div ref={terminalEndRef} />
-            </div>
-
-            {/* Input Prompt Box */}
-            <div className={`mt-2 pt-2 border-t flex items-center gap-2 px-3 py-1.5 rounded-lg relative ${
-              isTerminalWhiteBg ? 'bg-white border-slate-300' : 'bg-black/30 border-white/10'
-            }`} dir="ltr">
-              <span className="font-bold whitespace-nowrap font-mono" style={{ color: terminalTextColor }}>{getPrompt()}</span>
-              <input
-                ref={inputRef}
-                type="text"
-                value={currentInput}
-                onChange={(e) => setCurrentInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  isMoreActive
-                    ? (isEn ? "Cisco --More-- (Space: Next Page, Enter: Line, Q: Quit, Ctrl+C: Abort)..." : "--More-- سیسکو (Space: صفحه بعد، Enter: خط، Q: خروج، Ctrl+C: لغو)...")
-                    : isMikroTik
-                    ? (isEn ? "Type RouterOS command (e.g. /ip address print, /interface print, Tab to autocomplete)..." : "دستور میکروتیک را تایپ کنید (مثلاً ip address print/، کلید Tab برای تکمیل)...")
-                    : (isEn ? "Type Cisco IOS command (e.g. enable, show ip int brief, Tab to autocomplete)..." : "دستور سیسکو را تایپ کنید (مثلاً enable یا show ip int brief، کلید Tab برای تکمیل)...")
-                }
-                className="cisco-cli-input flex-1 bg-transparent font-mono outline-none border-none text-xs"
-                style={{
-                  color: terminalTextColor,
-                  caretColor: terminalTextColor,
-                }}
-                autoFocus
-                dir="ltr"
-              />
-
-              {/* History Button & Dropdown Menu */}
-              <div className="relative" ref={historyDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryOpen(!isHistoryOpen)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-1.5 transition shadow-sm border ${
-                    isHistoryOpen
-                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-md'
-                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                  }`}
-                  title={isEn ? "Command History (Click to view & select)" : "تاریخچه دستورات ترمینال (کلیک برای مشاهده و انتخاب)"}
-                >
-                  <HistoryIcon className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="hidden sm:inline">{isEn ? 'History' : 'تاریخچه'}</span>
-                  {history.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-500/30 text-indigo-200 font-mono">
-                      {history.length}
-                    </span>
-                  )}
-                </button>
-
-                {/* History Dropdown Menu */}
-                {isHistoryOpen && (
-                  <div
-                    className="absolute bottom-full mb-2 right-0 w-72 sm:w-80 max-h-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 flex flex-col font-sans"
-                    dir={isEn ? 'ltr' : 'rtl'}
-                  >
-                    <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs font-semibold text-slate-300">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>{isEn ? 'Command History' : 'تاریخچه دستورات کاربر'}</span>
-                      </div>
-                      {history.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setHistory([]);
-                            setHistoryIndex(-1);
-                          }}
-                          className="text-[10px] text-rose-400 hover:text-rose-300 transition"
-                          title={isEn ? 'Clear command history' : 'پاک کردن کل تاریخچه'}
-                        >
-                          {isEn ? 'Clear' : 'پاک‌سازی'}
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="overflow-y-auto max-h-52 p-1.5 space-y-1">
-                      {history.length === 0 ? (
-                        <div className="p-4 text-center text-xs text-slate-500 font-mono">
-                          {isEn ? 'No commands entered yet' : 'هنوز دستوری در این ترمینال تایپ نشده است'}
-                        </div>
-                      ) : (
-                        history.map((cmd, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => {
-                              setCurrentInput(cmd);
-                              setIsHistoryOpen(false);
-                              setTimeout(() => {
-                                if (inputRef.current) {
-                                  inputRef.current.focus();
-                                  const len = cmd.length;
-                                  inputRef.current.setSelectionRange(len, len);
-                                }
-                              }, 0);
-                            }}
-                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono text-emerald-400 hover:bg-slate-800 hover:text-emerald-300 transition flex items-center justify-between group border border-transparent hover:border-slate-700"
-                            dir="ltr"
-                          >
-                            <span className="truncate flex-1 font-mono">{cmd}</span>
-                            <span className="text-[10px] text-slate-500 opacity-0 group-hover:opacity-100 transition whitespace-nowrap ml-2">
-                              {isEn ? 'Insert' : 'انتخاب'}
-                            </span>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Send Button */}
-              <button
-                onClick={() => {
-                  executeCommand(currentInput);
-                  setCurrentInput('');
-                }}
-                className="cisco-btn-exec px-3 py-1.5 rounded-lg text-white text-xs font-mono font-bold flex items-center gap-1.5 transition shadow-sm shrink-0"
-              >
-                <Send className="w-3 h-3" />
-                <span className="hidden sm:inline">{isEn ? 'Send' : 'ارسال'}</span>
-              </button>
-            </div>
+            {/* Real inline xterm.js terminal */}
+            <XtermTerminal
+              ref={xtermRef}
+              onData={(data) => {
+                sendRawInput(data);
+              }}
+              onResize={(cols, rows) => {
+                sendResizeDimensions(cols, rows);
+              }}
+              theme={{
+                background: terminalBgColor,
+                foreground: terminalTextColor,
+              }}
+              className="flex-1 w-full h-full"
+              autoFocus={true}
+            />
           </div>
 
           {/* Context-Aware Cisco / MikroTik Commands Sidebar */}

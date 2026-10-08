@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.284.0';
+export const APP_VERSION = '1.285.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.285.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'اتصال کنسول ترمینال به موتور xterm.js و حذف باکس ورودی مجزا (فاز ۲ از ۳)',
+    title_en: 'Wire CLI terminal to xterm.js and remove separate input box (Phase 2 of 3)',
+    changes: [
+      'جایگزینی رندرینگ متنی و کادر ورودی مجزای پایین ترمینال با کامپوننت یکپارچه XtermTerminal در مودال‌های سیسکو و میکروتیک.',
+      'ارسال بلادرنگ تک‌تک کلیدها (onData) بدون بافر خطی یا اکوی محلی به نشست زنده وب‌سوکت و واگذاری اکوی کاراکترها به خود تجهیز.',
+      'پشتیبانی کامل از پیام‌های متنی و باینری/ArrayBuffer وب‌سوکت با دیکودر استریم TextDecoder و حفظ کامل سکانس‌های رنگی ANSI.',
+      'نمایش خطاهای ارتباط و قطع نشست مستقیماً با رنگ قرمز در داخل خط فرمان ترمینال و حذف المان‌های اضافی رابط کاربری.',
+      'فوکوس خودکار هنگام باز شدن و با کلیک روی محوطه ترمینال، بستن پاکیزه وب‌سوکت و آزادسازی حافظه ترمینال هنگام خروج.'
+    ],
+    changes_en: [
+      'Replaced the text output div and bottom input text box with the integrated XtermTerminal component in both Cisco and MikroTik terminal modals.',
+      'Immediately streamed every keystroke (term.onData) to the active WebSocket tunnel without line buffering or local echo, letting the target device echo characters natively.',
+      'Handled both text and binary/ArrayBuffer WebSocket messages using streaming TextDecoder({ stream: true }) while preserving ANSI escape sequences.',
+      'Rendered real connection errors and socket closure notices directly inside the terminal in red, eliminating separate UI error containers.',
+      'Ensured auto-focus on open and on-click, with clean socket teardown and terminal disposal upon session dismissal.'
+    ]
+  },
   {
     version: '1.284.0',
     releaseDate: '2026-10-08',
