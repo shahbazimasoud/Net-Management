@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.289.2';
+export const APP_VERSION = '1.290.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.290.0',
+    releaseDate: '2026-10-08',
+    type: 'minor',
+    title: 'توسعه جامع کتابخانه اسنیپت‌ها و دستورات پرکاربرد ترمینال لینوکس (فایند، مانیتورینگ منابع، دیسک و LVM)',
+    title_en: 'Comprehensive expansion of Linux terminal snippets library (Find, resource monitoring, disk & LVM)',
+    changes: [
+      'افزودن دسته‌بندی جدید Find & Search (جستجو و یافتن فایل‌ها) شامل دستورات یافتن فایل‌های حجیم بالای ۱۰۰ مگابایت، فایل‌های تغییریافته ۲۴ ساعت اخیر، فایل‌های کانفیگ، جستجوی بازگشتی متن (Grep)، پوشه‌های پرمصرف دیسک، فایل‌های خالی، فایل‌های SUID و فایل‌های با مالکیت root.',
+      'افزودن دسته‌بندی جدید و تخصصی Disk, LVM & Storage (دیسک، LVM و ذخیره‌سازی) شامل اسکن کنترلرهای SCSI جهت شناسایی دیسک‌های جدید، بررسی دیسک‌ها و پارتیشن‌ها (lsblk)، اسکن و نمایش مشخصات تفصیلی LVM (pvscan/pvs، vgscan/vgs، lvscan/lvs)، بررسی پر شدن Inode دیسک، شناسه‌های UUID (blkid) و آمار I/O لحظه‌ای.',
+      'افزودن دسته‌بندی جدید Resources & Performance (ریسورس‌ها و مانیتورینگ) شامل مانیتورینگ زنده (htop/top)، وضعیت حافظه رم و سواپ، آمار دقیق meminfo و vmstat، رتبه‌بندی ۱۰ پروسس پرمصرف پردازنده و رم، ساختار درختی پروسس‌ها (pstree) و بررسی تعداد فایل‌های باز سیستم (file-nr).',
+      'گسترش دستورات کاربردی در دسته‌بندی‌های شبکه و پورت‌ها، سرویس‌های سیستم‌دی، کانتینرهای داکر، وب‌سرورهای Nginx/Apache، لاگ‌های ژورنال و امنیت و نشست‌های کاربران.',
+      'بومی‌سازی و پشتیبانی کامل دوزبانه در فیلتر چیپ‌های دسته‌بندی‌ها و توضیحات بدون نمایش متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Introduced Find & Search category with commands for large files (>100MB), files modified in the last 24h, config files (.conf), recursive text search (grep), largest directories, empty files, SUID binaries, and root-owned user files.',
+      'Introduced Disk, LVM & Storage category featuring online SCSI bus rescan for new disks, block device trees (lsblk), full LVM scanning and detail inspection (pvscan/pvs, vgscan/vgs, lvscan/lvs), filesystem inode checks, UUIDs (blkid), and disk I/O stats.',
+      'Introduced Resources & Performance category including interactive monitors (htop/top), memory/swap breakdown, meminfo, vmstat 5-second sampling, top 10 CPU and RAM processes, process tree (pstree), and file descriptor counters.',
+      'Expanded network diagnostics, systemd service management, Docker containers, web server syntax testing (Nginx/Apache), live journal logging, and security auditing.',
+      'Ensured full bilingual localization for category filter chips, titles, and explanations with strict compliance to English and Persian modes.'
+    ]
+  },
   {
     version: '1.289.2',
     releaseDate: '2026-10-08',
