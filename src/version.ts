@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.1';
+export const APP_VERSION = '1.304.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.2',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'سفیدسازی سراسری فونت برای کلیه سطوح و پس‌زمینه‌های خاکستری، سرچ‌باکس‌ها، بج‌های شمارنده منو، المان‌های توپولوژی و تگ‌های خانواده آبی در تم سفید گوگل',
+    title_en: 'Global White Font Enforcement for Grey Surfaces, Search Boxes, Menu Counter Badges, Topology Elements & Blue Family Tags in Google White Theme',
+    changes: [
+      'سفیدسازی قطعی رنگ فونت (#ffffff) برای هر المنتی با پس‌زمینه خاکستری یا تیره (شامل کلاس‌های Slate، Gray، Zinc، Neutral و Stone) در تم سفید گوگل.',
+      'اعمال رنگ سفید و قلم ضخیم (Bold) برای تمامی بج‌ها و نشان‌های منو و نوار کناری (شامل شمارنده‌های آنلاین، تعداد تجهیزات و بج‌های وضعیتی).',
+      'اصلاح کامل سرچ‌باکس‌ها و کادرهای فیلتر و جستجو در تم سفید با فونت سفید و Placeholder خوانا.',
+      'تنظیم رنگ فونت سفید برای تمامی نودها، بج‌های مشخصات، تگ‌های اینترفیس و IP، ساب‌نت‌ها و تولبارهای شناور در صفحه توپولوژی.',
+      'تضمین رنگ سفید خالص و خوانایی کامل برای تمامی تگ‌ها، نشان‌ها و چیپ‌های خانواده آبی (شامل Blue، Sky، Cyan و Indigo).'
+    ],
+    changes_en: [
+      'Enforced pure white font (#ffffff) across all elements with grey or dark surfaces (Slate, Gray, Zinc, Neutral, Stone) in Google White theme.',
+      'Enforced bold white text on all menu and sidebar badges containing numbers or counts (online device counters, total devices, status pills).',
+      'Optimized search boxes and filter inputs across the panel with crisp white text and high-visibility placeholders.',
+      'Enforced white font for all topology canvas nodes, port tags, IP chips, subnets, and floating toolbars in topology view.',
+      'Guaranteed pure white text and bold weight across all blue-family tags and badges (Blue, Sky, Cyan, Indigo).'
+    ]
+  },
   {
     version: '1.304.1',
     releaseDate: '2026-10-09',

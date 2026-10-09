@@ -576,6 +576,181 @@
   stroke: currentColor !important;
 }
 
+/* =========================================================================
+   Google White Theme (theme-google-light):
+   Comprehensive White Font Rules:
+   1. All Grey Backgrounds & Surfaces (slate, gray, zinc, neutral, stone, dark overlays)
+   2. Menu & Sidebar Badges with Numbers or Labels (e.g. device counts)
+   3. Search Boxes & Filter Inputs with Dark/Grey Backdrops
+   4. Topology Elements (Nodes, Badges, Port Tags, Floating Toolbars, Chips)
+   5. Blue Family Tags, Badges & Chips (blue, sky, cyan, indigo)
+   ========================================================================= */
+
+/* 1. Any element with a grey/dark background has white text */
+.theme-google-light [class*="bg-slate-"],
+.theme-google-light [class*="bg-gray-"],
+.theme-google-light [class*="bg-zinc-"],
+.theme-google-light [class*="bg-neutral-"],
+.theme-google-light [class*="bg-stone-"],
+.theme-google-light [class*="bg-slate/"],
+.theme-google-light [class*="bg-black/"],
+.theme-google-light [class*="bg-white/10"],
+.theme-google-light [class*="bg-white/15"],
+.theme-google-light [class*="bg-white/20"] {
+  color: #ffffff !important;
+}
+
+.theme-google-light [class*="bg-slate-"] *,
+.theme-google-light [class*="bg-gray-"] *,
+.theme-google-light [class*="bg-zinc-"] *,
+.theme-google-light [class*="bg-neutral-"] *,
+.theme-google-light [class*="bg-stone-"] *,
+.theme-google-light [class*="bg-slate/"] *,
+.theme-google-light [class*="bg-black/"] *,
+.theme-google-light [class*="bg-white/10"] *,
+.theme-google-light [class*="bg-white/15"] *,
+.theme-google-light [class*="bg-white/20"] * {
+  color: #ffffff !important;
+}
+
+/* 2. Menu and Sidebar Badges (with numbers, device counts, status) */
+.theme-google-light .sidebar-badge,
+.theme-google-light .sidebar-nav-item .sidebar-badge,
+.theme-google-light aside .sidebar-badge,
+.theme-google-light aside span.font-mono,
+.theme-google-light aside span[class*="rounded-full"],
+.theme-google-light [class*="sidebar"] span.font-mono,
+.theme-google-light [class*="sidebar"] span[class*="rounded-full"],
+.theme-google-light [class*="sidebar"] [class*="badge"],
+.theme-google-light header span[class*="font-mono"],
+.theme-google-light header span[class*="rounded-full"] {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.theme-google-light .sidebar-badge *,
+.theme-google-light .sidebar-nav-item .sidebar-badge *,
+.theme-google-light aside .sidebar-badge *,
+.theme-google-light aside span.font-mono *,
+.theme-google-light [class*="sidebar"] span.font-mono * {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.theme-google-light aside span[class*="bg-slate"],
+.theme-google-light .sidebar-nav-item span[class*="bg-slate"] {
+  background-color: #1a73e8 !important;
+  color: #ffffff !important;
+  border-color: #1557b0 !important;
+}
+
+/* 3. Search Boxes and Filter Inputs with Dark/Grey Backdrops */
+.theme-google-light input[class*="bg-slate"],
+.theme-google-light input[class*="bg-gray"],
+.theme-google-light input[class*="bg-zinc"],
+.theme-google-light input[class*="bg-neutral"],
+.theme-google-light input[class*="bg-black"],
+.theme-google-light select[class*="bg-slate"],
+.theme-google-light select[class*="bg-gray"],
+.theme-google-light select[class*="bg-zinc"],
+.theme-google-light textarea[class*="bg-slate"],
+.theme-google-light textarea[class*="bg-gray"],
+.theme-google-light .schematic-canvas input,
+.theme-google-light .schematic-canvas select {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+.theme-google-light input[class*="bg-slate"]::placeholder,
+.theme-google-light input[class*="bg-gray"]::placeholder,
+.theme-google-light input[class*="bg-zinc"]::placeholder,
+.theme-google-light input[class*="bg-black"]::placeholder,
+.theme-google-light .schematic-canvas input::placeholder {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+/* 4. Topology Canvas, Nodes, Badges, Port Tags & Toolbars */
+.theme-google-light .schematic-canvas [class*="bg-slate"],
+.theme-google-light .schematic-canvas [class*="bg-gray"],
+.theme-google-light .schematic-canvas [class*="bg-zinc"],
+.theme-google-light .schematic-canvas [class*="bg-cyan"],
+.theme-google-light .schematic-canvas [class*="bg-indigo"],
+.theme-google-light .schematic-canvas [class*="bg-sky"],
+.theme-google-light .schematic-canvas [class*="bg-blue"],
+.theme-google-light .schematic-canvas [class*="bg-black"],
+.theme-google-light .schematic-canvas .toolbar-dark-pill,
+.theme-google-light .schematic-canvas .toolbar-dark-btn,
+.theme-google-light .schematic-canvas [data-component="device-view-mode-toggle"],
+.theme-google-light .schematic-canvas [data-component="sticky-note-controls"] {
+  color: #ffffff !important;
+}
+
+.theme-google-light .schematic-canvas [class*="bg-slate"] *,
+.theme-google-light .schematic-canvas [class*="bg-gray"] *,
+.theme-google-light .schematic-canvas [class*="bg-zinc"] *,
+.theme-google-light .schematic-canvas [class*="bg-cyan"] *,
+.theme-google-light .schematic-canvas [class*="bg-indigo"] *,
+.theme-google-light .schematic-canvas [class*="bg-sky"] *,
+.theme-google-light .schematic-canvas [class*="bg-blue"] *,
+.theme-google-light .schematic-canvas [class*="bg-black"] *,
+.theme-google-light .schematic-canvas .toolbar-dark-pill *,
+.theme-google-light .schematic-canvas .toolbar-dark-btn *,
+.theme-google-light .schematic-canvas [data-component="device-view-mode-toggle"] *,
+.theme-google-light .schematic-canvas [data-component="sticky-note-controls"] * {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+.theme-google-light .schematic-canvas span[class*="font-mono"],
+.theme-google-light .schematic-canvas span[class*="text-[9px]"],
+.theme-google-light .schematic-canvas span[class*="text-[8px]"],
+.theme-google-light .schematic-canvas span[class*="text-[10px]"],
+.theme-google-light .schematic-canvas span[class*="text-[11px]"] {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* 5. Blue Family Tags, Badges & Chips (Blue, Sky, Cyan, Indigo) */
+.theme-google-light [class*="bg-blue-"],
+.theme-google-light [class*="bg-sky-"],
+.theme-google-light [class*="bg-cyan-"],
+.theme-google-light [class*="bg-indigo-"],
+.theme-google-light span[class*="bg-blue"],
+.theme-google-light span[class*="bg-sky"],
+.theme-google-light span[class*="bg-cyan"],
+.theme-google-light span[class*="bg-indigo"],
+.theme-google-light div[class*="bg-blue-"],
+.theme-google-light div[class*="bg-sky-"],
+.theme-google-light div[class*="bg-cyan-"],
+.theme-google-light div[class*="bg-indigo-"] {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.theme-google-light [class*="bg-blue-"] *,
+.theme-google-light [class*="bg-sky-"] *,
+.theme-google-light [class*="bg-cyan-"] *,
+.theme-google-light [class*="bg-indigo-"] *,
+.theme-google-light span[class*="bg-blue"] *,
+.theme-google-light span[class*="bg-sky"] *,
+.theme-google-light span[class*="bg-cyan"] *,
+.theme-google-light span[class*="bg-indigo"] *,
+.theme-google-light div[class*="bg-blue-"] *,
+.theme-google-light div[class*="bg-sky-"] *,
+.theme-google-light div[class*="bg-cyan-"] *,
+.theme-google-light div[class*="bg-indigo-"] * {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+.theme-google-light [class*="bg-blue-"] svg,
+.theme-google-light [class*="bg-sky-"] svg,
+.theme-google-light [class*="bg-cyan-"] svg,
+.theme-google-light [class*="bg-indigo-"] svg {
+  color: #ffffff !important;
+  stroke: currentColor !important;
+}
+
 /* Google Material Dark Theme */
 .theme-google-dark {
   --color-spatial-bg: #202124;
