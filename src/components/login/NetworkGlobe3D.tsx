@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useLanguage } from '../../i18n';
-import { Activity, Shield, Wifi, Globe2, Radio, Cpu } from 'lucide-react';
+import { Activity, Shield, Wifi, Globe2, Radio, Cpu, Satellite } from 'lucide-react';
 
 export type GlobeThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
 
@@ -11,6 +11,35 @@ interface NetworkNode {
   lon: number; // -180 to 180
   type: 'core' | 'gateway' | 'edge';
   active: boolean;
+}
+
+export interface SatelliteStation {
+  id: string;
+  name: string;
+  nameFa: string;
+  altitudeKm: number;
+  type: 'iss' | 'relay' | 'sentinel';
+  orbitRadiusRatio: number;
+  inclination: number;
+  raan: number;
+  speed: number;
+  angle: number;
+  beaconColor: string;
+  beamColor: string;
+  size: number;
+}
+
+export interface DataTransmission {
+  id: string;
+  type: 'ground' | 'inter-sat';
+  sourceSatIdx: number;
+  targetSatIdx?: number;
+  targetGroundIdx?: number;
+  progress: number;
+  speed: number;
+  color: string;
+  rateEn: string;
+  rateFa: string;
 }
 
 const GLOBAL_NODES: NetworkNode[] = [
@@ -287,6 +316,104 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
       const z2 = -x * sinY + z1 * cosY;
 
       return { x: x2, y: y1, z: z2 };
+    };
+
+    // 3D Orbital Satellites Configuration (International Space Station & Relay Stations)
+    const satellites: SatelliteStation[] = [
+      {
+        id: 'iss-alpha',
+        name: 'ISS Alpha [408km]',
+        nameFa: 'ایستگاه فضایی بین‌المللی آلفا [۴۰۸km]',
+        altitudeKm: 408,
+        type: 'iss',
+        orbitRadiusRatio: 1.38,
+        inclination: (51.6 * Math.PI) / 180, // Classic ISS orbital inclination 51.6°
+        raan: 0.6,
+        speed: 0.0058,
+        angle: 0.4,
+        beaconColor: '#10b981',
+        beamColor: '#38bdf8',
+        size: 1.25,
+      },
+      {
+        id: 'relay-beta',
+        name: 'Relay Station Beta [560km]',
+        nameFa: 'ایستگاه رله مداری بتا [۵۶۰km]',
+        altitudeKm: 560,
+        type: 'relay',
+        orbitRadiusRatio: 1.48,
+        inclination: (-45.0 * Math.PI) / 180,
+        raan: 2.4,
+        speed: 0.0049,
+        angle: 2.6,
+        beaconColor: '#38bdf8',
+        beamColor: '#818cf8',
+        size: 1.15,
+      },
+      {
+        id: 'sentinel-gamma',
+        name: 'Sentinel Hub Gamma [710km]',
+        nameFa: 'پایشگاه سنتینل گاما [۷۱۰km]',
+        altitudeKm: 710,
+        type: 'sentinel',
+        orbitRadiusRatio: 1.58,
+        inclination: (68.0 * Math.PI) / 180,
+        raan: 4.2,
+        speed: 0.0041,
+        angle: 4.8,
+        beaconColor: '#f59e0b',
+        beamColor: '#34d399',
+        size: 1.1,
+      },
+    ];
+
+    let activeTransmissions: DataTransmission[] = [];
+    let lastTransmissionSpawnFrame = 0;
+
+    // Helper: 3D point calculation for satellite in its orbital plane
+    const getSatellite3D = (sat: SatelliteStation, rad: number, centerX: number, centerY: number) => {
+      const r = rad * sat.orbitRadiusRatio;
+      const ang = sat.angle;
+
+      // In orbital plane
+      const xOrb = r * Math.cos(ang);
+      const yOrb = 0;
+      const zOrb = r * Math.sin(ang);
+
+      // Orbital Inclination tilt
+      const cosInc = Math.cos(sat.inclination);
+      const sinInc = Math.sin(sat.inclination);
+      const x1 = xOrb;
+      const y1 = -zOrb * sinInc;
+      const z1 = zOrb * cosInc;
+
+      // RAAN rotation around globe Y axis
+      const cosR = Math.cos(sat.raan);
+      const sinR = Math.sin(sat.raan);
+      const x2 = x1 * cosR + z1 * sinR;
+      const y2 = y1;
+      const z2 = -x1 * sinR + z1 * cosR;
+
+      // Camera View rotation X
+      const cosX = Math.cos(rotationX);
+      const sinX = Math.sin(rotationX);
+      const y3 = y2 * cosX - z2 * sinX;
+      const z3 = y2 * sinX + z2 * cosX;
+
+      // Camera View rotation Y
+      const cosY = Math.cos(rotationY);
+      const sinY = Math.sin(rotationY);
+      const x4 = x2 * cosY + z3 * sinY;
+      const y4 = y3;
+      const z4 = -x2 * sinY + z3 * cosY;
+
+      return {
+        x: x4,
+        y: y4,
+        z: z4,
+        screenX: centerX + x4,
+        screenY: centerY + y4,
+      };
     };
 
     // Mouse drag interaction
@@ -657,6 +784,355 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
         }
       });
 
+      // -------------------------------------------------------------
+      // 8. SATELLITE ORBITAL MECHANICS & SPACE STATIONS
+      // -------------------------------------------------------------
+      // Advance satellite orbital angles
+      satellites.forEach((sat) => {
+        sat.angle += sat.speed;
+      });
+
+      // 8a. Draw orbital tracks (faint dashed spatial trajectory rings)
+      satellites.forEach((sat) => {
+        ctx.save();
+        ctx.beginPath();
+        const steps = 64;
+        let first = true;
+        for (let i = 0; i <= steps; i++) {
+          const testAngle = (i * Math.PI * 2) / steps;
+          const tempSat = { ...sat, angle: testAngle };
+          const pt = getSatellite3D(tempSat, radius, cx, cy);
+          if (first) {
+            ctx.moveTo(pt.screenX, pt.screenY);
+            first = false;
+          } else {
+            ctx.lineTo(pt.screenX, pt.screenY);
+          }
+        }
+        ctx.strokeStyle = isLight
+          ? 'rgba(79, 70, 229, 0.16)'
+          : 'rgba(56, 189, 248, 0.2)';
+        ctx.lineWidth = 0.9;
+        ctx.setLineDash([3, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      });
+
+      // 8b. Periodic Data Transmissions (To Earth Ground Nodes & Inter-Satellite ISL)
+      if (frame - lastTransmissionSpawnFrame > 130 && activeTransmissions.length < 2) {
+        lastTransmissionSpawnFrame = frame;
+        const triggerInterSat = Math.random() > 0.45;
+
+        if (triggerInterSat) {
+          // Inter-Satellite Laser Crosslink
+          const satIdx1 = Math.floor(Math.random() * satellites.length);
+          const satIdx2 = (satIdx1 + 1 + Math.floor(Math.random() * (satellites.length - 1))) % satellites.length;
+          const p1 = getSatellite3D(satellites[satIdx1], radius, cx, cy);
+          const p2 = getSatellite3D(satellites[satIdx2], radius, cx, cy);
+
+          // Spawn if at least one is facing camera and not deeply occluded
+          if (p1.z > -radius * 0.3 || p2.z > -radius * 0.3) {
+            const speedGbps = (8.0 + Math.random() * 4.0).toFixed(1);
+            activeTransmissions.push({
+              id: `isl-${frame}-${Math.random()}`,
+              type: 'inter-sat',
+              sourceSatIdx: satIdx1,
+              targetSatIdx: satIdx2,
+              progress: 0,
+              speed: 0.013 + Math.random() * 0.005,
+              color: isLight ? '#7c3aed' : '#38bdf8',
+              rateEn: `ISL LASER CROSSLINK • ${speedGbps} Gbps`,
+              rateFa: `پیوند لیزری بین‌ماهواره‌ای • ${speedGbps} Gbps`,
+            });
+          }
+        } else {
+          // Satellite to Earth Ground Node Downlink
+          const visibleSats = satellites
+            .map((s, idx) => ({ idx, pos: getSatellite3D(s, radius, cx, cy) }))
+            .filter((item) => item.pos.z > -radius * 0.1);
+
+          const visibleNodes = GLOBAL_NODES
+            .map((n, idx) => ({ idx, pos: latLonTo3D(n.lat, n.lon, radius) }))
+            .filter((item) => item.pos.z > 0);
+
+          if (visibleSats.length > 0 && visibleNodes.length > 0) {
+            const chosenSat = visibleSats[Math.floor(Math.random() * visibleSats.length)];
+            const chosenNode = visibleNodes[Math.floor(Math.random() * visibleNodes.length)];
+            const speedGbps = (1.5 + Math.random() * 3.5).toFixed(1);
+            activeTransmissions.push({
+              id: `downlink-${frame}-${Math.random()}`,
+              type: 'ground',
+              sourceSatIdx: chosenSat.idx,
+              targetGroundIdx: chosenNode.idx,
+              progress: 0,
+              speed: 0.012 + Math.random() * 0.005,
+              color: satellites[chosenSat.idx].beamColor,
+              rateEn: `DOWNLINK TELEMETRY • ${speedGbps} Gbps`,
+              rateFa: `ارسال داده به زمین • ${speedGbps} Gbps`,
+            });
+          }
+        }
+      }
+
+      // 8c. Render and Update Active Data Transmission Laser Beams
+      activeTransmissions = activeTransmissions.filter((tx) => {
+        tx.progress += tx.speed;
+        if (tx.progress >= 1.0) return false;
+
+        const satSrc = satellites[tx.sourceSatIdx];
+        const pSrc = getSatellite3D(satSrc, radius, cx, cy);
+
+        let targetX = 0;
+        let targetY = 0;
+        let isTargetVisible = true;
+
+        if (tx.type === 'ground' && tx.targetGroundIdx !== undefined) {
+          const node = GLOBAL_NODES[tx.targetGroundIdx];
+          const pG = latLonTo3D(node.lat, node.lon, radius);
+          targetX = cx + pG.x;
+          targetY = cy + pG.y;
+          isTargetVisible = pG.z > -radius * 0.15;
+        } else if (tx.type === 'inter-sat' && tx.targetSatIdx !== undefined) {
+          const satTgt = satellites[tx.targetSatIdx];
+          const pT = getSatellite3D(satTgt, radius, cx, cy);
+          targetX = pT.screenX;
+          targetY = pT.screenY;
+          isTargetVisible = pT.z > -radius * 0.25;
+        }
+
+        if (!isTargetVisible || pSrc.z < -radius * 0.25) {
+          return true;
+        }
+
+        ctx.save();
+        const beamAlpha = Math.sin(tx.progress * Math.PI) * 0.9;
+        ctx.globalAlpha = beamAlpha;
+
+        // Glowing Laser Beam Core & Rim
+        ctx.strokeStyle = tx.color;
+        ctx.shadowColor = tx.color;
+        ctx.shadowBlur = isLight ? 6 : 14;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(pSrc.screenX, pSrc.screenY);
+        ctx.lineTo(targetX, targetY);
+        ctx.stroke();
+
+        // High-speed Traveling Photons (Data Packets)
+        const packetCount = 4;
+        for (let k = 0; k < packetCount; k++) {
+          const pktT = (tx.progress * 2.6 + k / packetCount) % 1;
+          const pktX = pSrc.screenX + (targetX - pSrc.screenX) * pktT;
+          const pktY = pSrc.screenY + (targetY - pSrc.screenY) * pktT;
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(pktX, pktY, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = tx.color;
+          ctx.beginPath();
+          ctx.arc(pktX, pktY, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Concentric Reception Signal Waves at Target
+        const rippleR = 4 + (tx.progress * 20) % 20;
+        ctx.strokeStyle = tx.color;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, rippleR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // High-Tech HUD Transmission Badge at midpoint
+        const midX = (pSrc.screenX + targetX) / 2;
+        const midY = (pSrc.screenY + targetY) / 2;
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = isLight ? 'rgba(15, 23, 42, 0.88)' : 'rgba(2, 6, 23, 0.9)';
+        ctx.strokeStyle = tx.color;
+        ctx.lineWidth = 0.8;
+
+        const labelText = isEn ? tx.rateEn : tx.rateFa;
+        ctx.font = '600 9px monospace';
+        const textWidth = ctx.measureText(labelText).width;
+
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(midX - textWidth / 2 - 6, midY - 9, textWidth + 12, 17, 4);
+        } else {
+          ctx.rect(midX - textWidth / 2 - 6, midY - 9, textWidth + 12, 17);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText(labelText, midX, midY + 3.5);
+
+        ctx.restore();
+        return true;
+      });
+
+      // 8d. Render Space Stations (Sorted by Z-Depth)
+      const sortedSats = [...satellites]
+        .map((sat) => ({ sat, pos: getSatellite3D(sat, radius, cx, cy) }))
+        .sort((a, b) => a.pos.z - b.pos.z);
+
+      sortedSats.forEach(({ sat, pos }) => {
+        const isBehind = pos.z < 0;
+        const distFromCenter = Math.sqrt((pos.screenX - cx) ** 2 + (pos.screenY - cy) ** 2);
+        const isEclipsed = isBehind && distFromCenter < radius * 0.96;
+
+        if (isEclipsed) {
+          return; // Occluded behind solid Earth core
+        }
+
+        const depthScale = Math.max(0.65, Math.min(1.35, (pos.z + radius * 1.5) / (radius * 2))) * sat.size;
+        const alpha = isBehind ? 0.35 : Math.max(0.5, Math.min(1.0, (pos.z + radius * 0.5) / (radius * 1.5)));
+
+        ctx.save();
+        ctx.translate(pos.screenX, pos.screenY);
+        ctx.scale(depthScale, depthScale);
+        ctx.rotate(Math.sin(sat.angle) * 0.2);
+        ctx.globalAlpha = alpha;
+
+        const moduleColor = isLight ? '#cbd5e1' : '#e2e8f0';
+        const moduleBorder = isLight ? '#64748b' : '#94a3b8';
+        const trussColor = isLight ? '#94a3b8' : '#64748b';
+        const solarFill = isLight ? '#1d4ed8' : '#0284c7';
+        const solarBorder = isLight ? '#3b82f6' : '#38bdf8';
+        const cellLine = isLight ? '#60a5fa' : '#7dd3fc';
+        const goldFoil = isLight ? '#d97706' : '#fbbf24';
+
+        // 1. Central Truss Bar (Main structural girder)
+        ctx.strokeStyle = trussColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-28, 0);
+        ctx.lineTo(28, 0);
+        ctx.stroke();
+
+        // 2. Solar Array Wings (ISS Photovoltaic Wings: 4 main panels)
+        const wingOffsets = [-24, -14, 14, 24];
+        wingOffsets.forEach((wx) => {
+          // Top Solar Wing
+          ctx.fillStyle = solarFill;
+          ctx.strokeStyle = solarBorder;
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.rect(wx - 4, -18, 8, 14);
+          ctx.fill();
+          ctx.stroke();
+
+          // Photovoltaic cell divider lines
+          ctx.strokeStyle = cellLine;
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(wx - 4, -14);
+          ctx.lineTo(wx + 4, -14);
+          ctx.moveTo(wx - 4, -10);
+          ctx.lineTo(wx + 4, -10);
+          ctx.moveTo(wx - 4, -6);
+          ctx.lineTo(wx + 4, -6);
+          ctx.stroke();
+
+          // Bottom Solar Wing
+          ctx.fillStyle = solarFill;
+          ctx.strokeStyle = solarBorder;
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.rect(wx - 4, 4, 8, 14);
+          ctx.fill();
+          ctx.stroke();
+
+          // Photovoltaic cell divider lines
+          ctx.strokeStyle = cellLine;
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(wx - 4, 8);
+          ctx.lineTo(wx + 4, 8);
+          ctx.moveTo(wx - 4, 12);
+          ctx.lineTo(wx + 4, 12);
+          ctx.moveTo(wx - 4, 16);
+          ctx.lineTo(wx + 4, 16);
+          ctx.stroke();
+        });
+
+        // 3. Central Pressurized Core Modules
+        // Horizontal Main Cylinder (Destiny / Unity modules)
+        ctx.fillStyle = moduleColor;
+        ctx.strokeStyle = moduleBorder;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.rect(-7, -3.5, 14, 7);
+        ctx.fill();
+        ctx.stroke();
+
+        // Vertical Module / Airlock
+        ctx.beginPath();
+        ctx.rect(-3, -8, 6, 16);
+        ctx.fill();
+        ctx.stroke();
+
+        // Thermal Gold Insulation Foil Patch
+        ctx.fillStyle = goldFoil;
+        ctx.beginPath();
+        ctx.arc(0, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 4. Communication Antenna Mast & Parabolic Dish
+        ctx.strokeStyle = isLight ? '#475569' : '#e2e8f0';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(4, -6);
+        ctx.lineTo(8, -11);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(9, -12, 3.5, Math.PI * 0.7, Math.PI * 1.8);
+        ctx.stroke();
+
+        // 5. Strobe Navigation Beacons (Blinking LED lights on wingtips)
+        const isBeaconOn = Math.floor(frame / 18) % 2 === 0;
+        if (isBeaconOn) {
+          ctx.fillStyle = sat.beaconColor;
+          ctx.shadowColor = sat.beaconColor;
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.arc(-26, -18, 2, 0, Math.PI * 2);
+          ctx.arc(26, 18, 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+
+        ctx.restore();
+
+        // 6. Floating High-Tech HUD Label (Only if facing front)
+        if (pos.z > -radius * 0.1) {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0.3, alpha * 0.95);
+          ctx.font = '600 10px monospace';
+          ctx.textAlign = 'left';
+
+          const nameText = isEn ? sat.name : sat.nameFa;
+          const tagX = pos.screenX + 24 * depthScale;
+          const tagY = pos.screenY - 8 * depthScale;
+
+          // Beacon dot indicator
+          ctx.fillStyle = sat.beaconColor;
+          ctx.beginPath();
+          ctx.arc(tagX - 6, tagY - 3, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = isLight ? 'rgba(15, 23, 42, 0.9)' : 'rgba(241, 245, 249, 0.9)';
+          ctx.fillText(nameText, tagX, tagY);
+
+          ctx.restore();
+        }
+      });
+
       animId = requestAnimationFrame(render);
     };
 
@@ -713,10 +1189,10 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
               }`}
             >
               <Globe2 className="w-3.5 h-3.5 text-indigo-600 dark:text-cyan-400" />
-              <span>{isEn ? 'GLOBAL MESH TOPOLOGY' : 'توپولوژی یکپارچه شبکه جهانی'}</span>
+              <span>{isEn ? 'GLOBAL MESH & ORBITAL CONSTELLATION' : 'توپولوژی یکپارچه شبکه جهانی و منظومه مداری'}</span>
             </div>
             <p className={`text-[9px] font-sans ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              {isEn ? 'Real-time Autonomous Cisco & MikroTik Fabric' : 'فابریک هوشمند روتینگ سیسکو و میکروتیک'}
+              {isEn ? 'Autonomous Ground Stations & Space Station Mesh Link' : 'ایستگاه‌های زمینی و پیوند بلادرنگ ایستگاه‌های فضایی'}
             </p>
           </div>
         </div>
@@ -728,8 +1204,8 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
               : 'bg-white/5 border-white/10 text-cyan-300'
           }`}
         >
-          <Shield className="w-3.5 h-3.5 text-emerald-500" />
-          <span>{isEn ? 'ENCRYPTED BACKBONE (TLS 1.3 / IPSEC)' : 'بک‌بون رمزنگاری شده (TLS 1.3 / IPsec)'}</span>
+          <Satellite className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+          <span>{isEn ? 'ORBITAL MESH: 3 STATIONS ACTIVE (LEO/ISL)' : 'شبکه مداری: ۳ ایستگاه فضایی فعال (LEO/ISL)'}</span>
         </div>
       </div>
 

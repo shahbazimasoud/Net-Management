@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.293.0';
+export const APP_VERSION = '1.294.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.294.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'افزودن منظومه ایستگاه‌های فضایی مداری و تبادل لیزری داده بین‌ماهواره‌ای و زمینی در انیمیشن کره زمین',
+    title_en: 'Orbital Space Station Constellation & Inter-Satellite Laser Data Downlink in 3D Globe',
+    changes: [
+      'پیاده‌سازی منظومه سه‌بعدی ایستگاه‌های فضایی شبیه ISS (شامل ایستگاه بین‌المللی آلفا، رله مداری بتا و پایشگاه سنتینل گاما) در مدارهای مشخص (LEO) به دور کره زمین در صفحه ورود.',
+      'طراحی دقیق و باکیفیت ماژول‌های فضایی شامل صفحات خورشیدی فتوولتائیک با تقسیم‌بندی سلولی، بدنه تحت فشار سیلندری، سازه تراس خرپایی، فویل عایق حرارتی طلا، دیش مخابراتی هدایتی و چراغ‌های چشمک‌زن ناوبری (Strobe Beacons).',
+      'محاسبه فیزیکی و بصری مسیرهای مداری (Orbital Rings) و اکلوژن هوشمند هنگام چرخش به پشت قرص زمین (Earth Eclipse).',
+      'پیاده‌سازی تبادل بلادرنگ داده‌های لیزری بین ایستگاه‌های فضایی با یکدیگر (ISL Crosslink) و ارسال بسته‌های فوتونی داده به زمین (Downlink Telemetry) همراه با امواج ریپل در ایستگاه‌های زمینی و نشانگرهای سرعت انتقال بر حسب گیگابیت بر ثانیه.',
+      'به‌روزرسانی هدر تلمتری کره زمین با نشانگر ماهواره و رعایت کامل قوانین دوزبانگی فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered authentic 3D orbital space station constellation (ISS Alpha, Relay Beta, and Sentinel Gamma) orbiting in realistic LEO orbital inclinations around the Earth globe on the login page.',
+      'Rendered high-fidelity space station structures featuring dual photovoltaic solar array wings with cell segment lines, pressurized habitat modules, structural truss beams, thermal gold foil, parabolic antennas, and blinking navigation strobe beacons.',
+      'Implemented 3D spatial orbital trajectory rings with realistic Earth occlusion / eclipse depth culling when stations pass behind the globe.',
+      'Added dynamic real-time laser data transmissions: Inter-Satellite Links (ISL Crosslinks) between stations and high-speed telemetry downlinks to Earth ground nodes with photon packet pulses, ground reception ripples, and live Gbps HUD badges.',
+      'Updated globe header telemetry badge with live satellite constellation indicator, ensuring 100% strict bilingual compliance in English and Persian.'
+    ]
+  },
   {
     version: '1.293.0',
     releaseDate: '2026-10-09',
