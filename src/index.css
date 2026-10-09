@@ -266,6 +266,257 @@
   border-right-color: #38bdf8 !important;
 }
 
+/* =========================================================================
+   Google Material Design Suite (Light & Dark)
+   Clean, authentic Google aesthetic inspired by Google Cloud & Workspace
+   ========================================================================= */
+
+/* Google Material Light Theme */
+.theme-google-light {
+  --color-spatial-bg: #f8f9fa;
+  --color-spatial-glass: #ffffff;
+  --color-spatial-glass-hover: #f1f3f4;
+  --color-spatial-glow-cyan: #1a73e8;
+  --color-spatial-glow-purple: #ea4335;
+  --color-spatial-glow-amber: #fbbc05;
+  color: #202124 !important;
+  background-color: #f8f9fa !important;
+}
+
+.theme-google-light .ambient-glow-background {
+  background: #f8f9fa !important;
+}
+
+.theme-google-light .spatial-glass {
+  background: #ffffff !important;
+  border-color: #dadce0 !important;
+  box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15) !important;
+}
+
+.theme-google-light .spatial-glass-hover:hover {
+  background: #ffffff !important;
+  border-color: #1a73e8 !important;
+  box-shadow: 0 2px 6px 2px rgba(60,64,67,0.15), 0 1px 2px 0 rgba(60,64,67,0.3) !important;
+}
+
+.theme-google-light header,
+.theme-google-light header.spatial-glass {
+  background: #ffffff !important;
+  border-bottom: 1px solid #dadce0 !important;
+  box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15) !important;
+  color: #202124 !important;
+}
+
+.theme-google-light header * {
+  color: #202124;
+}
+
+.theme-google-light header svg {
+  color: #5f6368;
+}
+
+.theme-google-light aside {
+  background-color: #ffffff !important;
+  border-right: 1px solid #dadce0 !important;
+}
+
+.theme-google-light .sidebar-nav-item {
+  color: #3c4043 !important;
+  border-radius: 9999px !important;
+  margin: 2px 8px !important;
+}
+
+.theme-google-light .sidebar-nav-item:not(.active):hover {
+  background-color: #f1f3f4 !important;
+  color: #202124 !important;
+}
+
+.theme-google-light .sidebar-nav-item.active {
+  background-color: #e8f0fe !important;
+  color: #1a73e8 !important;
+  border-color: transparent !important;
+  font-weight: 600 !important;
+  border-radius: 9999px !important;
+}
+
+.theme-google-light .sidebar-nav-item.active svg {
+  color: #1a73e8 !important;
+}
+
+.theme-google-light .sidebar-badge.active {
+  background-color: #e8f0fe !important;
+  color: #1a73e8 !important;
+  border-color: #1a73e8 !important;
+}
+
+.theme-google-light .text-indigo-400,
+.theme-google-light .text-indigo-500,
+.theme-google-light .text-indigo-600 {
+  color: #1a73e8 !important;
+}
+
+.theme-google-light .bg-indigo-600,
+.theme-google-light .bg-indigo-500 {
+  background-color: #1a73e8 !important;
+  color: #ffffff !important;
+}
+
+.theme-google-light .border-indigo-500\/30,
+.theme-google-light .border-indigo-500\/40 {
+  border-color: rgba(26, 115, 232, 0.35) !important;
+}
+
+.theme-google-light .hover\:bg-indigo-500\/10:hover {
+  background-color: rgba(26, 115, 232, 0.08) !important;
+}
+
+.theme-google-light .text-cyan-400,
+.theme-google-light .text-cyan-500 {
+  color: #1a73e8 !important;
+}
+
+.theme-google-light .bg-cyan-600,
+.theme-google-light .bg-cyan-500 {
+  background-color: #1a73e8 !important;
+  color: #ffffff !important;
+}
+
+.theme-google-light h1,
+.theme-google-light h2,
+.theme-google-light h3,
+.theme-google-light h4,
+.theme-google-light h5,
+.theme-google-light h6,
+.theme-google-light .text-white,
+.theme-google-light .text-slate-100 {
+  color: #202124 !important;
+}
+
+.theme-google-light p,
+.theme-google-light span:not(.force-white-text):not(.force-white-text *),
+.theme-google-light label {
+  color: #3c4043;
+}
+
+.theme-google-light .text-slate-200 { color: #202124 !important; }
+.theme-google-light .text-slate-300 { color: #3c4043 !important; }
+.theme-google-light .text-slate-400 { color: #5f6368 !important; }
+.theme-google-light .text-slate-500 { color: #80868b !important; }
+
+.theme-google-light .glow-text-cyan,
+.theme-google-light .glow-text-purple {
+  text-shadow: none !important;
+  color: #1a73e8 !important;
+}
+
+/* Google Material Dark Theme */
+.theme-google-dark {
+  --color-spatial-bg: #202124;
+  --color-spatial-glass: #2d2f31;
+  --color-spatial-glass-hover: #35363a;
+  --color-spatial-glow-cyan: #8ab4f8;
+  --color-spatial-glow-purple: #f28b82;
+  --color-spatial-glow-amber: #fdd663;
+  color: #e8eaed !important;
+  background-color: #202124 !important;
+}
+
+.theme-google-dark .ambient-glow-background {
+  background: #202124 !important;
+}
+
+.theme-google-dark .spatial-glass {
+  background: #2d2f31 !important;
+  border-color: #3c4043 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px 0 rgba(0, 0, 0, 0.6) !important;
+}
+
+.theme-google-dark .spatial-glass-hover:hover {
+  background: #35363a !important;
+  border-color: #8ab4f8 !important;
+  box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.5) !important;
+}
+
+.theme-google-dark header,
+.theme-google-dark header.spatial-glass {
+  background: #202124 !important;
+  border-bottom: 1px solid #3c4043 !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.5) !important;
+  color: #e8eaed !important;
+}
+
+.theme-google-dark aside {
+  background-color: #202124 !important;
+  border-right: 1px solid #3c4043 !important;
+}
+
+.theme-google-dark .sidebar-nav-item {
+  color: #bdc1c6 !important;
+  border-radius: 9999px !important;
+  margin: 2px 8px !important;
+}
+
+.theme-google-dark .sidebar-nav-item:not(.active):hover {
+  background-color: #2d2f31 !important;
+  color: #e8eaed !important;
+}
+
+.theme-google-dark .sidebar-nav-item.active {
+  background-color: #394457 !important;
+  color: #8ab4f8 !important;
+  border-color: transparent !important;
+  font-weight: 600 !important;
+  border-radius: 9999px !important;
+}
+
+.theme-google-dark .sidebar-nav-item.active svg {
+  color: #8ab4f8 !important;
+}
+
+.theme-google-dark .sidebar-badge.active {
+  background-color: #394457 !important;
+  color: #8ab4f8 !important;
+  border-color: #8ab4f8 !important;
+}
+
+.theme-google-dark .text-indigo-400,
+.theme-google-dark .text-indigo-500,
+.theme-google-dark .text-indigo-600 {
+  color: #8ab4f8 !important;
+}
+
+.theme-google-dark .bg-indigo-600,
+.theme-google-dark .bg-indigo-500 {
+  background-color: #8ab4f8 !important;
+  color: #202124 !important;
+}
+
+.theme-google-dark .border-indigo-500\/30,
+.theme-google-dark .border-indigo-500\/40 {
+  border-color: rgba(138, 180, 248, 0.35) !important;
+}
+
+.theme-google-dark .hover\:bg-indigo-500\/10:hover {
+  background-color: rgba(138, 180, 248, 0.12) !important;
+}
+
+.theme-google-dark .text-cyan-400,
+.theme-google-dark .text-cyan-500 {
+  color: #8ab4f8 !important;
+}
+
+.theme-google-dark .bg-cyan-600,
+.theme-google-dark .bg-cyan-500 {
+  background-color: #8ab4f8 !important;
+  color: #202124 !important;
+}
+
+.theme-google-dark .glow-text-cyan,
+.theme-google-dark .glow-text-purple {
+  text-shadow: 0 0 10px rgba(138, 180, 248, 0.4) !important;
+  color: #8ab4f8 !important;
+}
+
 .theme-light .sidebar-nav-item.active {
   background-color: rgba(99, 102, 241, 0.12) !important;
   color: #4338ca !important;

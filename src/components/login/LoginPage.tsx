@@ -33,6 +33,8 @@ interface LoginPageProps {
 }
 
 const THEME_OPTIONS: { id: GlobeThemeType; name: string; nameFa: string; color: string; isLight?: boolean }[] = [
+  { id: 'google-light', name: 'Google Light', nameFa: 'گوگل متریال روشن', color: '#1a73e8', isLight: true },
+  { id: 'google-dark', name: 'Google Dark', nameFa: 'گوگل متریال تاریک', color: '#8ab4f8' },
   { id: 'obsidian', name: 'Obsidian Space', nameFa: 'فضایی آبسیدین', color: '#6366f1' },
   { id: 'emerald', name: 'Emerald Cyber', nameFa: 'زمردی سایبر', color: '#10b981' },
   { id: 'cobalt', name: 'Cobalt Blue', nameFa: 'کبالت پررنگ', color: '#0284c7' },
@@ -62,13 +64,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const [showThemePicker, setShowThemePicker] = useState(false);
 
-  const isLight = theme === 'light';
+  const isLight = theme === 'light' || theme === 'google-light';
 
   // Apply theme to HTML documentElement
   const handleSelectTheme = (newTheme: GlobeThemeType, isUserAction: boolean = true) => {
     setTheme(newTheme);
+    const isNewThemeLight = newTheme === 'light' || newTheme === 'google-light';
     localStorage.setItem('panel_theme', newTheme);
-    localStorage.setItem('theme_mode', newTheme === 'light' ? 'light' : 'dark');
+    localStorage.setItem('theme_mode', isNewThemeLight ? 'light' : 'dark');
     if (isUserAction) {
       localStorage.setItem('user_customized_theme', 'true');
     }
@@ -80,7 +83,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       });
       document.documentElement.classList.add(`theme-${newTheme}`);
 
-      if (newTheme === 'light') {
+      if (isNewThemeLight) {
         document.documentElement.classList.remove('dark');
         document.documentElement.classList.add('light');
       } else {

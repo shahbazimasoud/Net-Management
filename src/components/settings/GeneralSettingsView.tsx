@@ -533,8 +533,30 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
     }
   };
 
-  // Theme options available
-  const themeList: { id: ThemeType; nameEn: string; nameFa: string; color: string; border: string }[] = [
+  // Google Material Themes
+  const googleThemeList: { id: ThemeType; nameEn: string; nameFa: string; descEn: string; descFa: string; color: string; border: string }[] = [
+    {
+      id: 'google-light',
+      nameEn: 'Google Material Light',
+      nameFa: 'گوگل متریال (روشن)',
+      descEn: 'Clean White canvas with Google Blue accents & Material elevation',
+      descFa: 'بوم سفید اداری با رنگ‌های اصلی گوگل و برجستگی متریال',
+      color: '#1a73e8',
+      border: 'border-blue-500',
+    },
+    {
+      id: 'google-dark',
+      nameEn: 'Google Material Dark',
+      nameFa: 'گوگل متریال (تاریک)',
+      descEn: 'Cloud Charcoal canvas with Pastel Blue & Material Dark styling',
+      descFa: 'کنسول خاکستری ابری با رنگ‌های پاستلی و استایل متریال دارک',
+      color: '#8ab4f8',
+      border: 'border-blue-400',
+    },
+  ];
+
+  // NetTopology Cyber Themes
+  const cyberThemeList: { id: ThemeType; nameEn: string; nameFa: string; color: string; border: string }[] = [
     { id: 'obsidian', nameEn: 'Obsidian Dark', nameFa: 'ابریشم سیاه (پیش‌فرض)', color: '#6366f1', border: 'border-indigo-500' },
     { id: 'emerald', nameEn: 'Emerald Green', nameFa: 'زمردی سایبر', color: '#10b981', border: 'border-emerald-500' },
     { id: 'cobalt', nameEn: 'Cobalt Deep', nameFa: 'کبالت عمیق', color: '#0284c7', border: 'border-sky-500' },
@@ -542,6 +564,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
     { id: 'amber', nameEn: 'Cyber Amber', nameFa: 'کهربایی اختصاصی', color: '#f59e0b', border: 'border-amber-500' },
     { id: 'light', nameEn: 'Ergonomic Light', nameFa: 'تم روشن اداری', color: '#64748b', border: 'border-slate-400' },
   ];
+
+  const themeList = [...googleThemeList, ...cyberThemeList];
 
   // Preset logo list
   const presetLogos = [
@@ -1415,32 +1439,99 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 </span>
               </div>
 
-              {/* Theme Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {themeList.map((t) => {
-                  const isSelected = formData.defaultTheme === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, defaultTheme: t.id })}
-                      className={`flex items-center gap-2.5 p-3 rounded-xl border text-xs transition cursor-pointer text-left ${
-                        isSelected
-                          ? `bg-indigo-600/20 ${t.border} text-white font-bold shadow-md`
-                          : isLightMode
-                          ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                          : 'bg-slate-900/50 border-white/5 text-slate-300 hover:bg-white/5'
-                      }`}
-                    >
-                      <span
-                        className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border border-white/20"
-                        style={{ backgroundColor: t.color }}
-                      />
-                      <span className="truncate text-xs">{isEn ? t.nameEn : t.nameFa}</span>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400 ml-auto shrink-0" />}
-                    </button>
-                  );
-                })}
+              {/* Theme Groups */}
+              <div className="space-y-4">
+                {/* Suite 1: Google Material Design */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-xs" />
+                    <h4 className={`text-xs font-bold uppercase tracking-wider ${isLightMode ? 'text-blue-700' : 'text-blue-400'}`}>
+                      {isEn ? 'Google Material Design Suite' : 'سبک اختصاصی متریال گوگل (Google Material)'}
+                    </h4>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 font-medium">
+                      {isEn ? 'New Modern Theme' : 'تم مدرن جدید'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {googleThemeList.map((t) => {
+                      const isSelected = formData.defaultTheme === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, defaultTheme: t.id });
+                            if (onChangeTheme) onChangeTheme(t.id);
+                          }}
+                          className={`flex flex-col gap-1.5 p-3.5 rounded-xl border text-xs transition cursor-pointer text-left ${
+                            isSelected
+                              ? 'bg-blue-600/20 border-blue-500 text-white font-bold shadow-md ring-1 ring-blue-500'
+                              : isLightMode
+                              ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-blue-50/50 hover:border-blue-200'
+                              : 'bg-slate-900/50 border-white/5 text-slate-300 hover:bg-white/5'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-4 h-4 rounded-full shrink-0 shadow-xs border border-white/20"
+                                style={{ backgroundColor: t.color }}
+                              />
+                              <span className={`font-bold ${isLightMode && !isSelected ? 'text-slate-800' : ''}`}>
+                                {isEn ? t.nameEn : t.nameFa}
+                              </span>
+                            </div>
+                            {isSelected && <Check className="w-4 h-4 text-blue-400 shrink-0" />}
+                          </div>
+                          <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isEn ? t.descEn : t.descFa}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Suite 2: NetTopology Cyber */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-xs" />
+                    <h4 className={`text-xs font-bold uppercase tracking-wider ${isLightMode ? 'text-indigo-700' : 'text-indigo-400'}`}>
+                      {isEn ? 'NetTopology Cyber Suite' : 'سبک کلاسیک سایبرپانک شبکه (NetTopology Cyber)'}
+                    </h4>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    {cyberThemeList.map((t) => {
+                      const isSelected = formData.defaultTheme === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, defaultTheme: t.id });
+                            if (onChangeTheme) onChangeTheme(t.id);
+                          }}
+                          className={`flex items-center gap-2.5 p-3 rounded-xl border text-xs transition cursor-pointer text-left ${
+                            isSelected
+                              ? `bg-indigo-600/20 ${t.border} text-white font-bold shadow-md ring-1 ring-indigo-500`
+                              : isLightMode
+                              ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              : 'bg-slate-900/50 border-white/5 text-slate-300 hover:bg-white/5'
+                          }`}
+                        >
+                          <span
+                            className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border border-white/20"
+                            style={{ backgroundColor: t.color }}
+                          />
+                          <span className="truncate text-xs">{isEn ? t.nameEn : t.nameFa}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400 ml-auto shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 

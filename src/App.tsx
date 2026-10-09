@@ -271,6 +271,9 @@ export default function App() {
   // General Panel Configuration State
   const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
 
+  // Helper to determine if a theme is light
+  const isThemeLight = (t: ThemeType) => t === 'light' || t === 'google-light';
+
   // Theme State (User personal preference takes priority, falling back to Super Admin system default)
   const [panelTheme, setPanelTheme] = useState<ThemeType>(() => {
     try {
@@ -278,26 +281,34 @@ export default function App() {
       const saved = (localStorage.getItem('panel_theme') as ThemeType);
       if (userCustomized && saved) {
         if (typeof document !== 'undefined') {
-          if (saved === 'light') {
+          if (isThemeLight(saved)) {
             document.documentElement.classList.remove('dark');
             document.documentElement.classList.add('light');
           } else {
             document.documentElement.classList.add('dark');
             document.documentElement.classList.remove('light');
           }
+          ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-light', 'theme-google-dark'].forEach((c) => {
+            document.documentElement.classList.remove(c);
+          });
+          document.documentElement.classList.add(`theme-${saved}`);
         }
         return saved;
       }
       const initialSettings = loadGeneralSettings();
       const activeTheme = initialSettings?.defaultTheme || saved || 'obsidian';
       if (typeof document !== 'undefined') {
-        if (activeTheme === 'light') {
+        if (isThemeLight(activeTheme)) {
           document.documentElement.classList.remove('dark');
           document.documentElement.classList.add('light');
         } else {
           document.documentElement.classList.add('dark');
           document.documentElement.classList.remove('light');
         }
+        ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-light', 'theme-google-dark'].forEach((c) => {
+          document.documentElement.classList.remove(c);
+        });
+        document.documentElement.classList.add(`theme-${activeTheme}`);
       }
       return activeTheme;
     } catch {
@@ -307,21 +318,26 @@ export default function App() {
 
   const changeTheme = useCallback((newTheme: ThemeType, isUserAction: boolean = true) => {
     setPanelTheme(newTheme);
+    const isLight = newTheme === 'light' || newTheme === 'google-light';
     try {
       localStorage.setItem('panel_theme', newTheme);
-      localStorage.setItem('theme_mode', newTheme === 'light' ? 'light' : 'dark');
+      localStorage.setItem('theme_mode', isLight ? 'light' : 'dark');
       if (isUserAction) {
         localStorage.setItem('user_customized_theme', 'true');
       }
     } catch {}
     if (typeof document !== 'undefined') {
-      if (newTheme === 'light') {
+      if (isLight) {
         document.documentElement.classList.remove('dark');
         document.documentElement.classList.add('light');
       } else {
         document.documentElement.classList.add('dark');
         document.documentElement.classList.remove('light');
       }
+      ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-light', 'theme-google-dark'].forEach((c) => {
+        document.documentElement.classList.remove(c);
+      });
+      document.documentElement.classList.add(`theme-${newTheme}`);
     }
   }, []);
 
@@ -958,6 +974,8 @@ export default function App() {
     return <LoginPage currentTheme={panelTheme} onThemeChange={changeTheme} />;
   }
 
+  const isLightMode = panelTheme === 'light' || panelTheme === 'google-light';
+
   return (
     <div
       className={`h-screen min-h-screen max-h-screen relative flex flex-col justify-between theme-${panelTheme} ${
@@ -1042,7 +1060,7 @@ export default function App() {
               onWriteMemory={handleWriteMemory}
               onRefreshAll={handleRefreshAll}
               isRefreshing={isRefreshing}
-              isLightMode={panelTheme === 'light'}
+              isLightMode={isLightMode}
               onOpenBulkConfig={(selected) => {
                 setBulkConfigDevices(selected);
                 setIsBulkConfigOpen(true);
@@ -1082,7 +1100,7 @@ export default function App() {
             <CdpLldpScannerView onNavigateToTopology={() => setActiveTab('schematic')} />
           )}
 
-          {activeTab === 'logs' && <AuditLogsView isLightMode={panelTheme === 'light'} />}
+          {activeTab === 'logs' && <AuditLogsView isLightMode={isLightMode} />}
 
           {(activeTab === 'remote-servers' ||
             activeTab === 'remote-linux' ||
@@ -1098,7 +1116,7 @@ export default function App() {
                   ? 'tags'
                   : 'all'
               }
-              isLightMode={panelTheme === 'light'}
+              isLightMode={isLightMode}
               isEn={isEn}
               effectivePolicy={effectivePolicy}
             />
@@ -1123,7 +1141,7 @@ export default function App() {
 
           {(activeTab === 'general-settings' || activeTab === 'settings') && isSuperAdmin && (
             <GeneralSettingsView
-              isLightMode={panelTheme === 'light'}
+              isLightMode={isLightMode}
               panelTheme={panelTheme}
               onChangeTheme={changeTheme}
               onNavigateToTab={(tab) => setActiveTab(tab as any)}
@@ -1134,7 +1152,7 @@ export default function App() {
           )}
 
           {activeTab === 'settings-services' && isSuperAdmin && (
-            <PanelServicesView isLightMode={panelTheme === 'light'} />
+            <PanelServicesView isLightMode={isLightMode} />
           )}
 
           {activeTab === 'settings-ldap' && isSuperAdmin && (
@@ -1142,16 +1160,16 @@ export default function App() {
               config={adConfig}
               onSaveConfig={handleSaveAdConfig}
               onNavigateToDirectory={() => setActiveTab('settings-ad')}
-              isLightMode={panelTheme === 'light'}
+              isLightMode={isLightMode}
             />
           )}
 
           {activeTab === 'settings-update' && isSuperAdmin && (
-            <PanelUpdateSettingsView isLightMode={panelTheme === 'light'} />
+            <PanelUpdateSettingsView isLightMode={isLightMode} />
           )}
 
           {activeTab === 'settings-email' && isSuperAdmin && (
-            <EmailSettingsView isLightMode={panelTheme === 'light'} />
+            <EmailSettingsView isLightMode={isLightMode} />
           )}
 
           {(activeTab === 'settings-groups' ||
@@ -1161,7 +1179,7 @@ export default function App() {
             activeTab === 'settings-backup') && isSuperAdmin && (
             <SettingsView
               devices={devices}
-              isLightMode={panelTheme === 'light'}
+              isLightMode={isLightMode}
               onNavigateToLdapSettings={() => setActiveTab('settings-ldap')}
               activeSubTab={
                 activeTab === 'settings-users'
@@ -1231,7 +1249,7 @@ export default function App() {
                 onClose={() => setIsToolsMenuOpen(false)}
                 onSelectTool={handleOpenTool}
                 isEn={isEn}
-                isLightMode={panelTheme === 'light'}
+                isLightMode={isLightMode}
               />
             </div>
 
@@ -1372,7 +1390,7 @@ export default function App() {
             : undefined
         }
         onDeviceUpdated={loadData}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* Multi-Terminal Workspace & Split CLI System (Cisco & MikroTik) */}
@@ -1394,7 +1412,7 @@ export default function App() {
         onDevicesChange={setActiveTerminals}
         allDevices={topology?.devices || devices}
         onDeviceUpdated={loadData}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* Release Notes & Version History Modal */}
@@ -1429,7 +1447,7 @@ export default function App() {
         onApplyToMap={() => {
           loadData();
         }}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* Bulk Device Configuration Modal (Cisco & MikroTik Real Execution) */}
@@ -1449,7 +1467,7 @@ export default function App() {
         }
         onDeviceUpdated={loadData}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* Minimized Tools & Modals Dock (Shows all minimized tool & modal pills at bottom) */}
@@ -1465,7 +1483,7 @@ export default function App() {
         attentionModalId={attentionModalId}
         onClearAttention={handleClearAttention}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
         isRtl={isRtl}
       />
 
@@ -1475,7 +1493,7 @@ export default function App() {
         onClose={() => handleCloseTool('ip_subnetting')}
         onMinimize={() => handleMinimizeTool('ip_subnetting')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* 2. Device Password Generator Modal */}
@@ -1484,7 +1502,7 @@ export default function App() {
         onClose={() => handleCloseTool('password_gen')}
         onMinimize={() => handleMinimizeTool('password_gen')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
         onOpenVault={() => handleOpenTool('password_vault')}
       />
 
@@ -1495,7 +1513,7 @@ export default function App() {
         onMinimize={() => handleMinimizeTool('port_scanner')}
         allDevices={devices}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* 4. DNS & Ping Utilities Modal */}
@@ -1504,7 +1522,7 @@ export default function App() {
         onClose={() => handleCloseTool('net_utils')}
         onMinimize={() => handleMinimizeTool('net_utils')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* 5. Traceroute & Hop Analysis Modal */}
@@ -1513,7 +1531,7 @@ export default function App() {
         onClose={() => handleCloseTool('trace_tools')}
         onMinimize={() => handleMinimizeTool('trace_tools')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* 6. SSL / TLS Certificate Inspector Modal */}
@@ -1522,7 +1540,7 @@ export default function App() {
         onClose={() => handleCloseTool('cert_lookup')}
         onMinimize={() => handleMinimizeTool('cert_lookup')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* 7. HTTP Header & Security Analyzer Modal */}
@@ -1531,7 +1549,7 @@ export default function App() {
         onClose={() => handleCloseTool('header_analyzer')}
         onMinimize={() => handleMinimizeTool('header_analyzer')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
 
       {/* 8. UPS Capacity & Battery Bank Sizing Modal */}
@@ -1540,7 +1558,7 @@ export default function App() {
         onClose={() => handleCloseTool('ups_calculator')}
         onMinimize={() => handleMinimizeTool('ups_calculator')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
         devices={devices}
       />
 
@@ -1550,7 +1568,7 @@ export default function App() {
         onClose={() => handleCloseTool('host_checker')}
         onMinimize={() => handleMinimizeTool('host_checker')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
         devices={devices}
       />
 
@@ -1560,7 +1578,7 @@ export default function App() {
         onClose={() => handleCloseTool('password_vault')}
         onMinimize={() => handleMinimizeTool('password_vault')}
         isEn={isEn}
-        isLightMode={panelTheme === 'light'}
+        isLightMode={isLightMode}
       />
     </div>
   );

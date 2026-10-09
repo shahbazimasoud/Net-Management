@@ -24,7 +24,7 @@ import { useUpdate } from '../context/UpdateContext';
 import { useAuth } from '../context/AuthContext';
 import { canUserCheckUpdate, isUserSuperAdmin } from '../utils/rbac';
 
-export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
+export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-light' | 'google-dark';
 
 interface NavbarProps {
   onRefreshAll: () => void;
@@ -99,13 +99,48 @@ export const Navbar: React.FC<NavbarProps> = ({
     };
   }, [profileOpen]);
 
-  const themeOptions: { id: ThemeType; nameKey: string; color: string; bgClass: string }[] = [
+  const isGoogleFamily = panelTheme === 'google-light' || panelTheme === 'google-dark';
+  const [activeFamilyTab, setActiveFamilyTab] = useState<'google' | 'cyber'>(() => {
+    return isGoogleFamily ? 'google' : 'cyber';
+  });
+
+  useEffect(() => {
+    setActiveFamilyTab(panelTheme === 'google-light' || panelTheme === 'google-dark' ? 'google' : 'cyber');
+  }, [panelTheme]);
+
+  const googleThemeOptions: { id: ThemeType; nameEn: string; nameFa: string; color: string; descEn: string; descFa: string; isLight?: boolean }[] = [
+    {
+      id: 'google-light',
+      nameEn: 'Google Material Light',
+      nameFa: 'گوگل متریال (روشن)',
+      color: '#1a73e8',
+      descEn: 'Clean White & Google Blue',
+      descFa: 'سفید اداری و آبی اختصاصی گوگل',
+      isLight: true,
+    },
+    {
+      id: 'google-dark',
+      nameEn: 'Google Material Dark',
+      nameFa: 'گوگل متریال (تاریک)',
+      color: '#8ab4f8',
+      descEn: 'Cloud Slate & Pastel Blue',
+      descFa: 'خاکستری ابری و آبی پاستلی گوگل',
+    },
+  ];
+
+  const cyberThemeOptions: { id: ThemeType; nameKey: string; color: string; bgClass: string }[] = [
     { id: 'obsidian', nameKey: 'theme_obsidian', color: '#6366f1', bgClass: 'bg-indigo-600' },
     { id: 'emerald', nameKey: 'theme_emerald', color: '#10b981', bgClass: 'bg-emerald-500' },
     { id: 'cobalt', nameKey: 'theme_cobalt', color: '#0284c7', bgClass: 'bg-sky-600' },
     { id: 'rose', nameKey: 'theme_rose', color: '#f43f5e', bgClass: 'bg-rose-500' },
     { id: 'amber', nameKey: 'theme_amber', color: '#f59e0b', bgClass: 'bg-amber-500' },
     { id: 'light', nameKey: 'theme_light', color: '#64748b', bgClass: 'bg-slate-400' },
+  ];
+
+  const themeOptions: { id: ThemeType; nameKey: string; color: string; bgClass: string }[] = [
+    { id: 'google-light', nameKey: 'theme_google_light', color: '#1a73e8', bgClass: 'bg-blue-600' },
+    { id: 'google-dark', nameKey: 'theme_google_dark', color: '#8ab4f8', bgClass: 'bg-blue-400' },
+    ...cyberThemeOptions,
   ];
 
   const currentThemeObj = themeOptions.find((t) => t.id === panelTheme) || themeOptions[0];
@@ -371,29 +406,106 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-1.5 mt-1">
-                    {themeOptions.map((opt) => {
-                      const isSelected = panelTheme === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          onClick={() => onChangeTheme(opt.id)}
-                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs transition cursor-pointer text-left ${
-                            isSelected
-                              ? 'bg-indigo-600/30 text-white font-bold border border-indigo-500/40 shadow-[0_0_10px_rgba(99,102,241,0.2)]'
-                              : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
-                          }`}
-                        >
-                          <span
-                            className="w-3 h-3 rounded-full shrink-0 shadow-xs"
-                            style={{ backgroundColor: opt.color }}
-                          ></span>
-                          <span className="truncate text-[11px]">{t(opt.nameKey as any).split(' ')[0]}</span>
-                          {isSelected && <Check className="w-3 h-3 text-indigo-400 ml-auto shrink-0" />}
-                        </button>
-                      );
-                    })}
+                  {/* Family Selector Tabs */}
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-black/40 rounded-xl border border-white/10 my-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFamilyTab('google');
+                        if (panelTheme !== 'google-light' && panelTheme !== 'google-dark') {
+                          onChangeTheme('google-light');
+                        }
+                      }}
+                      className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                        activeFamilyTab === 'google'
+                          ? 'bg-blue-600/30 text-blue-300 font-bold border border-blue-500/40 shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                      <span className="truncate">{isEn ? 'Google Material' : 'گوگل متریال'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveFamilyTab('cyber');
+                        if (panelTheme === 'google-light' || panelTheme === 'google-dark') {
+                          onChangeTheme('obsidian');
+                        }
+                      }}
+                      className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                        activeFamilyTab === 'cyber'
+                          ? 'bg-indigo-600/30 text-indigo-300 font-bold border border-indigo-500/40 shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+                      <span className="truncate">{isEn ? 'NetTopology Cyber' : 'سایبرپانک شبکه'}</span>
+                    </button>
                   </div>
+
+                  {/* Options within Selected Family */}
+                  {activeFamilyTab === 'google' ? (
+                    <div className="grid grid-cols-2 gap-1.5 mt-1">
+                      {googleThemeOptions.map((opt) => {
+                        const isSelected = panelTheme === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => onChangeTheme(opt.id)}
+                            className={`flex flex-col gap-1 p-2 rounded-xl text-xs transition cursor-pointer text-left border ${
+                              isSelected
+                                ? 'bg-blue-600/25 text-white font-bold border-blue-500/50 shadow-[0_0_12px_rgba(26,115,232,0.3)]'
+                                : 'bg-white/5 text-slate-300 hover:text-white hover:bg-white/10 border-white/5'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border border-white/20"
+                                  style={{ backgroundColor: opt.color }}
+                                />
+                                <span className="text-[11px] font-bold truncate">
+                                  {isEn ? opt.nameEn : opt.nameFa}
+                                </span>
+                              </div>
+                              {isSelected && <Check className="w-3 h-3 text-blue-400 shrink-0" />}
+                            </div>
+                            <span className="text-[9px] text-slate-400 leading-tight">
+                              {isEn ? opt.descEn : opt.descFa}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1.5 mt-1">
+                      {cyberThemeOptions.map((opt) => {
+                        const isSelected = panelTheme === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => onChangeTheme(opt.id)}
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs transition cursor-pointer text-left ${
+                              isSelected
+                                ? 'bg-indigo-600/30 text-white font-bold border border-indigo-500/40 shadow-[0_0_10px_rgba(99,102,241,0.2)]'
+                                : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+                            }`}
+                          >
+                            <span
+                              className="w-3 h-3 rounded-full shrink-0 shadow-xs"
+                              style={{ backgroundColor: opt.color }}
+                            />
+                            <span className="truncate text-[11px]">{t(opt.nameKey as any).split(' ')[0]}</span>
+                            {isSelected && <Check className="w-3 h-3 text-indigo-400 ml-auto shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Section 3: Check for Updates & Release Notes (Super Admin Only) */}

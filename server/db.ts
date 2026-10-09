@@ -4226,7 +4226,7 @@ export interface PanelGeneralSettings {
   faviconType?: 'default' | 'same_as_logo' | 'custom_url' | 'preset';
   faviconCustomUrl?: string;
   faviconPreset?: 'network' | 'shield' | 'server' | 'router' | 'cpu' | 'globe';
-  defaultTheme: 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
+  defaultTheme: 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-light' | 'google-dark';
   defaultLanguage: 'fa' | 'en';
   telemetryRefreshIntervalSec: number;
   sessionInactivityTimeoutMin: number;

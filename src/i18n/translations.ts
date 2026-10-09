@@ -23,6 +23,11 @@ export const translations = {
     theme_rose: 'Cyberpunk Rose (Crimson)',
     theme_amber: 'Neon Amber (Golden)',
     theme_light: 'Clear Light (Light)',
+    theme_google_light: 'Google Material (Light)',
+    theme_google_dark: 'Google Material (Dark)',
+    theme_family_google: 'Google Material Suite',
+    theme_family_cyber: 'NetTopology Cyber Suite',
+    theme_family_select: 'Design System & Theme Family',
 
     // Language
     language_switcher: 'Language',
@@ -699,6 +704,11 @@ export const translations = {
     theme_rose: 'رز سایبرپانک (کریمسون)',
     theme_amber: 'کهربایی نئون (زرین)',
     theme_light: 'شفاف روشن (Light)',
+    theme_google_light: 'گوگل متریال (روشن / Light)',
+    theme_google_dark: 'گوگل متریال (تاریک / Dark)',
+    theme_family_google: 'سبک متریال گوگل (Google Material)',
+    theme_family_cyber: 'سبک سایبرپانک شبکه (NetTopology Cyber)',
+    theme_family_select: 'خانواده و سبک بصری تم‌ها',
 
     // Language
     language_switcher: 'زبان',

@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.303.0';
+export const APP_VERSION = '1.304.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'طراحی و پیاده‌سازی سبک بصری جدید گوگل متریال (Google Material Suite) با دو حالت اختصاصی روشن و تاریک (Light & Dark) و قابلیت سوئیچ بین خانواده تم‌ها در تنظیمات و پروفایل',
+    title_en: 'Design and Integration of Google Material Design Suite with Native Light & Dark Themes, Multi-Family Theme Switcher in Profile Dropdown & Panel General Settings',
+    changes: [
+      'طراحی و پیاده‌سازی کامل سبک بصری گوگل متریال (Google Material) با الهام از کنسول گوگل کلود و محیط اداری گوگل ورک‌اسپیس.',
+      'ارائه دو تم اختصاصی و مدرن گوگل متریال روشن (Google Material Light) با بوم سفید شفاف، سایه‌های استاندارد Material Elevation و رنگ‌های نمادین گوگل، و گوگل متریال تاریک (Google Material Dark) با پس‌زمینه خاکستری ابری، پالت رنگ‌های پاستلی و خوانایی ارگونومیک بالا.',
+      'دسته‌بندی و تفکیک خانواده تم‌ها به دو سبک متمایز: سبک گوگل متریال (Google Material Suite) و سبک کلاسیک سایبرپانک شبکه (NetTopology Cyber Suite).',
+      'افزودن سوئیچر خانواده تم‌ها در منوی پروفایل کاربر با قابلیت سوئیچ آنی با یک کلیک بین سبک گوگل و سبک سایبرپانک و انتخاب تم دلخواه.',
+      'به‌روزرسانی کارت تم و استایل گرافیکی پیش‌فرض در تنظیمات عمومی پنل (Panel General Settings) با تفکیک ساختار یافته دو خانواده تم و توضیحات کامل.',
+      'یکپارچه‌سازی کامل تم گوگل در کره سه‌بعدی و صفحه ورود به سیستم (LoginPage) با طیف رنگی اختصاصی گوگل.',
+      'سازگاری کامل تمامی پنجره‌ها، مودال‌ها، منوی ابزارها، نوارهای جانبی و جداول نظارتی با سیستم تم جدید.'
+    ],
+    changes_en: [
+      'Designed and implemented the authentic Google Material Design suite inspired by Google Cloud Console and Google Workspace.',
+      'Introduced two dedicated modern themes: Google Material Light (crisp white canvas, official Google Blue accents, standard Material elevation shadows) and Google Material Dark (slate cloud surfaces, pastel Google accents, high ergonomic contrast).',
+      'Categorized the visual theme system into two distinct families: Google Material Suite and NetTopology Cyber Suite.',
+      'Added dual-family switcher tabs in the user profile menu with one-click instant toggling between Google and Cyber styles.',
+      'Enhanced Default Theme & Visual Style card in Panel General Settings with organized suites, badges, and detailed descriptions.',
+      'Seamlessly integrated Google themes into 3D Network Globe and Login Page with authentic Google color palette.',
+      'Full compliance across all modals, tables, sidebars, and network telemetry views in both light and dark Google modes.'
+    ]
+  },
   {
     version: '1.303.0',
     releaseDate: '2026-10-09',

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useLanguage } from '../../i18n';
 import { Activity, Shield, Wifi, Globe2, Radio, Cpu, Satellite } from 'lucide-react';
 
-export type GlobeThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light';
+export type GlobeThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-light' | 'google-dark';
 
 interface NetworkNode {
   name: string;
@@ -528,6 +528,32 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
             nodeEdge: '#fbbf24',
             dotColor: '#f59e0b',
             dotHighlight: '#fde68a',
+          };
+        case 'google-light':
+          return {
+            glowA: 'rgba(26, 115, 232, 0.18)',
+            glowB: 'rgba(52, 168, 83, 0.12)',
+            rim: 'rgba(26, 115, 232, 0.55)',
+            grid: 'rgba(218, 220, 224, 0.45)',
+            gridEq: 'rgba(26, 115, 232, 0.45)',
+            arc: 'rgba(234, 67, 53, 0.55)',
+            nodeCore: '#1a73e8',
+            nodeEdge: '#34a853',
+            dotColor: '#1a73e8',
+            dotHighlight: '#fbbc05',
+          };
+        case 'google-dark':
+          return {
+            glowA: 'rgba(138, 180, 248, 0.22)',
+            glowB: 'rgba(129, 201, 149, 0.15)',
+            rim: 'rgba(138, 180, 248, 0.45)',
+            grid: 'rgba(60, 64, 67, 0.45)',
+            gridEq: 'rgba(138, 180, 248, 0.4)',
+            arc: 'rgba(242, 139, 130, 0.55)',
+            nodeCore: '#8ab4f8',
+            nodeEdge: '#81c995',
+            dotColor: '#8ab4f8',
+            dotHighlight: '#fdd663',
           };
         case 'light':
           return {
