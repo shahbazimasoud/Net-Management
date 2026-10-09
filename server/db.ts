@@ -87,6 +87,10 @@ export async function ensurePostgresConnection(): Promise<boolean> {
       return true;
     } catch {
       isPostgresReady = false;
+      try {
+        await pool.end();
+      } catch {}
+      pool = null;
     }
   }
 
@@ -95,7 +99,6 @@ export async function ensurePostgresConnection(): Promise<boolean> {
     if (!pool) {
       pool = new Pool(config);
       pool.on('error', (err) => {
-        console.error('[PostgreSQL Pool Unexpected Error]', err);
         isPostgresReady = false;
       });
     }
@@ -108,6 +111,12 @@ export async function ensurePostgresConnection(): Promise<boolean> {
   } catch (err: any) {
     isPostgresReady = false;
     lastError = err.message || 'PostgreSQL not reachable';
+    if (pool) {
+      try {
+        await pool.end();
+      } catch {}
+      pool = null;
+    }
     return false;
   }
 }
@@ -5963,7 +5972,7 @@ export async function getBulkServerReports(): Promise<any[]> {
   const store = loadFallbackStore();
   const fallbackReports = Array.isArray(store.bulk_server_reports) ? store.bulk_server_reports : [];
 
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       const res = await pool.query(`
         SELECT 
@@ -6005,7 +6014,7 @@ export async function getBulkServerReports(): Promise<any[]> {
 }
 
 export async function getBulkServerReportById(id: string): Promise<any | null> {
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       const res = await pool.query(`
         SELECT 
@@ -6076,7 +6085,7 @@ export async function saveBulkServerReport(report: any): Promise<void> {
   saveFallbackStore(store);
 
   // 2. Persist to relational PostgreSQL table if available
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       await pool.query(
         `INSERT INTO bulk_server_reports (
@@ -6149,7 +6158,7 @@ export async function deleteBulkServerReport(id: string): Promise<boolean> {
     }
   }
 
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       const res = await pool.query(
         'DELETE FROM bulk_server_reports WHERE id = $1 OR job_id = $1',
@@ -6169,7 +6178,7 @@ export async function clearAllBulkServerReports(): Promise<boolean> {
   store.bulk_server_reports = [];
   saveFallbackStore(store);
 
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       await pool.query('DELETE FROM bulk_server_reports');
       return true;
@@ -6186,7 +6195,7 @@ export async function getBulkServerReportsStorageStats(): Promise<{
   totalReports: number;
   isPostgresReady: boolean;
 }> {
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       const res = await pool.query('SELECT count(*) as count FROM bulk_server_reports');
       const count = parseInt(res.rows[0]?.count || '0', 10);
@@ -6214,7 +6223,7 @@ export async function getBulkServerReportsStorageStats(): Promise<{
 // ==============================================================================
 
 export async function getAllScheduledBackupJobs(): Promise<ScheduledBackupJob[]> {
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       const res = await pool.query('SELECT * FROM scheduled_backup_jobs ORDER BY created_at ASC');
       if (res.rows.length > 0) {
@@ -6245,7 +6254,7 @@ export async function saveScheduledBackupJob(job: ScheduledBackupJob): Promise<S
   if (!job.created_at) job.created_at = now;
   job.updated_at = now;
 
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       await pool.query(
         `INSERT INTO scheduled_backup_jobs (
@@ -6320,7 +6329,7 @@ export async function saveScheduledBackupJob(job: ScheduledBackupJob): Promise<S
 }
 
 export async function deleteScheduledBackupJob(id: string): Promise<boolean> {
-  if (pool) {
+  if (isPostgresConnected() && pool) {
     try {
       await pool.query('DELETE FROM scheduled_backup_jobs WHERE id = $1', [id]);
     } catch (e: any) {

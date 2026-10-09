@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.298.0';
+export const APP_VERSION = '1.298.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.298.1',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'رفع خطای اتصال PostgreSQL (ECONNREFUSED) در موتور زمانبندی بکاپ و گزارش‌های سرور',
+    title_en: 'Fix PostgreSQL Connection ECONNREFUSED Error in DR Backup Scheduler & Server Reports',
+    changes: [
+      'اصلاح منطق اعتبارسنجی اتصال دیتابیس در توابع getAllScheduledBackupJobs، saveScheduledBackupJob، deleteScheduledBackupJob و متدهای گزارش سرور.',
+      'بررسی دقیق وضعیت آماده‌باش دیتابیس با isPostgresConnected() پیش از ارسال هرگونه کوئری به Pool جهت جلوگیری قطعی از خطای connect ECONNREFUSED 127.0.0.1:5432.',
+      'پاکسازی و بستن خودکار Pool ناموفق در صورت عدم دسترسی به سرور PostgreSQL و بازگشت بدون تاخیر به مخزن پایدار محلی (Fallback JSON Store).'
+    ],
+    changes_en: [
+      'Corrected database connection validation guards in getAllScheduledBackupJobs, saveScheduledBackupJob, deleteScheduledBackupJob, and bulk server report handlers.',
+      'Enforced strict isPostgresConnected() checks before executing pool queries to eliminate connect ECONNREFUSED 127.0.0.1:5432 warnings during daemon cycles.',
+      'Automated teardown and nullification of unresponsive pool instances upon connection failure with seamless fallback to persistent local JSON store.'
+    ]
+  },
   {
     version: '1.298.0',
     releaseDate: '2026-10-09',
