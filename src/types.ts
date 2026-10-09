@@ -6996,6 +6996,7 @@ export interface PanelGeneralSettings {
   sessionInactivityTimeoutMin: number;
   defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
   systemDebugLogging: boolean;
+  allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   updatedAt?: string;
   updatedBy?: string;
 }

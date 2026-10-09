@@ -106,16 +106,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         if (synced.defaultTheme && !userHasCustomTheme) {
           handleSelectTheme(synced.defaultTheme as GlobeThemeType, false);
         }
+        if (synced.allowedAuthMethods === 'ad_only') {
+          setAuthType('ad');
+          setUsername('m.rezaei@corp.internal');
+        } else if (synced.allowedAuthMethods === 'local_only') {
+          setAuthType('local');
+          setUsername('admin');
+        }
       }
     }).catch(() => {});
   }, []);
 
-  const [authType, setAuthType] = useState<'local' | 'ad'>('local');
-  const [username, setUsername] = useState('admin');
+  const allowedAuth = generalSettings?.allowedAuthMethods || 'both';
+
+  const [authType, setAuthType] = useState<'local' | 'ad'>(() => {
+    const initial = loadGeneralSettings();
+    return initial?.allowedAuthMethods === 'ad_only' ? 'ad' : 'local';
+  });
+  const [username, setUsername] = useState(() => {
+    const initial = loadGeneralSettings();
+    return initial?.allowedAuthMethods === 'ad_only' ? 'm.rezaei@corp.internal' : 'admin';
+  });
   const [password, setPassword] = useState('admin123');
   const [domain, setDomain] = useState('corp.internal');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+
+  // Sync authType if allowedAuth changes
+  useEffect(() => {
+    if (allowedAuth === 'ad_only') {
+      setAuthType('ad');
+    } else if (allowedAuth === 'local_only') {
+      setAuthType('local');
+    }
+  }, [allowedAuth]);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -144,6 +168,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
+    const hasDomainInUsername = username.includes('@') || username.includes('\\');
+    let extractedDomain = '';
+    if (username.includes('@')) {
+      extractedDomain = username.split('@')[1]?.trim() || '';
+    } else if (username.includes('\\')) {
+      extractedDomain = username.split('\\')[0]?.trim() || '';
+    }
+
+    const effectiveDomain = extractedDomain || domain.trim() || 'corp.internal';
+
+    if (authType === 'ad' && !hasDomainInUsername && !domain.trim()) {
+      setErrorMsg(
+        isEn
+          ? 'Please enter your domain name or include it in your username (e.g. user@domain.com).'
+          : 'لطفاً نام دامین را وارد کنید یا در قالب user@domain.com در نام کاربری درج فرمایید.'
+      );
+      return;
+    }
+
     setLoading(true);
     setErrorMsg(null);
 
@@ -155,7 +198,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           username: username.trim(),
           password: password.trim(),
           authType,
-          domain: domain.trim(),
+          domain: effectiveDomain,
           rememberMe,
         }),
       });
@@ -396,58 +439,96 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {isEn ? 'System Authentication' : 'احراز هویت و ورود به سامانه'}
             </h2>
             <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-              {isEn
+              {allowedAuth === 'local_only'
+                ? isEn
+                  ? 'Sign in with your local administrator credentials.'
+                  : 'با حساب محلی مدیر سیستم وارد شوید.'
+                : allowedAuth === 'ad_only'
+                ? isEn
+                  ? 'Sign in with your corporate Active Directory domain account.'
+                  : 'با حساب سازمانی اکتیو دایرکتوری وارد شوید.'
+                : isEn
                 ? 'Sign in with your local administrator credentials or Active Directory domain account.'
                 : 'با حساب محلی مدیر سیستم یا حساب سازمانی اکتیو دایرکتوری وارد شوید.'}
             </p>
           </div>
 
           {/* Segmented Auth Mode Switcher */}
-          <div
-            className={`p-1 rounded-xl border flex items-center mb-5 ${
-              isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950/80 border-white/10'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setAuthType('local');
-                setUsername('admin');
-                setPassword('admin123');
-                setErrorMsg(null);
-              }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                authType === 'local'
-                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-white'
+          {allowedAuth === 'both' ? (
+            <div
+              className={`p-1 rounded-xl border flex items-center mb-5 ${
+                isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950/80 border-white/10'
               }`}
             >
-              <ShieldCheck className="w-4 h-4" />
-              <span>{isEn ? 'Local Account' : 'حساب محلی'}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthType('local');
+                  setUsername('admin');
+                  setPassword('admin123');
+                  setErrorMsg(null);
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  authType === 'local'
+                    ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>{isEn ? 'Local Account' : 'حساب محلی'}</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setAuthType('ad');
-                setUsername('m.rezaei@corp.internal');
-                setPassword('admin123');
-                setErrorMsg(null);
-              }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                authType === 'ad'
-                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
-                  : isLight
-                  ? 'text-slate-600 hover:text-slate-900'
-                  : 'text-slate-400 hover:text-white'
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthType('ad');
+                  setUsername('m.rezaei@corp.internal');
+                  setPassword('admin123');
+                  setErrorMsg(null);
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  authType === 'ad'
+                    ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
+                    : isLight
+                    ? 'text-slate-600 hover:text-slate-900'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Server className="w-4 h-4" />
+                <span>{isEn ? 'Active Directory' : 'اکتیو دایرکتوری'}</span>
+              </button>
+            </div>
+          ) : allowedAuth === 'ad_only' ? (
+            <div
+              className={`p-2.5 rounded-xl border flex items-center justify-between mb-5 ${
+                isLight ? 'bg-cyan-50 border-cyan-200' : 'bg-cyan-950/40 border-cyan-500/20'
               }`}
             >
-              <Server className="w-4 h-4" />
-              <span>{isEn ? 'Active Directory' : 'اکتیو دایرکتوری'}</span>
-            </button>
-          </div>
+              <div className="flex items-center gap-2 text-xs font-semibold text-cyan-600 dark:text-cyan-400">
+                <Server className="w-4 h-4" />
+                <span>{isEn ? 'Active Directory Domain Authentication' : 'احراز هویت دامین اکتیو دایرکتوری'}</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-500 border border-cyan-500/20">
+                {isEn ? 'AD Mode' : 'حالت دامین'}
+              </span>
+            </div>
+          ) : (
+            <div
+              className={`p-2.5 rounded-xl border flex items-center justify-between mb-5 ${
+                isLight ? 'bg-indigo-50 border-indigo-200' : 'bg-indigo-950/40 border-indigo-500/20'
+              }`}
+            >
+              <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                <ShieldCheck className="w-4 h-4" />
+                <span>{isEn ? 'Local Account Authentication' : 'احراز هویت با حساب محلی'}</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                {isEn ? 'Local Mode' : 'حالت محلی'}
+              </span>
+            </div>
+          )}
 
           {/* Alert / Error Banner */}
           {errorMsg && (
@@ -480,37 +561,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
           {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Active Directory Domain Selector (Shown if AD selected) */}
-            {authType === 'ad' && (
-              <div>
-                <label
-                  className={`block text-[11px] font-semibold uppercase tracking-wider mb-1.5 font-mono ${
-                    isLight ? 'text-slate-700' : 'text-slate-300'
-                  }`}
-                >
-                  {isEn ? 'Domain Name / Kerberos Realm' : 'نام دامین / اکتیو دایرکتوری'}
-                </label>
-                <div className="relative flex items-center">
-                  <div className="absolute left-3 pointer-events-none text-slate-400">
-                    <Layers className="w-4 h-4 text-cyan-500" />
-                  </div>
-                  <input
-                    type="text"
-                    value={domain}
-                    onChange={(e) => setDomain(e.target.value)}
-                    placeholder="corp.internal"
-                    className={`w-full rounded-xl py-2.5 pl-10 pr-3 text-xs transition font-mono focus:outline-none ${
-                      isLight
-                        ? 'bg-slate-50 border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-600'
-                        : 'bg-slate-950/60 border border-white/10 text-white placeholder-slate-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500'
-                    }`}
-                    required
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Username Input */}
+            {/* Username / UPN Input */}
             <div>
               <label
                 className={`block text-[11px] font-semibold uppercase tracking-wider mb-1.5 font-mono ${
@@ -533,7 +584,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder={authType === 'local' ? 'admin' : 'username@corp.internal'}
+                  placeholder={authType === 'local' ? 'admin' : (isEn ? 'user@domain.com or username' : 'user@domain.com یا نام کاربری')}
                   className={`w-full rounded-xl py-2.5 pl-10 pr-3 text-xs transition font-mono focus:outline-none ${
                     isLight
                       ? 'bg-slate-50 border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-600'
@@ -543,7 +594,62 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   required
                 />
               </div>
+
+              {/* In AD mode: Show auto-detected domain confirmation when @ or \ is used */}
+              {authType === 'ad' && (username.includes('@') || username.includes('\\')) && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[11px] font-mono mt-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {isEn
+                      ? `Domain extracted: ${
+                          username.includes('@')
+                            ? username.split('@')[1]?.trim() || ''
+                            : username.split('\\')[0]?.trim() || ''
+                        } (No separate domain entry required)`
+                      : `دامین از نام کاربری استخراج شد: ${
+                          username.includes('@')
+                            ? username.split('@')[1]?.trim() || ''
+                            : username.split('\\')[0]?.trim() || ''
+                        } (نیازی به ورود مجدد دامنه نیست)`}
+                  </span>
+                </div>
+              )}
             </div>
+
+            {/* Active Directory Domain Selector (Only shown if username does NOT include domain) */}
+            {authType === 'ad' && !username.includes('@') && !username.includes('\\') && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    className={`block text-[11px] font-semibold uppercase tracking-wider font-mono ${
+                      isLight ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    {isEn ? 'Domain Name / Kerberos Realm' : 'نام دامین / اکتیو دایرکتوری'}
+                  </label>
+                  <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>
+                    {isEn ? '(Required without @domain in username)' : '(الزامی در صورت عدم درج دامین در نام کاربری)'}
+                  </span>
+                </div>
+                <div className="relative flex items-center">
+                  <div className="absolute left-3 pointer-events-none text-slate-400">
+                    <Layers className="w-4 h-4 text-cyan-500" />
+                  </div>
+                  <input
+                    type="text"
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    placeholder="corp.internal"
+                    className={`w-full rounded-xl py-2.5 pl-10 pr-3 text-xs transition font-mono focus:outline-none ${
+                      isLight
+                        ? 'bg-slate-50 border border-slate-300 text-slate-900 placeholder-slate-400 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-600'
+                        : 'bg-slate-950/60 border border-white/10 text-white placeholder-slate-500 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500'
+                    }`}
+                    required
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Password Input */}
             <div>
@@ -648,149 +754,157 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('admin', 'admin123', 'local')}
-                className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                  isLight
-                    ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                    : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                }`}
-              >
-                <div
-                  className={`font-bold flex items-center justify-between ${
+              {allowedAuth !== 'ad_only' && (
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('admin', 'admin123', 'local')}
+                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
                     isLight
-                      ? 'text-slate-900 group-hover:text-indigo-600'
-                      : 'text-white group-hover:text-cyan-300'
+                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
                   }`}
                 >
-                  <span>admin</span>
-                  <span
-                    className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                  <div
+                    className={`font-bold flex items-center justify-between ${
                       isLight
-                        ? 'bg-indigo-100 text-indigo-800'
-                        : 'bg-indigo-500/20 text-indigo-300'
+                        ? 'text-slate-900 group-hover:text-indigo-600'
+                        : 'text-white group-hover:text-cyan-300'
                     }`}
                   >
-                    Super
-                  </span>
-                </div>
-                <div
-                  className={`text-[10px] font-mono ${
-                    isLight ? 'text-slate-500' : 'text-slate-500'
-                  }`}
-                >
-                  admin123
-                </div>
-              </button>
+                    <span>admin</span>
+                    <span
+                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                        isLight
+                          ? 'bg-indigo-100 text-indigo-800'
+                          : 'bg-indigo-500/20 text-indigo-300'
+                      }`}
+                    >
+                      Super
+                    </span>
+                  </div>
+                  <div
+                    className={`text-[10px] font-mono ${
+                      isLight ? 'text-slate-500' : 'text-slate-500'
+                    }`}
+                  >
+                    admin123
+                  </div>
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={() => handleQuickFill('helpdesk_user', 'helpdesk123', 'local')}
-                className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                  isLight
-                    ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                    : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                }`}
-              >
-                <div
-                  className={`font-bold flex items-center justify-between ${
+              {allowedAuth !== 'ad_only' && (
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('helpdesk_user', 'helpdesk123', 'local')}
+                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
                     isLight
-                      ? 'text-slate-900 group-hover:text-amber-700'
-                      : 'text-white group-hover:text-amber-300'
+                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
                   }`}
                 >
-                  <span>helpdesk_user</span>
-                  <span
-                    className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                  <div
+                    className={`font-bold flex items-center justify-between ${
                       isLight
-                        ? 'bg-amber-100 text-amber-800'
-                        : 'bg-amber-500/20 text-amber-300'
+                        ? 'text-slate-900 group-hover:text-amber-700'
+                        : 'text-white group-hover:text-amber-300'
                     }`}
                   >
-                    Ops
-                  </span>
-                </div>
-                <div
-                  className={`text-[10px] font-mono ${
-                    isLight ? 'text-slate-500' : 'text-slate-500'
-                  }`}
-                >
-                  helpdesk123
-                </div>
-              </button>
+                    <span>helpdesk_user</span>
+                    <span
+                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                        isLight
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-amber-500/20 text-amber-300'
+                      }`}
+                    >
+                      Ops
+                    </span>
+                  </div>
+                  <div
+                    className={`text-[10px] font-mono ${
+                      isLight ? 'text-slate-500' : 'text-slate-500'
+                    }`}
+                  >
+                    helpdesk123
+                  </div>
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={() => handleQuickFill('noc_operator', 'noc123', 'local')}
-                className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                  isLight
-                    ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                    : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                }`}
-              >
-                <div
-                  className={`font-bold flex items-center justify-between ${
+              {allowedAuth !== 'ad_only' && (
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('noc_operator', 'noc123', 'local')}
+                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
                     isLight
-                      ? 'text-slate-900 group-hover:text-emerald-700'
-                      : 'text-white group-hover:text-emerald-300'
+                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
                   }`}
                 >
-                  <span>noc_operator</span>
-                  <span
-                    className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                  <div
+                    className={`font-bold flex items-center justify-between ${
                       isLight
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-emerald-500/20 text-emerald-300'
+                        ? 'text-slate-900 group-hover:text-emerald-700'
+                        : 'text-white group-hover:text-emerald-300'
                     }`}
                   >
-                    NOC
-                  </span>
-                </div>
-                <div
-                  className={`text-[10px] font-mono ${
-                    isLight ? 'text-slate-500' : 'text-slate-500'
-                  }`}
-                >
-                  noc123
-                </div>
-              </button>
+                    <span>noc_operator</span>
+                    <span
+                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                        isLight
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-emerald-500/20 text-emerald-300'
+                      }`}
+                    >
+                      NOC
+                    </span>
+                  </div>
+                  <div
+                    className={`text-[10px] font-mono ${
+                      isLight ? 'text-slate-500' : 'text-slate-500'
+                    }`}
+                  >
+                    noc123
+                  </div>
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={() => handleQuickFill('m.rezaei@corp.internal', 'admin123', 'ad')}
-                className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                  isLight
-                    ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                    : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                }`}
-              >
-                <div
-                  className={`font-bold flex items-center justify-between ${
+              {allowedAuth !== 'local_only' && (
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('m.rezaei@corp.internal', 'admin123', 'ad')}
+                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
                     isLight
-                      ? 'text-slate-900 group-hover:text-cyan-700'
-                      : 'text-white group-hover:text-indigo-300'
+                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
                   }`}
                 >
-                  <span>m.rezaei</span>
-                  <span
-                    className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                  <div
+                    className={`font-bold flex items-center justify-between ${
                       isLight
-                        ? 'bg-cyan-100 text-cyan-800'
-                        : 'bg-cyan-500/20 text-cyan-300'
+                        ? 'text-slate-900 group-hover:text-cyan-700'
+                        : 'text-white group-hover:text-indigo-300'
                     }`}
                   >
-                    AD
-                  </span>
-                </div>
-                <div
-                  className={`text-[10px] font-mono ${
-                    isLight ? 'text-slate-500' : 'text-slate-500'
-                  }`}
-                >
-                  corp.internal
-                </div>
-              </button>
+                    <span>m.rezaei</span>
+                    <span
+                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
+                        isLight
+                          ? 'bg-cyan-100 text-cyan-800'
+                          : 'bg-cyan-500/20 text-cyan-300'
+                      }`}
+                    >
+                      AD
+                    </span>
+                  </div>
+                  <div
+                    className={`text-[10px] font-mono ${
+                      isLight ? 'text-slate-500' : 'text-slate-500'
+                    }`}
+                  >
+                    corp.internal
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>

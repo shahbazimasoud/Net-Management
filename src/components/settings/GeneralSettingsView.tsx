@@ -1357,6 +1357,168 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 </label>
               </div>
             </div>
+
+            {/* Card 5: Allowed Authentication Methods & Login Gateways */}
+            <div
+              className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
+                isLightMode
+                  ? 'bg-white/90 border-slate-200 shadow-slate-200/50'
+                  : 'bg-slate-950/60 border-white/10'
+              }`}
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+                    <KeyRound className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                      {isEn ? 'Allowed Login Authentication Methods' : 'روش‌های مجاز احراز هویت و ورود به سامانه'}
+                    </h3>
+                    <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn
+                        ? 'Specify which user identity providers (Local database, Active Directory domain, or both) are permitted to sign in.'
+                        : 'مشخص نمایید کدام کاربران (حساب‌های محلی پنل، اکتیو دایرکتوری سازمانی، یا هر دو) مجاز به ورود به سامانه هستند.'}
+                    </p>
+                  </div>
+                </div>
+
+                <span className="text-xs font-mono text-indigo-400 font-bold uppercase px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+                  {formData.allowedAuthMethods === 'local_only'
+                    ? (isEn ? 'LOCAL ONLY' : 'فقط محلی')
+                    : formData.allowedAuthMethods === 'ad_only'
+                    ? (isEn ? 'AD ONLY' : 'فقط اکتیو دایرکتوری')
+                    : (isEn ? 'DUAL AUTH (BOTH)' : 'هر دو روش')}
+                </span>
+              </div>
+
+              {/* Allowed Auth Selector */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                    <span>{isEn ? 'Authorized Login Providers' : 'روش‌های مجاز احراز هویت'}</span>
+                    <FieldInfoTooltip
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      title={isEn ? 'Allowed Login Methods' : 'روش‌های مجاز احراز هویت'}
+                      infoWhatEn="Controls which authentication mechanisms (Local accounts, Active Directory domain accounts, or both) are allowed to log into the panel."
+                      infoWhatFa="تعیین سازوکارهای مجاز احراز هویت در صفحه لاگین پنل، شامل کاربران محلی، کاربران اکتیو دایرکتوری سازمانی یا هر دو."
+                      infoWhyEn="Enforces enterprise identity governance policies by disabling local shadow accounts or mandating single sign-on via Active Directory."
+                      infoWhyFa="اعمال سیاست‌های حاکمیت امنیت سازمانی جهت غیرفعال‌سازی حساب‌های محلی سایه و الزام به ورود صرفاً از طریق دامین کنترلر، یا برعکس."
+                      infoExampleEn="Both (standard dual-mode), Local Only (isolated networks), or Active Directory Only (strict corporate SSO compliance)"
+                      infoExampleFa="هر دو (حالت پیش‌فرض استاندارد)، فقط محلی (شبکه‌های ایزوله آفلاین)، یا فقط اکتیو دایرکتوری (الزام سازمانی)"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Option 1: Both */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, allowedAuthMethods: 'both' })}
+                    className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
+                      (formData.allowedAuthMethods || 'both') === 'both'
+                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-md ring-1 ring-indigo-500/50'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                        : 'bg-slate-900 border-white/5 text-slate-400 hover:text-white hover:border-white/15'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-indigo-400" />
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {isEn ? 'Both (Local & AD)' : 'هر دو روش (محلی و AD)'}
+                        </span>
+                      </div>
+                      {(formData.allowedAuthMethods || 'both') === 'both' && (
+                        <Check className="w-4 h-4 text-indigo-400" />
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      {isEn
+                        ? 'Users can sign in with either local administrator accounts or enterprise Active Directory credentials.'
+                        : 'کاربران می‌توانند با حساب‌های محلی پنل یا با نام کاربری و رمز دامین اکتیو دایرکتوری وارد شوند.'}
+                    </p>
+                  </button>
+
+                  {/* Option 2: Local Only */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, allowedAuthMethods: 'local_only' })}
+                    className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
+                      formData.allowedAuthMethods === 'local_only'
+                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-md ring-1 ring-indigo-500/50'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                        : 'bg-slate-900 border-white/5 text-slate-400 hover:text-white hover:border-white/15'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {isEn ? 'Local Accounts Only' : 'فقط حساب‌های محلی'}
+                        </span>
+                      </div>
+                      {formData.allowedAuthMethods === 'local_only' && (
+                        <Check className="w-4 h-4 text-indigo-400" />
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      {isEn
+                        ? 'Only local accounts stored in the panel database can sign in. Active Directory authentication is completely disabled.'
+                        : 'صرفاً حساب‌های ثبت‌شده در دیتابیس محلی پنل مجاز به ورود هستند. ورود با اکتیو دایرکتوری کاملاً مسدود می‌شود.'}
+                    </p>
+                  </button>
+
+                  {/* Option 3: AD Only */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, allowedAuthMethods: 'ad_only' })}
+                    className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
+                      formData.allowedAuthMethods === 'ad_only'
+                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-md ring-1 ring-indigo-500/50'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                        : 'bg-slate-900 border-white/5 text-slate-400 hover:text-white hover:border-white/15'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Server className="w-4 h-4 text-cyan-400" />
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {isEn ? 'Active Directory Only' : 'فقط اکتیو دایرکتوری'}
+                        </span>
+                      </div>
+                      {formData.allowedAuthMethods === 'ad_only' && (
+                        <Check className="w-4 h-4 text-indigo-400" />
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      {isEn
+                        ? 'Only domain users authenticated via corporate Active Directory / LDAP can sign in. Local account logins are rejected.'
+                        : 'تنها کاربران دامین احراز هویت‌شده از طریق اکتیو دایرکتوری سازمانی حق ورود دارند و ورود محلی مسدود می‌شود.'}
+                    </p>
+                  </button>
+                </div>
+
+                {formData.allowedAuthMethods === 'ad_only' && (
+                  <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs ${
+                    isLightMode
+                      ? 'bg-amber-50 border-amber-300 text-amber-900'
+                      : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                  }`}>
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">
+                      {isEn
+                        ? 'Important: Ensure Active Directory connection is verified and at least one synchronized domain user has Super Administrator permissions to prevent administrative lockout.'
+                        : 'توجه مهم: پیش از ذخیره، از اتصال صحیح به سرور اکتیو دایرکتوری و داشتن دسترسی مدیر ارشد برای حداقل یک کاربر دامین اطمینان حاصل فرمایید تا دسترسی مدیریتی مسدود نگردد.'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Form Actions Footer */}

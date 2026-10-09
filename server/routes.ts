@@ -471,17 +471,76 @@ apiRouter.get('/db/status', async (req: Request, res: Response) => {
 apiRouter.post('/auth/login', async (req: Request, res: Response) => {
   try {
     const ip = getClientIp(req);
-    const username = (req.body?.username || '').trim();
+    let username = (req.body?.username || '').trim();
     const password = (req.body?.password || '').trim();
     const authType = (req.body?.authType || 'local').toLowerCase(); // 'local' | 'ad'
-    const domain = (req.body?.domain || 'corp.internal').trim();
+    let domain = (req.body?.domain || '').trim();
     const rememberMe = Boolean(req.body?.rememberMe);
+
+    // Auto-extract domain from username if provided in UPN format (user@domain.com) or NetBIOS format (DOMAIN\user)
+    if (username.includes('@')) {
+      const parts = username.split('@');
+      if (parts[1]?.trim()) {
+        domain = parts[1].trim();
+      }
+    } else if (username.includes('\\')) {
+      const parts = username.split('\\');
+      if (parts[0]?.trim()) {
+        domain = parts[0].trim();
+      }
+    }
+
+    if (!domain) {
+      domain = 'corp.internal';
+    }
 
     if (!username || !password) {
       return res.status(400).json({
         success: false,
         error: 'Username and password are required',
         message: 'نام کاربری و کلمه عبور الزامی است.',
+      });
+    }
+
+    // Check allowed authentication methods policy configured by Super Administrator
+    const generalSettings = await getGeneralSettings();
+    const allowedAuth = generalSettings.allowedAuthMethods || 'both';
+
+    if (authType === 'local' && allowedAuth === 'ad_only') {
+      await addAuditLog({
+        userName: username,
+        action: 'Local Login Blocked (Policy)',
+        category: 'security',
+        target: 'Auth Gateway',
+        status: 'warning',
+        details: `Local login rejected for user "${username}" from IP ${ip}. Allowed authentication method is Active Directory only.`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      return res.status(403).json({
+        success: false,
+        error: 'Local user authentication is disabled by administrator policy.',
+        message: 'ورود با حساب محلی توسط مدیر سیستم غیرفعال شده است (تنها ورود با حساب سازمانی اکتیو دایرکتوری مجاز است).',
+      });
+    }
+
+    if (authType === 'ad' && allowedAuth === 'local_only') {
+      await addAuditLog({
+        userName: username,
+        action: 'Active Directory Login Blocked (Policy)',
+        category: 'security',
+        target: 'Auth Gateway',
+        status: 'warning',
+        details: `Active Directory login rejected for user "${username}" from IP ${ip}. Allowed authentication method is Local accounts only.`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      return res.status(403).json({
+        success: false,
+        error: 'Active Directory authentication is disabled by administrator policy.',
+        message: 'ورود با حساب اکتیو دایرکتوری توسط مدیر سیستم غیرفعال شده است (تنها ورود با حساب محلی مجاز است).',
       });
     }
 
@@ -625,10 +684,13 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       let adFailureError = '';
       let adFailureMessage = '';
 
+      // Effective domain resolution: explicit domain > username domain > AD config domain > corp.internal
+      const effectiveAdDomain = domain || adConfig.domain || 'corp.internal';
+
       // If Active Directory server is configured, attempt real LDAP bind & directory query
       if (adConfig.server && adConfig.server.trim()) {
         try {
-          const authResult = await authenticateLdapUser(adConfig, username, password, domain);
+          const authResult = await authenticateLdapUser(adConfig, username, password, effectiveAdDomain);
           if (authResult.success && authResult.user) {
             adAuthSuccess = true;
             authenticatedProfile = authResult.user;

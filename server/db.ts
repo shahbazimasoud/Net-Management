@@ -4091,6 +4091,7 @@ export interface PanelGeneralSettings {
   sessionInactivityTimeoutMin: number;
   defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
   systemDebugLogging: boolean;
+  allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -4111,6 +4112,7 @@ export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
   sessionInactivityTimeoutMin: 60,
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
+  allowedAuthMethods: 'both',
   updatedAt: '2026-10-06 00:00:00',
   updatedBy: 'admin',
 };
@@ -4154,6 +4156,7 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     sessionInactivityTimeoutMin: Number(settings.sessionInactivityTimeoutMin) !== undefined ? Number(settings.sessionInactivityTimeoutMin) : current.sessionInactivityTimeoutMin,
     defaultDeviceProtocol: (settings.defaultDeviceProtocol as any) || current.defaultDeviceProtocol || 'ssh',
     systemDebugLogging: Boolean(settings.systemDebugLogging !== undefined ? settings.systemDebugLogging : current.systemDebugLogging),
+    allowedAuthMethods: (settings.allowedAuthMethods as any) || current.allowedAuthMethods || 'both',
     updatedAt: new Date().toISOString(),
     updatedBy,
   };

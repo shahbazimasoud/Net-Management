@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.292.1';
+export const APP_VERSION = '1.293.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.293.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'پشتیبانی از استخراج خودکار دامین از نام کاربری UPN و تنظیم روش‌های مجاز ورود در تنظیمات عمومی',
+    title_en: 'UPN Auto-Domain Extraction on Login & Enterprise Allowed Authentication Methods Policy',
+    changes: [
+      'استخراج خودکار نام دامین از نام کاربری در فرمت‌های UPN (مانند user@corp.internal) و NetBIOS (مانند CORP\\user) در صفحه ورود اکتیو دایرکتوری و عدم نیاز به وارد کردن مجدد نام دامین.',
+      'اصلاح چیدمان فرم ورود اکتیو دایرکتوری، قرارگیری فیلد نام کاربری در ابتدا و حذف یا مخفی‌سازی خودکار فیلد نام دامین همراه با نمایش بج تایید استخراج دامین هنگام درج UPN.',
+      'افزودن قابلیت کنترل امنیتی روش‌های مجاز احراز هویت (Allowed Login Authentication Methods) در تنظیمات عمومی پنل برای سوپر ادمین شامل سه حالت: هر دو روش (Dual Auth)، فقط حساب‌های محلی (Local Only) یا فقط اکتیو دایرکتوری (AD Only).',
+      'اعمال کنترل امنیتی در سطح سرور و بک‌اند (Backend Policy Enforcement) در مسیر /api/auth/login جهت مسدودسازی تلاش‌های غیرمجاز ورود، بازگرداندن خطای امنیتی 403 مناسب و ثبت لاگ در ممیزی سیستم (Audit Log).',
+      'همگام‌سازی انتخابگر روش‌های ورود در صفحه لاگین با سیاست امنیتی تنظیم‌شده توسط سوپر ادمین.'
+    ],
+    changes_en: [
+      'Automatic domain extraction from UPN formatted usernames (e.g., user@corp.internal) or NetBIOS format (DOMAIN\\user) on Active Directory login, completely eliminating the need to re-enter domain/realm.',
+      'Reordered login form fields with Username first, automatically hiding the redundant domain field and rendering a clear verification badge when a UPN is supplied.',
+      'Added Enterprise Allowed Authentication Methods policy in General Settings for Super Administrators with 3 configurable modes: Both (Dual Auth), Local Accounts Only, or Active Directory Only.',
+      'Implemented robust backend security enforcement on the /api/auth/login endpoint, rejecting disallowed authentication attempts with HTTP 403 Forbidden and logging security audit events.',
+      'Synchronized login page mode switches and demo credentials with the enterprise authentication policy configured by the Super Administrator.'
+    ]
+  },
   {
     version: '1.292.1',
     releaseDate: '2026-10-08',

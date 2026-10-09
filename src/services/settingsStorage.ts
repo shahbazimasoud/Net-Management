@@ -724,6 +724,7 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   sessionInactivityTimeoutMin: 60,
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
+  allowedAuthMethods: 'both',
   updatedAt: '2026-10-06 00:00:00',
   updatedBy: 'admin',
 };

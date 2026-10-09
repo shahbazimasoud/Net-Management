@@ -559,13 +559,19 @@ export async function authenticateLdapUser(
   }
 
   const sAMAccountName = cleanUsername.includes('@')
-    ? cleanUsername.split('@')[0]
+    ? cleanUsername.split('@')[0].trim()
     : cleanUsername.includes('\\')
-    ? cleanUsername.split('\\')[1]
+    ? cleanUsername.split('\\')[1].trim()
     : cleanUsername;
 
-  const domain = domainHint || cfg.domain || 'corp.local';
-  const upn = cleanUsername.includes('@') ? cleanUsername : `${cleanUsername}@${domain}`;
+  const extractedDomainFromUsername = cleanUsername.includes('@')
+    ? cleanUsername.split('@')[1].trim()
+    : cleanUsername.includes('\\')
+    ? cleanUsername.split('\\')[0].trim()
+    : '';
+
+  const domain = extractedDomainFromUsername || (domainHint && domainHint.trim()) || cfg.domain || 'corp.local';
+  const upn = cleanUsername.includes('@') ? cleanUsername : `${sAMAccountName}@${domain}`;
 
   return new Promise((resolve) => {
     let resolved = false;
