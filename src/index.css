@@ -390,8 +390,8 @@
   color: #202124 !important;
 }
 
-.theme-google-light .text-white:not(button):not(button *):not([class*="bg-"]):not([class*="from-"]):not([class*="to-"]):not([class*="gradient"]):not([class*="linear"]):not([class*="badge"]),
-.theme-google-light .text-slate-100:not(button):not(button *):not([class*="bg-"]):not([class*="from-"]):not([class*="to-"]):not([class*="gradient"]):not([class*="linear"]) {
+.theme-google-light .text-white:not(button):not(button *):not([class*="bg-"]):not([class*="from-"]):not([class*="to-"]):not([class*="gradient"]):not([class*="linear"]):not([class*="badge"]):not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-neutral"] *):not([class*="bg-stone"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(aside *):not(.schematic-canvas *),
+.theme-google-light .text-slate-100:not(button):not(button *):not([class*="bg-"]):not([class*="from-"]):not([class*="to-"]):not([class*="gradient"]):not([class*="linear"]):not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-neutral"] *):not([class*="bg-stone"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(aside *):not(.schematic-canvas *) {
   color: #202124 !important;
 }
 
@@ -403,16 +403,16 @@
   font-weight: 700 !important;
 }
 
-.theme-google-light p,
-.theme-google-light span:not(.force-white-text):not(.force-white-text *),
-.theme-google-light label {
+.theme-google-light p:not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(.schematic-canvas *),
+.theme-google-light span:not(.force-white-text):not(.force-white-text *):not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(.schematic-canvas *):not(aside *):not([class*="badge"] *):not([class*="font-mono"]),
+.theme-google-light label:not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(.schematic-canvas *) {
   color: #3c4043;
 }
 
-.theme-google-light .text-slate-200 { color: #202124 !important; }
-.theme-google-light .text-slate-300 { color: #3c4043 !important; }
-.theme-google-light .text-slate-400 { color: #5f6368 !important; }
-.theme-google-light .text-slate-500 { color: #80868b !important; }
+.theme-google-light .text-slate-200:not([class*="bg-slate"]):not([class*="bg-gray"]):not([class*="bg-zinc"]):not([class*="bg-black"]):not([class*="bg-blue"]):not([class*="bg-sky"]):not([class*="bg-cyan"]):not([class*="bg-indigo"]):not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(.schematic-canvas *):not(aside *) { color: #202124 !important; }
+.theme-google-light .text-slate-300:not([class*="bg-slate"]):not([class*="bg-gray"]):not([class*="bg-zinc"]):not([class*="bg-black"]):not([class*="bg-blue"]):not([class*="bg-sky"]):not([class*="bg-cyan"]):not([class*="bg-indigo"]):not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(.schematic-canvas *):not(aside *) { color: #3c4043 !important; }
+.theme-google-light .text-slate-400:not([class*="bg-slate"]):not([class*="bg-gray"]):not([class*="bg-zinc"]):not([class*="bg-black"]):not([class*="bg-blue"]):not([class*="bg-sky"]):not([class*="bg-cyan"]):not([class*="bg-indigo"]):not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(.schematic-canvas *):not(aside *) { color: #5f6368 !important; }
+.theme-google-light .text-slate-500:not([class*="bg-slate"]):not([class*="bg-gray"]):not([class*="bg-zinc"]):not([class*="bg-black"]):not([class*="bg-blue"]):not([class*="bg-sky"]):not([class*="bg-cyan"]):not([class*="bg-indigo"]):not([class*="bg-slate"] *):not([class*="bg-gray"] *):not([class*="bg-zinc"] *):not([class*="bg-black"] *):not([class*="bg-blue"] *):not([class*="bg-sky"] *):not([class*="bg-cyan"] *):not([class*="bg-indigo"] *):not(.schematic-canvas *):not(aside *) { color: #80868b !important; }
 
 .theme-google-light .glow-text-cyan,
 .theme-google-light .glow-text-purple {
@@ -586,44 +586,100 @@
    5. Blue Family Tags, Badges & Chips (blue, sky, cyan, indigo)
    ========================================================================= */
 
-/* 1. Any element with a grey/dark background has white text */
-.theme-google-light [class*="bg-slate-"],
-.theme-google-light [class*="bg-gray-"],
-.theme-google-light [class*="bg-zinc-"],
-.theme-google-light [class*="bg-neutral-"],
-.theme-google-light [class*="bg-stone-"],
-.theme-google-light [class*="bg-slate/"],
-.theme-google-light [class*="bg-black/"],
+/* 1. All Grey / Dark Backgrounds & Surfaces (slate, gray, zinc, neutral, stone, dark overlays) */
+.theme-google-light [class*="bg-slate"],
+.theme-google-light [class*="bg-gray"],
+.theme-google-light [class*="bg-zinc"],
+.theme-google-light [class*="bg-neutral"],
+.theme-google-light [class*="bg-stone"],
+.theme-google-light [class*="bg-black"],
+.theme-google-light [class*="bg-dark"],
 .theme-google-light [class*="bg-white/10"],
 .theme-google-light [class*="bg-white/15"],
-.theme-google-light [class*="bg-white/20"] {
+.theme-google-light [class*="bg-white/20"],
+.theme-google-light [class*="bg-white/5"] {
   color: #ffffff !important;
 }
 
-.theme-google-light [class*="bg-slate-"] *,
-.theme-google-light [class*="bg-gray-"] *,
-.theme-google-light [class*="bg-zinc-"] *,
-.theme-google-light [class*="bg-neutral-"] *,
-.theme-google-light [class*="bg-stone-"] *,
-.theme-google-light [class*="bg-slate/"] *,
-.theme-google-light [class*="bg-black/"] *,
+.theme-google-light [class*="bg-slate"] *,
+.theme-google-light [class*="bg-gray"] *,
+.theme-google-light [class*="bg-zinc"] *,
+.theme-google-light [class*="bg-neutral"] *,
+.theme-google-light [class*="bg-stone"] *,
+.theme-google-light [class*="bg-black"] *,
+.theme-google-light [class*="bg-dark"] *,
 .theme-google-light [class*="bg-white/10"] *,
 .theme-google-light [class*="bg-white/15"] *,
-.theme-google-light [class*="bg-white/20"] * {
+.theme-google-light [class*="bg-white/20"] *,
+.theme-google-light [class*="bg-white/5"] * {
   color: #ffffff !important;
 }
 
-/* 2. Menu and Sidebar Badges (with numbers, device counts, status) */
+/* Explicit high-specificity overrides for text tags inside grey/dark surfaces */
+.theme-google-light [class*="bg-slate"] span,
+.theme-google-light [class*="bg-slate"] p,
+.theme-google-light [class*="bg-slate"] div,
+.theme-google-light [class*="bg-slate"] b,
+.theme-google-light [class*="bg-slate"] strong,
+.theme-google-light [class*="bg-slate"] a,
+.theme-google-light [class*="bg-slate"] label,
+.theme-google-light [class*="bg-slate"] small,
+.theme-google-light [class*="bg-slate"] code,
+.theme-google-light [class*="bg-gray"] span,
+.theme-google-light [class*="bg-gray"] p,
+.theme-google-light [class*="bg-gray"] div,
+.theme-google-light [class*="bg-gray"] b,
+.theme-google-light [class*="bg-gray"] strong,
+.theme-google-light [class*="bg-zinc"] span,
+.theme-google-light [class*="bg-zinc"] p,
+.theme-google-light [class*="bg-zinc"] div,
+.theme-google-light [class*="bg-zinc"] b,
+.theme-google-light [class*="bg-neutral"] span,
+.theme-google-light [class*="bg-neutral"] p,
+.theme-google-light [class*="bg-stone"] span,
+.theme-google-light [class*="bg-black"] span,
+.theme-google-light [class*="bg-black"] p,
+.theme-google-light [class*="bg-black"] div,
+.theme-google-light [class*="bg-black"] b {
+  color: #ffffff !important;
+}
+
+/* Icons inside grey/dark backgrounds */
+.theme-google-light [class*="bg-slate"] svg,
+.theme-google-light [class*="bg-gray"] svg,
+.theme-google-light [class*="bg-zinc"] svg,
+.theme-google-light [class*="bg-neutral"] svg,
+.theme-google-light [class*="bg-stone"] svg,
+.theme-google-light [class*="bg-black"] svg {
+  color: #ffffff !important;
+  stroke: currentColor !important;
+}
+
+/* 2. Menu and Sidebar Badges & ANY Element Containing Numbers or Counters */
 .theme-google-light .sidebar-badge,
 .theme-google-light .sidebar-nav-item .sidebar-badge,
 .theme-google-light aside .sidebar-badge,
 .theme-google-light aside span.font-mono,
-.theme-google-light aside span[class*="rounded-full"],
+.theme-google-light aside span[class*="rounded"],
+.theme-google-light aside span[class*="badge"],
+.theme-google-light aside span[class*="bg-"],
+.theme-google-light aside button span.font-mono,
 .theme-google-light [class*="sidebar"] span.font-mono,
-.theme-google-light [class*="sidebar"] span[class*="rounded-full"],
+.theme-google-light [class*="sidebar"] span[class*="rounded"],
 .theme-google-light [class*="sidebar"] [class*="badge"],
-.theme-google-light header span[class*="font-mono"],
-.theme-google-light header span[class*="rounded-full"] {
+.theme-google-light header span.font-mono,
+.theme-google-light header span[class*="rounded"],
+.theme-google-light header [class*="badge"],
+.theme-google-light [data-badge],
+.theme-google-light .badge,
+.theme-google-light [class*="badge"],
+.theme-google-light [class*="counter"],
+.theme-google-light [class*="count"],
+.theme-google-light span[class*="font-mono"],
+.theme-google-light div[class*="font-mono"],
+.theme-google-light b[class*="font-mono"],
+.theme-google-light span.font-mono,
+.theme-google-light b.font-mono {
   color: #ffffff !important;
   font-weight: 700 !important;
 }
@@ -632,44 +688,90 @@
 .theme-google-light .sidebar-nav-item .sidebar-badge *,
 .theme-google-light aside .sidebar-badge *,
 .theme-google-light aside span.font-mono *,
-.theme-google-light [class*="sidebar"] span.font-mono * {
+.theme-google-light aside span[class*="rounded"] *,
+.theme-google-light [class*="sidebar"] span.font-mono *,
+.theme-google-light [class*="sidebar"] span[class*="rounded"] *,
+.theme-google-light [class*="sidebar"] [class*="badge"] *,
+.theme-google-light header span.font-mono *,
+.theme-google-light header span[class*="rounded"] *,
+.theme-google-light header [class*="badge"] *,
+.theme-google-light [data-badge] *,
+.theme-google-light .badge *,
+.theme-google-light [class*="badge"] *,
+.theme-google-light [class*="counter"] *,
+.theme-google-light [class*="count"] *,
+.theme-google-light span[class*="font-mono"] *,
+.theme-google-light div[class*="font-mono"] *,
+.theme-google-light span.font-mono *,
+.theme-google-light b.font-mono * {
   color: #ffffff !important;
   font-weight: 700 !important;
 }
 
+/* Ensure sidebar number pills and status tags stand out in crisp blue and white */
 .theme-google-light aside span[class*="bg-slate"],
-.theme-google-light .sidebar-nav-item span[class*="bg-slate"] {
+.theme-google-light aside span[class*="bg-white/5"],
+.theme-google-light .sidebar-nav-item span[class*="bg-slate"],
+.theme-google-light .sidebar-nav-item span[class*="bg-white/5"] {
   background-color: #1a73e8 !important;
   color: #ffffff !important;
   border-color: #1557b0 !important;
 }
 
-/* 3. Search Boxes and Filter Inputs with Dark/Grey Backdrops */
+/* 3. All Search Boxes and Filter Inputs Across the Entire Application */
+.theme-google-light input[type="search"],
+.theme-google-light input[placeholder*="search" i],
+.theme-google-light input[placeholder*="Search" i],
+.theme-google-light input[placeholder*="جستجو"],
+.theme-google-light input[placeholder*="فیلتر"],
+.theme-google-light input[class*="search"],
+.theme-google-light [class*="search"] input,
+.theme-google-light .topology-search input,
+.theme-google-light .schematic-canvas input,
 .theme-google-light input[class*="bg-slate"],
 .theme-google-light input[class*="bg-gray"],
 .theme-google-light input[class*="bg-zinc"],
 .theme-google-light input[class*="bg-neutral"],
+.theme-google-light input[class*="bg-stone"],
 .theme-google-light input[class*="bg-black"],
 .theme-google-light select[class*="bg-slate"],
 .theme-google-light select[class*="bg-gray"],
 .theme-google-light select[class*="bg-zinc"],
 .theme-google-light textarea[class*="bg-slate"],
 .theme-google-light textarea[class*="bg-gray"],
-.theme-google-light .schematic-canvas input,
-.theme-google-light .schematic-canvas select {
+.theme-google-light textarea[class*="bg-zinc"],
+.theme-google-light .schematic-canvas select,
+.theme-google-light .schematic-canvas textarea {
   color: #ffffff !important;
   font-weight: 600 !important;
+  background-color: #1e293b !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
 }
 
+.theme-google-light input[type="search"]::placeholder,
+.theme-google-light input[placeholder*="search" i]::placeholder,
+.theme-google-light input[placeholder*="Search" i]::placeholder,
+.theme-google-light input[placeholder*="جستجو"]::placeholder,
+.theme-google-light input[placeholder*="فیلتر"]::placeholder,
 .theme-google-light input[class*="bg-slate"]::placeholder,
 .theme-google-light input[class*="bg-gray"]::placeholder,
 .theme-google-light input[class*="bg-zinc"]::placeholder,
 .theme-google-light input[class*="bg-black"]::placeholder,
 .theme-google-light .schematic-canvas input::placeholder {
-  color: rgba(255, 255, 255, 0.75) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
 }
 
-/* 4. Topology Canvas, Nodes, Badges, Port Tags & Toolbars */
+.theme-google-light [class*="search"] svg,
+.theme-google-light input[type="search"] + svg,
+.theme-google-light input[placeholder*="search" i] + svg,
+.theme-google-light input[placeholder*="جستجو"] + svg,
+.theme-google-light .topology-search svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+
+/* 4. Topology Canvas, Nodes, Badges, Port Tags, IP Chips & Floating Toolbars */
+.theme-google-light .schematic-canvas,
 .theme-google-light .schematic-canvas [class*="bg-slate"],
 .theme-google-light .schematic-canvas [class*="bg-gray"],
 .theme-google-light .schematic-canvas [class*="bg-zinc"],
@@ -681,7 +783,11 @@
 .theme-google-light .schematic-canvas .toolbar-dark-pill,
 .theme-google-light .schematic-canvas .toolbar-dark-btn,
 .theme-google-light .schematic-canvas [data-component="device-view-mode-toggle"],
-.theme-google-light .schematic-canvas [data-component="sticky-note-controls"] {
+.theme-google-light .schematic-canvas [data-component="sticky-note-controls"],
+.theme-google-light .schematic-canvas .spatial-glass,
+.theme-google-light .schematic-canvas .interactive-node,
+.theme-google-light [data-component*="topology"] [class*="bg-slate"],
+.theme-google-light [data-component*="topology"] [class*="bg-gray"] {
   color: #ffffff !important;
 }
 
@@ -696,7 +802,11 @@
 .theme-google-light .schematic-canvas .toolbar-dark-pill *,
 .theme-google-light .schematic-canvas .toolbar-dark-btn *,
 .theme-google-light .schematic-canvas [data-component="device-view-mode-toggle"] *,
-.theme-google-light .schematic-canvas [data-component="sticky-note-controls"] * {
+.theme-google-light .schematic-canvas [data-component="sticky-note-controls"] *,
+.theme-google-light .schematic-canvas .spatial-glass *,
+.theme-google-light .schematic-canvas .interactive-node *,
+.theme-google-light [data-component*="topology"] [class*="bg-slate"] *,
+.theme-google-light [data-component*="topology"] [class*="bg-gray"] * {
   color: #ffffff !important;
   font-weight: 600 !important;
 }
@@ -705,48 +815,100 @@
 .theme-google-light .schematic-canvas span[class*="text-[9px]"],
 .theme-google-light .schematic-canvas span[class*="text-[8px]"],
 .theme-google-light .schematic-canvas span[class*="text-[10px]"],
-.theme-google-light .schematic-canvas span[class*="text-[11px]"] {
+.theme-google-light .schematic-canvas span[class*="text-[11px]"],
+.theme-google-light .schematic-canvas span[class*="text-[12px]"],
+.theme-google-light .schematic-canvas div[class*="font-mono"],
+.theme-google-light .schematic-canvas text {
   color: #ffffff !important;
   font-weight: 700 !important;
 }
 
-/* 5. Blue Family Tags, Badges & Chips (Blue, Sky, Cyan, Indigo) */
-.theme-google-light [class*="bg-blue-"],
-.theme-google-light [class*="bg-sky-"],
-.theme-google-light [class*="bg-cyan-"],
-.theme-google-light [class*="bg-indigo-"],
+.theme-google-light .schematic-canvas [class*="bg-slate"] svg,
+.theme-google-light .schematic-canvas [class*="bg-gray"] svg,
+.theme-google-light .schematic-canvas [class*="bg-zinc"] svg,
+.theme-google-light .schematic-canvas [class*="bg-blue"] svg,
+.theme-google-light .schematic-canvas [class*="bg-sky"] svg,
+.theme-google-light .schematic-canvas [class*="bg-cyan"] svg,
+.theme-google-light .schematic-canvas [class*="bg-indigo"] svg,
+.theme-google-light .schematic-canvas .toolbar-dark-btn svg {
+  color: #ffffff !important;
+  stroke: currentColor !important;
+}
+
+/* 5. All Blue-Family Tags, Badges, Chips & Pills (Blue, Sky, Cyan, Indigo, Teal) */
+.theme-google-light [class*="bg-blue"],
+.theme-google-light [class*="bg-sky"],
+.theme-google-light [class*="bg-cyan"],
+.theme-google-light [class*="bg-indigo"],
+.theme-google-light [class*="bg-teal"],
 .theme-google-light span[class*="bg-blue"],
 .theme-google-light span[class*="bg-sky"],
 .theme-google-light span[class*="bg-cyan"],
 .theme-google-light span[class*="bg-indigo"],
-.theme-google-light div[class*="bg-blue-"],
-.theme-google-light div[class*="bg-sky-"],
-.theme-google-light div[class*="bg-cyan-"],
-.theme-google-light div[class*="bg-indigo-"] {
+.theme-google-light span[class*="bg-teal"],
+.theme-google-light div[class*="bg-blue"],
+.theme-google-light div[class*="bg-sky"],
+.theme-google-light div[class*="bg-cyan"],
+.theme-google-light div[class*="bg-indigo"],
+.theme-google-light div[class*="bg-teal"],
+.theme-google-light [class*="tag"][class*="blue"],
+.theme-google-light [class*="tag"][class*="sky"],
+.theme-google-light [class*="tag"][class*="cyan"],
+.theme-google-light [class*="tag"][class*="indigo"],
+.theme-google-light [class*="tag"][class*="teal"],
+.theme-google-light [class*="badge"][class*="blue"],
+.theme-google-light [class*="badge"][class*="sky"],
+.theme-google-light [class*="badge"][class*="cyan"],
+.theme-google-light [class*="badge"][class*="indigo"],
+.theme-google-light [class*="badge"][class*="teal"],
+.theme-google-light [class*="chip"][class*="blue"],
+.theme-google-light [class*="chip"][class*="sky"],
+.theme-google-light [class*="chip"][class*="cyan"],
+.theme-google-light [class*="chip"][class*="indigo"],
+.theme-google-light [class*="chip"][class*="teal"] {
   color: #ffffff !important;
   font-weight: 700 !important;
 }
 
-.theme-google-light [class*="bg-blue-"] *,
-.theme-google-light [class*="bg-sky-"] *,
-.theme-google-light [class*="bg-cyan-"] *,
-.theme-google-light [class*="bg-indigo-"] *,
+.theme-google-light [class*="bg-blue"] *,
+.theme-google-light [class*="bg-sky"] *,
+.theme-google-light [class*="bg-cyan"] *,
+.theme-google-light [class*="bg-indigo"] *,
+.theme-google-light [class*="bg-teal"] *,
 .theme-google-light span[class*="bg-blue"] *,
 .theme-google-light span[class*="bg-sky"] *,
 .theme-google-light span[class*="bg-cyan"] *,
 .theme-google-light span[class*="bg-indigo"] *,
-.theme-google-light div[class*="bg-blue-"] *,
-.theme-google-light div[class*="bg-sky-"] *,
-.theme-google-light div[class*="bg-cyan-"] *,
-.theme-google-light div[class*="bg-indigo-"] * {
+.theme-google-light span[class*="bg-teal"] *,
+.theme-google-light div[class*="bg-blue"] *,
+.theme-google-light div[class*="bg-sky"] *,
+.theme-google-light div[class*="bg-cyan"] *,
+.theme-google-light div[class*="bg-indigo"] *,
+.theme-google-light div[class*="bg-teal"] *,
+.theme-google-light [class*="tag"][class*="blue"] *,
+.theme-google-light [class*="tag"][class*="sky"] *,
+.theme-google-light [class*="tag"][class*="cyan"] *,
+.theme-google-light [class*="tag"][class*="indigo"] *,
+.theme-google-light [class*="tag"][class*="teal"] *,
+.theme-google-light [class*="badge"][class*="blue"] *,
+.theme-google-light [class*="badge"][class*="sky"] *,
+.theme-google-light [class*="badge"][class*="cyan"] *,
+.theme-google-light [class*="badge"][class*="indigo"] *,
+.theme-google-light [class*="badge"][class*="teal"] *,
+.theme-google-light [class*="chip"][class*="blue"] *,
+.theme-google-light [class*="chip"][class*="sky"] *,
+.theme-google-light [class*="chip"][class*="cyan"] *,
+.theme-google-light [class*="chip"][class*="indigo"] *,
+.theme-google-light [class*="chip"][class*="teal"] * {
   color: #ffffff !important;
   font-weight: 700 !important;
 }
 
-.theme-google-light [class*="bg-blue-"] svg,
-.theme-google-light [class*="bg-sky-"] svg,
-.theme-google-light [class*="bg-cyan-"] svg,
-.theme-google-light [class*="bg-indigo-"] svg {
+.theme-google-light [class*="bg-blue"] svg,
+.theme-google-light [class*="bg-sky"] svg,
+.theme-google-light [class*="bg-cyan"] svg,
+.theme-google-light [class*="bg-indigo"] svg,
+.theme-google-light [class*="bg-teal"] svg {
   color: #ffffff !important;
   stroke: currentColor !important;
 }

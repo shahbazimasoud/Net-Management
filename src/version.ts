@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.2';
+export const APP_VERSION = '1.304.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.3',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'تکمیل و ارتقای سراسری رنگ متن سفید برای کلیه سطوح خاکستری، سرچ‌باکس‌ها، بج‌ها و شمارنده‌های منو، عناصر توپولوژی و تگ‌های خانواده آبی در تم سفید گوگل',
+    title_en: 'Complete Global White Font Enforcement for Grey Surfaces, Search Boxes, Menu Counter Badges, Topology Elements & Blue Family Tags in Google Light Theme',
+    changes: [
+      'سفیدسازی قطعی و سراسری (#ffffff) رنگ فونت در تم سفید گوگل برای تمامی عناصر دارای پس‌زمینه خاکستری یا تیره (شامل Slate، Gray، Zinc، Neutral، Stone و Black) با اولویت بالا.',
+      'اصلاح و اعمال فونت سفید و قلم پررنگ (Bold) برای تمامی بج‌های منو، نوار کناری، زیرمنوها و هر کادری که شامل شماره یا شمارنده است (تعداد دستگاه‌ها، پورت‌ها، تاخیر، نسخه و بج‌های وضعیتی).',
+      'سفیدسازی کامل کادرهای جستجو و فیلترها (سرچ‌باکس‌ها) در سراسر پنل همراه با Placeholder باکنتراست بالا و آیکون‌های جستجوی سفید.',
+      'اعمال رنگ سفید خالص برای کلیه اجزای صفحه توپولوژی شامل تولبارهای شناور، نودهای دستگاه، پورت‌ها، آی‌پی‌ها، تگ‌ها و نشان‌های شبکه.',
+      'تضمین رنگ سفید پررنگ و ماندگار برای تمامی تگ‌ها، چیپ‌ها و نشان‌های خانواده رنگ‌های آبی (شامل Blue، Sky، Cyan، Indigo و Teal).'
+    ],
+    changes_en: [
+      'Comprehensive and definitive enforcement of pure white font (#ffffff) across all grey and dark surfaces (Slate, Gray, Zinc, Neutral, Stone, Black) in Google Light theme.',
+      'Enforced bold white text on all menu and sidebar badges, sub-menu indicators, and any elements displaying numbers or counters (device counts, ports, latency, versions, status pills).',
+      'Fully enhanced all search boxes and filter inputs across the panel with crisp white text, high-visibility placeholders, and white search icons.',
+      'Applied pure white font to all topology canvas elements including floating toolbars, device node cards, port tags, IP pills, and network badges.',
+      'Guaranteed high-contrast bold white text across all tags, chips, and badges belonging to the blue color family (Blue, Sky, Cyan, Indigo, Teal).'
+    ]
+  },
   {
     version: '1.304.2',
     releaseDate: '2026-10-09',
