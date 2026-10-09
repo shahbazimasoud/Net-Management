@@ -4233,6 +4233,10 @@ export interface PanelGeneralSettings {
   defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
   systemDebugLogging: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
+  serverTimezone?: string;
+  serverNtpServer?: string;
+  serverNtpEnabled?: boolean;
+  timeFormat?: '24h' | '12h';
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -4254,6 +4258,10 @@ export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
   allowedAuthMethods: 'both',
+  serverTimezone: 'Asia/Tehran',
+  serverNtpServer: 'ir.pool.ntp.org',
+  serverNtpEnabled: true,
+  timeFormat: '24h',
   updatedAt: '2026-10-06 00:00:00',
   updatedBy: 'admin',
 };
@@ -4298,6 +4306,10 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     defaultDeviceProtocol: (settings.defaultDeviceProtocol as any) || current.defaultDeviceProtocol || 'ssh',
     systemDebugLogging: Boolean(settings.systemDebugLogging !== undefined ? settings.systemDebugLogging : current.systemDebugLogging),
     allowedAuthMethods: (settings.allowedAuthMethods as any) || current.allowedAuthMethods || 'both',
+    serverTimezone: settings.serverTimezone !== undefined ? String(settings.serverTimezone).trim() : (current.serverTimezone || 'Asia/Tehran'),
+    serverNtpServer: settings.serverNtpServer !== undefined ? String(settings.serverNtpServer).trim() : (current.serverNtpServer || 'ir.pool.ntp.org'),
+    serverNtpEnabled: settings.serverNtpEnabled !== undefined ? Boolean(settings.serverNtpEnabled) : (current.serverNtpEnabled !== false),
+    timeFormat: (settings.timeFormat as any) || current.timeFormat || '24h',
     updatedAt: new Date().toISOString(),
     updatedBy,
   };

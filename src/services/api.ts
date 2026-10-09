@@ -177,6 +177,7 @@ import {
   AuditReportScheduleConfig,
   AuditReportPreviewResult,
   AuditReportSendResult,
+  ServerTimeInfo,
 } from '../types';
 
 const API_BASE = '/api';
@@ -7679,6 +7680,77 @@ export async function sendAuditEmailReportByIdNowApi(id: string, payload: {
   const data = await res.json();
   return data;
 }
+
+// -------------------------------------------------------------
+// Server Time & Regional API
+// -------------------------------------------------------------
+
+export async function fetchServerTimeApi(): Promise<ServerTimeInfo> {
+  const res = await fetchWithRetry(`${API_BASE}/system/time`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch server time information');
+  }
+  return data;
+}
+
+export async function updateServerTimezoneApi(timezone: string): Promise<{
+  success: boolean;
+  timezone: string;
+  serverTime: ServerTimeInfo;
+  message?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/system/time/timezone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to update server timezone');
+  }
+  return data;
+}
+
+export async function syncServerNtpApi(ntpServer?: string): Promise<{
+  success: boolean;
+  ntpServer: string;
+  latencyMs: number;
+  offsetMs?: number;
+  message: string;
+  message_fa: string;
+  serverTime: ServerTimeInfo;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/system/time/sync-ntp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ntpServer }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to trigger NTP synchronization');
+  }
+  return data;
+}
+
+export async function setServerManualTimeApi(targetTime: string | number): Promise<{
+  success: boolean;
+  message: string;
+  message_fa: string;
+  serverTime: ServerTimeInfo;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/system/time/set-manual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetTime }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to adjust server time');
+  }
+  return data;
+}
+
 
 
 

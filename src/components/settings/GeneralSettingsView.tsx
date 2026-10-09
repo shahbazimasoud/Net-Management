@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Settings,
   Sliders,
@@ -27,14 +28,28 @@ import {
   ArrowUpCircle,
   AlertCircle,
   Archive,
-  Mail
+  Mail,
+  Calendar,
+  Radio,
+  Laptop,
+  Zap,
+  Minus,
+  Maximize2,
+  Minimize2,
+  X,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { isUserSuperAdmin } from '../../utils/rbac';
 import { APP_VERSION } from '../../version';
 import { ThemeType } from '../Navbar';
-import { PanelGeneralSettings } from '../../types';
+import { PanelGeneralSettings, ServerTimeInfo } from '../../types';
+import {
+  fetchServerTimeApi,
+  updateServerTimezoneApi,
+  syncServerNtpApi,
+  setServerManualTimeApi,
+} from '../../services/api';
 import {
   loadGeneralSettings,
   saveGeneralSettings,
@@ -64,6 +79,40 @@ interface BackendHealthData {
   lldp_engine?: string;
   device_count?: number;
 }
+
+interface TimezonePreset {
+  id: string;
+  nameEn: string;
+  nameFa: string;
+  offset: string;
+  groupEn: string;
+  groupFa: string;
+}
+
+const COMMON_TIMEZONES: TimezonePreset[] = [
+  { id: 'Asia/Tehran', nameEn: 'Tehran (Iran Standard Time)', nameFa: 'تهران (ساعت رسمی ایران)', offset: 'UTC+03:30', groupEn: 'Iran & Middle East', groupFa: 'ایران و خاورمیانه' },
+  { id: 'Asia/Dubai', nameEn: 'Dubai (UAE / Gulf)', nameFa: 'دبی (امارات و حوزه خلیج فارس)', offset: 'UTC+04:00', groupEn: 'Iran & Middle East', groupFa: 'ایران و خاورمیانه' },
+  { id: 'Asia/Riyadh', nameEn: 'Riyadh (Saudi Arabia)', nameFa: 'ریاض (عربستان سعودی)', offset: 'UTC+03:00', groupEn: 'Iran & Middle East', groupFa: 'ایران و خاورمیانه' },
+  { id: 'Asia/Baghdad', nameEn: 'Baghdad (Iraq)', nameFa: 'بغداد (عراق)', offset: 'UTC+03:00', groupEn: 'Iran & Middle East', groupFa: 'ایران و خاورمیانه' },
+  { id: 'Asia/Baku', nameEn: 'Baku (Azerbaijan)', nameFa: 'باکو (آذربایجان)', offset: 'UTC+04:00', groupEn: 'Iran & Middle East', groupFa: 'ایران و خاورمیانه' },
+  { id: 'Asia/Kabul', nameEn: 'Kabul (Afghanistan)', nameFa: 'کابل (افغانستان)', offset: 'UTC+04:30', groupEn: 'Iran & Middle East', groupFa: 'ایران و خاورمیانه' },
+  { id: 'UTC', nameEn: 'Universal Coordinated Time (UTC / GMT)', nameFa: 'ساعت هماهنگ جهانی (UTC / GMT)', offset: 'UTC+00:00', groupEn: 'Standard UTC', groupFa: 'ساعت هماهنگ جهانی' },
+  { id: 'Europe/London', nameEn: 'London (UK / BST)', nameFa: 'لندن (بریتانیا)', offset: 'UTC+01:00', groupEn: 'Europe', groupFa: 'اروپا' },
+  { id: 'Europe/Paris', nameEn: 'Paris (Central Europe)', nameFa: 'پاریس (اروپای مرکزی)', offset: 'UTC+02:00', groupEn: 'Europe', groupFa: 'اروپا' },
+  { id: 'Europe/Berlin', nameEn: 'Berlin (Germany)', nameFa: 'برلین (آلمان)', offset: 'UTC+02:00', groupEn: 'Europe', groupFa: 'اروپا' },
+  { id: 'Europe/Istanbul', nameEn: 'Istanbul (Turkey)', nameFa: 'استانبول (ترکیه)', offset: 'UTC+03:00', groupEn: 'Europe', groupFa: 'اروپا' },
+  { id: 'Europe/Moscow', nameEn: 'Moscow (Russia)', nameFa: 'مسکو (روسیه)', offset: 'UTC+03:00', groupEn: 'Europe', groupFa: 'اروپا' },
+  { id: 'America/New_York', nameEn: 'New York (Eastern Time)', nameFa: 'نیویورک (ساعت شرقی آمریکا)', offset: 'UTC-04:00', groupEn: 'Americas', groupFa: 'آمریکا' },
+  { id: 'America/Chicago', nameEn: 'Chicago (Central Time)', nameFa: 'شیکاگو (ساعت مرکزی آمریکا)', offset: 'UTC-05:00', groupEn: 'Americas', groupFa: 'آمریکا' },
+  { id: 'America/Denver', nameEn: 'Denver (Mountain Time)', nameFa: 'دنور (ساعت کوهستانی)', offset: 'UTC-06:00', groupEn: 'Americas', groupFa: 'آمریکا' },
+  { id: 'America/Los_Angeles', nameEn: 'Los Angeles (Pacific Time)', nameFa: 'لس آنجلس (ساعت اقیانوس آرام)', offset: 'UTC-07:00', groupEn: 'Americas', groupFa: 'آمریکا' },
+  { id: 'America/Toronto', nameEn: 'Toronto (Canada)', nameFa: 'تورنتو (کانادا)', offset: 'UTC-04:00', groupEn: 'Americas', groupFa: 'آمریکا' },
+  { id: 'Asia/Tokyo', nameEn: 'Tokyo (Japan)', nameFa: 'توکیو (ژاپن)', offset: 'UTC+09:00', groupEn: 'Asia & Pacific', groupFa: 'آسیا و اقیانوسیه' },
+  { id: 'Asia/Shanghai', nameEn: 'Shanghai / Beijing (China)', nameFa: 'شانگهای / پکن (چین)', offset: 'UTC+08:00', groupEn: 'Asia & Pacific', groupFa: 'آسیا و اقیانوسیه' },
+  { id: 'Asia/Singapore', nameEn: 'Singapore', nameFa: 'سنگاپور', offset: 'UTC+08:00', groupEn: 'Asia & Pacific', groupFa: 'آسیا و اقیانوسیه' },
+  { id: 'Asia/Kolkata', nameEn: 'Kolkata / New Delhi (India)', nameFa: 'دهلی نو (هند)', offset: 'UTC+05:30', groupEn: 'Asia & Pacific', groupFa: 'آسیا و اقیانوسیه' },
+  { id: 'Australia/Sydney', nameEn: 'Sydney (Eastern Australia)', nameFa: 'سیدنی (استرالیا)', offset: 'UTC+10:00', groupEn: 'Asia & Pacific', groupFa: 'آسیا و اقیانوسیه' },
+];
 
 export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   isLightMode = false,
@@ -96,6 +145,188 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   } | null>(null);
   const [isProcessingLogo, setIsProcessingLogo] = useState(false);
   const [isProcessingFavicon, setIsProcessingFavicon] = useState(false);
+
+  // Server Time & Clock State
+  const [serverTimeInfo, setServerTimeInfo] = useState<ServerTimeInfo | null>(null);
+  const [isFetchingServerTime, setIsFetchingServerTime] = useState<boolean>(false);
+  const [isSyncingNtp, setIsSyncingNtp] = useState<boolean>(false);
+  const [isSettingManualTime, setIsSettingManualTime] = useState<boolean>(false);
+  const [serverTimeFeedback, setServerTimeFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showManualTimeModal, setShowManualTimeModal] = useState<boolean>(false);
+  const [isManualModalMaximized, setIsManualModalMaximized] = useState<boolean>(false);
+  const [isManualModalMinimized, setIsManualModalMinimized] = useState<boolean>(false);
+  const [manualDateInput, setManualDateInput] = useState<string>('');
+  const [manualTimeInput, setManualTimeInput] = useState<string>('');
+  const [customTimezoneInput, setCustomTimezoneInput] = useState<string>('');
+  const [showCustomTzField, setShowCustomTzField] = useState<boolean>(false);
+
+  // Fetch live server time from backend
+  const fetchLiveServerTime = useCallback(async () => {
+    setIsFetchingServerTime(true);
+    try {
+      const data = await fetchServerTimeApi();
+      setServerTimeInfo(data);
+    } catch (err: any) {
+      console.warn('Could not fetch server time info:', err?.message);
+    } finally {
+      setIsFetchingServerTime(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLiveServerTime();
+    const interval = setInterval(fetchLiveServerTime, 25000);
+    return () => clearInterval(interval);
+  }, [fetchLiveServerTime]);
+
+  // High-precision live second counter
+  useEffect(() => {
+    const tick = setInterval(() => {
+      setServerTimeInfo((prev) => {
+        if (!prev) return prev;
+        const nextTs = prev.timestamp + 1000;
+        const d = new Date(nextTs);
+        const is24h = (formData.timeFormat || prev.timeFormat) !== '12h';
+        const tz = formData.serverTimezone || prev.timezone || 'Asia/Tehran';
+        let formattedTime = prev.formattedTime;
+        try {
+          formattedTime = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: !is24h,
+          }).format(d);
+        } catch {}
+        return {
+          ...prev,
+          timestamp: nextTs,
+          formattedTime,
+        };
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [formData.timeFormat, formData.serverTimezone]);
+
+  // Handle Timezone Change
+  const handleTimezoneChange = async (newTz: string) => {
+    setFormData((prev) => ({ ...prev, serverTimezone: newTz }));
+    setServerTimeFeedback(null);
+    try {
+      const res = await updateServerTimezoneApi(newTz);
+      if (res?.serverTime) {
+        setServerTimeInfo(res.serverTime);
+      }
+      setServerTimeFeedback({
+        type: 'success',
+        message: isEn
+          ? `Host server timezone updated to ${newTz}`
+          : `منطقه زمانی سرور با موفقیت به ${newTz} تغییر یافت.`,
+      });
+    } catch (err: any) {
+      setServerTimeFeedback({
+        type: 'error',
+        message: err?.message || (isEn ? 'Failed to update timezone' : 'خطا در اعمال منطقه زمانی'),
+      });
+    }
+  };
+
+  // Handle NTP Sync Now
+  const handleNtpSyncNow = async () => {
+    setIsSyncingNtp(true);
+    setServerTimeFeedback(null);
+    try {
+      const res = await syncServerNtpApi(formData.serverNtpServer);
+      if (res?.serverTime) {
+        setServerTimeInfo(res.serverTime);
+      }
+      setServerTimeFeedback({
+        type: 'success',
+        message: isEn ? res.message : res.message_fa,
+      });
+    } catch (err: any) {
+      setServerTimeFeedback({
+        type: 'error',
+        message: err?.message || (isEn ? 'NTP synchronization failed' : 'خطا در همگام‌سازی زمان با سرور NTP'),
+      });
+    } finally {
+      setIsSyncingNtp(false);
+    }
+  };
+
+  // Handle Sync with Local Browser Time
+  const handleSyncWithBrowserTime = async () => {
+    setIsSettingManualTime(true);
+    setServerTimeFeedback(null);
+    try {
+      const nowTs = Date.now();
+      const res = await setServerManualTimeApi(nowTs);
+      if (res?.serverTime) {
+        setServerTimeInfo(res.serverTime);
+      }
+      setServerTimeFeedback({
+        type: 'success',
+        message: isEn
+          ? 'Server clock successfully synchronized with your local browser time.'
+          : 'ساعت سرور با موفقیت بر اساس ساعت مرورگر و سیستم محلی شما تنظیم شد.',
+      });
+    } catch (err: any) {
+      setServerTimeFeedback({
+        type: 'error',
+        message: err?.message || (isEn ? 'Failed to synchronize with browser time' : 'خطا در تنظیم ساعت بر اساس مرورگر'),
+      });
+    } finally {
+      setIsSettingManualTime(false);
+    }
+  };
+
+  // Open Manual Time Adjustment Modal
+  const handleOpenManualTimeModal = () => {
+    const d = serverTimeInfo ? new Date(serverTimeInfo.timestamp) : new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const sec = String(d.getSeconds()).padStart(2, '0');
+    setManualDateInput(`${yyyy}-${mm}-${dd}`);
+    setManualTimeInput(`${hh}:${min}:${sec}`);
+    setShowManualTimeModal(true);
+    setIsManualModalMinimized(false);
+    setIsManualModalMaximized(false);
+  };
+
+  // Handle Save Manual Time
+  const handleSaveManualTime = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualDateInput || !manualTimeInput) return;
+    setIsSettingManualTime(true);
+    setServerTimeFeedback(null);
+    try {
+      const [year, month, day] = manualDateInput.split('-').map(Number);
+      const [hour, minute, second] = manualTimeInput.split(':').map((s) => Number(s) || 0);
+      const targetDate = new Date(year, month - 1, day, hour, minute, second || 0);
+      if (isNaN(targetDate.getTime())) {
+        throw new Error(isEn ? 'Invalid date or time' : 'تاریخ یا ساعت نامعتبر است');
+      }
+      const res = await setServerManualTimeApi(targetDate.getTime());
+      if (res?.serverTime) {
+        setServerTimeInfo(res.serverTime);
+      }
+      setShowManualTimeModal(false);
+      setServerTimeFeedback({
+        type: 'success',
+        message: isEn ? res.message : res.message_fa,
+      });
+    } catch (err: any) {
+      setServerTimeFeedback({
+        type: 'error',
+        message: err?.message || (isEn ? 'Failed to set server time' : 'خطا در تنظیم دستی ساعت سرور'),
+      });
+    } finally {
+      setIsSettingManualTime(false);
+    }
+  };
 
   // Load latest settings from database on mount
   useEffect(() => {
@@ -1521,6 +1752,396 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 )}
               </div>
             </div>
+
+            {/* Card 6: Server Time, Timezone & NTP Management */}
+            <div
+              className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
+                isLightMode
+                  ? 'bg-white/90 border-slate-200 shadow-slate-200/50'
+                  : 'bg-slate-950/60 border-white/10'
+              }`}
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                      {isEn ? 'Server Time, Timezone & NTP Clock' : 'ساعت سرور، منطقه زمانی و پروتکل NTP'}
+                    </h3>
+                    <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn
+                        ? 'Manage host server clock, IANA timezone identification, and NTP network time synchronization.'
+                        : 'تنظیم منطقه زمانی رسمی سرور میزبان پنل، کالیبراسیون ساعت سیستم و همگام‌سازی با سرورهای NTP.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-xs font-mono font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                    {serverTimeInfo?.utcOffset || 'UTC+03:30'}
+                  </span>
+                  <span className={`px-2 py-1 rounded-full text-[10px] font-mono font-bold uppercase border ${
+                    formData.serverNtpEnabled !== false
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : 'bg-slate-800 text-slate-400 border-white/10'
+                  }`}>
+                    {formData.serverNtpEnabled !== false
+                      ? (isEn ? 'NTP Active' : 'NTP فعال')
+                      : (isEn ? 'NTP Off' : 'NTP غیرفعال')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Server Digital Clock Dashboard */}
+              <div className={`p-4 rounded-xl border relative overflow-hidden ${
+                isLightMode
+                  ? 'bg-gradient-to-br from-slate-100 to-slate-50 border-slate-300'
+                  : 'bg-gradient-to-br from-slate-950/90 via-slate-900/60 to-cyan-950/20 border-cyan-500/30 shadow-inner'
+              }`}>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-cyan-500/20 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span className="font-semibold text-xs text-emerald-400">
+                      {isEn ? 'Live Host Server Clock' : 'ساعت زنده سرور میزبان پنل'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-cyan-300 px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30">
+                      {serverTimeInfo?.timezone || formData.serverTimezone || 'Asia/Tehran'}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {serverTimeInfo?.utcTime || 'UTC'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="text-center sm:text-left rtl:sm:text-right">
+                    <div className="text-3xl sm:text-4xl font-extrabold font-mono tracking-wider text-cyan-400 drop-shadow-sm">
+                      {serverTimeInfo?.formattedTime || '12:00:00'}
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-2">
+                      <span>{serverTimeInfo?.formattedDateEn || new Date().toDateString()}</span>
+                      {serverTimeInfo?.formattedDateFa && (
+                        <>
+                          <span className="text-slate-600">•</span>
+                          <span className="text-cyan-300/90 font-medium">{serverTimeInfo.formattedDateFa}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Direct Sync Shortcuts */}
+                  <div className="flex flex-col gap-1.5 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={handleNtpSyncNow}
+                      disabled={isSyncingNtp}
+                      className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNtp ? 'animate-spin' : ''}`} />
+                      <span>{isSyncingNtp ? (isEn ? 'Syncing...' : 'در حال همگام‌سازی...') : (isEn ? 'Sync with NTP' : 'همگام‌سازی با NTP')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSyncWithBrowserTime}
+                      disabled={isSettingManualTime}
+                      className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                    >
+                      <Laptop className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Sync with My System' : 'تنظیم بر اساس این مرورگر'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Server Uptime & NTP Status */}
+                <div className="pt-2 border-t border-cyan-500/20 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                  <div className="flex items-center gap-1.5">
+                    <Server className="w-3.5 h-3.5 text-slate-500" />
+                    <span>
+                      {isEn ? 'Upstream NTP: ' : 'سرور NTP مرجع: '}
+                      <strong className="text-slate-200 font-mono">{formData.serverNtpServer || 'ir.pool.ntp.org'}</strong>
+                    </span>
+                  </div>
+                  {serverTimeInfo?.uptimeSeconds !== undefined && (
+                    <span className="font-mono text-slate-400">
+                      {isEn ? 'Host Uptime: ' : 'آپ‌تایم پردازش: '}
+                      {Math.floor(serverTimeInfo.uptimeSeconds / 3600)}h {Math.floor((serverTimeInfo.uptimeSeconds % 3600) / 60)}m
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Feedback Alert if Action Triggered */}
+              {serverTimeFeedback && (
+                <div
+                  className={`p-3 rounded-xl border flex items-start gap-2 text-xs animate-fadeIn ${
+                    serverTimeFeedback.type === 'success'
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                      : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+                  }`}
+                >
+                  {serverTimeFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  )}
+                  <p className="leading-relaxed">{serverTimeFeedback.message}</p>
+                </div>
+              )}
+
+              {/* Setting 1: Server Timezone */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                    <span>{isEn ? 'Server Official Timezone' : 'منطقه زمانی رسمی سرور (Timezone)'}</span>
+                    <FieldInfoTooltip
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      title={isEn ? 'Server Official Timezone' : 'منطقه زمانی رسمی سرور'}
+                      infoWhatEn="The official IANA Timezone identifier (such as Asia/Tehran, UTC, Europe/London) applied to the host server operating system and node runtime."
+                      infoWhatFa="شناسه استاندارد منطقه زمانی IANA (مانند Asia/Tehran، UTC، Europe/London) که به سیستم‌عامل سرور و فرایند نود اعمال می‌گردد."
+                      infoWhyEn="Ensures all command executions, scheduled backups, audit logs, and email digests accurately match your exact administrative local time."
+                      infoWhyFa="تضمین می‌کند که برچسب‌های زمانی اجرای دستورات، زمان‌بندی بکاپ‌گیری خودکار، لاگ‌های ممیزی و گزارش‌های ایمیل دقیقاً مطابق با ساعت اداری محلی شما ثبت گردند."
+                      infoExampleEn="Asia/Tehran (UTC+03:30) or UTC (Coordinated Universal Time)"
+                      infoExampleFa="Asia/Tehran (UTC+03:30) برای ایران یا UTC"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomTzField(!showCustomTzField)}
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 transition cursor-pointer underline"
+                  >
+                    {showCustomTzField
+                      ? (isEn ? 'Select standard list' : 'انتخاب از لیست مناطق استاندارد')
+                      : (isEn ? 'Enter custom IANA zone' : 'ورود منطقه زمانی دلخواه (IANA)')}
+                  </button>
+                </div>
+
+                {!showCustomTzField ? (
+                  <select
+                    value={formData.serverTimezone || 'Asia/Tehran'}
+                    onChange={(e) => handleTimezoneChange(e.target.value)}
+                    className={`w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-sans cursor-pointer ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-900'
+                        : 'bg-slate-900 border-white/10 text-white'
+                    }`}
+                  >
+                    {['Iran & Middle East', 'Standard UTC', 'Europe', 'Americas', 'Asia & Pacific'].map((grp) => {
+                      const groupItems = COMMON_TIMEZONES.filter((tz) => tz.groupEn === grp);
+                      const grpTitle = isEn
+                        ? grp
+                        : groupItems[0]?.groupFa || grp;
+                      return (
+                        <optgroup key={grp} label={grpTitle}>
+                          {groupItems.map((tz) => (
+                            <option key={tz.id} value={tz.id}>
+                              {isEn ? tz.nameEn : tz.nameFa} ({tz.offset}) [{tz.id}]
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={customTimezoneInput || formData.serverTimezone || ''}
+                      onChange={(e) => setCustomTimezoneInput(e.target.value)}
+                      placeholder={isEn ? 'e.g. Asia/Tehran, Europe/Berlin, UTC' : 'مثال: Asia/Tehran یا Europe/Berlin یا UTC'}
+                      className={`flex-1 px-3.5 py-2 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-mono ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-400'
+                          : 'bg-slate-900 border-white/10 text-white placeholder:text-slate-500'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (customTimezoneInput.trim()) {
+                          handleTimezoneChange(customTimezoneInput.trim());
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      {isEn ? 'Apply' : 'اعمال'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Setting 2: Time Display Format (24h vs 12h) */}
+              <div className="space-y-1.5">
+                <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                  <span>{isEn ? 'Time Display Format' : 'قالب و شیوه نمایش زمان'}</span>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    title={isEn ? 'Time Display Format' : 'قالب نمایش زمان'}
+                    infoWhatEn="Selects whether time in logs, header badges, and dashboard telemetry is displayed in 24-hour military notation (15:45) or 12-hour AM/PM notation."
+                    infoWhatFa="تعیین نحوه نمایش ساعت در سرتاسر پنل، لاگ‌های فرمان و ویجت‌های نظارتی به صورت ۲۴ ساعته (۱۵:۴۵) یا ۱۲ ساعته همراه با قبل/بعدازظهر."
+                    infoWhyEn="Standardizes chronological audit reports according to your engineering team conventions."
+                    infoWhyFa="یکپارچه‌سازی گزارش‌های زمانی بر اساس استانداردهای مهندسی و راحتی اپراتورهای شبکه."
+                    infoExampleEn="24-Hour (standard in IT/NOC centers)"
+                    infoExampleFa="۲۴ ساعته (استاندارد مراکز NOC و ثبت لاگ)"
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, timeFormat: '24h' })}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                      formData.timeFormat !== '12h'
+                        ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isEn ? '24-Hour (15:45:00)' : '۲۴ ساعته (۱۵:۴۵:۰۰)'}</span>
+                    </div>
+                    {formData.timeFormat !== '12h' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, timeFormat: '12h' })}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                      formData.timeFormat === '12h'
+                        ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>{isEn ? '12-Hour (03:45:00 PM)' : '۱۲ ساعته (۰۳:۴۵:۰۰ عصر)'}</span>
+                    </div>
+                    {formData.timeFormat === '12h' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Setting 3: NTP Synchronization and Server Address */}
+              <div className="space-y-3 pt-1 border-t border-white/10">
+                <div className="flex items-center justify-between">
+                  <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                    <span>{isEn ? 'Network Time Protocol (NTP) Sync' : 'همگام‌سازی خودکار با پروتکل زمان شبکه (NTP)'}</span>
+                    <FieldInfoTooltip
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      title={isEn ? 'NTP Network Time Synchronization' : 'همگام‌سازی زمان شبکه (NTP)'}
+                      infoWhatEn="Enables automated continuous synchronization of the host operating system clock with atomic time server clusters via UDP port 123."
+                      infoWhatFa="فعال‌سازی همگام‌سازی پیوسته و خودکار ساعت سیستم‌عامل سرور با سرورهای اتمی زمان از طریق پورت UDP 123."
+                      infoWhyEn="Eliminates CMOS clock drifting and prevents TLS/SSL certificate verification failures and AD Kerberos authentication rejections."
+                      infoWhyFa="جلوگیری از انحراف تدریجی ساعت سخت‌افزاری سرور، ابطال گواهی‌های امنیتی SSL و خطاهای احراز هویت کربروس در اکتیو دایرکتوری."
+                      infoExampleEn="Enabled (recommended for production deployment)"
+                      infoExampleFa="فعال (توصیه‌شده برای تمامی محیط‌های کاری)"
+                    />
+                  </label>
+
+                  {/* Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, serverNtpEnabled: formData.serverNtpEnabled === false ? true : false })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      formData.serverNtpEnabled !== false ? 'bg-cyan-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        formData.serverNtpEnabled !== false ? 'translate-x-4 rtl:-translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* NTP Server Input & Presets */}
+                {formData.serverNtpEnabled !== false && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className={`text-xs flex items-center gap-1.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                        <span>{isEn ? 'NTP Server Address (FQDN / IP)' : 'آدرس سرور زمان NTP (نام یا آی‌پی)'}</span>
+                        <FieldInfoTooltip
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                          title={isEn ? 'NTP Server Hostname' : 'آدرس سرور NTP'}
+                          infoWhatEn="Host address or IP of the authoritative NTP server."
+                          infoWhatFa="آدرس اینترنتی یا آی‌پی سرور زمان بالادستی جهت دریافت زمان دقیق."
+                          infoWhyEn="Allows using isolated internal NTP routers or public pool clusters."
+                          infoWhyFa="امکان معرفی سرور زمان داخلی (مانند روتر سیسکو/میکروتیک یا دامین کنترلر) در شبکه‌های ایزوله را فراهم می‌سازد."
+                          infoExampleEn="ir.pool.ntp.org, pool.ntp.org, or 192.168.1.1"
+                          infoExampleFa="ir.pool.ntp.org یا pool.ntp.org یا 192.168.1.1"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={formData.serverNtpServer || 'ir.pool.ntp.org'}
+                        onChange={(e) => setFormData({ ...formData, serverNtpServer: e.target.value })}
+                        placeholder="e.g. ir.pool.ntp.org or pool.ntp.org"
+                        className={`flex-1 px-3.5 py-2 rounded-xl text-xs font-mono border transition focus:outline-none focus:border-cyan-500 ${
+                          isLightMode
+                            ? 'bg-slate-50 border-slate-300 text-slate-900'
+                            : 'bg-slate-900 border-white/10 text-white'
+                        }`}
+                      />
+                    </div>
+
+                    {/* Presets Chips */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[10px] text-slate-500">{isEn ? 'Presets:' : 'سرورهای آماده:'}</span>
+                      {['ir.pool.ntp.org', 'pool.ntp.org', 'time.google.com', 'time.cloudflare.com'].map((srv) => (
+                        <button
+                          key={srv}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, serverNtpServer: srv })}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-mono border transition cursor-pointer ${
+                            formData.serverNtpServer === srv
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 font-bold'
+                              : isLightMode
+                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
+                              : 'bg-slate-900 hover:bg-white/5 text-slate-400 border-white/10'
+                          }`}
+                        >
+                          {srv}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Manual Time Button */}
+              <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+                <span className="text-xs text-slate-400">
+                  {isEn ? 'Need custom time without NTP?' : 'نیاز به تنظیم دلخواه ساعت و تاریخ بدون اینترنت؟'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleOpenManualTimeModal}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 text-xs font-semibold transition cursor-pointer"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'Set Manual Time' : 'تنظیم دستی تاریخ و ساعت'}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Form Actions Footer */}
@@ -1902,6 +2523,176 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal: Manual Server Time Adjustment (Compliant with Universal Modal Standards) */}
+      {showManualTimeModal && !isManualModalMinimized && createPortal(
+        <div className="fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div
+            className={`flex flex-col rounded-2xl border shadow-2xl transition-all duration-200 overflow-hidden ${
+              isManualModalMaximized ? 'w-full h-full rounded-none' : 'w-full max-w-lg'
+            } ${
+              isLightMode
+                ? 'bg-white border-slate-200 text-slate-900 shadow-slate-300/60'
+                : 'bg-slate-950 border-cyan-500/30 text-slate-100 shadow-black/80'
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold">
+                    {isEn ? 'Manual Server Clock Calibration' : 'تنظیم و کالیبراسیون دستی ساعت سرور'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {isEn ? 'Adjust host operating system date and time directly' : 'تنظیم مستقیم تاریخ و زمان سیستم‌عامل سرور میزبان'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Header 3 Control Buttons: Close, Minimize, Fullscreen */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsManualModalMinimized(true)}
+                  title={isEn ? 'Minimize' : 'کوچک‌سازی'}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsManualModalMaximized(!isManualModalMaximized)}
+                  title={isManualModalMaximized ? (isEn ? 'Restore' : 'خروج از تمام‌صفحه') : (isEn ? 'Maximize' : 'تمام‌صفحه')}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                >
+                  {isManualModalMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowManualTimeModal(false)}
+                  title={isEn ? 'Close' : 'بستن'}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSaveManualTime} className="p-6 space-y-5 overflow-y-auto flex-1">
+              <div className="p-3.5 rounded-xl border border-cyan-500/20 bg-cyan-950/20 text-xs text-cyan-300 leading-relaxed">
+                {isEn
+                  ? 'Warning: Adjusting system time manually disables NTP temporarily. Timestamps will reflect the newly configured date and time for all subsequent logs and audit records.'
+                  : 'توجه: با تغییر دستی ساعت سرور، همگام‌سازی خودکار NTP به حالت دستی تغییر می‌یابد و تمامی لاگ‌ها و رکوردهای بعدی با ساعت جدید ثبت خواهند شد.'}
+              </div>
+
+              {/* Date Input */}
+              <div className="space-y-1.5">
+                <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                  <span>{isEn ? 'Target Date (YYYY-MM-DD)' : 'تاریخ مورد نظر (میلادی)'}</span>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    title={isEn ? 'Target Date' : 'تاریخ سرور'}
+                    infoWhatEn="The calendar date to assign to the host server system clock."
+                    infoWhatFa="تاریخ تقویمی که به ساعت سیستم سرور میزبان اختصاص می‌یابد."
+                    infoWhyEn="Allows correcting inaccurate system dates in isolated datacenters."
+                    infoWhyFa="جهت اصلاح تاریخ اشتباه در دیتاسنترهای ایزوله و بدون دسترسی به اینترنت."
+                    infoExampleEn="2026-10-09"
+                    infoExampleFa="2026-10-09"
+                  />
+                </label>
+                <input
+                  type="date"
+                  value={manualDateInput}
+                  onChange={(e) => setManualDateInput(e.target.value)}
+                  required
+                  className={`w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-mono ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-300 text-slate-900'
+                      : 'bg-slate-900 border-white/10 text-white'
+                  }`}
+                />
+              </div>
+
+              {/* Time Input */}
+              <div className="space-y-1.5">
+                <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                  <span>{isEn ? 'Target Time (HH:MM:SS)' : 'ساعت مورد نظر (ساعت:دقیقه:ثانیه)'}</span>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    title={isEn ? 'Target Time' : 'ساعت سرور'}
+                    infoWhatEn="The exact hour, minute, and second to calibrate the server clock."
+                    infoWhatFa="ساعت، دقیقه و ثانیه دقیق جهت کالیبره کردن ساعت سرور."
+                    infoWhyEn="Synchronizes time with authorized physical wall clocks or internal master generators."
+                    infoWhyFa="انطباق با ساعت مرجع فیزیکی یا ژنراتورهای ساعت داخلی در سایت‌های صنعتی."
+                    infoExampleEn="14:30:00"
+                    infoExampleFa="14:30:00"
+                  />
+                </label>
+                <input
+                  type="time"
+                  step="1"
+                  value={manualTimeInput}
+                  onChange={(e) => setManualTimeInput(e.target.value)}
+                  required
+                  className={`w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm border transition focus:outline-none focus:border-cyan-500 font-mono ${
+                    isLightMode
+                      ? 'bg-slate-50 border-slate-300 text-slate-900'
+                      : 'bg-slate-900 border-white/10 text-white'
+                  }`}
+                />
+              </div>
+
+              {/* Active Timezone Notice */}
+              <div className="flex items-center justify-between text-xs text-slate-400 p-2.5 rounded-xl bg-slate-900/50 border border-white/5">
+                <span>{isEn ? 'Applied Timezone:' : 'منطقه زمانی اعمال‌شونده:'}</span>
+                <span className="font-mono text-cyan-300 font-semibold">
+                  {serverTimeInfo?.timezone || formData.serverTimezone || 'Asia/Tehran'}
+                </span>
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setShowManualTimeModal(false)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                    isLightMode
+                      ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                      : 'border-white/10 text-slate-300 hover:bg-white/5'
+                  }`}
+                >
+                  {isEn ? 'Cancel' : 'انصراف'}
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={isSettingManualTime}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-500 hover:to-sky-500 text-white text-xs font-bold shadow-lg shadow-cyan-600/20 transition cursor-pointer disabled:opacity-50"
+                >
+                  {isSettingManualTime ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>{isEn ? 'Applying...' : 'در حال اعمال...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Apply to Host Server' : 'اعمال در سرور میزبان'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

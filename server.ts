@@ -44,6 +44,7 @@ import { registerCertConverterRoutes } from './server/certConverter';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 import { startBackupSchedulerDaemon } from './server/backupScheduler';
 import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
+import { initServerTime } from './server/serverTimeManager';
 
 const app = express();
 
@@ -1269,6 +1270,7 @@ async function startServer() {
 
   // Initialize Database (PostgreSQL or fallback store)
   await initDatabase();
+  await initServerTime();
 
   const isProd = process.env.NODE_ENV === 'production' || path.basename(currentDir) === 'dist';
 

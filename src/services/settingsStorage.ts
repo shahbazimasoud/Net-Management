@@ -689,6 +689,10 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
   allowedAuthMethods: 'both',
+  serverTimezone: 'Asia/Tehran',
+  serverNtpServer: 'ir.pool.ntp.org',
+  serverNtpEnabled: true,
+  timeFormat: '24h',
   updatedAt: '2026-10-06 00:00:00',
   updatedBy: 'admin',
 };

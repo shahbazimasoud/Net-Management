@@ -7119,8 +7119,34 @@ export interface PanelGeneralSettings {
   defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
   systemDebugLogging: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
+  serverTimezone?: string;
+  serverNtpServer?: string;
+  serverNtpEnabled?: boolean;
+  timeFormat?: '24h' | '12h';
   updatedAt?: string;
   updatedBy?: string;
+}
+
+export interface ServerTimeInfo {
+  success: boolean;
+  timestamp: number;
+  iso: string;
+  serverTime: string;
+  timezone: string;
+  utcOffset: string;
+  utcOffsetMinutes: number;
+  timeZoneName: string;
+  formattedTime: string;
+  formattedDateEn: string;
+  formattedDateFa: string;
+  utcTime: string;
+  ntpServer: string;
+  ntpEnabled: boolean;
+  timeFormat: '24h' | '12h';
+  uptimeSeconds: number;
+  systemDateOutput: string;
+  canSetSystemClock: boolean;
+  virtualOffsetMs: number;
 }
 
 export interface EmailConfig {

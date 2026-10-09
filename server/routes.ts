@@ -478,6 +478,13 @@ import {
   applyNginxSecurityHardening,
 } from './nginxSecurityAuditor';
 import { testLdapConnection, syncLdapDirectory, authenticateLdapUser } from './ldapManager';
+import {
+  getServerTimeInfo,
+  applySystemTimezone,
+  setServerSystemTime,
+  syncServerNtp,
+  isValidTimezone,
+} from './serverTimeManager';
 
 export const apiRouter = Router();
 
@@ -1410,8 +1417,65 @@ apiRouter.post(['/settings/general', '/system/general-settings'], async (req: Re
       if (decoded?.username) updatedBy = decoded.username;
     }
     const settingsToSave = req.body?.settings || req.body;
+    if (settingsToSave.serverTimezone && isValidTimezone(settingsToSave.serverTimezone)) {
+      applySystemTimezone(settingsToSave.serverTimezone);
+    }
     const saved = await saveGeneralSettings(settingsToSave, updatedBy);
     res.json({ success: true, settings: saved, message: 'General settings saved successfully' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Server Time & Regional Management Endpoints
+apiRouter.get('/system/time', async (_req: Request, res: Response) => {
+  try {
+    const timeInfo = await getServerTimeInfo();
+    res.json({ success: true, ...timeInfo });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/system/time/timezone', async (req: Request, res: Response) => {
+  try {
+    const tz = (req.body?.timezone || '').trim();
+    if (!tz || !isValidTimezone(tz)) {
+      return res.status(400).json({ success: false, error: 'Invalid IANA timezone identifier' });
+    }
+    applySystemTimezone(tz);
+    const updated = await saveGeneralSettings({ serverTimezone: tz });
+    const timeInfo = await getServerTimeInfo();
+    res.json({
+      success: true,
+      timezone: tz,
+      settings: updated,
+      serverTime: timeInfo,
+      message: `Server timezone successfully set to ${tz}`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/system/time/sync-ntp', async (req: Request, res: Response) => {
+  try {
+    const ntpServer = req.body?.ntpServer;
+    const result = await syncServerNtp(ntpServer);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/system/time/set-manual', async (req: Request, res: Response) => {
+  try {
+    const targetTime = req.body?.targetTime || req.body?.timestamp || req.body?.iso;
+    if (!targetTime) {
+      return res.status(400).json({ success: false, error: 'Target time/timestamp is required' });
+    }
+    const result = await setServerSystemTime(targetTime);
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

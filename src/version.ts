@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.302.0';
+export const APP_VERSION = '1.303.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.303.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'افزودن تنظیمات جامع ساعت، منطقه زمانی (Timezone) و پروتکل زمان شبکه (NTP) سرور میزبان پنل با قابلیت کالیبراسیون دستی و همگام‌سازی فوری',
+    title_en: 'Host Server Time, IANA Timezone & NTP Network Synchronization Suite in Panel General Settings with Manual Clock Calibration & Instant Sync',
+    changes: [
+      'افزودن کارت اختصاصی و پیشرفته "تنظیمات ساعت، منطقه زمانی و پروتکل NTP سرور" به بخش تنظیمات عمومی پنل (Panel General Settings).',
+      'داشبورد ساعت زنده دیجیتال با نمایش ثانیه‌شمار برخط، تاریخ میلادی، تقویم خورشیدی جلالی، نام منطقه زمانی فعال، انحراف ساعت هماهنگ جهانی (UTC Offset) و آپ‌تایم سرور.',
+      'انتخابگر جامع مناطق زمانی استاندارد IANA با دسته‌بندی منطقه‌ای (ایران و خاورمیانه، ساعت هماهنگ جهانی UTC، اروپا، آمریکا و آسیا-اقیانوسیه) به همراه قابلیت ورود شناسه دلخواه.',
+      'پشتیبانی از قالب‌های نمایش ۲۴ ساعته (NOC Standard) و ۱۲ ساعته (AM/PM) در تمامی داشبوردها و لاگ‌های پنل.',
+      'سامانه همگام‌سازی خودکار و پروتکل زمان شبکه (NTP) روی پورت UDP 123 با امکان تعریف آدرس سرور دلخواه و سرورهای آماده سازمانی (ir.pool.ntp.org، pool.ntp.org، time.google.com و time.cloudflare.com).',
+      'امکان همگام‌سازی آنی با سرور NTP با ارسال پکت واقعی RFC 5905، محاسبه دقیق تاخیر میلی‌ثانیه‌ای و انحراف کلاک.',
+      'دکمه همگام‌سازی فوری ساعت سرور با ساعت کلاینت/مرورگر اپراتور (Sync with My System).',
+      'مودال اختصاصی تنظیم دستی ساعت و تاریخ سیستم‌عامل سرور میزبان مطابق کامل با استانداردهای پنج‌گانه Universal Modal و ذخیره‌سازی دائمی در دیتابیس PostgreSQL.'
+    ],
+    changes_en: [
+      'Added comprehensive "Host Server Time, Timezone & NTP Clock" management suite to Panel General Settings.',
+      'High-precision live digital clock dashboard displaying real-time seconds, Gregorian calendar date, Persian Solar Hijri date, active IANA timezone, UTC offset pill, and system runtime uptime.',
+      'Categorized IANA timezone selection dropdown (Iran & Middle East, UTC Standard, Europe, Americas, Asia & Pacific) plus custom IANA zone text input with instant validation.',
+      'Flexible time display format switcher between 24-Hour (military/NOC standard) and 12-Hour (AM/PM) across the entire application.',
+      'Full Network Time Protocol (NTP UDP 123) integration supporting custom upstream servers and popular presets (ir.pool.ntp.org, pool.ntp.org, time.google.com, time.cloudflare.com).',
+      'Instant NTP synchronization engine performing authentic RFC 5905 UDP queries with live round-trip latency and clock drift calculations.',
+      'One-click synchronization with operator browser / local workstation system time.',
+      'Universal Modal-compliant manual server clock calibration dialog and persistent database storage across restarts in PostgreSQL.'
+    ]
+  },
   {
     version: '1.302.0',
     releaseDate: '2026-10-09',
