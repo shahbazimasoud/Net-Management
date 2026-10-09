@@ -281,7 +281,7 @@ const DEFAULT_USER_GROUPS = [
     name: 'تیم پایش و عملیات NOC (NOC Operations)',
     description: 'پایش برخط وضعیت لینک‌ها، اجرای ابزارهای عیب‌یابی و مشاهده نقشه‌ها',
     color: 'cyan',
-    member_user_ids: ['user-noc'],
+    member_user_ids: [],
     is_builtin: false,
     created_at: new Date().toISOString()
   },
@@ -290,7 +290,7 @@ const DEFAULT_USER_GROUPS = [
     name: 'کارشناسان پشتیبانی و هلپ‌دسک (Helpdesk Support)',
     description: 'پشتیبانی کاربران محلی، بررسی پورت‌ها و خطایابی کلاینت‌های شبکه',
     color: 'emerald',
-    member_user_ids: ['user-helpdesk'],
+    member_user_ids: [],
     is_builtin: false,
     created_at: new Date().toISOString()
   },
@@ -848,9 +848,10 @@ function loadFallbackStore(): FallbackStore {
     console.error('[DB Fallback] Error reading fallback store:', err);
   }
 
-  const defaultAdminHash = hashPassword('admin123', 'seed_salt_admin_2026');
-  const defaultHelpdeskHash = hashPassword('helpdesk123', 'seed_salt_helpdesk_2026');
-  const defaultNocHash = hashPassword('noc123', 'seed_salt_noc_2026');
+  // Initial admin credentials - reads password configured during panel installation in shell
+  const initialAdminPassword =
+    (process.env.ADMIN_INITIAL_PASSWORD && process.env.ADMIN_INITIAL_PASSWORD.trim()) || 'admin123';
+  const defaultAdminHash = hashPassword(initialAdminPassword, 'seed_salt_admin_2026');
 
   const defaultUsers = [
     {
@@ -867,36 +868,6 @@ function loadFallbackStore(): FallbackStore {
       is_builtin: true,
       created_at: '2026-09-14T00:00:00.000Z',
       last_login: new Date().toISOString()
-    },
-    {
-      id: 'user-helpdesk',
-      username: 'helpdesk_user',
-      password_hash: defaultHelpdeskHash.hash,
-      password_salt: defaultHelpdeskHash.salt,
-      full_name: 'کاربر هلپ‌دسک محلی (Helpdesk Local)',
-      email: 'helpdesk@nettopology.internal',
-      role: 'Helpdesk Specialist',
-      user_type: 'local',
-      status: 'active',
-      group_ids: ['group-helpdesk-ops'],
-      is_builtin: false,
-      created_at: '2026-09-14T00:00:00.000Z',
-      last_login: null
-    },
-    {
-      id: 'user-noc',
-      username: 'noc_operator',
-      password_hash: defaultNocHash.hash,
-      password_salt: defaultNocHash.salt,
-      full_name: 'اپراتور محلی NOC (Local NOC)',
-      email: 'noc@nettopology.internal',
-      role: 'NOC Analyst',
-      user_type: 'local',
-      status: 'active',
-      group_ids: ['group-noc'],
-      is_builtin: false,
-      created_at: '2026-09-14T00:00:00.000Z',
-      last_login: null
     }
   ];
 
@@ -905,15 +876,41 @@ function loadFallbackStore(): FallbackStore {
   }
 
   if (Array.isArray(store.users)) {
-    // Sanitize and filter out invalid/corrupted records that lack username
+    // Sanitize: Purge all demo users (helpdesk_user, noc_operator, field_tech) and invalid/corrupted records
     store.users = store.users.filter(
-      (u) => u && typeof u.username === 'string' && u.username.trim().length > 0
+      (u: any) =>
+        u &&
+        typeof u.username === 'string' &&
+        u.username.trim().length > 0 &&
+        !['helpdesk_user', 'noc_operator', 'field_tech'].includes(u.username.toLowerCase())
     );
-  }
-  if (!Array.isArray(store.users) || store.users.length === 0) {
+
+    // If an admin user exists, synchronize its password if ADMIN_INITIAL_PASSWORD is provided in env
+    const adminIndex = store.users.findIndex(
+      (u: any) => u && (u.username.toLowerCase() === 'admin' || u.id === 'user-admin')
+    );
+    if (adminIndex >= 0) {
+      if (process.env.ADMIN_INITIAL_PASSWORD && process.env.ADMIN_INITIAL_PASSWORD.trim().length > 0) {
+        store.users[adminIndex].password_hash = defaultAdminHash.hash;
+        store.users[adminIndex].password_salt = defaultAdminHash.salt;
+      }
+    } else {
+      store.users.unshift(defaultUsers[0]);
+    }
+  } else {
     store.users = defaultUsers;
   }
-  if (!Array.isArray(store.user_groups) || store.user_groups.length === 0) {
+
+  if (Array.isArray(store.user_groups)) {
+    // Clean demo user references from group memberships
+    store.user_groups.forEach((g: any) => {
+      if (Array.isArray(g.member_user_ids)) {
+        g.member_user_ids = g.member_user_ids.filter(
+          (m: string) => !['user-helpdesk', 'user-noc', 'helpdesk_local', 'noc_local', 'field_tech', 'helpdesk_user', 'noc_operator'].includes(m)
+        );
+      }
+    });
+  } else {
     store.user_groups = DEFAULT_USER_GROUPS;
   }
   if (!Array.isArray(store.access_policies) || store.access_policies.length === 0) {
@@ -1000,6 +997,19 @@ function saveFallbackStore(data: FallbackStore): void {
 async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackStore): Promise<void> {
   // 1. Sync Users
   try {
+    // Purge demo users from PostgreSQL database to maintain clean credentials
+    await client.query("DELETE FROM users WHERE LOWER(username) IN ('helpdesk_user', 'noc_operator', 'field_tech')");
+
+    // If ADMIN_INITIAL_PASSWORD was supplied during panel setup in shell, sync to users table
+    if (process.env.ADMIN_INITIAL_PASSWORD && process.env.ADMIN_INITIAL_PASSWORD.trim().length > 0) {
+      const adminPass = process.env.ADMIN_INITIAL_PASSWORD.trim();
+      const adminHash = hashPassword(adminPass, 'seed_salt_admin_2026');
+      await client.query(
+        "UPDATE users SET password_hash = $1, password_salt = $2 WHERE LOWER(username) = 'admin' OR id = 'user-admin'",
+        [adminHash.hash, adminHash.salt]
+      );
+    }
+
     const existingUsersRes = await client.query('SELECT id, username FROM users');
     const existingUsernames = new Set(existingUsersRes.rows.map((r: any) => (r.username || '').toLowerCase()));
     const existingIds = new Set(existingUsersRes.rows.map((r: any) => r.id));

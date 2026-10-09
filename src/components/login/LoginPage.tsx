@@ -17,7 +17,6 @@ import {
   LogIn,
   Globe,
   Database,
-  KeyRound,
   Layers,
   Palette,
   Sun,
@@ -108,10 +107,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }
         if (synced.allowedAuthMethods === 'ad_only') {
           setAuthType('ad');
-          setUsername('m.rezaei@corp.internal');
         } else if (synced.allowedAuthMethods === 'local_only') {
           setAuthType('local');
-          setUsername('admin');
         }
       }
     }).catch(() => {});
@@ -123,11 +120,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     const initial = loadGeneralSettings();
     return initial?.allowedAuthMethods === 'ad_only' ? 'ad' : 'local';
   });
-  const [username, setUsername] = useState(() => {
-    const initial = loadGeneralSettings();
-    return initial?.allowedAuthMethods === 'ad_only' ? 'm.rezaei@corp.internal' : 'admin';
-  });
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [domain, setDomain] = useState('corp.internal');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -250,13 +244,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickFill = (u: string, p: string, type: 'local' | 'ad') => {
-    setAuthType(type);
-    setUsername(u);
-    setPassword(p);
-    setErrorMsg(null);
   };
 
   return (
@@ -464,8 +451,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type="button"
                 onClick={() => {
                   setAuthType('local');
-                  setUsername('admin');
-                  setPassword('admin123');
                   setErrorMsg(null);
                 }}
                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
@@ -484,8 +469,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type="button"
                 onClick={() => {
                   setAuthType('ad');
-                  setUsername('m.rezaei@corp.internal');
-                  setPassword('admin123');
                   setErrorMsg(null);
                 }}
                 className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
@@ -735,178 +718,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </span>
             </button>
           </form>
-
-          {/* Quick Demo Fill Badges */}
-          <div
-            className={`mt-6 pt-5 border-t ${
-              isLight ? 'border-slate-200' : 'border-white/10'
-            }`}
-          >
-            <div
-              className={`flex items-center justify-between text-[11px] font-mono mb-2.5 ${
-                isLight ? 'text-slate-600' : 'text-slate-400'
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <KeyRound className="w-3.5 h-3.5 text-amber-500" />
-                <span>{isEn ? 'Quick Demo Credentials:' : 'حساب‌های پیش‌فرض تست سریع:'}</span>
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {allowedAuth !== 'ad_only' && (
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('admin', 'admin123', 'local')}
-                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                    isLight
-                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                  }`}
-                >
-                  <div
-                    className={`font-bold flex items-center justify-between ${
-                      isLight
-                        ? 'text-slate-900 group-hover:text-indigo-600'
-                        : 'text-white group-hover:text-cyan-300'
-                    }`}
-                  >
-                    <span>admin</span>
-                    <span
-                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
-                        isLight
-                          ? 'bg-indigo-100 text-indigo-800'
-                          : 'bg-indigo-500/20 text-indigo-300'
-                      }`}
-                    >
-                      Super
-                    </span>
-                  </div>
-                  <div
-                    className={`text-[10px] font-mono ${
-                      isLight ? 'text-slate-500' : 'text-slate-500'
-                    }`}
-                  >
-                    admin123
-                  </div>
-                </button>
-              )}
-
-              {allowedAuth !== 'ad_only' && (
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('helpdesk_user', 'helpdesk123', 'local')}
-                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                    isLight
-                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                  }`}
-                >
-                  <div
-                    className={`font-bold flex items-center justify-between ${
-                      isLight
-                        ? 'text-slate-900 group-hover:text-amber-700'
-                        : 'text-white group-hover:text-amber-300'
-                    }`}
-                  >
-                    <span>helpdesk_user</span>
-                    <span
-                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
-                        isLight
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-amber-500/20 text-amber-300'
-                      }`}
-                    >
-                      Ops
-                    </span>
-                  </div>
-                  <div
-                    className={`text-[10px] font-mono ${
-                      isLight ? 'text-slate-500' : 'text-slate-500'
-                    }`}
-                  >
-                    helpdesk123
-                  </div>
-                </button>
-              )}
-
-              {allowedAuth !== 'ad_only' && (
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('noc_operator', 'noc123', 'local')}
-                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                    isLight
-                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                  }`}
-                >
-                  <div
-                    className={`font-bold flex items-center justify-between ${
-                      isLight
-                        ? 'text-slate-900 group-hover:text-emerald-700'
-                        : 'text-white group-hover:text-emerald-300'
-                    }`}
-                  >
-                    <span>noc_operator</span>
-                    <span
-                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
-                        isLight
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-emerald-500/20 text-emerald-300'
-                      }`}
-                    >
-                      NOC
-                    </span>
-                  </div>
-                  <div
-                    className={`text-[10px] font-mono ${
-                      isLight ? 'text-slate-500' : 'text-slate-500'
-                    }`}
-                  >
-                    noc123
-                  </div>
-                </button>
-              )}
-
-              {allowedAuth !== 'local_only' && (
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('m.rezaei@corp.internal', 'admin123', 'ad')}
-                  className={`p-2 rounded-lg border text-left text-[11px] transition cursor-pointer group ${
-                    isLight
-                      ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-300'
-                  }`}
-                >
-                  <div
-                    className={`font-bold flex items-center justify-between ${
-                      isLight
-                        ? 'text-slate-900 group-hover:text-cyan-700'
-                        : 'text-white group-hover:text-indigo-300'
-                    }`}
-                  >
-                    <span>m.rezaei</span>
-                    <span
-                      className={`text-[9px] px-1 py-0.5 rounded font-semibold ${
-                        isLight
-                          ? 'bg-cyan-100 text-cyan-800'
-                          : 'bg-cyan-500/20 text-cyan-300'
-                      }`}
-                    >
-                      AD
-                    </span>
-                  </div>
-                  <div
-                    className={`text-[10px] font-mono ${
-                      isLight ? 'text-slate-500' : 'text-slate-500'
-                    }`}
-                  >
-                    corp.internal
-                  </div>
-                </button>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Footer Security Badges */}

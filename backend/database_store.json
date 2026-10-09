@@ -15,41 +15,7 @@
       ],
       "is_builtin": true,
       "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-02T17:45:10.494Z"
-    },
-    {
-      "id": "user-helpdesk",
-      "username": "helpdesk_user",
-      "password_hash": "8741c5889103b373d9067f0d82c48eeb203318aae4c4a7af2bb3d153e6680a7662c53e1c6ff0036c6169c87f838bb55a54e705ae2838f9e1951c37847d4c90a4",
-      "password_salt": "seed_salt_helpdesk_2026",
-      "full_name": "کاربر هلپ‌دسک محلی (Helpdesk Local)",
-      "email": "helpdesk@nettopology.internal",
-      "role": "Helpdesk Specialist",
-      "user_type": "local",
-      "status": "active",
-      "group_ids": [
-        "group-helpdesk-ops"
-      ],
-      "is_builtin": false,
-      "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": "2026-10-02T17:44:51.417Z"
-    },
-    {
-      "id": "user-noc",
-      "username": "noc_operator",
-      "password_hash": "70a5a8138a868d0b9d3c8608f61957fb8848fed8571272830c9967ce0fcdc68e0fe1b7a2bf389abd3e72b29614337076d33efc4875052113db0fca3082caf314",
-      "password_salt": "seed_salt_noc_2026",
-      "full_name": "اپراتور محلی NOC (Local NOC)",
-      "email": "noc@nettopology.internal",
-      "role": "NOC Analyst",
-      "user_type": "local",
-      "status": "active",
-      "group_ids": [
-        "group-noc"
-      ],
-      "is_builtin": false,
-      "created_at": "2026-09-14T09:35:13.477Z",
-      "last_login": null
+      "last_login": "2026-10-09T08:46:36.996Z"
     }
   ],
   "user_groups": [
@@ -76,9 +42,7 @@
       "memberUserIds": [
         "helpdesk_local"
       ],
-      "member_user_ids": [
-        "helpdesk_local"
-      ],
+      "member_user_ids": [],
       "isBuiltin": false,
       "createdAt": "2026-03-01 08:30:00",
       "updatedAt": "2026-10-01T12:38:22.368Z"
@@ -91,9 +55,7 @@
       "memberUserIds": [
         "noc_local"
       ],
-      "member_user_ids": [
-        "noc_local"
-      ],
+      "member_user_ids": [],
       "isBuiltin": false,
       "createdAt": "2026-03-02 09:15:00",
       "updatedAt": "2026-10-01T12:38:22.368Z"
@@ -106,9 +68,7 @@
       "memberUserIds": [
         "field_tech"
       ],
-      "member_user_ids": [
-        "field_tech"
-      ],
+      "member_user_ids": [],
       "isBuiltin": false,
       "createdAt": "2026-03-03 10:00:00",
       "updatedAt": "2026-10-01T12:38:22.368Z"
@@ -1254,6 +1214,30 @@
       "details": "Blocked attempt to modify field 'admin_status' requiring 'port_power' (Port Administrative Power (Shutdown/Enable)) under RBAC policy.",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1791535597230-azhtw",
+      "timestamp": "2026-10-09T08:46:37.230Z",
+      "user_name": "admin",
+      "action": "Successful User Login",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "success",
+      "details": "User \"admin\" authenticated successfully via Local Database from IP 127.0.0.1. Enforced policy: مدیر ارشد زیرساخت شبکه (Super Administrator)",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1791535602881-79uhf",
+      "timestamp": "2026-10-09T08:46:42.881Z",
+      "user_name": "helpdesk_user",
+      "action": "Failed Login (User Not Found)",
+      "category": "security",
+      "target": "Auth Gateway",
+      "status": "warning",
+      "details": "Failed local login attempt for non-existing user \"helpdesk_user\" from IP 127.0.0.1",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1"
     }
   ],
   "ad_config": {

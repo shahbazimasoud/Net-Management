@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.294.0';
+export const APP_VERSION = '1.295.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.295.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'حذف کامل کاربران آزمایشی و پنل دمو از صفحه لاگین و اتصال مستقیم کلمه عبور ادمین به شل نصب',
+    title_en: 'Purge Demo Accounts & Quick Credentials Box; Direct Superadmin Shell Installer Password Integration',
+    changes: [
+      'حذف کامل بخش حساب‌های پیش‌فرض تست سریع (Quick Demo Credentials) و دکمه‌های پرکردن سریع از صفحه ورود به منظور ارتقای امنیت عملیاتی و تطابق با استانداردهای سازمانی.',
+      'حذف و پاکسازی تمامی کاربران آزمایشی و ساختگی (شامل helpdesk_user، noc_operator و field_tech) از پایگاه داده PostgreSQL سرور، فایل ذخیره‌ساز بک‌اند و سیستم احراز هویت.',
+      'اتصال مستقیم و امن احراز هویت کاربر مدیر ارشد شبکه (admin) به کلمه عبور وارد شده در شل هنگام نصب پنل (ADMIN_INITIAL_PASSWORD) با هش‌گذاری امن SHA-256 و سالت اختصاصی.',
+      'حذف مقادیر پیش‌فرض دمو و رمزهای هاردکدشده هنگام جابجایی بین حالت‌های محلی و اکتیو دایرکتوری در فرم ورود.',
+      'پاکسازی عضویت کاربران آزمایشی از گروه‌های کاربری پیش‌فرض سیستم و رعایت صددرصدی قوانین دوزبانگی.'
+    ],
+    changes_en: [
+      'Completely eliminated the Quick Demo Credentials panel and quick-fill buttons from the login interface to achieve enterprise-grade security and production hardening.',
+      'Purged all dummy/demo accounts (including helpdesk_user, noc_operator, and field_tech) from the PostgreSQL database, backend fallback store, and authentication registries.',
+      'Connected primary superadmin (admin) credential hash directly to the ADMIN_INITIAL_PASSWORD prompt specified during shell panel installation.',
+      'Removed prefilled demo credential values and hardcoded passwords when toggling between Local and Active Directory authentication tabs.',
+      'Cleaned default user group memberships from test user associations and preserved strict bilingual consistency across all UI states.'
+    ]
+  },
   {
     version: '1.294.0',
     releaseDate: '2026-10-09',

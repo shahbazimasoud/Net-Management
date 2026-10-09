@@ -58,8 +58,6 @@ export const CustomMapManageModal: React.FC<CustomMapManageModalProps> = ({
   const [customUserCandidate, setCustomUserCandidate] = useState('');
   const [availableSystemUsers, setAvailableSystemUsers] = useState<string[]>([
     'admin',
-    'helpdesk_user',
-    'noc_operator',
   ]);
 
   const isLightMode = propIsLightMode ?? (typeof document !== 'undefined' && (
