@@ -796,6 +796,60 @@ export interface BackupAuditEntry {
   checksum?: string;
 }
 
+export interface ScheduledBackupJob {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule_type: 'hourly' | 'daily' | 'weekly' | 'custom_interval';
+  run_time: string; // e.g. "02:00"
+  days_of_week: number[]; // [0..6]
+  interval_minutes: number;
+  scope: BackupScope;
+  encrypt: boolean;
+  passphrase?: string;
+  sanitize: boolean;
+  retention_count: number;
+  retention_days: number;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_status?: 'idle' | 'running' | 'success' | 'failed';
+  last_result_details?: string | null;
+  last_backup_file?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ServerArchiveItem {
+  id: string;
+  filename: string;
+  filePath: string;
+  fileSize: number;
+  fileSizeFormatted: string;
+  createdAt: string;
+  createdAtFormatted: string;
+  scope: string;
+  scopeLabel: string;
+  scopeLabel_en?: string;
+  isEncrypted: boolean;
+  isSanitized: boolean;
+  checksumSha256: string;
+  storageEngine: string;
+  jobId?: string;
+  jobName?: string;
+  counts: {
+    servers: number;
+    serverCategories: number;
+    devices: number;
+    devicePlacements: number;
+    deviceGroups: number;
+    stickyNotes: number;
+    customMaps: number;
+    users: number;
+    userGroups: number;
+    accessPolicies: number;
+  };
+}
+
 // ==========================================
 // Centralized Enterprise Audit & Activity Logs System
 // ==========================================

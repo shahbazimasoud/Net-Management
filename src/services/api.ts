@@ -7307,4 +7307,171 @@ export async function fetchDrStatusApi(): Promise<{
   return res.json();
 }
 
+// ==============================================================================
+// Phase 2: Server Storage Archive & Automated Scheduler Client APIs
+// ==============================================================================
+
+export async function fetchServerArchiveBackupsApi(): Promise<{
+  success: boolean;
+  backups: any[];
+  totalCount: number;
+  timestamp: string;
+  error?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/server-archive`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch server backup archive');
+  }
+  return data;
+}
+
+export function getServerArchiveDownloadUrl(fileId: string): string {
+  return `${API_BASE}/backup/server-archive/${encodeURIComponent(fileId)}/download`;
+}
+
+export async function deleteServerArchiveBackupApi(fileId: string): Promise<{
+  success: boolean;
+  message: string;
+  message_en: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/server-archive/${encodeURIComponent(fileId)}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to delete backup from server archive');
+  }
+  return data;
+}
+
+export async function restoreServerArchiveBackupApi(
+  fileId: string,
+  options: { passphrase?: string; mode?: 'overwrite' | 'merge' } = {}
+): Promise<{
+  success: boolean;
+  mode: string;
+  snapshotId: string;
+  restoredCounts: Record<string, number>;
+  durationMs: number;
+  message: string;
+  message_en: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/server-archive/${encodeURIComponent(fileId)}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to restore backup from server archive');
+  }
+  return data;
+}
+
+export async function createManualServerArchiveBackupApi(options: {
+  scope?: string;
+  sanitize?: boolean;
+  encrypt?: boolean;
+  passphrase?: string;
+  customNote?: string;
+} = {}): Promise<{
+  success: boolean;
+  filename: string;
+  metadata: any;
+  message: string;
+  message_en: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/server-archive/create-manual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to create server archive backup');
+  }
+  return data;
+}
+
+export async function fetchBackupSchedulesApi(): Promise<{
+  success: boolean;
+  jobs: any[];
+  totalCount: number;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/schedules`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch backup schedules');
+  }
+  return data;
+}
+
+export async function createBackupScheduleApi(jobData: any): Promise<{
+  success: boolean;
+  job: any;
+  message: string;
+  message_en: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/schedules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(jobData),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to create backup schedule');
+  }
+  return data;
+}
+
+export async function updateBackupScheduleApi(id: string, jobData: any): Promise<{
+  success: boolean;
+  job: any;
+  message: string;
+  message_en: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/schedules/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(jobData),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to update backup schedule');
+  }
+  return data;
+}
+
+export async function deleteBackupScheduleApi(id: string): Promise<{
+  success: boolean;
+  message: string;
+  message_en: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/schedules/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to delete backup schedule');
+  }
+  return data;
+}
+
+export async function runBackupScheduleNowApi(id: string): Promise<{
+  success: boolean;
+  backupFile: string;
+  durationMs: number;
+  message: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/schedules/${encodeURIComponent(id)}/run-now`, {
+    method: 'POST',
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to run backup schedule');
+  }
+  return data;
+}
+
 

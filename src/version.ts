@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.296.0';
+export const APP_VERSION = '1.297.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.297.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'پیاده‌سازی موتور زمان‌بندی خودکار پشتیبان‌گیری (Cron Daemon)، آرشیو ذخیره‌ساز سرور و اعمال سیاست‌های نگهداری (Retention Policy)',
+    title_en: 'Automated Disaster Recovery Scheduler (Cron Daemon), Server Storage Archive & Retention Policy Engine',
+    changes: [
+      'پیاده‌سازی سرویس دائمی زمان‌بندی پشتیبان‌گیری خودکار (Cron Daemon در سرور) با قابلیت اجرای دوره‌ای جاب‌های تعریف‌شده (ساعتی، روزانه، هفتگی و فواصل سفارشی).',
+      'پشتیبانی کامل از انتخاب دامنه پشتیبان‌گیری برای هر جاب زمان‌بندی‌شده (بازیابی از فاجعه جامع، فقط سرورها، امنیت و دسترسی‌ها، تجهیزات و توپولوژی).',
+      'ذخیره‌سازی مستقیم، محافظت‌شده و ساختاریافته فایل‌های پشتیبان در دایرکتوری آرشیو سرور (backend/server_backups) با پشتیبانی از فشرده‌سازی و رمزنگاری داده‌ها.',
+      'موتور اجرای هوشمند سیاست نگهداری (Retention Policy) با قابلیت پالایش خودکار بر اساس سقف تعداد فایل‌ها (Retention Count) و حداکثر طول عمر بر حسب روز (Retention Days) جهت جلوگیری از اشغال فضای دیسک سرور.',
+      'ایجاد اندپوینت‌های جامع مدیریت آرشیو سرور شامل مشاهده لیست فایل‌های ذخیره‌شده، دانلود مستقیم، حذف ایمن و بازگردانی فوری با یک کلیک (1-Click Restore).',
+      'توسعه متدهای کلاینت در لایه سرویس فرانت‌اند و رعایت کامل اصول عدم داده ساختگی و چندزبانگی دقیق (i18n).'
+    ],
+    changes_en: [
+      'Engineered an automated background Disaster Recovery scheduler daemon (Cron Daemon) with support for periodic job executions (hourly, daily, weekly, and custom intervals).',
+      'Added granular backup scope configuration per scheduled job (Full Disaster Recovery, Server Fleet Only, Security & RBAC, Devices & Topology).',
+      'Automated secure snapshot persistence directly within protected server disk storage (backend/server_backups) with encryption and compression support.',
+      'Implemented automated Retention Policy enforcement engine pruning surplus snapshots based on maximum file count and age in days to preserve disk space.',
+      'Implemented full suite of server archive management endpoints: list stored backups, direct download, safe deletion, and instant 1-click server-side restoration.',
+      'Integrated frontend service layer client methods and verified strict zero-mock data integrity and complete bilingual localization.'
+    ]
+  },
   {
     version: '1.296.0',
     releaseDate: '2026-10-09',

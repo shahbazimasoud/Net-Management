@@ -194,7 +194,68 @@ export interface FallbackStore {
   user_password_vault?: UserVaultItem[];
   bulk_server_reports?: any[];
   general_settings?: PanelGeneralSettings;
+  scheduled_backup_jobs?: ScheduledBackupJob[];
 }
+
+export interface ScheduledBackupJob {
+  id: string;
+  name: string;
+  enabled: boolean;
+  schedule_type: 'hourly' | 'daily' | 'weekly' | 'custom_interval';
+  run_time: string; // e.g. "02:00"
+  days_of_week: number[]; // [0..6]
+  interval_minutes: number;
+  scope: 'full' | 'devices_topology' | 'security_rbac' | 'servers_only' | 'templates_only';
+  encrypt: boolean;
+  passphrase?: string;
+  sanitize: boolean;
+  retention_count: number;
+  retention_days: number;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_status?: 'idle' | 'running' | 'success' | 'failed';
+  last_result_details?: string | null;
+  last_backup_file?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const DEFAULT_SCHEDULED_BACKUP_JOBS: ScheduledBackupJob[] = [
+  {
+    id: 'job-daily-dr',
+    name: 'Daily Disaster Recovery Snapshot (بکاپ جامع روزانه)',
+    enabled: true,
+    schedule_type: 'daily',
+    run_time: '03:00',
+    days_of_week: [0, 1, 2, 3, 4, 5, 6],
+    interval_minutes: 1440,
+    scope: 'full',
+    encrypt: false,
+    sanitize: false,
+    retention_count: 10,
+    retention_days: 30,
+    last_status: 'idle',
+    created_at: '2026-09-14T00:00:00.000Z',
+    updated_at: '2026-09-14T00:00:00.000Z',
+  },
+  {
+    id: 'job-servers-fleet',
+    name: 'Server Fleet Configuration Backup (بکاپ ناوگان سرورها)',
+    enabled: true,
+    schedule_type: 'daily',
+    run_time: '04:00',
+    days_of_week: [0, 1, 2, 3, 4, 5, 6],
+    interval_minutes: 1440,
+    scope: 'servers_only',
+    encrypt: false,
+    sanitize: false,
+    retention_count: 14,
+    retention_days: 14,
+    last_status: 'idle',
+    created_at: '2026-09-14T00:00:00.000Z',
+    updated_at: '2026-09-14T00:00:00.000Z',
+  },
+];
 
 export interface DevicePlacementRecord {
   id: string;
@@ -969,6 +1030,9 @@ export function loadFallbackStore(): FallbackStore {
   }
   if (!Array.isArray(store.bulk_server_reports)) {
     store.bulk_server_reports = [];
+  }
+  if (!Array.isArray(store.scheduled_backup_jobs) || store.scheduled_backup_jobs.length === 0) {
+    store.scheduled_backup_jobs = [...DEFAULT_SCHEDULED_BACKUP_JOBS];
   }
   if (!Array.isArray(store.audit_logs)) {
     store.audit_logs = [
@@ -1825,6 +1889,33 @@ export async function initDatabase(): Promise<void> {
           updated_by VARCHAR(128)
         )
       `);
+
+      // 15. Scheduled Backup Jobs
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS scheduled_backup_jobs (
+          id VARCHAR(64) PRIMARY KEY,
+          name VARCHAR(128) NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          schedule_type VARCHAR(32) NOT NULL DEFAULT 'daily',
+          run_time VARCHAR(16) DEFAULT '02:00',
+          days_of_week JSONB DEFAULT '[0,1,2,3,4,5,6]'::jsonb,
+          interval_minutes INT DEFAULT 1440,
+          scope VARCHAR(64) NOT NULL DEFAULT 'full',
+          encrypt BOOLEAN NOT NULL DEFAULT FALSE,
+          passphrase TEXT DEFAULT '',
+          sanitize BOOLEAN NOT NULL DEFAULT FALSE,
+          retention_count INT NOT NULL DEFAULT 10,
+          retention_days INT NOT NULL DEFAULT 30,
+          last_run_at TIMESTAMP WITH TIME ZONE,
+          next_run_at TIMESTAMP WITH TIME ZONE,
+          last_status VARCHAR(32) DEFAULT 'idle',
+          last_result_details TEXT,
+          last_backup_file VARCHAR(255),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_backup_jobs_enabled ON scheduled_backup_jobs(enabled)");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -6116,6 +6207,133 @@ export async function getBulkServerReportsStorageStats(): Promise<{
     totalReports: reports.length,
     isPostgresReady: false,
   };
+}
+
+// ==============================================================================
+// Scheduled Backup Jobs (PostgreSQL & Fallback Store)
+// ==============================================================================
+
+export async function getAllScheduledBackupJobs(): Promise<ScheduledBackupJob[]> {
+  if (pool) {
+    try {
+      const res = await pool.query('SELECT * FROM scheduled_backup_jobs ORDER BY created_at ASC');
+      if (res.rows.length > 0) {
+        return res.rows.map((row: any) => ({
+          ...row,
+          days_of_week: typeof row.days_of_week === 'string' ? JSON.parse(row.days_of_week) : (row.days_of_week || [0, 1, 2, 3, 4, 5, 6]),
+        }));
+      }
+    } catch (e: any) {
+      console.warn('[DB Error getAllScheduledBackupJobs, falling back to local store]', e.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  return Array.isArray(store.scheduled_backup_jobs) ? store.scheduled_backup_jobs : [...DEFAULT_SCHEDULED_BACKUP_JOBS];
+}
+
+export async function getScheduledBackupJobById(id: string): Promise<ScheduledBackupJob | null> {
+  const all = await getAllScheduledBackupJobs();
+  return all.find((j) => j.id === id) || null;
+}
+
+export async function saveScheduledBackupJob(job: ScheduledBackupJob): Promise<ScheduledBackupJob> {
+  if (!job.id) {
+    job.id = `job-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  }
+  const now = new Date().toISOString();
+  if (!job.created_at) job.created_at = now;
+  job.updated_at = now;
+
+  if (pool) {
+    try {
+      await pool.query(
+        `INSERT INTO scheduled_backup_jobs (
+           id, name, enabled, schedule_type, run_time, days_of_week, interval_minutes,
+           scope, encrypt, passphrase, sanitize, retention_count, retention_days,
+           last_run_at, next_run_at, last_status, last_result_details, last_backup_file,
+           created_at, updated_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12, $13,
+           $14, $15, $16, $17, $18,
+           COALESCE($19, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP
+         ) ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           enabled = EXCLUDED.enabled,
+           schedule_type = EXCLUDED.schedule_type,
+           run_time = EXCLUDED.run_time,
+           days_of_week = EXCLUDED.days_of_week,
+           interval_minutes = EXCLUDED.interval_minutes,
+           scope = EXCLUDED.scope,
+           encrypt = EXCLUDED.encrypt,
+           passphrase = EXCLUDED.passphrase,
+           sanitize = EXCLUDED.sanitize,
+           retention_count = EXCLUDED.retention_count,
+           retention_days = EXCLUDED.retention_days,
+           last_run_at = EXCLUDED.last_run_at,
+           next_run_at = EXCLUDED.next_run_at,
+           last_status = EXCLUDED.last_status,
+           last_result_details = EXCLUDED.last_result_details,
+           last_backup_file = EXCLUDED.last_backup_file,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          job.id,
+          job.name,
+          job.enabled,
+          job.schedule_type || 'daily',
+          job.run_time || '02:00',
+          JSON.stringify(job.days_of_week || [0, 1, 2, 3, 4, 5, 6]),
+          job.interval_minutes || 1440,
+          job.scope || 'full',
+          !!job.encrypt,
+          job.passphrase || '',
+          !!job.sanitize,
+          job.retention_count || 10,
+          job.retention_days || 30,
+          job.last_run_at || null,
+          job.next_run_at || null,
+          job.last_status || 'idle',
+          job.last_result_details || null,
+          job.last_backup_file || null,
+          job.created_at || null,
+        ]
+      );
+    } catch (e: any) {
+      console.error('[DB Error saveScheduledBackupJob in PostgreSQL]', e.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.scheduled_backup_jobs)) {
+    store.scheduled_backup_jobs = [];
+  }
+  const idx = store.scheduled_backup_jobs.findIndex((j) => j.id === job.id);
+  if (idx !== -1) {
+    store.scheduled_backup_jobs[idx] = job;
+  } else {
+    store.scheduled_backup_jobs.push(job);
+  }
+  saveFallbackStore(store);
+
+  return job;
+}
+
+export async function deleteScheduledBackupJob(id: string): Promise<boolean> {
+  if (pool) {
+    try {
+      await pool.query('DELETE FROM scheduled_backup_jobs WHERE id = $1', [id]);
+    } catch (e: any) {
+      console.error('[DB Error deleteScheduledBackupJob in PostgreSQL]', e.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (Array.isArray(store.scheduled_backup_jobs)) {
+    store.scheduled_backup_jobs = store.scheduled_backup_jobs.filter((j) => j.id !== id);
+    saveFallbackStore(store);
+  }
+  return true;
 }
 
 

@@ -1346,6 +1346,54 @@
       "details": "Restored merge DR package in 136ms. Restored: 0 servers, 0 devices, 0 users.",
       "ip_address": "127.0.0.1",
       "user_agent": "curl/7.88.1"
+    },
+    {
+      "id": "log-1791539134025-tlh3b",
+      "timestamp": "2026-10-09T09:45:34.025Z",
+      "user_name": "test_runner",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: full (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported full backup. Servers: 0, Devices: 10, Users: 1. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1791539134225-jn76v",
+      "timestamp": "2026-10-09T09:45:34.225Z",
+      "user_name": "test_runner",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Daily Disaster Recovery Snapshot (بکاپ جامع روزانه) (job-daily-dr)",
+      "status": "success",
+      "details": "Backup generated successfully in 434ms. File: auto_backup_full_2026-10-09T09-45-34-087Z_job-daily-dr.json (39.06 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
+    },
+    {
+      "id": "log-1791539144541-agy35",
+      "timestamp": "2026-10-09T09:45:44.541Z",
+      "user_name": "admin",
+      "action": "BACKUP_RESTORE",
+      "category": "disaster_recovery",
+      "target": "Mode: merge (Snapshot: snap_1791539144479)",
+      "status": "success",
+      "details": "Restored merge DR package in 126ms. Restored: 0 servers, 10 devices, 1 users.",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1791539149817-17xqv",
+      "timestamp": "2026-10-09T09:45:49.817Z",
+      "user_name": "admin",
+      "action": "BACKUP_FILE_DELETE",
+      "category": "disaster_recovery",
+      "target": "auto_backup_full_2026-10-09T09-45-34-087Z_job-daily-dr.json",
+      "status": "success",
+      "details": "Backup archive file auto_backup_full_2026-10-09T09-45-34-087Z_job-daily-dr.json deleted from server disk storage.",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
     }
   ],
   "ad_config": {
@@ -1956,5 +2004,61 @@
     "systemDebugLogging": false,
     "updatedAt": "2026-10-06T07:51:49.935Z",
     "updatedBy": "admin"
-  }
+  },
+  "scheduled_backup_jobs": [
+    {
+      "id": "job-daily-dr",
+      "name": "Daily Disaster Recovery Snapshot (بکاپ جامع روزانه)",
+      "enabled": true,
+      "schedule_type": "daily",
+      "run_time": "03:00",
+      "days_of_week": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "interval_minutes": 1440,
+      "scope": "full",
+      "encrypt": false,
+      "sanitize": false,
+      "retention_count": 10,
+      "retention_days": 30,
+      "last_status": "success",
+      "created_at": "2026-09-14T00:00:00.000Z",
+      "updated_at": "2026-10-09T09:45:34.158Z",
+      "last_run_at": "2026-10-09T09:45:34.158Z",
+      "next_run_at": "2026-10-10T03:00:00.000Z",
+      "last_result_details": "Backup generated successfully in 434ms. File: auto_backup_full_2026-10-09T09-45-34-087Z_job-daily-dr.json (39.06 KB).",
+      "last_backup_file": "auto_backup_full_2026-10-09T09-45-34-087Z_job-daily-dr.json"
+    },
+    {
+      "id": "job-servers-fleet",
+      "name": "Server Fleet Configuration Backup (بکاپ ناوگان سرورها)",
+      "enabled": true,
+      "schedule_type": "daily",
+      "run_time": "04:00",
+      "days_of_week": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "interval_minutes": 1440,
+      "scope": "servers_only",
+      "encrypt": false,
+      "sanitize": false,
+      "retention_count": 14,
+      "retention_days": 14,
+      "last_status": "idle",
+      "created_at": "2026-09-14T00:00:00.000Z",
+      "updated_at": "2026-09-14T00:00:00.000Z"
+    }
+  ]
 }

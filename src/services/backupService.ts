@@ -34,6 +34,16 @@ import {
   fetchDrSnapshotApi,
   rollbackDrSnapshotApi,
   fetchDrStatusApi,
+  fetchServerArchiveBackupsApi,
+  getServerArchiveDownloadUrl,
+  deleteServerArchiveBackupApi,
+  restoreServerArchiveBackupApi,
+  createManualServerArchiveBackupApi,
+  fetchBackupSchedulesApi,
+  createBackupScheduleApi,
+  updateBackupScheduleApi,
+  deleteBackupScheduleApi,
+  runBackupScheduleNowApi,
 } from './api';
 import { APP_VERSION } from '../version';
 
@@ -674,6 +684,16 @@ export {
   fetchDrSnapshotApi,
   rollbackDrSnapshotApi,
   fetchDrStatusApi,
+  fetchServerArchiveBackupsApi,
+  getServerArchiveDownloadUrl,
+  deleteServerArchiveBackupApi,
+  restoreServerArchiveBackupApi,
+  createManualServerArchiveBackupApi,
+  fetchBackupSchedulesApi,
+  createBackupScheduleApi,
+  updateBackupScheduleApi,
+  deleteBackupScheduleApi,
+  runBackupScheduleNowApi,
 };
 
 // ==========================================

@@ -422,4 +422,30 @@ CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_template ON bulk_server_repor
 CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_status ON bulk_server_reports(status);
 CREATE INDEX IF NOT EXISTS idx_bulk_server_reports_job_id ON bulk_server_reports(job_id);
 
+-- 17. Automated Scheduled Disaster Recovery Backup Jobs
+CREATE TABLE IF NOT EXISTS scheduled_backup_jobs (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    schedule_type VARCHAR(32) NOT NULL DEFAULT 'daily', -- 'hourly' | 'daily' | 'weekly' | 'custom_interval'
+    run_time VARCHAR(16) DEFAULT '02:00',
+    days_of_week JSONB DEFAULT '[0,1,2,3,4,5,6]'::jsonb,
+    interval_minutes INT DEFAULT 1440,
+    scope VARCHAR(64) NOT NULL DEFAULT 'full',
+    encrypt BOOLEAN NOT NULL DEFAULT FALSE,
+    passphrase TEXT DEFAULT '',
+    sanitize BOOLEAN NOT NULL DEFAULT FALSE,
+    retention_count INT NOT NULL DEFAULT 10,
+    retention_days INT NOT NULL DEFAULT 30,
+    last_run_at TIMESTAMP WITH TIME ZONE,
+    next_run_at TIMESTAMP WITH TIME ZONE,
+    last_status VARCHAR(32) DEFAULT 'idle', -- 'idle' | 'running' | 'success' | 'failed'
+    last_result_details TEXT,
+    last_backup_file VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_backup_jobs_enabled ON scheduled_backup_jobs(enabled);
+
 

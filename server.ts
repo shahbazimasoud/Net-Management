@@ -42,6 +42,7 @@ import { setupTerminalWebSocket } from './server/terminalWs';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
+import { startBackupSchedulerDaemon } from './server/backupScheduler';
 
 const app = express();
 
@@ -1308,6 +1309,8 @@ async function startServer() {
 
   server.listen(PORT, HOST, () => {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);
+    // Start automated disaster recovery backup scheduler daemon
+    startBackupSchedulerDaemon();
   });
 }
 

@@ -26,6 +26,15 @@ import {
   getDisasterRecoveryStatus,
 } from './backupEngine';
 import {
+  listServerArchiveBackups,
+  getServerArchiveBackupPath,
+  deleteServerArchiveBackup,
+  restoreServerArchiveBackup,
+  executeScheduledJob,
+  ensureBackupsDir,
+  calculateNextRunDate,
+} from './backupScheduler';
+import {
   getDbStatus,
   findUserByUsername,
   findUserById,
@@ -87,6 +96,11 @@ import {
   saveUserVaultItem,
   deleteUserVaultItem,
   UserVaultItem,
+  getAllScheduledBackupJobs,
+  getScheduledBackupJobById,
+  saveScheduledBackupJob,
+  deleteScheduledBackupJob,
+  ScheduledBackupJob,
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
 import {
@@ -14338,6 +14352,334 @@ apiRouter.get('/backup/status', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==============================================================================
+// Phase 2: Server Storage Archive & Automated Scheduler Engine
+// ==============================================================================
+
+// GET /api/backup/server-archive - List all backup packages stored on server disk
+apiRouter.get('/backup/server-archive', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'export');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const archiveItems = await listServerArchiveBackups();
+    res.json({
+      success: true,
+      backups: archiveItems,
+      totalCount: archiveItems.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[API /backup/server-archive error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve server backup archive: ' + err.message,
+    });
+  }
+});
+
+// GET /api/backup/server-archive/:fileId/download - Direct download of stored server backup
+apiRouter.get('/backup/server-archive/:fileId/download', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'export');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const fileId = req.params.fileId;
+    const targetPath = getServerArchiveBackupPath(fileId);
+    if (!targetPath) {
+      return res.status(404).json({ success: false, error: 'Backup file not found in server archive' });
+    }
+
+    res.download(targetPath, fileId);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/backup/server-archive/:fileId - Delete a backup file from server archive
+apiRouter.delete('/backup/server-archive/:fileId', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'import');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const fileId = req.params.fileId;
+    await deleteServerArchiveBackup(fileId, auth.username);
+
+    res.json({
+      success: true,
+      message: `فایل پشتیبان ${fileId} با موفقیت از آرشیو سرور حذف گردید.`,
+      message_en: `Backup file ${fileId} successfully deleted from server archive.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/backup/server-archive/:fileId/restore - 1-Click Server-Side Restore from stored archive
+apiRouter.post('/backup/server-archive/:fileId/restore', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'import');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const fileId = req.params.fileId;
+    const passphrase = typeof req.body.passphrase === 'string' ? req.body.passphrase : undefined;
+    const mode = req.body.mode === 'merge' ? 'merge' : 'overwrite';
+
+    const ip = getClientIp(req);
+    const userAgent = req.headers['user-agent'] as string | undefined;
+
+    const restoreResult = await restoreServerArchiveBackup(fileId, {
+      passphrase,
+      mode,
+      performedBy: {
+        username: auth.username,
+        role: auth.role,
+        ip,
+        userAgent,
+      },
+    });
+
+    res.json({
+      success: true,
+      ...restoreResult,
+    });
+  } catch (err: any) {
+    console.error('[API /backup/server-archive/:fileId/restore error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Direct server restore failed: ' + err.message,
+    });
+  }
+});
+
+// POST /api/backup/server-archive/create-manual - Create immediate backup directly into server archive
+apiRouter.post('/backup/server-archive/create-manual', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'export');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const scope = (req.body.scope as any) || 'full';
+    const sanitize = !!req.body.sanitize;
+    const encrypt = !!req.body.encrypt;
+    const passphrase = typeof req.body.passphrase === 'string' ? req.body.passphrase : undefined;
+    const customNote = typeof req.body.customNote === 'string' ? req.body.customNote : undefined;
+
+    const ip = getClientIp(req);
+    const userAgent = req.headers['user-agent'] as string | undefined;
+
+    const exportResult = await exportDatabaseBackup({
+      scope,
+      sanitize,
+      encrypt,
+      passphrase,
+      format: 'json',
+      customNote: customNote || 'Manual server archive snapshot',
+      requestedBy: {
+        username: auth.username,
+        role: auth.role,
+        ip,
+        userAgent,
+      },
+    });
+
+    const dir = ensureBackupsDir();
+    const targetPath = `${dir}/${exportResult.filename}`;
+    fs.writeFileSync(targetPath, JSON.stringify(exportResult.package, null, 2), 'utf-8');
+
+    res.json({
+      success: true,
+      filename: exportResult.filename,
+      metadata: exportResult.metadata,
+      message: `بکاپ با موفقیت در آرشیو محافظت‌شده سرور ذخیره گردید (${exportResult.filename}).`,
+      message_en: `Backup successfully saved to protected server archive (${exportResult.filename}).`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/backup/schedules - List all scheduled backup jobs
+apiRouter.get('/backup/schedules', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'export');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const jobs = await getAllScheduledBackupJobs();
+    res.json({
+      success: true,
+      jobs,
+      totalCount: jobs.length,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/backup/schedules - Create a new scheduled backup job
+apiRouter.post('/backup/schedules', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'import');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const body = req.body || {};
+    if (!body.name || typeof body.name !== 'string') {
+      return res.status(400).json({ success: false, error: 'Job name is required' });
+    }
+
+    const now = new Date();
+    const nextRun = calculateNextRunDate(
+      body.schedule_type || 'daily',
+      body.run_time || '02:00',
+      body.days_of_week || [0, 1, 2, 3, 4, 5, 6],
+      body.interval_minutes || 1440,
+      now
+    );
+
+    const newJob: ScheduledBackupJob = {
+      id: `job-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: body.name.trim(),
+      enabled: body.enabled !== undefined ? !!body.enabled : true,
+      schedule_type: body.schedule_type || 'daily',
+      run_time: body.run_time || '02:00',
+      days_of_week: Array.isArray(body.days_of_week) ? body.days_of_week : [0, 1, 2, 3, 4, 5, 6],
+      interval_minutes: body.interval_minutes || 1440,
+      scope: body.scope || 'full',
+      encrypt: !!body.encrypt,
+      passphrase: body.passphrase || '',
+      sanitize: !!body.sanitize,
+      retention_count: body.retention_count || 10,
+      retention_days: body.retention_days || 30,
+      last_run_at: null,
+      next_run_at: nextRun.toISOString(),
+      last_status: 'idle',
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    const saved = await saveScheduledBackupJob(newJob);
+    res.json({
+      success: true,
+      job: saved,
+      message: 'برنامه زمانبندی جدید با موفقیت ایجاد گردید.',
+      message_en: 'Scheduled backup job created successfully.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/backup/schedules/:id - Update an existing schedule job
+apiRouter.put('/backup/schedules/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'import');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const id = req.params.id;
+    const existing = await getScheduledBackupJobById(id);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Scheduled backup job not found' });
+    }
+
+    const body = req.body || {};
+    const now = new Date();
+    const scheduleType = body.schedule_type !== undefined ? body.schedule_type : existing.schedule_type;
+    const runTime = body.run_time !== undefined ? body.run_time : existing.run_time;
+    const daysOfWeek = body.days_of_week !== undefined ? body.days_of_week : existing.days_of_week;
+    const intervalMinutes = body.interval_minutes !== undefined ? body.interval_minutes : existing.interval_minutes;
+
+    const nextRun = calculateNextRunDate(scheduleType, runTime, daysOfWeek, intervalMinutes, now);
+
+    const updated: ScheduledBackupJob = {
+      ...existing,
+      name: body.name !== undefined ? body.name.trim() : existing.name,
+      enabled: body.enabled !== undefined ? !!body.enabled : existing.enabled,
+      schedule_type: scheduleType,
+      run_time: runTime,
+      days_of_week: daysOfWeek,
+      interval_minutes: intervalMinutes,
+      scope: body.scope !== undefined ? body.scope : existing.scope,
+      encrypt: body.encrypt !== undefined ? !!body.encrypt : existing.encrypt,
+      passphrase: body.passphrase !== undefined ? body.passphrase : existing.passphrase,
+      sanitize: body.sanitize !== undefined ? !!body.sanitize : existing.sanitize,
+      retention_count: body.retention_count !== undefined ? body.retention_count : existing.retention_count,
+      retention_days: body.retention_days !== undefined ? body.retention_days : existing.retention_days,
+      next_run_at: nextRun.toISOString(),
+      updated_at: now.toISOString(),
+    };
+
+    const saved = await saveScheduledBackupJob(updated);
+    res.json({
+      success: true,
+      job: saved,
+      message: 'برنامه زمانبندی با موفقیت به‌روزرسانی شد.',
+      message_en: 'Scheduled backup job updated successfully.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/backup/schedules/:id - Delete a scheduled backup job
+apiRouter.delete('/backup/schedules/:id', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'import');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const id = req.params.id;
+    await deleteScheduledBackupJob(id);
+
+    res.json({
+      success: true,
+      message: 'برنامه زمانبندی با موفقیت حذف گردید.',
+      message_en: 'Scheduled backup job deleted successfully.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/backup/schedules/:id/run-now - Trigger immediate execution of a scheduled job
+apiRouter.post('/backup/schedules/:id/run-now', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'export');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const id = req.params.id;
+    const runResult = await executeScheduledJob(id, auth.username);
+
+    res.json({
+      success: true,
+      ...runResult,
+    });
+  } catch (err: any) {
+    console.error('[API /backup/schedules/:id/run-now error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Job execution failed: ' + err.message,
+    });
   }
 });
 
