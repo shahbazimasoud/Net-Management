@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.295.0';
+export const APP_VERSION = '1.296.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.296.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'توسعه موتور جامع سرور برای بازیابی از فاجعه (Server-Side DR Engine) و بازگردانی اتمیک با پشتیبانی کامل از ناوگان سرورها',
+    title_en: 'Enterprise Server-Side Disaster Recovery (DR) Engine with Atomic PostgreSQL Backup & Restore and Server Fleet Integration',
+    changes: [
+      'پیاده‌سازی موتور جامع و مستقل بازیابی از فاجعه (Server-Side DR Engine) در بک‌اند سرور با اندپوینت‌های معتبر و اتمیک.',
+      'افزودن اندپوینت GET /api/backup/export جهت استخراج مستقیم و معتبر تمام جداول پایگاه داده PostgreSQL سرور (شامل سرورهای ریموت، دسته‌بندی‌ها، تجهیزات، جانمایی‌های فیزیکی، نقشه‌ها، یادداشت‌ها، کاربران، پالیسی‌های RBAC و تنظیمات اکتیو دایرکتوری) با پشتیبانی از خروجی‌های JSON استاندارد، پکیج رمزنگاری‌شده با AES-256-GCM و دامپ SQL.',
+      'افزودن اندپوینت POST /api/backup/restore جهت بازگردانی اتمیک مبتنی بر تراکنش (PostgreSQL Transaction BEGIN/COMMIT/ROLLBACK) با پشتیبانی از دو حالت جایگزینی کامل (Full Overwrite) و ادغام هوشمند (Smart Merge).',
+      'ایجاد سیستم اسنپ‌شات ایمنی خودکار پیش از بازگردانی (Pre-Restore Safety Snapshot) در سرور با قابلیت Rollback فوری در اندپوینت /api/backup/rollback.',
+      'الحاق کامل ناوگان سرورها (remote_servers و server_categories)، جانمایی‌های رک و طبقات (device_placements) و تنظیمات عمومی پنل به بسته‌های پشتیبان.',
+      'همگام‌سازی کامل رابط کاربری پورتال پشتیبان‌گیری و سرویس فرانت‌اند با اندپوینت‌های جدید سرور و رعایت کامل قوانین دوزبانگی.'
+    ],
+    changes_en: [
+      'Engineered an authoritative, production-grade server-side Disaster Recovery (DR) engine with atomic PostgreSQL endpoints.',
+      'Created GET /api/backup/export endpoint for direct extraction of all server database tables (remote servers, categories, network devices, rack placements, custom maps, sticky notes, users, RBAC policies, and Active Directory settings) supporting JSON, AES-256-GCM encryption, and PostgreSQL SQL dumps.',
+      'Created POST /api/backup/restore endpoint for atomic transaction-based restoration (PostgreSQL BEGIN/COMMIT/ROLLBACK) with full support for both Full Overwrite and Smart Merge strategies.',
+      'Implemented automatic pre-restore safety snapshot capture on the server with instant rollback capability via /api/backup/rollback.',
+      'Fully integrated remote server fleets (remote_servers and server_categories), rack/unit placements (device_placements), and general panel settings into all backup packages.',
+      'Synchronized frontend Backup Portal UI and client service layer with new server DR endpoints, preserving strict bilingual consistency.'
+    ]
+  },
   {
     version: '1.295.0',
     releaseDate: '2026-10-09',

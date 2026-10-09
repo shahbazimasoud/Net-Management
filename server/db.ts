@@ -71,6 +71,14 @@ let pool: Pool | null = null;
 let isPostgresReady = false;
 let lastError: string | null = null;
 
+export function getPgPool(): Pool | null {
+  return pool;
+}
+
+export function isPostgresConnected(): boolean {
+  return isPostgresReady && pool !== null;
+}
+
 export async function ensurePostgresConnection(): Promise<boolean> {
   if (isPostgresReady && pool) {
     try {
@@ -167,7 +175,7 @@ export interface RemoteServer {
   updated_at?: string;
 }
 
-interface FallbackStore {
+export interface FallbackStore {
   users: any[];
   user_groups: any[];
   access_policies: any[];
@@ -837,7 +845,7 @@ export const DEFAULT_SERVER_CATEGORIES: ServerCategory[] = [
 
 export const DEFAULT_REMOTE_SERVERS: RemoteServer[] = [];
 
-function loadFallbackStore(): FallbackStore {
+export function loadFallbackStore(): FallbackStore {
   let store: any = null;
   try {
     if (fs.existsSync(FALLBACK_FILE)) {
@@ -982,7 +990,7 @@ function loadFallbackStore(): FallbackStore {
   return store;
 }
 
-function saveFallbackStore(data: FallbackStore): void {
+export function saveFallbackStore(data: FallbackStore): void {
   try {
     fs.mkdirSync(path.dirname(FALLBACK_FILE), { recursive: true });
     fs.writeFileSync(FALLBACK_FILE, JSON.stringify(data, null, 2), 'utf-8');

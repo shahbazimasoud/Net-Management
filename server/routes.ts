@@ -19,6 +19,13 @@ import {
   clearRateLimit,
 } from './auth';
 import {
+  exportDatabaseBackup,
+  restoreDatabaseBackup,
+  getLatestSafetySnapshot,
+  rollbackSafetySnapshot,
+  getDisasterRecoveryStatus,
+} from './backupEngine';
+import {
   getDbStatus,
   findUserByUsername,
   findUserById,
@@ -14074,6 +14081,263 @@ apiRouter.get('/panel/services/logs', async (req: Request, res: Response) => {
       success: false,
       error: 'Failed to retrieve service logs: ' + err.message,
     });
+  }
+});
+
+// ==============================================================================
+// Phase 1: Enterprise Server-Side Disaster Recovery (DR) Engine Endpoints
+// ==============================================================================
+
+// Helper to authenticate and check DR permissions
+async function authenticateDrRequest(req: Request, requiredPermission: 'export' | 'import'): Promise<{
+  authorized: boolean;
+  user?: any;
+  effectivePolicy?: any;
+  username: string;
+  role: string;
+  error?: string;
+}> {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+
+  // If token is missing, attempt to check cookie or query token
+  const effectiveToken = token || (typeof req.query.token === 'string' ? req.query.token : '');
+
+  if (!effectiveToken) {
+    return {
+      authorized: false,
+      username: 'anonymous',
+      role: 'Guest',
+      error: 'Authentication token is required for disaster recovery operations',
+    };
+  }
+
+  const payload = verifyToken(effectiveToken);
+  if (!payload) {
+    return {
+      authorized: false,
+      username: 'anonymous',
+      role: 'Guest',
+      error: 'Invalid or expired authentication session',
+    };
+  }
+
+  const userRecord = (await findUserById(payload.userId)) || (await findUserByUsername(payload.username));
+  if (userRecord && userRecord.status === 'disabled') {
+    return {
+      authorized: false,
+      username: payload.username,
+      role: payload.role,
+      error: 'Account has been disabled',
+    };
+  }
+
+  const effectivePolicy = await getEffectivePolicyForUser(userRecord || payload);
+  const isSuperAdmin =
+    userRecord?.role === 'Super Administrator' ||
+    payload.role === 'Super Administrator' ||
+    effectivePolicy?.id === 'policy-super-admin';
+
+  if (requiredPermission === 'export') {
+    // Permitted if Super Admin or canExportBackup !== false
+    const canExport = isSuperAdmin || effectivePolicy?.canExportBackup !== false;
+    if (!canExport) {
+      return {
+        authorized: false,
+        username: payload.username,
+        role: payload.role,
+        error: 'Access denied: Active RBAC policy forbids exporting system backups (canExportBackup: false)',
+      };
+    }
+  } else if (requiredPermission === 'import') {
+    // Permitted if Super Admin or canImportBackup === true
+    const canImport = isSuperAdmin || effectivePolicy?.canImportBackup === true;
+    if (!canImport) {
+      return {
+        authorized: false,
+        username: payload.username,
+        role: payload.role,
+        error: 'Access denied: Active RBAC policy forbids restoring system backups (canImportBackup: false)',
+      };
+    }
+  }
+
+  return {
+    authorized: true,
+    user: userRecord || payload,
+    effectivePolicy,
+    username: userRecord?.username || payload.username,
+    role: userRecord?.role || payload.role,
+  };
+}
+
+// GET /api/backup/export - Direct authentic export of all PostgreSQL tables & modules
+apiRouter.get('/backup/export', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'export');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const scope = (req.query.scope as any) || 'full';
+    const sanitize = req.query.sanitize === 'true';
+    const encrypt = req.query.encrypt === 'true';
+    const passphrase = typeof req.query.passphrase === 'string' ? req.query.passphrase : undefined;
+    const format = (req.query.format as any) === 'sql' ? 'sql' : 'json';
+    const customNote = typeof req.query.customNote === 'string' ? req.query.customNote : undefined;
+    const download = req.query.download === 'true';
+
+    const ip = getClientIp(req);
+    const userAgent = req.headers['user-agent'] as string | undefined;
+
+    const exportResult = await exportDatabaseBackup({
+      scope,
+      sanitize,
+      encrypt,
+      passphrase,
+      format,
+      customNote,
+      requestedBy: {
+        username: auth.username,
+        role: auth.role,
+        ip,
+        userAgent,
+      },
+    });
+
+    if (format === 'sql') {
+      res.setHeader('Content-Type', 'application/sql');
+      res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+      return res.send(exportResult.sqlContent);
+    }
+
+    if (download) {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
+      return res.send(JSON.stringify(exportResult.package, null, 2));
+    }
+
+    res.json({
+      success: true,
+      filename: exportResult.filename,
+      metadata: exportResult.metadata,
+      package: exportResult.package,
+    });
+  } catch (err: any) {
+    console.error('[API /backup/export error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate disaster recovery backup: ' + err.message,
+    });
+  }
+});
+
+// POST /api/backup/restore - Atomic transaction-based restore with Overwrite and Smart Merge
+apiRouter.post('/backup/restore', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'import');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const pkg = req.body.package || req.body.data || req.body;
+    const passphrase = typeof req.body.passphrase === 'string' ? req.body.passphrase : undefined;
+    const mode = req.body.mode === 'merge' ? 'merge' : 'overwrite';
+    const selectedScopes = Array.isArray(req.body.selectedScopes) ? req.body.selectedScopes : undefined;
+
+    const ip = getClientIp(req);
+    const userAgent = req.headers['user-agent'] as string | undefined;
+
+    const restoreResult = await restoreDatabaseBackup({
+      package: pkg,
+      passphrase,
+      mode,
+      selectedScopes,
+      performedBy: {
+        username: auth.username,
+        role: auth.role,
+        ip,
+        userAgent,
+      },
+    });
+
+    res.json({
+      success: true,
+      ...restoreResult,
+    });
+  } catch (err: any) {
+    console.error('[API /backup/restore error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Disaster recovery restore failed: ' + err.message,
+    });
+  }
+});
+
+// GET /api/backup/snapshot - View latest automated safety snapshot
+apiRouter.get('/backup/snapshot', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'export');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const snapshot = getLatestSafetySnapshot();
+    if (!snapshot) {
+      return res.json({
+        success: true,
+        hasSnapshot: false,
+        message: 'No pre-restore safety snapshot currently exists on server',
+      });
+    }
+
+    res.json({
+      success: true,
+      hasSnapshot: true,
+      snapshot: {
+        id: snapshot.id,
+        timestamp: snapshot.timestamp,
+        reason: snapshot.reason,
+        counts: snapshot.counts,
+        appVersion: snapshot.appVersion,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/backup/rollback - Instantly rollback to pre-restore safety snapshot
+apiRouter.post('/backup/rollback', async (req: Request, res: Response) => {
+  try {
+    const auth = await authenticateDrRequest(req, 'import');
+    if (!auth.authorized) {
+      return res.status(403).json({ success: false, error: auth.error });
+    }
+
+    const snapshotId = typeof req.body.snapshotId === 'string' ? req.body.snapshotId : undefined;
+    const rollbackResult = await rollbackSafetySnapshot(snapshotId);
+
+    res.json(rollbackResult);
+  } catch (err: any) {
+    console.error('[API /backup/rollback error]', err);
+    res.status(500).json({
+      success: false,
+      error: 'Rollback operation failed: ' + err.message,
+    });
+  }
+});
+
+// GET /api/backup/status - Live DR Engine status and tables count
+apiRouter.get('/backup/status', async (req: Request, res: Response) => {
+  try {
+    const status = await getDisasterRecoveryStatus();
+    res.json({
+      success: true,
+      ...status,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

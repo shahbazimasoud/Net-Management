@@ -17,6 +17,7 @@ import {
   Clock,
   HardDrive,
   Database,
+  Server,
   Layers,
   Users,
   Eye,
@@ -639,8 +640,14 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                   {
                     id: 'full',
                     title: isEn ? 'Full Disaster Recovery' : 'پکیج جامع فاجعه (Full DR)',
-                    desc: isEn ? 'All devices, custom maps, hierarchy, RBAC, users & templates' : 'تمام تجهیزات، نقشه‌ها، سلسله‌مراتب، پالیسی‌ها و کاربران',
+                    desc: isEn ? 'All servers, devices, placements, custom maps, hierarchy, RBAC, users & settings' : 'تمام سرورها، تجهیزات، جانمایی‌ها، نقشه‌ها، سلسله‌مراتب، پالیسی‌ها و کاربران',
                     icon: Database
+                  },
+                  {
+                    id: 'servers_only',
+                    title: isEn ? 'Server Fleet & Categories' : 'ناوگان سرورها و دسته‌بندی‌ها',
+                    desc: isEn ? 'Linux/Windows servers, roles, hardware specs, ports & categories' : 'سرورهای لینوکس و ویندوز، دسته‌بندی‌ها، مشخصات سخت‌افزاری و پورت‌ها',
+                    icon: Server
                   },
                   {
                     id: 'devices_topology',
@@ -951,13 +958,17 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] text-slate-300 pt-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px] text-slate-300 pt-1">
                       <div className="p-2 rounded-lg bg-slate-900/60 border border-white/5">
                         <span className="text-slate-400 block">{isEn ? 'Created By' : 'تهیه‌کننده:'}</span>
                         <span className="font-bold text-white truncate block">{inspectionResult.metadata.createdBy}</span>
                       </div>
                       <div className="p-2 rounded-lg bg-slate-900/60 border border-white/5">
-                        <span className="text-slate-400 block">{isEn ? 'Devices' : 'تعداد تجهیزات:'}</span>
+                        <span className="text-slate-400 block">{isEn ? 'Servers Fleet' : 'ناوگان سرورها:'}</span>
+                        <span className="font-bold text-white block">{inspectionResult.metadata.counts.servers ?? 0} {isEn ? 'Hosts' : 'سرور'}</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-900/60 border border-white/5">
+                        <span className="text-slate-400 block">{isEn ? 'Devices' : 'تجهیزات شبکه:'}</span>
                         <span className="font-bold text-white block">{inspectionResult.metadata.counts.devices} Switch/Router</span>
                       </div>
                       <div className="p-2 rounded-lg bg-slate-900/60 border border-white/5">

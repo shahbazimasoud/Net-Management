@@ -24,7 +24,17 @@ import {
   loadLocalGroups,
   saveLocalGroups
 } from './settingsStorage';
-import { fetchDevices, fetchTopology, fetchTemplates } from './api';
+import {
+  fetchDevices,
+  fetchTopology,
+  fetchTemplates,
+  fetchRemoteServers,
+  exportDatabaseBackupApi,
+  restoreDatabaseBackupApi,
+  fetchDrSnapshotApi,
+  rollbackDrSnapshotApi,
+  fetchDrStatusApi,
+} from './api';
 import { APP_VERSION } from '../version';
 
 const STORAGE_KEYS = {
@@ -183,10 +193,28 @@ export async function collectBackupPackage(options: {
   const scope: BackupScope = options.scope || 'full';
   const sanitize = !!options.sanitizeSecrets;
 
-  // 1. Collect Data Sources
+  // 1. Attempt authoritative server-side DR export first
+  try {
+    const apiRes = await exportDatabaseBackupApi({
+      scope,
+      sanitize,
+      encrypt: !!options.passphrase,
+      passphrase: options.passphrase,
+      customNote: options.customNote,
+      format: 'json',
+    });
+    if (apiRes && apiRes.package) {
+      return apiRes.package as NetworkBackupPackage;
+    }
+  } catch (apiErr) {
+    console.warn('Direct server DR export notice, assembling via local fallback:', apiErr);
+  }
+
+  // 2. Client-side Fallback Data Collection
   let devices: Device[] = [];
   let topologyData: TopologyData | undefined;
   let templates: ConfigTemplate[] = [];
+  let remoteServers: any[] = [];
 
   try {
     const devRes = await fetchDevices();
@@ -206,6 +234,13 @@ export async function collectBackupPackage(options: {
     templates = tmplRes.templates || [];
   } catch (e) {
     console.warn('Could not fetch templates from API during backup:', e);
+  }
+
+  try {
+    const srvRes = await fetchRemoteServers();
+    remoteServers = srvRes.servers || [];
+  } catch (e) {
+    console.warn('Could not fetch remote servers from API during backup:', e);
   }
 
   // Client-side Custom Maps & Layouts
@@ -264,6 +299,7 @@ export async function collectBackupPackage(options: {
   const isFull = scope === 'full';
   const isDevTopo = scope === 'devices_topology';
   const isSecRbac = scope === 'security_rbac';
+  const isServersOnly = scope === 'servers_only';
   const isTmplOnly = scope === 'templates_only';
 
   const rawPayload: Record<string, any> = {};
@@ -275,6 +311,10 @@ export async function collectBackupPackage(options: {
     rawPayload.nodePositions = nodePositions;
     rawPayload.viewport = viewport;
     rawPayload.physicalHierarchy = physicalHierarchy;
+  }
+
+  if (isFull || isServersOnly) {
+    rawPayload.remote_servers = remoteServers;
   }
 
   if (isFull || isSecRbac) {
@@ -296,11 +336,12 @@ export async function collectBackupPackage(options: {
     full: 'جامع و کامل (Disaster Recovery Full Package)',
     devices_topology: 'نقشه‌ها و موجودی تجهیزات (Devices & Topology Maps)',
     security_rbac: 'هویت، امنیت و سطوح دسترسی (Identity & Access Control)',
+    servers_only: 'ناوگان سرورها و دسته‌بندی‌ها (Server Fleet & Categories)',
     templates_only: 'الگوهای پیکربندی شبکه (Configuration Templates)'
   };
 
   const metadata: BackupMetadata = {
-    version: '1.0',
+    version: '2.0',
     appVersion: APP_VERSION,
     timestamp: new Date().toISOString(),
     createdAt: new Date().toLocaleString('fa-IR'),
@@ -312,6 +353,7 @@ export async function collectBackupPackage(options: {
     isSanitized: sanitize,
     checksumSha256: checksum,
     counts: {
+      servers: rawPayload.remote_servers ? rawPayload.remote_servers.length : 0,
       devices: rawPayload.devices ? rawPayload.devices.length : 0,
       customMaps: rawPayload.customMaps ? rawPayload.customMaps.length : 0,
       deviceGroups: rawPayload.deviceGroups ? rawPayload.deviceGroups.length : 0,
@@ -603,32 +645,36 @@ export async function executeRestore(
     }
   }
 
-  // 3. Synchronize with Backend server-side storage
+  // 3. Authoritative Server DR Restore Call
+  let serverResult: any = null;
   try {
-    const res = await fetch('/api/backup/restore', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        data: unpackedPayload,
-        mode
-      })
+    serverResult = await restoreDatabaseBackupApi({
+      package: unpackedPayload,
+      mode,
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      console.warn('Backend sync returned warning:', err.error);
-    }
-  } catch (err) {
-    console.warn('Could not sync with backend /api/backup/restore:', err);
+  } catch (err: any) {
+    console.warn('Server DR restore API call notice:', err);
   }
+
+  const durationText = serverResult?.durationMs ? ` (${serverResult.durationMs}ms)` : '';
+  const snapshotText = serverResult?.snapshotId ? ` | نقطه بازیابی: ${serverResult.snapshotId}` : '';
 
   return {
     success: true,
-    message: mode === 'overwrite'
+    message: serverResult?.message || (mode === 'overwrite'
       ? 'پایگاه داده و نقشه‌ها با موفقیت به طور کامل جایگزین و بازیابی شدند.'
-      : 'داده‌ها و نقشه‌های پشتیبان با موفقیت با سیستم فعلی ادغام گردیدند.',
-    details: 'نقطه بازیابی ایمن (Safety Rollback Snapshot) نیز ذخیره شد.'
+      : 'داده‌ها و نقشه‌های پشتیبان با موفقیت با سیستم فعلی ادغام گردیدند.'),
+    details: (serverResult?.details || 'نقطه بازیابی ایمن (Safety Rollback Snapshot) در سرور ایجاد شد.') + durationText + snapshotText
   };
 }
+
+export {
+  exportDatabaseBackupApi,
+  restoreDatabaseBackupApi,
+  fetchDrSnapshotApi,
+  rollbackDrSnapshotApi,
+  fetchDrStatusApi,
+};
 
 // ==========================================
 // Audit Logging

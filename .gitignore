@@ -14,3 +14,5 @@ venv*/
 .venv*/
 backend/venv*/
 backend/.venv*/
+backend/snapshots/
+*.enc.json

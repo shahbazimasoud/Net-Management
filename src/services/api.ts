@@ -7195,4 +7195,116 @@ export async function fetchPanelServiceLogs(
   }
 }
 
+// ==============================================================================
+// Phase 1: Disaster Recovery (DR) Engine API Client
+// ==============================================================================
+
+export interface ExportDrBackupParams {
+  scope?: string;
+  sanitize?: boolean;
+  encrypt?: boolean;
+  passphrase?: string;
+  format?: 'json' | 'sql';
+  customNote?: string;
+}
+
+export async function exportDatabaseBackupApi(params: ExportDrBackupParams = {}): Promise<{
+  success: boolean;
+  filename?: string;
+  metadata?: any;
+  package?: any;
+  sqlContent?: string;
+  error?: string;
+}> {
+  const searchParams = new URLSearchParams();
+  if (params.scope) searchParams.set('scope', params.scope);
+  if (params.sanitize) searchParams.set('sanitize', 'true');
+  if (params.encrypt) searchParams.set('encrypt', 'true');
+  if (params.passphrase) searchParams.set('passphrase', params.passphrase);
+  if (params.format) searchParams.set('format', params.format);
+  if (params.customNote) searchParams.set('customNote', params.customNote);
+
+  const res = await fetchWithRetry(`${API_BASE}/backup/export?${searchParams.toString()}`);
+  if (params.format === 'sql') {
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Export failed' }));
+      throw new Error(err.error || `Export failed with status ${res.status}`);
+    }
+    const sqlContent = await res.text();
+    return { success: true, sqlContent };
+  }
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || `Export failed with status ${res.status}`);
+  }
+  return data;
+}
+
+export async function restoreDatabaseBackupApi(payload: {
+  package: any;
+  passphrase?: string;
+  mode?: 'overwrite' | 'merge';
+  selectedScopes?: string[];
+}): Promise<{
+  success: boolean;
+  mode: string;
+  snapshotId: string;
+  restoredCounts: Record<string, number>;
+  durationMs: number;
+  message: string;
+  message_en: string;
+  error?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || `Restore failed with status ${res.status}`);
+  }
+  return data;
+}
+
+export async function fetchDrSnapshotApi(): Promise<{
+  success: boolean;
+  hasSnapshot: boolean;
+  snapshot?: any;
+  message?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/snapshot`);
+  return res.json();
+}
+
+export async function rollbackDrSnapshotApi(snapshotId?: string): Promise<{
+  success: boolean;
+  message: string;
+  message_en: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snapshotId }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Rollback failed');
+  }
+  return data;
+}
+
+export async function fetchDrStatusApi(): Promise<{
+  success: boolean;
+  engine: string;
+  isPostgresReady: boolean;
+  tablesCount: number;
+  recordsCount: Record<string, number>;
+  latestSnapshot: any;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/backup/status`);
+  return res.json();
+}
+
 

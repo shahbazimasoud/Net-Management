@@ -709,7 +709,7 @@ export interface AccessPolicy {
   permissions?: any;
 }
 
-export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'templates_only';
+export type BackupScope = 'full' | 'devices_topology' | 'security_rbac' | 'servers_only' | 'templates_only';
 
 export interface BackupMetadata {
   version: string;
@@ -720,19 +720,27 @@ export interface BackupMetadata {
   createdRole: string;
   scope: BackupScope;
   scopeLabel: string;
+  scopeLabel_en?: string;
   isEncrypted: boolean;
   isSanitized: boolean; // Passwords & secrets removed/masked
   checksumSha256: string;
+  storageEngine?: string;
+  customNote?: string;
   counts: {
+    servers?: number;
+    serverCategories?: number;
     devices: number;
-    customMaps: number;
+    devicePlacements?: number;
     deviceGroups: number;
+    stickyNotes?: number;
+    customMaps: number;
     localUsers: number;
     localGroups: number;
     accessPolicies: number;
     templates: number;
     hasActiveDirectory: boolean;
     hasCustomHierarchy: boolean;
+    hasGeneralSettings?: boolean;
   };
   environment?: {
     hostname?: string;
@@ -741,10 +749,14 @@ export interface BackupMetadata {
 }
 
 export interface NetworkBackupPackage {
-  format: 'nettopology-backup-v1';
+  format: 'nettopology-backup-v1' | 'nettopology-backup-v2';
   metadata: BackupMetadata;
   // Payload items (optionally omitted depending on scope)
+  remote_servers?: any[];
+  server_categories?: any[];
   devices?: Device[];
+  device_placements?: any[];
+  device_sticky_notes?: any[];
   topologyData?: TopologyData;
   customMaps?: any[];
   nodePositions?: Record<string, { x: number; y: number }>;
@@ -760,7 +772,9 @@ export interface NetworkBackupPackage {
   localGroups?: LocalGroup[];
   activeDirectory?: ActiveDirectoryConfig;
   accessPolicies?: AccessPolicy[];
+  panel_general_settings?: any;
   templates?: ConfigTemplate[];
+  data?: any;
   // If encrypted, the encrypted payload blob
   encryptedData?: string;
   salt?: string;
