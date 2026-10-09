@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.300.0';
+export const APP_VERSION = '1.300.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.300.1',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'رفع مشکل اتصال به میل‌سرورهای سازمانی Microsoft Exchange و اعتبارسنجی سرتیفیکیت TLS',
+    title_en: 'Fix Microsoft Exchange Corporate SMTP TLS Certificate Verification & Preset',
+    changes: [
+      'اصلاح منطق اعتبارسنجی سرتیفیکیت‌های خودامضا و داخلی در سرویس ارسال ایمیل (رفع خطای ECERT و unable to verify the first certificate).',
+      'افزودن پریست اختصاصی و آماده برای میل‌سرور سازمانی Microsoft Exchange (On-Premises) به همراه تنظیمات استاندارد پورت ۵۸۷ و STARTTLS.',
+      'تغییر گزینه گواهی امنیتی به سوئیچ شفاف «پذیرش سرتیفیکیت‌های خودامضا و CA داخلی» و همگام‌سازی دوطرفه میان allow_self_signed و reject_unauthorized.',
+      'افزودن دکمه هوشمند رفع سریع با یک کلیک (One-Click Fix) در کادر خطای تست دیاگنوستیک جهت فعال‌سازی فوری پذیرش گواهی خودامضا و اجرای مجدد تست.',
+      'پشتیبانی از فرمت‌های حساب کاربری اکتیو دایرکتوری در راهنمای نام کاربری (DOMAIN\\username یا user@domain.com) و اعمال تطبیق ciphers برای سرورهای داخلی.'
+    ],
+    changes_en: [
+      'Resolved internal CA and self-signed certificate validation errors in emailService (fixing ECERT and unable to verify the first certificate failures).',
+      'Added dedicated quick preset for Microsoft Exchange On-Premises corporate mail server with port 587 and STARTTLS pre-configured.',
+      'Replaced confusing strict checkbox with clear "Allow Self-Signed / Untrusted TLS Certificates" toggle with bidirectional sync for allow_self_signed and reject_unauthorized.',
+      'Engineered interactive One-Click Fix button in diagnostic failure card to immediately enable self-signed cert acceptance and re-test connection.',
+      'Added Active Directory username format guidance (DOMAIN\\username and user@domain.com) and adaptive cipher negotiation for Exchange servers.'
+    ]
+  },
   {
     version: '1.300.0',
     releaseDate: '2026-10-09',

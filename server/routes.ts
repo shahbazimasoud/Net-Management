@@ -69,6 +69,7 @@ import {
   saveGeneralSettings,
   getEmailConfig,
   saveEmailConfig,
+  EmailConfig,
   getHierarchy,
   saveHierarchy,
   getCompleteHierarchy,
@@ -1462,9 +1463,17 @@ apiRouter.post('/settings/email/test', async (req: Request, res: Response) => {
     }
 
     // Merge incoming config overrides with stored config
-    const mergedConfig = {
+    const allowSelfSigned = incomingConfig.allow_self_signed !== undefined
+      ? Boolean(incomingConfig.allow_self_signed)
+      : (incomingConfig.reject_unauthorized !== undefined
+          ? !incomingConfig.reject_unauthorized
+          : (storedConfig.allow_self_signed !== undefined ? storedConfig.allow_self_signed : !storedConfig.reject_unauthorized));
+
+    const mergedConfig: EmailConfig = {
       ...storedConfig,
       ...incomingConfig,
+      allow_self_signed: allowSelfSigned,
+      reject_unauthorized: !allowSelfSigned,
       smtp_pass: (incomingConfig.smtp_pass && incomingConfig.smtp_pass !== '••••••••' && incomingConfig.smtp_pass.trim().length > 0)
         ? incomingConfig.smtp_pass.trim()
         : storedConfig.smtp_pass,

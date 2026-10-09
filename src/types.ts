@@ -7080,6 +7080,7 @@ export interface EmailConfig {
   from_name: string;
   require_auth: boolean;
   reject_unauthorized: boolean;
+  allow_self_signed?: boolean;
   updated_at?: string;
   updated_by?: string;
 }

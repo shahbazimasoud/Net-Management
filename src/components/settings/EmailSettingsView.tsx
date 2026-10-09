@@ -53,6 +53,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
     from_name: 'NetTopology Alerts',
     require_auth: true,
     reject_unauthorized: false,
+    allow_self_signed: true,
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -72,7 +73,15 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
     fetchEmailConfigApi()
       .then((res) => {
         if (res.config) {
-          setFormData(res.config);
+          const cfg = res.config;
+          const allowSelfSigned = cfg.allow_self_signed !== undefined
+            ? Boolean(cfg.allow_self_signed)
+            : (cfg.reject_unauthorized !== undefined ? !cfg.reject_unauthorized : true);
+          setFormData({
+            ...cfg,
+            allow_self_signed: allowSelfSigned,
+            reject_unauthorized: !allowSelfSigned,
+          });
           if (res.config.from_email && !testRecipient) {
             setTestRecipient(res.config.from_email);
           }
@@ -91,7 +100,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
   };
 
   // Provider presets
-  const applyPreset = (provider: 'gmail' | 'office365' | 'yahoo' | 'custom') => {
+  const applyPreset = (provider: 'gmail' | 'office365' | 'exchange' | 'yahoo' | 'custom') => {
     if (provider === 'gmail') {
       setFormData((prev) => ({
         ...prev,
@@ -99,7 +108,8 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
         smtp_port: 587,
         smtp_secure: 'tls',
         require_auth: true,
-        reject_unauthorized: false,
+        allow_self_signed: false,
+        reject_unauthorized: true,
       }));
     } else if (provider === 'office365') {
       setFormData((prev) => ({
@@ -108,6 +118,17 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
         smtp_port: 587,
         smtp_secure: 'tls',
         require_auth: true,
+        allow_self_signed: false,
+        reject_unauthorized: true,
+      }));
+    } else if (provider === 'exchange') {
+      setFormData((prev) => ({
+        ...prev,
+        smtp_host: prev.smtp_host && !prev.smtp_host.includes('gmail') && !prev.smtp_host.includes('office365') && !prev.smtp_host.includes('yahoo') ? prev.smtp_host : '',
+        smtp_port: 587,
+        smtp_secure: 'tls',
+        require_auth: true,
+        allow_self_signed: true,
         reject_unauthorized: false,
       }));
     } else if (provider === 'yahoo') {
@@ -117,7 +138,8 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
         smtp_port: 465,
         smtp_secure: 'ssl',
         require_auth: true,
-        reject_unauthorized: false,
+        allow_self_signed: false,
+        reject_unauthorized: true,
       }));
     } else {
       setFormData((prev) => ({
@@ -125,6 +147,8 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
         smtp_host: '',
         smtp_port: 587,
         smtp_secure: 'tls',
+        allow_self_signed: true,
+        reject_unauthorized: false,
       }));
     }
   };
@@ -274,7 +298,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
           <button
             type="button"
             onClick={() => applyPreset('gmail')}
@@ -301,8 +325,23 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                 : 'bg-slate-800/80 hover:bg-slate-800 border-white/10 text-slate-200'
             }`}
           >
-            <div className="font-bold text-xs">Microsoft 365 / Outlook</div>
+            <div className="font-bold text-xs">Microsoft 365 / Cloud</div>
             <div className="text-[10px] text-slate-400 mt-1 font-mono">smtp.office365.com:587</div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => applyPreset('exchange')}
+            className={`p-3 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
+              formData.allow_self_signed && formData.smtp_host !== 'smtp.gmail.com' && formData.smtp_host !== 'smtp.office365.com' && formData.smtp_host !== 'smtp.mail.yahoo.com'
+                ? 'bg-blue-500/20 border-blue-500/40 text-blue-300 ring-1 ring-blue-500/30'
+                : isLightMode
+                ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
+                : 'bg-slate-800/80 hover:bg-slate-800 border-white/10 text-slate-200'
+            }`}
+          >
+            <div className="font-bold text-xs">{isEn ? 'Microsoft Exchange (On-Prem)' : 'مایکروسافت اکسچنج (داخلی)'}</div>
+            <div className="text-[10px] text-slate-400 mt-1 font-mono">mail.company.local:587</div>
           </button>
 
           <button
@@ -324,14 +363,14 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
             type="button"
             onClick={() => applyPreset('custom')}
             className={`p-3 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
-              formData.smtp_host !== 'smtp.gmail.com' && formData.smtp_host !== 'smtp.office365.com' && formData.smtp_host !== 'smtp.mail.yahoo.com'
+              !formData.allow_self_signed && formData.smtp_host !== 'smtp.gmail.com' && formData.smtp_host !== 'smtp.office365.com' && formData.smtp_host !== 'smtp.mail.yahoo.com'
                 ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300 ring-1 ring-indigo-500/30'
                 : isLightMode
                 ? 'bg-white hover:bg-slate-100 border-slate-200 text-slate-700'
                 : 'bg-slate-800/80 hover:bg-slate-800 border-white/10 text-slate-200'
             }`}
           >
-            <div className="font-bold text-xs">{isEn ? 'Custom / Corporate SMTP' : 'میل سرور سازمانی / سفارشی'}</div>
+            <div className="font-bold text-xs">{isEn ? 'Custom / Corporate SMTP' : 'سایر میل سرورها'}</div>
             <div className="text-[10px] text-slate-400 mt-1 font-mono">mail.company.local</div>
           </button>
         </div>
@@ -484,15 +523,15 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                       <FieldInfoTooltip
                         title={isEn ? 'SMTP Username' : 'نام کاربری سرور ایمیل'}
                         whatIsIt={isEn ? 'Email address or username used to login to the SMTP server.' : 'نام کاربری یا آدرس ایمیل کامل اکانت جهت ورود به سرور.'}
-                        whyIsItNeeded={isEn ? 'Authenticates permission to relay outbound messages.' : 'جهت تایید هویت و احراز صلاحیت ارسال پیام.'}
-                        practicalExample={isEn ? 'alerts@yourcompany.com or your_user@gmail.com' : 'alerts@company.ir یا user@gmail.com'}
+                        whyIsItNeeded={isEn ? 'Authenticates permission to relay outbound messages. Exchange supports DOMAIN\\username, username@domain, or username.' : 'جهت تایید هویت ارسال پیام. اکسچنج از هر دو فرمت DOMAIN\\username و username@domain پشتیبانی می‌کند.'}
+                        practicalExample={isEn ? 'alerts@company.com or DOMAIN\\username or user' : 'alerts@company.ir یا DOMAIN\\username یا user'}
                         isEn={isEn}
                         isLightMode={isLightMode}
                       />
                     </div>
                     <input
                       type="text"
-                      placeholder="e.g. alerts@company.com"
+                      placeholder={isEn ? 'e.g. alerts@company.com or DOMAIN\\user' : 'مثال: alerts@company.com یا DOMAIN\\user'}
                       value={formData.smtp_user}
                       onChange={(e) => handleInputChange('smtp_user', e.target.value)}
                       required={formData.require_auth}
@@ -600,22 +639,31 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
             </div>
 
             {/* Row 5: Certificate option */}
-            <div className="pt-2">
+            <div className={`p-3 rounded-xl border ${
+              isLightMode ? 'bg-cyan-50/50 border-cyan-200/60' : 'bg-cyan-950/20 border-cyan-500/20'
+            }`}>
               <label className="flex items-start gap-2.5 cursor-pointer text-xs">
                 <input
                   type="checkbox"
-                  checked={formData.reject_unauthorized}
-                  onChange={(e) => handleInputChange('reject_unauthorized', e.target.checked)}
+                  checked={formData.allow_self_signed ?? !formData.reject_unauthorized}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    handleInputChange('allow_self_signed', checked);
+                    handleInputChange('reject_unauthorized', !checked);
+                  }}
                   className="rounded accent-cyan-500 cursor-pointer mt-0.5"
                 />
                 <div>
-                  <span className="font-semibold block">
-                    {isEn ? 'Strict TLS Certificate Validation (Reject Self-Signed)' : 'اعتبارسنجی سخت‌گیرانه سرتیفیکیت TLS (رد سرتیفیکیت‌های خودامضا)'}
-                  </span>
-                  <span className={`text-[11px] block mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <div className="font-semibold flex items-center gap-2">
+                    <span>{isEn ? 'Allow Self-Signed / Untrusted TLS Certificates' : 'پذیرش سرتیفیکیت‌های خودامضا و CA داخلی (میل‌سرورهای سازمانی)'}</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded font-normal bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      {isEn ? 'Recommended for Exchange' : 'ضروری برای اکسچنج سازمانی'}
+                    </span>
+                  </div>
+                  <span className={`text-[11px] block mt-1 leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                     {isEn
-                      ? 'Keep unchecked if your organization uses an internal mail relay with private CA or self-signed cert.'
-                      : 'در صورت استفاده از میل سرور داخلی با گواهی خودامضا، تیک این گزینه را بردارید.'}
+                      ? 'Enable this option if your organization uses Microsoft Exchange or an internal mail relay with private Enterprise CA / self-signed certificate.'
+                      : 'فعال‌سازی این گزینه برای اتصال به میل‌سرورهای داخلی سازمانی (مانند Microsoft Exchange) که از گواهی داخلی یا Self-Signed استفاده می‌کنند الزامی است.'}
                   </span>
                 </div>
               </label>
@@ -813,9 +861,66 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                         <span className="font-bold">{isEn ? 'Error Code:' : 'کد خطا:'}</span> {testResult.code}
                       </div>
                     )}
+
+                    {/* Quick Fix Button for Certificate Errors */}
+                    {(testResult.code === 'ECERT' || testResult.error?.toLowerCase().includes('certificate') || testResult.error?.toLowerCase().includes('self-signed')) && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const updated: EmailConfig = {
+                            ...formData,
+                            allow_self_signed: true,
+                            reject_unauthorized: false,
+                          };
+                          setFormData(updated);
+                          setIsTesting(true);
+                          setTestResult(null);
+                          try {
+                            // Auto save updated config first
+                            await saveEmailConfigApi(updated);
+                            // Then trigger test
+                            const res = await testEmailConfigApi({
+                              config: updated,
+                              to: testRecipient.trim(),
+                              subject: testSubject.trim() || undefined,
+                              notes: testNotes.trim() || undefined,
+                            });
+                            setTestResult(res);
+                            if (res.success) {
+                              setSaveFeedback({
+                                type: 'success',
+                                message: isEn
+                                  ? "'Allow Self-Signed Certificates' enabled and verified successfully!"
+                                  : 'گزینه پذیرش سرتیفیکیت خودامضا فعال شد و تست با موفقیت انجام گرفت!',
+                              });
+                              setTimeout(() => setSaveFeedback(null), 4000);
+                            }
+                          } catch (err: any) {
+                            setTestResult({
+                              success: false,
+                              error: err.message || (isEn ? 'Diagnostic re-test failed' : 'اجرای مجدد تست با خطا مواجه شد'),
+                              latencyMs: 0,
+                            });
+                          } finally {
+                            setIsTesting(false);
+                          }
+                        }}
+                        className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-cyan-200" />
+                        <span>
+                          {isEn
+                            ? "One-Click Fix: Enable 'Allow Self-Signed' & Retest Now"
+                            : 'رفع سریع با یک کلیک: فعال‌سازی پذیرش سرتیفیکیت خودامضا و تست مجدد'}
+                        </span>
+                      </button>
+                    )}
+
                     <div className="p-2 rounded bg-black/30 border border-white/5 text-[10px] text-slate-400 space-y-1">
                       <span className="font-bold text-amber-400 block">{isEn ? 'Troubleshooting Guide:' : 'راهنمای رفع مشکل:'}</span>
                       <ul className="list-disc list-inside space-y-0.5">
+                        <li>{isEn ? "For Microsoft Exchange or internal relays, enable 'Allow Self-Signed / Untrusted TLS Certificates'" : "برای سرورهای اکسچنج سازمانی و رله‌های داخلی، تیک «پذیرش سرتیفیکیت‌های خودامضا و CA داخلی» را فعال کنید"}</li>
+                        <li>{isEn ? 'For Exchange AD users, verify format: DOMAIN\\username or user@domain.com' : 'برای کاربران اکسچنج دامین، فرمت DOMAIN\\username یا user@domain.com را بررسی فرمایید'}</li>
                         <li>{isEn ? 'Ensure 2-Step Verification & App Password are used (for Gmail/Outlook)' : 'در جیمیل و اوت‌لوک، حتماً از App Password اختصاصی استفاده کنید'}</li>
                         <li>{isEn ? 'Verify SMTP port and security protocol alignment (587 STARTTLS vs 465 SSL)' : 'تطابق پورت و پروتکل امنیتی (پورت ۵۸۷ با TLS یا ۴۶۵ با SSL) را چک کنید'}</li>
                         <li>{isEn ? 'Check that outbound mail ports are not blocked by host firewall or ISP' : 'اطمینان حاصل کنید پورت‌های خروجی ایمیل توسط فایروال سرور یا ISP مسدود نشده باشند'}</li>

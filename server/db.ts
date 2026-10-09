@@ -4325,6 +4325,7 @@ export interface EmailConfig {
   from_name: string;
   require_auth: boolean;
   reject_unauthorized: boolean;
+  allow_self_signed?: boolean;
   updated_at?: string;
   updated_by?: string;
 }
@@ -4340,6 +4341,7 @@ export const DEFAULT_EMAIL_CONFIG: EmailConfig = {
   from_name: 'NetTopology Alerts',
   require_auth: true,
   reject_unauthorized: false,
+  allow_self_signed: true,
 };
 
 export async function getEmailConfig(): Promise<EmailConfig> {
@@ -4349,9 +4351,14 @@ export async function getEmailConfig(): Promise<EmailConfig> {
       if (res.rows.length > 0 && res.rows[0].config_data) {
         const raw = res.rows[0].config_data;
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const allowSelfSigned = parsed.allow_self_signed !== undefined
+          ? Boolean(parsed.allow_self_signed)
+          : (parsed.reject_unauthorized !== undefined ? !parsed.reject_unauthorized : true);
         return {
           ...DEFAULT_EMAIL_CONFIG,
           ...parsed,
+          allow_self_signed: allowSelfSigned,
+          reject_unauthorized: !allowSelfSigned,
           has_password: Boolean(parsed.smtp_pass && parsed.smtp_pass.trim().length > 0),
         };
       }
@@ -4362,9 +4369,14 @@ export async function getEmailConfig(): Promise<EmailConfig> {
 
   const store = loadFallbackStore();
   const cfg = store.email_config || DEFAULT_EMAIL_CONFIG;
+  const allowSelfSigned = cfg.allow_self_signed !== undefined
+    ? Boolean(cfg.allow_self_signed)
+    : (cfg.reject_unauthorized !== undefined ? !cfg.reject_unauthorized : true);
   return {
     ...DEFAULT_EMAIL_CONFIG,
     ...cfg,
+    allow_self_signed: allowSelfSigned,
+    reject_unauthorized: !allowSelfSigned,
     has_password: Boolean(cfg.smtp_pass && cfg.smtp_pass.trim().length > 0),
   };
 }
@@ -4379,6 +4391,10 @@ export async function saveEmailConfig(config: Partial<EmailConfig>, updatedBy: s
     resolvedPassword = config.smtp_pass.trim();
   }
 
+  const allowSelfSigned = config.allow_self_signed !== undefined
+    ? !!config.allow_self_signed
+    : (config.reject_unauthorized !== undefined ? !config.reject_unauthorized : (current.allow_self_signed !== undefined ? !!current.allow_self_signed : !current.reject_unauthorized));
+
   const updated: EmailConfig = {
     smtp_host: config.smtp_host !== undefined ? config.smtp_host.trim() : current.smtp_host,
     smtp_port: Number(config.smtp_port) || current.smtp_port || 587,
@@ -4389,7 +4405,8 @@ export async function saveEmailConfig(config: Partial<EmailConfig>, updatedBy: s
     from_email: config.from_email !== undefined ? config.from_email.trim() : current.from_email,
     from_name: config.from_name !== undefined ? config.from_name.trim() : current.from_name,
     require_auth: config.require_auth !== undefined ? !!config.require_auth : current.require_auth,
-    reject_unauthorized: config.reject_unauthorized !== undefined ? !!config.reject_unauthorized : current.reject_unauthorized,
+    reject_unauthorized: !allowSelfSigned,
+    allow_self_signed: allowSelfSigned,
     updated_at: new Date().toISOString(),
     updated_by: updatedBy,
   };

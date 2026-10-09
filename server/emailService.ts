@@ -17,18 +17,23 @@ export interface TestEmailResult {
 export function createMailTransport(config: EmailConfig) {
   const port = Number(config.smtp_port) || 587;
   const isSecure = config.smtp_secure === 'ssl' || port === 465;
+  const allowSelfSigned = config.allow_self_signed === true || config.reject_unauthorized === false;
 
   const transportOptions: any = {
     host: config.smtp_host.trim(),
     port: port,
     secure: isSecure,
+    ignoreTLS: config.smtp_secure === 'none',
+    requireTLS: config.smtp_secure === 'tls',
     tls: {
-      rejectUnauthorized: config.reject_unauthorized !== false,
-      minVersion: 'TLSv1.2',
+      rejectUnauthorized: !allowSelfSigned,
+      // For Exchange and internal servers: allow compatible cipher suites and security levels
+      // while maintaining modern TLS by default
+      ciphers: allowSelfSigned ? 'DEFAULT@SECLEVEL=0' : undefined,
     },
-    connectionTimeout: 12000,
-    greetingTimeout: 12000,
-    socketTimeout: 18000,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
   };
 
   if (config.require_auth && config.smtp_user) {
@@ -50,8 +55,8 @@ function parseSmtpError(err: any): { en: string; fa: string; code?: string } {
 
   if (msg.includes('535') || msg.includes('BadCredentials') || code === 'EAUTH') {
     return {
-      en: `SMTP Authentication failed (535): Invalid username or password. For Gmail or Microsoft 365, ensure an App Password is used. Details: ${msg}`,
-      fa: `احراز هویت سرور ایمیل ناموفق بود (کد ۵۳۵): نام کاربری یا رمز عبور نامعتبر است. در صورت استفاده از جیمیل یا اوت‌لوک، حتماً از App Password استفاده کنید. جزئیات: ${msg}`,
+      en: `SMTP Authentication failed (535): Invalid username or password. For Gmail or Microsoft 365, ensure an App Password is used. For Microsoft Exchange, verify Active Directory format (DOMAIN\\username or user@domain.com). Details: ${msg}`,
+      fa: `احراز هویت سرور ایمیل ناموفق بود (کد ۵۳۵): نام کاربری یا رمز عبور نامعتبر است. در صورت استفاده از جیمیل یا اوت‌لوک از App Password، و برای سرور اکسچنج سازمانی از فرمت کاربری دامین (DOMAIN\\username یا user@domain.com) استفاده فرمایید. جزئیات: ${msg}`,
       code: 'EAUTH',
     };
   }
@@ -80,10 +85,18 @@ function parseSmtpError(err: any): { en: string; fa: string; code?: string } {
     };
   }
 
-  if (code === 'DEPTH_ZERO_SELF_SIGNED_CERT' || msg.includes('self-signed') || msg.includes('certificate')) {
+  if (
+    code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+    code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+    code === 'SELF_SIGNED_CERT_IN_CHAIN' ||
+    code === 'CERT_HAS_EXPIRED' ||
+    msg.includes('self-signed') ||
+    msg.includes('certificate') ||
+    msg.includes('unable to verify')
+  ) {
     return {
-      en: `TLS Certificate verification failed (Self-Signed or Untrusted Certificate). Enable 'Allow Self-Signed / Untrusted TLS Certificates' if using an internal relay. Details: ${msg}`,
-      fa: `اعتبارسنجی سرتیفیکیت TLS ناموفق بود (سرتیفیکیت نامعتبر یا Self-Signed). در صورت استفاده از میل سرور محلی، گزینه «پذیرش سرتیفیکیت‌های خودامضا» را فعال نمایید. جزئیات: ${msg}`,
+      en: `TLS Certificate verification failed (Self-Signed or Untrusted Certificate). Enable 'Allow Self-Signed / Untrusted TLS Certificates' if using an internal relay or Microsoft Exchange server. Details: ${msg}`,
+      fa: `اعتبارسنجی سرتیفیکیت TLS ناموفق بود (گواهی داخلی یا خودامضا). در صورت استفاده از میل سرور محلی یا مایکروسافت اکسچنج، گزینه «پذیرش سرتیفیکیت‌های خودامضا و CA داخلی» را فعال نمایید. جزئیات: ${msg}`,
       code: 'ECERT',
     };
   }
