@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.4';
+export const APP_VERSION = '1.304.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.5',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'افزودن نوار پیشرفت زنده ۶ مرحله‌ای و شمارش معکوس بصری ۱۰ ثانیه‌ای در بخش ارتقا و به‌روزرسانی پنل',
+    title_en: 'Add Live 6-Phase Progress Bar and Visible 10-Second Countdown Timer for Panel Updates & Releases',
+    changes: [
+      'پیاده‌سازی نوار پیشرفت بصری زنده با محاسبه درصد و تفکیک ۶ مرحله‌ای (آماده‌سازی، پشتیبان‌گیری، پکیج‌ها، سرویس‌های بک‌اند، کامپایل بیلد و راه‌اندازی مجدد) در حین اجرای به‌روزرسانی پنل.',
+      'افزایش زمان شمارش معکوس اتمام به‌روزرسانی به ۱۰ ثانیه کامل جهت ایجاد فرصت کافی برای بررسی لاگ‌های نهایی توسط کاربر.',
+      'طراحی کارت وضعیت و نوار پیشرفت معکوس بصری (Countdown Progress Bar) با نمایش واضح عدد ثانیه و نشانگر بارگذاری مجدد خودکار.',
+      'تجهیز کارت وضعیت پس از ارتقا به دکمه تازه‌سازی فوری (Reload Now) و کنسول لاگ‌های فرآیند ارتقا.',
+      'همگام‌سازی کامل ویژگی‌ها با سیستم دوزبانه (فارسی و انگلیسی) و پشتیبانی از هر دو تم دارک و لایت.'
+    ],
+    changes_en: [
+      'Implemented a live animated 6-phase progress bar with real-time percentage indicators during the panel update pipeline.',
+      'Extended the post-update completion countdown to a full 10 seconds to allow ample time for reviewing final deployment logs.',
+      'Added a prominent countdown status card with a visual countdown timer bar displaying the exact remaining seconds before auto-refresh.',
+      'Equipped the completion screen with an instant "Reload Now" button and collapsible console logs.',
+      'Ensured full bilingual support (Persian & English) and strict theme compliance across both dark and light modes.'
+    ]
+  },
   {
     version: '1.304.4',
     releaseDate: '2026-10-09',

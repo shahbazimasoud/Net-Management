@@ -40,6 +40,8 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
     updateSuccess,
     updateLogs,
     error,
+    updateProgress,
+    updateStep,
     countdown,
     lastCheckedAt,
     checkFeedback,
@@ -162,32 +164,254 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
       </div>
 
       {/* Main Status & Action Section */}
-      {updating ? (
-        /* Live Updating In-Progress Card */
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-950/80 via-slate-900/90 to-purple-950/80 border border-indigo-500/40 shadow-2xl space-y-4 animate-fadeIn">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
-              <h3 className="text-sm sm:text-base font-bold text-white">
-                {isEn ? 'System Update Pipeline In Progress...' : 'عملیات به‌روزرسانی پنل در حال اجراست...'}
-              </h3>
+      {updateSuccess || (countdown !== null && countdown > 0) ? (
+        /* Update Completed - Prominent 10-Second Countdown & Success Dashboard */
+        <div
+          className={`p-6 rounded-2xl border backdrop-blur-xl shadow-2xl space-y-5 animate-fadeIn relative overflow-hidden ${
+            isLightMode
+              ? 'bg-gradient-to-br from-emerald-50 via-white to-teal-50 border-emerald-300 text-slate-900 shadow-emerald-500/10'
+              : 'bg-gradient-to-br from-emerald-950/85 via-slate-900/90 to-teal-950/85 border-emerald-500/50 text-slate-100 shadow-emerald-950/50'
+          }`}
+        >
+          {/* Subtle Ambient Glow */}
+          <div className="absolute -top-24 -right-24 w-60 h-60 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Top Row: Success Badge + Big Countdown */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-center gap-3.5">
+              <div className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-500/20 shrink-0">
+                <CheckCircle2 className="w-7 h-7 sm:w-8 sm:h-8" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h3 className={`text-base sm:text-lg font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                    {isEn ? 'Panel Updated Successfully!' : 'پنل با موفقیت به نگارش جدید ارتقا یافت!'}
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-500/25 text-emerald-300 border border-emerald-500/40">
+                    100% {isEn ? 'COMPLETED' : 'تکمیل شد'}
+                  </span>
+                </div>
+                <p className={`text-xs mt-1 ${isLightMode ? 'text-slate-600' : 'text-emerald-200/80'}`}>
+                  {isEn
+                    ? 'All repository changes, dependencies, database state, and services were upgraded cleanly.'
+                    : 'کلیه تغییرات مخزن، پکیج‌ها، پایگاه داده و سرویس‌های سامانه با موفقیت ارتقا یافتند.'}
+                </p>
+              </div>
             </div>
-            {countdown !== null && (
-              <span className="font-mono text-xs px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
-                {isEn ? `Reloading in ${countdown}s` : `بارگذاری مجدد تا ${countdown} ثانیه`}
-              </span>
-            )}
+
+            {/* Countdown Badge & Instant Reload Button */}
+            <div className="flex items-center gap-3 self-stretch sm:self-auto justify-between sm:justify-end flex-wrap">
+              <div className="flex items-center gap-3 px-4 py-2 rounded-2xl bg-black/40 border border-emerald-500/40 shadow-inner">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/30 to-teal-500/20 border-2 border-emerald-400 flex items-center justify-center font-mono font-black text-xl text-emerald-300 shadow-lg shadow-emerald-500/20 animate-pulse">
+                  {countdown ?? 10}
+                </div>
+                <div className="text-right rtl:text-right ltr:text-left">
+                  <div className="text-xs font-bold text-white font-mono">
+                    {isEn ? `Reloading in ${countdown ?? 10}s` : `بارگذاری مجدد در ${countdown ?? 10} ثانیه`}
+                  </div>
+                  <div className="text-[10px] text-emerald-300/80">
+                    {isEn ? 'Automatic restart countdown' : 'شمارش معکوس رفرش خودکار'}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => window.location.reload()}
+                className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs shadow-lg shadow-emerald-500/30 transition cursor-pointer active:scale-95"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>{isEn ? 'Reload Now' : 'تازه‌سازی فوری'}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-slate-950/90 border border-white/10 font-mono text-xs text-slate-300 max-h-56 overflow-y-auto space-y-1.5 custom-scrollbar">
-            {updateLogs.map((log, idx) => (
-              <div key={idx} className="flex items-start gap-2">
-                <span className="text-cyan-400">›</span>
-                <span className={log.includes('successfully') || log.includes('موفقیت') ? 'text-emerald-400 font-bold' : ''}>
-                  {log}
+          {/* Visual 10-Second Countdown Progress Bar */}
+          <div className="space-y-1.5 relative z-10">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span>{isEn ? 'Browser auto-refresh timer:' : 'زمان‌سنج بارگذاری مجدد خودکار مرورگر:'}</span>
+              </span>
+              <span className="text-emerald-300 font-bold">
+                {countdown ?? 10} / 10 {isEn ? 'seconds' : 'ثانیه'}
+              </span>
+            </div>
+
+            <div className="w-full h-3 rounded-full bg-black/60 border border-emerald-500/30 overflow-hidden relative p-0.5 shadow-inner">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-1000 ease-linear shadow-[0_0_15px_rgba(16,185,129,0.7)]"
+                style={{ width: `${Math.max(0, Math.min(100, ((countdown ?? 10) / 10) * 100))}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Final Completed Pipeline Logs */}
+          {updateLogs.length > 0 && (
+            <div className="space-y-1.5 relative z-10">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <div className="flex items-center gap-1.5 font-mono">
+                  <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{isEn ? 'Update Summary & Execution Logs' : 'خلاصه و لاگ‌های اجرای ارتقا'}</span>
+                </div>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  {updateLogs.length} {isEn ? 'entries' : 'سطر'}
                 </span>
               </div>
-            ))}
+              <div className="p-3.5 rounded-xl bg-slate-950/90 border border-white/10 font-mono text-xs text-slate-300 max-h-48 overflow-y-auto space-y-1 custom-scrollbar">
+                {updateLogs.map((log, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <span className="text-emerald-400 shrink-0">✓</span>
+                    <span className={log.includes('successfully') || log.includes('موفقیت') ? 'text-emerald-400 font-bold' : ''}>
+                      {log}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : updating ? (
+        /* Live Updating In-Progress Card with 6-Phase Progress Bar */
+        <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-950/85 via-slate-900/90 to-purple-950/85 border border-indigo-500/50 shadow-2xl shadow-indigo-950/50 space-y-5 animate-fadeIn relative overflow-hidden">
+          {/* Subtle Ambient Pulse */}
+          <div className="absolute -top-24 -left-24 w-60 h-60 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Header with Title and Current Progress */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+            <div className="flex items-center gap-3.5">
+              <div className="p-3 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-cyan-300 shadow-lg shadow-indigo-500/20 shrink-0">
+                <RefreshCw className="w-7 h-7 animate-spin text-cyan-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <h3 className="text-base sm:text-lg font-bold text-white">
+                    {isEn ? 'System Update Pipeline In Progress...' : 'عملیات به‌روزرسانی پنل در حال اجراست...'}
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                    {isEn ? `Phase ${updateStep} of 6` : `گام ${updateStep} از ۶`}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300/80 mt-1">
+                  {isEn
+                    ? 'Executing safe update pipeline, database snapshot & building production assets...'
+                    : 'در حال اجرای خط لوله امن ارتقا، تهیه پشتیبان دیتابیس و بیلد نرم‌افزار...'}
+                </p>
+              </div>
+            </div>
+
+            {/* Percentage Badge */}
+            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/50 border border-cyan-500/40 self-start sm:self-auto shadow-inner">
+              <span className="text-xs text-cyan-300 font-mono">{isEn ? 'Progress:' : 'پیشرفت:'}</span>
+              <span className="text-xl font-mono font-black text-cyan-300">{updateProgress}%</span>
+            </div>
+          </div>
+
+          {/* Interactive Progress Bar */}
+          <div className="space-y-2 relative z-10">
+            <div className="flex items-center justify-between text-xs text-slate-300 font-mono">
+              <span className="text-cyan-300 font-semibold truncate max-w-[85%]">
+                {isEn
+                  ? updateStep === 1
+                    ? 'Phase 1/6: Initializing upgrade pipeline...'
+                    : updateStep === 2
+                    ? 'Phase 2/6: Syncing repository & safeguarding database...'
+                    : updateStep === 3
+                    ? 'Phase 3/6: Installing & reconciling NPM dependencies...'
+                    : updateStep === 4
+                    ? 'Phase 4/6: Verifying backend processes & Python environment...'
+                    : updateStep === 5
+                    ? 'Phase 5/6: Building production frontend and backend bundles...'
+                    : 'Phase 6/6: Finalizing configuration & preparing restart...'
+                  : updateStep === 1
+                    ? 'گام ۱/۶: آماده‌سازی خط لوله ارتقا...'
+                    : updateStep === 2
+                    ? 'گام ۲/۶: همگام‌سازی مخزن و پشتیبان‌گیری از دیتابیس...'
+                    : updateStep === 3
+                    ? 'گام ۳/۶: نصب و اعتبارسنجی پکیج‌های NPM...'
+                    : updateStep === 4
+                    ? 'گام ۴/۶: بررسی پروسه‌های بک‌اند و محیط پایتون...'
+                    : updateStep === 5
+                    ? 'گام ۵/۶: ساخت و کامپایل مجدد کدهای اجرایی پنل...'
+                    : 'گام ۶/۶: نهایی‌سازی تنظیمات و آماده‌سازی ری‌استارت...'}
+              </span>
+              <span className="text-indigo-300 font-bold shrink-0">{updateProgress}%</span>
+            </div>
+
+            {/* Animated Gradient Bar */}
+            <div className="w-full h-3.5 rounded-full bg-slate-950 border border-white/10 overflow-hidden relative p-0.5 shadow-inner">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-500 transition-all duration-700 ease-out relative shadow-[0_0_15px_rgba(6,182,212,0.6)]"
+                style={{ width: `${Math.max(5, Math.min(100, updateProgress))}%` }}
+              >
+                <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full" />
+              </div>
+            </div>
+
+            {/* 6 Step Indicators */}
+            <div className="grid grid-cols-6 gap-1.5 pt-1">
+              {[
+                { step: 1, label_en: 'Init', label_fa: 'آغاز' },
+                { step: 2, label_en: 'Sync', label_fa: 'گیت' },
+                { step: 3, label_en: 'Deps', label_fa: 'پکیج‌ها' },
+                { step: 4, label_en: 'Backend', label_fa: 'بک‌اند' },
+                { step: 5, label_en: 'Build', label_fa: 'بیلد' },
+                { step: 6, label_en: 'Restart', label_fa: 'ری‌استارت' },
+              ].map((s) => {
+                const isDone = updateStep > s.step;
+                const isCurrent = updateStep === s.step;
+                return (
+                  <div key={s.step} className="flex flex-col items-center gap-1 text-center">
+                    <div
+                      className={`w-full h-1.5 rounded-full transition-all ${
+                        isDone
+                          ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+                          : isCurrent
+                          ? 'bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.8)]'
+                          : 'bg-slate-800'
+                      }`}
+                    />
+                    <span
+                      className={`text-[9px] font-mono truncate max-w-full ${
+                        isDone
+                          ? 'text-emerald-300 font-medium'
+                          : isCurrent
+                          ? 'text-cyan-300 font-bold'
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      {isEn ? s.label_en : s.label_fa}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Live Terminal Logs */}
+          <div className="space-y-1.5 relative z-10">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <div className="flex items-center gap-1.5 font-mono">
+                <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isEn ? 'Live Terminal Output' : 'خروجی زنده کنسول'}</span>
+              </div>
+              <span className="text-[10px] text-slate-500 font-mono">
+                {updateLogs.length} {isEn ? 'entries' : 'سطر'}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-950/90 border border-white/10 font-mono text-xs text-slate-300 max-h-56 overflow-y-auto space-y-1.5 custom-scrollbar">
+              {updateLogs.map((log, idx) => (
+                <div key={idx} className="flex items-start gap-2">
+                  <span className="text-cyan-400 shrink-0">›</span>
+                  <span className={log.includes('successfully') || log.includes('موفقیت') ? 'text-emerald-400 font-bold' : ''}>
+                    {log}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       ) : hasUpdate ? (

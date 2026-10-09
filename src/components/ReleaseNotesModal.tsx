@@ -45,6 +45,8 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
     updateSuccess,
     updateLogs,
     error,
+    updateProgress,
+    updateStep,
     countdown,
     checkUpdate,
     performUpdate,
@@ -291,44 +293,82 @@ export const ReleaseNotesModal: React.FC<ReleaseNotesModalProps> = ({
               {/* Status and Action Buttons */}
               <div className={`mt-4 pt-3 border-t ${isLight ? 'border-slate-200' : 'border-rose-500/20'}`}>
                 {updateSuccess ? (
-                  <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300">
-                        <CheckCircle2 className="w-6 h-6" />
+                  <div className="p-4 rounded-xl bg-emerald-950/70 border border-emerald-500/50 space-y-3 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-300">
+                          <CheckCircle2 className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-white">
+                            {isEn ? 'Panel Updated Successfully!' : 'پنل با موفقیت به نگارش جدید ارتقا یافت!'}
+                          </div>
+                          <div className="text-xs text-emerald-300/90 mt-0.5">
+                            {isEn
+                              ? `Reloading interface automatically in ${countdown ?? 10} seconds...`
+                              : `صفحه تا ${countdown ?? 10} ثانیه دیگر مجدداً بارگذاری می‌شود...`}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-bold text-sm text-white">
-                          {isEn ? 'Panel Updated Successfully!' : 'پنل با موفقیت به نگارش جدید ارتقا یافت!'}
+
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-lg bg-black/40 border border-emerald-500/40 flex items-center justify-center font-mono font-bold text-sm text-emerald-300 animate-pulse">
+                          {countdown ?? 10}
                         </div>
-                        <div className="text-xs text-emerald-300/90 mt-0.5">
-                          {isEn
-                            ? `Reloading interface in ${countdown} seconds...`
-                            : `صفحه تا ${countdown} ثانیه دیگر مجدداً بارگذاری می‌شود...`}
-                        </div>
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+                        >
+                          {isEn ? 'Reload Now' : 'تازه‌سازی فوری'}
+                        </button>
                       </div>
                     </div>
-                    <button
-                      onClick={() => window.location.reload()}
-                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
-                    >
-                      {isEn ? 'Reload Now' : 'تازه‌سازی فوری'}
-                    </button>
+
+                    {/* Visual 10-Second Countdown Bar */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px] font-mono text-emerald-300">
+                        <span>{isEn ? 'Countdown progress:' : 'پیشرفت شمارش معکوس:'}</span>
+                        <span>{countdown ?? 10} / 10s</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-black/60 border border-emerald-500/30 overflow-hidden relative">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-1000 ease-linear shadow-[0_0_10px_rgba(16,185,129,0.7)]"
+                          style={{ width: `${Math.max(0, Math.min(100, ((countdown ?? 10) / 10) * 100))}%` }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 ) : updating ? (
-                  <div className="p-4 rounded-xl bg-indigo-950/50 border border-indigo-500/40 text-indigo-200 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <Loader2 className="w-5 h-5 text-cyan-300 animate-spin shrink-0" />
-                      <div>
-                        <div className="font-bold text-sm text-white">
-                          {isEn
-                            ? `Updating panel to v${updateInfo?.latestVersion || APP_VERSION}...`
-                            : `در حال ارتقای پنل به نگارش v${updateInfo?.latestVersion || APP_VERSION}...`}
+                  <div className="p-4 rounded-xl bg-indigo-950/60 border border-indigo-500/40 text-indigo-200 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <Loader2 className="w-5 h-5 text-cyan-300 animate-spin shrink-0" />
+                        <div>
+                          <div className="font-bold text-sm text-white">
+                            {isEn
+                              ? `Updating panel to v${updateInfo?.latestVersion || APP_VERSION}...`
+                              : `در حال ارتقای پنل به نگارش v${updateInfo?.latestVersion || APP_VERSION}...`}
+                          </div>
+                          <div className="text-[11px] text-cyan-300/80">
+                            {isEn
+                              ? `Phase ${updateStep} of 6: Syncing, installing dependencies & rebuilding...`
+                              : `گام ${updateStep} از ۶: همگام‌سازی، نصب پکیج‌ها و بازسازی سیستم...`}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-cyan-300/80">
-                          {isEn
-                            ? 'Syncing code, installing dependencies, building bundle & restarting service...'
-                            : 'همگام‌سازی کدها، نصب پکیج‌ها، ساخت مجدد باندل و ری‌استارت سرویس...'}
-                        </div>
+                      </div>
+
+                      <div className="font-mono text-cyan-300 text-xs font-bold bg-black/40 px-2.5 py-1 rounded-lg border border-cyan-500/30">
+                        {updateProgress}%
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full h-2.5 rounded-full bg-slate-950 border border-white/10 overflow-hidden relative p-0.5 shadow-inner">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-500 transition-all duration-700 ease-out relative shadow-[0_0_10px_rgba(6,182,212,0.6)]"
+                        style={{ width: `${Math.max(5, Math.min(100, updateProgress))}%` }}
+                      >
+                        <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full" />
                       </div>
                     </div>
 

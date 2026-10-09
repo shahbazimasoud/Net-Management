@@ -35,6 +35,8 @@ interface UpdateContextType {
   updateSuccess: boolean;
   updateLogs: string[];
   error: string | null;
+  updateProgress: number;
+  updateStep: number;
   countdown: number | null;
   lastCheckedAt: string | null;
   checkFeedback: UpdateFeedback | null;
@@ -57,6 +59,8 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [updateSuccess, setUpdateSuccess] = useState<boolean>(false);
   const [updateLogs, setUpdateLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<number>(0);
+  const [updateStep, setUpdateStep] = useState<number>(1);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isSimulated, setIsSimulated] = useState<boolean>(false);
   const [isAlertDismissed, setIsAlertDismissed] = useState<boolean>(false);
@@ -192,6 +196,9 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setUpdating(true);
     setError(null);
     setUpdateSuccess(false);
+    setUpdateProgress(12);
+    setUpdateStep(1);
+    setCountdown(null);
     const isCleanMode = options?.clean === true;
 
     setUpdateLogs([
@@ -218,14 +225,20 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         '[Phase 6/6] Finalizing configuration, preparing service restart...'
       ];
 
+      const stepProgressMap = [32, 54, 72, 88, 96];
+
       let stepIdx = 0;
       progressInterval = setInterval(() => {
         if (stepIdx < simulatedSteps.length) {
           const nextText = simulatedSteps[stepIdx];
+          const nextProgress = stepProgressMap[stepIdx];
+          const nextStepNum = stepIdx + 2;
           setUpdateLogs((prev) => [...prev, nextText]);
+          setUpdateProgress(nextProgress);
+          setUpdateStep(nextStepNum);
           stepIdx++;
         }
-      }, 5000);
+      }, 4000);
 
       const storedToken = token || (typeof window !== 'undefined' ? localStorage.getItem('nettopology_auth_token_v1') || sessionStorage.getItem('nettopology_auth_token_v1') : null);
       const headers: Record<string, string> = {
@@ -252,13 +265,16 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       setUpdateLogs(data.logs || ['Update completed successfully.']);
+      setUpdateProgress(100);
+      setUpdateStep(6);
       setUpdateSuccess(true);
-      setCountdown(3);
+      setCountdown(10);
       return true;
     } catch (err: any) {
       if (progressInterval) {
         clearInterval(progressInterval);
       }
+      setUpdateProgress(0);
       console.error('[UpdateContext] Update error:', err);
       setError(err.message || (isPersian ? 'خطا در ارتقای نرم‌افزار' : 'Software update failed'));
       return false;
@@ -319,6 +335,8 @@ export const UpdateProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         updateSuccess,
         updateLogs,
         error,
+        updateProgress,
+        updateStep,
         countdown,
         lastCheckedAt,
         checkFeedback,
