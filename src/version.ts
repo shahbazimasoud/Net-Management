@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.297.0';
+export const APP_VERSION = '1.298.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.298.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'بازطراحی کامل رابط کاربری پورتال بازیابی از فاجعه (Phase 3: DR Portal UI): افزودن تب زمانبندی خودکار، مدیریت آرشیو سرور و مودال‌های استاندارد',
+    title_en: 'Disaster Recovery Portal Full UI Enhancement (Phase 3): Scheduled Automated Backups Tab, Server Storage Archive Manager & Universal Modals',
+    changes: [
+      'بازطراحی کامل و ۴ لایه‌ای رابط کاربری پورتال پشتیبان‌گیری و بازیابی اطلاعات (Backup & Disaster Recovery Portal) شامل تب‌های: استخراج و بازیابی دستی، بکاپ‌های زمانبندی شده، آرشیو سرور و لاگ ممیزی.',
+      'طراحی و پیاده‌سازی تب اختصاصی «بکاپ‌های زمانبندی شده (Scheduled Automated Backups)» با نمایش وضعیت زنده دیمن بک‌اند، سوییچ‌های فعال/غیرفعال‌سازی آنی، فرکانس اجرا، دامنه و اجرای فوری (Run Now).',
+      'توسعه مودال جامع تعریف و ویرایش زمانبندی (BackupScheduleModal) با پشتیبانی کامل از تنظیمات فرکانس (روزانه، ساعتی، هفتگی، فواصل سفارشی)، رمزنگاری AES-GCM، پاکسازی سکرت‌ها و سیاست‌های نگهداری (Retention Policy).',
+      'طراحی جدول مدیریت آرشیو دیسک سرور (Server Storage Archive) به همراه کارت‌های تلمتری حجم دیسک، دانلود مستقیم فایل‌ها، حذف ایمن و مودال بازگردانی فوری با یک کلیک (ServerArchiveRestoreModal).',
+      'تجهیز تمامی مودال‌ها به استانداردهای پنج‌گانه سیستم: دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز، تمام‌صفحه)، مهار مرز پایین تا لبه بالایی فوتر (bottom-8)، پشتیبانی از تم تیره و روشن و دوزبانگی صددرصدی.'
+    ],
+    changes_en: [
+      'Comprehensive 4-layer UI redesign of Enterprise Backup & Disaster Recovery Portal featuring: Manual Export & Restore, Scheduled Automated Backups, Server Storage Archive, and Audit Trail.',
+      'Engineered dedicated "Scheduled Automated Backups" tab with live backend cron daemon heartbeat indicator, instant toggle switches, frequency badges, scope indicators, and 1-click execution (Run Now).',
+      'Developed universal BackupScheduleModal supporting multi-frequency rules (daily, hourly, weekly, custom intervals), AES-GCM 256-bit encryption with PBKDF2 passphrase, secret sanitization, and server retention policy caps.',
+      'Built Server Storage Archive manager table with disk utilization KPI cards, direct file downloads, secure deletion, and instant atomic 1-click restore modal (ServerArchiveRestoreModal).',
+      'Hardened all new modals against universal 5 system standards: 3-button header controls (Close, Minimize, Fullscreen), strict footer clearance (bottom-8), dark/light theme adaptability, and 100% strict bilingual localization.'
+    ]
+  },
   {
     version: '1.297.0',
     releaseDate: '2026-10-09',

@@ -2058,7 +2058,8 @@
       "retention_days": 14,
       "last_status": "idle",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-09-14T00:00:00.000Z"
+      "updated_at": "2026-10-09T10:07:44.141Z",
+      "next_run_at": "2026-10-10T04:00:00.000Z"
     }
   ]
 }

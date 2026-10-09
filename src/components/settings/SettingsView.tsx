@@ -406,6 +406,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onSelectSimulatedPolicy={handleSelectSimulatedPolicy}
             devices={devices}
             onRefreshData={onRefreshAllData}
+            isLightMode={isLightMode}
           />
         )}
       </div>
