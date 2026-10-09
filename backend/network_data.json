@@ -42,7 +42,8 @@
       "location": "",
       "section": "",
       "ssh_version": "legacy",
-      "hierarchy_id": ""
+      "hierarchy_id": "",
+      "winbox_port": 8291
     },
     {
       "id": "dev-router-gw",

@@ -38,8 +38,11 @@ import {
   ArrowRight,
   Sparkles,
   Sliders,
-  Maximize2
+  Maximize2,
+  Mail,
+  Send,
 } from 'lucide-react';
+import { AuditEmailReportModal } from './AuditEmailReportModal';
 import {
   PortalAuditLogEntry,
   DeviceCommandLogEntry,
@@ -77,7 +80,7 @@ interface WatchLogSession {
   commands: DeviceCommandLogEntry[];
 }
 
-export const AuditLogsView: React.FC = () => {
+export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode = false }) => {
   const { t, isEn, isRtl } = useLanguage();
   const [activeSection, setActiveSection] = useState<ActiveLogSection>('commands');
   const [commandGroupMode, setCommandGroupMode] = useState<CommandGroupMode>('device');
@@ -86,6 +89,9 @@ export const AuditLogsView: React.FC = () => {
   const [portalLogs, setPortalLogs] = useState<PortalAuditLogEntry[]>([]);
   const [commandLogs, setCommandLogs] = useState<DeviceCommandLogEntry[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Automated Email Report Modal state
+  const [isEmailReportModalOpen, setIsEmailReportModalOpen] = useState(false);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -644,6 +650,15 @@ export const AuditLogsView: React.FC = () => {
 
         {/* Global Toolbar Buttons */}
         <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <button
+            onClick={() => setIsEmailReportModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600/30 via-indigo-500/25 to-cyan-500/25 hover:from-indigo-600/50 hover:to-cyan-500/50 active:scale-95 text-indigo-200 hover:text-white border border-indigo-400/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+            title={isEn ? 'Configure automated scheduled email reporting & immediate dispatch' : 'تنظیمات ارسال خودکار و زمان‌بندی گزارشات به ایمیل و ارسال فوری'}
+          >
+            <Mail className="w-3.5 h-3.5 text-indigo-400" />
+            <span>{isEn ? 'Email Reports' : 'گزارش‌گیری ایمیل'}</span>
+          </button>
+
           <button
             onClick={refreshData}
             disabled={isRefreshing}
@@ -2104,6 +2119,15 @@ export const AuditLogsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Automated Email Reporting & Schedule Modal */}
+      <AuditEmailReportModal
+        isOpen={isEmailReportModalOpen}
+        onClose={() => setIsEmailReportModalOpen(false)}
+        portalLogs={portalLogs}
+        commandLogs={commandLogs}
+        isLightMode={isLightMode}
+      />
     </div>
   );
 };

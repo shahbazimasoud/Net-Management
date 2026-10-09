@@ -205,6 +205,7 @@ export interface FallbackStore {
   general_settings?: PanelGeneralSettings;
   scheduled_backup_jobs?: ScheduledBackupJob[];
   email_config?: EmailConfig;
+  audit_report_schedule?: any;
 }
 
 export interface ScheduledBackupJob {
@@ -1930,6 +1931,16 @@ export async function initDatabase(): Promise<void> {
       // 16. Outgoing Mail (SMTP) Config
       await client.query(`
         CREATE TABLE IF NOT EXISTS email_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
+
+      // 17. Automated Audit & Command Logs Scheduled Reporting Config
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS audit_report_schedule (
           id VARCHAR(64) PRIMARY KEY,
           config_data JSONB NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -4432,6 +4443,127 @@ export async function saveEmailConfig(config: Partial<EmailConfig>, updatedBy: s
       );
     } catch (e) {
       console.error('[DB] Error saving email_config to PostgreSQL:', e);
+    }
+  }
+
+  return updated;
+}
+
+// -------------------------------------------------------------
+// Automated Audit & Command Logs Scheduled Reporting Configuration
+// -------------------------------------------------------------
+
+export interface AuditReportScheduleConfig {
+  id?: string;
+  enabled: boolean;
+  recipients: string[];
+  frequency: 'hourly' | 'daily' | 'weekly' | 'monthly';
+  timeOfDay: string; // e.g. "08:00"
+  dayOfWeek?: number; // 0=Sunday, 1=Monday, ..., 6=Saturday
+  dayOfMonth?: number; // 1-31
+  reportTitle?: string;
+  selectedCategories: string[];
+  includeCommands: boolean;
+  minSeverity: 'all' | 'notice' | 'warning' | 'critical';
+  statusFilter: 'all' | 'failed_only' | 'success_and_failed';
+  timeframeHours: number;
+  attachCsv: boolean;
+  lastSentAt?: string;
+  lastSendStatus?: 'success' | 'failed';
+  lastSendError?: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export const DEFAULT_AUDIT_REPORT_SCHEDULE: AuditReportScheduleConfig = {
+  enabled: false,
+  recipients: [],
+  frequency: 'daily',
+  timeOfDay: '08:00',
+  dayOfWeek: 1, // Monday
+  dayOfMonth: 1,
+  reportTitle: 'NetTopology Enterprise Audit & Activity Report',
+  selectedCategories: [
+    'user_management',
+    'rbac_policy',
+    'device_inventory',
+    'backup_recovery',
+    'topology_network',
+    'port_interface',
+    'system_auth',
+  ],
+  includeCommands: true,
+  minSeverity: 'all',
+  statusFilter: 'all',
+  timeframeHours: 24,
+  attachCsv: false,
+};
+
+export async function getAuditReportSchedule(): Promise<AuditReportScheduleConfig> {
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query("SELECT config_data FROM audit_report_schedule WHERE id = 'primary' LIMIT 1");
+      if (res.rows.length > 0 && res.rows[0].config_data) {
+        const raw = res.rows[0].config_data;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return {
+          ...DEFAULT_AUDIT_REPORT_SCHEDULE,
+          ...parsed,
+          recipients: Array.isArray(parsed.recipients) ? parsed.recipients : [],
+          selectedCategories: Array.isArray(parsed.selectedCategories) ? parsed.selectedCategories : DEFAULT_AUDIT_REPORT_SCHEDULE.selectedCategories,
+        };
+      }
+    } catch (e) {
+      console.warn('[DB] Fallback to file store for audit_report_schedule:', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const cfg = store.audit_report_schedule || DEFAULT_AUDIT_REPORT_SCHEDULE;
+  return {
+    ...DEFAULT_AUDIT_REPORT_SCHEDULE,
+    ...cfg,
+    recipients: Array.isArray(cfg.recipients) ? cfg.recipients : [],
+    selectedCategories: Array.isArray(cfg.selectedCategories) ? cfg.selectedCategories : DEFAULT_AUDIT_REPORT_SCHEDULE.selectedCategories,
+  };
+}
+
+export async function saveAuditReportSchedule(
+  config: Partial<AuditReportScheduleConfig>,
+  updatedBy: string = 'admin'
+): Promise<AuditReportScheduleConfig> {
+  const current = await getAuditReportSchedule();
+  const store = loadFallbackStore();
+
+  const updated: AuditReportScheduleConfig = {
+    ...current,
+    ...config,
+    recipients: Array.isArray(config.recipients)
+      ? config.recipients.map((r: any) => String(r).trim()).filter(Boolean)
+      : current.recipients,
+    selectedCategories: Array.isArray(config.selectedCategories)
+      ? config.selectedCategories
+      : current.selectedCategories,
+    updated_at: new Date().toISOString(),
+    updated_by: updatedBy,
+  };
+
+  store.audit_report_schedule = updated;
+  saveFallbackStore(store);
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO audit_report_schedule (id, config_data, updated_at, updated_by)
+         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           config_data = EXCLUDED.config_data,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = EXCLUDED.updated_by`,
+        [JSON.stringify(updated), updatedBy]
+      );
+    } catch (e) {
+      console.error('[DB] Error saving audit_report_schedule to PostgreSQL:', e);
     }
   }
 

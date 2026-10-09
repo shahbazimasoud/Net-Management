@@ -36,6 +36,12 @@ import {
 } from './backupScheduler';
 import { sendTestEmail } from './emailService';
 import {
+  sendAuditReportEmail,
+  generateAuditReportHtml,
+  filterLogsForReport,
+  calculateReportSummary,
+} from './auditReportService';
+import {
   getDbStatus,
   findUserByUsername,
   findUserById,
@@ -69,6 +75,8 @@ import {
   saveGeneralSettings,
   getEmailConfig,
   saveEmailConfig,
+  getAuditReportSchedule,
+  saveAuditReportSchedule,
   EmailConfig,
   getHierarchy,
   saveHierarchy,
@@ -1586,6 +1594,123 @@ apiRouter.post('/settings/audit-logs', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Automated Audit & Command Logs Scheduled Reporting Endpoints
+// -------------------------------------------------------------
+
+// GET /api/audit-reports/config
+apiRouter.get('/audit-reports/config', async (_req: Request, res: Response) => {
+  try {
+    const config = await getAuditReportSchedule();
+    const smtpConfig = await getEmailConfig();
+    const smtpConfigured = Boolean(smtpConfig.smtp_host && smtpConfig.smtp_host.trim().length > 0);
+
+    res.json({
+      success: true,
+      config,
+      smtpConfigured,
+      smtpFrom: smtpConfig.from_email || smtpConfig.smtp_user || '',
+      smtpHost: smtpConfig.smtp_host || '',
+      smtpPort: smtpConfig.smtp_port || 587,
+      smtpSecure: smtpConfig.smtp_secure || 'tls',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-reports/config
+apiRouter.post('/audit-reports/config', async (req: Request, res: Response) => {
+  try {
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+
+    const incomingConfig = req.body?.config || req.body || {};
+    const saved = await saveAuditReportSchedule(incomingConfig, updatedBy);
+
+    res.json({
+      success: true,
+      config: saved,
+      message: 'Audit report schedule configuration updated successfully.',
+      message_fa: 'پیکربندی زمان‌بندی و ارسال گزارشات ممیزی با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-reports/preview
+apiRouter.post('/audit-reports/preview', async (req: Request, res: Response) => {
+  try {
+    const storedSchedule = await getAuditReportSchedule();
+    const incomingConfig = req.body?.config || {};
+    const effectiveConfig = {
+      ...storedSchedule,
+      ...incomingConfig,
+    };
+
+    const portalLogs = req.body?.portalLogs || [];
+    const commandLogs = req.body?.commandLogs || [];
+    const isEn = req.body?.isEn !== undefined ? Boolean(req.body.isEn) : true;
+    const smtpConfig = await getEmailConfig();
+
+    const { filteredPortal, filteredCommands } = filterLogsForReport(portalLogs, commandLogs, effectiveConfig);
+    const summary = calculateReportSummary(filteredPortal, filteredCommands);
+    const html = generateAuditReportHtml({
+      config: effectiveConfig,
+      portalLogs: filteredPortal,
+      commandLogs: filteredCommands,
+      smtpSenderEmail: smtpConfig.from_email || smtpConfig.smtp_user,
+      isEn,
+    });
+
+    const dateStr = new Date().toISOString().substring(0, 10);
+    const subject = effectiveConfig.reportTitle
+      ? `${effectiveConfig.reportTitle} [${dateStr}]`
+      : `[NetTopology] Enterprise Audit & Activity Report - ${dateStr}`;
+
+    res.json({
+      success: true,
+      subject,
+      html,
+      summary,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-reports/send-now
+apiRouter.post('/audit-reports/send-now', async (req: Request, res: Response) => {
+  try {
+    const incomingConfig = req.body?.config || {};
+    const portalLogs = req.body?.portalLogs || [];
+    const commandLogs = req.body?.commandLogs || [];
+    const isEn = req.body?.isEn !== undefined ? Boolean(req.body.isEn) : true;
+
+    const result = await sendAuditReportEmail({
+      config: incomingConfig,
+      portalLogs,
+      commandLogs,
+      isEn,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to dispatch audit report email',
+      latencyMs: 0,
+      timestamp: new Date().toISOString(),
+    });
   }
 });
 

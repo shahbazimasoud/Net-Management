@@ -174,6 +174,9 @@ import {
   LinuxCronExecutionResult,
   EmailConfig,
   EmailTestResult,
+  AuditReportScheduleConfig,
+  AuditReportPreviewResult,
+  AuditReportSendResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -7524,5 +7527,78 @@ export async function testEmailConfigApi(payload: {
   const data = await res.json();
   return data;
 }
+
+// ==============================================================================
+// Automated Audit & Command Logs Scheduled Reporting APIs
+// ==============================================================================
+
+export async function fetchAuditReportConfigApi(): Promise<{
+  success: boolean;
+  config: AuditReportScheduleConfig;
+  smtpConfigured: boolean;
+  smtpFrom: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/config`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch audit report schedule configuration');
+  }
+  return data;
+}
+
+export async function saveAuditReportConfigApi(config: Partial<AuditReportScheduleConfig>): Promise<{
+  success: boolean;
+  config: AuditReportScheduleConfig;
+  message?: string;
+  message_fa?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to save audit report schedule configuration');
+  }
+  return data;
+}
+
+export async function previewAuditReportApi(payload: {
+  config?: Partial<AuditReportScheduleConfig>;
+  portalLogs?: any[];
+  commandLogs?: any[];
+  isEn?: boolean;
+}): Promise<AuditReportPreviewResult> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to generate audit report preview');
+  }
+  return data;
+}
+
+export async function sendAuditReportNowApi(payload: {
+  config?: Partial<AuditReportScheduleConfig>;
+  portalLogs?: any[];
+  commandLogs?: any[];
+  isEn?: boolean;
+}): Promise<AuditReportSendResult> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/send-now`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  return data;
+}
+
 
 

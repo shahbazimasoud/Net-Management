@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.300.3';
+export const APP_VERSION = '1.301.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.301.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'سیستم جامع ارسال خودکار و زمان‌بندی‌شده گزارشات ممیزی و فرامین شبکه (Audit & Command Logs) به ایمیل بر اساس SMTP',
+    title_en: 'Automated Scheduled Audit & Command Logs Email Reporting with Corporate SMTP Integration',
+    changes: [
+      'پیاده‌سازی موتور تولید گزارش ایمیل با قالب HTML سازمانی و ریسپانسیو شامل کارت‌های خلاصه KPI، نمودار تفکیک دسته‌بندی‌ها، کادر هشدار وقایع بحرانی امنیتی و جداول تفصیلی ردیابی ممیزی و فرامین ترمینال.',
+      'یکپارچه‌سازی کامل با مشخصات SMTP Connection & Account Parameters جهت ارسال امن با TLS/SSL و استفاده از اطلاعات احراز هویت سرور.',
+      'افزودن دیمن زمان‌بند خودکار در بک‌اند (Audit Report Scheduler Daemon) با پشتیبانی از تناوب ساعتی، روزانه، هفتگی و ماهانه.',
+      'افزودن دکمه ارسال آنی (Send Report Now) جهت ارسال فوری گزارش با بازخورد زنده، محاسبه تاخیر میلی‌ثانیه‌ای و ثبت در لاگ ممیزی.',
+      'افزودن تب پیش‌نمایش تعاملی قالب ایمیل درون مودال با قابلیت سوئیچ بین نمای دسکتاپ و موبایل.',
+      'انطباق ۱۰۰٪ با استانداردهای پنج‌گانه Universal Modal شامل دکمه‌های کنترلی سه‌گانه، مینیمایز در ToolsDock، حریم فوتر، تم‌های تیره و روشن، دوزبانگی کامل و راهنماهای سه‌بخشی FieldInfoTooltip.'
+    ],
+    changes_en: [
+      'Engineered enterprise HTML email report generator featuring executive KPI metric cards, category distribution breakdown, security incident callout, and comprehensive audit and CLI terminal command trail tables.',
+      'Seamlessly integrated with configured SMTP Connection & Account Parameters for TLS/SSL encrypted dispatches using live server credentials.',
+      'Implemented background audit report scheduler daemon supporting hourly, daily, weekly, and monthly recurrence with persistent database configuration.',
+      'Added immediate "Send Report Now" capability with real-time delivery telemetry, millisecond latency tracking, and system audit logging.',
+      'Provided interactive in-modal email template preview with responsive desktop and mobile viewport toggles.',
+      'Full compliance with 5-pillar Universal Modal specifications: triple header controls, ToolsDock minimization, footer clearance, dark/light themes, strict bilingual i18n, and 3-part FieldInfoTooltips.'
+    ]
+  },
   {
     version: '1.300.3',
     releaseDate: '2026-10-09',

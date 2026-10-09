@@ -932,6 +932,60 @@ export interface DeviceCommandLogEntry {
 }
 
 // -------------------------------------------------------------
+// Automated Audit & Command Logs Scheduled Reporting
+// -------------------------------------------------------------
+
+export interface AuditReportScheduleConfig {
+  id?: string;
+  enabled: boolean;
+  recipients: string[];
+  frequency: 'hourly' | 'daily' | 'weekly' | 'monthly';
+  timeOfDay: string; // e.g. "08:00"
+  dayOfWeek?: number; // 0=Sunday, 1=Monday, ..., 6=Saturday
+  dayOfMonth?: number; // 1-31
+  reportTitle?: string;
+  selectedCategories: AuditLogCategory[];
+  includeCommands: boolean;
+  minSeverity: 'all' | 'notice' | 'warning' | 'critical';
+  statusFilter: 'all' | 'failed_only' | 'success_and_failed';
+  timeframeHours: number; // e.g. 24
+  attachCsv: boolean;
+  lastSentAt?: string;
+  lastSendStatus?: 'success' | 'failed';
+  lastSendError?: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface AuditReportPreviewResult {
+  success: boolean;
+  subject: string;
+  html: string;
+  summary: {
+    totalEvents: number;
+    portalEvents: number;
+    commandEvents: number;
+    criticalCount: number;
+    warningCount: number;
+    failedCount: number;
+    categoryCounts: Record<string, number>;
+  };
+}
+
+export interface AuditReportSendResult {
+  success: boolean;
+  messageId?: string;
+  recipients: string[];
+  totalLogs: number;
+  portalLogsCount: number;
+  commandLogsCount: number;
+  latencyMs: number;
+  timestamp: string;
+  error?: string;
+  error_fa?: string;
+}
+
+// -------------------------------------------------------------
 // MikroTik VPN Types & Protocols Suite
 // -------------------------------------------------------------
 

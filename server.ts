@@ -43,6 +43,7 @@ import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdSe
 import { registerCertConverterRoutes } from './server/certConverter';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
 import { startBackupSchedulerDaemon } from './server/backupScheduler';
+import { startAuditReportSchedulerDaemon } from './server/auditReportScheduler';
 
 const app = express();
 
@@ -1311,6 +1312,8 @@ async function startServer() {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);
     // Start automated disaster recovery backup scheduler daemon
     startBackupSchedulerDaemon();
+    // Start automated audit & command logs report scheduler daemon
+    startAuditReportSchedulerDaemon();
   });
 }
 

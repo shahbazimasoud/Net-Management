@@ -1082,7 +1082,7 @@ export default function App() {
             <CdpLldpScannerView onNavigateToTopology={() => setActiveTab('schematic')} />
           )}
 
-          {activeTab === 'logs' && <AuditLogsView />}
+          {activeTab === 'logs' && <AuditLogsView isLightMode={panelTheme === 'light'} />}
 
           {(activeTab === 'remote-servers' ||
             activeTab === 'remote-linux' ||
