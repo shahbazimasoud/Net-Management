@@ -386,10 +386,21 @@
 .theme-google-light h3,
 .theme-google-light h4,
 .theme-google-light h5,
-.theme-google-light h6,
-.theme-google-light .text-white,
-.theme-google-light .text-slate-100 {
+.theme-google-light h6 {
   color: #202124 !important;
+}
+
+.theme-google-light .text-white:not(button):not(button *):not([class*="bg-"]):not([class*="from-"]):not([class*="to-"]):not([class*="gradient"]):not([class*="linear"]):not([class*="badge"]),
+.theme-google-light .text-slate-100:not(button):not(button *):not([class*="bg-"]):not([class*="from-"]):not([class*="to-"]):not([class*="gradient"]):not([class*="linear"]) {
+  color: #202124 !important;
+}
+
+.theme-google-light button.text-white,
+.theme-google-light button .text-white,
+.theme-google-light .force-white-text,
+.theme-google-light .force-white-text * {
+  color: #ffffff !important;
+  font-weight: 700 !important;
 }
 
 .theme-google-light p,
@@ -407,6 +418,162 @@
 .theme-google-light .glow-text-purple {
   text-shadow: none !important;
   color: #1a73e8 !important;
+}
+
+/* =========================================================================
+   Google White Theme (theme-google-light):
+   Bold & White Text for All Blue & Grey Gradient Buttons and Elements
+   ========================================================================= */
+
+/* Elements and buttons with Blue or Grey gradients */
+.theme-google-light [class*="bg-gradient"][class*="blue"],
+.theme-google-light [class*="bg-gradient"][class*="indigo"],
+.theme-google-light [class*="bg-gradient"][class*="sky"],
+.theme-google-light [class*="bg-gradient"][class*="cyan"],
+.theme-google-light [class*="bg-gradient"][class*="slate"],
+.theme-google-light [class*="bg-gradient"][class*="gray"],
+.theme-google-light [class*="bg-gradient"][class*="zinc"],
+.theme-google-light [class*="bg-gradient"][class*="neutral"],
+.theme-google-light [class*="bg-linear"][class*="blue"],
+.theme-google-light [class*="bg-linear"][class*="indigo"],
+.theme-google-light [class*="bg-linear"][class*="sky"],
+.theme-google-light [class*="bg-linear"][class*="cyan"],
+.theme-google-light [class*="bg-linear"][class*="slate"],
+.theme-google-light [class*="bg-linear"][class*="gray"],
+.theme-google-light [class*="bg-linear"][class*="zinc"],
+.theme-google-light [class*="bg-linear"][class*="neutral"],
+.theme-google-light [class*="from-blue-"],
+.theme-google-light [class*="from-indigo-"],
+.theme-google-light [class*="from-sky-"],
+.theme-google-light [class*="from-cyan-"],
+.theme-google-light [class*="from-slate-"],
+.theme-google-light [class*="from-gray-"],
+.theme-google-light [class*="from-zinc-"],
+.theme-google-light [class*="from-neutral-"],
+.theme-google-light [class*="to-blue-"],
+.theme-google-light [class*="to-indigo-"],
+.theme-google-light [class*="to-sky-"],
+.theme-google-light [class*="to-cyan-"],
+.theme-google-light [class*="to-slate-"],
+.theme-google-light [class*="to-gray-"],
+.theme-google-light [class*="to-zinc-"],
+.theme-google-light [class*="to-neutral-"],
+.theme-google-light [class*="via-blue-"],
+.theme-google-light [class*="via-indigo-"],
+.theme-google-light [class*="via-sky-"],
+.theme-google-light [class*="via-cyan-"],
+.theme-google-light [class*="via-slate-"],
+.theme-google-light [class*="via-gray-"],
+.theme-google-light [class*="via-zinc-"],
+.theme-google-light button[class*="gradient"],
+.theme-google-light button[class*="linear"],
+.theme-google-light button[class*="from-"],
+.theme-google-light a[class*="from-blue-"],
+.theme-google-light a[class*="from-slate-"] {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* All children, text nodes, spans, icons, labels inside Blue and Grey gradient elements */
+.theme-google-light [class*="bg-gradient"][class*="blue"] *,
+.theme-google-light [class*="bg-gradient"][class*="indigo"] *,
+.theme-google-light [class*="bg-gradient"][class*="sky"] *,
+.theme-google-light [class*="bg-gradient"][class*="cyan"] *,
+.theme-google-light [class*="bg-gradient"][class*="slate"] *,
+.theme-google-light [class*="bg-gradient"][class*="gray"] *,
+.theme-google-light [class*="bg-gradient"][class*="zinc"] *,
+.theme-google-light [class*="bg-gradient"][class*="neutral"] *,
+.theme-google-light [class*="bg-linear"][class*="blue"] *,
+.theme-google-light [class*="bg-linear"][class*="indigo"] *,
+.theme-google-light [class*="bg-linear"][class*="sky"] *,
+.theme-google-light [class*="bg-linear"][class*="cyan"] *,
+.theme-google-light [class*="bg-linear"][class*="slate"] *,
+.theme-google-light [class*="bg-linear"][class*="gray"] *,
+.theme-google-light [class*="bg-linear"][class*="zinc"] *,
+.theme-google-light [class*="bg-linear"][class*="neutral"] *,
+.theme-google-light [class*="from-blue-"] *,
+.theme-google-light [class*="from-indigo-"] *,
+.theme-google-light [class*="from-sky-"] *,
+.theme-google-light [class*="from-cyan-"] *,
+.theme-google-light [class*="from-slate-"] *,
+.theme-google-light [class*="from-gray-"] *,
+.theme-google-light [class*="from-zinc-"] *,
+.theme-google-light [class*="from-neutral-"] *,
+.theme-google-light [class*="to-blue-"] *,
+.theme-google-light [class*="to-indigo-"] *,
+.theme-google-light [class*="to-sky-"] *,
+.theme-google-light [class*="to-cyan-"] *,
+.theme-google-light [class*="to-slate-"] *,
+.theme-google-light [class*="to-gray-"] *,
+.theme-google-light [class*="to-zinc-"] *,
+.theme-google-light [class*="to-neutral-"] *,
+.theme-google-light [class*="via-blue-"] *,
+.theme-google-light [class*="via-indigo-"] *,
+.theme-google-light [class*="via-sky-"] *,
+.theme-google-light [class*="via-cyan-"] *,
+.theme-google-light [class*="via-slate-"] *,
+.theme-google-light [class*="via-gray-"] *,
+.theme-google-light [class*="via-zinc-"] *,
+.theme-google-light button[class*="gradient"] *,
+.theme-google-light button[class*="linear"] *,
+.theme-google-light button[class*="from-"] *,
+.theme-google-light a[class*="from-blue-"] *,
+.theme-google-light a[class*="from-slate-"] * {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* Explicit span/p/label/b/strong styling inside gradient elements */
+.theme-google-light [class*="from-blue-"] span,
+.theme-google-light [class*="from-indigo-"] span,
+.theme-google-light [class*="from-sky-"] span,
+.theme-google-light [class*="from-cyan-"] span,
+.theme-google-light [class*="from-slate-"] span,
+.theme-google-light [class*="from-gray-"] span,
+.theme-google-light [class*="from-zinc-"] span,
+.theme-google-light [class*="to-blue-"] span,
+.theme-google-light [class*="to-indigo-"] span,
+.theme-google-light [class*="to-sky-"] span,
+.theme-google-light [class*="to-cyan-"] span,
+.theme-google-light [class*="to-slate-"] span,
+.theme-google-light [class*="to-gray-"] span,
+.theme-google-light [class*="to-zinc-"] span,
+.theme-google-light button[class*="gradient"] span,
+.theme-google-light button[class*="linear"] span,
+.theme-google-light button[class*="from-"] span,
+.theme-google-light [class*="from-blue-"] p,
+.theme-google-light [class*="from-indigo-"] p,
+.theme-google-light [class*="from-sky-"] p,
+.theme-google-light [class*="from-cyan-"] p,
+.theme-google-light [class*="from-slate-"] p,
+.theme-google-light [class*="from-gray-"] p,
+.theme-google-light [class*="from-zinc-"] p,
+.theme-google-light button[class*="gradient"] p,
+.theme-google-light button[class*="from-"] p {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* SVG icons inside Blue and Grey gradient buttons and elements */
+.theme-google-light [class*="from-blue-"] svg,
+.theme-google-light [class*="from-indigo-"] svg,
+.theme-google-light [class*="from-sky-"] svg,
+.theme-google-light [class*="from-cyan-"] svg,
+.theme-google-light [class*="from-slate-"] svg,
+.theme-google-light [class*="from-gray-"] svg,
+.theme-google-light [class*="from-zinc-"] svg,
+.theme-google-light [class*="to-blue-"] svg,
+.theme-google-light [class*="to-indigo-"] svg,
+.theme-google-light [class*="to-sky-"] svg,
+.theme-google-light [class*="to-cyan-"] svg,
+.theme-google-light [class*="to-slate-"] svg,
+.theme-google-light [class*="to-gray-"] svg,
+.theme-google-light [class*="to-zinc-"] svg,
+.theme-google-light button[class*="gradient"] svg,
+.theme-google-light button[class*="linear"] svg,
+.theme-google-light button[class*="from-"] svg {
+  color: #ffffff !important;
+  stroke: currentColor !important;
 }
 
 /* Google Material Dark Theme */

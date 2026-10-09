@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.0';
+export const APP_VERSION = '1.304.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.1',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'بهبود کنتراست و خوانایی تم سفید گوگل: اعمال فونت سفید و ضخیم (Bold) برای تمامی دکمه‌ها و عناصر دارای گرادیانت آبی و خاکستری',
+    title_en: 'Google White Theme Contrast Enhancement: Bold White Text for All Blue & Grey Gradient Buttons and Elements',
+    changes: [
+      'اصلاح کنتراست متن در تم سفید گوگل (Google Material Light): اجبار رنگ سفید خالص (#ffffff) و قلم ضخیم (font-weight: 700) برای تمامی دکمه‌ها، آیکون‌ها و متون درون عناصر با گرادیانت‌های آبی، نیلی، فیروزه‌ای، آسمانی و گرادیانت‌های خاکستری (Slate/Gray/Zinc).',
+      'رفع مشکل تیرگی متن در دکمه‌های با پس‌زمینه گرادیانت و برطرف‌سازی بازنویسی ناخواسته کلاس text-white در دکمه‌ها و نشان‌ها.',
+      'بهبود خوانایی آیکون‌های SVG و برچسب‌های متنی داخل دکمه‌های اکشن، فرم‌ها، هدرهای ابزارها و کارت‌های تنظیمات.'
+    ],
+    changes_en: [
+      'Enhanced text contrast in Google Material White theme: enforced pure white (#ffffff) and bold font weight (font-weight: 700) for all buttons, icons, and text inside elements with blue, indigo, sky, cyan, or grey/slate/zinc gradients.',
+      'Resolved text dimming on gradient buttons and prevented accidental override of text-white classes across buttons and action pills.',
+      'Crisp readability for SVG icons and nested spans inside action buttons, forms, modal tool headers, and configuration cards.'
+    ]
+  },
   {
     version: '1.304.0',
     releaseDate: '2026-10-09',
