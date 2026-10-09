@@ -226,12 +226,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: ShieldCheck,
           badge: null,
         },
-        {
-          id: 'settings-backup',
-          labelKey: 'tab_settings_backup',
-          icon: Archive,
-          badge: 'DR',
-        },
       ],
     },
     {
@@ -246,6 +240,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_settings_general',
           icon: Sliders,
           badge: 'Ready',
+        },
+        {
+          id: 'settings-backup',
+          labelKey: 'tab_settings_backup',
+          icon: Archive,
+          badge: 'DR',
         },
         {
           id: 'settings-services',

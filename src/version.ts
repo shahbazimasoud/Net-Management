@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.298.1';
+export const APP_VERSION = '1.299.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.299.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'انتقال پورتال پشتیبان‌گیری و بازیابی (Disaster Recovery) به زیرمنوی تنظیمات و ارتقای جامع قابلیت‌های بازیابی داده',
+    title_en: 'Relocation of Enterprise Backup & DR Portal under Settings and Comprehensive Restore Compatibility Enhancement',
+    changes: [
+      'انتقال پورتال پشتیبان‌گیری و بازیابی کلان شبکه (Enterprise Backup & Disaster Recovery Portal) به زیرمنوی تنظیمات (Settings) در نوار کناری جهت دسترسی سریع و منطقی‌تر.',
+      'افزودن کارت اختصاصی پورتال پشتیبان‌گیری و بازیابی در صفحه تنظیمات عمومی (General Settings) به همراه دکمه هدایت مستقیم با یک کلیک.',
+      'ارتقا و اعتبارسنجی جامع فرآیند بازیابی (Restore) فایل‌های پشتیبان با پشتیبانی کامل از هر دو ساختار v1 و v2 (شامل فایل‌های تولید شده توسط کلاینت و سرور).',
+      'بهبود منطق بازرسی پیش از اجرای بازیابی (Pre-flight Inspection) برای پشتیبانی هوشمند از بسته‌های رمزنگاری شده و بسته‌های خام با تطبیق دقیق هش SHA-256.',
+      'پشتیبانی دوگانه از استراتژی‌های بازیابی: جایگزینی کامل (Full Overwrite با تایید کلیدواژه RESTORE) و ادغام هوشمند (Smart Merge).',
+      'ایجاد خودکار نقطه بازگشت امن (Safety Rollback Snapshot) در سمت کلاینت و دیتابیس سرور پیش از اجرای هرگونه بازیابی و امکان بازگشت فوری (Rollback) در صورت بروز خطا.'
+    ],
+    changes_en: [
+      'Relocated Enterprise Backup & Disaster Recovery Portal directly under the Settings parent submenu in the sidebar for intuitive access.',
+      'Added dedicated Disaster Recovery Portal navigation card with a 1-click shortcut button in the General Settings overview.',
+      'Comprehensive audit and enhancement of the Restore engine supporting both v1 and v2 backup package schemas (both client-side and server-side generated archives).',
+      'Refined pre-flight inspection and integrity checks with strict SHA-256 checksum verification, multi-layer payload normalization, and encrypted package unlocking.',
+      'Reinforced dual restore strategies: Full Overwrite (guarded by explicit RESTORE confirmation keyword) and Smart Merge (non-destructive record append).',
+      'Guaranteed pre-restore Safety Rollback Snapshot generation across client storage and authoritative PostgreSQL engine with 1-click instant rollback capability.'
+    ]
+  },
   {
     version: '1.298.1',
     releaseDate: '2026-10-09',

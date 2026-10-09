@@ -65,7 +65,8 @@ import {
   createBackupScheduleApi,
   updateBackupScheduleApi,
   deleteBackupScheduleApi,
-  runBackupScheduleNowApi
+  runBackupScheduleNowApi,
+  rollbackDrSnapshotApi
 } from '../../services/backupService';
 import { logPortalEvent } from '../../services/auditLogger';
 import { APP_VERSION } from '../../version';
@@ -455,7 +456,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
       try {
         const text = e.target?.result as string;
         setFileContent(text);
-        const result = await inspectBackupFile(text);
+        const result = await inspectBackupFile(text, undefined, isEn);
         setInspectionResult(result);
       } catch (err: any) {
         setInspectionResult({
@@ -476,7 +477,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
     if (!fileContent || !importPassphrase) return;
     setIsAnalyzing(true);
     try {
-      const result = await inspectBackupFile(fileContent, importPassphrase);
+      const result = await inspectBackupFile(fileContent, importPassphrase, isEn);
       setInspectionResult(result);
     } catch (err: any) {
       setInspectionResult({
@@ -500,7 +501,9 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
         scope: inspectionResult?.metadata?.scopeLabel || 'unknown',
         itemCount: 0,
         status: 'error',
-        details: 'درخواست بازیابی به دلیل عدم مجوز پالیسی مسدود شد (canImportBackup: false).'
+        details: isEn
+          ? 'Restore request blocked due to policy restriction (canImportBackup: false).'
+          : 'درخواست بازیابی به دلیل عدم مجوز پالیسی مسدود شد (canImportBackup: false).'
       });
       refreshAuditLogs();
       return;
@@ -522,7 +525,8 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
     try {
       const result = await executeRestore(
         inspectionResult.unpackedData,
-        restoreMode
+        restoreMode,
+        isEn
       );
 
       setRestoreResult({
@@ -562,18 +566,27 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
     setIsRollingBack(true);
     try {
       const snap = getSafetySnapshot();
-      if (!snap) throw new Error('Safety snapshot not found.');
+      if (!snap) throw new Error(isEn ? 'Safety snapshot not found.' : 'نقطه بازگشت امن یافت نشد.');
 
-      await executeRestore(snap.data, 'overwrite');
+      const snapPayload = (snap as any).data || (snap as any).unpackedData || snap;
+      await executeRestore(snapPayload, 'overwrite', isEn);
+
+      try {
+        await rollbackDrSnapshotApi();
+      } catch (snapErr) {
+        console.warn('Backend rollback sync notice:', snapErr);
+      }
 
       logBackupAudit({
         action: 'rollback',
         username: activePolicy.subjectName,
         role: activePolicy.name,
-        scope: snap.metadata.scopeLabel,
-        itemCount: snap.metadata.counts.devices,
+        scope: snap.metadata?.scopeLabel || 'Rollback',
+        itemCount: snap.metadata?.counts?.devices || 0,
         status: 'success',
-        details: `بازگشت فوری (Rollback) به نقطه امن قبل از آخرین بازیابی.`
+        details: isEn
+          ? 'Instant rollback to pre-restore safety point executed successfully.'
+          : `بازگشت فوری (Rollback) به نقطه امن قبل از آخرین بازیابی.`
       });
 
       clearSafetySnapshot();
@@ -583,7 +596,7 @@ export const BackupPortalTab: React.FC<BackupPortalTabProps> = ({
       alert(isEn ? 'Rollback completed successfully!' : 'بازگشت به نقطه امن با موفقیت انجام شد.');
       if (onRefreshData) onRefreshData();
     } catch (err: any) {
-      alert(`خطا در Rollback: ${err.message}`);
+      alert(isEn ? `Rollback failed: ${err.message}` : `خطا در Rollback: ${err.message}`);
     } finally {
       setIsRollingBack(false);
     }

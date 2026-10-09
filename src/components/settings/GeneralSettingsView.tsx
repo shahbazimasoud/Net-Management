@@ -25,7 +25,8 @@ import {
   Palette,
   KeyRound,
   ArrowUpCircle,
-  AlertCircle
+  AlertCircle,
+  Archive
 } from 'lucide-react';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
@@ -1827,6 +1828,32 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   >
                     <Activity className="w-3.5 h-3.5" />
                     <span>{isEn ? 'Host Services' : 'سرویس‌های هاست'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Enterprise Backup & Disaster Recovery Portal */}
+              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 flex items-center justify-center text-xs font-bold shrink-0">
+                    <Check className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs">
+                    <span className="font-bold text-cyan-400">{isEn ? 'Disaster Recovery: ' : 'پشتیبان‌گیری و بازیابی: '}</span>
+                    <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
+                      {isEn
+                        ? 'Enterprise Backup & Disaster Recovery Portal: Export signed packages, 1-Click Restore, automated cron schedules, and safety rollback.'
+                        : 'پورتال جامع بازیابی از بحران (DR): استخراج پکیج‌های معتبر، بازیابی ۱-کلیک، زمانبندی خودکار پشتیبان‌گیری و نقطه بازگشت امن.'}
+                    </span>
+                  </div>
+                </div>
+                {onNavigateToTab && (
+                  <button
+                    onClick={() => onNavigateToTab('settings-backup')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 text-xs font-semibold transition shrink-0 cursor-pointer"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Open Backup Portal' : 'پورتال بکاپ و بازیابی'}</span>
                   </button>
                 )}
               </div>

@@ -429,7 +429,8 @@ export function downloadBackupPackage(pkg: NetworkBackupPackage, customName?: st
 
 export async function inspectBackupFile(
   fileContent: string,
-  passphrase?: string
+  passphrase?: string,
+  isEn: boolean = false
 ): Promise<{
   valid: boolean;
   isEncrypted: boolean;
@@ -442,13 +443,21 @@ export async function inspectBackupFile(
   try {
     const parsed = JSON.parse(fileContent);
 
-    if (!parsed || parsed.format !== 'nettopology-backup-v1' || !parsed.metadata) {
+    const isSupportedFormat =
+      parsed &&
+      (parsed.format === 'nettopology-backup-v1' ||
+        parsed.format === 'nettopology-backup-v2' ||
+        (parsed.metadata && typeof parsed.metadata === 'object'));
+
+    if (!isSupportedFormat || !parsed.metadata) {
       return {
         valid: false,
         isEncrypted: false,
         needsPassphrase: false,
         checksumMatched: false,
-        error: 'فرمت فایل معتبر نیست. تنها فایل‌های معتبر تولید شده توسط سامانه NetTopology پشتیبانی می‌شوند.'
+        error: isEn
+          ? 'Invalid file format. Only valid NetTopology backup packages are supported.'
+          : 'فرمت فایل معتبر نیست. تنها فایل‌های معتبر تولید شده توسط سامانه NetTopology پشتیبانی می‌شوند.'
       };
     }
 
@@ -494,13 +503,22 @@ export async function inspectBackupFile(
           isEncrypted: true,
           needsPassphrase: true,
           checksumMatched: false,
-          error: 'رمز عبور وارد شده جهت رمزگشایی فایل بکاپ نادرست است یا محتوا مخدوش شده است.'
+          error: isEn
+            ? 'Incorrect passphrase or corrupted backup package.'
+            : 'رمز عبور وارد شده جهت رمزگشایی فایل بکاپ نادرست است یا محتوا مخدوش شده است.'
         };
       }
     }
 
-    // Unencrypted package verification
-    const { format, metadata: meta, ...dataPayload } = parsed;
+    // Unencrypted package verification: support parsed.data or direct payload
+    let dataPayload: any;
+    if (parsed.data && typeof parsed.data === 'object') {
+      dataPayload = parsed.data;
+    } else {
+      const { format, metadata: meta, ...rest } = parsed;
+      dataPayload = rest;
+    }
+
     const recomputedHash = await calculateSha256(JSON.stringify(dataPayload));
     const checksumMatched = recomputedHash === metadata.checksumSha256;
 
@@ -518,7 +536,9 @@ export async function inspectBackupFile(
       isEncrypted: false,
       needsPassphrase: false,
       checksumMatched: false,
-      error: `فایل JSON خوانده نشد: ${err.message}`
+      error: isEn
+        ? `Failed to parse JSON file: ${err.message}`
+        : `فایل JSON خوانده نشد: ${err.message}`
     };
   }
 }
@@ -559,17 +579,22 @@ export function clearSafetySnapshot(): void {
 
 export async function executeRestore(
   unpackedPayload: Record<string, any>,
-  mode: 'overwrite' | 'merge' = 'overwrite'
+  mode: 'overwrite' | 'merge' = 'overwrite',
+  isEn: boolean = false
 ): Promise<{ success: boolean; message: string; details: string }> {
   // 1. Create safety snapshot first!
   await createLocalSafetySnapshot();
 
+  const actualData = (unpackedPayload && unpackedPayload.data && typeof unpackedPayload.data === 'object')
+    ? unpackedPayload.data
+    : (unpackedPayload || {});
+
   // 2. Restore Client-side components in localStorage
-  if (unpackedPayload.customMaps && Array.isArray(unpackedPayload.customMaps)) {
+  if (actualData.customMaps && Array.isArray(actualData.customMaps)) {
     if (mode === 'overwrite') {
       localStorage.setItem(
         STORAGE_KEYS.CUSTOM_MAPS,
-        JSON.stringify(unpackedPayload.customMaps)
+        JSON.stringify(actualData.customMaps)
       );
     } else {
       try {
@@ -577,7 +602,7 @@ export async function executeRestore(
           localStorage.getItem(STORAGE_KEYS.CUSTOM_MAPS) || '[]'
         );
         const existingIds = new Set(existing.map((m: any) => m.id));
-        const toAdd = unpackedPayload.customMaps.filter((m: any) => !existingIds.has(m.id));
+        const toAdd = actualData.customMaps.filter((m: any) => !existingIds.has(m.id));
         localStorage.setItem(
           STORAGE_KEYS.CUSTOM_MAPS,
           JSON.stringify([...existing, ...toAdd])
@@ -586,71 +611,71 @@ export async function executeRestore(
     }
   }
 
-  if (unpackedPayload.nodePositions) {
+  if (actualData.nodePositions) {
     localStorage.setItem(
       STORAGE_KEYS.NODE_POSITIONS,
-      JSON.stringify(unpackedPayload.nodePositions)
+      JSON.stringify(actualData.nodePositions)
     );
   }
 
-  if (unpackedPayload.viewport) {
+  if (actualData.viewport) {
     localStorage.setItem(
       STORAGE_KEYS.VIEWPORT,
-      JSON.stringify(unpackedPayload.viewport)
+      JSON.stringify(actualData.viewport)
     );
   }
 
-  if (unpackedPayload.physicalHierarchy) {
+  if (actualData.physicalHierarchy) {
     localStorage.setItem(
       STORAGE_KEYS.HIERARCHY,
-      JSON.stringify(unpackedPayload.physicalHierarchy)
+      JSON.stringify(actualData.physicalHierarchy)
     );
   }
 
-  if (unpackedPayload.deviceGroups && Array.isArray(unpackedPayload.deviceGroups)) {
+  if (actualData.deviceGroups && Array.isArray(actualData.deviceGroups)) {
     if (mode === 'overwrite') {
-      saveDeviceGroups(unpackedPayload.deviceGroups);
+      saveDeviceGroups(actualData.deviceGroups);
     } else {
       const existing = loadDeviceGroups();
       const existingIds = new Set(existing.map((g) => g.id));
-      const toAdd = unpackedPayload.deviceGroups.filter((g: any) => !existingIds.has(g.id));
+      const toAdd = actualData.deviceGroups.filter((g: any) => !existingIds.has(g.id));
       saveDeviceGroups([...existing, ...toAdd]);
     }
   }
 
-  if (unpackedPayload.localUsers && Array.isArray(unpackedPayload.localUsers)) {
+  if (actualData.localUsers && Array.isArray(actualData.localUsers)) {
     if (mode === 'overwrite') {
-      saveLocalUsers(unpackedPayload.localUsers);
+      saveLocalUsers(actualData.localUsers);
     } else {
       const existing = loadLocalUsers();
       const existingIds = new Set(existing.map((u) => u.id));
-      const toAdd = unpackedPayload.localUsers.filter((u: any) => !existingIds.has(u.id));
+      const toAdd = actualData.localUsers.filter((u: any) => !existingIds.has(u.id));
       saveLocalUsers([...existing, ...toAdd]);
     }
   }
 
-  if (unpackedPayload.localGroups && Array.isArray(unpackedPayload.localGroups)) {
+  if (actualData.localGroups && Array.isArray(actualData.localGroups)) {
     if (mode === 'overwrite') {
-      saveLocalGroups(unpackedPayload.localGroups);
+      saveLocalGroups(actualData.localGroups);
     } else {
       const existing = loadLocalGroups();
       const existingIds = new Set(existing.map((g) => g.id));
-      const toAdd = unpackedPayload.localGroups.filter((g: any) => !existingIds.has(g.id));
+      const toAdd = actualData.localGroups.filter((g: any) => !existingIds.has(g.id));
       saveLocalGroups([...existing, ...toAdd]);
     }
   }
 
-  if (unpackedPayload.activeDirectory && typeof unpackedPayload.activeDirectory === 'object') {
-    saveActiveDirectoryConfig(unpackedPayload.activeDirectory);
+  if (actualData.activeDirectory && typeof actualData.activeDirectory === 'object') {
+    saveActiveDirectoryConfig(actualData.activeDirectory);
   }
 
-  if (unpackedPayload.accessPolicies && Array.isArray(unpackedPayload.accessPolicies)) {
+  if (actualData.accessPolicies && Array.isArray(actualData.accessPolicies)) {
     if (mode === 'overwrite') {
-      saveAccessPolicies(unpackedPayload.accessPolicies);
+      saveAccessPolicies(actualData.accessPolicies);
     } else {
       const existing = loadAccessPolicies();
       const existingIds = new Set(existing.map((p) => p.id));
-      const toAdd = unpackedPayload.accessPolicies.filter((p: any) => !existingIds.has(p.id));
+      const toAdd = actualData.accessPolicies.filter((p: any) => !existingIds.has(p.id));
       saveAccessPolicies([...existing, ...toAdd]);
     }
   }
@@ -659,7 +684,7 @@ export async function executeRestore(
   let serverResult: any = null;
   try {
     serverResult = await restoreDatabaseBackupApi({
-      package: unpackedPayload,
+      package: actualData,
       mode,
     });
   } catch (err: any) {
@@ -667,14 +692,26 @@ export async function executeRestore(
   }
 
   const durationText = serverResult?.durationMs ? ` (${serverResult.durationMs}ms)` : '';
-  const snapshotText = serverResult?.snapshotId ? ` | نقطه بازیابی: ${serverResult.snapshotId}` : '';
+  const snapshotText = serverResult?.snapshotId
+    ? (isEn ? ` | Restore Point: ${serverResult.snapshotId}` : ` | نقطه بازیابی: ${serverResult.snapshotId}`)
+    : '';
+
+  const defaultDetails = isEn
+    ? 'Safety Rollback Snapshot created successfully on the server.'
+    : 'نقطه بازیابی ایمن (Safety Rollback Snapshot) در سرور ایجاد شد.';
+
+  const defaultMsg = isEn
+    ? (mode === 'overwrite'
+        ? 'Database, devices, maps, and policies were fully restored and overwritten successfully.'
+        : 'Backup package data was successfully merged into the current system.')
+    : (mode === 'overwrite'
+        ? 'پایگاه داده و نقشه‌ها با موفقیت به طور کامل جایگزین و بازیابی شدند.'
+        : 'داده‌ها و نقشه‌های پشتیبان با موفقیت با سیستم فعلی ادغام گردیدند.');
 
   return {
     success: true,
-    message: serverResult?.message || (mode === 'overwrite'
-      ? 'پایگاه داده و نقشه‌ها با موفقیت به طور کامل جایگزین و بازیابی شدند.'
-      : 'داده‌ها و نقشه‌های پشتیبان با موفقیت با سیستم فعلی ادغام گردیدند.'),
-    details: (serverResult?.details || 'نقطه بازیابی ایمن (Safety Rollback Snapshot) در سرور ایجاد شد.') + durationText + snapshotText
+    message: isEn ? (serverResult?.message_en || defaultMsg) : (serverResult?.message || defaultMsg),
+    details: (serverResult?.details || defaultDetails) + durationText + snapshotText
   };
 }
 
