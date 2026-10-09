@@ -1474,6 +1474,7 @@ apiRouter.post('/settings/email/test', async (req: Request, res: Response) => {
       ...incomingConfig,
       allow_self_signed: allowSelfSigned,
       reject_unauthorized: !allowSelfSigned,
+      auth_method: incomingConfig.auth_method || storedConfig.auth_method || 'auto',
       smtp_pass: (incomingConfig.smtp_pass && incomingConfig.smtp_pass !== '••••••••' && incomingConfig.smtp_pass.trim().length > 0)
         ? incomingConfig.smtp_pass.trim()
         : storedConfig.smtp_pass,

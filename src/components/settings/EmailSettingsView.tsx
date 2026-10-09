@@ -54,6 +54,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
     require_auth: true,
     reject_unauthorized: false,
     allow_self_signed: true,
+    auth_method: 'auto',
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -81,6 +82,7 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
             ...cfg,
             allow_self_signed: allowSelfSigned,
             reject_unauthorized: !allowSelfSigned,
+            auth_method: cfg.auth_method || 'auto',
           });
           if (res.config.from_email && !testRecipient) {
             setTestRecipient(res.config.from_email);
@@ -513,75 +515,106 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
               </div>
 
               {formData.require_auth && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-semibold flex items-center gap-1">
-                        <span>{isEn ? 'Username / Email Address:' : 'نام کاربری یا آدرس ایمیل:'}</span>
-                        <span className="text-rose-500 font-bold">*</span>
-                      </label>
-                      <FieldInfoTooltip
-                        title={isEn ? 'SMTP Username' : 'نام کاربری سرور ایمیل'}
-                        whatIsIt={isEn ? 'Email address or username used to login to the SMTP server.' : 'نام کاربری یا آدرس ایمیل کامل اکانت جهت ورود به سرور.'}
-                        whyIsItNeeded={isEn ? 'Authenticates permission to relay outbound messages. Exchange supports DOMAIN\\username, username@domain, or username.' : 'جهت تایید هویت ارسال پیام. اکسچنج از هر دو فرمت DOMAIN\\username و username@domain پشتیبانی می‌کند.'}
-                        practicalExample={isEn ? 'alerts@company.com or DOMAIN\\username or user' : 'alerts@company.ir یا DOMAIN\\username یا user'}
-                        isEn={isEn}
-                        isLightMode={isLightMode}
-                      />
-                    </div>
-                    <input
-                      type="text"
-                      placeholder={isEn ? 'e.g. alerts@company.com or DOMAIN\\user' : 'مثال: alerts@company.com یا DOMAIN\\user'}
-                      value={formData.smtp_user}
-                      onChange={(e) => handleInputChange('smtp_user', e.target.value)}
-                      required={formData.require_auth}
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono border focus:outline-none transition ${
-                        isLightMode ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500' : 'bg-slate-900 border-white/20 text-white focus:border-cyan-400'
-                      }`}
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-semibold flex items-center gap-1">
-                        <span>{isEn ? 'Password / App Password:' : 'رمز عبور یا گذرواژه اپلیکیشن (App Password):'}</span>
-                        <span className="text-rose-500 font-bold">*</span>
-                      </label>
-                      <FieldInfoTooltip
-                        title={isEn ? 'Account Password' : 'رمز عبور اکانت'}
-                        whatIsIt={isEn ? 'Secret password or provider-generated App Password.' : 'رمز عبور اکانت یا گذرواژه اختصاصی برنامه (App Password).'}
-                        whyIsItNeeded={isEn ? 'Major providers (Google, Microsoft) require 16-character App Passwords when 2FA is active.' : 'سرویس‌دهندگان مدرن در صورت فعال بودن ورود دو مرحله‌ای به رمز اپلیکیشن نیاز دارند.'}
-                        practicalExample={isEn ? 'xxxx xxxx xxxx xxxx (Google App Password)' : 'گذرواژه ۱۶ رقمی بدون فاصله'}
-                        isEn={isEn}
-                        isLightMode={isLightMode}
-                      />
-                    </div>
-                    <div className="relative">
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold flex items-center gap-1">
+                          <span>{isEn ? 'Username / Email Address:' : 'نام کاربری یا آدرس ایمیل:'}</span>
+                          <span className="text-rose-500 font-bold">*</span>
+                        </label>
+                        <FieldInfoTooltip
+                          title={isEn ? 'SMTP Username' : 'نام کاربری سرور ایمیل'}
+                          whatIsIt={isEn ? 'Email address or username used to login to the SMTP server.' : 'نام کاربری یا آدرس ایمیل کامل اکانت جهت ورود به سرور.'}
+                          whyIsItNeeded={isEn ? 'Authenticates permission to relay outbound messages. Exchange supports DOMAIN\\username, username@domain, or username.' : 'جهت تایید هویت ارسال پیام. اکسچنج از هر دو فرمت DOMAIN\\username و username@domain پشتیبانی می‌کند.'}
+                          practicalExample={isEn ? 'alerts@company.com or DOMAIN\\username or user' : 'alerts@company.ir یا DOMAIN\\username یا user'}
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
                       <input
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder={formData.has_password ? (isEn ? '•••••••• (Saved Password)' : '•••••••• (رمز ذخیره شده است)') : '••••••••'}
-                        value={formData.smtp_pass || ''}
-                        onChange={(e) => handleInputChange('smtp_pass', e.target.value)}
-                        className={`w-full px-3 py-2 ltr:pr-9 rtl:pl-9 rounded-xl text-xs font-mono border focus:outline-none transition ${
+                        type="text"
+                        placeholder={isEn ? 'e.g. alerts@company.com or DOMAIN\\user' : 'مثال: alerts@company.com یا DOMAIN\\user'}
+                        value={formData.smtp_user}
+                        onChange={(e) => handleInputChange('smtp_user', e.target.value)}
+                        required={formData.require_auth}
+                        className={`w-full px-3 py-2 rounded-xl text-xs font-mono border focus:outline-none transition ${
                           isLightMode ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500' : 'bg-slate-900 border-white/20 text-white focus:border-cyan-400'
                         }`}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 ltr:right-2.5 rtl:left-2.5 flex items-center text-slate-400 hover:text-white cursor-pointer"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
                     </div>
-                    {formData.has_password && (
-                      <p className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
-                        <Check className="w-3 h-3" />
-                        <span>{isEn ? 'Password is saved on server. Leave blank to keep current.' : 'رمز عبور در سرور ذخیره است. برای حفظ آن نیازی به ورود مجدد نیست.'}</span>
-                      </p>
-                    )}
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold flex items-center gap-1">
+                          <span>{isEn ? 'Password / App Password:' : 'رمز عبور یا گذرواژه اپلیکیشن (App Password):'}</span>
+                          <span className="text-rose-500 font-bold">*</span>
+                        </label>
+                        <FieldInfoTooltip
+                          title={isEn ? 'Account Password' : 'رمز عبور اکانت'}
+                          whatIsIt={isEn ? 'Secret password or provider-generated App Password.' : 'رمز عبور اکانت یا گذرواژه اختصاصی برنامه (App Password).'}
+                          whyIsItNeeded={isEn ? 'Major providers (Google, Microsoft) require 16-character App Passwords when 2FA is active.' : 'سرویس‌دهندگان مدرن در صورت فعال بودن ورود دو مرحله‌ای به رمز اپلیکیشن نیاز دارند.'}
+                          practicalExample={isEn ? 'xxxx xxxx xxxx xxxx (Google App Password)' : 'گذرواژه ۱۶ رقمی بدون فاصله'}
+                          isEn={isEn}
+                          isLightMode={isLightMode}
+                        />
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder={formData.has_password ? (isEn ? '•••••••• (Saved Password)' : '•••••••• (رمز ذخیره شده است)') : '••••••••'}
+                          value={formData.smtp_pass || ''}
+                          onChange={(e) => handleInputChange('smtp_pass', e.target.value)}
+                          className={`w-full px-3 py-2 ltr:pr-9 rtl:pl-9 rounded-xl text-xs font-mono border focus:outline-none transition ${
+                            isLightMode ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500' : 'bg-slate-900 border-white/20 text-white focus:border-cyan-400'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute inset-y-0 ltr:right-2.5 rtl:left-2.5 flex items-center text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {formData.has_password && (
+                        <p className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
+                          <Check className="w-3 h-3" />
+                          <span>{isEn ? 'Password is saved on server. Leave blank to keep current.' : 'رمز عبور در سرور ذخیره است. برای حفظ آن نیازی به ورود مجدد نیست.'}</span>
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
+
+                  {/* Authentication Method Dropdown */}
+                  <div className="pt-2 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-xs font-semibold">
+                        {isEn ? 'Authentication Method:' : 'روش احراز هویت (Auth Method):'}
+                      </label>
+                      <FieldInfoTooltip
+                        title={isEn ? 'Authentication Method' : 'روش احراز هویت'}
+                        whatIsIt={isEn ? 'SASL authentication mechanism used to authenticate with the mail server.' : 'مکانیزم احراز هویت SASL جهت تبادل نام کاربری و رمز با میل‌سرور.'}
+                        whyIsItNeeded={isEn ? 'Auto negotiates with server. Exchange Receive Connectors may disable PLAIN and only allow LOGIN or NTLM.' : 'حالت خودکار با سرور مذاکره می‌کند. برخی Receive Connectorهای اکسچنج PLAIN را رد کرده و فقط LOGIN می‌پذیرند.'}
+                        practicalExample={isEn ? 'Auto (default), LOGIN, PLAIN, CRAM-MD5' : 'Auto (پیش‌فرض)، LOGIN، PLAIN'}
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </div>
+                    <select
+                      value={formData.auth_method || 'auto'}
+                      onChange={(e) => handleInputChange('auth_method', e.target.value)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-mono border focus:outline-none transition ${
+                        isLightMode ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500' : 'bg-slate-900 border-white/20 text-white focus:border-cyan-400'
+                      }`}
+                    >
+                      <option value="auto">{isEn ? 'Auto (Default)' : 'مذاکره خودکار (پیش‌فرض)'}</option>
+                      <option value="login">LOGIN</option>
+                      <option value="plain">PLAIN</option>
+                      <option value="cram-md5">CRAM-MD5</option>
+                    </select>
+                  </div>
+                </>
               )}
             </div>
 
@@ -844,6 +877,11 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                         ? `The message was accepted by ${formData.smtp_host} and queued/delivered to ${testRecipient}.`
                         : `پیام توسط سرور ${formData.smtp_host} پذیرفته شد و به آدرس ${testRecipient} ارسال گردید.`}
                     </p>
+                    {testResult.used_auth_method && (
+                      <div className="font-mono text-[10px] text-cyan-300">
+                        {isEn ? `Authentication Method: ${testResult.used_auth_method}` : `روش احراز هویت: ${testResult.used_auth_method}`}
+                      </div>
+                    )}
                     {testResult.messageId && (
                       <div className="font-mono text-[10px] text-slate-400 break-all p-2 rounded bg-black/30 border border-white/5">
                         <span className="text-slate-500 block">Message-ID:</span>
@@ -919,12 +957,19 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
                     <div className="p-2 rounded bg-black/30 border border-white/5 text-[10px] text-slate-400 space-y-1">
                       <span className="font-bold text-amber-400 block">{isEn ? 'Troubleshooting Guide:' : 'راهنمای رفع مشکل:'}</span>
                       <ul className="list-disc list-inside space-y-0.5">
+                        <li>{isEn ? "For 504 errors, switch 'Authentication Method' to LOGIN/PLAIN, or uncheck 'Requires Authentication' if using an IP-allowed anonymous relay connector" : "در صورت خطای ۵۰۴، «روش احراز هویت» را روی LOGIN یا PLAIN بگذارید، یا در صورت وجود Relay Connector مجاز برای آی‌پی این سرور، تیک «نیاز به احراز هویت» را بردارید"}</li>
                         <li>{isEn ? "For Microsoft Exchange or internal relays, enable 'Allow Self-Signed / Untrusted TLS Certificates'" : "برای سرورهای اکسچنج سازمانی و رله‌های داخلی، تیک «پذیرش سرتیفیکیت‌های خودامضا و CA داخلی» را فعال کنید"}</li>
                         <li>{isEn ? 'For Exchange AD users, verify format: DOMAIN\\username or user@domain.com' : 'برای کاربران اکسچنج دامین، فرمت DOMAIN\\username یا user@domain.com را بررسی فرمایید'}</li>
                         <li>{isEn ? 'Ensure 2-Step Verification & App Password are used (for Gmail/Outlook)' : 'در جیمیل و اوت‌لوک، حتماً از App Password اختصاصی استفاده کنید'}</li>
                         <li>{isEn ? 'Verify SMTP port and security protocol alignment (587 STARTTLS vs 465 SSL)' : 'تطابق پورت و پروتکل امنیتی (پورت ۵۸۷ با TLS یا ۴۶۵ با SSL) را چک کنید'}</li>
                         <li>{isEn ? 'Check that outbound mail ports are not blocked by host firewall or ISP' : 'اطمینان حاصل کنید پورت‌های خروجی ایمیل توسط فایروال سرور یا ISP مسدود نشده باشند'}</li>
                       </ul>
+                      {testResult.server_auth_methods && testResult.server_auth_methods.length > 0 && (
+                        <div className="font-mono text-cyan-300 text-[10px] mt-1 pt-1 border-t border-white/10">
+                          <span className="font-bold">{isEn ? 'Server offers: ' : 'روش‌های ارائه‌شده توسط سرور: '}</span>
+                          <span>{testResult.server_auth_methods.join(', ')}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

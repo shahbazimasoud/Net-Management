@@ -4326,6 +4326,7 @@ export interface EmailConfig {
   require_auth: boolean;
   reject_unauthorized: boolean;
   allow_self_signed?: boolean;
+  auth_method?: 'auto' | 'plain' | 'login' | 'cram-md5';
   updated_at?: string;
   updated_by?: string;
 }
@@ -4342,6 +4343,7 @@ export const DEFAULT_EMAIL_CONFIG: EmailConfig = {
   require_auth: true,
   reject_unauthorized: false,
   allow_self_signed: true,
+  auth_method: 'auto',
 };
 
 export async function getEmailConfig(): Promise<EmailConfig> {
@@ -4359,6 +4361,7 @@ export async function getEmailConfig(): Promise<EmailConfig> {
           ...parsed,
           allow_self_signed: allowSelfSigned,
           reject_unauthorized: !allowSelfSigned,
+          auth_method: parsed.auth_method || 'auto',
           has_password: Boolean(parsed.smtp_pass && parsed.smtp_pass.trim().length > 0),
         };
       }
@@ -4377,6 +4380,7 @@ export async function getEmailConfig(): Promise<EmailConfig> {
     ...cfg,
     allow_self_signed: allowSelfSigned,
     reject_unauthorized: !allowSelfSigned,
+    auth_method: cfg.auth_method || 'auto',
     has_password: Boolean(cfg.smtp_pass && cfg.smtp_pass.trim().length > 0),
   };
 }
@@ -4407,6 +4411,7 @@ export async function saveEmailConfig(config: Partial<EmailConfig>, updatedBy: s
     require_auth: config.require_auth !== undefined ? !!config.require_auth : current.require_auth,
     reject_unauthorized: !allowSelfSigned,
     allow_self_signed: allowSelfSigned,
+    auth_method: config.auth_method || current.auth_method || 'auto',
     updated_at: new Date().toISOString(),
     updated_by: updatedBy,
   };

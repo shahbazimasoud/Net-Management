@@ -10,9 +10,47 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.300.1';
+export const APP_VERSION = '1.300.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.300.3',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'بهینه‌سازی توالی تلاش مجدد خودکار احراز هویت SMTP و تفکیک دقیق مکانیزم‌ها',
+    title_en: 'Optimize SMTP Auth Auto-Retry Sequence and Method Detection',
+    changes: [
+      'اصلاح و بهینه‌سازی الگوریتم تلاش مجدد (Auto-Retry) در تست ایمیل: تشخیص دقیق مکانیزم اولیه (PLAIN یا LOGIN) و اجرای تلاش مجدد صرفاً بر روی روش‌های متفاوت جهت جلوگیری قطعی از قفل شدن اکانت (Account Lockout).',
+      'تفکیک صریح و جامع کدهای خطای ۵۰۴، ۵۳۰ و ۵۳۵ به همراه درج متن خام پاسخ سرور در گزارش خروجی و راهنمای خطایابی فارسی و انگلیسی.',
+      'همگام‌سازی استخراج قابلیت‌های 250-AUTH میل‌سرور در کادر راهنمای عیب‌یابی پنل.'
+    ],
+    changes_en: [
+      'Refined and optimized the Auto-Retry sequence in test email delivery: dynamically inspects initial attempted mechanism (PLAIN or LOGIN) and retries only differing methods to prevent account lockout.',
+      'Maintained precise distinction between 504, 530, and 535 SMTP response codes with full raw server response text included in English and Persian.',
+      'Synchronized real-time extraction of server capability advertisements (250-AUTH) in the diagnostic troubleshooting box.'
+    ]
+  },
+  {
+    version: '1.300.2',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'اصلاح تشخیص خطای ۵۰۴ میل‌سرور، افزودن انتخابگر روش احراز هویت (Auth Method) و قابلیت تلاش مجدد خودکار',
+    title_en: 'Fix SMTP 504 Diagnosis, Add Authentication Method Selector and Auto Retry',
+    changes: [
+      'تفکیک دقیق خطاهای احراز هویت EAUTH بر اساس پاسخ واقعی سرور (پاسخ ۵۰۴ برای عدم پذیرش مکانیزم احراز هویت، پاسخ ۵۳۰ برای الزام دستور STARTTLS و پاسخ ۵۳۵ برای اشتباه بودن رمز عبور).',
+      'افزودن منوی انتخاب روش احراز هویت (Authentication Method شامل Auto، LOGIN، PLAIN و CRAM-MD5) در فرم تنظیمات اکانت ایمیل.',
+      'پیاده‌سازی تلاش مجدد خودکار (Auto-Retry) در تست ارسال ایمیل: در صورت شکست روش پیش‌فرض با خطای ۵۰۴ یا EAUTH، سیستم به‌صورت خودکار یک‌بار با LOGIN و یک‌بار با PLAIN تلاش کرده و روش موفق را گزارش می‌دهد.',
+      'استخراج و نمایش فهرست مکانیزم‌های احراز هویت ارائه‌شده توسط سرور (250-AUTH) در بخش راهنمای تست تشخیصی جهت عیب‌یابی دقیق کانکتور اکسچنج.',
+      'اطمینان از اجرای قطعی دستور STARTTLS پیش از ارسال دستورات احراز هویت و عدم ارسال هیچ‌گونه اعتبارنامه در صورت غیرفعال بودن احراز هویت (پشتیبانی از Relay Connectorهای ناشناس).'
+    ],
+    changes_en: [
+      'Accurately differentiated EAUTH SMTP errors by real server responses (504 for unrecognized auth type, 530 for required STARTTLS, and 535 for invalid credentials).',
+      'Added Authentication Method selector dropdown (Auto, LOGIN, PLAIN, CRAM-MD5) to the SMTP account settings form.',
+      'Implemented safe auto-retry in test delivery: automatically attempts LOGIN and PLAIN once upon encountering 504/EAUTH and reports the winning method.',
+      'Captured and surfaced server capability advertisements (250-AUTH) in the diagnostic troubleshooting box for Exchange Receive Connector inspection.',
+      'Enforced STARTTLS before authentication commands and ensured zero credentials are sent when authentication is disabled (supporting anonymous relays).'
+    ]
+  },
   {
     version: '1.300.1',
     releaseDate: '2026-10-09',

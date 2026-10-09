@@ -7081,6 +7081,7 @@ export interface EmailConfig {
   require_auth: boolean;
   reject_unauthorized: boolean;
   allow_self_signed?: boolean;
+  auth_method?: 'auto' | 'plain' | 'login' | 'cram-md5';
   updated_at?: string;
   updated_by?: string;
 }
@@ -7093,5 +7094,7 @@ export interface EmailTestResult {
   error_fa?: string;
   code?: string;
   latencyMs: number;
+  server_auth_methods?: string[];
+  used_auth_method?: string;
 }
 
