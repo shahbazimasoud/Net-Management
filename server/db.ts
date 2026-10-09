@@ -204,6 +204,7 @@ export interface FallbackStore {
   bulk_server_reports?: any[];
   general_settings?: PanelGeneralSettings;
   scheduled_backup_jobs?: ScheduledBackupJob[];
+  email_config?: EmailConfig;
 }
 
 export interface ScheduledBackupJob {
@@ -1925,6 +1926,16 @@ export async function initDatabase(): Promise<void> {
         )
       `);
       await client.query("CREATE INDEX IF NOT EXISTS idx_backup_jobs_enabled ON scheduled_backup_jobs(enabled)");
+
+      // 16. Outgoing Mail (SMTP) Config
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS email_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -4294,6 +4305,111 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
       );
     } catch (e) {
       console.error('[DB] Error saving general_settings to PostgreSQL:', e);
+    }
+  }
+
+  return updated;
+}
+
+// -------------------------------------------------------------
+// Outgoing Email (SMTP) Configuration Storage
+// -------------------------------------------------------------
+export interface EmailConfig {
+  smtp_host: string;
+  smtp_port: number;
+  smtp_secure: 'tls' | 'ssl' | 'none';
+  smtp_user: string;
+  smtp_pass?: string;
+  has_password?: boolean;
+  from_email: string;
+  from_name: string;
+  require_auth: boolean;
+  reject_unauthorized: boolean;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export const DEFAULT_EMAIL_CONFIG: EmailConfig = {
+  smtp_host: '',
+  smtp_port: 587,
+  smtp_secure: 'tls',
+  smtp_user: '',
+  smtp_pass: '',
+  has_password: false,
+  from_email: '',
+  from_name: 'NetTopology Alerts',
+  require_auth: true,
+  reject_unauthorized: false,
+};
+
+export async function getEmailConfig(): Promise<EmailConfig> {
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query("SELECT config_data FROM email_config WHERE id = 'primary' LIMIT 1");
+      if (res.rows.length > 0 && res.rows[0].config_data) {
+        const raw = res.rows[0].config_data;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return {
+          ...DEFAULT_EMAIL_CONFIG,
+          ...parsed,
+          has_password: Boolean(parsed.smtp_pass && parsed.smtp_pass.trim().length > 0),
+        };
+      }
+    } catch (e) {
+      console.warn('[DB] Fallback to file store for email_config:', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const cfg = store.email_config || DEFAULT_EMAIL_CONFIG;
+  return {
+    ...DEFAULT_EMAIL_CONFIG,
+    ...cfg,
+    has_password: Boolean(cfg.smtp_pass && cfg.smtp_pass.trim().length > 0),
+  };
+}
+
+export async function saveEmailConfig(config: Partial<EmailConfig>, updatedBy: string = 'admin'): Promise<EmailConfig> {
+  const current = await getEmailConfig();
+  const store = loadFallbackStore();
+
+  // If new password is not provided or empty string, preserve current password
+  let resolvedPassword = current.smtp_pass || '';
+  if (config.smtp_pass !== undefined && config.smtp_pass !== null && config.smtp_pass.trim().length > 0) {
+    resolvedPassword = config.smtp_pass.trim();
+  }
+
+  const updated: EmailConfig = {
+    smtp_host: config.smtp_host !== undefined ? config.smtp_host.trim() : current.smtp_host,
+    smtp_port: Number(config.smtp_port) || current.smtp_port || 587,
+    smtp_secure: config.smtp_secure || current.smtp_secure || 'tls',
+    smtp_user: config.smtp_user !== undefined ? config.smtp_user.trim() : current.smtp_user,
+    smtp_pass: resolvedPassword,
+    has_password: Boolean(resolvedPassword && resolvedPassword.length > 0),
+    from_email: config.from_email !== undefined ? config.from_email.trim() : current.from_email,
+    from_name: config.from_name !== undefined ? config.from_name.trim() : current.from_name,
+    require_auth: config.require_auth !== undefined ? !!config.require_auth : current.require_auth,
+    reject_unauthorized: config.reject_unauthorized !== undefined ? !!config.reject_unauthorized : current.reject_unauthorized,
+    updated_at: new Date().toISOString(),
+    updated_by: updatedBy,
+  };
+
+  store.email_config = updated;
+  saveFallbackStore(store);
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO email_config (id, config_data, updated_at, updated_by)
+         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           config_data = EXCLUDED.config_data,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = EXCLUDED.updated_by`,
+        [JSON.stringify(updated), updatedBy]
+      );
+    } catch (e) {
+      console.error('[DB] Error saving email_config to PostgreSQL:', e);
     }
   }
 

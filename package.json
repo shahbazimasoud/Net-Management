@@ -1,7 +1,7 @@
 {
   "name": "nettopology",
   "private": true,
-  "version": "1.299.0",
+  "version": "1.300.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -31,6 +31,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "mysql2": "^3.24.4",
+    "nodemailer": "^10.0.16",
     "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
@@ -43,6 +44,7 @@
     "@types/guacamole-common-js": "^1.5.5",
     "@types/ldapjs": "^3.0.6",
     "@types/node": "^22.14.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",

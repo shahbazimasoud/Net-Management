@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.299.0';
+export const APP_VERSION = '1.300.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.300.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'افزودن بخش مدیریت و پیکربندی حساب ایمیل (SMTP) در زیرمنوی تنظیمات به همراه ابزار تست ارسال زنده',
+    title_en: 'Add Outgoing Email (SMTP) Account Configuration under Settings with Live Delivery Diagnostic Tool',
+    changes: [
+      'افزودن ماژول اختصاصی معرفی حساب ارسال ایمیل (Outgoing Mail & SMTP) زیر منوی تنظیمات (Settings) جهت ارسال هشدارهای شبکه و اعلان‌ها.',
+      'پشتیبانی از دریافت نام کاربری (Username/Email)، گذرواژه (Password یا App Password)، هاست SMTP، شماره پورت و پروتکل‌های امنیتی (STARTTLS/SSL/Plain).',
+      'ذخیره‌سازی امن و ماندگار تنظیمات در پایگاه داده PostgreSQL سرور با محافظت از فاش شدن پسورد در کلاینت.',
+      'افزودن الگوهای آماده سریع (Quick Presets) برای سرویس‌دهندگان معتبر شامل Google Gmail، Microsoft 365 / Outlook، Yahoo Mail و سرورهای سفارشی/سازمانی.',
+      'پیاده‌سازی ابزار تست آنلاین و زنده ارسال ایمیل (Live Diagnostic Email Test) با امکان ارسال به هر ایمیل دلخواه و سنجش پینگ، تاخیر و وضعیت تحویل سوکت SMTP.',
+      'ارائه پیام‌های تشخیصی هوشمند و کدهای خطای دقیق در صورت بروز خطای اعتبارسنجی (مانند خطای ۵۳۵، تایم‌اوت، DNS یا سرتیفیکیت).',
+      'یکپارچه‌سازی کامل با نوار کناری (Sidebar)، صفحه تنظیمات عمومی (General Settings) و انطباق ۱۰۰٪ با تم روشن/تیره و دو زبان فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Added dedicated Outgoing Email (SMTP) account configuration module under the Settings submenu for dispatching automated network alerts and reports.',
+      'Supported configuration of account username, credentials (password or App Password), SMTP host, port, and cryptographic protocols (STARTTLS, SSL/TLS, and Plain).',
+      'Secured persistent storage in server-side PostgreSQL database with masked credential handling protecting secrets from browser-side exposure.',
+      'Added 1-click quick configuration presets for major providers including Google Gmail, Microsoft 365 / Outlook, Yahoo Mail, and Custom Corporate relays.',
+      'Engineered live real-time test email dispatcher allowing administrators to send test messages to any recipient inbox with latency and handshake feedback.',
+      'Comprehensive error analysis providing actionable diagnostics for authentication failure (535 Bad Credentials), timeout, DNS resolution, or TLS certificate mismatches.',
+      'Full integration across Sidebar, General Settings overview cards, and 100% compliant with dark/light themes and bilingual i18n localization.'
+    ]
+  },
   {
     version: '1.299.0',
     releaseDate: '2026-10-09',

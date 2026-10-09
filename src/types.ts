@@ -7069,3 +7069,28 @@ export interface PanelGeneralSettings {
   updatedBy?: string;
 }
 
+export interface EmailConfig {
+  smtp_host: string;
+  smtp_port: number;
+  smtp_secure: 'tls' | 'ssl' | 'none';
+  smtp_user: string;
+  smtp_pass?: string;
+  has_password?: boolean;
+  from_email: string;
+  from_name: string;
+  require_auth: boolean;
+  reject_unauthorized: boolean;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface EmailTestResult {
+  success: boolean;
+  messageId?: string;
+  response?: string;
+  error?: string;
+  error_fa?: string;
+  code?: string;
+  latencyMs: number;
+}
+

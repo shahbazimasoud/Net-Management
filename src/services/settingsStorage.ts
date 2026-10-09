@@ -1123,6 +1123,7 @@ export function isTabAllowed(tabId: string, policy?: AccessPolicy | any | null, 
     case 'settings-ad':
     case 'settings-rbac':
     case 'settings-backup':
+    case 'settings-email':
       // STRICT RBAC RULE: Settings menu and all its sub-menu items are exclusively reserved for Super Admin!
       return false;
     default:

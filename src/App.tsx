@@ -23,6 +23,7 @@ import { GeneralSettingsView } from './components/settings/GeneralSettingsView';
 import { PanelServicesView } from './components/settings/PanelServicesView';
 import { LdapConnectionSettingsView } from './components/settings/LdapConnectionSettingsView';
 import { PanelUpdateSettingsView } from './components/settings/PanelUpdateSettingsView';
+import { EmailSettingsView } from './components/settings/EmailSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
@@ -1147,6 +1148,10 @@ export default function App() {
 
           {activeTab === 'settings-update' && isSuperAdmin && (
             <PanelUpdateSettingsView isLightMode={panelTheme === 'light'} />
+          )}
+
+          {activeTab === 'settings-email' && isSuperAdmin && (
+            <EmailSettingsView isLightMode={panelTheme === 'light'} />
           )}
 
           {(activeTab === 'settings-groups' ||

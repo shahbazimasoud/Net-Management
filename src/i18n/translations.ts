@@ -119,6 +119,7 @@ export const translations = {
     tab_settings_ad: 'Active Directory / LDAP',
     tab_settings_rbac: 'Access Control (RBAC)',
     tab_settings_backup: 'Backup & Disaster Recovery',
+    tab_settings_email: 'Outgoing Mail & SMTP',
     tab_logs: 'Audit & Command Logs',
 
     // Footer
@@ -794,6 +795,7 @@ export const translations = {
     tab_settings_ad: 'اتصال به اکتیو دایرکتوری',
     tab_settings_rbac: 'سطوح دسترسی و اختیارات (RBAC)',
     tab_settings_backup: 'پورتال بکاپ و بازیابی (DR)',
+    tab_settings_email: 'تنظیمات ارسال ایمیل (SMTP)',
     tab_logs: 'لاگ',
 
     // Footer

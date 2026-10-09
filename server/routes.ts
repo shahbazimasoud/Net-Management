@@ -34,6 +34,7 @@ import {
   ensureBackupsDir,
   calculateNextRunDate,
 } from './backupScheduler';
+import { sendTestEmail } from './emailService';
 import {
   getDbStatus,
   findUserByUsername,
@@ -66,6 +67,8 @@ import {
   saveActiveDirectoryConfig,
   getGeneralSettings,
   saveGeneralSettings,
+  getEmailConfig,
+  saveEmailConfig,
   getHierarchy,
   saveHierarchy,
   getCompleteHierarchy,
@@ -1398,6 +1401,89 @@ apiRouter.post(['/settings/general', '/system/general-settings'], async (req: Re
     res.json({ success: true, settings: saved, message: 'General settings saved successfully' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Outgoing Mail (SMTP) Settings
+apiRouter.get('/settings/email', async (_req: Request, res: Response) => {
+  try {
+    const config = await getEmailConfig();
+    res.json({
+      success: true,
+      config: {
+        ...config,
+        smtp_pass: config.has_password ? '••••••••' : '',
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/settings/email', async (req: Request, res: Response) => {
+  try {
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+    const incomingConfig = req.body?.config || req.body || {};
+    const saved = await saveEmailConfig(incomingConfig, updatedBy);
+    res.json({
+      success: true,
+      config: {
+        ...saved,
+        smtp_pass: saved.has_password ? '••••••••' : '',
+      },
+      message: 'Email configuration saved successfully',
+      message_fa: 'تنظیمات ارسال ایمیل با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/settings/email/test', async (req: Request, res: Response) => {
+  try {
+    const storedConfig = await getEmailConfig();
+    const incomingConfig = req.body?.config || {};
+    const to = (req.body?.to || req.body?.recipient || '').trim();
+    const subject = req.body?.subject;
+    const notes = req.body?.notes;
+
+    if (!to) {
+      return res.status(400).json({
+        success: false,
+        error: 'Destination recipient email address is required for testing.',
+        error_fa: 'آدرس ایمیل مقصد برای ارسال تست الزامی است.',
+      });
+    }
+
+    // Merge incoming config overrides with stored config
+    const mergedConfig = {
+      ...storedConfig,
+      ...incomingConfig,
+      smtp_pass: (incomingConfig.smtp_pass && incomingConfig.smtp_pass !== '••••••••' && incomingConfig.smtp_pass.trim().length > 0)
+        ? incomingConfig.smtp_pass.trim()
+        : storedConfig.smtp_pass,
+    };
+
+    const result = await sendTestEmail({
+      config: mergedConfig,
+      to,
+      subject,
+      notes,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || 'SMTP test execution failed',
+      latencyMs: 0,
+    });
   }
 });
 

@@ -26,7 +26,8 @@ import {
   KeyRound,
   ArrowUpCircle,
   AlertCircle,
-  Archive
+  Archive,
+  Mail
 } from 'lucide-react';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
@@ -1854,6 +1855,32 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   >
                     <Archive className="w-3.5 h-3.5" />
                     <span>{isEn ? 'Open Backup Portal' : 'پورتال بکاپ و بازیابی'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Outgoing Mail (SMTP) Gateway */}
+              <div className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border ${isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/50 border-white/5'}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center text-xs font-bold shrink-0">
+                    <Check className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs">
+                    <span className="font-bold text-indigo-400">{isEn ? 'Outgoing Mail: ' : 'ارسال ایمیل (SMTP): '}</span>
+                    <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
+                      {isEn
+                        ? 'Outgoing Mail (SMTP) Gateway: Configure system sender credentials and perform live delivery diagnostics.'
+                        : 'سامانه ارسال ایمیل (SMTP): معرفی نام کاربری، کلمه عبور و تست ارتباط زنده جهت ارسال هشدارهای شبکه.'}
+                    </span>
+                  </div>
+                </div>
+                {onNavigateToTab && (
+                  <button
+                    onClick={() => onNavigateToTab('settings-email')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-xs font-semibold transition shrink-0 cursor-pointer"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Open Email Settings' : 'تنظیمات ارسال ایمیل'}</span>
                   </button>
                 )}
               </div>

@@ -23,7 +23,8 @@ import {
   Tags,
   Sliders,
   KeyRound,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Mail
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
@@ -53,7 +54,8 @@ export type ActiveTab =
   | 'general-settings'
   | 'settings-services'
   | 'settings-ldap'
-  | 'settings-update';
+  | 'settings-update'
+  | 'settings-email';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -264,6 +266,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_settings_update',
           icon: ArrowUpCircle,
           badge: hasUpdate ? 'Update' : null,
+        },
+        {
+          id: 'settings-email',
+          labelKey: 'tab_settings_email',
+          icon: Mail,
+          badge: 'SMTP',
         },
       ],
     },

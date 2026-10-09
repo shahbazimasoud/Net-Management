@@ -172,6 +172,8 @@ import {
   LinuxCronJobPayload,
   LinuxCronOverview,
   LinuxCronExecutionResult,
+  EmailConfig,
+  EmailTestResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -7471,6 +7473,55 @@ export async function runBackupScheduleNowApi(id: string): Promise<{
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to run backup schedule');
   }
+  return data;
+}
+
+// ==============================================================================
+// Outgoing Email (SMTP) Configuration APIs
+// ==============================================================================
+
+export async function fetchEmailConfigApi(): Promise<{
+  success: boolean;
+  config: EmailConfig;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/email`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch email settings');
+  }
+  return data;
+}
+
+export async function saveEmailConfigApi(config: Partial<EmailConfig>): Promise<{
+  success: boolean;
+  config: EmailConfig;
+  message?: string;
+  message_fa?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to save email settings');
+  }
+  return data;
+}
+
+export async function testEmailConfigApi(payload: {
+  config?: Partial<EmailConfig>;
+  to: string;
+  subject?: string;
+  notes?: string;
+}): Promise<EmailTestResult> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/email/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
   return data;
 }
 
