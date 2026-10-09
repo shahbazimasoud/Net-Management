@@ -272,7 +272,7 @@ export default function App() {
   const [generalSettings, setGeneralSettings] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
 
   // Helper to determine if a theme is light
-  const isThemeLight = (t: ThemeType) => t === 'light' || t === 'google-light';
+  const isThemeLight = (t: ThemeType) => t === 'light';
 
   // Theme State (User personal preference takes priority, falling back to Super Admin system default)
   const [panelTheme, setPanelTheme] = useState<ThemeType>(() => {
@@ -288,7 +288,7 @@ export default function App() {
             document.documentElement.classList.add('dark');
             document.documentElement.classList.remove('light');
           }
-          ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-light', 'theme-google-dark'].forEach((c) => {
+          ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-dark'].forEach((c) => {
             document.documentElement.classList.remove(c);
           });
           document.documentElement.classList.add(`theme-${saved}`);
@@ -305,7 +305,7 @@ export default function App() {
           document.documentElement.classList.add('dark');
           document.documentElement.classList.remove('light');
         }
-        ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-light', 'theme-google-dark'].forEach((c) => {
+        ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-dark'].forEach((c) => {
           document.documentElement.classList.remove(c);
         });
         document.documentElement.classList.add(`theme-${activeTheme}`);
@@ -318,7 +318,7 @@ export default function App() {
 
   const changeTheme = useCallback((newTheme: ThemeType, isUserAction: boolean = true) => {
     setPanelTheme(newTheme);
-    const isLight = newTheme === 'light' || newTheme === 'google-light';
+    const isLight = newTheme === 'light';
     try {
       localStorage.setItem('panel_theme', newTheme);
       localStorage.setItem('theme_mode', isLight ? 'light' : 'dark');
@@ -334,7 +334,7 @@ export default function App() {
         document.documentElement.classList.add('dark');
         document.documentElement.classList.remove('light');
       }
-      ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-light', 'theme-google-dark'].forEach((c) => {
+      ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-dark'].forEach((c) => {
         document.documentElement.classList.remove(c);
       });
       document.documentElement.classList.add(`theme-${newTheme}`);
@@ -974,7 +974,7 @@ export default function App() {
     return <LoginPage currentTheme={panelTheme} onThemeChange={changeTheme} />;
   }
 
-  const isLightMode = panelTheme === 'light' || panelTheme === 'google-light';
+  const isLightMode = panelTheme === 'light';
 
   return (
     <div

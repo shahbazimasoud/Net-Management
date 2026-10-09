@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useLanguage } from '../../i18n';
 import { Activity, Shield, Wifi, Globe2, Radio, Cpu, Satellite } from 'lucide-react';
 
-export type GlobeThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-light' | 'google-dark';
+export type GlobeThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-dark';
 
 interface NetworkNode {
   name: string;
@@ -529,19 +529,7 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
             dotColor: '#f59e0b',
             dotHighlight: '#fde68a',
           };
-        case 'google-light':
-          return {
-            glowA: 'rgba(26, 115, 232, 0.18)',
-            glowB: 'rgba(52, 168, 83, 0.12)',
-            rim: 'rgba(26, 115, 232, 0.55)',
-            grid: 'rgba(218, 220, 224, 0.45)',
-            gridEq: 'rgba(26, 115, 232, 0.45)',
-            arc: 'rgba(234, 67, 53, 0.55)',
-            nodeCore: '#1a73e8',
-            nodeEdge: '#34a853',
-            dotColor: '#1a73e8',
-            dotHighlight: '#fbbc05',
-          };
+
         case 'google-dark':
           return {
             glowA: 'rgba(138, 180, 248, 0.22)',

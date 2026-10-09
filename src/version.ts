@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.3';
+export const APP_VERSION = '1.304.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.4',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'حذف کامل تم سفید گوگل، ادغام مستقیم تم دارک گوگل در پالت تم‌های اصلی پنل و یکپارچه‌سازی انتخابگر تم',
+    title_en: 'Complete Removal of Google Light Theme and Direct Integration of Google Dark into Native Panel Themes',
+    changes: [
+      'حذف کامل تم گوگل سفید (Google Light) از کلیه بخش‌های سیستم و استایل‌های برنامه.',
+      'ادغام مستقیم تم گوگل دارک (Google Dark) در پالت تم‌های اصلی پنل در کنار تم‌های آبسیدین، امرالد، کبالت، رز، کهربایی و لایت بدون نیاز به دسته‌بندی مجزا.',
+      'یکپارچه‌سازی و ساده‌سازی انتخابگر تم در منوی پروفایل هدر، تنظیمات عمومی پنل و صفحه ورود (Login).',
+      'بهینه‌سازی کدهای استایل CSS و حذف قوانین مازاد تم سفید گوگل.'
+    ],
+    changes_en: [
+      'Completely removed Google Light theme across all system components, settings, and CSS stylesheets.',
+      'Directly integrated Google Dark theme into the unified panel theme palette alongside Obsidian, Emerald, Cobalt, Rose, Amber, and Light themes without separate suite groupings.',
+      'Streamlined and unified the theme selector across Navbar profile dropdown, General Settings, and Login Page.',
+      'Cleaned up CSS stylesheets and removed redundant Google Light styling rules.'
+    ]
+  },
   {
     version: '1.304.3',
     releaseDate: '2026-10-09',

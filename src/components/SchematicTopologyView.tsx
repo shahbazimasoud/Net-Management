@@ -376,12 +376,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     currentUser = auth.user;
     effectivePolicy = auth.effectivePolicy;
   } catch (e) {}
-  const isLightMode = propPanelTheme === 'light' || propPanelTheme === 'google-light' || (typeof document !== 'undefined' && (
+  const isLightMode = propPanelTheme === 'light' || (typeof document !== 'undefined' && (
     document.querySelector('.theme-light') !== null ||
-    document.querySelector('.theme-google-light') !== null ||
     document.documentElement.classList.contains('light') ||
     localStorage.getItem('panel_theme') === 'light' ||
-    localStorage.getItem('panel_theme') === 'google-light' ||
     localStorage.getItem('theme_mode') === 'light'
   ));
   const [viewMode, setViewMode] = useState<'schematic' | 'physical'>('schematic');
