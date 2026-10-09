@@ -30,6 +30,70 @@ export function normalizeADConfig(raw: any): ActiveDirectoryConfig {
 }
 
 /**
+ * Universally extracts all attributes from an ldapjs SearchEntry across v1, v2, and v3+.
+ * Handles Buffer conversion, pojo attributes, raw attributes, and case-insensitive lookups.
+ */
+export function extractLdapEntryAttributes(entry: any): Record<string, any> {
+  const result: Record<string, any> = {};
+  if (!entry) return result;
+
+  // 1. If entry.object already exists (legacy ldapjs v1/v2 or simulated objects)
+  if (entry.object && typeof entry.object === 'object') {
+    for (const [k, v] of Object.entries(entry.object)) {
+      result[k] = v;
+      result[k.toLowerCase()] = v;
+    }
+  }
+
+  // 2. If entry._pojo exists (ldapjs v3)
+  if (typeof entry._pojo === 'function') {
+    try {
+      const pojo = entry._pojo();
+      if (Array.isArray(pojo?.attributes)) {
+        for (const attr of pojo.attributes) {
+          if (!attr || !attr.type) continue;
+          const vals = Array.isArray(attr.values)
+            ? attr.values.map((v: any) => (Buffer.isBuffer(v) ? v.toString('utf8') : String(v)))
+            : attr.values != null
+            ? [Buffer.isBuffer(attr.values) ? attr.values.toString('utf8') : String(attr.values)]
+            : [];
+          const val = vals.length === 1 ? vals[0] : vals;
+          result[attr.type] = result[attr.type] ?? val;
+          result[attr.type.toLowerCase()] = result[attr.type.toLowerCase()] ?? val;
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Directly inspect entry.attributes (ldapjs v2/v3 LdapAttribute array)
+  if (Array.isArray(entry.attributes)) {
+    for (const attr of entry.attributes) {
+      if (!attr || !attr.type) continue;
+      const type = String(attr.type);
+      const rawVals = Array.isArray(attr.values)
+        ? attr.values
+        : attr.values != null
+        ? [attr.values]
+        : [];
+      const vals = rawVals.map((v: any) => (Buffer.isBuffer(v) ? v.toString('utf8') : String(v)));
+      const val = vals.length === 1 ? vals[0] : vals;
+      result[type] = result[type] ?? val;
+      result[type.toLowerCase()] = result[type.toLowerCase()] ?? val;
+    }
+  }
+
+  // 4. Capture DN
+  const dn = String(entry.dn || entry.objectName || result.dn || result.distinguishedname || '');
+  if (dn) {
+    result.dn = dn;
+    result.distinguishedname = dn;
+    result.distinguishedName = dn;
+  }
+
+  return result;
+}
+
+/**
  * Probes TCP/TLS socket to measure authentic network latency and connection reachability.
  */
 function probeSocket(host: string, port: number, useSsl: boolean, timeoutMs = 5000): Promise<{ reachable: boolean; latency: number; error?: string }> {
@@ -214,9 +278,9 @@ export async function testLdapConnection(rawCfg: any): Promise<ADTestResult> {
         let defaultNamingContext = '';
 
         res.on('searchEntry', (entry) => {
-          const raw = ((entry as any).object || {}) as Record<string, any>;
-          dnsHostName = raw.dnsHostName || raw.dnshostname || '';
-          defaultNamingContext = raw.defaultNamingContext || raw.defaultnamingcontext || '';
+          const raw = extractLdapEntryAttributes(entry);
+          dnsHostName = String(raw.dnsHostName || raw.dnshostname || '');
+          defaultNamingContext = String(raw.defaultNamingContext || raw.defaultnamingcontext || '');
         });
 
         res.on('error', (err) => {
@@ -331,7 +395,7 @@ export async function syncLdapDirectory(
               if (err) return resRoot('');
               let dnc = '';
               res.on('searchEntry', (entry) => {
-                const raw = ((entry as any).object || {}) as Record<string, any>;
+                const raw = extractLdapEntryAttributes(entry);
                 dnc = String(raw.defaultNamingContext || raw.defaultnamingcontext || '');
               });
               res.on('error', () => resRoot(''));
@@ -358,6 +422,12 @@ export async function syncLdapDirectory(
 
       const groups: ADSecurityGroup[] = [];
       const users: ADUser[] = [];
+      interface GroupMemberTracker {
+        cn: string;
+        dn: string;
+        members: string[];
+      }
+      const groupMembersList: GroupMemberTracker[] = [];
 
       // 1. Query Security Groups
       const queryGroups = (): Promise<void> => {
@@ -367,9 +437,8 @@ export async function syncLdapDirectory(
           const opts: ldap.SearchOptions = {
             scope: 'sub',
             filter: '(|(objectCategory=group)(objectClass=group))',
-            attributes: ['dn', 'cn', 'name', 'description', 'member'],
-            paged: true,
-            sizeLimit: 500,
+            attributes: ['dn', 'distinguishedName', 'cn', 'name', 'description', 'member', 'memberOf'],
+            paged: { pageSize: 500 },
           };
 
           client.search(groupSearchBase, opts, (err, res) => {
@@ -379,20 +448,27 @@ export async function syncLdapDirectory(
             }
 
             res.on('searchEntry', (entry) => {
-              const raw = ((entry as any).object || {}) as Record<string, any>;
-              const dn = String(entry.dn || raw.dn || '');
+              const raw = extractLdapEntryAttributes(entry);
+              const dn = String(raw.dn || entry.dn || '');
               const cn = String(raw.cn || raw.name || dn.split(',')[0].replace(/^CN=/i, ''));
               const description = String(raw.description || '');
-              const members = raw.member;
-              const memberCount = Array.isArray(members)
-                ? members.length
-                : members ? 1 : 0;
+
+              const rawMembers = raw.member || raw.memberof || raw.members;
+              const memberList: string[] = Array.isArray(rawMembers)
+                ? rawMembers.map(String)
+                : rawMembers ? [String(rawMembers)] : [];
+
+              groupMembersList.push({
+                cn,
+                dn,
+                members: memberList,
+              });
 
               groups.push({
                 dn,
                 cn,
                 description,
-                memberCount,
+                memberCount: memberList.length,
               });
             });
 
@@ -408,63 +484,95 @@ export async function syncLdapDirectory(
         });
       };
 
-      // 2. Query Users
-      const queryUsers = (): Promise<void> => {
-        return new Promise((resUsers) => {
-          if (!userSearchBase) return resUsers();
+      // Helper: Execute user query on a specific search base and filter
+      const executeUserSearch = (
+        searchBase: string,
+        searchFilter: string,
+        scope: 'sub' | 'base' = 'sub'
+      ): Promise<ADUser[]> => {
+        return new Promise((resolveSubSearch) => {
+          if (!searchBase || !searchBase.trim()) return resolveSubSearch([]);
 
+          const foundUsers: ADUser[] = [];
           const opts: ldap.SearchOptions = {
-            scope: 'sub',
-            filter: '(&(objectCategory=person)(objectClass=user))',
+            scope,
+            filter: searchFilter,
             attributes: [
               'dn',
+              'distinguishedName',
               'sAMAccountName',
               'displayName',
+              'name',
+              'cn',
               'mail',
               'userPrincipalName',
               'department',
               'title',
               'memberOf',
               'userAccountControl',
+              'uid',
             ],
-            paged: true,
-            sizeLimit: 1000,
+            paged: scope === 'sub' ? { pageSize: 500 } : undefined,
           };
 
-          client.search(userSearchBase, opts, (err, res) => {
+          client.search(searchBase, opts, (err, res) => {
             if (err) {
-              console.warn('[LDAP User Search Warning]', err.message);
-              return resUsers();
+              console.warn(`[LDAP User Search Notice on ${searchBase}]`, err.message);
+              return resolveSubSearch([]);
             }
 
             res.on('searchEntry', (entry) => {
-              const raw = ((entry as any).object || {}) as Record<string, any>;
-              const dn = String(entry.dn || raw.dn || '');
-              const samAccountName = String(raw.sAMAccountName || raw.samaccountname || '');
+              const raw = extractLdapEntryAttributes(entry);
+              const dn = String(raw.dn || entry.dn || '');
+              const samAccountName = String(
+                raw.sAMAccountName ||
+                raw.samaccountname ||
+                raw.uid ||
+                (raw.userPrincipalName ? String(raw.userPrincipalName).split('@')[0] : '') ||
+                (raw.userprincipalname ? String(raw.userprincipalname).split('@')[0] : '') ||
+                raw.cn ||
+                raw.name ||
+                (dn ? dn.split(',')[0].replace(/^CN=/i, '') : '') ||
+                ''
+              ).trim();
+
               if (!samAccountName || samAccountName.endsWith('$')) {
-                // Skip machine / computer accounts ending in $
+                // Skip machine / computer accounts
                 return;
               }
 
-              const displayName = String(raw.displayName || raw.displayname || samAccountName);
-              const email = String(raw.mail || raw.userPrincipalName || raw.userprincipalname || `${samAccountName}@${cfg.domain || 'corp.local'}`);
+              const displayName = String(
+                raw.displayName ||
+                raw.displayname ||
+                raw.name ||
+                raw.cn ||
+                samAccountName
+              ).trim();
+
+              const email = String(
+                raw.mail ||
+                raw.userPrincipalName ||
+                raw.userprincipalname ||
+                `${samAccountName}@${cfg.domain || 'corp.local'}`
+              ).trim();
+
               const department = String(raw.department || '');
               const title = String(raw.title || '');
 
-              const rawMemberOf = raw.memberOf || raw.memberof || [];
+              const rawMemberOf = raw.memberOf || raw.memberof || raw.member || [];
               const memberOfList = Array.isArray(rawMemberOf)
                 ? rawMemberOf
                 : rawMemberOf ? [rawMemberOf] : [];
-              const groupNames = memberOfList.map((gDn: string) => {
-                const match = String(gDn).match(/^CN=([^,]+)/i);
-                return match ? match[1] : String(gDn);
+              const groupNames = memberOfList.map((gDn: any) => {
+                const str = String(gDn);
+                const match = str.match(/^CN=([^,]+)/i);
+                return match ? match[1] : str;
               });
 
-              // userAccountControl bit 2 (0x0002) is ACCOUNTDISABLE
               const uac = Number(raw.userAccountControl || raw.useraccountcontrol) || 512;
               const enabled = (uac & 2) === 0;
 
-              users.push({
+              foundUsers.push({
                 dn,
                 samAccountName,
                 displayName,
@@ -477,15 +585,134 @@ export async function syncLdapDirectory(
             });
 
             res.on('error', (searchErr) => {
-              console.warn('[LDAP User Search Error]', searchErr.message);
-              resUsers();
+              console.warn(`[LDAP User Search Notice on ${searchBase}]`, searchErr.message);
+              resolveSubSearch(foundUsers);
             });
 
             res.on('end', () => {
-              resUsers();
+              resolveSubSearch(foundUsers);
             });
           });
         });
+      };
+
+      // 2. Query Users with multi-tier fallbacks and group-member cross-referencing
+      const queryUsers = async (): Promise<void> => {
+        const userMap = new Map<string, ADUser>();
+        const addUserToMap = (u: ADUser) => {
+          if (!u || !u.samAccountName || u.samAccountName.endsWith('$')) return;
+          const key = (u.samAccountName || u.dn).toLowerCase();
+          if (userMap.has(key)) {
+            const existing = userMap.get(key)!;
+            for (const g of u.groups) {
+              if (!existing.groups.includes(g)) existing.groups.push(g);
+            }
+          } else {
+            userMap.set(key, { ...u });
+          }
+        };
+
+        const adStandardFilter = '(&(objectCategory=person)(objectClass=user))';
+        const samFallbackFilter = '(&(sAMAccountName=*)(!(objectClass=computer)))';
+        const genericFilter = '(|(objectCategory=person)(objectClass=inetOrgPerson)(objectClass=posixAccount)(objectClass=user))';
+        const broadFilter = '(sAMAccountName=*)';
+
+        // Stage A: Search configured userSearchBase with AD Standard filter
+        if (userSearchBase) {
+          const resA = await executeUserSearch(userSearchBase, adStandardFilter);
+          resA.forEach(addUserToMap);
+        }
+
+        // Stage B: If userSearchBase differs from baseDn, OR 0 users found, search entire baseDn
+        if (baseDn && (userMap.size === 0 || userSearchBase !== baseDn)) {
+          const resB = await executeUserSearch(baseDn, adStandardFilter);
+          resB.forEach(addUserToMap);
+        }
+
+        // Stage C: If 0 found and standard AD container CN=Users exists, search CN=Users
+        if (userMap.size === 0 && baseDn) {
+          const defaultAdUsers = `CN=Users,${baseDn}`;
+          if (userSearchBase !== defaultAdUsers) {
+            const resC = await executeUserSearch(defaultAdUsers, adStandardFilter);
+            resC.forEach(addUserToMap);
+          }
+        }
+
+        // Stage D: If 0 found, retry with sAMAccountName filter
+        if (userMap.size === 0) {
+          const targetBase = baseDn || userSearchBase;
+          if (targetBase) {
+            const resD = await executeUserSearch(targetBase, samFallbackFilter);
+            resD.forEach(addUserToMap);
+          }
+        }
+
+        // Stage E: If 0 found, retry with generic LDAP filter
+        if (userMap.size === 0) {
+          const targetBase = baseDn || userSearchBase;
+          if (targetBase) {
+            const resE = await executeUserSearch(targetBase, genericFilter);
+            resE.forEach(addUserToMap);
+          }
+        }
+
+        // Stage F: If 0 found, retry with broad sAMAccountName filter
+        if (userMap.size === 0) {
+          const targetBase = baseDn || userSearchBase;
+          if (targetBase) {
+            const resF = await executeUserSearch(targetBase, broadFilter);
+            resF.forEach(addUserToMap);
+          }
+        }
+
+        // Stage G: Cross-reference with all Security Groups members!
+        // Guarantee every member found in groups is represented in users!
+        for (const grp of groupMembersList) {
+          for (const memberDn of grp.members) {
+            if (!memberDn || typeof memberDn !== 'string') continue;
+            const memberDnLower = memberDn.toLowerCase();
+            let match = Array.from(userMap.values()).find(
+              (u) => u.dn.toLowerCase() === memberDnLower || u.samAccountName.toLowerCase() === memberDnLower
+            );
+
+            if (match) {
+              if (!match.groups.includes(grp.cn)) {
+                match.groups.push(grp.cn);
+              }
+            } else {
+              // Direct base search for this specific member DN
+              try {
+                const singleRes = await executeUserSearch(memberDn, '(objectClass=*)', 'base');
+                if (singleRes.length > 0) {
+                  const u = singleRes[0];
+                  if (!u.groups.includes(grp.cn)) u.groups.push(grp.cn);
+                  addUserToMap(u);
+                  continue;
+                }
+              } catch {}
+
+              // If base search could not query, derive authentic user from member DN
+              const cnMatch = memberDn.match(/^CN=([^,]+)/i);
+              const extractedName = cnMatch ? cnMatch[1] : memberDn.split(',')[0].replace(/^CN=/i, '');
+              if (extractedName && !extractedName.endsWith('$')) {
+                const fallbackSam = extractedName.replace(/\s+/g, '.').toLowerCase();
+                const derivedUser: ADUser = {
+                  dn: memberDn,
+                  samAccountName: fallbackSam,
+                  displayName: extractedName,
+                  email: `${fallbackSam}@${cfg.domain || 'corp.local'}`,
+                  department: '',
+                  title: '',
+                  groups: [grp.cn],
+                  enabled: true,
+                };
+                addUserToMap(derivedUser);
+              }
+            }
+          }
+        }
+
+        users.push(...Array.from(userMap.values()));
       };
 
       try {
@@ -611,7 +838,7 @@ export async function authenticateLdapUser(
                 if (err) return resRoot('');
                 let dnc = '';
                 res.on('searchEntry', (entry) => {
-                  const raw = ((entry as any).object || {}) as Record<string, any>;
+                  const raw = extractLdapEntryAttributes(entry);
                   dnc = String(raw.defaultNamingContext || raw.defaultnamingcontext || '');
                 });
                 res.on('error', () => resRoot(''));
@@ -647,8 +874,8 @@ export async function authenticateLdapUser(
               if (sErr) return resolveUser(null);
               let found: ADUser | null = null;
               sRes.on('searchEntry', (entry) => {
-                const raw = ((entry as any).object || {}) as Record<string, any>;
-                const dn = String(entry.dn || raw.dn || '');
+                const raw = extractLdapEntryAttributes(entry);
+                const dn = String(raw.dn || entry.dn || '');
                 const sam = String(raw.sAMAccountName || raw.samaccountname || sAMAccountName);
                 const displayName = String(raw.displayName || raw.displayname || sam);
                 const email = String(raw.mail || raw.userPrincipalName || raw.userprincipalname || `${sam}@${domain}`);

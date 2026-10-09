@@ -63,6 +63,21 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
       .catch(() => {});
   }, []);
 
+  // Auto-sync domain users if connection is configured but users list is empty
+  const autoSyncedRef = React.useRef(false);
+  useEffect(() => {
+    if (
+      !autoSyncedRef.current &&
+      config?.server &&
+      config.server.trim() &&
+      (!config.syncedUsers || config.syncedUsers.length === 0) &&
+      !isSyncing
+    ) {
+      autoSyncedRef.current = true;
+      handleSyncNow();
+    }
+  }, [config?.server, config?.syncedUsers]);
+
   const hasUnsavedChanges = useMemo(() => {
     return JSON.stringify(persistedPolicies) !== JSON.stringify(workingPolicies);
   }, [persistedPolicies, workingPolicies]);
@@ -315,13 +330,20 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
 
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
+      const displayName = String(u.displayName || u.samAccountName || '').toLowerCase();
+      const samAccountName = String(u.samAccountName || '').toLowerCase();
+      const department = String(u.department || '').toLowerCase();
+      const email = String(u.email || '').toLowerCase();
+      const title = String(u.title || '').toLowerCase();
+
       return (
-        u.displayName.toLowerCase().includes(q) ||
-        u.samAccountName.toLowerCase().includes(q) ||
-        u.department.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        (direct && direct.name.toLowerCase().includes(q)) ||
-        inherited.some((p) => p.name.toLowerCase().includes(q))
+        displayName.includes(q) ||
+        samAccountName.includes(q) ||
+        department.includes(q) ||
+        email.includes(q) ||
+        title.includes(q) ||
+        (direct && String(direct.name || '').toLowerCase().includes(q)) ||
+        inherited.some((p) => String(p.name || '').toLowerCase().includes(q))
       );
     });
   }, [config.syncedUsers, searchQuery, roleFilter, workingPolicies]);

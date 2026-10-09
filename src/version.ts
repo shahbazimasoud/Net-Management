@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.5';
+export const APP_VERSION = '1.304.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.6',
+    releaseDate: '2026-10-09',
+    type: 'patch',
+    title: 'رفع مشکل عدم نمایش کاربران دامین در تب Domain Users و یکپارچه‌سازی کامل استخراج آبجکت‌های Active Directory',
+    title_en: 'Fix Domain Users Tab Display Issue and Unify Active Directory Object Extraction Across All LDAP Protocols',
+    changes: [
+      'رفع ریشه‌ای باگ عدم استخراج ویژگی‌های حساب‌های کاربری (SearchEntry attributes) در کتابخانه LDAP و بازیابی کامل تمامی کاربران دامین در تب Domain Users.',
+      'اصلاح اندازه صفحه استعلام LDAP به مقدار استاندارد ۵۰۰ و حذف سقف‌های ناسازگار با سیاست‌های سرور Active Directory (MaxPageSize limit).',
+      'پیاده‌سازی مکانیزم چندمرحله‌ای استعلام کاربران با فیلترهای استاندارد AD، استعلام کانتینرهای پیش‌فرض CN=Users و Base DN دامین.',
+      'افزودن قابلیت انطباق دوسویه با اعضای گروه‌های امنیتی (Security Groups Cross-Referencing) جهت تضمین حضور ۱۰۰٪ کاربران عضو گروه‌ها در فهرست کاربران.',
+      'افزودن امکان همگام‌سازی خودکار در هنگام ورود به تب در صورت خالی بودن اولیه کاربران و ایمن‌سازی فیلترهای جستجو در برابر مقادیر تعریف‌نشده.'
+    ],
+    changes_en: [
+      'Resolved the root cause where SearchEntry attributes in LDAP queries were unparsed, ensuring full discovery and display of domain users in the Domain Users tab.',
+      'Adjusted LDAP search paging to standard 500-entry pages to strictly adhere to Active Directory NTDS query policies (avoiding MaxPageSize rejections).',
+      'Implemented multi-tier fallback queries covering standard Active Directory filters, default CN=Users containers, and full root Base DN recursive search.',
+      'Added bidirectional security group member cross-referencing ensuring all users mapped to security groups are populated into the domain users catalog.',
+      'Added automated initial sync trigger when viewing the domain users tab and guarded search filters against undefined user fields.'
+    ]
+  },
   {
     version: '1.304.5',
     releaseDate: '2026-10-09',
