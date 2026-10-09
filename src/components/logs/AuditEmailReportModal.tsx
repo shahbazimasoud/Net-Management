@@ -46,6 +46,7 @@ import {
 import {
   fetchAuditReportConfigApi,
   saveAuditReportConfigApi,
+  saveAuditEmailReportApi,
   previewAuditReportApi,
   sendAuditReportNowApi
 } from '../../services/api';
@@ -56,6 +57,9 @@ interface AuditEmailReportModalProps {
   portalLogs: PortalAuditLogEntry[];
   commandLogs: DeviceCommandLogEntry[];
   isLightMode?: boolean;
+  reportToEdit?: AuditReportScheduleConfig | null;
+  onReportSaved?: (savedReport: AuditReportScheduleConfig) => void;
+  initialMode?: 'config' | 'preview';
 }
 
 const ALL_PORTAL_CATEGORIES: { id: AuditLogCategory; labelEn: string; labelFa: string; color: string; descEn: string; descFa: string }[] = [
@@ -123,13 +127,16 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
   portalLogs,
   commandLogs,
   isLightMode = false,
+  reportToEdit = null,
+  onReportSaved,
+  initialMode = 'config',
 }) => {
   const { isEn, isRtl } = useLanguage();
   const { dockModal } = useModalDock();
 
   // Window states
   const [isMaximized, setIsMaximized] = useState(false);
-  const [activeTab, setActiveTab] = useState<'config' | 'preview'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'preview'>(initialMode);
 
   // Form Config state
   const [config, setConfig] = useState<AuditReportScheduleConfig>({
@@ -181,20 +188,65 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
   // Load config from backend
   const loadConfig = async () => {
     setIsLoading(true);
+    setStatusFeedback(null);
     try {
-      const res = await fetchAuditReportConfigApi();
-      if (res.config) {
-        setConfig((prev) => ({
-          ...prev,
-          ...res.config,
-          recipients: res.config.recipients || [],
-          selectedCategories: res.config.selectedCategories || prev.selectedCategories,
-        }));
+      if (reportToEdit) {
+        setConfig({
+          ...reportToEdit,
+          recipients: Array.isArray(reportToEdit.recipients) ? reportToEdit.recipients : [],
+          selectedCategories: Array.isArray(reportToEdit.selectedCategories)
+            ? reportToEdit.selectedCategories
+            : [
+                'user_management',
+                'rbac_policy',
+                'device_inventory',
+                'backup_recovery',
+                'topology_network',
+                'port_interface',
+                'system_auth',
+              ],
+        });
+      } else {
+        setConfig({
+          id: '',
+          enabled: true,
+          recipients: [],
+          frequency: 'daily',
+          timeOfDay: '08:00',
+          dayOfWeek: 1,
+          dayOfMonth: 1,
+          reportTitle: isEn ? 'Enterprise Audit & Security Summary' : 'خلاصه ممیزی و امنیت سازمانی شبکه',
+          selectedCategories: [
+            'user_management',
+            'rbac_policy',
+            'device_inventory',
+            'backup_recovery',
+            'topology_network',
+            'port_interface',
+            'system_auth',
+          ],
+          includeCommands: true,
+          minSeverity: 'all',
+          statusFilter: 'all',
+          timeframeHours: 24,
+          attachCsv: false,
+        });
       }
+
+      const res = await fetchAuditReportConfigApi();
       setSmtpConfigured(Boolean(res.smtpConfigured));
       setSmtpFrom(res.smtpFrom || '');
       setSmtpHost(res.smtpHost || '');
       setSmtpPort(res.smtpPort || 587);
+
+      if (initialMode === 'preview') {
+        setActiveTab('preview');
+        setTimeout(() => {
+          handleGeneratePreview();
+        }, 150);
+      } else {
+        setActiveTab('config');
+      }
     } catch (err: any) {
       console.warn('Failed to load audit report schedule configuration:', err);
     } finally {
@@ -206,7 +258,7 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
     if (isOpen) {
       loadConfig();
     }
-  }, [isOpen]);
+  }, [isOpen, reportToEdit]);
 
   // Handle minimization to dock
   const handleMinimize = () => {
@@ -282,12 +334,14 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
     setIsSaving(true);
     setStatusFeedback(null);
     try {
-      const res = await saveAuditReportConfigApi(config);
+      const res = await saveAuditEmailReportApi(config);
+      setConfig(res.report);
+      onReportSaved?.(res.report);
       setStatusFeedback({
         type: 'success',
         message: isEn
-          ? res.message || 'Audit report schedule saved successfully.'
-          : res.message_fa || 'تنظیمات زمان‌بندی و ارسال گزارش با موفقیت ذخیره شد.',
+          ? res.message || 'Audit report saved successfully in database.'
+          : res.message_fa || 'تنظیمات گزارش ایمیل با موفقیت در پایگاه داده ذخیره شد.',
       });
     } catch (err: any) {
       setStatusFeedback({
@@ -419,7 +473,13 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold">
-                  {isEn ? 'Automated Audit & Command Logs Email Reports' : 'ارسال خودکار و زمان‌بندی گزارشات ممیزی و وقایع شبکه'}
+                  {reportToEdit
+                    ? isEn
+                      ? `Edit Email Report: ${config.reportTitle || reportToEdit.id || ''}`
+                      : `ویرایش گزارش ایمیل: ${config.reportTitle || reportToEdit.id || ''}`
+                    : isEn
+                    ? 'Create New Audit Email Report'
+                    : 'ایجاد گزارش ایمیل جدید ممیزی و وقایع'}
                 </h2>
                 {config.enabled ? (
                   <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">

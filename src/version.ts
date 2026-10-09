@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.301.0';
+export const APP_VERSION = '1.302.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.302.0',
+    releaseDate: '2026-10-09',
+    type: 'minor',
+    title: 'افزودن تب مستقل مدیریت گزارشات ایمیل (Email Reports) در صفحه ممیزی و لاگ‌ها با قابلیت ایجاد چندین گزارش، ویرایش، حذف، ذخیره در دیتابیس و پشتیبان‌گیری کامل',
+    title_en: 'Dedicated Email Reports Management Tab in Audit & Command Logs with Multi-Report Support, CRUD Operations, PostgreSQL Database Persistence & Disaster Recovery Backup Integration',
+    changes: [
+      'افزودن تب اختصاصی "گزارش‌های ایمیل" (Email Reports) به بخش ممیزی و لاگ‌ها (Audit & Command Logs) در کنار لاگ‌های فرامین و لاگ‌های ثبتی پورتال با نشانگر تعداد گزارشات فعال.',
+      'پشتیبانی از ایجاد چندین قالب و زمان‌بندی مستقل گزارش ایمیل با عناوین، بازه‌های زمانی، دسته‌بندی‌ها، سطوح ریسک، فیلتر وضعیت و لیست گیرندگان اختصاصی.',
+      'افزودن کارت‌های مدیریتی هر گزارش با دکمه‌های ارسال فوری (Send Now)، پیش‌نمایش (Preview)، ویرایش (Edit) و حذف (Delete) به همراه مودال تایید حذف ایمن.',
+      'سوئیچ سریع وضعیت فعال/متوقف (Enable/Disable) برای هر زمان‌بندی به همراه نمایش تاریخچه آخرین اجرا و وضعیت موفقیت یا خطای ارسال.',
+      'ذخیره‌سازی کامل و پایدار تمامی گزارشات در جدول audit_report_schedule پایگاه‌داده PostgreSQL سرور و انبار پشتیبان.',
+      'یکپارچه‌سازی کامل با موتور پشتیبان‌گیری و بازیابی از فاجعه (Disaster Recovery & Backup Engine) و درج خودکار تمامی گزارشات ایمیل در پکیج‌های استخراج، اسکریپت SQL، اسنپ‌شات‌ها و فرآیند Restore.',
+      'انطباق صددرصدی با استانداردهای دوزبانگی، تم‌های تیره و روشن و معماری پنج‌گانه مودال‌ها.'
+    ],
+    changes_en: [
+      'Added dedicated "Email Reports" tab to Audit & Command Logs navigation alongside Device Commands and Portal Audit trails with dynamic count badge.',
+      'Implemented multi-report architecture allowing administrators to create, customize, and maintain multiple independent email reports with distinct titles, timeframes, categories, severity thresholds, and recipient groups.',
+      'Designed executive management cards for each report featuring instant dispatch (Send Now), interactive preview (Preview), edit modal (Edit), and safe deletion with confirmation modal.',
+      'Provided quick enable/disable schedule toggle per report alongside historical telemetry showing last execution timestamp, delivery status, and error diagnosis.',
+      'Persistent storage of all report configurations in PostgreSQL database (audit_report_schedule) and local fallback store.',
+      'Full integration with Disaster Recovery Backup Engine ensuring all email reports are included in full backups, SQL dumps, safety snapshots, and restore pipelines.',
+      'Strict adherence to zero-leak security, dark/light contrast ergonomics, modal guidelines, and 100% bilingual localization without hardcoded text.'
+    ]
+  },
   {
     version: '1.301.0',
     releaseDate: '2026-10-09',

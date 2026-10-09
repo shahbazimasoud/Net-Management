@@ -1394,6 +1394,30 @@
       "details": "Backup archive file auto_backup_full_2026-10-09T09-45-34-087Z_job-daily-dr.json deleted from server disk storage.",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1791576698961-sph46",
+      "timestamp": "2026-10-09T20:11:38.961Z",
+      "user_name": "admin",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: full (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported full backup. Servers: 0, Devices: 10, Users: 1. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1791576709716-vymj8",
+      "timestamp": "2026-10-09T20:11:49.716Z",
+      "user_name": "admin",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: full (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported full backup. Servers: 0, Devices: 10, Users: 1. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
     }
   ],
   "ad_config": {
@@ -2061,5 +2085,59 @@
       "updated_at": "2026-10-09T10:07:44.141Z",
       "next_run_at": "2026-10-10T04:00:00.000Z"
     }
-  ]
+  ],
+  "audit_email_reports": [
+    {
+      "enabled": false,
+      "recipients": [],
+      "frequency": "daily",
+      "timeOfDay": "08:00",
+      "dayOfWeek": 1,
+      "dayOfMonth": 1,
+      "reportTitle": "Enterprise Audit & Activity Report",
+      "selectedCategories": [
+        "user_management",
+        "rbac_policy",
+        "device_inventory",
+        "backup_recovery",
+        "topology_network",
+        "port_interface",
+        "system_auth"
+      ],
+      "includeCommands": true,
+      "minSeverity": "all",
+      "statusFilter": "all",
+      "timeframeHours": 24,
+      "attachCsv": false,
+      "id": "primary",
+      "updated_at": "2026-10-09T20:11:49.558Z",
+      "updated_by": "admin"
+    }
+  ],
+  "audit_report_schedule": {
+    "enabled": false,
+    "recipients": [],
+    "frequency": "daily",
+    "timeOfDay": "08:00",
+    "dayOfWeek": 1,
+    "dayOfMonth": 1,
+    "reportTitle": "Enterprise Audit & Activity Report",
+    "selectedCategories": [
+      "user_management",
+      "rbac_policy",
+      "device_inventory",
+      "backup_recovery",
+      "topology_network",
+      "port_interface",
+      "system_auth"
+    ],
+    "includeCommands": true,
+    "minSeverity": "all",
+    "statusFilter": "all",
+    "timeframeHours": 24,
+    "attachCsv": false,
+    "id": "primary",
+    "updated_at": "2026-10-09T20:11:49.558Z",
+    "updated_by": "admin"
+  }
 }

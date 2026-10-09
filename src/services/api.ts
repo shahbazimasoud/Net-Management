@@ -7600,5 +7600,85 @@ export async function sendAuditReportNowApi(payload: {
   return data;
 }
 
+export async function getAuditEmailReportsListApi(): Promise<{
+  success: boolean;
+  reports: AuditReportScheduleConfig[];
+  smtpConfigured: boolean;
+  smtpFrom: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/list`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch email reports list');
+  }
+  return data;
+}
+
+export async function saveAuditEmailReportApi(config: Partial<AuditReportScheduleConfig>): Promise<{
+  success: boolean;
+  report: AuditReportScheduleConfig;
+  message?: string;
+  message_fa?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to save email report');
+  }
+  return data;
+}
+
+export async function deleteAuditEmailReportApi(id: string): Promise<{
+  success: boolean;
+  message?: string;
+  message_fa?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to delete email report');
+  }
+  return data;
+}
+
+export async function toggleAuditEmailReportApi(id: string, enabled: boolean): Promise<{
+  success: boolean;
+  report: AuditReportScheduleConfig;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/${encodeURIComponent(id)}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to toggle email report state');
+  }
+  return data;
+}
+
+export async function sendAuditEmailReportByIdNowApi(id: string, payload: {
+  portalLogs?: any[];
+  commandLogs?: any[];
+  isEn?: boolean;
+}): Promise<AuditReportSendResult> {
+  const res = await fetchWithRetry(`${API_BASE}/audit-reports/${encodeURIComponent(id)}/send-now`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  return data;
+}
+
 
 

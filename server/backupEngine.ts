@@ -165,6 +165,7 @@ export async function fetchFullDatabaseDataset(): Promise<FallbackStore> {
           reportsRes,
           adConfigRes,
           generalSettingsRes,
+          auditReportsRes,
         ] = await Promise.all([
           client.query('SELECT * FROM users ORDER BY created_at ASC').catch(() => ({ rows: [] })),
           client.query('SELECT * FROM user_groups ORDER BY created_at ASC').catch(() => ({ rows: [] })),
@@ -181,6 +182,7 @@ export async function fetchFullDatabaseDataset(): Promise<FallbackStore> {
           client.query('SELECT * FROM bulk_server_reports ORDER BY created_at DESC LIMIT 500').catch(() => ({ rows: [] })),
           client.query("SELECT config_data FROM ad_config WHERE id = 'primary' LIMIT 1").catch(() => ({ rows: [] })),
           client.query("SELECT settings FROM panel_general_settings WHERE id = 'default' LIMIT 1").catch(() => ({ rows: [] })),
+          client.query("SELECT id, config_data, updated_at, updated_by FROM audit_report_schedule ORDER BY updated_at DESC").catch(() => ({ rows: [] })),
         ]);
 
         // Load node positions
@@ -194,6 +196,11 @@ export async function fetchFullDatabaseDataset(): Promise<FallbackStore> {
 
         const adConfig = adConfigRes.rows[0]?.config_data || null;
         const generalSettings = generalSettingsRes.rows[0]?.settings || undefined;
+
+        const auditEmailReports = auditReportsRes.rows.map((r: any) => {
+          const cfg = typeof r.config_data === 'string' ? JSON.parse(r.config_data) : r.config_data;
+          return { ...cfg, id: r.id, updated_at: r.updated_at, updated_by: r.updated_by };
+        });
 
         return {
           users: usersRes.rows,
@@ -213,6 +220,7 @@ export async function fetchFullDatabaseDataset(): Promise<FallbackStore> {
           general_settings: generalSettings,
           node_positions: nodePositions,
           audit_logs: [],
+          audit_email_reports: auditEmailReports,
         };
       } finally {
         client.release();
@@ -340,6 +348,15 @@ export function generatePostgreSqlScript(payload: Record<string, any>): string {
   if (payload.device_sticky_notes) dumpTable('device_sticky_notes', payload.device_sticky_notes);
   if (payload.topology_hierarchy) dumpTable('topology_hierarchy', payload.topology_hierarchy);
   if (payload.custom_maps) dumpTable('custom_maps', payload.custom_maps);
+  if (payload.audit_email_reports && Array.isArray(payload.audit_email_reports)) {
+    const rows = payload.audit_email_reports.map((r: any) => ({
+      id: r.id || 'primary',
+      config_data: JSON.stringify(r),
+      updated_at: r.updated_at || new Date().toISOString(),
+      updated_by: r.updated_by || 'admin',
+    }));
+    dumpTable('audit_report_schedule', rows);
+  }
 
   lines.push('COMMIT;');
   lines.push('-- End of Disaster Recovery PostgreSQL Dump');
@@ -400,6 +417,7 @@ export async function exportDatabaseBackup(options: BackupExportOptions = {}): P
     rawPayload.access_policies = fullData.access_policies || [];
     rawPayload.ad_config = fullData.ad_config || null;
     rawPayload.user_password_vault = fullData.user_password_vault || [];
+    rawPayload.audit_email_reports = fullData.audit_email_reports || [];
   }
 
   if (isFull) {
@@ -464,6 +482,7 @@ export async function exportDatabaseBackup(options: BackupExportOptions = {}): P
       accessPolicies: rawPayload.access_policies?.length || 0,
       hasAdConfig: !!rawPayload.ad_config,
       hasGeneralSettings: !!rawPayload.panel_general_settings,
+      auditReports: rawPayload.audit_email_reports?.length || 0,
     },
   };
 
@@ -656,6 +675,7 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
     accessPolicies: any[];
     adConfig: any;
     generalSettings: any;
+    auditEmailReports: any[];
   } = {
     servers: rawData.remote_servers || rawData.servers || [],
     serverCategories: rawData.server_categories || rawData.serverCategories || [],
@@ -671,6 +691,7 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
     accessPolicies: rawData.access_policies || rawData.accessPolicies || [],
     adConfig: rawData.ad_config || rawData.activeDirectory || null,
     generalSettings: rawData.panel_general_settings || rawData.generalSettings || null,
+    auditEmailReports: rawData.audit_email_reports || rawData.auditEmailReports || [],
   };
 
   // 2. Create Pre-Restore Safety Snapshot (Atomic Rollback Guarantee)
@@ -1254,6 +1275,25 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
         );
       }
 
+      // Audit Email Reports
+      if (Array.isArray(normalizedData.auditEmailReports) && normalizedData.auditEmailReports.length > 0) {
+        if (mode === 'overwrite') {
+          await client.query('DELETE FROM audit_report_schedule');
+        }
+        for (const rep of normalizedData.auditEmailReports) {
+          const repId = rep.id || `report-${Date.now()}`;
+          await client.query(
+            `INSERT INTO audit_report_schedule (id, config_data, updated_at, updated_by)
+             VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
+             ON CONFLICT (id) DO UPDATE SET
+               config_data = EXCLUDED.config_data,
+               updated_at = CURRENT_TIMESTAMP,
+               updated_by = EXCLUDED.updated_by`,
+            [repId, JSON.stringify(rep), options.performedBy?.username || 'admin']
+          );
+        }
+      }
+
       await client.query('COMMIT');
     } catch (txErr) {
       await client.query('ROLLBACK');
@@ -1285,6 +1325,7 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
       if (normalizedData.adConfig) updatedStore.ad_config = normalizedData.adConfig;
       if (normalizedData.generalSettings) updatedStore.general_settings = normalizedData.generalSettings;
       if (Object.keys(normalizedData.nodePositions).length > 0) updatedStore.node_positions = normalizedData.nodePositions;
+      if (normalizedData.auditEmailReports.length > 0) updatedStore.audit_email_reports = normalizedData.auditEmailReports;
     } else {
       // Smart Merge into Fallback Store
       const mergeArraysById = (orig: any[] = [], incoming: any[] = []) => {
@@ -1306,6 +1347,9 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
       updatedStore.access_policies = mergeArraysById(updatedStore.access_policies, normalizedData.accessPolicies);
       if (normalizedData.adConfig) updatedStore.ad_config = { ...(updatedStore.ad_config || {}), ...normalizedData.adConfig };
       if (normalizedData.generalSettings) updatedStore.general_settings = { ...(updatedStore.general_settings || {}), ...normalizedData.generalSettings };
+      if (normalizedData.auditEmailReports.length > 0) {
+        updatedStore.audit_email_reports = mergeArraysById(updatedStore.audit_email_reports, normalizedData.auditEmailReports);
+      }
     }
 
     saveFallbackStore(updatedStore);

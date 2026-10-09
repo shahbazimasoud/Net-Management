@@ -41,6 +41,13 @@ import {
   Maximize2,
   Mail,
   Send,
+  Plus,
+  Edit3,
+  Trash,
+  FileText,
+  ToggleLeft,
+  ToggleRight,
+  Play,
 } from 'lucide-react';
 import { AuditEmailReportModal } from './AuditEmailReportModal';
 import {
@@ -49,7 +56,8 @@ import {
   AuditLogCategory,
   AuditLogSeverity,
   CommandRiskLevel,
-  CommandChannel
+  CommandChannel,
+  AuditReportScheduleConfig
 } from '../../types';
 import {
   loadPortalAuditLogs,
@@ -61,9 +69,15 @@ import {
   clearCommandLogs,
   AUDIT_LOG_UPDATED_EVENT
 } from '../../services/auditLogger';
+import {
+  getAuditEmailReportsListApi,
+  deleteAuditEmailReportApi,
+  toggleAuditEmailReportApi,
+  sendAuditEmailReportByIdNowApi
+} from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext';
 
-type ActiveLogSection = 'portal' | 'commands';
+type ActiveLogSection = 'portal' | 'commands' | 'reports';
 type CommandGroupMode = 'device' | 'user' | 'timeline';
 
 interface WatchLogSession {
@@ -92,6 +106,132 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
 
   // Automated Email Report Modal state
   const [isEmailReportModalOpen, setIsEmailReportModalOpen] = useState(false);
+  const [reportsList, setReportsList] = useState<AuditReportScheduleConfig[]>([]);
+  const [isReportsLoading, setIsReportsLoading] = useState(false);
+  const [selectedReportForEdit, setSelectedReportForEdit] = useState<AuditReportScheduleConfig | null>(null);
+  const [modalInitialMode, setModalInitialMode] = useState<'config' | 'preview'>('config');
+  const [reportToDelete, setReportToDelete] = useState<AuditReportScheduleConfig | null>(null);
+  const [isDeletingReport, setIsDeletingReport] = useState(false);
+  const [sendingReportId, setSendingReportId] = useState<string | null>(null);
+  const [reportsFeedback, setReportsFeedback] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
+  const [smtpStatus, setSmtpStatus] = useState<{
+    configured: boolean;
+    from: string;
+    host: string;
+    port: number;
+    secure: string;
+  }>({
+    configured: false,
+    from: '',
+    host: '',
+    port: 587,
+    secure: 'tls',
+  });
+
+  const loadReportsList = async () => {
+    setIsReportsLoading(true);
+    try {
+      const res = await getAuditEmailReportsListApi();
+      if (res.reports) {
+        setReportsList(res.reports);
+      }
+      setSmtpStatus({
+        configured: Boolean(res.smtpConfigured),
+        from: res.smtpFrom || '',
+        host: res.smtpHost || '',
+        port: res.smtpPort || 587,
+        secure: res.smtpSecure || 'tls',
+      });
+    } catch (err: any) {
+      console.warn('Failed to load email reports list:', err);
+    } finally {
+      setIsReportsLoading(false);
+    }
+  };
+
+  const handleDeleteReport = async () => {
+    if (!reportToDelete?.id) return;
+    setIsDeletingReport(true);
+    try {
+      const res = await deleteAuditEmailReportApi(reportToDelete.id);
+      setReportsFeedback({
+        type: 'success',
+        message: isEn
+          ? res.message || 'Email report deleted successfully.'
+          : res.message_fa || 'گزارش ایمیل با موفقیت حذف شد.',
+      });
+      setReportToDelete(null);
+      await loadReportsList();
+    } catch (err: any) {
+      setReportsFeedback({
+        type: 'error',
+        message: err.message || (isEn ? 'Failed to delete report.' : 'خطا در حذف گزارش ایمیل.'),
+      });
+    } finally {
+      setIsDeletingReport(false);
+    }
+  };
+
+  const handleToggleReport = async (report: AuditReportScheduleConfig) => {
+    if (!report.id) return;
+    try {
+      const nextState = !report.enabled;
+      await toggleAuditEmailReportApi(report.id, nextState);
+      setReportsList((prev) =>
+        prev.map((r) => (r.id === report.id ? { ...r, enabled: nextState } : r))
+      );
+      setReportsFeedback({
+        type: 'info',
+        message: isEn
+          ? `Report '${report.reportTitle || report.id}' ${nextState ? 'enabled' : 'disabled'}.`
+          : `گزارش '${report.reportTitle || report.id}' ${nextState ? 'فعال شد' : 'غیرفعال شد'}.`,
+      });
+    } catch (err: any) {
+      setReportsFeedback({
+        type: 'error',
+        message: err.message || (isEn ? 'Failed to update report status.' : 'خطا در تغییر وضعیت گزارش.'),
+      });
+    }
+  };
+
+  const handleSendReportNow = async (report: AuditReportScheduleConfig) => {
+    if (!report.id) return;
+    setSendingReportId(report.id);
+    setReportsFeedback(null);
+    try {
+      const res = await sendAuditEmailReportByIdNowApi(report.id, {
+        portalLogs,
+        commandLogs,
+        isEn,
+      });
+      if (res.success) {
+        setReportsFeedback({
+          type: 'success',
+          message: isEn
+            ? `Report dispatched successfully! (Recipients: ${res.recipients?.length || 0})`
+            : `گزارش با موفقیت به ${res.recipients?.length || 0} گیرنده ارسال گردید!`,
+        });
+        await loadReportsList();
+      } else {
+        setReportsFeedback({
+          type: 'error',
+          message: isEn
+            ? `Dispatch failed: ${res.error || 'SMTP delivery issue'}`
+            : `خطا در ارسال ایمیل: ${res.error || 'خطای درگاه SMTP'}`,
+        });
+      }
+    } catch (err: any) {
+      setReportsFeedback({
+        type: 'error',
+        message: err.message || (isEn ? 'Failed to send report.' : 'خطا در ارسال گزارش.'),
+      });
+    } finally {
+      setSendingReportId(null);
+    }
+  };
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -124,6 +264,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
 
   useEffect(() => {
     refreshData();
+    loadReportsList();
 
     const handleUpdate = () => {
       setPortalLogs(loadPortalAuditLogs());
@@ -651,12 +792,24 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
         {/* Global Toolbar Buttons */}
         <div className="flex items-center gap-2 flex-wrap shrink-0">
           <button
-            onClick={() => setIsEmailReportModalOpen(true)}
+            onClick={() => {
+              if (activeSection !== 'reports') {
+                setActiveSection('reports');
+                loadReportsList();
+              } else {
+                setSelectedReportForEdit(null);
+                setModalInitialMode('config');
+                setIsEmailReportModalOpen(true);
+              }
+            }}
             className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600/30 via-indigo-500/25 to-cyan-500/25 hover:from-indigo-600/50 hover:to-cyan-500/50 active:scale-95 text-indigo-200 hover:text-white border border-indigo-400/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-            title={isEn ? 'Configure automated scheduled email reporting & immediate dispatch' : 'تنظیمات ارسال خودکار و زمان‌بندی گزارشات به ایمیل و ارسال فوری'}
+            title={isEn ? 'Manage email reports & schedules' : 'مدیریت و ایجاد گزارشات زمان‌بندی ایمیل'}
           >
             <Mail className="w-3.5 h-3.5 text-indigo-400" />
             <span>{isEn ? 'Email Reports' : 'گزارش‌گیری ایمیل'}</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+              {reportsList.length}
+            </span>
           </button>
 
           <button
@@ -807,6 +960,25 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
             <span>{isEn ? 'Portal & Administrative Events' : 'لاگ‌های ثبتی پورتال و سیستم'}</span>
             <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-black/20 text-white border border-white/10">
               {portalLogs.length}
+            </span>
+          </button>
+
+          {/* Section 3: Email Reports & Multi-Schedules */}
+          <button
+            onClick={() => {
+              setActiveSection('reports');
+              loadReportsList();
+            }}
+            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSection === 'reports'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/40'
+                : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <Mail className="w-4 h-4 text-cyan-300" />
+            <span>{isEn ? 'Email Reports' : 'گزارش‌های ایمیل'}</span>
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-black/20 text-white border border-white/10">
+              {reportsList.length}
             </span>
           </button>
         </div>
@@ -1647,6 +1819,448 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
         </div>
       )}
 
+      {/* SECTION 3: EMAIL REPORTS & MULTI-SCHEDULE MANAGEMENT */}
+      {activeSection === 'reports' && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          {/* Section Header Banner */}
+          <div className="p-5 rounded-2xl audit-glass-panel border border-white/10 shadow-xl relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0">
+                <Mail className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <span>{isEn ? 'Automated & Custom Email Reports' : 'گزارشات زمان‌بندی‌شده و سفارشی ایمیل'}</span>
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                    {reportsList.length} {isEn ? 'Configured' : 'گزارش ثبت‌شده'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  {isEn
+                    ? 'Create, manage, and schedule multiple distinct security summaries, operational digests, and executive audit reports with persistent database storage.'
+                    : 'مدیریت و پیکربندی انواع گزارشات دوره‌ای ایمیل، خلاصه‌های اجرایی و هشدارهای امنیتی با ذخیره‌سازی دائمی در دیتابیس و پشتیبان‌گیری خودکار.'}
+                </p>
+              </div>
+            </div>
+
+            {/* Header Right Actions */}
+            <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+              {/* SMTP Status Indicator */}
+              {smtpStatus.configured ? (
+                <div
+                  className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono flex items-center gap-2 shadow-sm"
+                  title={isEn ? `Host: ${smtpStatus.host}:${smtpStatus.port} | From: ${smtpStatus.from}` : `سرور: ${smtpStatus.host}:${smtpStatus.port}`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="font-semibold">{isEn ? 'SMTP Gateway: Online' : 'درگاه SMTP: فعال'}</span>
+                </div>
+              ) : (
+                <div
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-mono flex items-center gap-2 shadow-sm"
+                  title={isEn ? 'Please configure SMTP in Settings > Email Gateway' : 'لطفاً تنظیمات SMTP را در بخش تنظیمات درگاه ایمیل کامل نمایید'}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>{isEn ? 'SMTP Not Configured' : 'درگاه SMTP تنظیم نشده'}</span>
+                </div>
+              )}
+
+              <button
+                onClick={loadReportsList}
+                disabled={isReportsLoading}
+                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-white border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                title={isEn ? 'Reload reports from database' : 'بارگذاری مجدد گزارشات از دیتابیس'}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isReportsLoading ? 'animate-spin text-cyan-400' : 'text-slate-300'}`} />
+                <span className="hidden sm:inline">{isEn ? 'Refresh' : 'بروزرسانی'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setSelectedReportForEdit(null);
+                  setModalInitialMode('config');
+                  setIsEmailReportModalOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 active:scale-95 transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{isEn ? 'New Email Report' : 'ایجاد گزارش جدید'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="p-4 rounded-2xl audit-glass-panel border border-white/10 shadow-lg relative overflow-hidden flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-300">
+                  {isEn ? 'Total Reports' : 'کل گزارشات'}
+                </span>
+                <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/20">
+                  <FileText className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-white font-mono">{reportsList.length}</span>
+                <span className="text-[11px] text-slate-400 font-medium">{isEn ? 'configs' : 'قالب'}</span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl audit-glass-panel border border-white/10 shadow-lg relative overflow-hidden flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-300">
+                  {isEn ? 'Active Schedules' : 'زمان‌بندی‌های فعال'}
+                </span>
+                <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-400 font-mono">
+                  {reportsList.filter((r) => r.enabled).length}
+                </span>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {isEn ? 'running' : 'فعال'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl audit-glass-panel border border-white/10 shadow-lg relative overflow-hidden flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-300">
+                  {isEn ? 'Recipients Reached' : 'مجموع گیرندگان'}
+                </span>
+                <div className="p-2 rounded-xl bg-purple-500/15 text-purple-400 border border-purple-500/20">
+                  <Mail className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-purple-400 font-mono">
+                  {Array.from(new Set(reportsList.flatMap((r) => r.recipients || []))).length}
+                </span>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {isEn ? 'emails' : 'آدرس'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl audit-glass-panel border border-white/10 shadow-lg relative overflow-hidden flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-300">
+                  {isEn ? 'CLI Command Auditing' : 'پوشش فرامین CLI'}
+                </span>
+                <div className="p-2 rounded-xl bg-cyan-500/15 text-cyan-400 border border-cyan-500/20">
+                  <Terminal className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-cyan-400 font-mono">
+                  {reportsList.filter((r) => r.includeCommands).length}
+                </span>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {isEn ? 'with CLI' : 'شامل ترمینال'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Feedback Alert */}
+          {reportsFeedback && (
+            <div
+              className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+                reportsFeedback.type === 'success'
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                  : reportsFeedback.type === 'error'
+                  ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                  : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {reportsFeedback.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+                {reportsFeedback.type === 'error' && <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />}
+                {reportsFeedback.type === 'info' && <AlertCircle className="w-4 h-4 text-indigo-400 shrink-0" />}
+                <span>{reportsFeedback.message}</span>
+              </div>
+              <button
+                onClick={() => setReportsFeedback(null)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Reports Loading Indicator */}
+          {isReportsLoading && reportsList.length === 0 ? (
+            <div className="p-12 text-center audit-glass-panel rounded-2xl border border-white/10 space-y-3">
+              <RefreshCw className="w-8 h-8 mx-auto text-indigo-400 animate-spin" />
+              <p className="text-xs text-slate-300 font-medium">
+                {isEn ? 'Loading configured email reports from database...' : 'در حال بارگذاری گزارشات از پایگاه داده...'}
+              </p>
+            </div>
+          ) : reportsList.length === 0 ? (
+            /* Empty State */
+            <div className="p-12 text-center audit-glass-panel rounded-2xl border border-white/10 space-y-4 max-w-2xl mx-auto shadow-xl">
+              <div className="w-16 h-16 rounded-3xl bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center text-indigo-400 mx-auto">
+                <Mail className="w-8 h-8" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-bold text-white">
+                  {isEn ? 'No Email Reports Configured Yet' : 'هیچ گزارش ایمیلی تاکنون تعریف نشده است'}
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-lg mx-auto">
+                  {isEn
+                    ? 'Configure your first automated email report to receive periodic executive summaries, security audit events, and CLI commands directly in your inbox.'
+                    : 'اولین گزارش خودکار ایمیل خود را برای دریافت دوره‌ای خلاصه‌های امنیتی، وقایع ممیزی و فرامین اجراشده شبکه ایجاد نمایید.'}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedReportForEdit(null);
+                  setModalInitialMode('config');
+                  setIsEmailReportModalOpen(true);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-bold inline-flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{isEn ? 'Create Your First Email Report' : 'ایجاد اولین گزارش ایمیل'}</span>
+              </button>
+            </div>
+          ) : (
+            /* Reports Cards Grid */
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {reportsList.map((report) => {
+                const recipients = Array.isArray(report.recipients) ? report.recipients : [];
+                const categories = Array.isArray(report.selectedCategories) ? report.selectedCategories : [];
+                const isSendingThis = sendingReportId === report.id;
+
+                // Frequency label
+                let frequencyText = '';
+                if (report.frequency === 'hourly') {
+                  frequencyText = isEn ? 'Every Hour' : 'هر یک ساعت';
+                } else if (report.frequency === 'daily') {
+                  frequencyText = isEn ? `Daily at ${report.timeOfDay || '08:00'}` : `روزانه ساعت ${report.timeOfDay || '08:00'}`;
+                } else if (report.frequency === 'weekly') {
+                  const daysEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                  const daysFa = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+                  const dayIdx = report.dayOfWeek !== undefined ? Number(report.dayOfWeek) : 1;
+                  const dayLabel = isEn ? daysEn[dayIdx] : daysFa[dayIdx];
+                  frequencyText = isEn ? `Weekly (${dayLabel}) at ${report.timeOfDay || '08:00'}` : `هفتگی (${dayLabel}) ساعت ${report.timeOfDay || '08:00'}`;
+                } else if (report.frequency === 'monthly') {
+                  frequencyText = isEn ? `Monthly (Day ${report.dayOfMonth || 1}) at ${report.timeOfDay || '08:00'}` : `ماهانه (روز ${report.dayOfMonth || 1}) ساعت ${report.timeOfDay || '08:00'}`;
+                }
+
+                return (
+                  <div
+                    key={report.id || `rep-${Math.random()}`}
+                    className="p-5 rounded-2xl audit-glass-panel border border-white/10 hover:border-indigo-500/40 shadow-xl transition flex flex-col justify-between gap-4 relative overflow-hidden group"
+                  >
+                    {/* Top Row: Title, ID & Enabled Toggle */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2.5 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 shrink-0">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-bold text-white text-sm">
+                              {report.reportTitle || (isEn ? 'Enterprise Audit Report' : 'گزارش ممیزی شبکه')}
+                            </h3>
+                          </div>
+                          <span className="font-mono text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                            <span>ID: {report.id}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Enable/Disable Toggle */}
+                      <button
+                        onClick={() => handleToggleReport(report)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border flex items-center gap-1.5 transition cursor-pointer ${
+                          report.enabled
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+                        }`}
+                        title={isEn ? 'Toggle active automated schedule' : 'فعال یا غیرفعال‌سازی ارسال خودکار'}
+                      >
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            report.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                          }`}
+                        ></span>
+                        <span>{report.enabled ? (isEn ? 'Active' : 'فعال') : (isEn ? 'Paused' : 'متوقف')}</span>
+                      </button>
+                    </div>
+
+                    {/* Metadata Badges Row */}
+                    <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                      <span className="px-2 py-0.5 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-medium flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{frequencyText}</span>
+                      </span>
+
+                      <span className="px-2 py-0.5 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-medium">
+                        {isEn ? `Window: ${report.timeframeHours || 24}h` : `بازه: ${report.timeframeHours || 24} ساعت`}
+                      </span>
+
+                      {report.includeCommands && (
+                        <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium flex items-center gap-1">
+                          <Terminal className="w-3 h-3" />
+                          <span>{isEn ? '+CLI Commands' : '+فرامین CLI'}</span>
+                        </span>
+                      )}
+
+                      {report.attachCsv && (
+                        <span className="px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium flex items-center gap-1">
+                          <FileSpreadsheet className="w-3 h-3" />
+                          <span>{isEn ? 'CSV' : 'فایل CSV'}</span>
+                        </span>
+                      )}
+
+                      {report.minSeverity && report.minSeverity !== 'all' && (
+                        <span className="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/30 font-medium">
+                          {isEn ? `Min: ${report.minSeverity}` : `حداقل خطر: ${report.minSeverity}`}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Recipients List */}
+                    <div className="space-y-1.5 text-xs">
+                      <span className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+                        <Mail className="w-3 h-3" />
+                        <span>{isEn ? `Recipients (${recipients.length}):` : `گیرندگان (${recipients.length}):`}</span>
+                      </span>
+                      {recipients.length === 0 ? (
+                        <span className="text-amber-400 text-[11px] italic">
+                          {isEn ? 'No destination emails configured' : 'آدرس گیرنده‌ای ثبت نشده است'}
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {recipients.map((email, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-200 text-[11px] font-mono"
+                            >
+                              {email}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Categories Coverage */}
+                    <div className="space-y-1 text-xs">
+                      <span className="text-[11px] font-medium text-slate-400">
+                        {isEn ? `Categories (${categories.length}):` : `دسته‌بندی‌های تحت پوشش (${categories.length}):`}
+                      </span>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {categories.map((cat, idx) => (
+                          <span
+                            key={idx}
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-white/[0.04] border border-white/5 text-slate-300 font-mono"
+                          >
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Last Execution Info */}
+                    <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400 flex-wrap gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span>{isEn ? 'Last dispatched:' : 'آخرین ارسال:'}</span>
+                        {report.lastSentAt ? (
+                          <span className="font-mono text-slate-300">{new Date(report.lastSentAt).toLocaleString()}</span>
+                        ) : (
+                          <span className="text-slate-500 italic">{isEn ? 'Never' : 'تاکنون ارسال نشده'}</span>
+                        )}
+                      </div>
+
+                      {report.lastSentAt && (
+                        report.lastSendStatus === 'success' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>{isEn ? 'Delivered' : 'موفق'}</span>
+                          </span>
+                        ) : (
+                          <span
+                            className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 flex items-center gap-1"
+                            title={report.lastSendError}
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>{isEn ? 'Failed' : 'ناموفق'}</span>
+                          </span>
+                        )
+                      )}
+                    </div>
+
+                    {/* Card Actions Toolbar */}
+                    <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2 flex-wrap">
+                      <button
+                        onClick={() => handleSendReportNow(report)}
+                        disabled={isSendingThis || recipients.length === 0}
+                        className="px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 active:scale-95 text-indigo-200 hover:text-white border border-indigo-400/40 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                        title={isEn ? 'Trigger immediate email delivery to recipients' : 'ارسال فوری و بلادرنگ گزارش به آدرس‌های گیرنده'}
+                      >
+                        {isSendingThis ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                            <span>{isEn ? 'Dispatching...' : 'در حال ارسال...'}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>{isEn ? 'Send Now' : 'ارسال فوری'}</span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            setSelectedReportForEdit(report);
+                            setModalInitialMode('preview');
+                            setIsEmailReportModalOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 active:scale-95 text-slate-300 hover:text-white border border-white/10 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                          title={isEn ? 'Preview generated HTML email & executive summary' : 'پیش‌نمایش قالب HTML ایمیل'}
+                        >
+                          <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                          <span className="hidden sm:inline">{isEn ? 'Preview' : 'پیش‌نمایش'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setSelectedReportForEdit(report);
+                            setModalInitialMode('config');
+                            setIsEmailReportModalOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 active:scale-95 text-slate-300 hover:text-white border border-white/10 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                          title={isEn ? 'Edit report schedule, recipients and filters' : 'ویرایش زمان‌بندی و فیلترهای گزارش'}
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
+                          <span className="hidden sm:inline">{isEn ? 'Edit' : 'ویرایش'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => setReportToDelete(report)}
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 border border-rose-500/25 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                          title={isEn ? 'Delete report from database' : 'حذف این گزارش از دیتابیس'}
+                        >
+                          <Trash className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">{isEn ? 'Delete' : 'حذف'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* DEDICATED WATCH LOG INSPECTOR MODAL (Requested feature) */}
       {activeWatchSession && (
         <div className="fixed top-0 left-0 right-0 bottom-8 z-50 modal-glass-backdrop flex items-center justify-center p-3 sm:p-5">
@@ -2107,7 +2721,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
               <button
                 onClick={() => {
                   if (activeSection === 'portal') clearPortalLogs();
-                  else clearCommandLogs();
+                  else if (activeSection === 'commands') clearCommandLogs();
                   setIsConfirmPurgeOpen(false);
                   refreshData();
                 }}
@@ -2120,13 +2734,77 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
         </div>
       )}
 
+      {/* Delete Report Confirmation Modal */}
+      {reportToDelete && (
+        <div className="fixed top-0 left-0 right-0 bottom-8 z-[99999] modal-glass-backdrop flex items-center justify-center p-4">
+          <div className="audit-glass-panel border border-rose-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/30 shrink-0">
+                <Trash className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-base">
+                  {isEn ? 'Delete Email Report?' : 'حذف گزارش ایمیل؟'}
+                </h3>
+                <p className="text-xs text-slate-400 font-mono mt-0.5 truncate max-w-[280px]">
+                  {reportToDelete.reportTitle || reportToDelete.id}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {isEn
+                ? 'Are you sure you want to permanently delete this email report schedule from the database? This action will remove it from future automated dispatches and backups.'
+                : 'آیا از حذف دائمی این گزارش زمان‌بندی از پایگاه داده اطمینان دارید؟ این تنظیمات از زمان‌بندی‌های خودکار و پشتیبان‌گیری‌های بعدی حذف خواهد شد.'}
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setReportToDelete(null)}
+                disabled={isDeletingReport}
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-semibold transition cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'انصراف'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteReport}
+                disabled={isDeletingReport}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-lg shadow-rose-600/30 flex items-center gap-1.5 transition cursor-pointer"
+              >
+                {isDeletingReport ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{isEn ? 'Deleting...' : 'در حال حذف...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Delete Report' : 'حذف گزارش'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Automated Email Reporting & Schedule Modal */}
       <AuditEmailReportModal
         isOpen={isEmailReportModalOpen}
-        onClose={() => setIsEmailReportModalOpen(false)}
+        onClose={() => {
+          setIsEmailReportModalOpen(false);
+          setSelectedReportForEdit(null);
+        }}
         portalLogs={portalLogs}
         commandLogs={commandLogs}
         isLightMode={isLightMode}
+        reportToEdit={selectedReportForEdit}
+        initialMode={modalInitialMode}
+        onReportSaved={(_saved) => {
+          loadReportsList();
+        }}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { getAuditReportSchedule, getAuditLogs } from './db';
+import { getAllAuditEmailReports, getAuditLogs } from './db';
 import { sendAuditReportEmail } from './auditReportService';
 
 let schedulerTimer: NodeJS.Timeout | null = null;
@@ -67,40 +67,42 @@ export async function runAuditReportSchedulerCycle(): Promise<void> {
   isExecuting = true;
 
   try {
-    const schedule = await getAuditReportSchedule();
+    const schedules = await getAllAuditEmailReports();
     const now = new Date();
 
-    if (shouldTriggerReport(schedule, now)) {
-      console.log(`[Audit Scheduler] Triggering automated report (${schedule.frequency}) to: ${schedule.recipients.join(', ')}`);
-      
-      // Pull system audit logs
-      const rawLogs = await getAuditLogs(300);
-      const portalLogs = rawLogs.map((l: any) => ({
-        id: l.id,
-        timestamp: l.timestamp,
-        category: l.category || 'system_auth',
-        action: l.action || 'EVENT',
-        title: l.action || 'Event',
-        title_en: l.action || 'Event',
-        actor: { username: l.user_name || 'system', role: 'System', ipAddress: l.ip_address },
-        target: { type: 'system', name: l.target || 'Platform' },
-        severity: l.status === 'failed' ? 'critical' : 'info',
-        status: l.status || 'success',
-        details: l.details || '',
-        details_en: l.details || '',
-      }));
+    for (const schedule of schedules) {
+      if (shouldTriggerReport(schedule, now)) {
+        console.log(`[Audit Scheduler] Triggering automated report '${schedule.reportTitle || schedule.id}' (${schedule.frequency}) to: ${schedule.recipients?.join(', ')}`);
+        
+        // Pull system audit logs
+        const rawLogs = await getAuditLogs(300);
+        const portalLogs = rawLogs.map((l: any) => ({
+          id: l.id,
+          timestamp: l.timestamp,
+          category: l.category || 'system_auth',
+          action: l.action || 'EVENT',
+          title: l.action || 'Event',
+          title_en: l.action || 'Event',
+          actor: { username: l.user_name || 'system', role: 'System', ipAddress: l.ip_address },
+          target: { type: 'system', name: l.target || 'Platform' },
+          severity: l.status === 'failed' ? 'critical' : 'info',
+          status: l.status || 'success',
+          details: l.details || '',
+          details_en: l.details || '',
+        }));
 
-      const result = await sendAuditReportEmail({
-        config: schedule,
-        portalLogs,
-        commandLogs: [],
-        isEn: true,
-      });
+        const result = await sendAuditReportEmail({
+          config: schedule,
+          portalLogs,
+          commandLogs: [],
+          isEn: true,
+        });
 
-      if (result.success) {
-        console.log(`[Audit Scheduler] Report sent successfully! MessageId: ${result.messageId}, Recipient count: ${result.recipients.length}`);
-      } else {
-        console.warn(`[Audit Scheduler] Automated report delivery failed: ${result.error}`);
+        if (result.success) {
+          console.log(`[Audit Scheduler] Report '${schedule.reportTitle || schedule.id}' sent successfully! MessageId: ${result.messageId}`);
+        } else {
+          console.warn(`[Audit Scheduler] Report '${schedule.reportTitle || schedule.id}' failed: ${result.error}`);
+        }
       }
     }
   } catch (err) {

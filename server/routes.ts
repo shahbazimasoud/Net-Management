@@ -77,6 +77,10 @@ import {
   saveEmailConfig,
   getAuditReportSchedule,
   saveAuditReportSchedule,
+  getAllAuditEmailReports,
+  getAuditEmailReportById,
+  saveAuditEmailReport,
+  deleteAuditEmailReport,
   EmailConfig,
   getHierarchy,
   saveHierarchy,
@@ -1600,6 +1604,148 @@ apiRouter.post('/settings/audit-logs', async (req: Request, res: Response) => {
 // -------------------------------------------------------------
 // Automated Audit & Command Logs Scheduled Reporting Endpoints
 // -------------------------------------------------------------
+
+// GET /api/audit-reports/list - Get all configured email reports
+apiRouter.get('/audit-reports/list', async (_req: Request, res: Response) => {
+  try {
+    const reports = await getAllAuditEmailReports();
+    const smtpConfig = await getEmailConfig();
+    const smtpConfigured = Boolean(smtpConfig.smtp_host && smtpConfig.smtp_host.trim().length > 0);
+
+    res.json({
+      success: true,
+      reports,
+      smtpConfigured,
+      smtpFrom: smtpConfig.from_email || smtpConfig.smtp_user || '',
+      smtpHost: smtpConfig.smtp_host || '',
+      smtpPort: smtpConfig.smtp_port || 587,
+      smtpSecure: smtpConfig.smtp_secure || 'tls',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/audit-reports/:id - Get specific report by ID
+apiRouter.get('/audit-reports/:id', async (req: Request, res: Response) => {
+  try {
+    const report = await getAuditEmailReportById(req.params.id);
+    if (!report) {
+      return res.status(404).json({ success: false, error: 'Report not found' });
+    }
+    res.json({ success: true, report });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-reports - Create or save email report
+apiRouter.post('/audit-reports', async (req: Request, res: Response) => {
+  try {
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+
+    const incomingConfig = req.body?.config || req.body || {};
+    const saved = await saveAuditEmailReport(incomingConfig, updatedBy);
+
+    res.json({
+      success: true,
+      report: saved,
+      message: 'Email report saved successfully.',
+      message_fa: 'گزارش ایمیل با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/audit-reports/:id - Update specific report
+apiRouter.put('/audit-reports/:id', async (req: Request, res: Response) => {
+  try {
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+
+    const incomingConfig = { ...(req.body?.config || req.body || {}), id: req.params.id };
+    const saved = await saveAuditEmailReport(incomingConfig, updatedBy);
+
+    res.json({
+      success: true,
+      report: saved,
+      message: 'Email report updated successfully.',
+      message_fa: 'گزارش ایمیل با موفقیت بروزرسانی شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/audit-reports/:id - Delete report
+apiRouter.delete('/audit-reports/:id', async (req: Request, res: Response) => {
+  try {
+    await deleteAuditEmailReport(req.params.id);
+    res.json({
+      success: true,
+      message: 'Email report deleted successfully.',
+      message_fa: 'گزارش ایمیل با موفقیت حذف شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-reports/:id/toggle - Toggle report enabled state
+apiRouter.post('/audit-reports/:id/toggle', async (req: Request, res: Response) => {
+  try {
+    const report = await getAuditEmailReportById(req.params.id);
+    if (!report) {
+      return res.status(404).json({ success: false, error: 'Report not found' });
+    }
+    const enabled = req.body?.enabled !== undefined ? Boolean(req.body.enabled) : !report.enabled;
+    const updated = await saveAuditEmailReport({ ...report, enabled }, 'admin');
+    res.json({ success: true, report: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-reports/:id/send-now - Send specific report immediately
+apiRouter.post('/audit-reports/:id/send-now', async (req: Request, res: Response) => {
+  try {
+    const report = await getAuditEmailReportById(req.params.id);
+    if (!report) {
+      return res.status(404).json({ success: false, error: 'Report not found' });
+    }
+    const portalLogs = req.body?.portalLogs || [];
+    const commandLogs = req.body?.commandLogs || [];
+    const isEn = req.body?.isEn !== undefined ? Boolean(req.body.isEn) : true;
+
+    const result = await sendAuditReportEmail({
+      config: report,
+      portalLogs,
+      commandLogs,
+      isEn,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to dispatch audit report email',
+      latencyMs: 0,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
 
 // GET /api/audit-reports/config
 apiRouter.get('/audit-reports/config', async (_req: Request, res: Response) => {

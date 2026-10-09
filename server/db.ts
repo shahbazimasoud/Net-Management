@@ -206,6 +206,7 @@ export interface FallbackStore {
   scheduled_backup_jobs?: ScheduledBackupJob[];
   email_config?: EmailConfig;
   audit_report_schedule?: any;
+  audit_email_reports?: any[];
 }
 
 export interface ScheduledBackupJob {
@@ -4499,75 +4500,162 @@ export const DEFAULT_AUDIT_REPORT_SCHEDULE: AuditReportScheduleConfig = {
   attachCsv: false,
 };
 
-export async function getAuditReportSchedule(): Promise<AuditReportScheduleConfig> {
+export async function getAllAuditEmailReports(): Promise<AuditReportScheduleConfig[]> {
+  const reportsMap = new Map<string, AuditReportScheduleConfig>();
+
   if (isPostgresReady && pool) {
     try {
-      const res = await pool.query("SELECT config_data FROM audit_report_schedule WHERE id = 'primary' LIMIT 1");
-      if (res.rows.length > 0 && res.rows[0].config_data) {
-        const raw = res.rows[0].config_data;
+      const res = await pool.query(
+        "SELECT id, config_data, updated_at, updated_by FROM audit_report_schedule ORDER BY updated_at DESC"
+      );
+      for (const row of res.rows) {
+        if (!row.config_data) continue;
+        const raw = row.config_data;
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        return {
+        const reportId = row.id || parsed.id || 'primary';
+        reportsMap.set(reportId, {
           ...DEFAULT_AUDIT_REPORT_SCHEDULE,
           ...parsed,
+          id: reportId,
           recipients: Array.isArray(parsed.recipients) ? parsed.recipients : [],
-          selectedCategories: Array.isArray(parsed.selectedCategories) ? parsed.selectedCategories : DEFAULT_AUDIT_REPORT_SCHEDULE.selectedCategories,
-        };
+          selectedCategories: Array.isArray(parsed.selectedCategories)
+            ? parsed.selectedCategories
+            : DEFAULT_AUDIT_REPORT_SCHEDULE.selectedCategories,
+          updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : parsed.updated_at,
+          updated_by: row.updated_by || parsed.updated_by || 'admin',
+        });
       }
     } catch (e) {
-      console.warn('[DB] Fallback to file store for audit_report_schedule:', e);
+      console.warn('[DB] Error querying audit_report_schedule from PostgreSQL:', e);
     }
   }
 
+  // Load from fallback store
   const store = loadFallbackStore();
-  const cfg = store.audit_report_schedule || DEFAULT_AUDIT_REPORT_SCHEDULE;
-  return {
-    ...DEFAULT_AUDIT_REPORT_SCHEDULE,
-    ...cfg,
-    recipients: Array.isArray(cfg.recipients) ? cfg.recipients : [],
-    selectedCategories: Array.isArray(cfg.selectedCategories) ? cfg.selectedCategories : DEFAULT_AUDIT_REPORT_SCHEDULE.selectedCategories,
-  };
+  const fallbackList: any[] = Array.isArray(store.audit_email_reports)
+    ? store.audit_email_reports
+    : store.audit_report_schedule
+    ? [store.audit_report_schedule]
+    : [];
+
+  for (const item of fallbackList) {
+    const reportId = item.id || 'primary';
+    if (!reportsMap.has(reportId)) {
+      reportsMap.set(reportId, {
+        ...DEFAULT_AUDIT_REPORT_SCHEDULE,
+        ...item,
+        id: reportId,
+        recipients: Array.isArray(item.recipients) ? item.recipients : [],
+        selectedCategories: Array.isArray(item.selectedCategories)
+          ? item.selectedCategories
+          : DEFAULT_AUDIT_REPORT_SCHEDULE.selectedCategories,
+      });
+    }
+  }
+
+  if (reportsMap.size === 0) {
+    reportsMap.set('primary', { ...DEFAULT_AUDIT_REPORT_SCHEDULE, id: 'primary' });
+  }
+
+  return Array.from(reportsMap.values());
 }
 
-export async function saveAuditReportSchedule(
+export async function getAuditEmailReportById(id: string): Promise<AuditReportScheduleConfig | null> {
+  const all = await getAllAuditEmailReports();
+  return all.find((r) => r.id === id) || null;
+}
+
+export async function saveAuditEmailReport(
   config: Partial<AuditReportScheduleConfig>,
   updatedBy: string = 'admin'
 ): Promise<AuditReportScheduleConfig> {
-  const current = await getAuditReportSchedule();
   const store = loadFallbackStore();
+  const id = (config.id && config.id.trim().length > 0)
+    ? config.id.trim()
+    : `report-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  const existing = (await getAuditEmailReportById(id)) || DEFAULT_AUDIT_REPORT_SCHEDULE;
 
   const updated: AuditReportScheduleConfig = {
-    ...current,
+    ...existing,
     ...config,
+    id,
     recipients: Array.isArray(config.recipients)
       ? config.recipients.map((r: any) => String(r).trim()).filter(Boolean)
-      : current.recipients,
+      : existing.recipients,
     selectedCategories: Array.isArray(config.selectedCategories)
       ? config.selectedCategories
-      : current.selectedCategories,
+      : existing.selectedCategories,
     updated_at: new Date().toISOString(),
     updated_by: updatedBy,
   };
 
-  store.audit_report_schedule = updated;
+  if (!Array.isArray(store.audit_email_reports)) {
+    store.audit_email_reports = [];
+  }
+  const idx = store.audit_email_reports.findIndex((r: any) => r.id === id);
+  if (idx >= 0) {
+    store.audit_email_reports[idx] = updated;
+  } else {
+    store.audit_email_reports.unshift(updated);
+  }
+
+  if (id === 'primary' || store.audit_email_reports.length === 1) {
+    store.audit_report_schedule = updated;
+  }
+
   saveFallbackStore(store);
 
   if (isPostgresReady && pool) {
     try {
       await pool.query(
         `INSERT INTO audit_report_schedule (id, config_data, updated_at, updated_by)
-         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
          ON CONFLICT (id) DO UPDATE SET
            config_data = EXCLUDED.config_data,
            updated_at = CURRENT_TIMESTAMP,
            updated_by = EXCLUDED.updated_by`,
-        [JSON.stringify(updated), updatedBy]
+        [id, JSON.stringify(updated), updatedBy]
       );
     } catch (e) {
-      console.error('[DB] Error saving audit_report_schedule to PostgreSQL:', e);
+      console.error('[DB] Error saving audit email report to PostgreSQL:', e);
     }
   }
 
   return updated;
+}
+
+export async function deleteAuditEmailReport(id: string): Promise<boolean> {
+  const store = loadFallbackStore();
+  if (Array.isArray(store.audit_email_reports)) {
+    store.audit_email_reports = store.audit_email_reports.filter((r: any) => r.id !== id);
+  }
+  if (store.audit_report_schedule && store.audit_report_schedule.id === id) {
+    store.audit_report_schedule = store.audit_email_reports?.[0] || DEFAULT_AUDIT_REPORT_SCHEDULE;
+  }
+  saveFallbackStore(store);
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query('DELETE FROM audit_report_schedule WHERE id = $1', [id]);
+    } catch (e) {
+      console.error('[DB] Error deleting audit email report from PostgreSQL:', e);
+    }
+  }
+
+  return true;
+}
+
+export async function getAuditReportSchedule(): Promise<AuditReportScheduleConfig> {
+  const all = await getAllAuditEmailReports();
+  return all[0] || DEFAULT_AUDIT_REPORT_SCHEDULE;
+}
+
+export async function saveAuditReportSchedule(
+  config: Partial<AuditReportScheduleConfig>,
+  updatedBy: string = 'admin'
+): Promise<AuditReportScheduleConfig> {
+  return saveAuditEmailReport({ ...config, id: config.id || 'primary' }, updatedBy);
 }
 
 // -------------------------------------------------------------
