@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.305.0';
+export const APP_VERSION = '1.305.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.305.1',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'بازطراحی انتخاب‌گر سوژه‌های مجاز نقشه با تفکیک کاربران محلی، کاربران و گروه‌های دامین دارای پالیسی (فاز ۲)',
+    title_en: 'Redesign Topology Map Subject Authorization Picker with Grouped Tabs and Search (Phase 2)',
+    changes: [
+      'بازطراحی کامل بخش Map Visibility & Permissions در مدال مدیریت نقشه (CustomMapManageModal) با پشتیبانی جامع از کاربران و گروه‌های دارای پالیسی اکتیو دایرکتوری.',
+      'افزودن تب‌های تفکیک‌شده (همه، کاربران محلی، کاربران دامین دارای پالیسی، گروه‌های دامین دارای پالیسی و گروه‌های محلی) به همراه شمارنده‌های مجزا.',
+      'طراحی کارت‌های انتخاب مدرن با نمایش آیکون‌های تفکیک‌شده، برچسب نقش/پالیسی تخصیص‌یافته و نشانگر تایید انتخاب.',
+      'افزودن فیلتر جستجوی زنده (Live Search Filter) جهت جستجوی سریع میان اسامی، نام‌های نمایشی و عناوین پالیسی‌ها.',
+      'تجهیز هدر مدال به دکمه تمام‌صفحه و بازیابی (Maximize/Restore) و رعایت کامل محدودیت‌های لبه فوتر (bottom-8) و تم‌های روشن و تیره.'
+    ],
+    changes_en: [
+      'Completely redesigned Map Visibility & Permissions in CustomMapManageModal with full support for policy-assigned Active Directory users and groups.',
+      'Added categorized selector tabs (All, Local Users, AD Users with Policy, AD Groups with Policy, Local Groups) with live subject counters.',
+      'Implemented modern subject cards displaying distinct icons, assigned role/policy labels, and selection check indicators.',
+      'Added live search filter for instant filtering across names, display names, and policy titles.',
+      'Equipped modal header with maximize/restore controls while strictly adhering to footer clearance (bottom-8) and theme adaptability.'
+    ]
+  },
   {
     version: '1.305.0',
     releaseDate: '2026-10-10',
