@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Cable,
@@ -23,6 +24,7 @@ import { useLanguage } from '../i18n';
 interface CustomMapLinkConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
+  isLightMode?: boolean;
   sourceDevice: Device;
   sourcePort: string;
   sourceInitialPortData?: SwitchPort;
@@ -41,6 +43,7 @@ interface CustomMapLinkConfigModalProps {
 export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> = ({
   isOpen,
   onClose,
+  isLightMode: propIsLightMode,
   sourceDevice,
   sourcePort,
   sourceInitialPortData,
@@ -56,6 +59,13 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
   onDeleteLink,
 }) => {
   const { t, isEn, isRtl } = useLanguage();
+
+  const isLight = propIsLightMode ?? (typeof document !== 'undefined' && (
+    document.documentElement.classList.contains('light') ||
+    document.querySelector('.theme-light') !== null ||
+    localStorage.getItem('panel_theme') === 'light' ||
+    localStorage.getItem('theme_mode') === 'light'
+  ));
 
   const effectiveSave = onSave || onSaveLink;
   const effectiveDelete = onDelete || onDeleteLink;
@@ -122,26 +132,32 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
     }
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 transition-all duration-200 ${
+        isLight ? 'bg-slate-900/40 backdrop-blur-xs' : 'bg-black/80 backdrop-blur-sm'
+      }`}
       data-modal-backdrop="true"
       dir={isRtl ? 'rtl' : 'ltr'}
     >
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+      <div className={`w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] rounded-2xl border transition-all duration-200 ${
+        isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-950 border-slate-800 text-slate-100'
+      } animate-in fade-in zoom-in-95 duration-150`}>
         {/* Modal Header */}
-        <div className="p-4 sm:px-6 bg-slate-50 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <div className={`p-4 sm:px-6 border-b flex items-center justify-between transition-colors ${
+          isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-900 border-slate-800'
+        }`}>
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-white shadow-md">
               <Cable className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {existingLink
                   ? (isEn ? 'Edit Cable Link & Port Settings' : 'ویرایش اتصال کابل و مشخصات پورت‌ها')
                   : (isEn ? 'Connect Cable & Configure Link' : 'اتصال کابل شبکه و تنظیم مشخصات پورت‌ها')}
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {isEn
                   ? 'Specify IP, Mode (Trunk/Access), VLAN and cable specifications for each endpoint.'
                   : 'آی‌پی، مد کاری (ترانک/اکسس)، شماره ویلن و مشخصات کابل را برای هر دو سمت تعیین کنید.'}
@@ -150,7 +166,9 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition"
+            className={`p-1.5 rounded-lg transition cursor-pointer ${
+              isLight ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -221,7 +239,7 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
                     {isEn ? `Source: ${sourceDevice.name}` : `مبدا: ${sourceDevice.name}`}
                   </span>
                 </div>
-                <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-850 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
                   {sourcePort}
                 </span>
               </div>
@@ -274,7 +292,7 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
                     max="4094"
                     value={sourceVlan}
                     onChange={(e) => setSourceVlan(parseInt(e.target.value) || 1)}
-                    className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100 text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                     placeholder="10"
                     required
                   />
@@ -292,7 +310,7 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
                     value={sourceIp}
                     onChange={(e) => setSourceIp(e.target.value)}
                     placeholder={isEn ? 'e.g. 10.0.1.1/30 or 192.168.10.1' : 'مثال: 10.0.1.1/30 یا 192.168.10.1'}
-                    className={`w-full px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100 text-xs font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none`}
+                    className={`w-full px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none`}
                   />
                   <Globe className={`w-3.5 h-3.5 text-slate-400 absolute ${isRtl ? 'right-2.5' : 'left-2.5'} top-2.5`} />
                 </div>
@@ -308,7 +326,7 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
                     {isEn ? `Destination: ${targetDevice.name}` : `مقصد: ${targetDevice.name}`}
                   </span>
                 </div>
-                <span className="font-mono text-xs font-bold text-cyan-600 dark:text-cyan-400 bg-white dark:bg-slate-850 px-2 py-0.5 rounded border border-cyan-200 dark:border-cyan-800">
+                <span className="font-mono text-xs font-bold text-cyan-600 dark:text-cyan-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-cyan-200 dark:border-cyan-800">
                   {targetPort}
                 </span>
               </div>
@@ -361,7 +379,7 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
                     max="4094"
                     value={targetVlan}
                     onChange={(e) => setTargetVlan(parseInt(e.target.value) || 1)}
-                    className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100 text-xs font-mono font-bold focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+                    className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-mono font-bold focus:ring-2 focus:ring-cyan-500 focus:outline-none"
                     placeholder="10"
                     required
                   />
@@ -379,7 +397,7 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
                     value={targetIp}
                     onChange={(e) => setTargetIp(e.target.value)}
                     placeholder={isEn ? 'e.g. 10.0.1.2/30 or 192.168.10.2' : 'مثال: 10.0.1.2/30 یا 192.168.10.2'}
-                    className={`w-full px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-850 text-slate-900 dark:text-slate-100 text-xs font-mono focus:ring-2 focus:ring-cyan-500 focus:outline-none`}
+                    className={`w-full px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs font-mono focus:ring-2 focus:ring-cyan-500 focus:outline-none`}
                   />
                   <Globe className={`w-3.5 h-3.5 text-slate-400 absolute ${isRtl ? 'right-2.5' : 'left-2.5'} top-2.5`} />
                 </div>
@@ -388,7 +406,7 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
           </div>
 
           {/* Cable Physical Media & Speed Options */}
-          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 space-y-3">
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
             <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Sliders className="w-3.5 h-3.5 text-indigo-500" />
               <span>{isEn ? 'Physical Link Characteristics:' : 'مشخصات فیزیکی و سرعت کابل:'}</span>
@@ -497,4 +515,10 @@ export const CustomMapLinkConfigModal: React.FC<CustomMapLinkConfigModalProps> =
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body);
+  }
+
+  return modalContent;
 };

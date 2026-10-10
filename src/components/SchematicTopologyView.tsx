@@ -9610,11 +9610,15 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {isPortSelectorOpen && (
         <CustomMapPortSelectorModal
           isOpen={isPortSelectorOpen}
+          isLightMode={isLightMode}
           onClose={() => {
             setIsPortSelectorOpen(false);
             if (cableWorkflow.step === 'select_source_port') {
               setCableWorkflow({ step: 'idle', sourceDevice: null, sourcePort: null, targetDevice: null, targetPort: null });
             }
+          }}
+          onMinimize={() => {
+            setIsPortSelectorOpen(false);
           }}
           device={
             cableWorkflow.step === 'select_target_port'
@@ -9711,6 +9715,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       {isLinkConfigOpen && cableWorkflow.sourceDevice && cableWorkflow.targetDevice && (
         <CustomMapLinkConfigModal
           isOpen={isLinkConfigOpen}
+          isLightMode={isLightMode}
           onClose={() => {
             setIsLinkConfigOpen(false);
             setCableWorkflow({

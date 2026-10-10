@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Search,
@@ -17,15 +18,22 @@ import {
   Lock,
   Trash2,
   ExternalLink,
-  Layers
+  Layers,
+  Minus,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { Device, SwitchPort, CustomTopologyLink } from '../types';
 import { fetchDevicePorts } from '../services/api';
 import { useLanguage } from '../i18n';
+import { ModalHeaderControls } from './common/ModalHeaderControls';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 
 interface CustomMapPortSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onMinimize?: () => void;
+  isLightMode?: boolean;
   device: Device | null;
   side: 'source' | 'target';
   partnerDevice?: Device | null;
@@ -39,6 +47,8 @@ interface CustomMapPortSelectorModalProps {
 export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProps> = ({
   isOpen,
   onClose,
+  onMinimize,
+  isLightMode: propIsLightMode,
   device,
   side,
   partnerDevice,
@@ -49,12 +59,21 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
   onSelectPort,
 }) => {
   const { t, isEn, isRtl } = useLanguage();
+  const [isMaximized, setIsMaximized] = useState(false);
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'available' | 'in_use' | 'trunk' | 'access'>('all');
   const [activeTab, setActiveTab] = useState<'select' | 'connections'>('select');
   const [confirmDisconnectLinkId, setConfirmDisconnectLinkId] = useState<string | null>(null);
+
+  // Active theme calculation (Strict dark/light mode consistency)
+  const isLight = propIsLightMode ?? (typeof document !== 'undefined' && (
+    document.documentElement.classList.contains('light') ||
+    document.querySelector('.theme-light') !== null ||
+    localStorage.getItem('panel_theme') === 'light' ||
+    localStorage.getItem('theme_mode') === 'light'
+  ));
 
   useEffect(() => {
     if (!isOpen || !device) return;
@@ -215,55 +234,88 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
   const inUseCount = ports.filter((p) => !!getPortConnection(p.port_id)).length;
   const availableCount = Math.max(0, ports.length - inUseCount);
 
-  return (
+  const modalContent = (
     <div
-      className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center transition-all duration-200 ${
+        isMaximized ? 'p-0' : 'p-3 sm:p-6'
+      } ${
+        isLight ? 'bg-slate-900/40 backdrop-blur-xs' : 'bg-black/80 backdrop-blur-sm'
+      }`}
       data-modal-backdrop="true"
       dir={isRtl ? 'rtl' : 'ltr'}
     >
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh] animate-in fade-in zoom-in-95 duration-150">
+      <div
+        className={`w-full flex flex-col shadow-2xl transition-all duration-200 overflow-hidden ${
+          isMaximized
+            ? 'h-full max-w-none max-h-full rounded-none border-none'
+            : 'max-w-2xl max-h-[88vh] rounded-2xl border'
+        } ${
+          isLight
+            ? 'bg-white border-slate-200 text-slate-800'
+            : 'bg-slate-950 border-slate-800 text-slate-100'
+        } animate-in fade-in zoom-in-95 duration-150`}
+      >
         {/* Modal Header */}
-        <div className="p-4 sm:px-6 bg-slate-50 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <div className={`p-4 sm:px-6 border-b flex items-center justify-between transition-colors ${
+          isLight ? 'bg-slate-50/90 border-slate-200' : 'bg-slate-900/90 border-slate-800'
+        }`}>
           <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 flex-shrink-0">
+            <div className={`p-2.5 rounded-xl border flex-shrink-0 ${
+              isLight
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                : 'bg-indigo-950/60 border-indigo-800/60 text-indigo-400'
+            }`}>
               <Cable className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">
+                <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                  isLight
+                    ? 'bg-indigo-100 text-indigo-700'
+                    : 'bg-indigo-950/80 text-indigo-300 border border-indigo-800/50'
+                }`}>
                   {side === 'source' ? (isEn ? 'Step 1: Source Port' : 'مرحله ۱: پورت مبدا') : (isEn ? 'Step 2: Destination Port' : 'مرحله ۲: پورت مقصد')}
                 </span>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                   {device.ip}
                 </span>
               </div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">
+              <h3 className={`text-base font-bold truncate ${isLight ? 'text-slate-900' : 'text-white'}`}>
                 {isEn ? `Select Port on ${device.name}` : `انتخاب پورت روی ${device.name}`}
               </h3>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-800 transition cursor-pointer"
-            title={isEn ? 'Close' : 'بستن'}
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <ModalHeaderControls
+            onClose={onClose}
+            onMinimize={onMinimize}
+            onMaximizeToggle={() => setIsMaximized(!isMaximized)}
+            isMaximized={isMaximized}
+            isLightMode={isLight}
+            isEn={isEn}
+          />
         </div>
 
         {/* Tab Navigation: Select Port vs Connected Ports Overview */}
-        <div className="flex items-center border-b border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-slate-900/70 px-4 pt-2 gap-2 text-xs">
+        <div className={`flex items-center border-b px-4 pt-2 gap-2 text-xs transition-colors ${
+          isLight ? 'bg-slate-100/70 border-slate-200' : 'bg-slate-900/70 border-slate-800'
+        }`}>
           <button
             onClick={() => setActiveTab('select')}
             className={`pb-2 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'select'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                ? isLight
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-indigo-500 text-indigo-400'
+                : isLight
+                  ? 'border-transparent text-slate-600 hover:text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Cable className="w-3.5 h-3.5" />
             <span>{isEn ? 'Select Port for Cable' : 'انتخاب پورت جهت اتصال کابل'}</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+              isLight ? 'bg-slate-200 text-slate-700' : 'bg-slate-800 text-slate-300'
+            }`}>
               {availableCount} {isEn ? 'free' : 'آزاد'}
             </span>
           </button>
@@ -271,13 +323,21 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
             onClick={() => setActiveTab('connections')}
             className={`pb-2 px-3 font-semibold transition border-b-2 flex items-center gap-1.5 cursor-pointer ${
               activeTab === 'connections'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                ? isLight
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-indigo-500 text-indigo-400'
+                : isLight
+                  ? 'border-transparent text-slate-600 hover:text-slate-900'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
             <span>{isEn ? 'Port Connections' : 'اتصالات پورت‌های این دیوایس'}</span>
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-mono font-bold">
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+              isLight
+                ? 'bg-indigo-100 text-indigo-700'
+                : 'bg-indigo-950/80 text-indigo-300 border border-indigo-800/40'
+            }`}>
               {deviceConnections.length}
             </span>
           </button>
@@ -285,14 +345,24 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
 
         {/* Cable Connection Hint / Context */}
         {partnerDevice && partnerPort && activeTab === 'select' && (
-          <div className="px-4 py-2.5 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 text-indigo-800 dark:text-indigo-300">
+          <div className={`px-4 py-2.5 border-b flex items-center justify-between text-xs transition-colors ${
+            isLight
+              ? 'bg-indigo-50/80 border-indigo-100 text-indigo-800'
+              : 'bg-indigo-950/30 border-indigo-900/40 text-indigo-300'
+          }`}>
+            <div className="flex items-center gap-2">
               <span className="font-semibold">{isEn ? 'Connecting from:' : 'در حال اتصال کابل از:'}</span>
-              <span className="font-mono font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+              <span className={`font-mono font-bold px-2 py-0.5 rounded border ${
+                isLight
+                  ? 'bg-white border-indigo-200 text-indigo-900'
+                  : 'bg-slate-900 border-indigo-800 text-indigo-200'
+              }`}>
                 {partnerDevice.name} ({partnerPort})
               </span>
             </div>
-            <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+            <div className={`flex items-center gap-1 font-mono text-[11px] ${
+              isLight ? 'text-slate-500' : 'text-slate-400'
+            }`}>
               {isRtl ? <ArrowLeft className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
               <span>{device.name}</span>
             </div>
@@ -303,25 +373,37 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
         {activeTab === 'select' && (
           <>
             {/* Search & Filter Bar */}
-            <div className="p-4 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+            <div className={`p-4 border-b flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
+              isLight ? 'bg-slate-50/60 border-slate-200' : 'bg-slate-900/40 border-slate-800'
+            }`}>
               <div className="relative flex-1 min-w-[200px]">
                 <input
                   type="text"
                   placeholder={isEn ? 'Search port (e.g. Gi1/0/1, Trunk, VLAN 10)...' : 'جستجوی پورت (مثلا Gi1/0/1، ترانک، ویلن ۱۰)...'}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className={`w-full px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500`}
+                  className={`w-full px-3 py-1.5 ${isRtl ? 'pr-8' : 'pl-8'} rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors ${
+                    isLight
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                      : 'bg-slate-900 border-slate-700 text-slate-100 placeholder:text-slate-500'
+                  }`}
                 />
                 <Search className={`w-3.5 h-3.5 text-slate-400 absolute ${isRtl ? 'right-2.5' : 'left-2.5'} top-2.5`} />
               </div>
 
-              <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-800 rounded-xl p-1 text-xs">
+              <div className={`flex items-center gap-1 rounded-xl p-1 text-xs border ${
+                isLight ? 'bg-slate-200/70 border-slate-300/50' : 'bg-slate-900 border-slate-800'
+              }`}>
                 <button
                   onClick={() => setFilterMode('all')}
                   className={`px-2.5 py-1 rounded-lg transition font-medium text-[11px] cursor-pointer ${
                     filterMode === 'all'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'bg-slate-800 text-white shadow-xs'
+                      : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {isEn ? 'All' : 'همه'} ({ports.length})
@@ -330,8 +412,12 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                   onClick={() => setFilterMode('available')}
                   className={`px-2.5 py-1 rounded-lg transition font-medium text-[11px] cursor-pointer ${
                     filterMode === 'available'
-                      ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-400 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-emerald-700 shadow-xs'
+                        : 'bg-emerald-950/70 text-emerald-400 border border-emerald-800/60 shadow-xs'
+                      : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {isEn ? 'Available' : 'پورت‌های آزاد'} ({availableCount})
@@ -340,8 +426,12 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                   onClick={() => setFilterMode('in_use')}
                   className={`px-2.5 py-1 rounded-lg transition font-medium text-[11px] cursor-pointer ${
                     filterMode === 'in_use'
-                      ? 'bg-white dark:bg-slate-700 text-amber-700 dark:text-amber-400 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-amber-700 shadow-xs'
+                        : 'bg-amber-950/70 text-amber-400 border border-amber-800/60 shadow-xs'
+                      : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {isEn ? 'In Use' : 'متصل شده'} ({inUseCount})
@@ -350,8 +440,12 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                   onClick={() => setFilterMode('trunk')}
                   className={`px-2.5 py-1 rounded-lg transition font-medium text-[11px] cursor-pointer ${
                     filterMode === 'trunk'
-                      ? 'bg-white dark:bg-slate-700 text-purple-700 dark:text-purple-400 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-purple-700 shadow-xs'
+                        : 'bg-purple-950/70 text-purple-400 border border-purple-800/60 shadow-xs'
+                      : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {isEn ? 'Trunk' : 'ترانک'}
@@ -360,24 +454,41 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                   onClick={() => setFilterMode('access')}
                   className={`px-2.5 py-1 rounded-lg transition font-medium text-[11px] cursor-pointer ${
                     filterMode === 'access'
-                      ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-400 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      ? isLight
+                        ? 'bg-white text-blue-700 shadow-xs'
+                        : 'bg-blue-950/70 text-blue-400 border border-blue-800/60 shadow-xs'
+                      : isLight
+                        ? 'text-slate-600 hover:text-slate-900'
+                        : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   {isEn ? 'Access' : 'اکسس'}
                 </button>
               </div>
+
+              <FieldInfoTooltip
+                title={isEn ? 'Physical Switch Ports' : 'اینترفیس‌های فیزیکی سوئیچ'}
+                whatIsIt={isEn ? 'Selects a physical interface on this device to attach the topology cable.' : 'انتخاب پورت فیزیکی جهت اتصال کابل و لینک توپولوژی.'}
+                whyNeeded={isEn ? 'Every network link requires an exact physical interface to track connectivity and VLAN configuration.' : 'هر اتصال در شبکه برای ردگیری وضعیت و تنظیمات VLAN نیاز به یک پورت مشخص فیزیکی دارد.'}
+                example={isEn ? 'GigabitEthernet0/1 (Trunk) or GigabitEthernet1/0/24 (Access)' : 'GigabitEthernet0/1 (ترانک) یا GigabitEthernet1/0/24 (اکسس)'}
+                isLightMode={isLight}
+                isEn={isEn}
+              />
             </div>
 
             {/* Ports Grid / List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {loading ? (
-                <div className="py-16 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
+                <div className={`py-16 text-center text-xs flex flex-col items-center justify-center gap-2 ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
                   <span>{isEn ? 'Loading device physical interfaces...' : 'در حال بارگذاری اینترفیس‌های فیزیکی تجهیز...'}</span>
                 </div>
               ) : filteredPorts.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-xs">
+                <div className={`py-12 text-center text-xs ${
+                  isLight ? 'text-slate-500' : 'text-slate-400'
+                }`}>
                   {isEn ? 'No ports matched your filter criteria.' : 'هیچ پورتی مطابق با فیلتر یافت نشد.'}
                 </div>
               ) : (
@@ -395,42 +506,56 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                         onClick={() => onSelectPort(port.port_id, port)}
                         className={`flex items-center justify-between p-3 rounded-xl border transition text-left group cursor-pointer ${
                           isInUse
-                            ? 'bg-amber-50/70 dark:bg-amber-950/20 border-amber-300 dark:border-amber-700/60 hover:border-amber-500 shadow-xs'
-                            : 'bg-white dark:bg-slate-850 border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md'
+                            ? isLight
+                              ? 'bg-amber-50/70 border-amber-300 hover:border-amber-500 shadow-xs'
+                              : 'bg-amber-950/20 border-amber-700/60 hover:border-amber-500 shadow-xs'
+                            : isLight
+                              ? 'bg-white border-slate-200 hover:border-indigo-500 hover:shadow-md'
+                              : 'bg-slate-900 border-slate-800 hover:border-indigo-500 hover:bg-slate-800 hover:shadow-md'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div
                             className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                               isInUse
-                                ? 'bg-amber-500 ring-2 ring-amber-300 dark:ring-amber-700'
+                                ? 'bg-amber-500 ring-2 ' + (isLight ? 'ring-amber-300' : 'ring-amber-700')
                                 : isDisabled
                                 ? 'bg-amber-500'
                                 : isUp
                                 ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]'
-                                : 'bg-slate-400 dark:bg-slate-600'
+                                : isLight ? 'bg-slate-400' : 'bg-slate-600'
                             }`}
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className={`text-xs font-bold font-mono transition truncate ${
                                 isInUse
-                                  ? 'text-amber-900 dark:text-amber-200'
-                                  : 'text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400'
+                                  ? isLight ? 'text-amber-900' : 'text-amber-200'
+                                  : isLight
+                                    ? 'text-slate-900 group-hover:text-indigo-600'
+                                    : 'text-slate-100 group-hover:text-indigo-400'
                               }`}>
                                 {port.port_id}
                               </span>
                               {isInUse && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-200/70 dark:bg-amber-900/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700 flex items-center gap-0.5">
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold flex items-center gap-0.5 border ${
+                                  isLight
+                                    ? 'bg-amber-200/70 text-amber-900 border-amber-300'
+                                    : 'bg-amber-900/60 text-amber-300 border-amber-700'
+                                }`}>
                                   <Lock className="w-2.5 h-2.5" />
                                   {isEn ? 'In Use' : 'متصل'}
                                 </span>
                               )}
                             </div>
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-mono mt-0.5">
+                            <div className={`text-[10px] flex items-center gap-1.5 font-mono mt-0.5 ${
+                              isLight ? 'text-slate-500' : 'text-slate-400'
+                            }`}>
                               <span>{port.speed || '1Gbps'}</span>
                               {isInUse && conn ? (
-                                <span className="text-amber-700 dark:text-amber-400 font-bold truncate max-w-[130px]" title={`Connected to ${conn.peerDeviceName} (${conn.peerPort})`}>
+                                <span className={`font-bold truncate max-w-[130px] ${
+                                  isLight ? 'text-amber-700' : 'text-amber-400'
+                                }`} title={`Connected to ${conn.peerDeviceName} (${conn.peerPort})`}>
                                   → {conn.peerDeviceName} ({conn.peerPort})
                                 </span>
                               ) : port.connected_device ? (
@@ -444,18 +569,26 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
 
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
                               isTrunk
-                                ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-                                : 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                ? isLight
+                                  ? 'bg-purple-100 text-purple-700 border-purple-200'
+                                  : 'bg-purple-950/60 text-purple-300 border-purple-800'
+                                : isLight
+                                  ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                  : 'bg-blue-950/60 text-blue-300 border-blue-800'
                             }`}
                           >
                             {isTrunk ? 'Trunk' : `VLAN ${port.vlan || 1}`}
                           </span>
                           <div className={`p-1 rounded-lg transition ${
                             isInUse
-                              ? 'text-amber-600 dark:text-amber-400 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/40'
-                              : 'text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-950'
+                              ? isLight
+                                ? 'text-amber-600 group-hover:bg-amber-100'
+                                : 'text-amber-400 group-hover:bg-amber-900/40'
+                              : isLight
+                                ? 'text-slate-400 group-hover:text-indigo-600 group-hover:bg-indigo-50'
+                                : 'text-slate-400 group-hover:text-indigo-400 group-hover:bg-indigo-950'
                           }`}>
                             {isRtl ? <ArrowLeft className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
                           </div>
@@ -472,20 +605,24 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
         {/* TAB 2: Connected Ports Detailed Overview */}
         {activeTab === 'connections' && (
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div className={`flex items-center justify-between pb-2 border-b ${
+              isLight ? 'border-slate-200 text-slate-700' : 'border-slate-800 text-slate-300'
+            }`}>
+              <span className="text-xs font-semibold">
                 {isEn
                   ? `Active Cable Links on ${device.name} (${deviceConnections.length})`
                   : `کابل‌های متصل به ${device.name} (${deviceConnections.length} ارتباط)`}
               </span>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+              <span className={`text-[11px] font-mono ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                 {device.ip}
               </span>
             </div>
 
             {deviceConnections.length === 0 ? (
-              <div className="py-14 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
-                <Cable className="w-8 h-8 text-slate-300 dark:text-slate-700" />
+              <div className={`py-14 text-center text-xs flex flex-col items-center justify-center gap-2 ${
+                isLight ? 'text-slate-500' : 'text-slate-400'
+              }`}>
+                <Cable className={`w-8 h-8 ${isLight ? 'text-slate-300' : 'text-slate-700'}`} />
                 <span className="font-medium">
                   {isEn
                     ? 'No cable links currently connected to this device.'
@@ -503,29 +640,47 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                 {deviceConnections.map((conn) => (
                   <div
                     key={conn.link.id}
-                    className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    className={`p-3.5 rounded-xl border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      isLight
+                        ? 'bg-white border-slate-200'
+                        : 'bg-slate-900 border-slate-800'
+                    }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shrink-0">
+                      <div className={`p-2 rounded-xl border shrink-0 ${
+                        isLight
+                          ? 'bg-indigo-50 border-indigo-200 text-indigo-600'
+                          : 'bg-indigo-950/50 border-indigo-800 text-indigo-400'
+                      }`}>
                         <Cable className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2 text-xs font-bold font-mono">
-                          <span className="text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                          <span className={`px-2 py-0.5 rounded border ${
+                            isLight
+                              ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                              : 'bg-indigo-950 border-indigo-800 text-indigo-400'
+                          }`}>
                             {conn.localPort}
                           </span>
-                          <span className="text-slate-400">
+                          <span className={isLight ? 'text-slate-400' : 'text-slate-500'}>
                             {isRtl ? '← متصل به →' : '↔ connected to ↔'}
                           </span>
-                          <span className="text-slate-900 dark:text-white">
+                          <span className={isLight ? 'text-slate-900' : 'text-white'}>
                             {conn.peerName}
                           </span>
-                          <span className="text-purple-700 dark:text-purple-400 bg-purple-50 dark:bg-purple-950 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                          <span className={`px-2 py-0.5 rounded border ${
+                            isLight
+                              ? 'bg-purple-50 border-purple-200 text-purple-700'
+                              : 'bg-purple-950 border-purple-800 text-purple-400'
+                          }`}>
                             {conn.peerPort}
                           </span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-1">
+                        <div className={`flex flex-wrap items-center gap-2 text-[11px] font-mono mt-1 ${
+                          isLight ? 'text-slate-500' : 'text-slate-400'
+                        }`}>
                           <span>{conn.speed}</span>
                           <span>•</span>
                           <span>{conn.cableType}</span>
@@ -545,8 +700,12 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
 
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                       {confirmDisconnectLinkId === conn.link.id ? (
-                        <div className="flex items-center gap-1.5 p-1 bg-rose-50 dark:bg-rose-950/40 rounded-lg border border-rose-300 dark:border-rose-800 animate-in fade-in">
-                          <span className="text-[10px] text-rose-700 dark:text-rose-300 font-medium px-1">
+                        <div className={`flex items-center gap-1.5 p-1 rounded-lg border animate-in fade-in ${
+                          isLight ? 'bg-rose-50 border-rose-300' : 'bg-rose-950/40 border-rose-800'
+                        }`}>
+                          <span className={`text-[10px] font-medium px-1 ${
+                            isLight ? 'text-rose-700' : 'text-rose-300'
+                          }`}>
                             {isEn ? 'Confirm remove?' : 'حذف شود؟'}
                           </span>
                           <button
@@ -560,7 +719,9 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                           </button>
                           <button
                             onClick={() => setConfirmDisconnectLinkId(null)}
-                            className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] cursor-pointer"
+                            className={`px-2 py-0.5 rounded text-[10px] cursor-pointer ${
+                              isLight ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+                            }`}
                           >
                             {isEn ? 'No' : 'خیر'}
                           </button>
@@ -568,7 +729,11 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
                       ) : (
                         <button
                           onClick={() => setConfirmDisconnectLinkId(conn.link.id)}
-                          className="px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition text-xs font-medium flex items-center gap-1 cursor-pointer"
+                          className={`px-2.5 py-1 rounded-lg border transition text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                            isLight
+                              ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
+                              : 'border-rose-900/60 text-rose-400 hover:bg-rose-950/40'
+                          }`}
                           title={isEn ? 'Disconnect and remove this cable' : 'قطع و حذف این کابل'}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -584,8 +749,12 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
         )}
 
         {/* Modal Footer */}
-        <div className="p-3.5 bg-slate-50 dark:bg-slate-850 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
-          <span className="text-slate-500 dark:text-slate-400">
+        <div className={`p-3.5 border-t flex items-center justify-between text-xs transition-colors ${
+          isLight
+            ? 'bg-slate-50 border-slate-200 text-slate-500'
+            : 'bg-slate-900 border-slate-800 text-slate-400'
+        }`}>
+          <span>
             {activeTab === 'select'
               ? (isEn
                   ? `Ports marked with "In Use" are already wired to other devices.`
@@ -596,7 +765,11 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
           </span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition font-medium cursor-pointer"
+            className={`px-4 py-1.5 rounded-xl border transition font-medium cursor-pointer ${
+              isLight
+                ? 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                : 'border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`}
           >
             {isEn ? 'Cancel' : 'انصراف'}
           </button>
@@ -604,5 +777,11 @@ export const CustomMapPortSelectorModal: React.FC<CustomMapPortSelectorModalProp
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body);
+  }
+
+  return modalContent;
 };
 

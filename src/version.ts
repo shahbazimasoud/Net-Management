@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.9';
+export const APP_VERSION = '1.306.10';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.10',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'انطباق کامل مودال انتخاب پورت (Select Port) در نقشه توپولوژی با تم‌های دارک و لایت و تجهیز به کنترل‌های سه‌گانه هدر',
+    title_en: 'Universal Dark/Light Theme Harmonization and Window Controls for Topology Port Selector Modal',
+    changes: [
+      'اصلاح کامل پالت رنگی مودال انتخاب پورت (CustomMapPortSelectorModal) در نقشه توپولوژی و رفع مشکل نمایش رنگ‌های روشن در حالت تم دارک.',
+      'جایگزینی کلاس‌های نامعتبر Tailwind با پالت‌های تیره استاندارد Slate-950/Slate-900 و کنتراست ارگونومیک در کارت‌های پورت‌ها، فیلترها، هدر و فوتر.',
+      'تجهیز هدر مودال به کنترل‌های استاندارد سه‌گانه (بستن، مینیمایز، تمام‌صفحه/Maximize) طبق استانداردهای جامع مودال‌ها.',
+      'انتقال رندر مودال به پورتال مستقیم ریشه سند (createPortal) جهت تضمین بالاترین اولویت لایه‌ای و عدم وابستگی به کانتینر توپولوژی.',
+      'همگام‌سازی کامل مودال تنظیمات کابل (CustomMapLinkConfigModal) با سیستم تم و رفع کلاس‌های رنگی ناسازگار.'
+    ],
+    changes_en: [
+      'Fully adapted the topology port selection modal (CustomMapPortSelectorModal) to match dark themes seamlessly and eliminated light-mode appearance in dark mode.',
+      'Replaced invalid Tailwind CSS classes with standard dark palettes (slate-950/slate-900) and ergonomic contrast across port cards, filter bar, header, and footer.',
+      'Equipped modal header with universal three-way window controls (Close, Minimize to dock, and Fullscreen/Maximize toggle) according to system guidelines.',
+      'Portalled modal rendering directly to document.body (createPortal) ensuring pristine stacking context and footer safety clearance.',
+      'Synchronized the cable link configuration modal (CustomMapLinkConfigModal) with theme awareness and resolved incompatible background classes.'
+    ]
+  },
   {
     version: '1.306.9',
     releaseDate: '2026-10-10',
