@@ -487,6 +487,12 @@ import {
   syncServerNtp,
   isValidTimezone,
 } from './serverTimeManager';
+import {
+  parseIpRange,
+  executeDiscoveryScan,
+  abortDiscoveryScan,
+  getDiscoveryScanStatus,
+} from './discoveryEngine';
 
 export const apiRouter = Router();
 
@@ -4077,6 +4083,185 @@ apiRouter.get('/remote-servers/:id', async (req: Request, res: Response) => {
     }
     res.json({ success: true, server: sanitizeRemoteServerForClient(server) });
   } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/discover - Discover remote Linux and Windows servers in IP range
+apiRouter.post('/remote-servers/discover', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits running server discovery.',
+      });
+    }
+
+    const { ipRange, ports, timeoutMs, concurrency } = req.body;
+    if (!ipRange || typeof ipRange !== 'string') {
+      return res.status(400).json({ success: false, error: 'Target IP range, subnet or list is required.' });
+    }
+
+    const ips = parseIpRange(ipRange, 512);
+    if (ips.length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid IPv4 addresses found in the provided range.' });
+    }
+
+    const scanId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const probePorts = Array.isArray(ports) && ports.length > 0 ? ports : [22, 3389, 445, 5985];
+    const timeout = Math.min(Math.max(Number(timeoutMs) || 700, 250), 3000);
+    const concurrentLimit = Math.min(Math.max(Number(concurrency) || 16, 1), 32);
+
+    const results = await executeDiscoveryScan(scanId, ips, probePorts, timeout, concurrentLimit);
+
+    // Audit log
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || 'Admin',
+      action: 'Server Fleet Discovery',
+      category: 'device',
+      target: ipRange.substring(0, 64),
+      status: 'success',
+      details: `Scanned ${ips.length} IPs, discovered ${results.length} active servers (${results.filter((r) => r.osType === 'linux').length} Linux, ${results.filter((r) => r.osType === 'windows').length} Windows)`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    });
+
+    res.json({
+      success: true,
+      scanId,
+      totalIps: ips.length,
+      scannedIps: ips.length,
+      foundCount: results.length,
+      results,
+    });
+  } catch (err: any) {
+    console.error('[Server Discovery Error]:', err);
+    res.status(500).json({ success: false, error: err.message || 'Discovery scan failed' });
+  }
+});
+
+// GET /api/remote-servers/discover/stream - Real-time SSE stream for server discovery
+apiRouter.get('/remote-servers/discover/stream', async (req: Request, res: Response) => {
+  try {
+    const ipRange = req.query.ipRange as string;
+    if (!ipRange) {
+      return res.status(400).json({ success: false, error: 'Target IP range is required' });
+    }
+
+    const ips = parseIpRange(ipRange, 512);
+    if (ips.length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid IPv4 addresses found' });
+    }
+
+    const scanId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const probePorts = req.query.ports
+      ? (req.query.ports as string)
+          .split(',')
+          .map((p) => parseInt(p, 10))
+          .filter((p) => !isNaN(p))
+      : [22, 3389, 445, 5985];
+    const timeout = Math.min(Math.max(Number(req.query.timeoutMs) || 700, 250), 3000);
+    const concurrentLimit = Math.min(Math.max(Number(req.query.concurrency) || 16, 1), 32);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    res.write(`event: start\ndata: ${JSON.stringify({ scanId, total: ips.length })}\n\n`);
+
+    const results = await executeDiscoveryScan(
+      scanId,
+      ips,
+      probePorts,
+      timeout,
+      concurrentLimit,
+      (host, scanned, total) => {
+        res.write(`event: progress\ndata: ${JSON.stringify({ scanId, scanned, total, host })}\n\n`);
+      }
+    );
+
+    res.write(
+      `event: complete\ndata: ${JSON.stringify({ scanId, total: ips.length, foundCount: results.length, results })}\n\n`
+    );
+    res.end();
+  } catch (err: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: err.message });
+    } else {
+      res.end();
+    }
+  }
+});
+
+// POST /api/remote-servers/discover/abort - Abort active discovery scan
+apiRouter.post('/remote-servers/discover/abort', (req: Request, res: Response) => {
+  const { scanId } = req.body;
+  if (!scanId) {
+    return res.status(400).json({ success: false, error: 'scanId is required' });
+  }
+  const aborted = abortDiscoveryScan(scanId);
+  res.json({ success: true, aborted });
+});
+
+// POST /api/remote-servers/discover/bulk-add - Bulk enroll discovered servers
+apiRouter.post('/remote-servers/discover/bulk-add', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits creating new remote servers.',
+      });
+    }
+
+    const { servers } = req.body;
+    if (!Array.isArray(servers) || servers.length === 0) {
+      return res.status(400).json({ success: false, error: 'Servers array is required.' });
+    }
+
+    const addedServers = [];
+    for (const serverData of servers) {
+      if (!serverData.ip) continue;
+      const isWin = serverData.os_type === 'windows';
+      const payload: any = {
+        name: serverData.name || (serverData.hostname ? serverData.hostname.split('.')[0] : `Server-${serverData.ip.replace(/\./g, '-')}`),
+        ip: serverData.ip,
+        os_type: isWin ? 'windows' : 'linux',
+        server_type: isWin ? 'windows' : 'linux',
+        ssh_port: serverData.ssh_port || 22,
+        ssh_user: serverData.ssh_user || (isWin ? 'Administrator' : 'root'),
+        ssh_password: serverData.ssh_password || '',
+        ssh_key: serverData.ssh_key || '',
+        win_port: serverData.win_port || 3389,
+        win_user: serverData.win_user || 'Administrator',
+        win_password: serverData.win_password || '',
+        win_domain: serverData.win_domain || '',
+        rdp_security: serverData.rdp_security || 'any',
+        category: serverData.category || 'Infrastructure',
+        tags: Array.isArray(serverData.tags) && serverData.tags.length > 0 ? serverData.tags : ['discovered'],
+        prompt_password_on_connect: !!serverData.prompt_password_on_connect,
+      };
+
+      const created = await createRemoteServer(payload);
+      addedServers.push(sanitizeRemoteServerForClient(created));
+    }
+
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || 'Admin',
+      action: 'Bulk Add Discovered Servers',
+      category: 'device',
+      target: `${addedServers.length} servers`,
+      status: 'success',
+      details: `Enrolled ${addedServers.length} servers from discovery scan into fleet`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    });
+
+    res.json({ success: true, count: addedServers.length, servers: addedServers });
+  } catch (err: any) {
+    console.error('[Bulk Add Discovered Servers Error]:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

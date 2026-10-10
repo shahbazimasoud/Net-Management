@@ -36,6 +36,7 @@ import {
   Database,
   Flame,
   Lock,
+  Radar,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory, ServerActionKey } from '../../types';
 import { isServerActionAllowed } from '../../utils/rbac';
@@ -61,6 +62,7 @@ import { OnDemandPasswordModal } from './OnDemandPasswordModal';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { BulkServerConfigModal } from './BulkServerConfigModal';
 import { RestartServerModal } from './RestartServerModal';
+import { ServerDiscoveryModal } from './ServerDiscoveryModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -425,6 +427,9 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   // Bulk Linux Server Configuration Modal State
   const [isBulkConfigOpen, setIsBulkConfigOpen] = useState(false);
+
+  // Server Discovery & Network Scanner Modal State
+  const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
 
   // Ref to the floating 3-dots action menu dropdown container
   const menuDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -1316,6 +1321,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     });
   };
 
+  const handleMinimizeDiscovery = () => {
+    setIsDiscoveryModalOpen(false);
+    dockModal({
+      id: 'server_fleet_discovery_modal',
+      labelEn: isEn ? 'Server Discovery' : 'دیسکاوری سرورها',
+      labelFa: 'شناسایی و پویش سرورهای شبکه',
+      badge: 'DISCOVERY',
+      category: 'tools',
+      onRestore: () => setIsDiscoveryModalOpen(true),
+      onClose: () => {
+        setIsDiscoveryModalOpen(false);
+        undockModal('server_fleet_discovery_modal');
+      },
+    });
+  };
+
   return (
     <div
       className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto transition-colors duration-200 ${
@@ -1432,6 +1453,31 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               <Sliders className="w-3.5 h-3.5 text-cyan-400" />
               <span>{isEn ? 'Bulk Server Config' : 'پیکربندی گروهی'}</span>
             </button>
+
+            {/* Server Discovery & Subnet Scanner Button */}
+            {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
+              <button
+                id="btn-server-discovery"
+                type="button"
+                onClick={() => {
+                  setIsDiscoveryModalOpen(true);
+                  undockModal('server_fleet_discovery_modal');
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                  isLightMode
+                    ? 'bg-gradient-to-r from-teal-50 to-cyan-50 hover:from-teal-100 hover:to-cyan-100 border-teal-300 text-teal-800 shadow-xs'
+                    : 'bg-gradient-to-r from-teal-500/20 to-cyan-500/20 hover:from-teal-500/30 hover:to-cyan-500/30 text-cyan-300 border-cyan-500/40 shadow-xs shadow-cyan-500/10'
+                }`}
+                title={
+                  isEn
+                    ? 'Scan IP range/subnet to discover active Linux and Windows servers'
+                    : 'پویش و شناسایی خودکار سرورهای لینوکس و ویندوز در رنج آی‌پی'
+                }
+              >
+                <Radar className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isEn ? 'Discovery' : 'دیسکاوری سرورها'}</span>
+              </button>
+            )}
 
             {/* Add Server & Standalone Services Dropdown Button */}
             {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
@@ -4093,6 +4139,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           }}
         />
       )}
+
+      {/* 19. Server Discovery & Fleet Scanner Modal */}
+      <ServerDiscoveryModal
+        isOpen={isDiscoveryModalOpen}
+        onClose={() => {
+          setIsDiscoveryModalOpen(false);
+          undockModal('server_fleet_discovery_modal');
+        }}
+        onMinimize={handleMinimizeDiscovery}
+        onServerAdded={loadFleet}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
 
       {/* Floating Success Notification Toast */}
       {successNotification &&

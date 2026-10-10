@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.305.3';
+export const APP_VERSION = '1.306.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.0',
+    releaseDate: '2026-10-10',
+    type: 'minor',
+    title: 'پیاده‌سازی موتور پویش شبکه و مودال شناسایی خودکار سرورها (Server Discovery & Fleet Scanner)',
+    title_en: 'Implementation of Network Discovery Engine and Server Fleet Scanner Modal with Vault Integration',
+    changes: [
+      'پیاده‌سازی دکمه اختصاصی Discovery در نوار ابزار Remote Servers & Automation Fleet با کنترل دسترسی سازمانی (RBAC).',
+      'توسعه موتور چندنخی پویش شبکه در بک‌اند Node.js بر مبنای سوکت‌های واقعی TCP جهت اسکن سریع رنج‌های IP (CIDR، محدوده و لیست تکی) بدون هیچ‌گونه دیتای ساختگی یا ماک.',
+      'تشخیص هوشمند و تفکیک سرورهای لینوکس (SSH) و ویندوز (RDP/SMB/WinRM) بر اساس بنر سرویس‌ها و پورت‌های فعال.',
+      'ساخت مودال جامع ServerDiscoveryModal با رعایت کامل استانداردهای پنج‌گانه (دکمه‌های سه‌گانه بستن/مینیمایز/تمام‌صفحه، مهار حریم فوتر تا bottom-8، رندر با پورتال در لایه z-[999990]، پشتیبانی تم تیره/روشن و دوزبانگی کامل).',
+      'یکپارچه‌سازی فرآیند ثبت سرور کشف‌شده در ناوگان با امکان وارد کردن مستقیم رمز عبور یا انتخاب آسان از والت رمزهای عبور (Password Vault) و پشتیبانی از ثبت تکی و گروهی.'
+    ],
+    changes_en: [
+      'Added dedicated Discovery button to the Remote Servers & Automation Fleet header toolbar with role-based access control (RBAC).',
+      'Engineered real multi-threaded TCP socket network discovery engine in Node.js supporting CIDR subnets, IP ranges, and single IPs without any simulated/fake data.',
+      'Implemented automated operating system fingerprinting for Linux (SSH) and Windows (RDP/SMB/WinRM) via active port and banner inspection.',
+      'Built comprehensive ServerDiscoveryModal adhering strictly to the 5 universal modal standards (triple window controls, dock integration, z-[999990] portal rendering, bottom-8 footer clearance, full dark/light theme, and strict bilingual localization).',
+      'Integrated server enrollment flow with Password Vault credentials picker and bulk enrollment into PostgreSQL inventory.'
+    ]
+  },
   {
     version: '1.305.3',
     releaseDate: '2026-10-10',
