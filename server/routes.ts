@@ -3805,6 +3805,22 @@ apiRouter.get('/topology', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin, allowedDeviceIds } = await resolveRequestContextPolicy(req);
     const topology = getRawTopologyData();
+    try {
+      const dbDevices = await getAllDevices();
+      if (Array.isArray(dbDevices) && dbDevices.length > 0) {
+        topology.nodes = dbDevices.map((d: any) => ({
+          ...d,
+          role: d.role || 'Network Device',
+          model: d.model || 'MikroTik',
+          platform: d.platform || 'mikrotik_routeros',
+          is_online: d.is_online !== undefined ? d.is_online : false,
+          latency_ms: d.latency_ms || 1.0,
+          total_ports: d.total_ports || (d.ports ? d.ports.length : 24),
+        }));
+      }
+    } catch (e) {
+      console.warn('[Topology getAllDevices sync notice]', e);
+    }
 
     if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
       const allowedSet = new Set(allowedDeviceIds);

@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.307.5';
+export const APP_VERSION = '1.307.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.307.6',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'اصلاح کامل دکمه‌های حذف در جانمایی فیزیکی و حذف سینی تجهیزات فاقد مکان (Unassigned Shelf)',
+    title_en: 'Fix All Removal Buttons Across Physical Placement and Purge Unassigned Equipment Shelf',
+    changes: [
+      'حذف کامل بخش «سینی تجهیزات فاقد جانمایی فیزیکی» (Unassigned Equipment Shelf) از نمای استقرار فیزیکی ساختمان‌ها و طبقات مطابق با درخواست کاربر.',
+      'اصلاح عملکرد قطعی دکمه‌های حذف ساختمان، طبقه، واحد و رک و رفع ریس کاندیشن همگام‌سازی سلسلسه‌مراتب با دیتابیس.',
+      'اصلاح و فعال‌سازی پایدار دکمه‌های حذف تجهیزات از رک، واحد، طبقه و ساختمان با اتصال به fetchWithRetry و مدیریت توکن‌های امنیتی.',
+      'همگام‌سازی بلادرنگ پایگاه‌داده و فراخوانی مستقیم getAllDevices در اندپوینت تپولوژی برای انعکاس قطعی تغییرات جانمایی فیزیکی.'
+    ],
+    changes_en: [
+      'Completely removed the "Unassigned Equipment Shelf" from the Physical Placement view across buildings and floors per user request.',
+      'Fixed functional execution of all removal and deletion buttons for buildings, floors, units, and server racks, resolving state race conditions with backend persistence.',
+      'Repaired device removal actions across rack, unit, floor, and building scopes using authenticated fetchWithRetry for robust permission verification.',
+      'Synchronized real-time topology endpoint with authoritative database records via getAllDevices for immediate physical placement reflections.'
+    ]
+  },
   {
     version: '1.307.5',
     releaseDate: '2026-10-10',

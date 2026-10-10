@@ -2458,12 +2458,15 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [isHierarchyLoading, setIsHierarchyLoading] = useState(true);
 
   // Helper to persist hierarchy state in PostgreSQL backend and local state
-  const saveHierarchyState = (
+  const isSavingHierarchyRef = useRef(false);
+
+  const saveHierarchyState = async (
     buildings: string[],
     floors: Record<string, string[]>,
     units: Record<string, string[]>,
     racks: Record<string, string[]>
   ) => {
+    isSavingHierarchyRef.current = true;
     try {
       setCustomBuildings(buildings);
       setCustomFloors(floors);
@@ -2480,22 +2483,36 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         localStorage.setItem(HIERARCHY_STORAGE_KEY, JSON.stringify(payload));
       } catch (e) {}
 
-      fetch('/api/settings/hierarchy', {
+      const res = await fetch('/api/settings/hierarchy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      }).catch(() => {});
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.buildings)) setCustomBuildings(data.buildings);
+        if (data.floors && typeof data.floors === 'object') setCustomFloors(data.floors);
+        if (data.units && typeof data.units === 'object') setCustomUnits(data.units);
+        if (data.racks && typeof data.racks === 'object') setCustomRacks(data.racks);
+      }
+    } catch (e) {
+      console.error('[Save hierarchy error]', e);
+    } finally {
+      setTimeout(() => {
+        isSavingHierarchyRef.current = false;
+      }, 500);
       window.dispatchEvent(new CustomEvent('nettopology_hierarchy_updated'));
-    } catch (e) {}
+    }
   };
 
   // Keep hierarchy in sync if modified from AddDeviceModal or other views and pull initial data from database
   useEffect(() => {
     const handleHierarchyUpdate = () => {
+      if (isSavingHierarchyRef.current) return;
       fetch('/api/settings/hierarchy')
         .then((res) => (res.ok ? res.json() : null))
         .then((dbData) => {
-          if (dbData && typeof dbData === 'object') {
+          if (dbData && typeof dbData === 'object' && !isSavingHierarchyRef.current) {
             const bldgs = Array.isArray(dbData.buildings)
               ? dbData.buildings
               : (Array.isArray(dbData.hierarchy)
@@ -2686,10 +2703,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [customRelocateRack, setCustomRelocateRack] = useState('');
   const [isRelocateMaximized, setIsRelocateMaximized] = useState(false);
 
-  // Unassigned Equipment Shelf states (Real Placements Phase 3)
-  const [isShelfCollapsed, setIsShelfCollapsed] = useState(false);
-  const [isShelfDropHovered, setIsShelfDropHovered] = useState(false);
-
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleUnassignDevice = async (deviceId: string) => {
@@ -2700,8 +2713,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       setFeedbackToast({
         type: 'info',
         message: isEn
-          ? `Device "${dev.name}" is already in the Unassigned Shelf.`
-          : `تجهیز «${dev.name}» هم‌اکنون در سینی فاقد جانمایی قرار دارد.`,
+          ? `Device "${dev.name}" does not have a physical placement.`
+          : `تجهیز «${dev.name}» فاقد جانمایی فیزیکی است.`,
       });
       setTimeout(() => setFeedbackToast(null), 3500);
       return;
@@ -2737,8 +2750,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         message: t('topology_physical_unassign_success', {
           name: dev.name,
         }) || (isEn
-          ? `Device "${dev.name}" returned to Unassigned Equipment Shelf.`
-          : `تجهیز «${dev.name}» به سینی تجهیزات فاقد جانمایی منتقل شد.`),
+          ? `Device "${dev.name}" removed from building placement.`
+          : `تجهیز «${dev.name}» از ساختمان حذف شد.`),
       });
       setTimeout(() => setFeedbackToast(null), 4500);
 
@@ -2749,8 +2762,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       setFeedbackToast({
         type: 'error',
         message: isEn
-          ? `Failed to unassign device: ${err?.message || 'Unknown error'}`
-          : `خطا در حذف جانمایی تجهیز: ${err?.message || 'خطای ناشناخته'}`,
+          ? `Failed to remove device: ${err?.message || 'Unknown error'}`
+          : `خطا در حذف تجهیز: ${err?.message || 'خطای ناشناخته'}`,
       });
       setTimeout(() => setFeedbackToast(null), 5000);
     } finally {
@@ -3217,11 +3230,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     if (type === 'building') {
       const affectedDevices = localNodes.filter((n) => n.building === building);
       setLocalNodes((prev) =>
-        prev.map((n) => (n.building === building ? { ...n, building: '' } : n))
+        prev.map((n) => (n.building === building ? { ...n, building: '', floor: '', unit: '', rack: '' } : n))
       );
       for (const dev of affectedDevices) {
         try {
-          await updateDevice(dev.id, { building: '' });
+          await updateDevice(dev.id, { building: '', floor: '', unit: '', rack: '' });
         } catch (err) {}
       }
       updatedBuildings = updatedBuildings.filter((b) => b !== building);
@@ -3242,12 +3255,12 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       );
       setLocalNodes((prev) =>
         prev.map((n) =>
-          n.building === building && n.floor === item ? { ...n, floor: '' } : n
+          n.building === building && n.floor === item ? { ...n, floor: '', unit: '', rack: '' } : n
         )
       );
       for (const dev of affectedDevices) {
         try {
-          await updateDevice(dev.id, { floor: '' });
+          await updateDevice(dev.id, { floor: '', unit: '', rack: '' });
         } catch (err) {}
       }
       if (updatedFloors[building]) {
@@ -3301,7 +3314,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     setCustomFloors(updatedFloors);
     setCustomUnits(updatedUnits);
     setCustomRacks(updatedRacks);
-    saveHierarchyState(updatedBuildings, updatedFloors, updatedUnits, updatedRacks);
+    await saveHierarchyState(updatedBuildings, updatedFloors, updatedUnits, updatedRacks);
     setDeleteModal(null);
     setFeedbackToast({
       type: 'success',
@@ -7501,175 +7514,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 </span>
               </div>
             )}
-
-            {/* Unassigned Equipment Shelf (Real Placement Phase 3) */}
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-              }}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                setIsShelfDropHovered(true);
-              }}
-              onDragLeave={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                if (
-                  e.clientX <= rect.left ||
-                  e.clientX >= rect.right ||
-                  e.clientY <= rect.top ||
-                  e.clientY >= rect.bottom
-                ) {
-                  setIsShelfDropHovered(false);
-                }
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsShelfDropHovered(false);
-                let deviceId = '';
-                try {
-                  const raw = e.dataTransfer.getData('application/json');
-                  if (raw) {
-                    const parsed = JSON.parse(raw);
-                    deviceId = parsed.deviceId;
-                  }
-                } catch (err) {}
-                if (!deviceId) {
-                  deviceId =
-                    e.dataTransfer.getData('text/plain') ||
-                    (draggedDevice ? draggedDevice.id : '');
-                }
-                if (deviceId) {
-                  handleUnassignDevice(deviceId);
-                }
-              }}
-              className={`rounded-2xl border p-4 shadow-xl transition-all duration-200 ${
-                isShelfDropHovered
-                  ? isLightMode
-                    ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-400/60 shadow-lg scale-[1.005]'
-                    : 'bg-amber-950/40 border-amber-400 ring-2 ring-amber-400/50 shadow-[0_0_25px_rgba(245,158,11,0.35)] scale-[1.005]'
-                  : isLightMode
-                  ? 'bg-white border-slate-200 shadow-slate-200/50'
-                  : 'spatial-glass border-white/10'
-              }`}
-            >
-              {/* Shelf Header */}
-              <div
-                className={`flex items-center justify-between flex-wrap gap-2 pb-3 border-b ${
-                  isLightMode ? 'border-slate-200' : 'border-white/10'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className={`p-2 rounded-xl border ${
-                      unassignedDevices.length > 0
-                        ? isLightMode
-                          ? 'bg-amber-50 text-amber-600 border-amber-200'
-                          : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                        : isLightMode
-                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    }`}
-                  >
-                    <Package className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4
-                        className={`text-sm font-bold flex items-center gap-1.5 ${
-                          isLightMode ? 'text-slate-900' : 'text-white'
-                        }`}
-                      >
-                        <span>{t('topology_physical_shelf_title')}</span>
-                      </h4>
-                      <span
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold border ${
-                          unassignedDevices.length > 0
-                            ? isLightMode
-                              ? 'bg-amber-100 text-amber-800 border-amber-300'
-                              : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                            : isLightMode
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                        }`}
-                      >
-                        {t('topology_physical_shelf_count', { count: unassignedDevices.length })}
-                      </span>
-                    </div>
-                    <p
-                      className={`text-[11px] mt-0.5 ${
-                        isLightMode ? 'text-slate-600' : 'text-slate-400'
-                      }`}
-                    >
-                      {isShelfDropHovered
-                        ? t('topology_physical_shelf_drop_hint')
-                        : t('topology_physical_shelf_desc')}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsShelfCollapsed(!isShelfCollapsed)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border ${
-                      isLightMode
-                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                        : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border-white/10'
-                    }`}
-                  >
-                    {isShelfCollapsed ? (
-                      <>
-                        <ChevronDown className="w-3.5 h-3.5" />
-                        <span className="text-[11px]">{isEn ? 'Show Shelf' : 'نمایش سینی'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <ChevronUp className="w-3.5 h-3.5" />
-                        <span className="text-[11px]">{isEn ? 'Collapse' : 'جمع‌کردن'}</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Shelf Content */}
-              {!isShelfCollapsed && (
-                <div className="pt-3">
-                  {unassignedDevices.length === 0 ? (
-                    <div
-                      className={`p-5 rounded-xl border border-dashed text-center flex flex-col items-center justify-center gap-1.5 transition-colors ${
-                        isShelfDropHovered
-                          ? isLightMode
-                            ? 'bg-amber-100/70 border-amber-500 text-amber-900'
-                            : 'bg-amber-950/40 border-amber-400 text-amber-200'
-                          : isLightMode
-                          ? 'bg-slate-50 border-slate-200 text-slate-600'
-                          : 'bg-slate-900/40 border-white/10 text-slate-400'
-                      }`}
-                    >
-                      <CheckCircle2
-                        className={`w-5 h-5 ${
-                          isLightMode ? 'text-emerald-600' : 'text-emerald-400'
-                        }`}
-                      />
-                      <span className="text-xs font-semibold">
-                        {t('topology_physical_shelf_empty')}
-                      </span>
-                      <span className="text-[11px] opacity-80">
-                        {t('topology_physical_shelf_empty_sub')}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
-                      {unassignedDevices.map((dev) =>
-                        renderDeviceCard(dev, '', '', '', '')
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
 
             {/* Buildings Grid / Loading / Empty State */}
             {isHierarchyLoading ? (

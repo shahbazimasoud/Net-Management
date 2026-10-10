@@ -241,7 +241,7 @@ export async function fetchDevices(): Promise<{ devices: Device[]; total: number
 }
 
 export async function addDevice(device: Partial<Device>): Promise<{ device: Device; message: string }> {
-  const res = await fetch(`${API_BASE}/devices`, {
+  const res = await fetchWithRetry(`${API_BASE}/devices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(device),
@@ -251,7 +251,7 @@ export async function addDevice(device: Partial<Device>): Promise<{ device: Devi
 }
 
 export async function updateDevice(id: string, updates: Partial<Device>): Promise<{ device: Device; message: string }> {
-  const res = await fetch(`${API_BASE}/devices/${id}`, {
+  const res = await fetchWithRetry(`${API_BASE}/devices/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -261,7 +261,7 @@ export async function updateDevice(id: string, updates: Partial<Device>): Promis
 }
 
 export async function deleteDevice(id: string): Promise<{ message: string }> {
-  const res = await fetch(`${API_BASE}/devices/${id}`, {
+  const res = await fetchWithRetry(`${API_BASE}/devices/${id}`, {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Failed to delete device');

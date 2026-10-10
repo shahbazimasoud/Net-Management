@@ -44,7 +44,8 @@
       "web_configs": [],
       "section": "",
       "location": "",
-      "hierarchy_id": ""
+      "hierarchy_id": "",
+      "ssh_version": "legacy"
     }
   ],
   "ports": {

@@ -1564,7 +1564,8 @@
       "web_configs": [],
       "section": "",
       "location": "",
-      "hierarchy_id": ""
+      "hierarchy_id": "",
+      "ssh_version": "legacy"
     }
   ],
   "device_sticky_notes": [],
@@ -1652,7 +1653,20 @@
     "racks": {},
     "sections": {}
   },
-  "device_placements": [],
+  "device_placements": [
+    {
+      "id": "placement-dev-switch-8164ed",
+      "device_id": "dev-switch-8164ed",
+      "building": "",
+      "floor": "",
+      "unit": "",
+      "rack": "",
+      "section": "",
+      "location": "",
+      "hierarchy_id": "",
+      "updated_at": "2026-10-10T21:25:28.847Z"
+    }
+  ],
   "general_settings": {
     "panelPort": 3000,
     "panelTitle": "NetTopology Pro",
