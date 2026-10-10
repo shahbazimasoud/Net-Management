@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.8';
+export const APP_VERSION = '1.304.9';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.9',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'تأییدیه و آزمون عملیاتی جامع تغییر کلمه عبور کاربران و ماندگاری در دیتابیس (فاز ۳)',
+    title_en: 'Comprehensive Real Validation and Regression Suite for User Password Persistence (Phase 3)',
+    changes: [
+      'اجرای آزمون خودکار ۸ مرحله‌ای زنده روی سرویس واقعی احراز هویت بدون داده‌های ماک یا شبیه‌سازی.',
+      'تأیید موفقیت ورود با کلمه عبور جدید (HTTP 200) و رد قطعی ورود با کلمه عبور قبلی (HTTP 401 Invalid Credentials).',
+      'تأیید عدم تأثیر ویرایش فیلدهای غیرمحرمانه پروفایل بر کلمه عبور و حفظ ۱۰۰٪ اعتبار کاربری.',
+      'تأیید پایداری و ماندگاری کامل رمز عبور پس از شبیه‌سازی ریستارت کامل سرور و عدم بازگشت به رمز اولیه زمان نصب.',
+      'افزودن اسکریپت رگرسیون تستی اختصاصی scripts/verify_password_change.ts به پروژه جهت اعتبارسنجی مداوم.'
+    ],
+    changes_en: [
+      'Executed 8-phase automated real verification against live authentication APIs without mock or simulated data.',
+      'Verified login success with updated credentials (HTTP 200) and strict rejection of previous credentials (HTTP 401 Invalid Credentials).',
+      'Validated that general profile edits without password payload do not corrupt or reset existing password hashes.',
+      'Confirmed 100% credential persistence across dev server reboots without reverting to initial setup credentials.',
+      'Added automated regression verification script at scripts/verify_password_change.ts for ongoing stability.'
+    ]
+  },
   {
     version: '1.304.8',
     releaseDate: '2026-10-10',
