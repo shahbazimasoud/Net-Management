@@ -2452,6 +2452,7 @@ export interface MapUserFilter {
   userId?: string;
   username?: string;
   role?: string;
+  groups?: string[];
 }
 
 export async function getCustomMaps(userFilter?: MapUserFilter): Promise<any[]> {
@@ -2607,14 +2608,31 @@ export async function getCustomMaps(userFilter?: MapUserFilter): Promise<any[]> 
       return isOwner;
     }
 
-    // 3. Restricted map: visible to owner + specified users
+    // 3. Restricted map: visible to owner + specified users or groups
     if (visibility === 'restricted') {
       if (isOwner) return true;
       const allowed = Array.isArray(map.allowedUsers) ? map.allowedUsers : [];
-      return allowed.some(
-        (u: string) =>
-          u.toLowerCase() === currentUsername || (currentUserId && u === currentUserId)
-      );
+      return allowed.some((target: string) => {
+        if (!target) return false;
+        const cleanTarget = target.trim().toLowerCase();
+        // Direct match with username or user ID
+        if (cleanTarget === currentUsername || (currentUserId && cleanTarget === currentUserId.toLowerCase())) {
+          return true;
+        }
+        // Match user's assigned group memberships (Active Directory or local security groups)
+        if (Array.isArray(userFilter.groups)) {
+          return userFilter.groups.some((g: string) => {
+            if (!g) return false;
+            const cleanG = g.trim().toLowerCase();
+            return (
+              cleanG === cleanTarget ||
+              cleanTarget.includes(cleanG) ||
+              cleanG.includes(cleanTarget)
+            );
+          });
+        }
+        return false;
+      });
     }
 
     return true;
@@ -3174,6 +3192,188 @@ export async function saveAccessPolicies(policies: any[]): Promise<void> {
       console.error('[DB Query Error in saveAccessPolicies]', e);
     }
   }
+}
+
+export async function deleteAccessPolicy(policyId: string): Promise<boolean> {
+  const cleanId = (policyId || '').trim();
+  if (!cleanId) return false;
+  if (cleanId === 'policy-super-admin') return false; // Root superadmin policy is protected
+
+  const store = loadFallbackStore();
+  store.access_policies = (store.access_policies || []).filter((p: any) => p.id !== cleanId);
+  saveFallbackStore(store);
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query('DELETE FROM access_policies WHERE id = $1', [cleanId]);
+      return true;
+    } catch (e) {
+      console.error('[DB Query Error in deleteAccessPolicy]', e);
+    }
+  }
+  return true;
+}
+
+export interface AuthorizedMapSubject {
+  id: string;
+  rawId: string;
+  name: string;
+  displayName: string;
+  type: 'local_user' | 'ad_user' | 'ad_group' | 'local_group';
+  role?: string;
+  policyName?: string;
+  policyId?: string;
+  badge: string;
+  badge_fa: string;
+  secondaryText?: string;
+  email?: string;
+  department?: string;
+  memberCount?: number;
+}
+
+export async function getAuthorizedMapSubjects(): Promise<{
+  success: boolean;
+  subjects: AuthorizedMapSubject[];
+  categories: {
+    localUsers: AuthorizedMapSubject[];
+    adUsers: AuthorizedMapSubject[];
+    adGroups: AuthorizedMapSubject[];
+    localGroups: AuthorizedMapSubject[];
+  };
+  count: number;
+}> {
+  // 1. Local Users from PostgreSQL/Fallback
+  const localUsersList = await getAllUsers();
+  const activeLocalUsers = localUsersList.filter((u) => u && u.status !== 'disabled');
+  const localUsers: AuthorizedMapSubject[] = activeLocalUsers.map((u) => ({
+    id: (u.username || '').toLowerCase(),
+    rawId: u.id,
+    name: u.username,
+    displayName: u.fullName ? `${u.fullName} (${u.username})` : u.username,
+    type: 'local_user',
+    role: u.role || 'Operator',
+    badge: 'Local User',
+    badge_fa: 'کاربر محلی',
+    policyName: u.role || 'Local User',
+    secondaryText: u.email || `${u.username}@nettopology.internal`,
+    email: u.email,
+  }));
+
+  // 2. Active Directory Users and Groups with assigned policies in database
+  const policies = await getAccessPolicies();
+  const adConfig = await getActiveDirectoryConfig();
+  const syncedUsers: any[] = Array.isArray(adConfig?.syncedUsers) ? adConfig.syncedUsers : [];
+  const syncedGroups: any[] = Array.isArray(adConfig?.syncedGroups) ? adConfig.syncedGroups : [];
+
+  // Filter AD users that have an assigned policy
+  const adUserPolicies = policies.filter(
+    (p: any) => p && p.subjectType === 'ad_user' && p.subjectId && p.id !== 'policy-guest'
+  );
+  const adUsers: AuthorizedMapSubject[] = adUserPolicies.map((p: any) => {
+    const rawSubject = (p.subjectId || '').trim();
+    const cleanSubject = rawSubject.toLowerCase();
+    const foundSynced = syncedUsers.find(
+      (u) =>
+        u.samAccountName?.toLowerCase() === cleanSubject ||
+        u.dn?.toLowerCase() === cleanSubject ||
+        u.email?.toLowerCase() === cleanSubject
+    );
+
+    const displayName = foundSynced?.displayName
+      ? `${foundSynced.displayName} (${foundSynced.samAccountName || rawSubject})`
+      : p.subjectName || rawSubject;
+
+    return {
+      id: (foundSynced?.samAccountName || rawSubject).toLowerCase(),
+      rawId: rawSubject,
+      name: foundSynced?.samAccountName || rawSubject,
+      displayName,
+      type: 'ad_user',
+      role: p.name,
+      badge: 'AD User (Policy)',
+      badge_fa: 'کاربر اکتیو دایرکتوری (دارای پالیسی)',
+      policyName: p.name,
+      policyId: p.id,
+      secondaryText: foundSynced?.email || p.name,
+      email: foundSynced?.email,
+      department: foundSynced?.department,
+    };
+  });
+
+  // Filter AD groups that have an assigned policy
+  const adGroupPolicies = policies.filter(
+    (p: any) => p && p.subjectType === 'ad_group' && p.subjectId && p.id !== 'policy-guest'
+  );
+  const adGroups: AuthorizedMapSubject[] = adGroupPolicies.map((p: any) => {
+    const rawSubject = (p.subjectId || '').trim();
+    const cleanSubject = rawSubject.toLowerCase();
+    const foundSynced = syncedGroups.find(
+      (g) => g.dn?.toLowerCase() === cleanSubject || g.cn?.toLowerCase() === cleanSubject
+    );
+
+    const groupCn = foundSynced?.cn || (p.subjectName
+      ? p.subjectName.replace(/\s*\(Active Directory\)\s*$/, '').trim()
+      : rawSubject.includes('CN=')
+      ? rawSubject.match(/CN=([^,]+)/i)?.[1] || rawSubject
+      : rawSubject);
+
+    return {
+      id: groupCn.toLowerCase(),
+      rawId: rawSubject,
+      name: groupCn,
+      displayName: foundSynced?.cn ? `${foundSynced.cn} (Active Directory)` : p.subjectName || `${groupCn} (AD Group)`,
+      type: 'ad_group',
+      role: p.name,
+      badge: 'AD Group (Policy)',
+      badge_fa: 'گروه اکتیو دایرکتوری (دارای پالیسی)',
+      policyName: p.name,
+      policyId: p.id,
+      secondaryText: p.name,
+      memberCount: Array.isArray(foundSynced?.members) ? foundSynced.members.length : undefined,
+    };
+  });
+
+  // 3. Local User Groups
+  const rawLocalGroups = await getUserGroups();
+  const localGroups: AuthorizedMapSubject[] = rawLocalGroups.map((g) => ({
+    id: (g.name || g.id).toLowerCase(),
+    rawId: g.id,
+    name: g.name,
+    displayName: `${g.name} (Local Group)`,
+    type: 'local_group',
+    role: g.name,
+    badge: 'Local Group',
+    badge_fa: 'گروه محلی',
+    policyName: g.name,
+    secondaryText: g.description || 'Local Group',
+    memberCount: Array.isArray(g.memberUserIds || g.member_user_ids)
+      ? (g.memberUserIds || g.member_user_ids).length
+      : 0,
+  }));
+
+  // Combine and deduplicate
+  const seenIds = new Set<string>();
+  const subjects: AuthorizedMapSubject[] = [];
+
+  for (const item of [...localUsers, ...adUsers, ...adGroups, ...localGroups]) {
+    const key = `${item.type}:${item.id}`;
+    if (!seenIds.has(key)) {
+      seenIds.add(key);
+      subjects.push(item);
+    }
+  }
+
+  return {
+    success: true,
+    subjects,
+    categories: {
+      localUsers,
+      adUsers,
+      adGroups,
+      localGroups,
+    },
+    count: subjects.length,
+  };
 }
 
 /**

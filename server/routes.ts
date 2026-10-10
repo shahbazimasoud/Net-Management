@@ -60,6 +60,8 @@ import {
   saveUserGroups,
   getAccessPolicies,
   saveAccessPolicies,
+  deleteAccessPolicy,
+  getAuthorizedMapSubjects,
   getEffectivePolicyForUser,
   getDeviceGroups,
   saveDeviceGroups,
@@ -1092,7 +1094,7 @@ apiRouter.delete('/settings/users/:id', async (req: Request, res: Response) => {
 // -------------------------------------------------------------
 // Maps & Hierarchy & Node Positions
 // -------------------------------------------------------------
-function extractUserFromRequest(req: Request): { userId?: string; username?: string; role?: string } | undefined {
+function extractUserFromRequest(req: Request): { userId?: string; username?: string; role?: string; groups?: string[] } | undefined {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
@@ -1102,6 +1104,7 @@ function extractUserFromRequest(req: Request): { userId?: string; username?: str
         userId: payload.userId,
         username: payload.username,
         role: payload.role,
+        groups: Array.isArray(payload.groups) ? payload.groups : [],
       };
     }
   }
@@ -1115,6 +1118,7 @@ function extractUserFromRequest(req: Request): { userId?: string; username?: str
       userId: queryUserId,
       username: queryUsername,
       role: queryRole,
+      groups: [],
     };
   }
 
@@ -1347,6 +1351,35 @@ apiRouter.post(['/settings/access-policies', '/access-policies'], async (req: Re
     res.json({ success: true, count: policies.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.delete(['/settings/access-policies/:id', '/access-policies/:id'], async (req: Request, res: Response) => {
+  try {
+    const policyId = req.params.id;
+    const deleted = await deleteAccessPolicy(policyId);
+    if (!deleted) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete protected root policy or policy not found',
+        message: 'امکان حذف پالیسی محافظت‌شده یا نامعتبر وجود ندارد.',
+      });
+    }
+    res.json({ success: true, message: 'Policy deleted successfully' });
+  } catch (err: any) {
+    console.error('[API DELETE access-policies error]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Authorized Subjects for Topology Maps & RBAC Visibility (Local Users, AD Users with Policy, AD Groups with Policy)
+apiRouter.get('/settings/authorized-map-subjects', async (req: Request, res: Response) => {
+  try {
+    const data = await getAuthorizedMapSubjects();
+    res.json(data);
+  } catch (err: any) {
+    console.error('[API /settings/authorized-map-subjects error]', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

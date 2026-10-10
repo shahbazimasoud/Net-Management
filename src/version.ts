@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.9';
+export const APP_VERSION = '1.305.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.305.0',
+    releaseDate: '2026-10-10',
+    type: 'minor',
+    title: 'موتور تجمیع سوژه‌های دارای پالیسی برای دسترسی نقشه‌ها و چرخه عمر پالیسی‌ها (فاز ۱)',
+    title_en: 'Policy-Governed Authorized Map Subjects Engine and Policy Lifecycle (Phase 1)',
+    changes: [
+      'طراحی و پیاده‌سازی متد و اندپوینت GET /api/settings/authorized-map-subjects جهت استخراج متمرکز کاربران محلی و کاربران و گروه‌های اکتیو دایرکتوری دارای پالیسی معتبر از دیتابیس PostgreSQL.',
+      'افزودن اندپوینت DELETE /api/settings/access-policies/:id و متد deleteAccessPolicy جهت مدیریت چرخه عمر و حذف بی‌درنگ پالیسی‌ها در پایگاه داده سرور.',
+      'ارتقای موتور فیلترینگ دسترسی نقشه‌ها در getCustomMaps جهت پشتیبانی کامل از اعتبارسنجی عضویت در گروه‌های دامین و امنیتی علاوه بر نام‌های کاربری فردی.',
+      'تجهیز هدرهای احراز هویت و تابع extractUserFromRequest به استخراج توکن‌های گروه‌های کاربری دامین جهت اعمال بلادرنگ سطوح دسترسی نقشه‌ها.'
+    ],
+    changes_en: [
+      'Designed and deployed GET /api/settings/authorized-map-subjects endpoint authoritatively querying local users and policy-assigned Active Directory users and groups from PostgreSQL.',
+      'Added DELETE /api/settings/access-policies/:id endpoint and deleteAccessPolicy method for realtime policy lifecycle management and database pruning.',
+      'Enhanced custom map restricted visibility filtering in getCustomMaps to support domain security group memberships alongside individual usernames.',
+      'Extended extractUserFromRequest and JWT verification with user group memberships for seamless map access evaluation.'
+    ]
+  },
   {
     version: '1.304.9',
     releaseDate: '2026-10-10',
