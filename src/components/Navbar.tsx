@@ -111,6 +111,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const currentThemeObj = themeOptions.find((t) => t.id === panelTheme) || themeOptions[0];
 
+  const getTitleInitials = (title?: string): string => {
+    if (!title || !title.trim()) return 'NT';
+    const clean = title.trim();
+    const words = clean.split(/\s+/).filter(Boolean);
+    if (words.length >= 2) {
+      return (words[0].slice(0, 1) + words[1].slice(0, 1)).toUpperCase();
+    }
+    return clean.slice(0, 2).toUpperCase();
+  };
+
+  const activeTitle = customTitle || t('app_title');
+  const dynamicInitials = getTitleInitials(activeTitle);
+
   return (
     <header className="h-14 spatial-glass text-white flex items-center justify-between px-4 lg:px-6 shrink-0 border-b border-white/10 sticky top-0 z-50 shadow-xl backdrop-blur-xl">
       {/* Brand & Identity */}
@@ -139,17 +152,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         ) : (
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs font-mono pulse-glow-cyan border border-white/20 shrink-0">
-            NT
+            {dynamicInitials}
           </div>
         )}
 
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-sm sm:text-base font-bold tracking-tight text-white font-mono glow-text-cyan flex items-center gap-1.5">
-              <span>{customTitle || t('app_title')}</span>
-              <span className="text-indigo-400 text-[11px] font-semibold px-1.5 py-0.2 rounded bg-indigo-500/20 border border-indigo-500/30">
-                {t('app_edition')}
-              </span>
+              <span>{activeTitle}</span>
+              {!customTitle && (
+                <span className="text-indigo-400 text-[11px] font-semibold px-1.5 py-0.2 rounded bg-indigo-500/20 border border-indigo-500/30">
+                  {t('app_edition')}
+                </span>
+              )}
             </h1>
           </div>
           <p className="text-[10px] text-slate-400 hidden sm:block font-sans truncate max-w-[320px]">

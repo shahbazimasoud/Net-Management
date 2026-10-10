@@ -433,6 +433,13 @@ export default function App() {
     };
   }, [applyGlobalSettings]);
 
+  // Continuously sync document title to active panel title
+  useEffect(() => {
+    if (generalSettings?.panelTitle && typeof document !== 'undefined') {
+      document.title = generalSettings.panelTitle;
+    }
+  }, [generalSettings?.panelTitle]);
+
   // Re-sync general settings when window regains focus to synchronize multi-user/multi-session changes
   useEffect(() => {
     const handleFocus = () => {
@@ -1299,7 +1306,7 @@ export default function App() {
               className="font-mono text-slate-400 hover:text-cyan-300 text-[10px] hidden sm:flex items-center gap-1.5 transition cursor-pointer"
               title={t('footer_view_release')}
             >
-              <span>NetTopology OS</span>
+              <span>{generalSettings.panelTitle || 'NetTopology'}</span>
               <span className="text-cyan-400 font-bold bg-white/5 hover:bg-white/10 px-1.5 py-0.2 rounded border border-white/10">
                 v{APP_VERSION}
               </span>

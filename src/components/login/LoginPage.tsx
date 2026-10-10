@@ -473,7 +473,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               ) : (
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] text-xs font-mono border border-white/20">
-                  NT
+                  {(() => {
+                    const title = (generalSettings.panelTitle || 'NetTopology').trim();
+                    const words = title.split(/\s+/).filter(Boolean);
+                    return (words.length >= 2 ? (words[0][0] + words[1][0]) : title.slice(0, 2)).toUpperCase();
+                  })()}
                 </div>
               )}
               <div>

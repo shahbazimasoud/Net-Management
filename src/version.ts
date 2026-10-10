@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.307.3';
+export const APP_VERSION = '1.307.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.307.4',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'هماهنگ‌سازی و انطباق کامل عنوان سایت، هدر، فوتر و لوگوی سامانه با تایتل سفارشی پنل',
+    title_en: 'Strictly Synchronize Site Title, Header, Footer, and Initials Logo with Custom Panel Title',
+    changes: [
+      'هماهنگ‌سازی واکنش‌گرای عنوان تب مرورگر (document.title) با تایتل سفارشی پنل (panelTitle) در تمامی لحظات بارگذاری و اجرا.',
+      'اصلاح هدر اصلی (Navbar) جهت نمایش انحصاری و دقیق عنوان سفارشی بدون الصاق برچسب‌های پیش‌فرض نامربوط هنگام تعریف عنوان اختصاصی.',
+      'پویایی‌سازی حروف اختصاری لوگوی پیش‌فرض پنل در نوار بالایی و صفحه لاگین بر مبنای حروف اول عنوان جدید به جای عبارت ثابت NT.',
+      'اتصال نام برند در فوتر پایینی به تایتل فعال سامانه و حذف برچسب ثابت NetTopology OS.'
+    ],
+    changes_en: [
+      'Reactively synchronized browser document.title to the custom panel title across all component states and session lifecycle.',
+      'Refined main Navbar branding to display the user-defined customTitle exclusively without extraneous default suffix badges.',
+      'Made default monogram/initials logo dynamically calculate letters from the active panel title instead of static hardcoded "NT".',
+      'Bound bottom footer brand badge to active panelTitle, replacing hardcoded "NetTopology OS" label.'
+    ]
+  },
   {
     version: '1.307.3',
     releaseDate: '2026-10-10',
