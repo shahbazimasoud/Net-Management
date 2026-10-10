@@ -58,6 +58,7 @@ export interface DiscoveredHostItem {
   existingServerId?: string | null;
   existingServerName?: string | null;
   discoveredAt: string;
+  isRefusedOnly?: boolean;
 }
 
 export interface ServerDiscoveryModalProps {
@@ -71,10 +72,10 @@ export interface ServerDiscoveryModalProps {
 
 const COMMON_SUBNET_PRESETS = [
   { label: '192.168.1.0/24', value: '192.168.1.0/24' },
-  { label: '192.168.0.0/24', value: '192.168.0.0/24' },
-  { label: '10.0.0.0/24', value: '10.0.0.0/24' },
-  { label: '172.16.0.0/24', value: '172.16.0.0/24' },
-  { label: '127.0.0.1/32 (Localhost)', value: '127.0.0.1' },
+  { label: '172.16.0.0/16', value: '172.16.0.0/16' },
+  { label: '10.10.0.0/16', value: '10.10.0.0/16' },
+  { label: '172.16.0.0/20', value: '172.16.0.0/20' },
+  { label: '127.0.0.1 (Localhost)', value: '127.0.0.1' },
 ];
 
 const SERVER_CATEGORIES = [
@@ -100,25 +101,37 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
 
   // Scan input states
   const [ipRangeInput, setIpRangeInput] = useState('192.168.1.0/24');
-  const [selectedPorts, setSelectedPorts] = useState<number[]>([22, 3389, 445, 5985]);
-  const [timeoutMs, setTimeoutMs] = useState(700);
-  const [concurrency, setConcurrency] = useState(16);
+  const [selectedPorts, setSelectedPorts] = useState<number[]>([22, 3389]);
+  const [timeoutMs, setTimeoutMs] = useState(800);
+  const [concurrency, setConcurrency] = useState(300);
 
   // Execution states
   const [isScanning, setIsScanning] = useState(false);
   const [activeScanId, setActiveScanId] = useState<string | null>(null);
-  const [progressScanned, setProgressScanned] = useState(0);
+  const [progressRequested, setProgressRequested] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
+  const [progressScanned, setProgressScanned] = useState(0);
+  const [progressFound, setProgressFound] = useState(0);
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [discoveredHosts, setDiscoveredHosts] = useState<DiscoveredHostItem[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [validationBanner, setValidationBanner] = useState<{
+    en: string;
+    fa: string;
+    requested?: number;
+    limit?: number;
+  } | null>(null);
 
   // Filtering & Selection states
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterOs, setFilterOs] = useState<'all' | 'linux' | 'windows' | 'new_only'>('all');
+  const [filterOs, setFilterOs] = useState<'all' | 'linux' | 'windows' | 'new_only' | 'refused'>('all');
+  const [showRefusedOnly, setShowRefusedOnly] = useState(false);
   const [selectedIps, setSelectedIps] = useState<Set<string>>(new Set());
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
+
+  // SSE EventSource reference
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   // Enrollment Dialog states
   const [enrollModalOpen, setEnrollModalOpen] = useState(false);
@@ -149,13 +162,29 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
     return () => clearInterval(timer);
   }, [isScanning, scanStartTime]);
 
+  // Clean up SSE stream on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    };
+  }, []);
+
   // Filtered hosts (Hook must be called unconditionally before any early returns)
   const filteredHosts = useMemo(() => {
     return discoveredHosts.filter((host) => {
+      // ECONNREFUSED-only hosts are hidden by default unless showRefusedOnly is true or filter is set to 'refused'
+      if (!showRefusedOnly && host.isRefusedOnly && filterOs !== 'refused') {
+        return false;
+      }
+
       // OS filter
       if (filterOs === 'linux' && host.osType !== 'linux') return false;
       if (filterOs === 'windows' && host.osType !== 'windows') return false;
       if (filterOs === 'new_only' && host.alreadyInFleet) return false;
+      if (filterOs === 'refused' && !host.isRefusedOnly) return false;
 
       // Search query
       if (searchQuery.trim()) {
@@ -167,7 +196,7 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
       }
       return true;
     });
-  }, [discoveredHosts, filterOs, searchQuery]);
+  }, [discoveredHosts, filterOs, searchQuery, showRefusedOnly]);
 
   // Toggle port checkbox
   const handleTogglePort = (port: number) => {
@@ -176,8 +205,8 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
     );
   };
 
-  // Start Discovery scan using real backend TCP socket engine
-  const handleStartDiscovery = async () => {
+  // Start Discovery scan via live chunked SSE stream
+  const handleStartDiscovery = () => {
     if (!ipRangeInput.trim()) {
       setScanError(
         isEn
@@ -196,65 +225,140 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
       return;
     }
 
+    // Abort and close any existing active EventSource
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
     setIsScanning(true);
     setScanError(null);
+    setValidationBanner(null);
     setDiscoveredHosts([]);
     setSelectedIps(new Set());
     setProgressScanned(0);
     setProgressTotal(0);
+    setProgressRequested(0);
+    setProgressFound(0);
     setScanStartTime(Date.now());
     setElapsedSeconds(0);
 
-    try {
-      // Use SSE real-time stream if available, otherwise direct POST
-      const res = await fetch('/api/remote-servers/discover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ipRange: ipRangeInput.trim(),
-          ports: selectedPorts,
-          timeoutMs,
-          concurrency,
-        }),
-      });
+    const queryParams = new URLSearchParams({
+      ipRange: ipRangeInput.trim(),
+      ports: selectedPorts.join(','),
+      timeoutMs: String(timeoutMs),
+      concurrency: String(concurrency),
+    });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(
-          data.error ||
-            (isEn ? 'Network discovery scan failed' : 'خطای پویش شبکه رخ داد')
+    const es = new EventSource(`/api/remote-servers/discover/stream?${queryParams.toString()}`);
+    eventSourceRef.current = es;
+
+    es.addEventListener('start', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.scanId) setActiveScanId(data.scanId);
+        if (typeof data.requested === 'number') setProgressRequested(data.requested);
+        if (typeof data.total === 'number') setProgressTotal(data.total);
+      } catch {}
+    });
+
+    es.addEventListener('progress', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.scanId) setActiveScanId(data.scanId);
+        if (typeof data.requested === 'number') setProgressRequested(data.requested);
+        if (typeof data.total === 'number') setProgressTotal(data.total);
+        if (typeof data.scanned === 'number') setProgressScanned(data.scanned);
+        if (typeof data.found === 'number') setProgressFound(data.found);
+        if (typeof data.elapsed === 'number') setElapsedSeconds(data.elapsed);
+      } catch {}
+    });
+
+    es.addEventListener('host', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.host) {
+          setDiscoveredHosts((prev) => {
+            if (prev.some((h) => h.ip === data.host.ip)) return prev;
+            return [...prev, data.host];
+          });
+          setProgressFound((prev) => prev + 1);
+        }
+      } catch {}
+    });
+
+    es.addEventListener('complete', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.results && Array.isArray(data.results)) {
+          setDiscoveredHosts(data.results);
+        }
+        if (typeof data.total === 'number') setProgressTotal(data.total);
+        if (typeof data.scanned === 'number') setProgressScanned(data.scanned);
+      } catch {}
+      es.close();
+      eventSourceRef.current = null;
+      setIsScanning(false);
+    });
+
+    es.addEventListener('error', (e: any) => {
+      try {
+        if (e.data) {
+          const errData = JSON.parse(e.data);
+          const msgEn = errData.error || 'Discovery scan failed';
+          const msgFa = errData.errorFa || errData.error || 'خطا در اجرای اسکن دیسکاوری';
+          setScanError(isEn ? msgEn : msgFa);
+          if (errData.requested || errData.limit) {
+            setValidationBanner({
+              en: msgEn,
+              fa: msgFa,
+              requested: errData.requested,
+              limit: errData.limit,
+            });
+          }
+        } else {
+          setScanError(
+            isEn ? 'Connection to discovery stream was closed.' : 'اتصال به استریم دیسکاوری قطع شد.'
+          );
+        }
+      } catch {
+        setScanError(
+          isEn ? 'Stream error during discovery scan.' : 'خطای استریم در حین اسکن دیسکاوری.'
         );
       }
-
-      setActiveScanId(data.scanId);
-      setProgressScanned(data.scannedIps || data.totalIps);
-      setProgressTotal(data.totalIps || 0);
-      setDiscoveredHosts(data.results || []);
-    } catch (err: any) {
-      setScanError(err?.message || (isEn ? 'Discovery scan failed' : 'خطا در اجرای دیسکاوری'));
-    } finally {
+      es.close();
+      eventSourceRef.current = null;
       setIsScanning(false);
-    }
+    });
+
+    es.onerror = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      setIsScanning(false);
+    };
   };
 
   // Abort Discovery Scan
   const handleAbortDiscovery = async () => {
-    if (!activeScanId) {
-      setIsScanning(false);
-      return;
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
 
-    try {
-      await fetch('/api/remote-servers/discover/abort', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scanId: activeScanId }),
-      });
-    } catch {
-      // ignore
-    } finally {
-      setIsScanning(false);
+    if (activeScanId) {
+      try {
+        await fetch('/api/remote-servers/discover/abort', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scanId: activeScanId }),
+        });
+      } catch {
+        // ignore
+      }
     }
+    setIsScanning(false);
   };
 
   // Copy IP to clipboard
@@ -477,6 +581,7 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
   ).length;
   const inFleetCount = discoveredHosts.filter((h) => h.alreadyInFleet).length;
   const newNodesCount = discoveredHosts.filter((h) => !h.alreadyInFleet).length;
+  const refusedOnlyCount = discoveredHosts.filter((h) => h.isRefusedOnly).length;
 
   if (!isOpen) return null;
 
@@ -685,65 +790,80 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
                     value={ipRangeInput}
                     onChange={(e) => setIpRangeInput(e.target.value)}
                     disabled={isScanning}
-                    placeholder="e.g. 192.168.1.0/24 or 10.0.0.1 - 10.0.0.50"
+                    placeholder="e.g. 172.16.0.0/16 or 10.10.0.0/16 or 192.168.1.0/24"
                     className={`w-full px-3 py-2 text-xs font-mono rounded-lg border focus:outline-none transition ${
                       isLightMode
                         ? 'bg-slate-50 text-slate-900 border-slate-300 focus:border-cyan-500 focus:bg-white'
                         : 'bg-slate-950 text-cyan-300 border-slate-700 focus:border-cyan-400'
                     }`}
                   />
+                  {/* Subnet sizes helper hint */}
+                  <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1">
+                    <span>
+                      {isEn
+                        ? 'Sizes: /24 (256 IPs / 254 hosts) • /20 (4,096 IPs) • /16 (65,536 IPs max)'
+                        : 'سایزها: /24 (۲۵۶ آی‌پی / ۲۵۴ هاست) • /20 (۴٬۰۹۶ آی‌پی) • /16 (حداکثر ۶۵٬۵۳۶ آی‌پی)'}
+                    </span>
+                    <span className="text-cyan-400 font-semibold">
+                      {isEn ? 'Max: 65,536 IPs' : 'حداکثر ۶۵٬۵۳۶ آی‌پی'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Timeout & Concurrency Controls */}
-              <div className="md:col-span-3 grid grid-cols-2 gap-2">
-                <div>
-                  <label
-                    className={`block text-[11px] font-medium mb-1 truncate ${
-                      isLightMode ? 'text-slate-600' : 'text-slate-400'
-                    }`}
-                  >
-                    {isEn ? 'Timeout (ms)' : 'تایم‌اوت (ms)'}
-                  </label>
-                  <select
+              {/* Timeout & Concurrency Sliders */}
+              <div className="md:col-span-3 grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label
+                      className={`block text-[11px] font-medium truncate ${
+                        isLightMode ? 'text-slate-600' : 'text-slate-400'
+                      }`}
+                    >
+                      {isEn ? 'Timeout' : 'تایم‌اوت'}
+                    </label>
+                    <span className="text-[10px] font-mono text-cyan-400 font-bold">{timeoutMs}ms</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={300}
+                    max={3000}
+                    step={50}
                     value={timeoutMs}
                     onChange={(e) => setTimeoutMs(Number(e.target.value))}
                     disabled={isScanning}
-                    className={`w-full px-2 py-1.5 text-xs rounded-lg border font-mono focus:outline-none cursor-pointer ${
-                      isLightMode
-                        ? 'bg-slate-50 text-slate-800 border-slate-300'
-                        : 'bg-slate-950 text-slate-300 border-slate-700'
-                    }`}
-                  >
-                    <option value={400}>400ms ({isEn ? 'Fast LAN' : 'شبکه پرسرعت'})</option>
-                    <option value={700}>700ms ({isEn ? 'Standard' : 'استاندارد'})</option>
-                    <option value={1200}>1200ms ({isEn ? 'WAN/VPN' : 'خطوط کند/VPN'})</option>
-                    <option value={2000}>2000ms ({isEn ? 'High Latency' : 'تاخیر بالا'})</option>
-                  </select>
+                    className="w-full accent-cyan-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                  />
+                  <div className="flex justify-between text-[9px] font-mono text-slate-500">
+                    <span>300ms</span>
+                    <span>3s</span>
+                  </div>
                 </div>
-                <div>
-                  <label
-                    className={`block text-[11px] font-medium mb-1 truncate ${
-                      isLightMode ? 'text-slate-600' : 'text-slate-400'
-                    }`}
-                  >
-                    {isEn ? 'Threads' : 'نخ‌های همزمان'}
-                  </label>
-                  <select
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label
+                      className={`block text-[11px] font-medium truncate ${
+                        isLightMode ? 'text-slate-600' : 'text-slate-400'
+                      }`}
+                    >
+                      {isEn ? 'Threads' : 'نخ‌ها'}
+                    </label>
+                    <span className="text-[10px] font-mono text-cyan-400 font-bold">{concurrency}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={50}
+                    max={500}
+                    step={25}
                     value={concurrency}
                     onChange={(e) => setConcurrency(Number(e.target.value))}
                     disabled={isScanning}
-                    className={`w-full px-2 py-1.5 text-xs rounded-lg border font-mono focus:outline-none cursor-pointer ${
-                      isLightMode
-                        ? 'bg-slate-50 text-slate-800 border-slate-300'
-                        : 'bg-slate-950 text-slate-300 border-slate-700'
-                    }`}
-                  >
-                    <option value={8}>8 {isEn ? 'Workers' : 'نخ'}</option>
-                    <option value={16}>16 {isEn ? 'Workers' : 'نخ'}</option>
-                    <option value={24}>24 {isEn ? 'Workers' : 'نخ'}</option>
-                    <option value={32}>32 {isEn ? 'Max Speed' : 'حداکثر سرعت'}</option>
-                  </select>
+                    className="w-full accent-cyan-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                  />
+                  <div className="flex justify-between text-[9px] font-mono text-slate-500">
+                    <span>50</span>
+                    <span>500</span>
+                  </div>
                 </div>
               </div>
 
@@ -843,8 +963,43 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
             </div>
           </div>
 
+          {/* Range Rejected Banner */}
+          {validationBanner && (
+            <div className="p-4 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 space-y-2 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-bold text-xs">
+                  <AlertCircle className="w-4.5 h-4.5 text-amber-400 shrink-0" />
+                  <span>{isEn ? 'IP Range Rejected (Exceeds Limit or Invalid)' : 'محدوده آی‌پی رد شد (فراتر از سقف مجاز یا نامعتبر)'}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setValidationBanner(null)}
+                  className="text-amber-400/80 hover:text-amber-200 p-0.5 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-xs leading-relaxed text-amber-200">
+                {isEn ? validationBanner.en : validationBanner.fa}
+              </p>
+              {validationBanner.requested && validationBanner.limit && (
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono pt-1 text-amber-300">
+                  <span className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-500/30">
+                    {isEn ? 'Requested:' : 'آدرس‌های درخواستی:'} {validationBanner.requested.toLocaleString()} IPs
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-500/30">
+                    {isEn ? 'Max Cap:' : 'سقف مجاز:'} {validationBanner.limit.toLocaleString()} IPs (/16)
+                  </span>
+                  <span className="text-amber-400/90 text-[10px]">
+                    {isEn ? 'Tip: Split large blocks like 10.0.0.0/8 into 10.X.0.0/16 subnets.' : 'راهنما: بلوک‌های بزرگ مانند 10.0.0.0/8 را به ساب‌نت‌های 10.X.0.0/16 تقسیم کنید.'}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Scan Error Alert */}
-          {scanError && (
+          {scanError && !validationBanner && (
             <div className="p-3.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 text-xs flex items-center gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{scanError}</span>
@@ -852,26 +1007,50 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
           )}
 
           {/* Progress / Status Banner */}
-          {isScanning && (
+          {(isScanning || progressScanned > 0) && (
             <div
               className={`p-3.5 rounded-xl border space-y-2 animate-in fade-in ${
-                isLightMode
-                  ? 'bg-cyan-50/70 border-cyan-200 text-cyan-900'
-                  : 'bg-cyan-950/30 border-cyan-500/30 text-cyan-200'
+                isScanning
+                  ? isLightMode
+                    ? 'bg-cyan-50/70 border-cyan-200 text-cyan-900'
+                    : 'bg-cyan-950/30 border-cyan-500/30 text-cyan-200'
+                  : isLightMode
+                  ? 'bg-slate-100 border-slate-200 text-slate-800'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-200'
               }`}
             >
-              <div className="flex items-center justify-between text-xs font-mono">
+              <div className="flex flex-wrap items-center justify-between text-xs font-mono gap-2">
                 <div className="flex items-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                  {isScanning ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
                   <span>
-                    {isEn
-                      ? `Probing IP range in progress (${elapsedSeconds}s elapsed)...`
-                      : `در حال پویش فعال رنج آی‌پی (${elapsedSeconds} ثانیه)...`}
+                    {isScanning
+                      ? isEn
+                        ? `Probing IP range in progress (${elapsedSeconds}s elapsed)...`
+                        : `در حال پویش فعال رنج آی‌پی (${elapsedSeconds} ثانیه)...`
+                      : isEn
+                      ? `Scan finished in ${elapsedSeconds}s`
+                      : `پویش در ${elapsedSeconds} ثانیه پایان یافت`}
                   </span>
                 </div>
-                <span>
-                  {progressScanned} / {progressTotal || '?'} IPs
-                </span>
+                <div className="flex items-center gap-3 text-[11px]">
+                  {progressRequested > 0 && progressRequested !== progressTotal && (
+                    <span className="text-slate-400">
+                      {isEn ? 'Requested:' : 'درخواستی:'} {progressRequested.toLocaleString()}
+                    </span>
+                  )}
+                  <span>
+                    {isEn ? 'Scanned:' : 'پویش‌شده:'}{' '}
+                    <strong className="text-cyan-400 font-bold">{progressScanned.toLocaleString()}</strong> /{' '}
+                    {progressTotal > 0 ? progressTotal.toLocaleString() : '?'} IPs
+                  </span>
+                  <span className="text-emerald-400 font-bold">
+                    {isEn ? 'Found:' : 'یافت‌شده:'} {discoveredHosts.length}
+                  </span>
+                </div>
               </div>
               <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
                 <div
@@ -880,7 +1059,9 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
                     width: `${
                       progressTotal > 0
                         ? Math.min(100, Math.round((progressScanned / progressTotal) * 100))
-                        : 50
+                        : isScanning
+                        ? 30
+                        : 100
                     }%`,
                   }}
                 />
@@ -1048,7 +1229,50 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
                 >
                   {isEn ? 'New Nodes' : 'فقط جدید'} ({newNodesCount})
                 </button>
+                {refusedOnlyCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterOs('refused');
+                      setShowRefusedOnly(true);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
+                      filterOs === 'refused'
+                        ? 'bg-amber-500/20 text-amber-300 font-bold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {isEn ? 'Refused / Closed' : 'پورت‌های بسته'} ({refusedOnlyCount})
+                  </button>
+                )}
               </div>
+
+              {/* Refused-only visibility toggle */}
+              {refusedOnlyCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowRefusedOnly((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-mono border transition cursor-pointer flex items-center gap-1.5 ${
+                    showRefusedOnly
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
+                      : isLightMode
+                      ? 'bg-white hover:bg-slate-100 border-slate-300 text-slate-600'
+                      : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-400'
+                  }`}
+                  title={isEn ? 'Toggle ECONNREFUSED hosts' : 'تغییر وضعیت نمایش هاست‌های پورت بسته'}
+                >
+                  <Shield className="w-3 h-3 text-amber-400" />
+                  <span>
+                    {showRefusedOnly
+                      ? isEn
+                        ? 'Hide Refused'
+                        : 'مخفی‌سازی پورت‌های بسته'
+                      : isEn
+                      ? `Show Refused (${refusedOnlyCount})`
+                      : `نمایش پورت‌های بسته (${refusedOnlyCount})`}
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Bulk Action Button */}
@@ -1217,7 +1441,12 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
                           {/* Detected OS Badge */}
                           <td className="py-3 px-3.5">
                             <div className="flex items-center gap-1.5">
-                              {isLinux ? (
+                              {host.isRefusedOnly ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                  <Shield className="w-3.5 h-3.5" />
+                                  <span>{isEn ? 'ALIVE (CLOSED)' : 'فعال (بسته)'}</span>
+                                </span>
+                              ) : isLinux ? (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-teal-500/15 text-teal-400 border border-teal-500/30">
                                   <Terminal className="w-3.5 h-3.5" />
                                   <span>Linux</span>
@@ -1246,29 +1475,37 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
 
                           {/* Open Ports */}
                           <td className="py-3 px-3.5">
-                            <div className="flex flex-wrap gap-1">
-                              {host.openPorts.map((p) => {
-                                const isSsh = p === 22;
-                                const isRdp = p === 3389;
-                                return (
-                                  <span
-                                    key={p}
-                                    className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold border ${
-                                      isSsh
-                                        ? 'bg-teal-500/10 text-teal-300 border-teal-500/30'
-                                        : isRdp
-                                        ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
-                                        : isLightMode
-                                        ? 'bg-slate-100 text-slate-700 border-slate-200'
-                                        : 'bg-slate-800 text-slate-300 border-slate-700'
-                                    }`}
-                                  >
-                                    {p}
-                                    {isSsh ? '/ssh' : isRdp ? '/rdp' : ''}
-                                  </span>
-                                );
-                              })}
-                            </div>
+                            {host.isRefusedOnly ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                                {isEn ? 'Closed (RST Refused)' : 'بسته (پاسخ RST)'}
+                              </span>
+                            ) : host.openPorts.length === 0 ? (
+                              <span className="text-[10px] text-slate-500 italic font-mono">-</span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {host.openPorts.map((p) => {
+                                  const isSsh = p === 22;
+                                  const isRdp = p === 3389;
+                                  return (
+                                    <span
+                                      key={p}
+                                      className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold border ${
+                                        isSsh
+                                          ? 'bg-teal-500/10 text-teal-300 border-teal-500/30'
+                                          : isRdp
+                                          ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                                          : isLightMode
+                                          ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                          : 'bg-slate-800 text-slate-300 border-slate-700'
+                                      }`}
+                                    >
+                                      {p}
+                                      {isSsh ? '/ssh' : isRdp ? '/rdp' : ''}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </td>
 
                           {/* Latency */}

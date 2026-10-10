@@ -488,10 +488,15 @@ import {
   isValidTimezone,
 } from './serverTimeManager';
 import {
-  parseIpRange,
-  executeDiscoveryScan,
+  MAX_SCAN_IPS,
+  DEFAULT_CONCURRENCY,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_CHUNK_SIZE,
+  parseAndValidateIpRange,
+  executeChunkedDiscoveryScan,
   abortDiscoveryScan,
   getDiscoveryScanStatus,
+  DiscoveryValidationError,
 } from './discoveryEngine';
 
 export const apiRouter = Router();
@@ -4098,22 +4103,36 @@ apiRouter.post('/remote-servers/discover', async (req: Request, res: Response) =
       });
     }
 
-    const { ipRange, ports, timeoutMs, concurrency } = req.body;
+    const { ipRange, ports, timeoutMs, concurrency, chunkSize } = req.body;
     if (!ipRange || typeof ipRange !== 'string') {
       return res.status(400).json({ success: false, error: 'Target IP range, subnet or list is required.' });
     }
 
-    const ips = parseIpRange(ipRange, 512);
-    if (ips.length === 0) {
-      return res.status(400).json({ success: false, error: 'No valid IPv4 addresses found in the provided range.' });
+    let parsedRange;
+    try {
+      parsedRange = parseAndValidateIpRange(ipRange, MAX_SCAN_IPS);
+    } catch (valErr: any) {
+      return res.status(400).json({
+        success: false,
+        error: valErr.message || 'Invalid IP range specification',
+        errorFa: valErr.errorFa || 'مشخصات رنج آی‌پی نامعتبر است',
+        requested: valErr.requested || 0,
+        limit: valErr.limit || MAX_SCAN_IPS,
+      });
     }
 
     const scanId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const probePorts = Array.isArray(ports) && ports.length > 0 ? ports : [22, 3389, 445, 5985];
-    const timeout = Math.min(Math.max(Number(timeoutMs) || 700, 250), 3000);
-    const concurrentLimit = Math.min(Math.max(Number(concurrency) || 16, 1), 32);
+    const probePorts = Array.isArray(ports) && ports.length > 0 ? ports : [22, 3389];
+    const timeout = Math.min(Math.max(Number(timeoutMs) || DEFAULT_TIMEOUT_MS, 300), 3000);
+    const concurrentLimit = Math.min(Math.max(Number(concurrency) || DEFAULT_CONCURRENCY, 50), 500);
+    const chunkLimit = Math.max(16, Math.min(Number(chunkSize) || DEFAULT_CHUNK_SIZE, 1024));
 
-    const results = await executeDiscoveryScan(scanId, ips, probePorts, timeout, concurrentLimit);
+    const results = await executeChunkedDiscoveryScan(scanId, parsedRange, {
+      ports: probePorts,
+      timeoutMs: timeout,
+      concurrency: concurrentLimit,
+      chunkSize: chunkLimit,
+    });
 
     // Audit log
     await addAuditLog({
@@ -4122,16 +4141,18 @@ apiRouter.post('/remote-servers/discover', async (req: Request, res: Response) =
       category: 'device',
       target: ipRange.substring(0, 64),
       status: 'success',
-      details: `Scanned ${ips.length} IPs, discovered ${results.length} active servers (${results.filter((r) => r.osType === 'linux').length} Linux, ${results.filter((r) => r.osType === 'windows').length} Windows)`,
+      details: `Scanned ${parsedRange.total} IPs (requested: ${parsedRange.requested}), discovered ${results.length} active servers (${results.filter((r) => r.osType === 'linux').length} Linux, ${results.filter((r) => r.osType === 'windows').length} Windows)`,
       ipAddress: getClientIp(req),
       userAgent: req.headers['user-agent'] || 'WebUI',
-    });
+    }).catch(() => {});
 
     res.json({
       success: true,
       scanId,
-      totalIps: ips.length,
-      scannedIps: ips.length,
+      requested: parsedRange.requested,
+      total: parsedRange.total,
+      totalIps: parsedRange.total,
+      scannedIps: parsedRange.total,
       foundCount: results.length,
       results,
     });
@@ -4143,53 +4164,115 @@ apiRouter.post('/remote-servers/discover', async (req: Request, res: Response) =
 
 // GET /api/remote-servers/discover/stream - Real-time SSE stream for server discovery
 apiRouter.get('/remote-servers/discover/stream', async (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  let scanId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
   try {
-    const ipRange = req.query.ipRange as string;
+    const ipRange = (req.query.ipRange as string || '').trim();
     if (!ipRange) {
-      return res.status(400).json({ success: false, error: 'Target IP range is required' });
+      res.write(`event: error\ndata: ${JSON.stringify({
+        scanId,
+        error: 'Target IP range is required.',
+        errorFa: 'ورود محدوده آی‌پی الزامی است.',
+        requested: 0,
+        limit: MAX_SCAN_IPS,
+      })}\n\n`);
+      return res.end();
     }
 
-    const ips = parseIpRange(ipRange, 512);
-    if (ips.length === 0) {
-      return res.status(400).json({ success: false, error: 'No valid IPv4 addresses found' });
+    let parsedRange;
+    try {
+      parsedRange = parseAndValidateIpRange(ipRange, MAX_SCAN_IPS);
+    } catch (valErr: any) {
+      res.write(`event: error\ndata: ${JSON.stringify({
+        scanId,
+        error: valErr.message || 'Invalid IP range specification',
+        errorFa: valErr.errorFa || 'مشخصات رنج آی‌پی نامعتبر است',
+        requested: valErr.requested || 0,
+        limit: valErr.limit || MAX_SCAN_IPS,
+      })}\n\n`);
+      return res.end();
     }
 
-    const scanId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const probePorts = req.query.ports
       ? (req.query.ports as string)
           .split(',')
           .map((p) => parseInt(p, 10))
-          .filter((p) => !isNaN(p))
-      : [22, 3389, 445, 5985];
-    const timeout = Math.min(Math.max(Number(req.query.timeoutMs) || 700, 250), 3000);
-    const concurrentLimit = Math.min(Math.max(Number(req.query.concurrency) || 16, 1), 32);
+          .filter((p) => !isNaN(p) && p > 0 && p <= 65535)
+      : [22, 3389];
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
+    const timeout = Math.min(Math.max(Number(req.query.timeoutMs) || DEFAULT_TIMEOUT_MS, 300), 3000);
+    const concurrentLimit = Math.min(Math.max(Number(req.query.concurrency) || DEFAULT_CONCURRENCY, 50), 500);
+    const chunkLimit = Math.max(16, Math.min(Number(req.query.chunkSize) || DEFAULT_CHUNK_SIZE, 1024));
 
-    res.write(`event: start\ndata: ${JSON.stringify({ scanId, total: ips.length })}\n\n`);
+    // Abort scan automatically if client disconnects
+    req.on('close', () => {
+      abortDiscoveryScan(scanId);
+    });
 
-    const results = await executeDiscoveryScan(
+    res.write(`event: start\ndata: ${JSON.stringify({
       scanId,
-      ips,
-      probePorts,
-      timeout,
-      concurrentLimit,
-      (host, scanned, total) => {
-        res.write(`event: progress\ndata: ${JSON.stringify({ scanId, scanned, total, host })}\n\n`);
-      }
-    );
+      requested: parsedRange.requested,
+      total: parsedRange.total,
+      chunkSize: chunkLimit,
+      concurrency: concurrentLimit,
+      timeoutMs: timeout,
+    })}\n\n`);
 
-    res.write(
-      `event: complete\ndata: ${JSON.stringify({ scanId, total: ips.length, foundCount: results.length, results })}\n\n`
-    );
-    res.end();
+    const results = await executeChunkedDiscoveryScan(scanId, parsedRange, {
+      ports: probePorts.length > 0 ? probePorts : [22, 3389],
+      timeoutMs: timeout,
+      concurrency: concurrentLimit,
+      chunkSize: chunkLimit,
+      onProgress: (evt) => {
+        if (!res.writableEnded) {
+          res.write(`event: progress\ndata: ${JSON.stringify(evt)}\n\n`);
+        }
+      },
+      onHostFound: (host) => {
+        if (!res.writableEnded) {
+          res.write(`event: host\ndata: ${JSON.stringify({ scanId, host })}\n\n`);
+        }
+      },
+    });
+
+    // Audit log
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || 'Admin',
+      action: 'Server Fleet Discovery (Stream)',
+      category: 'device',
+      target: ipRange.substring(0, 64),
+      status: 'success',
+      details: `Scanned ${parsedRange.total} IPs (requested: ${parsedRange.requested}), discovered ${results.length} active servers`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    }).catch(() => {});
+
+    if (!res.writableEnded) {
+      res.write(`event: complete\ndata: ${JSON.stringify({
+        scanId,
+        requested: parsedRange.requested,
+        total: parsedRange.total,
+        scanned: parsedRange.total,
+        foundCount: results.length,
+        results,
+      })}\n\n`);
+      res.end();
+    }
   } catch (err: any) {
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, error: err.message });
-    } else {
+    if (!res.writableEnded) {
+      res.write(`event: error\ndata: ${JSON.stringify({
+        scanId,
+        error: err.message || 'Discovery scan failed',
+        errorFa: 'خطا در اجرای اسکن دیسکاوری',
+        requested: 0,
+        limit: MAX_SCAN_IPS,
+      })}\n\n`);
       res.end();
     }
   }

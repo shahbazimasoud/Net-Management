@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.1';
+export const APP_VERSION = '1.306.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.2',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'ارتقای دیسکاوری سرورها تا سقف ۶۵٬۵۳۶ آدرس IP و استریم زنده چندنخی با SSE',
+    title_en: 'Range-Independent Discovery up to 65,536 IPs with Chunked SSE Streaming',
+    changes: [
+      'افزایش سقف پویش رنج آی‌پی به ۶۵٬۵۳۶ آدرس در هر اسکن (پوشش کامل ساب‌نت‌های /16 تا /32 و انواع رنج‌های ترکیبی).',
+      'حذف آدرس‌های شبکه و برودکست در ساب‌نت‌های /30 و بزرگتر با تولید کم‌مصرف ژنراتور بدون ذخیره آرایه‌های حجیم در حافظه.',
+      'اجرای پویش در چانک‌های ۲۵۶تایی با استخر نخ‌های همزمان (پیش‌فرض ۳۰۰ نخ، قابل تنظیم ۵۰ تا ۵۰۰) و استریم زنده پیشرفت با SSE.',
+      'تشخیص دقیق وضعیت پورت‌ها (Open، ECONNREFUSED/Closed و Filtered) و تفکیک هاست‌های فعال با پورت بسته با فیلتر اختصاصی.',
+      'پشتیبانی کامل از توقف آنی پویش (Abort) و قطع فوری سوکت‌های فعال با جلوگیری قطعی از نشت سوکت.'
+    ],
+    changes_en: [
+      'Increased server discovery ceiling to 65,536 addresses per scan (covering all /16 to /32 subnets and arbitrary mixed ranges).',
+      'Automated network and broadcast address omission for /30 or larger CIDRs via lazy generator expansion without in-memory array bloat.',
+      'Chunked 256-IP execution with worker-pool concurrency limit (default 300, configurable 50-500) and live SSE telemetry streaming.',
+      'Accurate port state differentiation (Open, ECONNREFUSED/Closed, Filtered) and dedicated filtering for alive hosts with refused ports.',
+      'Immediate abort support via POST /api/remote-servers/discover/abort with instantaneous active socket destruction and zero leaks.'
+    ]
+  },
   {
     version: '1.306.1',
     releaseDate: '2026-10-10',
