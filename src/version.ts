@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.5';
+export const APP_VERSION = '1.306.6';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.6',
+    releaseDate: '2026-10-10',
+    type: 'minor',
+    title: 'افزودن جستجوگر هوشمند و کمبوباکس انتخاب کاربران اکتیو دایرکتوری در پالیسی‌های دسترسی RBAC',
+    title_en: 'Implement Searchable Autocomplete Combobox for Active Directory Users in RBAC Policies',
+    changes: [
+      'جایگزینی دراپ‌دان تک‌مرحله‌ای سنگین با کمبوباکس جستجوپذیر و بهینه (Searchable Combobox) در فیلد Target Identity پالیسی‌های دسترسی RBAC.',
+      'امکان جستجوی زنده و آنی در میان هزاران کاربر دامین بر اساس نام، نام کاربری، دپارتمان و آدرس ایمیل بدون افت سرعت یا هنگ کردن فرم.',
+      'افزودن کارت خلاصه وضعیت هویت انتخابی شامل آواتار، برچسب نام کاربری (@username)، دپارتمان و وضعیت فعال/غیرفعال بودن حساب در دامین.',
+      'محدودسازی سقف نمایش نتایج دراپ‌دان به ۵۰ مورد اول منطبق با جستجو جهت حفظ رندرینگ سریع و تجربه کاربری روان (۶۰ فریم بر ثانیه).'
+    ],
+    changes_en: [
+      'Replaced the heavy raw select dropdown with a searchable autocomplete combobox in RBAC Target Identity when Active Directory User is selected.',
+      'Enabled instant real-time filtering across thousands of domain users by display name, SAM account name, department, title, and email address.',
+      'Added an interactive summary card displaying user initials avatar, @samAccountName badge, department, and account status (active/disabled).',
+      'Capped dropdown render results to top 50 matches with live refinement hints to guarantee 60fps performance and zero DOM bloat.'
+    ]
+  },
   {
     version: '1.306.5',
     releaseDate: '2026-10-10',

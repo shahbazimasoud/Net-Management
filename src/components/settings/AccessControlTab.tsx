@@ -138,6 +138,42 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   const [deviceTypeMatrixFilter, setDeviceTypeMatrixFilter] = useState<'all' | 'switch' | 'router' | 'firewall' | 'other'>('all');
   const [isSyncingDb, setIsSyncingDb] = useState<boolean>(false);
 
+  // Search and selector state for AD User target identity in RBAC policy modal
+  const [adUserSearchQuery, setAdUserSearchQuery] = useState('');
+  const [isAdUserDropdownOpen, setIsAdUserDropdownOpen] = useState(false);
+
+  // Filter AD users for RBAC policy creation/editing
+  const filteredAdUsersForRbac = useMemo(() => {
+    const list = liveAdConfig.syncedUsers || [];
+    if (!adUserSearchQuery.trim()) {
+      return list;
+    }
+    const q = adUserSearchQuery.trim().toLowerCase();
+    return list.filter((u) => {
+      const sam = String(u.samAccountName || '').toLowerCase();
+      const name = String(u.displayName || '').toLowerCase();
+      const mail = String(u.email || '').toLowerCase();
+      const dept = String(u.department || '').toLowerCase();
+      const title = String(u.title || '').toLowerCase();
+      return (
+        sam.includes(q) ||
+        name.includes(q) ||
+        mail.includes(q) ||
+        dept.includes(q) ||
+        title.includes(q)
+      );
+    });
+  }, [liveAdConfig.syncedUsers, adUserSearchQuery]);
+
+  const currentSelectedAdUser = useMemo(() => {
+    if (!editingPolicy || editingPolicy.subjectType !== 'ad_user') return null;
+    return (
+      (liveAdConfig.syncedUsers || []).find(
+        (u) => u.samAccountName === editingPolicy.subjectId || u.dn === editingPolicy.subjectId
+      ) || null
+    );
+  }, [liveAdConfig.syncedUsers, editingPolicy?.subjectId, editingPolicy?.subjectType]);
+
   // Synchronize authentic database entities
   const refreshDatabaseData = useCallback(async () => {
     setIsSyncingDb(true);
@@ -948,30 +984,200 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                   )}
 
                   {editingPolicy.subjectType === 'ad_user' && (
-                    <select
-                      value={editingPolicy.subjectId}
-                      onChange={(e) => {
-                        const usr = liveAdConfig.syncedUsers.find((u) => u.samAccountName === e.target.value);
-                        setEditingPolicy({
-                          ...editingPolicy,
-                          subjectId: e.target.value,
-                          subjectName: usr ? `${usr.displayName}` : e.target.value,
-                        });
-                      }}
-                      className="w-full px-3 py-1.5 rounded-xl bg-slate-800 border border-white/15 text-white text-xs focus:outline-none focus:border-cyan-400"
-                    >
+                    <div className="space-y-2">
                       {liveAdConfig.syncedUsers.length === 0 ? (
-                        <option value="" disabled>
-                          {isEn ? 'No AD users synced from database' : 'هیچ کاربری از اکتیو دایرکتوری در پایگاه‌داده یافت نشد'}
-                        </option>
+                        <div
+                          className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                            isLight
+                              ? 'bg-amber-50 border-amber-200 text-amber-900'
+                              : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+                          }`}
+                        >
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>
+                            {isEn
+                              ? 'No Active Directory users synced yet. Go to Active Directory tab and click "Sync Objects".'
+                              : 'هنوز هیچ کاربری از اکتیو دایرکتوری همگام‌سازی نشده است. ابتدا در تب Active Directory دکمه همگام‌سازی را بزنید.'}
+                          </span>
+                        </div>
                       ) : (
-                        liveAdConfig.syncedUsers.map((u) => (
-                          <option key={u.samAccountName} value={u.samAccountName}>
-                            {u.displayName} ({u.samAccountName}) {u.department ? `- ${u.department}` : ''}
-                          </option>
-                        ))
+                        <div className="relative">
+                          {/* Search Input Bar */}
+                          <div className="relative">
+                            <Search className="w-4 h-4 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={adUserSearchQuery}
+                              onChange={(e) => {
+                                setAdUserSearchQuery(e.target.value);
+                                setIsAdUserDropdownOpen(true);
+                              }}
+                              onFocus={() => setIsAdUserDropdownOpen(true)}
+                              placeholder={
+                                isEn
+                                  ? 'Search AD users (name, username, department, email)...'
+                                  : 'جستجوی کاربر دامین (بر اساس نام، نام کاربری، دپارتمان یا ایمیل)...'
+                              }
+                              className={`w-full pl-9 pr-9 rtl:pl-9 rtl:pr-9 py-2 rounded-xl text-xs outline-none transition ${
+                                isLight
+                                  ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-500 shadow-xs'
+                                  : 'bg-slate-900/95 border border-white/20 text-white focus:border-cyan-400'
+                              }`}
+                            />
+                            {adUserSearchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => setAdUserSearchQuery('')}
+                                className="absolute right-3 rtl:right-auto rtl:left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 cursor-pointer"
+                                title={isEn ? 'Clear search' : 'پاک کردن جستجو'}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Selected User Summary Card */}
+                          <div
+                            className={`mt-2 p-2.5 rounded-xl border flex items-center justify-between gap-3 transition ${
+                              isLight
+                                ? 'bg-cyan-50/70 border-cyan-200 text-slate-900'
+                                : 'bg-cyan-950/40 border-cyan-500/30 text-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-xs">
+                                {editingPolicy.subjectId
+                                  ? editingPolicy.subjectId.slice(0, 2).toUpperCase()
+                                  : 'AD'}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold truncate max-w-[200px]" title={currentSelectedAdUser?.displayName || editingPolicy.subjectName}>
+                                    {currentSelectedAdUser?.displayName || editingPolicy.subjectName || editingPolicy.subjectId}
+                                  </span>
+                                  <span className="text-[10px] font-mono text-cyan-400 px-1.5 py-0.2 rounded bg-cyan-500/10 border border-cyan-500/20 shrink-0">
+                                    @{editingPolicy.subjectId}
+                                  </span>
+                                  {currentSelectedAdUser?.enabled === false && (
+                                    <span className="text-[9px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-300 font-medium shrink-0">
+                                      {isEn ? 'Disabled' : 'غیرفعال'}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                                  {currentSelectedAdUser?.department ? `${currentSelectedAdUser.department} • ` : ''}
+                                  {currentSelectedAdUser?.title ? `${currentSelectedAdUser.title} • ` : ''}
+                                  <span className="font-mono">{currentSelectedAdUser?.email || ''}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIsAdUserDropdownOpen(!isAdUserDropdownOpen)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30 transition shrink-0 cursor-pointer"
+                            >
+                              {isAdUserDropdownOpen ? (isEn ? 'Close List' : 'بستن لیست') : (isEn ? 'Change User' : 'تغییر کاربر')}
+                            </button>
+                          </div>
+
+                          {/* Search Results Dropdown List */}
+                          {isAdUserDropdownOpen && (
+                            <div
+                              className={`mt-1.5 rounded-xl border shadow-xl overflow-hidden z-20 ${
+                                isLight
+                                  ? 'bg-white border-slate-300 text-slate-800'
+                                  : 'bg-slate-900 border-white/20 text-white'
+                              }`}
+                            >
+                              <div
+                                className={`px-3 py-1.5 border-b text-[10px] flex items-center justify-between font-medium ${
+                                  isLight ? 'bg-slate-100 border-slate-200 text-slate-600' : 'bg-slate-800/80 border-white/10 text-slate-400'
+                                }`}
+                              >
+                                <span>
+                                  {isEn
+                                    ? `Showing ${Math.min(50, filteredAdUsersForRbac.length)} of ${filteredAdUsersForRbac.length} matching users`
+                                    : `نمایش ${Math.min(50, filteredAdUsersForRbac.length)} از ${filteredAdUsersForRbac.length} کاربر منطبق`}
+                                </span>
+                                {filteredAdUsersForRbac.length > 50 && (
+                                  <span className="text-cyan-400 font-mono">
+                                    {isEn ? 'Type to refine' : 'برای فیلتر دقیق‌تر تایپ کنید'}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="max-h-60 overflow-y-auto divide-y divide-white/5">
+                                {filteredAdUsersForRbac.length === 0 ? (
+                                  <div className="p-4 text-center text-xs text-slate-400">
+                                    {isEn
+                                      ? `No Active Directory users match "${adUserSearchQuery}"`
+                                      : `هیچ کاربری با عبارت «${adUserSearchQuery}» یافت نشد`}
+                                  </div>
+                                ) : (
+                                  filteredAdUsersForRbac.slice(0, 50).map((u) => {
+                                    const isSelected = editingPolicy.subjectId === u.samAccountName;
+                                    return (
+                                      <div
+                                        key={u.samAccountName || u.dn}
+                                        onClick={() => {
+                                          setEditingPolicy({
+                                            ...editingPolicy,
+                                            subjectId: u.samAccountName,
+                                            subjectName: u.displayName || u.samAccountName,
+                                          });
+                                          setIsAdUserDropdownOpen(false);
+                                        }}
+                                        className={`p-2.5 flex items-center justify-between gap-3 cursor-pointer transition ${
+                                          isSelected
+                                            ? 'bg-cyan-500/20 text-cyan-200 font-medium'
+                                            : isLight
+                                            ? 'hover:bg-slate-100 text-slate-800'
+                                            : 'hover:bg-white/5 text-slate-200'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                          <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-600 flex items-center justify-center font-bold text-white text-[10px] shrink-0">
+                                            {u.samAccountName ? u.samAccountName.slice(0, 2).toUpperCase() : 'AD'}
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <span className="text-xs font-semibold truncate max-w-[200px]" title={u.displayName || u.samAccountName}>
+                                                {u.displayName || u.samAccountName}
+                                              </span>
+                                              <span className="text-[10px] font-mono text-cyan-400 shrink-0">
+                                                ({u.samAccountName})
+                                              </span>
+                                              {u.enabled ? (
+                                                <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-medium shrink-0">
+                                                  {isEn ? 'Active' : 'فعال'}
+                                                </span>
+                                              ) : (
+                                                <span className="text-[9px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-300 font-medium shrink-0">
+                                                  {isEn ? 'Disabled' : 'غیرفعال'}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                                              {u.department ? `${u.department} • ` : ''}
+                                              {u.title ? `${u.title} • ` : ''}
+                                              <span className="font-mono">{u.email}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {isSelected && (
+                                          <Check className="w-4 h-4 text-cyan-400 shrink-0" />
+                                        )}
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
-                    </select>
+                    </div>
                   )}
 
                   {editingPolicy.subjectType === 'local_group' && (
