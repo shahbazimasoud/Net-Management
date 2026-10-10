@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.14';
+export const APP_VERSION = '1.306.15';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.15',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'پاکسازی کامل داده‌های ماک و تجهیزات پیش‌فرض از سینی جانمایی فیزیکی (Physical Placement across Buildings & Floors)',
+    title_en: 'Purge Mock Default Devices from Physical Placement across Buildings & Floors Shelf',
+    changes: [
+      'حذف ۱۰ تجهیز ماک نمونه اولیه (شامل SW-CORE-01, RT-EDGE-01, SW-DIST-BLDG-A, SW-ACC-BLDG-A-F3 و سایر دستگاه‌های فرضی) از پایگاه داده و فایل داده‌های شبکه.',
+      'تضمین خلوص ۱۰۰ درصدی داده‌ها در صفحه جانمایی فیزیکی (Physical Placement across Buildings & Floors) و نمایش انحصاری تجهیزات واقعی ثبت‌شده توسط کاربر (تجهیز aaaaaaaaaa).',
+      'پاکسازی شناسه‌های تجهیزات ماک از گروه‌های دستگاهی (device_groups) جهت انطباق کامل با اصل عدم تولید داده‌های مصنوعی.'
+    ],
+    changes_en: [
+      'Completely purged 10 initial mock seed devices (including SW-CORE-01, RT-EDGE-01, SW-DIST-BLDG-A, SW-ACC-BLDG-A-F3, and related synthetic nodes) from the database and network store.',
+      'Guaranteed 100% authentic device data purity in the Physical Placement across Buildings & Floors view, displaying exclusively user-registered hardware (e.g. "aaaaaaaaaa").',
+      'Cleaned up mock device references from device_groups to maintain strict zero-mock data integrity.'
+    ]
+  },
   {
     version: '1.306.14',
     releaseDate: '2026-10-10',
