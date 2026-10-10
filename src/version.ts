@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.2';
+export const APP_VERSION = '1.306.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.3',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'رفع عدم جایگزاری نام کاربری و گذرواژه در پنجره ویرایش سرورهای ثبت‌شده از دیسکاوری',
+    title_en: 'Fix Credential Pre-population for Enrolled Windows and Linux Servers in Edit Modal',
+    changes: [
+      'اصلاح عدم نگاشت نام‌های کاربری win_user و ssh_user به win_username و ssh_username در هنگام ثبت سرور از دیسکاوری به ناوگان.',
+      'جایگزاری و نمایش کامل نام کاربری و رمز عبور ذخیره‌شده ویندوز و لینوکس در مودال ویرایش سرور (Edit Server Modal).',
+      'حفظ گذرواژه‌های ذخیره‌شده ویندوز و لینوکس در متدهای اعتبارسنجی سرور و جلوگیری از خالی‌شدن ناخواسته آنها در کلاینت.'
+    ],
+    changes_en: [
+      'Fixed credential mapping for win_user and ssh_user to authoritative win_username and ssh_username fields during discovery fleet enrollment.',
+      'Ensured automatic pre-population of stored Windows and Linux usernames and passwords inside Add/Edit Server modal.',
+      'Maintained persistent server credentials across serialization and sanitize layers without client-side field wiping.'
+    ]
+  },
   {
     version: '1.306.2',
     releaseDate: '2026-10-10',

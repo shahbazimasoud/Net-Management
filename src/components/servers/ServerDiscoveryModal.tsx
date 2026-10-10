@@ -442,16 +442,20 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
       if (enrollTargets.length === 1) {
         const target = enrollTargets[0];
         const isWin = enrollOsType === 'windows';
+        const cleanUser = enrollUser.trim();
         const payload: any = {
           name: enrollName.trim() || `Server-${target.ip}`,
           ip: target.ip,
           os_type: enrollOsType,
           server_type: enrollOsType,
           ssh_port: isWin ? 22 : enrollPort,
-          ssh_user: isWin ? '' : enrollUser,
+          ssh_username: isWin ? '' : (cleanUser || 'root'),
+          ssh_user: isWin ? '' : (cleanUser || 'root'),
           ssh_password: isWin ? '' : enrollPassword,
+          win_protocol: 'rdp',
           win_port: isWin ? enrollPort : 3389,
-          win_user: isWin ? enrollUser : 'Administrator',
+          win_username: isWin ? (cleanUser || 'Administrator') : 'Administrator',
+          win_user: isWin ? (cleanUser || 'Administrator') : 'Administrator',
           win_password: isWin ? enrollPassword : '',
           win_domain: '',
           rdp_security: 'any',
@@ -514,17 +518,25 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
       } else {
         // Bulk enrollment
         const isWin = enrollOsType === 'windows';
+        const cleanUser = enrollUser.trim();
         const serversPayload = enrollTargets.map((t) => ({
           name: t.hostname ? t.hostname.split('.')[0] : `Server-${t.ip.replace(/\./g, '-')}`,
           ip: t.ip,
           os_type: enrollOsType,
+          server_type: enrollOsType,
           ssh_port: isWin ? 22 : enrollPort,
-          ssh_user: isWin ? '' : enrollUser,
+          ssh_username: isWin ? '' : (cleanUser || 'root'),
+          ssh_user: isWin ? '' : (cleanUser || 'root'),
           ssh_password: isWin ? '' : enrollPassword,
+          win_protocol: 'rdp',
           win_port: isWin ? enrollPort : 3389,
-          win_user: isWin ? enrollUser : 'Administrator',
+          win_username: isWin ? (cleanUser || 'Administrator') : 'Administrator',
+          win_user: isWin ? (cleanUser || 'Administrator') : 'Administrator',
           win_password: isWin ? enrollPassword : '',
+          win_domain: '',
+          rdp_security: 'any',
           category: enrollCategory,
+          environment: 'Production',
           tags: ['discovered', 'bulk', enrollOsType],
           prompt_password_on_connect: enrollPromptOnConnect,
         }));

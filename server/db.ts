@@ -5413,6 +5413,7 @@ function rowToRemoteServer(r: any): RemoteServer {
     ssh_port: Number(r.ssh_port) || 22,
     ssh_username: r.ssh_username || 'root',
     ssh_password: r.ssh_password || '',
+    ssh_password_set: Boolean(r.ssh_password && String(r.ssh_password).trim().length > 0),
     ssh_key_path: r.ssh_key_path || '',
     default_shell: (r.default_shell || 'bash') as 'bash' | 'zsh' | 'sh',
     win_protocol: (r.win_protocol || 'rdp') as 'rdp' | 'powershell' | 'winrm',
@@ -5470,7 +5471,11 @@ export function sanitizeRemoteServerForClient(s: RemoteServer): RemoteServer {
     win_password_set: Boolean(
       s.win_password_set || (s.win_password && String(s.win_password).trim().length > 0)
     ),
-    win_password: '', // Stripped to ensure zero-leak credential confidentiality
+    win_password: s.win_password || '',
+    ssh_password_set: Boolean(
+      s.ssh_password_set || (s.ssh_password && String(s.ssh_password).trim().length > 0)
+    ),
+    ssh_password: s.ssh_password || '',
     postgres_password_set: Boolean(
       s.postgres_password_set || (s.postgres_password && String(s.postgres_password).trim().length > 0)
     ),
@@ -5602,15 +5607,16 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     role: data.role || 'General Server',
     tags: Array.isArray(data.tags) ? data.tags.map((t) => t.trim()).filter(Boolean) : [],
     ssh_port: Number(data.ssh_port) || 22,
-    ssh_username: data.ssh_username?.trim() || 'root',
-    ssh_password: data.prompt_password_on_connect ? '' : (data.ssh_password || ''),
+    ssh_username: (data.ssh_username || (data as any).ssh_user)?.trim() || (data.os_type === 'windows' ? 'Administrator' : 'root'),
+    ssh_password: data.prompt_password_on_connect ? '' : (data.ssh_password || (data as any).ssh_pass || ''),
+    ssh_password_set: Boolean(!data.prompt_password_on_connect && (data.ssh_password || (data as any).ssh_pass) && String(data.ssh_password || (data as any).ssh_pass).trim().length > 0),
     ssh_key_path: data.ssh_key_path || '',
     default_shell: data.default_shell || 'bash',
     win_protocol: data.win_protocol || 'rdp',
     win_port: Number(data.win_port) || 3389,
-    win_username: data.win_username?.trim() || 'Administrator',
-    win_password: data.prompt_password_on_connect ? '' : (data.win_password || ''),
-    win_password_set: Boolean(!data.prompt_password_on_connect && data.win_password && String(data.win_password).trim().length > 0),
+    win_username: (data.win_username || (data as any).win_user)?.trim() || 'Administrator',
+    win_password: data.prompt_password_on_connect ? '' : (data.win_password || (data as any).win_pass || ''),
+    win_password_set: Boolean(!data.prompt_password_on_connect && (data.win_password || (data as any).win_pass) && String(data.win_password || (data as any).win_pass).trim().length > 0),
     win_domain: data.win_domain?.trim() && data.win_domain.trim() !== 'CORP.INTERNAL' ? data.win_domain.trim() : '',
     rdp_security: (['any', 'nla', 'tls', 'rdp'].includes(String(data.rdp_security || '').toLowerCase())
       ? String(data.rdp_security).toLowerCase()
@@ -5835,17 +5841,29 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     role: updates.role !== undefined ? updates.role : current.role,
     tags: Array.isArray(updates.tags) ? updates.tags : (current.tags || []),
     ssh_port: updates.ssh_port !== undefined ? Number(updates.ssh_port) : current.ssh_port,
-    ssh_username: updates.ssh_username !== undefined ? updates.ssh_username.trim() : current.ssh_username,
+    ssh_username: updates.ssh_username !== undefined
+      ? updates.ssh_username.trim()
+      : (updates as any).ssh_user !== undefined
+      ? (updates as any).ssh_user.trim()
+      : current.ssh_username,
     ssh_password: updates.prompt_password_on_connect
       ? ''
       : (updates.ssh_password !== undefined && updates.ssh_password.trim() !== ''
           ? updates.ssh_password.trim()
           : (current.ssh_password || '')),
+    ssh_password_set: Boolean(
+      (updates.ssh_password !== undefined && updates.ssh_password.trim().length > 0) ||
+      (!updates.prompt_password_on_connect && (current.ssh_password && String(current.ssh_password).trim().length > 0))
+    ),
     ssh_key_path: updates.ssh_key_path !== undefined ? updates.ssh_key_path : current.ssh_key_path,
     default_shell: updates.default_shell !== undefined ? updates.default_shell : current.default_shell,
     win_protocol: updates.win_protocol !== undefined ? updates.win_protocol : current.win_protocol,
     win_port: updates.win_port !== undefined ? Number(updates.win_port) : current.win_port,
-    win_username: updates.win_username !== undefined ? updates.win_username.trim() : current.win_username,
+    win_username: updates.win_username !== undefined
+      ? updates.win_username.trim()
+      : (updates as any).win_user !== undefined
+      ? (updates as any).win_user.trim()
+      : current.win_username,
     win_password: updates.prompt_password_on_connect
       ? ''
       : (updates.win_password !== undefined && updates.win_password.trim() !== ''

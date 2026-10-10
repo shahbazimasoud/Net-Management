@@ -1598,6 +1598,7 @@ export interface RemoteServer {
   status: 'online' | 'offline' | 'unreachable' | 'maintenance' | 'untested';
   ssh_port?: number;
   ssh_username?: string;
+  ssh_user?: string;
   ssh_password?: string;
   ssh_password_set?: boolean;
   ssh_key?: string;
@@ -1606,6 +1607,7 @@ export interface RemoteServer {
   win_port?: number;
   win_domain?: string;
   win_username?: string;
+  win_user?: string;
   win_password?: string;
   win_password_set?: boolean;
   rdp_security?: 'any' | 'nla' | 'tls' | 'rdp';

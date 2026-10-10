@@ -4308,17 +4308,21 @@ apiRouter.post('/remote-servers/discover/bulk-add', async (req: Request, res: Re
     for (const serverData of servers) {
       if (!serverData.ip) continue;
       const isWin = serverData.os_type === 'windows';
+      const cleanUser = (serverData.win_username || serverData.win_user || serverData.ssh_username || serverData.ssh_user || '').trim();
       const payload: any = {
         name: serverData.name || (serverData.hostname ? serverData.hostname.split('.')[0] : `Server-${serverData.ip.replace(/\./g, '-')}`),
         ip: serverData.ip,
         os_type: isWin ? 'windows' : 'linux',
         server_type: isWin ? 'windows' : 'linux',
         ssh_port: serverData.ssh_port || 22,
-        ssh_user: serverData.ssh_user || (isWin ? 'Administrator' : 'root'),
+        ssh_username: isWin ? '' : (serverData.ssh_username || serverData.ssh_user || cleanUser || 'root'),
+        ssh_user: isWin ? '' : (serverData.ssh_username || serverData.ssh_user || cleanUser || 'root'),
         ssh_password: serverData.ssh_password || '',
         ssh_key: serverData.ssh_key || '',
+        win_protocol: serverData.win_protocol || 'rdp',
         win_port: serverData.win_port || 3389,
-        win_user: serverData.win_user || 'Administrator',
+        win_username: isWin ? (serverData.win_username || serverData.win_user || cleanUser || 'Administrator') : 'Administrator',
+        win_user: isWin ? (serverData.win_username || serverData.win_user || cleanUser || 'Administrator') : 'Administrator',
         win_password: serverData.win_password || '',
         win_domain: serverData.win_domain || '',
         rdp_security: serverData.rdp_security || 'any',
