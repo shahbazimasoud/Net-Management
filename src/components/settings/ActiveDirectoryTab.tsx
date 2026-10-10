@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Users,
   UserCheck,
@@ -71,21 +71,6 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
       .catch(() => {});
   }, []);
 
-  // Auto-sync domain users if connection is configured but users list is empty
-  const autoSyncedRef = React.useRef(false);
-  useEffect(() => {
-    if (
-      !autoSyncedRef.current &&
-      config?.server &&
-      config.server.trim() &&
-      (!config.syncedUsers || config.syncedUsers.length === 0) &&
-      !isSyncing
-    ) {
-      autoSyncedRef.current = true;
-      handleSyncNow();
-    }
-  }, [config?.server, config?.syncedUsers]);
-
   const hasUnsavedChanges = useMemo(() => {
     return JSON.stringify(persistedPolicies) !== JSON.stringify(workingPolicies);
   }, [persistedPolicies, workingPolicies]);
@@ -139,31 +124,56 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
     }
   };
 
-  // Find policy assigned to a specific AD group in working policies
-  const getPolicyForGroup = (groupDn: string): AccessPolicy | undefined => {
-    return workingPolicies.find(
-      (p) => p.subjectType === 'ad_group' && p.subjectId === groupDn
-    );
-  };
+  // Pre-indexed lookup maps for instant O(1) RBAC policy evaluation without main-thread locking
+  const directAdUserPoliciesMap = useMemo(() => {
+    const map = new Map<string, AccessPolicy>();
+    for (const p of workingPolicies) {
+      if (p.subjectType === 'ad_user' && p.subjectId) {
+        map.set(p.subjectId.toLowerCase(), p);
+      }
+    }
+    return map;
+  }, [workingPolicies]);
 
-  // Find direct policy assigned to an AD user
-  const getDirectPolicyForUser = (user: ADUser): AccessPolicy | undefined => {
-    return workingPolicies.find(
-      (p) =>
-        p.subjectType === 'ad_user' &&
-        (p.subjectId === user.samAccountName || p.subjectId === user.dn || (user.email && p.subjectId === user.email))
-    );
-  };
+  const adGroupPoliciesList = useMemo(() => {
+    return workingPolicies.filter((p) => p.subjectType === 'ad_group');
+  }, [workingPolicies]);
+
+  // Find policy assigned to a specific AD group in working policies
+  const getPolicyForGroup = useCallback((groupDn: string): AccessPolicy | undefined => {
+    if (!groupDn) return undefined;
+    return adGroupPoliciesList.find((p) => p.subjectId === groupDn);
+  }, [adGroupPoliciesList]);
+
+  // Find direct policy assigned to an AD user (instant O(1) map lookup)
+  const getDirectPolicyForUser = useCallback((user: ADUser): AccessPolicy | undefined => {
+    if (!user) return undefined;
+    if (user.samAccountName && directAdUserPoliciesMap.has(user.samAccountName.toLowerCase())) {
+      return directAdUserPoliciesMap.get(user.samAccountName.toLowerCase());
+    }
+    if (user.dn && directAdUserPoliciesMap.has(user.dn.toLowerCase())) {
+      return directAdUserPoliciesMap.get(user.dn.toLowerCase());
+    }
+    if (user.email && directAdUserPoliciesMap.has(user.email.toLowerCase())) {
+      return directAdUserPoliciesMap.get(user.email.toLowerCase());
+    }
+    return undefined;
+  }, [directAdUserPoliciesMap]);
 
   // Find inherited group policies for an AD user
-  const getInheritedPoliciesForUser = (user: ADUser): AccessPolicy[] => {
-    const userGroups = user.groups || [];
-    return workingPolicies.filter(
-      (p) =>
-        p.subjectType === 'ad_group' &&
-        userGroups.some((g) => g === p.subjectName || p.subjectId.includes(g) || p.subjectId.toLowerCase() === g.toLowerCase())
-    );
-  };
+  const getInheritedPoliciesForUser = useCallback((user: ADUser): AccessPolicy[] => {
+    const userGroups = user?.groups;
+    if (!userGroups || userGroups.length === 0 || adGroupPoliciesList.length === 0) return [];
+    const normalizedUserGroups = new Set(userGroups.map((g) => g.toLowerCase()));
+    return adGroupPoliciesList.filter((p) => {
+      const subName = (p.subjectName || '').toLowerCase();
+      const subId = (p.subjectId || '').toLowerCase();
+      for (const g of normalizedUserGroups) {
+        if (g === subName || subId.includes(g)) return true;
+      }
+      return false;
+    });
+  }, [adGroupPoliciesList]);
 
   // Assign or update panel access policy for an AD group (staged in memory until Saved)
   const handleAssignPolicyToGroup = (group: ADSecurityGroup, policyId: string) => {
@@ -328,7 +338,12 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
 
   // Filter users with search and role assigned filter
   const filteredUsers = useMemo(() => {
-    return (config.syncedUsers || []).filter((u) => {
+    const list = config.syncedUsers || [];
+    if (roleFilter === 'all' && !searchQuery.trim()) {
+      return list;
+    }
+    const q = searchQuery.trim().toLowerCase();
+    return list.filter((u) => {
       const direct = getDirectPolicyForUser(u);
       const inherited = getInheritedPoliciesForUser(u);
       const hasAnyRole = Boolean(direct || inherited.length > 0);
@@ -336,8 +351,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
       if (roleFilter === 'assigned' && !hasAnyRole) return false;
       if (roleFilter === 'unassigned' && hasAnyRole) return false;
 
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
+      if (!q) return true;
       const displayName = String(u.displayName || u.samAccountName || '').toLowerCase();
       const samAccountName = String(u.samAccountName || '').toLowerCase();
       const department = String(u.department || '').toLowerCase();
@@ -354,7 +368,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
         inherited.some((p) => String(p.name || '').toLowerCase().includes(q))
       );
     });
-  }, [config.syncedUsers, searchQuery, roleFilter, workingPolicies]);
+  }, [config.syncedUsers, searchQuery, roleFilter, getDirectPolicyForUser, getInheritedPoliciesForUser]);
 
   // Reset to first page when search query, filter, or sub-tab changes
   useEffect(() => {
@@ -618,10 +632,19 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
             <button
               onClick={handleSyncNow}
               disabled={isSyncing}
+              title={
+                isEn
+                  ? 'Synchronize and update both domain users and security groups from Active Directory'
+                  : 'همگام‌سازی و به‌روزرسانی کاربران و گروه‌های امنیتی از اکتیو دایرکتوری'
+              }
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs shadow-md transition active:scale-95 cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? (isEn ? 'Syncing...' : 'درحال همگام‌سازی...') : (isEn ? 'Sync Objects' : 'همگام‌سازی آبجکت‌ها')}</span>
+              <span>
+                {isSyncing
+                  ? (isEn ? 'Syncing...' : 'درحال همگام‌سازی...')
+                  : (isEn ? 'Sync & Update Objects' : 'همگام‌سازی و به‌روزرسانی')}
+              </span>
             </button>
           </div>
         </div>
@@ -815,6 +838,37 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Centered Non-Blocking Sync Loading Indicator */}
+        {isSyncing && (
+          <div className="flex items-center justify-center py-5 my-1 animate-fadeIn pointer-events-none">
+            <div
+              className={`flex items-center gap-3.5 px-6 py-3.5 rounded-2xl border shadow-xl backdrop-blur-md max-w-lg transition-all ${
+                isLightMode
+                  ? 'bg-white/95 border-cyan-400 text-slate-800 shadow-cyan-500/15'
+                  : 'bg-slate-900/95 border-cyan-500/40 text-cyan-100 shadow-cyan-500/20'
+              }`}
+            >
+              <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center shrink-0">
+                <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-cyan-400 flex items-center gap-2">
+                  <span>
+                    {isEn
+                      ? 'Synchronizing Active Directory Objects (Users & Groups)...'
+                      : 'درحال همگام‌سازی و به‌روزرسانی کاربران و گروه‌های دامین...'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                  {isEn
+                    ? 'Querying domain controller in background without page locking. Cached data remains interactive.'
+                    : 'استعلام از دامین کنترلر در پس‌زمینه در جریان است و صفحه قفل نمی‌شود. اطلاعات کش قبلی در دسترس است.'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Unsaved Changes Banner & Database Persistence Controls */}
         {hasUnsavedChanges && (

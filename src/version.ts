@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.8';
+export const APP_VERSION = '1.306.9';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.9',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'حذف بارگذاری خودکار مجدد، بهینه‌سازی محاسباتی O(1) و افزودن لودینگ شناور غیرمسدودکننده در همگام‌سازی اکتیو دایرکتوری',
+    title_en: 'Eliminate Auto-Fetch, Optimize Policy Lookups to O(1), and Add Non-Blocking Centered Sync Loading',
+    changes: [
+      'حذف استعلام و فچ خودکار در هر بار ورود به تب اکتیو دایرکتوری و استفاده پایدار از داده‌های کش‌شده محلی جهت رفع کامل هنگ و قفل شدن مرورگر.',
+      'اختصاصی‌سازی فرآیند همگام‌سازی آبجکت‌ها (کاربران و گروه‌های امنیتی دامین) منحصراً به کلیک صریح کاربر بر روی دکمه «همگام‌سازی و به‌روزرسانی».',
+      'نمایش بنر لودینگ شناور، شیک و غیرمسدودکننده (Non-blocking) در مرکز محتوای صفحه در حین همگام‌سازی بدون اشغال تمام صفحه یا مسدودسازی تعامل کاربر.',
+      'بهینه‌سازی محاسبات فیلترینگ و انتساب نقش‌ها از O(N*M*K) به O(1) با ساخت مپ‌های ایندکس‌شده در حافظه برای هزاران کاربر دامین با سرعت ۶۰ فریم بر ثانیه.'
+    ],
+    changes_en: [
+      'Eliminated automatic sync fetching upon navigating to the Active Directory tab, instantly utilizing local cached data and preventing browser freezes.',
+      'Dedicated the Active Directory sync operation strictly to explicit user clicks on the "Sync & Update Objects" action button.',
+      'Introduced a modern centered, non-blocking floating loading indicator during synchronization that does not freeze the screen or hijack the UI.',
+      'Optimized policy resolution and search filtering from O(N*M*K) to O(1) using pre-indexed lookup maps, guaranteeing silky-smooth 60fps rendering.'
+    ]
+  },
   {
     version: '1.306.8',
     releaseDate: '2026-10-10',
