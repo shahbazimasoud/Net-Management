@@ -20,6 +20,10 @@ import {
   Save,
   Trash2,
   Undo2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import { ActiveDirectoryConfig, ADSecurityGroup, ADUser, AccessPolicy } from '../../types';
 import { syncActiveDirectoryApi, saveAccessPoliciesApi } from '../../services/api';
@@ -46,6 +50,10 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Domain Users Pagination State
+  const [usersPage, setUsersPage] = useState<number>(1);
+  const [usersPerPage, setUsersPerPage] = useState<number>(25);
 
   // Access Policies state for RBAC mapping
   const [persistedPolicies, setPersistedPolicies] = useState<AccessPolicy[]>(() => loadAccessPolicies());
@@ -347,6 +355,209 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
       );
     });
   }, [config.syncedUsers, searchQuery, roleFilter, workingPolicies]);
+
+  // Reset to first page when search query, filter, or sub-tab changes
+  useEffect(() => {
+    setUsersPage(1);
+  }, [searchQuery, roleFilter, activeSubTab]);
+
+  // Domain Users Pagination calculations
+  const totalUserPages = Math.max(1, Math.ceil(filteredUsers.length / usersPerPage));
+  const safeUsersPage = Math.min(Math.max(1, usersPage), totalUserPages);
+  const usersStartIndex = (safeUsersPage - 1) * usersPerPage;
+  const usersEndIndex = Math.min(usersStartIndex + usersPerPage, filteredUsers.length);
+  const paginatedUsers = useMemo(() => {
+    return filteredUsers.slice(usersStartIndex, usersEndIndex);
+  }, [filteredUsers, usersStartIndex, usersEndIndex]);
+
+  const getPaginationNumbers = (current: number, total: number) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const pages: (number | '...')[] = [];
+    pages.push(1);
+    if (current > 3) {
+      pages.push('...');
+    }
+    const start = Math.max(2, current - 1);
+    const end = Math.min(total - 1, current + 1);
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    if (current < total - 2) {
+      pages.push('...');
+    }
+    pages.push(total);
+    return pages;
+  };
+
+  const renderPaginationControls = () => {
+    if (filteredUsers.length <= 0) return null;
+
+    return (
+      <div
+        className={`flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-xl border text-xs ${
+          isLightMode
+            ? 'bg-slate-100/80 border-slate-200 text-slate-700'
+            : 'bg-slate-900/60 border-white/10 text-slate-300'
+        }`}
+      >
+        {/* Left: Range and total count info */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="font-medium">
+            {isEn
+              ? `Showing ${filteredUsers.length === 0 ? 0 : usersStartIndex + 1}–${usersEndIndex} of ${filteredUsers.length} users`
+              : `نمایش ${filteredUsers.length === 0 ? 0 : usersStartIndex + 1} تا ${usersEndIndex} از ${filteredUsers.length} کاربر`}
+            {filteredUsers.length < (config.syncedUsers || []).length && (
+              <span className="text-[11px] opacity-75 ms-1">
+                ({isEn ? `filtered from ${(config.syncedUsers || []).length}` : `فیلترشده از ${(config.syncedUsers || []).length}`})
+              </span>
+            )}
+          </span>
+
+          {/* Per-page selector */}
+          <div className="flex items-center gap-1.5 ms-2">
+            <span className="text-[11px] opacity-80">{isEn ? 'Per page:' : 'در هر صفحه:'}</span>
+            <select
+              value={usersPerPage}
+              onChange={(e) => {
+                setUsersPerPage(Number(e.target.value));
+                setUsersPage(1);
+              }}
+              className={`px-2 py-0.5 rounded-lg border text-xs font-mono outline-none cursor-pointer ${
+                isLightMode
+                  ? 'bg-white border-slate-300 text-slate-800'
+                  : 'bg-slate-800 border-white/15 text-white'
+              }`}
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={250}>250</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Right: Page navigation buttons */}
+        {totalUserPages > 1 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {/* First Page */}
+            <button
+              type="button"
+              onClick={() => setUsersPage(1)}
+              disabled={safeUsersPage <= 1}
+              className={`p-1 rounded-lg border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLightMode
+                  ? 'hover:bg-slate-200 border-slate-300 text-slate-700'
+                  : 'hover:bg-white/10 border-white/15 text-white'
+              }`}
+              title={isEn ? 'First page' : 'صفحه نخست'}
+            >
+              {isRtl ? <ChevronsRight className="w-3.5 h-3.5" /> : <ChevronsLeft className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* Previous Page */}
+            <button
+              type="button"
+              onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
+              disabled={safeUsersPage <= 1}
+              className={`p-1 rounded-lg border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLightMode
+                  ? 'hover:bg-slate-200 border-slate-300 text-slate-700'
+                  : 'hover:bg-white/10 border-white/15 text-white'
+              }`}
+              title={isEn ? 'Previous page' : 'صفحه قبل'}
+            >
+              {isRtl ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* Page number buttons */}
+            <div className="flex items-center gap-1 mx-1">
+              {getPaginationNumbers(safeUsersPage, totalUserPages).map((p, idx) =>
+                p === '...' ? (
+                  <span key={`dots-${idx}`} className="px-1 text-slate-500 font-mono">
+                    ...
+                  </span>
+                ) : (
+                  <button
+                    key={`page-${p}`}
+                    type="button"
+                    onClick={() => setUsersPage(p)}
+                    className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-mono font-semibold transition cursor-pointer ${
+                      safeUsersPage === p
+                        ? 'bg-cyan-500 text-white shadow-xs'
+                        : isLightMode
+                        ? 'hover:bg-slate-200 text-slate-700 border border-slate-200'
+                        : 'hover:bg-white/10 text-slate-300 border border-white/10'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+            </div>
+
+            {/* Next Page */}
+            <button
+              type="button"
+              onClick={() => setUsersPage((p) => Math.min(totalUserPages, p + 1))}
+              disabled={safeUsersPage >= totalUserPages}
+              className={`p-1 rounded-lg border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLightMode
+                  ? 'hover:bg-slate-200 border-slate-300 text-slate-700'
+                  : 'hover:bg-white/10 border-white/15 text-white'
+              }`}
+              title={isEn ? 'Next page' : 'صفحه بعد'}
+            >
+              {isRtl ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* Last Page */}
+            <button
+              type="button"
+              onClick={() => setUsersPage(totalUserPages)}
+              disabled={safeUsersPage >= totalUserPages}
+              className={`p-1 rounded-lg border transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                isLightMode
+                  ? 'hover:bg-slate-200 border-slate-300 text-slate-700'
+                  : 'hover:bg-white/10 border-white/15 text-white'
+              }`}
+              title={isEn ? 'Last page' : 'صفحه آخر'}
+            >
+              {isRtl ? <ChevronsLeft className="w-3.5 h-3.5" /> : <ChevronsRight className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* Jump to Page (only if total pages > 5) */}
+            {totalUserPages > 5 && (
+              <div className="flex items-center gap-1 ms-2">
+                <span className="text-[10px] opacity-70">{isEn ? 'Go:' : 'برو:'}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={totalUserPages}
+                  defaultValue={safeUsersPage}
+                  key={`jump-${safeUsersPage}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const val = parseInt((e.target as HTMLInputElement).value, 10);
+                      if (!isNaN(val)) {
+                        setUsersPage(Math.min(Math.max(1, val), totalUserPages));
+                      }
+                    }
+                  }}
+                  className={`w-12 px-1.5 py-0.5 rounded border text-center text-xs font-mono outline-none ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-800'
+                      : 'bg-slate-800 border-white/15 text-white'
+                  }`}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const isConnected = config.lastSyncStatus === 'success';
 
@@ -838,7 +1049,9 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
           <div>
             {filteredUsers.length > 0 ? (
               <div className="space-y-3">
-                {filteredUsers.map((user) => {
+                {renderPaginationControls()}
+
+                {paginatedUsers.map((user) => {
                   const inherited = getInheritedPoliciesForUser(user);
                   return (
                     <div
@@ -959,6 +1172,8 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                     </div>
                   );
                 })}
+
+                {renderPaginationControls()}
               </div>
             ) : (
               <div className="py-14 flex flex-col items-center justify-center text-center p-6 rounded-2xl border border-dashed border-white/15 bg-white/[0.01]">

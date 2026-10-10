@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.4';
+export const APP_VERSION = '1.306.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.5',
+    releaseDate: '2026-10-10',
+    type: 'minor',
+    title: 'افزودن صفحه‌بندی مهندسی و بهینه‌سازی بارگذاری کاربران دامین در تب Domain Users',
+    title_en: 'Implement High-Performance Pagination and Render Optimization in Domain Users Tab',
+    changes: [
+      'پیاده‌سازی مکانیزم صفحه‌بندی هوشمند و مهندسی (Pagination) در تب Domain Users بخش Active Directory & LDAP با انتخاب تعداد در صفحه (۲۵، ۵۰، ۱۰۰، ۲۵۰).',
+      'جلوگیری قطعی از کرش و فریز شدن مرورگر در دامین‌های با تعداد بالای کاربران از طریق برش داده‌ها و رندر تکه‌تکه (Chunked Rendering).',
+      'افزودن کنترل‌های کامل ناوبری صفحه (صفحه اول، قبل، اعداد صفحه، بعد، آخر و پرش مستقیم به شماره صفحه) در بالا و پایین لیست کاربران.',
+      'همگام‌سازی خودکار و ریست شماره صفحه هنگام تغییر فیلتر نقش‌ها (همه، دارای نقش، بدون نقش) یا جستجوی زنده در مشخصات کاربران دامین.'
+    ],
+    changes_en: [
+      'Implemented robust client-side pagination in Active Directory & LDAP Domain Users tab with configurable page sizes (25, 50, 100, 250).',
+      'Eliminated browser freeze and memory spikes for large Active Directory domains by slicing DOM render trees to the active page.',
+      'Added comprehensive pagination controls (first, previous, page numbers window, next, last, and direct page jump) at both top and bottom of the users list.',
+      'Automatically synchronized and reset page index upon filter state changes (all, role assigned, unassigned) or live search queries.'
+    ]
+  },
   {
     version: '1.306.4',
     releaseDate: '2026-10-10',
