@@ -93,6 +93,7 @@ import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { CustomMapManageModal } from './CustomMapManageModal';
 import { AddRackModal } from './rack/AddRackModal';
 import { EditRackModal } from './rack/EditRackModal';
+import { AssignPhysicalPlacementModal, AssignPhysicalPlacementTarget } from './AssignPhysicalPlacementModal';
 import { TransferDeviceModal } from './rack/TransferDeviceModal';
 import { AddHardwareModal } from './rack/AddHardwareModal';
 import { RackElevationInspectorModal } from './rack/RackElevationInspectorModal';
@@ -2498,9 +2499,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     } catch (e) {
       console.error('[Save hierarchy error]', e);
     } finally {
-      setTimeout(() => {
-        isSavingHierarchyRef.current = false;
-      }, 500);
+      isSavingHierarchyRef.current = false;
       window.dispatchEvent(new CustomEvent('nettopology_hierarchy_updated'));
     }
   };
@@ -2702,6 +2701,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [customRelocateUnit, setCustomRelocateUnit] = useState('');
   const [customRelocateRack, setCustomRelocateRack] = useState('');
   const [isRelocateMaximized, setIsRelocateMaximized] = useState(false);
+  const [assignPlacementTarget, setAssignPlacementTarget] = useState<AssignPhysicalPlacementTarget | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -7642,22 +7642,40 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAddFloorBuilding(bldgName);
-                            setNewFloorInput('');
-                          }}
-                          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border ${
-                            isLightMode
-                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200'
-                              : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border-white/10'
-                          }`}
-                          title={t('topology_physical_add_floor_btn')}
-                        >
-                          <Plus className={`w-3.5 h-3.5 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
-                          <span className="text-[11px] font-medium">{t('topology_physical_add_floor_btn')}</span>
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAssignPlacementTarget({ building: bldgName });
+                            }}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border ${
+                              isLightMode
+                                ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-900 border-indigo-200 shadow-sm'
+                                : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border-indigo-500/30 shadow-sm'
+                            }`}
+                            title={isEn ? 'Add Device to Building' : 'افزودن تجهیز به ساختمان'}
+                          >
+                            <Plus className={`w-3.5 h-3.5 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`} />
+                            <span className="text-[11px] font-medium">{t('topology_physical_add_device_btn')}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddFloorBuilding(bldgName);
+                              setNewFloorInput('');
+                            }}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border ${
+                              isLightMode
+                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border-slate-200'
+                                : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border-white/10'
+                            }`}
+                            title={t('topology_physical_add_floor_btn')}
+                          >
+                            <Plus className={`w-3.5 h-3.5 ${isLightMode ? 'text-indigo-600' : 'text-cyan-400'}`} />
+                            <span className="text-[11px] font-medium">{t('topology_physical_add_floor_btn')}</span>
+                          </button>
+                        </div>
                       </div>
 
                     {/* Floors in this building */}
@@ -7778,6 +7796,22 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                               </div>
 
                               <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAssignPlacementTarget({ building: bldgName, floor: floorName });
+                                  }}
+                                  className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] transition cursor-pointer ${
+                                    isLightMode
+                                      ? 'bg-sky-50 hover:bg-sky-100 text-sky-700 hover:text-sky-900 border-sky-200 shadow-sm'
+                                      : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 hover:text-white border-sky-500/30 shadow-sm'
+                                  }`}
+                                  title={isEn ? 'Add Device to Floor' : 'افزودن تجهیز به طبقه'}
+                                >
+                                  <Plus className="w-3 h-3 text-sky-400" />
+                                  <span>{t('topology_physical_add_device_btn')}</span>
+                                </button>
+
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -7941,9 +7975,30 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                               </button>
                                             </div>
                                           </div>
-                                          <span className="text-[10px] text-indigo-300/80 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                                            {t('topology_devices_in_building', { count: unitDevices.length })}
-                                          </span>
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAssignPlacementTarget({
+                                                  building: bldgName,
+                                                  floor: floorName,
+                                                  unit: unitName,
+                                                });
+                                              }}
+                                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] transition cursor-pointer ${
+                                                isLightMode
+                                                  ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200 shadow-sm'
+                                                  : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border-indigo-500/30 shadow-sm'
+                                              }`}
+                                              title={isEn ? 'Add Device to Unit' : 'افزودن تجهیز به واحد'}
+                                            >
+                                              <Plus className="w-2.5 h-2.5 text-indigo-400" />
+                                              <span>{t('topology_physical_add_device_btn')}</span>
+                                            </button>
+                                            <span className="text-[10px] text-indigo-300/80 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                                              {t('topology_devices_in_building', { count: unitDevices.length })}
+                                            </span>
+                                          </div>
                                         </div>
 
                                         {unitDevices.length === 0 ? (
@@ -8084,9 +8139,30 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                               </button>
                                             </div>
                                           </div>
-                                          <span className="text-[10px] text-cyan-300/80 font-mono bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
-                                            {t('topology_devices_in_building', { count: rackDevices.length })}
-                                          </span>
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAssignPlacementTarget({
+                                                  building: bldgName,
+                                                  floor: floorName,
+                                                  rack: rackName,
+                                                });
+                                              }}
+                                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] transition cursor-pointer ${
+                                                isLightMode
+                                                  ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-200 shadow-sm'
+                                                  : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 hover:text-white border-cyan-500/30 shadow-sm'
+                                              }`}
+                                              title={isEn ? 'Add Device to Rack' : 'افزودن تجهیز به رک'}
+                                            >
+                                              <Plus className="w-2.5 h-2.5 text-cyan-400" />
+                                              <span>{t('topology_physical_add_device_btn')}</span>
+                                            </button>
+                                            <span className="text-[10px] text-cyan-300/80 font-mono bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                                              {t('topology_devices_in_building', { count: rackDevices.length })}
+                                            </span>
+                                          </div>
                                         </div>
 
                                         {rackDevices.length === 0 ? (
@@ -10015,6 +10091,37 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           customMaps={customMaps}
           activeMapId={currentCustomMap?.id || ''}
           onApplyToMap={handleApplyDiscoveredLinksAndDevices}
+          isLightMode={isLightMode}
+        />
+      )}
+
+      {/* Assign Device to Physical Placement Modal */}
+      {assignPlacementTarget && (
+        <AssignPhysicalPlacementModal
+          isOpen={!!assignPlacementTarget}
+          onClose={() => setAssignPlacementTarget(null)}
+          target={assignPlacementTarget}
+          availableFloors={
+            customFloors[assignPlacementTarget.building] || [isEn ? 'Floor 1' : 'طبقه ۱']
+          }
+          availableUnits={
+            customUnits[
+              `${assignPlacementTarget.building}:::${
+                assignPlacementTarget.floor || (customFloors[assignPlacementTarget.building]?.[0] || '')
+              }`
+            ] || []
+          }
+          availableRacks={
+            customRacks[
+              `${assignPlacementTarget.building}:::${
+                assignPlacementTarget.floor || (customFloors[assignPlacementTarget.building]?.[0] || '')
+              }`
+            ] || []
+          }
+          inventoryDevices={allAvailableDevices}
+          onAssign={async (deviceId, building, floor, unit, rack) => {
+            await handleMoveDevice(deviceId, building, floor, unit, rack);
+          }}
           isLightMode={isLightMode}
         />
       )}

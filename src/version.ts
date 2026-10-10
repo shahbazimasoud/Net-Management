@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.307.6';
+export const APP_VERSION = '1.308.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.308.0',
+    releaseDate: '2026-10-10',
+    type: 'minor',
+    title: 'تجهیز تمامی سطوح جانمایی فیزیکی (ساختمان، طبقه، واحد و رک) به دکمه‌های افزودن مستقیم تجهیز و به‌روزرسانی آنی ساختار',
+    title_en: 'Comprehensive Add Device Actions Across All Physical Placement Levels (Building, Floor, Unit, Rack) & Instant Hierarchy Sync',
+    changes: [
+      'افزودن دکمه «+ افزودن تجهیز» (+ Add Device) در سطح ساختمان در کنار دکمه ایجاد طبقه جهت انتخاب و استقرار مستقیم هر تجهیز از موجودی تجهیزات شبکه.',
+      'افزودن دکمه «+ افزودن تجهیز» در سطح طبقه در کنار دکمه‌های ایجاد واحد و رک جهت استقرار تجهیزات در فضای عمومی طبقه.',
+      'افزودن دکمه «+ افزودن تجهیز» در هدر کارت‌های واحدها و اتاق‌ها (Units & Rooms) جهت تخصیص مستقیم تجهیزات به هر اتاق یا واحد اداری.',
+      'افزودن دکمه «+ افزودن تجهیز» در هدر کارت‌های رک‌های سرور (Server Racks & Cabinets) جهت نصب مستقیم تجهیزات شبکه درون هر رک.',
+      'پیاده‌سازی مودال پیشرفته AssignPhysicalPlacementModal با فیلترها، جستجوی زنده، تطبیق کامل دو تم، دکمه‌های سه‌گانه و قابلیت مینیمایز در نوار داک (ToolsDock).',
+      'رفع کامل مشکل نیاز به رفرش صفحه هنگام ایجاد ساختمان، طبقه، واحد و رک از طریق رفع تأخیر و همگام‌سازی بلادرنگ استیت و رویدادهای سیستمی.'
+    ],
+    changes_en: [
+      'Added direct "+ Add Device" button at the Building level next to Add Floor, enabling instant device selection and assignment from Network Equipment Inventory.',
+      'Added direct "+ Add Device" button at the Floor level alongside Add Unit and Add Rack for general floor placement.',
+      'Added direct "+ Add Device" button to the header of all Unit & Room cards for direct allocation to rooms or departments.',
+      'Added direct "+ Add Device" button to the header of all Server Rack & Cabinet cards for rapid device mounting in racks.',
+      'Implemented dedicated AssignPhysicalPlacementModal with real-time inventory search, theme fidelity, boundary-safe tooltips, and ToolsDock minimization.',
+      'Completely eliminated the requirement to reload or refresh the page upon creating buildings, floors, units, or racks via instantaneous state and event dispatching.'
+    ]
+  },
   {
     version: '1.307.6',
     releaseDate: '2026-10-10',
