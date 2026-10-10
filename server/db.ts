@@ -5471,11 +5471,11 @@ export function sanitizeRemoteServerForClient(s: RemoteServer): RemoteServer {
     win_password_set: Boolean(
       s.win_password_set || (s.win_password && String(s.win_password).trim().length > 0)
     ),
-    win_password: s.win_password || '',
+    win_password: '', // Stripped to ensure zero-leak credential confidentiality
     ssh_password_set: Boolean(
       s.ssh_password_set || (s.ssh_password && String(s.ssh_password).trim().length > 0)
     ),
-    ssh_password: s.ssh_password || '',
+    ssh_password: '', // Stripped to ensure zero-leak credential confidentiality
     postgres_password_set: Boolean(
       s.postgres_password_set || (s.postgres_password && String(s.postgres_password).trim().length > 0)
     ),

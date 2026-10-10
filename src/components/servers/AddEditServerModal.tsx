@@ -230,14 +230,14 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setPromptPasswordOnConnect(Boolean(serverToEdit.prompt_password_on_connect));
         setSshPort(serverToEdit.ssh_port || 22);
         setSshUsername(serverToEdit.ssh_username || (serverToEdit as any).ssh_user || 'root');
-        setSshPassword(serverToEdit.ssh_password || '');
+        setSshPassword('');
         setShowSshPassword(false);
         setDefaultShell(serverToEdit.default_shell || 'bash');
         setWinProtocol(serverToEdit.win_protocol || 'rdp');
         setWinPort(serverToEdit.win_port || (serverToEdit.win_protocol === 'winrm' ? 5985 : 3389));
         setWinDomain(serverToEdit.win_domain || '');
         setWinUsername(serverToEdit.win_username || (serverToEdit as any).win_user || 'Administrator');
-        setWinPassword(serverToEdit.win_password || '');
+        setWinPassword('');
         setShowWinPassword(false);
         setCpuCores(serverToEdit.cpu_cores !== undefined && serverToEdit.cpu_cores !== null ? serverToEdit.cpu_cores : '');
         setRamGb(serverToEdit.ram_gb !== undefined && serverToEdit.ram_gb !== null ? serverToEdit.ram_gb : '');
@@ -1984,11 +1984,6 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                 <label className="font-medium text-slate-300 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <span>{isEn ? 'SSH Password / Private Key Passphrase' : 'رمز عبور SSH / کلید خصوصی'}</span>
-                    {serverToEdit && ((serverToEdit as any).ssh_password_set || Boolean(serverToEdit.ssh_password)) && !promptPasswordOnConnect && (
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono border border-emerald-500/30">
-                        {isEn ? 'Saved in DB' : 'در دیتابیس ثبت شده'}
-                      </span>
-                    )}
                   </span>
                   <div className="flex items-center gap-2">
                     {!promptPasswordOnConnect && (
@@ -2041,14 +2036,16 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                         isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
                       }`}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowSshPassword(!showSshPassword)}
-                      title={showSshPassword ? (isEn ? 'Hide password' : 'مخفی‌سازی رمز') : (isEn ? 'Show password' : 'نمایش رمز')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition p-1 cursor-pointer"
-                    >
-                      {showSshPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
+                    {sshPassword.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSshPassword(!showSshPassword)}
+                        title={showSshPassword ? (isEn ? 'Hide password' : 'مخفی‌سازی رمز') : (isEn ? 'Show password' : 'نمایش رمز')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition p-1 cursor-pointer"
+                      >
+                        {showSshPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -2199,11 +2196,6 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                   <label className="font-medium text-slate-300 flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <span>{isEn ? 'Windows Password' : 'رمز عبور ویندوز'}</span>
-                      {serverToEdit && ((serverToEdit as any).win_password_set || Boolean(serverToEdit.win_password)) && !promptPasswordOnConnect && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 font-mono border border-emerald-500/30">
-                          {isEn ? 'Saved in DB' : 'در دیتابیس ثبت شده'}
-                        </span>
-                      )}
                       <FieldInfoTooltip
                         title={isEn ? 'Windows Password' : 'رمز عبور ویندوز'}
                         whatIsIt={
@@ -2276,14 +2268,16 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                           isLightMode ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-slate-100'
                         }`}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowWinPassword(!showWinPassword)}
-                        title={showWinPassword ? (isEn ? 'Hide password' : 'مخفی‌سازی رمز') : (isEn ? 'Show password' : 'نمایش رمز')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition p-1 cursor-pointer"
-                      >
-                        {showWinPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
+                      {winPassword.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowWinPassword(!showWinPassword)}
+                          title={showWinPassword ? (isEn ? 'Hide password' : 'مخفی‌سازی رمز') : (isEn ? 'Show password' : 'نمایش رمز')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition p-1 cursor-pointer"
+                        >
+                          {showWinPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
                     </div>
                   )}
 

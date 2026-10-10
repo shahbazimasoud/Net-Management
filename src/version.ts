@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.3';
+export const APP_VERSION = '1.306.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.4',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'اصلاح عدم تقارن فیلدهای ویندوز در مودال ویرایش و اعمال محرمانگی مطلق گذرواژه‌ها',
+    title_en: 'Fix Edit Server Modal Layout Alignment and Enforce Zero-Leak Credential Confidentiality',
+    changes: [
+      'حذف نشانگر نامتقارن Saved in DB از بالای فیلد رمز عبور در تب ویندوز و تب SSH جهت هم‌ترازسازی دقیق ارتفاع و گرید فرم.',
+      'اعمال اصل محرمانگی مطلق (Zero-Leak) با عدم افشای رمزهای عبور ذخیره‌شده در فرم ویرایش سرور و مقداردهی اولیه با رشته خالی.',
+      'پاک‌سازی و استریپ گذرواژه‌های win_password و ssh_password در متد sanitizeRemoteServerForClient سمت سرور برای جلوگیری از ارسال رمزهای ذخیره‌شده به مرورگر.',
+      'نمایش شرطی آیکون چشم (مشاهده رمز) صرفاً در صورت تایپ رمز جدید توسط کاربر جهت جلوگیری از دسترسی یا استخراج رمزهای از پیش ذخیره‌شده.'
+    ],
+    changes_en: [
+      'Removed asymmetric "Saved in DB" badge above the password field in Windows and SSH tabs to ensure perfect grid and height alignment.',
+      'Enforced zero-leak credential confidentiality by avoiding plaintext pre-population of stored passwords in edit server modal.',
+      'Scrubbed win_password and ssh_password in server-side sanitizeRemoteServerForClient to prevent exposing stored credentials to frontend clients.',
+      'Conditionally display the eye reveal toggle only when a new password is typed by the user, preventing inspection of previously stored secrets.'
+    ]
+  },
   {
     version: '1.306.3',
     releaseDate: '2026-10-10',
