@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.11';
+export const APP_VERSION = '1.306.12';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.12',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'انطباق و ارث‌بری سراسری تمامی مودال‌ها از تم‌های مرکزی پنل (به‌ویژه Google Dark و سایر تم‌ها) و حذف استایل‌های هاردکد شده آبسیدین',
+    title_en: 'Universal Modal Theme Synchronization & Inheritance for Central Themes including Google Dark',
+    changes: [
+      'حل کامل مشکل عدم تبعیت مودال‌ها از تم مرکزی پنل (مانند Google Dark، Emerald، Cobalt، Rose، Amber) و رفع نمایش استایل‌های هاردکدشده آبسیدین در پنجره‌های پورتال.',
+      'همگام‌سازی و اعمال خودکار کلاس تم فعال (مانند theme-google-dark) بر روی document.body در کنار document.documentElement تا تمامی مودال‌های رندر شده با createPortal به‌طور کامل از تم جاری ارث‌بری کنند.',
+      'تجهیز ساختار CSS به معماری جامع استایل‌دهی مودال‌ها برای تم Google Material Dark (سطوح #202124 و #2d2f31، بردرهای #3c4043، هدرها، فوترها، فیلترها، تب‌ها، ورودی‌ها و دکمه‌های آبی متریال #8ab4f8).',
+      'تفکیک پس‌زمینه محوکننده مودال‌ها (modal-backdrop-blur) متناسب با تم انتخابی (به جای استایل تیره استاتیک آبسیدین).',
+      'افزودن کلاس‌های استاندارد modal-header و تطبیق دکمه‌های کنترل هدر (بستن، مینیمایز، تمام‌صفحه) با پالت‌های هر تم.'
+    ],
+    changes_en: [
+      'Fixed global issue where modals failed to inherit active panel theme (Google Dark, Emerald, Cobalt, Rose, Amber) and remained stuck in hardcoded Obsidian dark neon styling.',
+      'Synchronized active theme classes (such as theme-google-dark) on document.body alongside document.documentElement, ensuring all createPortal modals strictly inherit the active theme.',
+      'Implemented comprehensive Universal Modal Architecture in CSS for Google Material Dark (surfaces #202124 / #2d2f31, borders #3c4043, headers, footers, tabs, inputs, and Google Blue #8ab4f8 buttons).',
+      'Decoupled and themed modal backdrops (modal-backdrop-blur) per theme instead of forcing hardcoded Obsidian dark slate blur across all themes.',
+      'Equipped modal headers with standard modal-header class and harmonized header window controls (Close, Minimize, Maximize) with active theme hover highlights.'
+    ]
+  },
   {
     version: '1.306.11',
     releaseDate: '2026-10-10',

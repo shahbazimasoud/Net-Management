@@ -107,6 +107,43 @@
   border-right-color: #10b981 !important;
 }
 
+/* Universal Modal Architecture: Emerald Cyber Theme */
+.theme-emerald [id$="-modal-window"],
+.theme-emerald [data-modal-backdrop="true"] > div,
+.theme-emerald .modal-backdrop-blur > div,
+.theme-emerald [id$="-modal-overlay"] > div,
+.theme-emerald .port-inspector-modal,
+.theme-emerald div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: #022c22 !important;
+  border-color: rgba(52, 211, 153, 0.3) !important;
+  color: #f0fdf4 !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 20px rgba(16, 185, 129, 0.15) !important;
+}
+
+.theme-emerald .modal-header,
+.theme-emerald [id$="-modal-header"],
+.theme-emerald [id$="-modal-window"] > div:first-child,
+.theme-emerald [data-modal-backdrop="true"] > div > div:first-child,
+.theme-emerald [id$="-modal-overlay"] > div > div:first-child,
+.theme-emerald div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div > div:first-child:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(4, 47, 38, 0.95) !important;
+  border-color: rgba(52, 211, 153, 0.25) !important;
+  color: #f0fdf4 !important;
+}
+
+.theme-emerald [id$="-modal-window"] [class*="bg-slate-900"],
+.theme-emerald [id$="-modal-window"] [class*="bg-slate-950"],
+.theme-emerald [id$="-modal-window"] [class*="bg-black"],
+.theme-emerald [id$="-modal-overlay"] [class*="bg-slate-900"],
+.theme-emerald [id$="-modal-overlay"] [class*="bg-slate-950"],
+.theme-emerald [id$="-modal-overlay"] [class*="bg-black"],
+.theme-emerald [data-modal-backdrop="true"] [class*="bg-slate-900"],
+.theme-emerald [data-modal-backdrop="true"] [class*="bg-slate-950"],
+.theme-emerald [data-modal-backdrop="true"] [class*="bg-black"] {
+  background-color: rgba(6, 78, 59, 0.35) !important;
+  border-color: rgba(52, 211, 153, 0.2) !important;
+}
+
 /* Rose Crimson Cyber Theme */
 .theme-rose {
   --color-spatial-bg: #1f0914;
@@ -158,6 +195,43 @@
 .theme-rose .sidebar-nav-item.active {
   background-color: rgba(244, 63, 94, 0.15) !important;
   border-right-color: #f43f5e !important;
+}
+
+/* Universal Modal Architecture: Rose Crimson Cyber Theme */
+.theme-rose [id$="-modal-window"],
+.theme-rose [data-modal-backdrop="true"] > div,
+.theme-rose .modal-backdrop-blur > div,
+.theme-rose [id$="-modal-overlay"] > div,
+.theme-rose .port-inspector-modal,
+.theme-rose div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: #1f0914 !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+  color: #fff1f2 !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 20px rgba(244, 63, 94, 0.15) !important;
+}
+
+.theme-rose .modal-header,
+.theme-rose [id$="-modal-header"],
+.theme-rose [id$="-modal-window"] > div:first-child,
+.theme-rose [data-modal-backdrop="true"] > div > div:first-child,
+.theme-rose [id$="-modal-overlay"] > div > div:first-child,
+.theme-rose div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div > div:first-child:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(45, 10, 28, 0.95) !important;
+  border-color: rgba(244, 63, 94, 0.25) !important;
+  color: #fff1f2 !important;
+}
+
+.theme-rose [id$="-modal-window"] [class*="bg-slate-900"],
+.theme-rose [id$="-modal-window"] [class*="bg-slate-950"],
+.theme-rose [id$="-modal-window"] [class*="bg-black"],
+.theme-rose [id$="-modal-overlay"] [class*="bg-slate-900"],
+.theme-rose [id$="-modal-overlay"] [class*="bg-slate-950"],
+.theme-rose [id$="-modal-overlay"] [class*="bg-black"],
+.theme-rose [data-modal-backdrop="true"] [class*="bg-slate-900"],
+.theme-rose [data-modal-backdrop="true"] [class*="bg-slate-950"],
+.theme-rose [data-modal-backdrop="true"] [class*="bg-black"] {
+  background-color: rgba(80, 15, 45, 0.35) !important;
+  border-color: rgba(244, 63, 94, 0.2) !important;
 }
 
 /* Amber Sunset Theme */
@@ -213,6 +287,43 @@
   border-right-color: #f59e0b !important;
 }
 
+/* Universal Modal Architecture: Amber Sunset Theme */
+.theme-amber [id$="-modal-window"],
+.theme-amber [data-modal-backdrop="true"] > div,
+.theme-amber .modal-backdrop-blur > div,
+.theme-amber [id$="-modal-overlay"] > div,
+.theme-amber .port-inspector-modal,
+.theme-amber div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: #1c1305 !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  color: #fffbeb !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 20px rgba(245, 158, 11, 0.15) !important;
+}
+
+.theme-amber .modal-header,
+.theme-amber [id$="-modal-header"],
+.theme-amber [id$="-modal-window"] > div:first-child,
+.theme-amber [data-modal-backdrop="true"] > div > div:first-child,
+.theme-amber [id$="-modal-overlay"] > div > div:first-child,
+.theme-amber div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div > div:first-child:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(40, 25, 8, 0.95) !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+  color: #fffbeb !important;
+}
+
+.theme-amber [id$="-modal-window"] [class*="bg-slate-900"],
+.theme-amber [id$="-modal-window"] [class*="bg-slate-950"],
+.theme-amber [id$="-modal-window"] [class*="bg-black"],
+.theme-amber [id$="-modal-overlay"] [class*="bg-slate-900"],
+.theme-amber [id$="-modal-overlay"] [class*="bg-slate-950"],
+.theme-amber [id$="-modal-overlay"] [class*="bg-black"],
+.theme-amber [data-modal-backdrop="true"] [class*="bg-slate-900"],
+.theme-amber [data-modal-backdrop="true"] [class*="bg-slate-950"],
+.theme-amber [data-modal-backdrop="true"] [class*="bg-black"] {
+  background-color: rgba(69, 44, 10, 0.35) !important;
+  border-color: rgba(245, 158, 11, 0.2) !important;
+}
+
 /* Cobalt Blue Theme */
 .theme-cobalt {
   --color-spatial-bg: #03132e;
@@ -264,6 +375,43 @@
 .theme-cobalt .sidebar-nav-item.active {
   background-color: rgba(56, 189, 248, 0.15) !important;
   border-right-color: #38bdf8 !important;
+}
+
+/* Universal Modal Architecture: Cobalt Blue Theme */
+.theme-cobalt [id$="-modal-window"],
+.theme-cobalt [data-modal-backdrop="true"] > div,
+.theme-cobalt .modal-backdrop-blur > div,
+.theme-cobalt [id$="-modal-overlay"] > div,
+.theme-cobalt .port-inspector-modal,
+.theme-cobalt div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: #03132e !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  color: #f0f9ff !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 20px rgba(56, 189, 248, 0.15) !important;
+}
+
+.theme-cobalt .modal-header,
+.theme-cobalt [id$="-modal-header"],
+.theme-cobalt [id$="-modal-window"] > div:first-child,
+.theme-cobalt [data-modal-backdrop="true"] > div > div:first-child,
+.theme-cobalt [id$="-modal-overlay"] > div > div:first-child,
+.theme-cobalt div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div > div:first-child:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(5, 25, 60, 0.95) !important;
+  border-color: rgba(56, 189, 248, 0.25) !important;
+  color: #f0f9ff !important;
+}
+
+.theme-cobalt [id$="-modal-window"] [class*="bg-slate-900"],
+.theme-cobalt [id$="-modal-window"] [class*="bg-slate-950"],
+.theme-cobalt [id$="-modal-window"] [class*="bg-black"],
+.theme-cobalt [id$="-modal-overlay"] [class*="bg-slate-900"],
+.theme-cobalt [id$="-modal-overlay"] [class*="bg-slate-950"],
+.theme-cobalt [id$="-modal-overlay"] [class*="bg-black"],
+.theme-cobalt [data-modal-backdrop="true"] [class*="bg-slate-900"],
+.theme-cobalt [data-modal-backdrop="true"] [class*="bg-slate-950"],
+.theme-cobalt [data-modal-backdrop="true"] [class*="bg-black"] {
+  background-color: rgba(10, 45, 100, 0.35) !important;
+  border-color: rgba(56, 189, 248, 0.2) !important;
 }
 
 /* =========================================================================
@@ -475,18 +623,174 @@
   color: #202124 !important;
 }
 
-.theme-google-dark [class*="from-indigo-600"][class*="to-cyan-"],
-.theme-google-dark [class*="from-cyan-600"][class*="to-indigo-"],
-.theme-google-dark [class*="from-indigo-600"][class*="to-purple-"] {
-  background-image: linear-gradient(135deg, #8ab4f8 0%, #669df6 100%) !important;
+/* Gradient Harmonization: Map all Cyan/Indigo/Purple/Blue Gradients to Google Material Blue */
+.theme-google-dark [class*="from-indigo-"][class*="to-cyan-"],
+.theme-google-dark [class*="from-cyan-"][class*="to-indigo-"],
+.theme-google-dark [class*="from-indigo-"][class*="to-purple-"],
+.theme-google-dark [class*="from-purple-"][class*="to-indigo-"],
+.theme-google-dark [class*="from-blue-"][class*="to-indigo-"],
+.theme-google-dark [class*="from-indigo-"][class*="to-blue-"],
+.theme-google-dark [class*="from-cyan-"][class*="to-blue-"] {
+  background-image: linear-gradient(135deg, #8ab4f8 0%, #1a73e8 100%) !important;
   color: #202124 !important;
   border-color: #8ab4f8 !important;
 }
 
-.theme-google-dark [class*="from-indigo-600"][class*="to-cyan-"] *,
-.theme-google-dark [class*="from-cyan-600"][class*="to-indigo-"] *,
-.theme-google-dark [class*="from-indigo-600"][class*="to-purple-"] * {
+.theme-google-dark [class*="from-indigo-"][class*="to-cyan-"] *,
+.theme-google-dark [class*="from-cyan-"][class*="to-indigo-"] *,
+.theme-google-dark [class*="from-indigo-"][class*="to-purple-"] *,
+.theme-google-dark [class*="from-purple-"][class*="to-indigo-"] *,
+.theme-google-dark [class*="from-blue-"][class*="to-indigo-"] *,
+.theme-google-dark [class*="from-indigo-"][class*="to-blue-"] * {
   color: #202124 !important;
+}
+
+/* =========================================================================
+   Universal Modal Architecture: Google Material Dark Theme
+   Ensures ALL portals, windows, dialogs, headers, footers, tabs, and inputs
+   strictly adhere to Google Material Dark (#202124 / #2d2f31 / #3c4043)
+   ========================================================================= */
+
+/* 1. Modal Main Windows & Dialog Containers */
+.theme-google-dark [id$="-modal-window"],
+.theme-google-dark [data-modal-backdrop="true"] > div,
+.theme-google-dark .modal-backdrop-blur > div,
+.theme-google-dark [id$="-modal-overlay"] > div,
+.theme-google-dark .port-inspector-modal,
+.theme-google-dark div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: #202124 !important;
+  border-color: #3c4043 !important;
+  color: #e8eaed !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 2. Modal Headers */
+.theme-google-dark .modal-header,
+.theme-google-dark [id$="-modal-header"],
+.theme-google-dark [id$="-modal-window"] > div:first-child,
+.theme-google-dark [data-modal-backdrop="true"] > div > div:first-child,
+.theme-google-dark [id$="-modal-overlay"] > div > div:first-child,
+.theme-google-dark div[class*="fixed"][class*="top-0"][class*="bottom-8"] > div > div:first-child:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: #2d2f31 !important;
+  border-color: #3c4043 !important;
+  color: #e8eaed !important;
+}
+
+.theme-google-dark .modal-header h2,
+.theme-google-dark .modal-header h3,
+.theme-google-dark [id$="-modal-header"] h2,
+.theme-google-dark [id$="-modal-header"] h3,
+.theme-google-dark [id$="-modal-window"] h2,
+.theme-google-dark [id$="-modal-window"] h3,
+.theme-google-dark [id$="-modal-overlay"] h2,
+.theme-google-dark [id$="-modal-overlay"] h3 {
+  color: #ffffff !important;
+}
+
+.theme-google-dark .modal-header p,
+.theme-google-dark [id$="-modal-header"] p,
+.theme-google-dark [id$="-modal-window"] header p,
+.theme-google-dark [id$="-modal-overlay"] header p,
+.theme-google-dark [id$="-modal-window"] p[class*="text-slate-"],
+.theme-google-dark [id$="-modal-overlay"] p[class*="text-slate-"] {
+  color: #9aa0a6 !important;
+}
+
+/* 3. Modal Header Icon Boxes & Badges */
+.theme-google-dark .modal-header [class*="rounded-"][class*="border"]:not([data-role="modal-header-controls"]):not(button),
+.theme-google-dark [id$="-modal-header"] [class*="rounded-"][class*="border"]:not([data-role="modal-header-controls"]):not(button),
+.theme-google-dark [id$="-modal-window"] > div:first-child [class*="rounded-"][class*="border"]:not([data-role="modal-header-controls"]):not(button),
+.theme-google-dark [id$="-modal-overlay"] > div > div:first-child [class*="rounded-"][class*="border"]:not([data-role="modal-header-controls"]):not(button) {
+  background-color: rgba(138, 180, 248, 0.15) !important;
+  border-color: rgba(138, 180, 248, 0.35) !important;
+  color: #8ab4f8 !important;
+}
+
+/* 4. Modal Tabs & Subheader Bars */
+.theme-google-dark [id$="-modal-window"] div[class*="border-b"],
+.theme-google-dark [id$="-modal-overlay"] div[class*="border-b"],
+.theme-google-dark [data-modal-backdrop="true"] div[class*="border-b"] {
+  border-color: #3c4043 !important;
+}
+
+.theme-google-dark [id$="-modal-window"] div[class*="border-b"][class*="bg-slate-"],
+.theme-google-dark [id$="-modal-overlay"] div[class*="border-b"][class*="bg-slate-"],
+.theme-google-dark [data-modal-backdrop="true"] div[class*="border-b"][class*="bg-slate-"] {
+  background-color: #25272a !important;
+  border-color: #3c4043 !important;
+}
+
+.theme-google-dark [id$="-modal-window"] button[class*="border-b-2"],
+.theme-google-dark [id$="-modal-overlay"] button[class*="border-b-2"],
+.theme-google-dark [data-modal-backdrop="true"] button[class*="border-b-2"] {
+  border-color: #3c4043 !important;
+  color: #9aa0a6 !important;
+}
+
+.theme-google-dark [id$="-modal-window"] button[class*="border-b-2"][class*="text-cyan-"],
+.theme-google-dark [id$="-modal-window"] button[class*="border-b-2"][class*="text-indigo-"],
+.theme-google-dark [id$="-modal-window"] button[class*="border-b-2"][class*="border-cyan-"],
+.theme-google-dark [id$="-modal-window"] button[class*="border-b-2"][class*="border-indigo-"],
+.theme-google-dark [id$="-modal-overlay"] button[class*="border-b-2"][class*="text-cyan-"],
+.theme-google-dark [id$="-modal-overlay"] button[class*="border-b-2"][class*="text-indigo-"],
+.theme-google-dark [data-modal-backdrop="true"] button[class*="border-b-2"][class*="text-cyan-"],
+.theme-google-dark [data-modal-backdrop="true"] button[class*="border-b-2"][class*="text-indigo-"] {
+  border-color: #8ab4f8 !important;
+  color: #8ab4f8 !important;
+}
+
+/* 5. Modal Internal Surfaces, Cards, and Lists */
+.theme-google-dark [id$="-modal-window"] [class*="bg-slate-900"],
+.theme-google-dark [id$="-modal-window"] [class*="bg-slate-950"],
+.theme-google-dark [id$="-modal-window"] [class*="bg-slate-850"],
+.theme-google-dark [id$="-modal-window"] [class*="bg-black"],
+.theme-google-dark [id$="-modal-overlay"] [class*="bg-slate-900"],
+.theme-google-dark [id$="-modal-overlay"] [class*="bg-slate-950"],
+.theme-google-dark [id$="-modal-overlay"] [class*="bg-black"],
+.theme-google-dark [data-modal-backdrop="true"] [class*="bg-slate-900"],
+.theme-google-dark [data-modal-backdrop="true"] [class*="bg-slate-950"],
+.theme-google-dark [data-modal-backdrop="true"] [class*="bg-black"] {
+  background-color: #2d2f31 !important;
+  border-color: #3c4043 !important;
+}
+
+.theme-google-dark [id$="-modal-window"] [class*="bg-slate-800"],
+.theme-google-dark [id$="-modal-overlay"] [class*="bg-slate-800"],
+.theme-google-dark [data-modal-backdrop="true"] [class*="bg-slate-800"] {
+  background-color: #35363a !important;
+  border-color: #3c4043 !important;
+}
+
+/* 6. Modal Footers */
+.theme-google-dark .modal-footer,
+.theme-google-dark [id$="-modal-window"] > div:last-child,
+.theme-google-dark [id$="-modal-overlay"] > div > div:last-child,
+.theme-google-dark [data-modal-backdrop="true"] > div > div:last-child {
+  background-color: #2d2f31 !important;
+  border-color: #3c4043 !important;
+}
+
+/* 7. Modal Window Controls (Minimize, Maximize, Close) */
+.theme-google-dark [data-role="modal-header-controls"] button,
+.theme-google-dark [id$="-modal-window"] header button,
+.theme-google-dark [id$="-modal-overlay"] header button {
+  color: #9aa0a6 !important;
+}
+
+.theme-google-dark [data-role="modal-header-controls"] button:hover,
+.theme-google-dark [id$="-modal-window"] header button:hover,
+.theme-google-dark [id$="-modal-overlay"] header button:hover {
+  background-color: #35363a !important;
+  color: #8ab4f8 !important;
+}
+
+.theme-google-dark [data-role="modal-header-controls"] button[aria-label="Close"]:hover,
+.theme-google-dark [data-role="modal-header-controls"] button[title*="Close"]:hover,
+.theme-google-dark [data-role="modal-header-controls"] button[title*="بستن"]:hover,
+.theme-google-dark [id$="-modal-window"] header button:last-child:hover,
+.theme-google-dark [id$="-modal-overlay"] header button:last-child:hover {
+  background-color: rgba(242, 139, 130, 0.2) !important;
+  color: #f28b82 !important;
 }
 
 /* System & Security Banner & Role Card Harmonization */
@@ -522,11 +826,14 @@
 .theme-google-dark select:focus,
 .theme-google-dark textarea:focus {
   border-color: #8ab4f8 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.25) !important;
 }
 
 /* Shadows with Obsidian RGB */
-.theme-google-dark [class*="shadow-"][class*="99,102,241"] {
-  box-shadow: 0 0 20px rgba(138, 180, 248, 0.3) !important;
+.theme-google-dark [class*="shadow-"][class*="99,102,241"],
+.theme-google-dark [class*="shadow-"][class*="0,0,0,0.8"] {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75) !important;
 }
 
 .theme-light .sidebar-nav-item.active {
@@ -875,22 +1182,76 @@
   box-shadow: 0 0 15px rgba(138, 180, 248, 0.25) !important;
 }
 
-/* Universal Modal Glass Backdrop - Blurs the background with dark spatial glass across all themes */
+/* Universal Modal Glass Backdrop - Per Theme Blur & Color Architecture */
 .modal-backdrop-blur,
 .modal-glass-backdrop,
 [data-modal-backdrop="true"],
-.theme-light .modal-backdrop-blur,
-.theme-light .modal-glass-backdrop,
-.theme-light [data-modal-backdrop="true"],
-.theme-emerald .modal-backdrop-blur,
-.theme-rose .modal-backdrop-blur,
-.theme-amber .modal-backdrop-blur,
-.theme-cobalt .modal-backdrop-blur,
-.theme-google-dark .modal-backdrop-blur,
-.theme-obsidian .modal-backdrop-blur {
+.theme-obsidian .modal-backdrop-blur,
+.theme-obsidian .modal-glass-backdrop,
+.theme-obsidian [data-modal-backdrop="true"] {
   background-color: rgba(2, 6, 23, 0.78) !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.theme-google-dark .modal-backdrop-blur,
+.theme-google-dark .modal-glass-backdrop,
+.theme-google-dark [data-modal-backdrop="true"],
+.theme-google-dark [id$="-modal-overlay"],
+.theme-google-dark div[class*="fixed"][class*="top-0"][class*="bottom-8"]:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(32, 33, 36, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.theme-emerald .modal-backdrop-blur,
+.theme-emerald .modal-glass-backdrop,
+.theme-emerald [data-modal-backdrop="true"],
+.theme-emerald [id$="-modal-overlay"],
+.theme-emerald div[class*="fixed"][class*="top-0"][class*="bottom-8"]:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(2, 44, 34, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.theme-cobalt .modal-backdrop-blur,
+.theme-cobalt .modal-glass-backdrop,
+.theme-cobalt [data-modal-backdrop="true"],
+.theme-cobalt [id$="-modal-overlay"],
+.theme-cobalt div[class*="fixed"][class*="top-0"][class*="bottom-8"]:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(3, 19, 46, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.theme-rose .modal-backdrop-blur,
+.theme-rose .modal-glass-backdrop,
+.theme-rose [data-modal-backdrop="true"],
+.theme-rose [id$="-modal-overlay"],
+.theme-rose div[class*="fixed"][class*="top-0"][class*="bottom-8"]:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(31, 9, 20, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.theme-amber .modal-backdrop-blur,
+.theme-amber .modal-glass-backdrop,
+.theme-amber [data-modal-backdrop="true"],
+.theme-amber [id$="-modal-overlay"],
+.theme-amber div[class*="fixed"][class*="top-0"][class*="bottom-8"]:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(28, 19, 5, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.theme-light .modal-backdrop-blur,
+.theme-light .modal-glass-backdrop,
+.theme-light [data-modal-backdrop="true"],
+.theme-light [id$="-modal-overlay"],
+.theme-light div[class*="fixed"][class*="top-0"][class*="bottom-8"]:not([data-role="tools-dock"]):not([data-role="network-tools-menu"]) {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
 }
 
 /* Cisco Terminal Screen - Always high-contrast dark console with vivid terminal text */

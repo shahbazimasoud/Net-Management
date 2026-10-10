@@ -36,7 +36,7 @@ export const ModalHeader: React.FC<ModalHeaderProps> = ({
 }) => {
   return (
     <div
-      className={`flex items-center justify-between px-5 py-3.5 border-b shrink-0 transition-colors ${
+      className={`modal-header flex items-center justify-between px-5 py-3.5 border-b shrink-0 transition-colors ${
         isLightMode
           ? 'bg-slate-50 border-slate-200 text-slate-900'
           : 'bg-slate-950 border-slate-800 text-white'

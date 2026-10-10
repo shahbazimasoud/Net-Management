@@ -284,14 +284,20 @@ export default function App() {
           if (isThemeLight(saved)) {
             document.documentElement.classList.remove('dark');
             document.documentElement.classList.add('light');
+            document.body?.classList.remove('dark');
+            document.body?.classList.add('light');
           } else {
             document.documentElement.classList.add('dark');
             document.documentElement.classList.remove('light');
+            document.body?.classList.add('dark');
+            document.body?.classList.remove('light');
           }
           ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-dark'].forEach((c) => {
             document.documentElement.classList.remove(c);
+            document.body?.classList.remove(c);
           });
           document.documentElement.classList.add(`theme-${saved}`);
+          document.body?.classList.add(`theme-${saved}`);
         }
         return saved;
       }
@@ -301,14 +307,20 @@ export default function App() {
         if (isThemeLight(activeTheme)) {
           document.documentElement.classList.remove('dark');
           document.documentElement.classList.add('light');
+          document.body?.classList.remove('dark');
+          document.body?.classList.add('light');
         } else {
           document.documentElement.classList.add('dark');
           document.documentElement.classList.remove('light');
+          document.body?.classList.add('dark');
+          document.body?.classList.remove('light');
         }
         ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-dark'].forEach((c) => {
           document.documentElement.classList.remove(c);
+          document.body?.classList.remove(c);
         });
         document.documentElement.classList.add(`theme-${activeTheme}`);
+        document.body?.classList.add(`theme-${activeTheme}`);
       }
       return activeTheme;
     } catch {
@@ -330,16 +342,45 @@ export default function App() {
       if (isLight) {
         document.documentElement.classList.remove('dark');
         document.documentElement.classList.add('light');
+        document.body?.classList.remove('dark');
+        document.body?.classList.add('light');
       } else {
         document.documentElement.classList.add('dark');
         document.documentElement.classList.remove('light');
+        document.body?.classList.add('dark');
+        document.body?.classList.remove('light');
       }
       ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-dark'].forEach((c) => {
         document.documentElement.classList.remove(c);
+        document.body?.classList.remove(c);
       });
       document.documentElement.classList.add(`theme-${newTheme}`);
+      document.body?.classList.add(`theme-${newTheme}`);
     }
   }, []);
+
+  // Central theme watchdog: always keep document.documentElement and document.body synchronized with panelTheme
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const isLight = isThemeLight(panelTheme);
+    if (isLight) {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+      document.body?.classList.remove('dark');
+      document.body?.classList.add('light');
+    } else {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      document.body?.classList.add('dark');
+      document.body?.classList.remove('light');
+    }
+    ['theme-obsidian', 'theme-emerald', 'theme-cobalt', 'theme-rose', 'theme-amber', 'theme-light', 'theme-google-dark'].forEach((c) => {
+      document.documentElement.classList.remove(c);
+      document.body?.classList.remove(c);
+    });
+    document.documentElement.classList.add(`theme-${panelTheme}`);
+    document.body?.classList.add(`theme-${panelTheme}`);
+  }, [panelTheme]);
 
   const resetThemeToDefault = useCallback(() => {
     try {
