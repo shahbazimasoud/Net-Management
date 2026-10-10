@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.7';
+export const APP_VERSION = '1.306.8';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.8',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'اصلاح چیدمان و مهار سرریز دراپ‌دان نقش مستقیم (Direct Panel Role) در تب کاربران دامین',
+    title_en: 'Fix Direct Panel Role Alignment and Prevent Layout Overlap in Domain Users Tab',
+    changes: [
+      'اصلاح چیدمان ستون نقش مستقیم (Direct Panel Role) و تثبیت موقعیت آن در سمت راست بدون جابجایی به سمت چپ یا افتادن روی مشخصات کاربر.',
+      'انتقال نشان‌های گروه‌های عضویت کاربر به ستون اطلاعات هویتی و تفکیک فضای اختصاصی انتخاب نقش‌های دسترسی پنل.',
+      'مهار قطعی عرض کانتینر دراپ‌دان و نشان‌های نقش‌های ارث‌بری‌شده جهت جلوگیری از خروج از کادر کارت یا برش‌خوردگی در نمایشگرهای مختلف.',
+      'پشتیبانی ارگونومیک از چینش افقی در تبلت‌ها و دسکتاپ و انطباق کامل با جهت‌گیری RTL و LTR.'
+    ],
+    changes_en: [
+      'Fixed the layout of the Direct Panel Role column, anchoring it cleanly to the right side and preventing it from overlapping user info.',
+      'Relocated user group membership badges to the identity column, keeping the role assignment selector clean and uncluttered.',
+      'Strictly clamped container widths and enabled flex-wrapping for inherited role badges to eliminate any card boundary overflow.',
+      'Enhanced ergonomic responsiveness across desktop and tablet viewports with strict alignment support in both RTL and LTR modes.'
+    ]
+  },
   {
     version: '1.306.7',
     releaseDate: '2026-10-10',

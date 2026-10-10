@@ -1056,13 +1056,13 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                   return (
                     <div
                       key={user.samAccountName || user.dn}
-                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border transition overflow-hidden ${
+                      className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 p-3.5 rounded-xl border transition ${
                         isLightMode
                           ? 'bg-slate-50 border-slate-200 hover:border-cyan-500/50 text-slate-900'
                           : 'bg-slate-900/70 border-white/10 hover:border-cyan-500/40 text-white'
                       }`}
                     >
-                      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-600 flex items-center justify-center font-bold text-white text-xs shrink-0 shadow-md">
                           {user.samAccountName ? user.samAccountName.slice(0, 2).toUpperCase() : 'AD'}
                         </div>
@@ -1089,11 +1089,34 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                             {user.title ? `${user.title} • ` : ''}
                             <span className="font-mono truncate">{user.email}</span>
                           </div>
+
+                          {/* Member of Groups badges */}
+                          {user.groups && user.groups.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1.5 max-w-full">
+                              {user.groups.slice(0, 5).map((g) => (
+                                <span
+                                  key={g}
+                                  className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/80 border border-cyan-800/40 text-cyan-300 truncate max-w-[140px]"
+                                  title={g}
+                                >
+                                  {g}
+                                </span>
+                              ))}
+                              {user.groups.length > 5 && (
+                                <span
+                                  className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-slate-800 border border-white/10 text-slate-400 cursor-help shrink-0"
+                                  title={user.groups.slice(5).join(', ')}
+                                >
+                                  +{user.groups.length - 5}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
                       {/* Direct Role Assignment Selector & Inherited Role / Group Badges */}
-                      <div className="flex flex-col sm:items-end gap-2 shrink-0 w-full sm:w-auto min-w-0 sm:min-w-[280px]">
+                      <div className="flex flex-col items-end gap-1.5 shrink-0 w-full lg:w-80 max-w-full lg:max-w-[320px] ml-auto rtl:mr-auto rtl:ml-0">
                         {/* Direct Role Selector */}
                         <div className="w-full space-y-1">
                           <div className="flex items-center justify-between gap-2 min-w-0">
@@ -1102,7 +1125,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                               <span>{isEn ? 'Direct Panel Role:' : 'نقش اختصاصی پنل:'}</span>
                             </span>
                             {getDirectPolicyForUser(user) && (
-                              <span className="text-[10px] font-mono text-cyan-300 font-semibold truncate max-w-[120px]">
+                              <span className="text-[10px] font-mono text-cyan-300 font-semibold truncate max-w-[130px]" title={getDirectPolicyForUser(user)?.name}>
                                 {getDirectPolicyForUser(user)?.name}
                               </span>
                             )}
@@ -1110,7 +1133,7 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                           <select
                             value={getDirectPolicyForUser(user)?.id || 'none'}
                             onChange={(e) => handleAssignPolicyToUser(user, e.target.value)}
-                            className={`w-full min-w-0 px-2.5 py-1 rounded-lg border text-xs font-medium focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer truncate ${
+                            className={`w-full min-w-0 max-w-full px-2.5 py-1.5 rounded-lg border text-xs font-medium focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer truncate ${
                               isLightMode
                                 ? 'bg-white border-slate-300 text-slate-800'
                                 : 'bg-slate-800/95 border-white/15 text-white'
@@ -1129,21 +1152,21 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                           </select>
                         </div>
 
-                        {/* Inherited Group Role Badges & Groups */}
-                        <div className="flex items-center gap-1.5 flex-wrap sm:justify-end">
+                        {/* Inherited Group Role Badges */}
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end max-w-full">
                           {inherited.length > 0 && (
-                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                              <span>{isEn ? 'Via group:' : 'از گروه:'}</span>
+                            <div className="flex items-center gap-1 flex-wrap justify-end max-w-full">
+                              <span className="text-[10px] text-slate-400 shrink-0">{isEn ? 'Via group:' : 'از گروه:'}</span>
                               {inherited.map((p) => (
                                 <span
                                   key={p.id}
-                                  className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold truncate max-w-[140px]"
-                                  title={isEn ? 'Panel role granted via group policy' : 'نقش پنل اعطاشده از طریق پالیسی گروه'}
+                                  className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold truncate max-w-[130px]"
+                                  title={p.name}
                                 >
                                   {p.name}
                                 </span>
                               ))}
-                            </span>
+                            </div>
                           )}
                           {!getDirectPolicyForUser(user) && inherited.length === 0 && (
                             <span
@@ -1156,17 +1179,6 @@ export const ActiveDirectoryTab: React.FC<ActiveDirectoryTabProps> = ({
                               {isEn ? 'No Panel Role' : 'بدون نقش پنل'}
                             </span>
                           )}
-                        </div>
-
-                        <div className="flex items-center gap-1 flex-wrap sm:justify-end">
-                          {(user.groups || []).map((g) => (
-                            <span
-                              key={g}
-                              className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/80 border border-cyan-800/40 text-cyan-300"
-                            >
-                              {g}
-                            </span>
-                          ))}
                         </div>
                       </div>
                     </div>
