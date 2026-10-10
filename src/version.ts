@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.305.1';
+export const APP_VERSION = '1.305.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.305.2',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'آزمون عملیاتی جامع، تست خودکار رگرسیون و اعتبارسنجی پویای دسترسی نقشه به کاربران و گروه‌های دامین (فاز ۳)',
+    title_en: 'End-to-End Real Test Suite for Policy-Governed Map Subject Authorization and Lifecycle (Phase 3)',
+    changes: [
+      'اجرای آزمون خودکار ۸ مرحله‌ای واقعی و زنده بر روی اندپوینت‌های مجاز نقشه، انتساب پالیسی‌های دامین و چرخه عمر حذف پالیسی بدون استفاده از دیتای ماک.',
+      'تأیید حضور آنی کاربر اکتیو دایرکتوری در خروجی اندپوینت مجاز پس از تخصیص پالیسی به وی در پایگاه داده PostgreSQL.',
+      'تأیید ایجاد نقشه با مجوزهای دسترسی محدود (Restricted) به کاربر و گروه اکتیو دایرکتوری و راستی‌آزمایی فیلتر دسترسی نقشه.',
+      'تأیید حذف آنی و خودکار کاربر از لیست سوژه‌های مجاز نقشه بلافاصله پس از سلب پالیسی از وی از طریق متد DELETE.',
+      'ثبت و راه‌اندازی دائمی اسکریپت آزمون رگرسیون اختصاصی در scripts/verify_map_subject_authorization.ts.'
+    ],
+    changes_en: [
+      'Executed 8-phase automated real verification against live map authorization endpoints and domain policy lifecycle without mock data.',
+      'Confirmed immediate appearance of Active Directory user in authorized map subjects after policy assignment in PostgreSQL.',
+      'Validated creation of restricted maps mapped to AD users and domain security groups and confirmed visibility filtering.',
+      'Confirmed immediate pruning of user from authorized map subjects upon policy revocation via DELETE endpoint.',
+      'Shipped regression test suite in scripts/verify_map_subject_authorization.ts for automated validation.'
+    ]
+  },
   {
     version: '1.305.1',
     releaseDate: '2026-10-10',
