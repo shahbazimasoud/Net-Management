@@ -262,17 +262,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* Current Role Simulation Indicator */}
-        <div className="backup-role-card flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-slate-200 border border-slate-300 text-xs shrink-0 self-start sm:self-auto shadow-sm">
-          <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 stroke-[2.5]" />
+        <div className={`backup-role-card flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs shrink-0 self-start sm:self-auto shadow-sm ${
+          isLightMode
+            ? 'bg-slate-200 border border-slate-300 text-slate-800'
+            : 'bg-white/5 border border-white/10 text-white'
+        }`}>
+          <ShieldCheck className={`w-4 h-4 shrink-0 stroke-[2.5] ${isLightMode ? 'text-emerald-700' : 'text-emerald-400'}`} />
           <div className="text-left rtl:text-right">
-            <span className="text-[10px] text-black font-black block leading-none mb-0.5">{isEn ? 'Active Simulated Role:' : 'نقش شبیه‌سازی‌شده فعال:'}</span>
-            <span className="font-black text-black text-xs block">{activePolicy?.name}</span>
+            <span className={`text-[10px] font-black block leading-none mb-0.5 ${isLightMode ? 'text-black' : 'text-slate-400'}`}>{isEn ? 'Active Simulated Role:' : 'نقش شبیه‌سازی‌شده فعال:'}</span>
+            <span className={`font-black text-xs block ${isLightMode ? 'text-black' : 'text-white'}`}>{activePolicy?.name}</span>
           </div>
         </div>
       </div>
 
       {/* Sub-Menu Bar: Synchronized with Sidebar */}
-      <div className="flex items-center gap-2 p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-md overflow-x-auto custom-scrollbar">
+      <div className="settings-subtab-bar flex items-center gap-2 p-1.5 rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-md overflow-x-auto custom-scrollbar">
         {/* Sub-menu 1: Device Groups */}
         <button
           type="button"
@@ -376,6 +380,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             groups={localGroups}
             onSaveGroups={handleSaveLocalGroups}
             isEn={isEn}
+            isLightMode={isLightMode}
           />
         )}
 

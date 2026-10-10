@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.10';
+export const APP_VERSION = '1.306.11';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.11',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'انطباق و یکپارچه‌سازی کامل صفحات و زیرمنوهای بخش سیستم و امنیت با تم Google Dark و حذف المان‌های ناسازگار Obsidian',
+    title_en: 'Full Theme Harmonization of System & Security Views and Sub-Menus with Google Dark Palette',
+    changes: [
+      'اصلاح و یکپارچه‌سازی کامل تم گوگل دارک (Google Dark) در تمامی صفحات و زیرمنوهای بخش System & Security (شامل Device Grouping، Local Users & Groups، Active Directory، RBAC Access Control و Backup Portal).',
+      'حذف و تطبیق المان‌های بنفش/آبی آبسیدین (کارت‌های Slate-900/950، گرادیان‌های Indigo-950/Purple، کادرها و دکمه‌های با تم آبسیدین) با پالت متریال دارک گوگل (سطوح #2d2f31، پس‌زمینه #202124، سطوح مرتفع #35363a، بردرهای #3c4043 و رنگ اکسنت آبی گوگل #8ab4f8).',
+      'اصلاح کارت شبیه‌سازی نقش فعال (backup-role-card) و جلوگیری از رندر با بک‌گراند خاکستری استاتیک در تم‌های دارک.',
+      'همگام‌سازی کامل ورودی‌های جستجو، فرم‌ها، فیلترها و مودال‌های زیرمنوها با استانداردهای تم Google Dark.'
+    ],
+    changes_en: [
+      'Comprehensive harmonization of Google Dark theme across all System & Security views and sub-menus (including Device Grouping, Local Users & Groups, Active Directory, RBAC Access Control, and Backup Portal).',
+      'Resolved and converted lingering Obsidian purple/indigo styles (Slate-900/950 card containers, Indigo-950/Purple gradients, borders, and buttons) into Google Material Dark palette (surfaces #2d2f31, backgrounds #202124, elevated containers #35363a, borders #3c4043, and Google Blue accent #8ab4f8).',
+      'Corrected active simulated role card (backup-role-card) to be fully theme-adaptive, eliminating unstyled static gray background in dark modes.',
+      'Synchronized all search inputs, forms, role filters, and sub-menu modals with clean Google Material Dark standards.'
+    ]
+  },
   {
     version: '1.306.10',
     releaseDate: '2026-10-10',

@@ -357,8 +357,10 @@
   border-color: rgba(138, 180, 248, 0.35) !important;
 }
 
-.theme-google-dark .hover\:bg-indigo-500\/10:hover {
-  background-color: rgba(138, 180, 248, 0.12) !important;
+.theme-google-dark .hover\:bg-indigo-500\/10:hover,
+.theme-google-dark .hover\:bg-indigo-500\/20:hover,
+.theme-google-dark .hover\:bg-indigo-500\/25:hover {
+  background-color: rgba(138, 180, 248, 0.18) !important;
 }
 
 .theme-google-dark .text-cyan-400,
@@ -376,6 +378,155 @@
 .theme-google-dark .glow-text-purple {
   text-shadow: 0 0 10px rgba(138, 180, 248, 0.4) !important;
   color: #8ab4f8 !important;
+}
+
+/* Harmonize Slate backgrounds into Google Material Dark surfaces */
+.theme-google-dark [class*="bg-slate-900"],
+.theme-google-dark [class*="bg-slate-950"] {
+  background-color: #2d2f31 !important;
+}
+
+.theme-google-dark [class*="bg-slate-950/80"],
+.theme-google-dark [class*="bg-slate-950/90"],
+.theme-google-dark [class*="bg-slate-950/70"],
+.theme-google-dark [class*="bg-slate-950/60"] {
+  background-color: #202124 !important;
+}
+
+.theme-google-dark [class*="bg-slate-800"] {
+  background-color: #35363a !important;
+}
+
+.theme-google-dark [class*="border-white/5"],
+.theme-google-dark [class*="border-white/10"],
+.theme-google-dark [class*="border-white/15"],
+.theme-google-dark [class*="border-white/20"],
+.theme-google-dark [class*="border-slate-800"] {
+  border-color: #3c4043 !important;
+}
+
+/* Harmonize Obsidian / Indigo Gradients & Deep Dark Palettes */
+.theme-google-dark [class*="via-indigo-950"],
+.theme-google-dark [class*="via-purple-900"] {
+  --tw-gradient-via: #35363a !important;
+}
+
+.theme-google-dark [class*="from-slate-900"],
+.theme-google-dark [class*="from-indigo-900"],
+.theme-google-dark [class*="from-indigo-950"] {
+  --tw-gradient-from: #2d2f31 !important;
+}
+
+.theme-google-dark [class*="to-slate-900"],
+.theme-google-dark [class*="to-cyan-900"],
+.theme-google-dark [class*="to-indigo-950"] {
+  --tw-gradient-to: #2d2f31 !important;
+}
+
+.theme-google-dark [class*="bg-indigo-950"],
+.theme-google-dark [class*="bg-cyan-950"] {
+  background-color: rgba(138, 180, 248, 0.12) !important;
+}
+
+.theme-google-dark [class*="bg-indigo-500/"],
+.theme-google-dark [class*="bg-indigo-600/"] {
+  background-color: rgba(138, 180, 248, 0.15) !important;
+}
+
+/* Indigo and Purple Texts & Borders Harmonization */
+.theme-google-dark [class*="text-indigo-"],
+.theme-google-dark .text-purple-300,
+.theme-google-dark .text-purple-400 {
+  color: #8ab4f8 !important;
+}
+
+.theme-google-dark [class*="border-indigo-"],
+.theme-google-dark [class*="border-cyan-800"],
+.theme-google-dark [class*="border-indigo-800"] {
+  border-color: rgba(138, 180, 248, 0.35) !important;
+}
+
+.theme-google-dark [class*="ring-indigo-"] {
+  --tw-ring-color: rgba(138, 180, 248, 0.45) !important;
+}
+
+.theme-google-dark [class*="hover:border-indigo-"]:hover {
+  border-color: #8ab4f8 !important;
+}
+
+.theme-google-dark [class*="focus:border-indigo-"]:focus {
+  border-color: #8ab4f8 !important;
+}
+
+/* Primary Indigo Buttons -> Google Material Blue */
+.theme-google-dark .bg-indigo-600,
+.theme-google-dark .bg-indigo-500,
+.theme-google-dark button.bg-indigo-600,
+.theme-google-dark button.bg-indigo-500 {
+  background-color: #8ab4f8 !important;
+  color: #202124 !important;
+}
+
+.theme-google-dark .bg-indigo-600:hover,
+.theme-google-dark .bg-indigo-500:hover,
+.theme-google-dark button.bg-indigo-600:hover,
+.theme-google-dark button.bg-indigo-500:hover {
+  background-color: #aecbfa !important;
+  color: #202124 !important;
+}
+
+.theme-google-dark [class*="from-indigo-600"][class*="to-cyan-"],
+.theme-google-dark [class*="from-cyan-600"][class*="to-indigo-"],
+.theme-google-dark [class*="from-indigo-600"][class*="to-purple-"] {
+  background-image: linear-gradient(135deg, #8ab4f8 0%, #669df6 100%) !important;
+  color: #202124 !important;
+  border-color: #8ab4f8 !important;
+}
+
+.theme-google-dark [class*="from-indigo-600"][class*="to-cyan-"] *,
+.theme-google-dark [class*="from-cyan-600"][class*="to-indigo-"] *,
+.theme-google-dark [class*="from-indigo-600"][class*="to-purple-"] * {
+  color: #202124 !important;
+}
+
+/* System & Security Banner & Role Card Harmonization */
+.theme-google-dark .settings-subtab-bar {
+  background-color: #25272a !important;
+  border-color: #3c4043 !important;
+}
+
+.theme-google-dark .backup-role-card {
+  background-color: #35363a !important;
+  border-color: #3c4043 !important;
+  color: #e8eaed !important;
+}
+
+.theme-google-dark .backup-role-card * {
+  color: #e8eaed !important;
+}
+
+.theme-google-dark .backup-role-card svg {
+  color: #81c995 !important;
+}
+
+/* Inputs, Textareas, Selects in Google Dark */
+.theme-google-dark input:not([type="checkbox"]):not([type="radio"]),
+.theme-google-dark select,
+.theme-google-dark textarea {
+  background-color: #35363a !important;
+  border-color: #3c4043 !important;
+  color: #e8eaed !important;
+}
+
+.theme-google-dark input:not([type="checkbox"]):not([type="radio"]):focus,
+.theme-google-dark select:focus,
+.theme-google-dark textarea:focus {
+  border-color: #8ab4f8 !important;
+}
+
+/* Shadows with Obsidian RGB */
+.theme-google-dark [class*="shadow-"][class*="99,102,241"] {
+  box-shadow: 0 0 20px rgba(138, 180, 248, 0.3) !important;
 }
 
 .theme-light .sidebar-nav-item.active {
@@ -640,6 +791,11 @@
   border-color: rgba(56, 189, 248, 0.25) !important;
 }
 
+.theme-google-dark .audit-glass-panel {
+  background: #2d2f31 !important;
+  border-color: #3c4043 !important;
+}
+
 .theme-light .audit-glass-panel {
   background: #ffffff !important;
   border-color: #cbd5e1 !important;
@@ -713,6 +869,12 @@
   box-shadow: 0 0 15px rgba(99, 102, 241, 0.25) !important;
 }
 
+.theme-google-dark .audit-card-item.active {
+  background-color: rgba(138, 180, 248, 0.15) !important;
+  border-color: #8ab4f8 !important;
+  box-shadow: 0 0 15px rgba(138, 180, 248, 0.25) !important;
+}
+
 /* Universal Modal Glass Backdrop - Blurs the background with dark spatial glass across all themes */
 .modal-backdrop-blur,
 .modal-glass-backdrop,
@@ -724,6 +886,7 @@
 .theme-rose .modal-backdrop-blur,
 .theme-amber .modal-backdrop-blur,
 .theme-cobalt .modal-backdrop-blur,
+.theme-google-dark .modal-backdrop-blur,
 .theme-obsidian .modal-backdrop-blur {
   background-color: rgba(2, 6, 23, 0.78) !important;
   backdrop-filter: blur(12px) !important;
@@ -1064,8 +1227,7 @@
   color: #ffffff !important;
 }
 
-/* Gray background role cards & banner badge boxes: High-contrast black and bold text */
-.backup-role-card,
+/* Gray background role cards & banner badge boxes: High-contrast black and bold text in light mode */
 .theme-light .backup-role-card,
 .theme-light [class*="bg-slate-200"],
 .theme-light [class*="bg-slate-300"] {
@@ -1073,39 +1235,37 @@
   border-color: #cbd5e1 !important;
 }
 
-.backup-role-card,
-.backup-role-card *,
-.backup-role-card span,
-.backup-role-card div,
 .theme-light .backup-role-card,
-.theme-light .backup-role-card * {
+.theme-light .backup-role-card *,
+.theme-light .backup-role-card span,
+.theme-light .backup-role-card div {
   color: #000000 !important;
   font-weight: 700 !important;
 }
 
-.backup-role-card svg {
+.theme-light .backup-role-card svg {
   color: #000000 !important;
 }
 
-/* Ensure badges inside backup-role-card keep distinct readable accents */
-.backup-role-card [class*="bg-emerald"] {
+/* Ensure badges inside backup-role-card keep distinct readable accents in light mode */
+.theme-light .backup-role-card [class*="bg-emerald"] {
   background-color: #d1fae5 !important;
   border-color: #10b981 !important;
 }
 
-.backup-role-card [class*="bg-emerald"] *,
-.backup-role-card [class*="bg-emerald"] span {
+.theme-light .backup-role-card [class*="bg-emerald"] *,
+.theme-light .backup-role-card [class*="bg-emerald"] span {
   color: #064e3b !important;
   font-weight: 800 !important;
 }
 
-.backup-role-card [class*="bg-rose"] {
+.theme-light .backup-role-card [class*="bg-rose"] {
   background-color: #ffe4e6 !important;
   border-color: #f43f5e !important;
 }
 
-.backup-role-card [class*="bg-rose"] *,
-.backup-role-card [class*="bg-rose"] span {
+.theme-light .backup-role-card [class*="bg-rose"] *,
+.theme-light .backup-role-card [class*="bg-rose"] span {
   color: #881337 !important;
   font-weight: 800 !important;
 }
