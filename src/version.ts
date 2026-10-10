@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.307.2';
+export const APP_VERSION = '1.307.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.307.3',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'پویایی‌سازی عنوان و فوتر ایمیل‌های ارسالی با انطباق صددرصدی بر تایتل سفارشی پنل',
+    title_en: 'Dynamically Bind Email Header, Subject, Body, and Footer to Custom Panel Title',
+    changes: [
+      'جایگزینی متون ثابت و نام پیش‌فرض با تایتل سفارشی پنل (panelTitle) در سربرگ، عنوان (Subject)، متن اعلان و هدر کارت ایمیل تایید دو مرحله‌ای (2FA).',
+      'انطباق دقیق بخش فوتر و کپی‌رایت ایمیل‌های امنیتی با عنوان اختصاصی سامانه و حذف عبارات هاردکدشده سازمانی.',
+      'به‌روزرسانی قالب ایمیل‌های تست تشخیصی درگاه SMTP جهت هماهنگی کامل با عنوان و برند تعریف‌شده در تنظیمات عمومی.'
+    ],
+    changes_en: [
+      'Replaced static branding in Two-Step Verification (2FA) emails with the dynamic database-authoritative panelTitle across email header, subject, body, and card title.',
+      'Dynamically bound the automated security email footer and copyright notice to the custom system title, eliminating hardcoded platform names.',
+      'Updated SMTP diagnostic verification templates to consistently display the active panel title and identity.'
+    ]
+  },
   {
     version: '1.307.2',
     releaseDate: '2026-10-10',

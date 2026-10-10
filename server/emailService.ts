@@ -239,17 +239,26 @@ export async function sendTestEmail(options: {
     fatal: () => {},
   };
 
+  let panelTitle = 'NetTopology Pro';
+  try {
+    const { getGeneralSettings } = await import('./db');
+    const generalSettings = await getGeneralSettings();
+    if (generalSettings?.panelTitle && generalSettings.panelTitle.trim()) {
+      panelTitle = generalSettings.panelTitle.trim();
+    }
+  } catch {}
+
   const fromAddr = (config.from_email && config.from_email.trim()) || config.smtp_user.trim();
-  const fromName = (config.from_name && config.from_name.trim()) || 'NetTopology Alerts';
+  const fromName = (config.from_name && config.from_name.trim()) || `${panelTitle} Alerts`;
   const from = fromName ? `"${fromName}" <${fromAddr}>` : fromAddr;
-  const emailSubject = subject || '[NetTopology] Email Gateway Diagnostic Test / تست اتصال سامانه ایمیل';
+  const emailSubject = subject || `[${panelTitle}] Email Gateway Diagnostic Test / تست اتصال سامانه ایمیل`;
   const timestampStr = new Date().toUTCString();
 
   const mailOptions = {
     from,
     to: to.trim(),
     subject: emailSubject,
-    text: `NetTopology Email Gateway Diagnostic Test\n\nThis is a diagnostic message sent from NetTopology to verify that outgoing mail delivery is functioning correctly.\n\nConfiguration Details:\n- SMTP Host: ${config.smtp_host}:${config.smtp_port}\n- Security: ${config.smtp_secure.toUpperCase()}\n- Sender: ${fromAddr}\n- Recipient: ${to.trim()}\n- Timestamp: ${timestampStr}\n${notes ? `\nNote: ${notes}` : ''}`,
+    text: `${panelTitle} Email Gateway Diagnostic Test\n\nThis is a diagnostic message sent from ${panelTitle} to verify that outgoing mail delivery is functioning correctly.\n\nConfiguration Details:\n- SMTP Host: ${config.smtp_host}:${config.smtp_port}\n- Security: ${config.smtp_secure.toUpperCase()}\n- Sender: ${fromAddr}\n- Recipient: ${to.trim()}\n- Timestamp: ${timestampStr}\n${notes ? `\nNote: ${notes}` : ''}`,
     html: `
         <!DOCTYPE html>
         <html>
@@ -277,7 +286,7 @@ export async function sendTestEmail(options: {
         <body>
           <div class="container">
             <div class="header">
-              <h1>NetTopology & Device Manager</h1>
+              <h1>${panelTitle}</h1>
               <p>Enterprise Outgoing Mail Gateway Verification</p>
             </div>
             <div class="body">
@@ -285,7 +294,7 @@ export async function sendTestEmail(options: {
                 <p class="status-title">✓ SMTP Delivery & Authentication Successful</p>
               </div>
               <p class="desc">
-                Congratulations! Your mail server settings have been validated. NetTopology has successfully authenticated with your outgoing SMTP provider and delivered this message.
+                Congratulations! Your mail server settings have been validated. ${panelTitle} has successfully authenticated with your outgoing SMTP provider and delivered this message.
               </p>
               <div class="details-box">
                 <div class="details-row"><span class="details-label">Mail Server (Host):</span> <span class="details-value">${config.smtp_host}:${config.smtp_port}</span></div>
@@ -300,7 +309,7 @@ export async function sendTestEmail(options: {
               </p>
             </div>
             <div class="footer">
-              NetTopology Diagnostic Notification • Generated automatically by your local management engine
+              ${panelTitle} Diagnostic Notification • Generated automatically by your local management engine
             </div>
           </div>
         </body>
@@ -426,11 +435,16 @@ export async function sendTwoFactorAuthEmail(
   const isEn = options?.lang === 'en';
   const timestampStr = new Date().toUTCString();
 
-  // Retrieve outgoing mail gateway settings
+  // Retrieve outgoing mail gateway settings & general panel settings
   let config: EmailConfig;
+  let panelTitle = 'NetTopology Pro';
   try {
-    const { getEmailConfig } = await import('./db');
+    const { getEmailConfig, getGeneralSettings } = await import('./db');
     config = await getEmailConfig();
+    const generalSettings = await getGeneralSettings();
+    if (generalSettings?.panelTitle && generalSettings.panelTitle.trim()) {
+      panelTitle = generalSettings.panelTitle.trim();
+    }
   } catch (err: any) {
     console.warn('[Two-Factor Auth Mailer] Failed to load email config:', err.message);
     return {
@@ -454,16 +468,16 @@ export async function sendTwoFactorAuthEmail(
   }
 
   const fromAddr = (config.from_email && config.from_email.trim()) || config.smtp_user.trim();
-  const fromName = (config.from_name && config.from_name.trim()) || 'NetTopology Security';
+  const fromName = (config.from_name && config.from_name.trim()) || `${panelTitle} Security`;
   const from = fromName ? `"${fromName}" <${fromAddr}>` : fromAddr;
 
   const subject = isEn
-    ? `[NetTopology] ${code} is your Two-Step Verification Code`
-    : `[NetTopology] کد تایید ورود دو مرحله‌ای شما: ${code}`;
+    ? `[${panelTitle}] ${code} is your Two-Step Verification Code`
+    : `[${panelTitle}] کد تایید ورود دو مرحله‌ای شما: ${code}`;
 
   const textBody = isEn
-    ? `NetTopology Two-Step Verification Code\n\nHello ${username},\n\nYour one-time sign-in verification code is:\n\n${code}\n\nThis code is valid for ${expiresMinutes} minutes.\nNever share this code with anyone.\n\nSign-in details:\n- Username: ${username}\n- IP Address: ${ip}\n- Timestamp: ${timestampStr}\n- Client: ${userAgent}\n`
-    : `کد تایید ورود دو مرحله‌ای NetTopology\n\nکاربر گرامی ${username}،\n\nکد تایید یک‌بار مصرف ورود به سامانه:\n\n${code}\n\nاین کد تا ${expiresMinutes} دقیقه دیگر معتبر است.\nهرگز این کد را در اختیار افراد دیگر قرار ندهید.\n\nمشخصات درخواست:\n- نام کاربری: ${username}\n- آدرس آی‌پی: ${ip}\n- تاریخ: ${timestampStr}\n- مرورگر: ${userAgent}\n`;
+    ? `${panelTitle} Two-Step Verification Code\n\nHello ${username},\n\nYour one-time sign-in verification code is:\n\n${code}\n\nThis code is valid for ${expiresMinutes} minutes.\nNever share this code with anyone.\n\nSign-in details:\n- Username: ${username}\n- IP Address: ${ip}\n- Timestamp: ${timestampStr}\n- Client: ${userAgent}\n`
+    : `کد تایید ورود دو مرحله‌ای ${panelTitle}\n\nکاربر گرامی ${username}،\n\nکد تایید یک‌بار مصرف ورود به سامانه:\n\n${code}\n\nاین کد تا ${expiresMinutes} دقیقه دیگر معتبر است.\nهرگز این کد را در اختیار افراد دیگر قرار ندهید.\n\nمشخصات درخواست:\n- نام کاربری: ${username}\n- آدرس آی‌پی: ${ip}\n- تاریخ: ${timestampStr}\n- مرورگر: ${userAgent}\n`;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -669,7 +683,7 @@ export async function sendTwoFactorAuthEmail(
               <div class="top-accent"></div>
               <div class="header">
                 <div class="shield-badge">🛡️</div>
-                <h1>NetTopology Enterprise</h1>
+                <h1>${panelTitle}</h1>
                 <p>${isEn ? 'Two-Step Verification Gateway' : 'درگاه امنیتی احراز هویت دو مرحله‌ای'}</p>
               </div>
               <div class="content">
@@ -679,8 +693,8 @@ export async function sendTwoFactorAuthEmail(
                 <p class="intro">
                   ${
                     isEn
-                      ? 'A sign-in attempt was initiated for your NetTopology account. Please submit the one-time security code below to complete your login:'
-                      : 'یک درخواست ورود به حساب کاربری شما در سامانه مدیریت شبکه NetTopology ثبت گردید. جهت تایید هویت و تکمیل ورود، کد امنیتی ۶ رقمی زیر را وارد فرمایید:'
+                      ? `A sign-in attempt was initiated for your ${panelTitle} account. Please submit the one-time security code below to complete your login:`
+                      : `یک درخواست ورود به حساب کاربری شما در سامانه مدیریت شبکه ${panelTitle} ثبت گردید. جهت تایید هویت و تکمیل ورود، کد امنیتی ۶ رقمی زیر را وارد فرمایید:`
                   }
                 </p>
 
@@ -716,14 +730,14 @@ export async function sendTwoFactorAuthEmail(
                   <strong>⚠️ ${isEn ? 'Security Notice:' : 'هشدار امنیتی:'}</strong>
                   ${
                     isEn
-                      ? 'Never disclose this code to anyone. NetTopology administrators will never ask for your verification code. If you did not request this login, please secure your account immediately.'
-                      : 'این کد کاملاً محرمانه است و نباید در اختیار فرد دیگری قرار گیرد. پشتیبانی سامانه هرگز این کد را از شما نخواهد خواست. در صورتی که این ورود توسط شما انجام نشده است، بلافاصله کلمه عبور خود را تغییر دهید.'
+                      ? `Never disclose this code to anyone. ${panelTitle} administrators will never ask for your verification code. If you did not request this login, please secure your account immediately.`
+                      : `این کد کاملاً محرمانه است و نباید در اختیار فرد دیگری قرار گیرد. پشتیبانی سامانه ${panelTitle} هرگز این کد را از شما نخواهد خواست. در صورتی که این ورود توسط شما انجام نشده است، بلافاصله کلمه عبور خود را تغییر دهید.`
                   }
                 </div>
               </div>
               <div class="footer">
-                NetTopology Security • Automated System Dispatch<br>
-                © ${new Date().getFullYear()} NetTopology Enterprise Network Platform. All rights reserved.
+                ${panelTitle} Security • Automated System Dispatch<br>
+                © ${new Date().getFullYear()} ${panelTitle}. All rights reserved.
               </div>
             </td>
           </tr>
