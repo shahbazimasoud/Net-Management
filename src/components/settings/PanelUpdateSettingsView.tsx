@@ -275,26 +275,44 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
         </div>
       ) : updating ? (
         /* Live Updating In-Progress Card with 6-Phase Progress Bar */
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-indigo-950/85 via-slate-900/90 to-purple-950/85 border border-indigo-500/50 shadow-2xl shadow-indigo-950/50 space-y-5 animate-fadeIn relative overflow-hidden">
+        <div
+          className={`p-6 rounded-2xl border backdrop-blur-xl shadow-2xl space-y-5 animate-fadeIn relative overflow-hidden update-pipeline-card ${
+            isLightMode
+              ? 'bg-white border-slate-200 shadow-slate-200/50 text-slate-800'
+              : 'bg-slate-900/90 border-slate-700/60 shadow-black/40 text-slate-100'
+          }`}
+        >
           {/* Subtle Ambient Pulse */}
-          <div className="absolute -top-24 -left-24 w-60 h-60 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -top-24 -left-24 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
           {/* Header with Title and Current Progress */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
             <div className="flex items-center gap-3.5">
-              <div className="p-3 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 text-cyan-300 shadow-lg shadow-indigo-500/20 shrink-0">
-                <RefreshCw className="w-7 h-7 animate-spin text-cyan-400" />
+              <div
+                className={`p-3 rounded-2xl border shadow-lg shrink-0 ${
+                  isLightMode
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-600 shadow-indigo-100'
+                    : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400 shadow-indigo-500/10'
+                }`}
+              >
+                <RefreshCw className="w-7 h-7 animate-spin text-indigo-400" />
               </div>
               <div>
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h3 className="text-base sm:text-lg font-bold text-white">
+                  <h3 className={`text-base sm:text-lg font-bold ${isLightMode ? 'text-slate-900' : 'text-slate-100'}`}>
                     {isEn ? 'System Update Pipeline In Progress...' : 'عملیات به‌روزرسانی پنل در حال اجراست...'}
                   </h3>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                      isLightMode
+                        ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                        : 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300'
+                    }`}
+                  >
                     {isEn ? `Phase ${updateStep} of 6` : `گام ${updateStep} از ۶`}
                   </span>
                 </div>
-                <p className="text-xs text-slate-300/80 mt-1">
+                <p className={`text-xs mt-1 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
                   {isEn
                     ? 'Executing safe update pipeline, database snapshot & building production assets...'
                     : 'در حال اجرای خط لوله امن ارتقا، تهیه پشتیبان دیتابیس و بیلد نرم‌افزار...'}
@@ -303,16 +321,26 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             </div>
 
             {/* Percentage Badge */}
-            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-black/50 border border-cyan-500/40 self-start sm:self-auto shadow-inner">
-              <span className="text-xs text-cyan-300 font-mono">{isEn ? 'Progress:' : 'پیشرفت:'}</span>
-              <span className="text-xl font-mono font-black text-cyan-300">{updateProgress}%</span>
+            <div
+              className={`flex items-center gap-2 px-4 py-2 rounded-2xl border self-start sm:self-auto shadow-inner update-progress-badge ${
+                isLightMode
+                  ? 'bg-slate-100 border-slate-200 text-slate-800'
+                  : 'bg-slate-950/70 border-white/10 text-slate-200'
+              }`}
+            >
+              <span className={`text-xs font-mono font-semibold ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                {isEn ? 'Progress:' : 'پیشرفت:'}
+              </span>
+              <span className="text-xl font-mono font-black text-indigo-400">
+                {updateProgress}%
+              </span>
             </div>
           </div>
 
           {/* Interactive Progress Bar */}
           <div className="space-y-2 relative z-10">
-            <div className="flex items-center justify-between text-xs text-slate-300 font-mono">
-              <span className="text-cyan-300 font-semibold truncate max-w-[85%]">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className={`font-semibold truncate max-w-[85%] ${isLightMode ? 'text-indigo-700' : 'text-indigo-400'}`}>
                 {isEn
                   ? updateStep === 1
                     ? 'Phase 1/6: Initializing upgrade pipeline...'
@@ -337,13 +365,19 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
                     ? 'گام ۵/۶: ساخت و کامپایل مجدد کدهای اجرایی پنل...'
                     : 'گام ۶/۶: نهایی‌سازی تنظیمات و آماده‌سازی ری‌استارت...'}
               </span>
-              <span className="text-indigo-300 font-bold shrink-0">{updateProgress}%</span>
+              <span className={`font-bold shrink-0 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                {updateProgress}%
+              </span>
             </div>
 
             {/* Animated Gradient Bar */}
-            <div className="w-full h-3.5 rounded-full bg-slate-950 border border-white/10 overflow-hidden relative p-0.5 shadow-inner">
+            <div
+              className={`w-full h-3.5 rounded-full border overflow-hidden relative p-0.5 shadow-inner ${
+                isLightMode ? 'bg-slate-200 border-slate-300' : 'bg-slate-950 border-white/10'
+              }`}
+            >
               <div
-                className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-500 transition-all duration-700 ease-out relative shadow-[0_0_15px_rgba(6,182,212,0.6)]"
+                className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 transition-all duration-700 ease-out relative shadow-sm"
                 style={{ width: `${Math.max(5, Math.min(100, updateProgress))}%` }}
               >
                 <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full" />
@@ -351,35 +385,39 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             </div>
 
             {/* 6 Step Indicators */}
-            <div className="grid grid-cols-6 gap-1.5 pt-1">
+            <div className="grid grid-cols-6 gap-2 pt-1">
               {[
-                { step: 1, label_en: 'Init', label_fa: 'آغاز' },
-                { step: 2, label_en: 'Sync', label_fa: 'گیت' },
-                { step: 3, label_en: 'Deps', label_fa: 'پکیج‌ها' },
-                { step: 4, label_en: 'Backend', label_fa: 'بک‌اند' },
-                { step: 5, label_en: 'Build', label_fa: 'بیلد' },
-                { step: 6, label_en: 'Restart', label_fa: 'ری‌استارت' },
+                { step: 1, label_en: '1. Init', label_fa: '۱. آغاز' },
+                { step: 2, label_en: '2. Sync', label_fa: '۲. گیت' },
+                { step: 3, label_en: '3. Deps', label_fa: '۳. پکیج‌ها' },
+                { step: 4, label_en: '4. Backend', label_fa: '۴. بک‌اند' },
+                { step: 5, label_en: '5. Build', label_fa: '۵. بیلد' },
+                { step: 6, label_en: '6. Restart', label_fa: '۶. ری‌استارت' },
               ].map((s) => {
                 const isDone = updateStep > s.step;
                 const isCurrent = updateStep === s.step;
                 return (
-                  <div key={s.step} className="flex flex-col items-center gap-1 text-center">
+                  <div key={s.step} className="flex flex-col items-center gap-1.5 text-center">
                     <div
                       className={`w-full h-1.5 rounded-full transition-all ${
                         isDone
-                          ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+                          ? 'bg-emerald-500 shadow-xs'
                           : isCurrent
-                          ? 'bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(6,182,212,0.8)]'
+                          ? 'bg-indigo-500 animate-pulse shadow-sm shadow-indigo-500/50'
+                          : isLightMode
+                          ? 'bg-slate-200'
                           : 'bg-slate-800'
                       }`}
                     />
                     <span
-                      className={`text-[9px] font-mono truncate max-w-full ${
+                      className={`text-[10px] font-mono font-medium truncate max-w-full ${
                         isDone
-                          ? 'text-emerald-300 font-medium'
+                          ? 'text-emerald-400 font-semibold'
                           : isCurrent
-                          ? 'text-cyan-300 font-bold'
-                          : 'text-slate-500'
+                          ? 'text-indigo-400 font-bold'
+                          : isLightMode
+                          ? 'text-slate-500'
+                          : 'text-slate-400'
                       }`}
                     >
                       {isEn ? s.label_en : s.label_fa}
@@ -394,18 +432,24 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
           <div className="space-y-1.5 relative z-10">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <div className="flex items-center gap-1.5 font-mono">
-                <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+                <Terminal className="w-3.5 h-3.5 text-indigo-400" />
                 <span>{isEn ? 'Live Terminal Output' : 'خروجی زنده کنسول'}</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">
+              <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                 {updateLogs.length} {isEn ? 'entries' : 'سطر'}
               </span>
             </div>
 
-            <div className="p-4 rounded-xl bg-slate-950/90 border border-white/10 font-mono text-xs text-slate-300 max-h-56 overflow-y-auto space-y-1.5 custom-scrollbar">
+            <div
+              className={`p-4 rounded-xl border font-mono text-xs max-h-56 overflow-y-auto space-y-1.5 custom-scrollbar ${
+                isLightMode
+                  ? 'bg-slate-900 border-slate-700 text-slate-200'
+                  : 'bg-slate-950 border-white/10 text-slate-300'
+              }`}
+            >
               {updateLogs.map((log, idx) => (
                 <div key={idx} className="flex items-start gap-2">
-                  <span className="text-cyan-400 shrink-0">›</span>
+                  <span className="text-indigo-400 shrink-0">›</span>
                   <span className={log.includes('successfully') || log.includes('موفقیت') ? 'text-emerald-400 font-bold' : ''}>
                     {log}
                   </span>

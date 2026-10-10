@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.13';
+export const APP_VERSION = '1.306.14';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.14',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'انطباق و هماهنگ‌سازی کامل کادر خط لوله ارتقای سیستم (System Update Pipeline)، بخش Progress و مراحل ۱ تا ۶ با تم Google Dark',
+    title_en: 'Harmonize System Update Pipeline Card, Progress Badge & Step Indicators with Google Dark Theme',
+    changes: [
+      'اصلاح ساختار کادر وضعیت ارتقا (System Update Pipeline In Progress...) و حذف گرادیان‌های ناسازگار ایندیگو/بنفش آبسیدین جهت انطباق ۱۰۰٪ با پالت سطوح متریال دارک گوگل (#2d2f31 و #3c4043) و تم‌های روشن و تیره.',
+      'اصلاح استایل و رنگ‌بندی بج پیشرفت (Progress:) با پس‌زمینه استاندارد، بردرهای تم و درصد شفاف آبی متریال (#8ab4f8).',
+      'بهبود و هماهنگ‌سازی متون مراحل خط لوله و نمایش شماره‌دار شفاف گام‌های ۱ تا ۶ (1. Init تا 6. Restart) به صورت فونت مونو با کنتراست بالا و انطباق رنگی وضعیت‌های تکمیل‌شده و در حال اجرا با پالت Google Dark.',
+      'اصلاح سلکتورهای گرادیان در CSS و جلوگیری از تحمیل رنگ تیره بر روی متون کانتینرهای بزرگ.'
+    ],
+    changes_en: [
+      'Refactored the System Update Pipeline In Progress card and removed incompatible Obsidian indigo/purple neon gradients in favor of Google Material Dark surfaces (#2d2f31 / #3c4043) and dynamic light/dark theming.',
+      'Harmonized the Progress badge with theme-aware background, borders, and Google Material Blue (#8ab4f8) percentage indicator.',
+      'Polished pipeline step status texts and clearly formatted phases 1 to 6 (1. Init through 6. Restart) with high-contrast typography and theme-adaptive active/done states.',
+      'Refined CSS gradient child selectors to prevent unintended dark text overrides on large dashboard cards.'
+    ]
+  },
   {
     version: '1.306.13',
     releaseDate: '2026-10-10',
