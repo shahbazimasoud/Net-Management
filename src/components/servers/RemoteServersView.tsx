@@ -4141,17 +4141,19 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       )}
 
       {/* 19. Server Discovery & Fleet Scanner Modal */}
-      <ServerDiscoveryModal
-        isOpen={isDiscoveryModalOpen}
-        onClose={() => {
-          setIsDiscoveryModalOpen(false);
-          undockModal('server_fleet_discovery_modal');
-        }}
-        onMinimize={handleMinimizeDiscovery}
-        onServerAdded={loadFleet}
-        isLightMode={isLightMode}
-        isEn={isEn}
-      />
+      {isDiscoveryModalOpen && (
+        <ServerDiscoveryModal
+          isOpen={isDiscoveryModalOpen}
+          onClose={() => {
+            setIsDiscoveryModalOpen(false);
+            undockModal('server_fleet_discovery_modal');
+          }}
+          onMinimize={handleMinimizeDiscovery}
+          onServerAdded={loadFleet}
+          isLightMode={isLightMode}
+          isEn={isEn}
+        />
+      )}
 
       {/* Floating Success Notification Toast */}
       {successNotification &&

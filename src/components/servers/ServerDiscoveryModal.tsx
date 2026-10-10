@@ -149,7 +149,25 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
     return () => clearInterval(timer);
   }, [isScanning, scanStartTime]);
 
-  if (!isOpen) return null;
+  // Filtered hosts (Hook must be called unconditionally before any early returns)
+  const filteredHosts = useMemo(() => {
+    return discoveredHosts.filter((host) => {
+      // OS filter
+      if (filterOs === 'linux' && host.osType !== 'linux') return false;
+      if (filterOs === 'windows' && host.osType !== 'windows') return false;
+      if (filterOs === 'new_only' && host.alreadyInFleet) return false;
+
+      // Search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchIp = host.ip.toLowerCase().includes(q);
+        const matchHost = host.hostname?.toLowerCase().includes(q);
+        const matchDetail = host.osDetail.toLowerCase().includes(q);
+        return matchIp || matchHost || matchDetail;
+      }
+      return true;
+    });
+  }, [discoveredHosts, filterOs, searchQuery]);
 
   // Toggle port checkbox
   const handleTogglePort = (port: number) => {
@@ -451,26 +469,6 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
     }
   };
 
-  // Filtered hosts
-  const filteredHosts = useMemo(() => {
-    return discoveredHosts.filter((host) => {
-      // OS filter
-      if (filterOs === 'linux' && host.osType !== 'linux') return false;
-      if (filterOs === 'windows' && host.osType !== 'windows') return false;
-      if (filterOs === 'new_only' && host.alreadyInFleet) return false;
-
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchIp = host.ip.toLowerCase().includes(q);
-        const matchHost = host.hostname?.toLowerCase().includes(q);
-        const matchDetail = host.osDetail.toLowerCase().includes(q);
-        return matchIp || matchHost || matchDetail;
-      }
-      return true;
-    });
-  }, [discoveredHosts, filterOs, searchQuery]);
-
   // Statistics
   const linuxCount = discoveredHosts.filter((h) => h.osType === 'linux').length;
   const windowsCount = discoveredHosts.filter((h) => h.osType === 'windows').length;
@@ -479,6 +477,8 @@ export const ServerDiscoveryModal: React.FC<ServerDiscoveryModalProps> = ({
   ).length;
   const inFleetCount = discoveredHosts.filter((h) => h.alreadyInFleet).length;
   const newNodesCount = discoveredHosts.filter((h) => !h.alreadyInFleet).length;
+
+  if (!isOpen) return null;
 
   return createPortal(
     <div

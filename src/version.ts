@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.0';
+export const APP_VERSION = '1.306.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.1',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'رفع خطای چرخه عمر هوک‌ها در مودال دیسکاوری سرورها (React error #310)',
+    title_en: 'Fix React Hooks Lifecycle Invariant in Server Discovery Modal (React error #310)',
+    changes: [
+      'رفع ریشه‌ای خطای React error #310 ناشی از فراخوانی مشروط useMemo بعد از return زودهنگام در کامپوننت ServerDiscoveryModal.',
+      'انتقال بدون قیدوشرط کلیه هوک‌های کامپوننت به ابتدای تابع و فعال‌سازی رندرینگ امن و ایزوله در RemoteServersView.'
+    ],
+    changes_en: [
+      'Resolved root cause of React error #310 caused by conditional useMemo hook invocation after an early return guard in ServerDiscoveryModal.',
+      'Hoisted all component hooks unconditionally to the top-level and enforced clean conditional lifecycle mounting in RemoteServersView.'
+    ]
+  },
   {
     version: '1.306.0',
     releaseDate: '2026-10-10',
