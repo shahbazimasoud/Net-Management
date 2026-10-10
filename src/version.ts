@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.6';
+export const APP_VERSION = '1.306.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.7',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'توسعه انتخاب‌گر جستجوپذیر به تمام انواع هویت‌های هدف (کاربران و گروه‌های محلی و دامین) در پالیسی‌های RBAC',
+    title_en: 'Implement Searchable Autocomplete Pickers for All Target Identity Types in RBAC Policies',
+    changes: [
+      'تجهیز گروه‌های امنیتی اکتیو دایرکتوری (AD Groups) به کامپوننت جستجوگر زنده و کارت خلاصه وضعیت با آواتار و برچسب اعضا در پالیسی‌های RBAC.',
+      'تجهیز کاربران محلی سیستم (Local Users) به کمبوباکس جستجوی لحظه‌ای با فیلتر نام، یوزرنیم، ایمیل و نقش.',
+      'تجهیز گروه‌های کاربری محلی سیستم (Local Groups) به سلکتور جستجوپذیر با نمایش مشخصات و اعضای گروه.',
+      'یکپارچه‌سازی کامل تجربه کاربری در انتخاب هویت‌ها و ریست خودکار وضعیت فیلترها و دراپ‌دان‌ها هنگام جابجایی نوع هویت یا باز کردن مودال.'
+    ],
+    changes_en: [
+      'Extended the searchable combobox picker to Active Directory Security Groups in RBAC policies with live search, summary cards, and member counts.',
+      'Equipped Local Users with real-time searchable autocomplete supporting filtering by full name, username, email, and assigned role.',
+      'Equipped Local Groups with searchable autocomplete showing group details, descriptions, and local membership counts.',
+      'Harmonized the entire Target Identity selection experience across all subject types with automatic search state resets on modal open and subject switching.'
+    ]
+  },
   {
     version: '1.306.6',
     releaseDate: '2026-10-10',
