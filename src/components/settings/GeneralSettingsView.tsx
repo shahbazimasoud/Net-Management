@@ -164,21 +164,31 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   // Email/SMTP Status check for 2FA
   const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
   const [smtpHostName, setSmtpHostName] = useState<string>('');
+  const [isCheckingSmtp, setIsCheckingSmtp] = useState<boolean>(false);
+
+  const checkSmtpStatus = useCallback(async () => {
+    setIsCheckingSmtp(true);
+    try {
+      const res = await fetchEmailConfigApi();
+      const cfg = res?.config;
+      if (cfg && cfg.smtp_host && cfg.smtp_host.trim()) {
+        setSmtpConfigured(true);
+        setSmtpHostName(cfg.smtp_host.trim());
+      } else {
+        setSmtpConfigured(false);
+        setSmtpHostName('');
+      }
+    } catch {
+      setSmtpConfigured(false);
+      setSmtpHostName('');
+    } finally {
+      setIsCheckingSmtp(false);
+    }
+  }, []);
 
   useEffect(() => {
-    fetchEmailConfigApi()
-      .then((cfg) => {
-        if (cfg && cfg.smtp_host && cfg.smtp_host.trim()) {
-          setSmtpConfigured(true);
-          setSmtpHostName(cfg.smtp_host.trim());
-        } else {
-          setSmtpConfigured(false);
-        }
-      })
-      .catch(() => {
-        setSmtpConfigured(false);
-      });
-  }, []);
+    checkSmtpStatus();
+  }, [checkSmtpStatus]);
 
   // Fetch live server time from backend
   const fetchLiveServerTime = useCallback(async () => {
@@ -1832,7 +1842,13 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       <input
                         type="checkbox"
                         checked={Boolean(formData.twoFactorEnabled)}
-                        onChange={(e) => setFormData({ ...formData, twoFactorEnabled: e.target.checked })}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setFormData({ ...formData, twoFactorEnabled: checked });
+                          if (checked) {
+                            checkSmtpStatus();
+                          }
+                        }}
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] rtl:after:left-auto rtl:after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
@@ -1841,8 +1857,12 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
 
                   {/* Diagnostic / SMTP notification when 2FA is enabled */}
                   {formData.twoFactorEnabled && (
-                    <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs ${
-                      smtpConfigured === false
+                    <div className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs ${
+                      isCheckingSmtp
+                        ? isLightMode
+                          ? 'bg-blue-50 border-blue-200 text-blue-900'
+                          : 'bg-blue-950/30 border-blue-500/30 text-blue-200'
+                        : smtpConfigured === false
                         ? isLightMode
                           ? 'bg-amber-50 border-amber-300 text-amber-900'
                           : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
@@ -1850,24 +1870,60 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                         : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
                     }`}>
-                      {smtpConfigured === false ? (
-                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                      ) : (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        {smtpConfigured === false ? (
-                          <p className="leading-relaxed">
-                            {isEn
-                              ? 'Notice: Outgoing SMTP mail server is not yet configured. Please configure SMTP in System -> Email Settings so users receive verification codes in their inbox.'
-                              : 'توجه: سرور ارسال ایمیل (SMTP) هنوز در سامانه پیکربندی نشده است. جهت ارسال کدها به کاربران، تنظیمات SMTP را در بخش «تنظیمات سیستم -> تنظیمات ایمیل» تکمیل فرمایید.'}
-                          </p>
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        {isCheckingSmtp ? (
+                          <RefreshCw className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5 animate-spin" />
+                        ) : smtpConfigured === false ? (
+                          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                         ) : (
-                          <p className="leading-relaxed font-medium">
-                            {isEn
-                              ? `Outgoing SMTP mail service is active (${smtpHostName || 'Configured'}). Two-Step Verification codes will be delivered to signing-in users.`
-                              : `سرویس ارسال ایمیل SMTP فعال است (${smtpHostName || 'پیکربندی شده'}). کدهای تایید دو مرحله‌ای به آدرس ایمیل کاربران ارسال خواهند شد.`}
-                          </p>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          {isCheckingSmtp ? (
+                            <p className="leading-relaxed">
+                              {isEn
+                                ? 'Checking outgoing SMTP mail server status...'
+                                : 'در حال بررسی وضعیت اتصال سرور ارسال ایمیل (SMTP)...'}
+                            </p>
+                          ) : smtpConfigured === false ? (
+                            <p className="leading-relaxed">
+                              {isEn
+                                ? 'Notice: Outgoing SMTP mail server is not yet configured. Please configure SMTP in System -> Email Settings so users receive verification codes in their inbox.'
+                                : 'توجه: سرور ارسال ایمیل (SMTP) هنوز در سامانه پیکربندی نشده است. جهت ارسال کدها به کاربران، تنظیمات SMTP را در بخش «تنظیمات سیستم -> تنظیمات ایمیل» تکمیل فرمایید.'}
+                            </p>
+                          ) : (
+                            <p className="leading-relaxed font-medium">
+                              {isEn
+                                ? `Outgoing SMTP mail service is active (${smtpHostName || 'Configured'}). Two-Step Verification codes will be delivered to signing-in users.`
+                                : `سرویس ارسال ایمیل SMTP فعال است (${smtpHostName || 'پیکربندی شده'}). کدهای تایید دو مرحله‌ای به آدرس ایمیل کاربران ارسال خواهند شد.`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => checkSmtpStatus()}
+                          disabled={isCheckingSmtp}
+                          className={`p-1.5 rounded-lg border transition text-[11px] font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 hover:bg-slate-100 text-slate-700'
+                              : 'bg-white/5 border-white/10 hover:bg-white/15 text-slate-300'
+                          }`}
+                          title={isEn ? 'Re-check SMTP Status' : 'بررسی مجدد وضعیت سرور ایمیل'}
+                        >
+                          <RefreshCw className={`w-3 h-3 ${isCheckingSmtp ? 'animate-spin' : ''}`} />
+                          <span className="hidden sm:inline">{isEn ? 'Check' : 'بررسی مجدد'}</span>
+                        </button>
+                        {smtpConfigured === false && onNavigateToTab && (
+                          <button
+                            type="button"
+                            onClick={() => onNavigateToTab('settings-email')}
+                            className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-semibold transition cursor-pointer shadow-sm"
+                          >
+                            {isEn ? 'Configure SMTP' : 'تنظیمات ایمیل'}
+                          </button>
                         )}
                       </div>
                     </div>

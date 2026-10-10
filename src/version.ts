@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.307.1';
+export const APP_VERSION = '1.307.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.307.2',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'اصلاح تشخیص وضعیت سرور ارسال ایمیل SMTP و اعتبارسنجی بلادرنگ در فعال‌سازی ورود دو مرحله‌ای (2FA)',
+    title_en: 'Fix Outgoing SMTP Server Detection and Real-Time Validation on Two-Step Verification (2FA) Toggle',
+    changes: [
+      'رفع خطای خواندن آبجکت پاسخ درگاه ایمیل (تطبیق res.config با کلیدهای پیکربندی) که مانع از تشخیص صحیح اتصال SMTP در صفحه تنظیمات عمومی می‌شد.',
+      'افزودن امکان اعتبارسنجی فوری وضعیت SMTP به محض کلیک روی کلید دو مرحله‌ای و تعبیه دکمه بررسی مجدد به همراه پیوند مستقیم به بخش تنظیمات ایمیل.',
+      'بهبود تجربه کاربری و نمایش وضعیت بارگذاری در حین استعلام اتصال بدون نمایش پیام‌های هشدار زودهنگام.'
+    ],
+    changes_en: [
+      'Fixed response object unwrapping (res.config mapping) preventing accurate SMTP gateway detection in General Settings.',
+      'Added real-time SMTP status re-verification upon toggling 2FA switch, along with a dedicated re-check action and direct navigation link to Email Settings.',
+      'Refined UI loading states to prevent premature false-negative warnings during connectivity evaluation.'
+    ]
+  },
   {
     version: '1.307.1',
     releaseDate: '2026-10-10',
