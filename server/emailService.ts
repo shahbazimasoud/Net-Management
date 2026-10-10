@@ -480,20 +480,39 @@ export async function sendTwoFactorAuthEmail(
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       color: #f1f5f9;
       -webkit-font-smoothing: antialiased;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
     }
-    .wrapper {
-      width: 100%;
+    table {
+      border-collapse: separate;
+    }
+    .outer-table {
+      width: 100% !important;
       background-color: #060b18;
-      padding: 40px 15px;
+      margin: 0;
+      padding: 0;
     }
-    .card {
-      max-width: 580px;
+    .center-cell {
+      padding: 50px 20px;
+      text-align: center;
+      vertical-align: top;
+    }
+    .email-card {
+      width: 100%;
+      max-width: 480px;
       margin: 0 auto;
-      background: #0f172a;
+      background-color: #0f172a;
       border-radius: 20px;
       border: 1px solid #1e293b;
       overflow: hidden;
       box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+      text-align: ${isEn ? 'left' : 'right'};
+    }
+    @media only screen and (min-width: 600px) {
+      .email-card {
+        width: 480px !important;
+        max-width: 480px !important;
+      }
     }
     .top-accent {
       height: 4px;
@@ -639,69 +658,79 @@ export async function sendTwoFactorAuthEmail(
   </style>
 </head>
 <body>
-  <div class="wrapper">
-    <div class="card">
-      <div class="top-accent"></div>
-      <div class="header">
-        <div class="shield-badge">🛡️</div>
-        <h1>NetTopology Enterprise</h1>
-        <p>${isEn ? 'Two-Step Verification Gateway' : 'درگاه امنیتی احراز هویت دو مرحله‌ای'}</p>
-      </div>
-      <div class="content">
-        <p class="greeting">
-          ${isEn ? `Hello <strong>${username}</strong>,` : `کاربر گرامی <strong>${username}</strong>،`}
-        </p>
-        <p class="intro">
-          ${
-            isEn
-              ? 'A sign-in attempt was initiated for your NetTopology account. Please submit the one-time security code below to complete your login:'
-              : 'یک درخواست ورود به حساب کاربری شما در سامانه مدیریت شبکه NetTopology ثبت گردید. جهت تایید هویت و تکمیل ورود، کد امنیتی ۶ رقمی زیر را وارد فرمایید:'
-          }
-        </p>
+  <!-- Outer Centering Table -->
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" class="outer-table" style="background-color: #060b18; width: 100%; table-layout: fixed;">
+    <tr>
+      <td align="center" class="center-cell" style="padding: 50px 20px; background-color: #060b18;">
+        <!-- Centered Card: Constrained to ~1/3 screen width (max 480px) with generous margins -->
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" class="email-card" style="max-width: 480px; width: 100%; margin: 0 auto; background-color: #0f172a; border-radius: 20px; border: 1px solid #1e293b; overflow: hidden; box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);">
+          <tr>
+            <td>
+              <div class="top-accent"></div>
+              <div class="header">
+                <div class="shield-badge">🛡️</div>
+                <h1>NetTopology Enterprise</h1>
+                <p>${isEn ? 'Two-Step Verification Gateway' : 'درگاه امنیتی احراز هویت دو مرحله‌ای'}</p>
+              </div>
+              <div class="content">
+                <p class="greeting">
+                  ${isEn ? `Hello <strong>${username}</strong>,` : `کاربر گرامی <strong>${username}</strong>،`}
+                </p>
+                <p class="intro">
+                  ${
+                    isEn
+                      ? 'A sign-in attempt was initiated for your NetTopology account. Please submit the one-time security code below to complete your login:'
+                      : 'یک درخواست ورود به حساب کاربری شما در سامانه مدیریت شبکه NetTopology ثبت گردید. جهت تایید هویت و تکمیل ورود، کد امنیتی ۶ رقمی زیر را وارد فرمایید:'
+                  }
+                </p>
 
-        <div class="code-box">
-          <div class="code-label">${isEn ? 'One-Time Security Code' : 'کد تایید یک‌بار مصرف'}</div>
-          <div class="code-number">${code}</div>
-          <div class="validity-tag">
-            ⏱️ ${isEn ? `Valid for ${expiresMinutes} minutes` : `معتبر به مدت ${expiresMinutes} دقیقه`}
-          </div>
-        </div>
+                <div class="code-box">
+                  <div class="code-label">${isEn ? 'One-Time Security Code' : 'کد تایید یک‌بار مصرف'}</div>
+                  <div class="code-number">${code}</div>
+                  <div class="validity-tag">
+                    ⏱️ ${isEn ? `Valid for ${expiresMinutes} minutes` : `معتبر به مدت ${expiresMinutes} دقیقه`}
+                  </div>
+                </div>
 
-        <div class="metadata-box">
-          <div class="metadata-title">${isEn ? 'Sign-In Request Details' : 'مشخصات درخواست ورود'}</div>
-          <div class="meta-row">
-            <span class="meta-label">${isEn ? 'Account:' : 'نام کاربری:'}</span>
-            <span class="meta-val">${username}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">${isEn ? 'IP Address:' : 'آدرس آی‌پی:'}</span>
-            <span class="meta-val">${ip}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">${isEn ? 'Timestamp:' : 'تاریخ و زمان:'}</span>
-            <span class="meta-val">${timestampStr}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">${isEn ? 'Client / Agent:' : 'دستگاه / مرورگر:'}</span>
-            <span class="meta-val">${userAgent.slice(0, 40)}</span>
-          </div>
-        </div>
+                <div class="metadata-box">
+                  <div class="metadata-title">${isEn ? 'Sign-In Request Details' : 'مشخصات درخواست ورود'}</div>
+                  <div class="meta-row">
+                    <span class="meta-label">${isEn ? 'Account:' : 'نام کاربری:'}</span>
+                    <span class="meta-val">${username}</span>
+                  </div>
+                  <div class="meta-row">
+                    <span class="meta-label">${isEn ? 'IP Address:' : 'آدرس آی‌پی:'}</span>
+                    <span class="meta-val">${ip}</span>
+                  </div>
+                  <div class="meta-row">
+                    <span class="meta-label">${isEn ? 'Timestamp:' : 'تاریخ و زمان:'}</span>
+                    <span class="meta-val">${timestampStr}</span>
+                  </div>
+                  <div class="meta-row">
+                    <span class="meta-label">${isEn ? 'Client / Agent:' : 'دستگاه / مرورگر:'}</span>
+                    <span class="meta-val">${userAgent.slice(0, 40)}</span>
+                  </div>
+                </div>
 
-        <div class="warning-box">
-          <strong>⚠️ ${isEn ? 'Security Notice:' : 'هشدار امنیتی:'}</strong>
-          ${
-            isEn
-              ? 'Never disclose this code to anyone. NetTopology administrators will never ask for your verification code. If you did not request this login, please secure your account immediately.'
-              : 'این کد کاملاً محرمانه است و نباید در اختیار فرد دیگری قرار گیرد. پشتیبانی سامانه هرگز این کد را از شما نخواهد خواست. در صورتی که این ورود توسط شما انجام نشده است، بلافاصله کلمه عبور خود را تغییر دهید.'
-          }
-        </div>
-      </div>
-      <div class="footer">
-        NetTopology Security • Automated System Dispatch<br>
-        © ${new Date().getFullYear()} NetTopology Enterprise Network Platform. All rights reserved.
-      </div>
-    </div>
-  </div>
+                <div class="warning-box">
+                  <strong>⚠️ ${isEn ? 'Security Notice:' : 'هشدار امنیتی:'}</strong>
+                  ${
+                    isEn
+                      ? 'Never disclose this code to anyone. NetTopology administrators will never ask for your verification code. If you did not request this login, please secure your account immediately.'
+                      : 'این کد کاملاً محرمانه است و نباید در اختیار فرد دیگری قرار گیرد. پشتیبانی سامانه هرگز این کد را از شما نخواهد خواست. در صورتی که این ورود توسط شما انجام نشده است، بلافاصله کلمه عبور خود را تغییر دهید.'
+                  }
+                </div>
+              </div>
+              <div class="footer">
+                NetTopology Security • Automated System Dispatch<br>
+                © ${new Date().getFullYear()} NetTopology Enterprise Network Platform. All rights reserved.
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
   `;

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.307.0';
+export const APP_VERSION = '1.307.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.307.1',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'اصلاح قالب ایمیل تایید دو مرحله‌ای و مرکزیت‌بخشی کارت امنیتی در یک‌سوم میانی صفحه',
+    title_en: 'Center and Constrain Two-Step Verification Email Template to Middle Third of Viewport',
+    changes: [
+      'اصلاح ساختار کانتینر ایمیل ارسال کد تایید دو مرحله‌ای (2FA) با پیاده‌سازی جدول نگهدارنده استاندارد و کنترل عرض کارت امنیتی در حداکثر ۴۸۰ پیکسل.',
+      'مرکزیت‌بخشی دقیق کارت در یک‌سوم میانی صفحه ایمیل با حاشیه‌های متقارن و سخاوتمندانه در سمت چپ و راست نمایشگر.',
+      'جلوگیری از کشیدگی تمام‌عرض کارت در کلاینت‌های مختلف وب‌میل (مانند جیمیل و اوت‌لوک) و مقیاس‌پذیری واکنش‌گرا در گوشی‌های هوشمند.'
+    ],
+    changes_en: [
+      'Refactored the Two-Step Verification (2FA) email layout using a standards-compliant nested table container constrained to a maximum width of 480px.',
+      'Centered the security card squarely within the middle third of the email viewport with generous, balanced left and right margins.',
+      'Prevented full-width stretching across webmail clients (Gmail, Outlook) while ensuring smooth responsive scaling on mobile devices.'
+    ]
+  },
   {
     version: '1.307.0',
     releaseDate: '2026-10-10',
