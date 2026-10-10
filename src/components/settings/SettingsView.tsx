@@ -30,6 +30,7 @@ import {
   saveSimulatedRoleId,
   loadLocalUsers,
   saveLocalUsers,
+  updateInMemoryLocalUsers,
   loadLocalGroups,
   saveLocalGroups,
   syncLocalGroupsFromDatabase,
@@ -152,9 +153,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     saveSimulatedRoleId(id);
   };
 
-  const handleSaveLocalUsers = (newUsers: LocalUser[]) => {
+  const handleSaveLocalUsers = (newUsers: LocalUser[], skipBackendSync = false) => {
     setLocalUsers(newUsers);
-    saveLocalUsers(newUsers);
+    if (!skipBackendSync) {
+      saveLocalUsers(newUsers);
+    } else {
+      updateInMemoryLocalUsers(newUsers);
+    }
   };
 
   const handleSaveLocalGroups = (newGroups: LocalGroup[]) => {

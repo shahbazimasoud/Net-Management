@@ -396,6 +396,10 @@ export function saveLocalUsers(users: LocalUser[]): void {
   }).catch(() => {});
 }
 
+export function updateInMemoryLocalUsers(users: LocalUser[]): void {
+  inMemoryUsers = users;
+}
+
 export async function saveUserToDatabase(
   userPayload: Partial<LocalUser> & { password?: string }
 ): Promise<{ success: boolean; user?: LocalUser; error?: string }> {

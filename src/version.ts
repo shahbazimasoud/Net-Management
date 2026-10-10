@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.7';
+export const APP_VERSION = '1.304.8';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.8',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'اصلاح جریان ذخیره‌سازی فرانت‌اند، حذف درخواست‌های تداخلی و افزودن اعلان موفقیت (فاز ۲)',
+    title_en: 'Fix Frontend User Save Flow, Eliminate Conflicting Batch Race, and Add Success Feedback (Phase 2)',
+    changes: [
+      'حذف ارسال درخواست‌های هم‌زمان و تداخلی دسته‌جمعی (Batch POST) پس از ذخیره‌سازی موفق مشخصات و رمز عبور کاربر در saveUserToDatabase.',
+      'افزودن پارامتر skipBackendSync به تابع handleSaveLocalUsers و متد updateInMemoryLocalUsers جهت هماهنگی استیت محلی بدون ارسال ریکوئست تکراری به سرور.',
+      'اعتبارسنجی ارگونومیک حداقل طول رمز عبور (۴ کاراکتر) و پاک‌سازی خودکار مقادیر فرم پس از ذخیره موفق حساب کاربری.',
+      'طراحی بنر اعلان بازخورد بصری سبز رنگ (Success Notification Banner) جهت تایید شفاف ذخیره‌سازی مشخصات و رمز عبور در دیتابیس با رعایت دو زبانه بودن و تم‌ها.',
+      'ثبت لاگ حسابرسی پورتال (Audit Log) با اکشن USER_PASSWORD_CHANGED در زمان تغییر رمز عبور کاربران محلی.'
+    ],
+    changes_en: [
+      'Eliminated concurrent conflicting batch POST requests after successful user credential persistence in saveUserToDatabase.',
+      'Added skipBackendSync parameter to handleSaveLocalUsers and introduced updateInMemoryLocalUsers for atomic local state updates.',
+      'Enforced ergonomic 4-character minimum password length validation and auto-cleared form credential inputs upon successful submission.',
+      'Designed emerald success notification banner confirming user credentials persistence in the database with strict bilingual and theme compliance.',
+      'Logged portal audit event with action USER_PASSWORD_CHANGED when local user passwords are modified.'
+    ]
+  },
   {
     version: '1.304.7',
     releaseDate: '2026-10-10',

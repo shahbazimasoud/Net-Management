@@ -35,7 +35,7 @@ import { UserPickerModal } from './UserPickerModal';
 
 interface LocalUsersTabProps {
   users: LocalUser[];
-  onSaveUsers: (users: LocalUser[]) => void;
+  onSaveUsers: (users: LocalUser[], skipBackendSync?: boolean) => void;
   groups: LocalGroup[];
   onSaveGroups: (groups: LocalGroup[]) => void;
   isEn?: boolean;
@@ -74,6 +74,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [userError, setUserError] = useState('');
+  const [userSuccessMessage, setUserSuccessMessage] = useState('');
   const [isSavingUser, setIsSavingUser] = useState(false);
   const [isUserMaximized, setIsUserMaximized] = useState(false);
 
@@ -175,11 +176,16 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
 
     // Password validation if creating new user or updating password
     const isNew = !users.some((u) => u.id === editingUser.id);
+    const hasNewPassword = Boolean(password && password.trim().length > 0);
     if (isNew && !password) {
       setUserError(isEn ? 'Password is required for new users.' : 'تعیین رمز عبور برای کاربر جدید الزامی است.');
       return;
     }
-    if (password && password !== confirmPassword) {
+    if (hasNewPassword && password.trim().length < 4) {
+      setUserError(isEn ? 'Password must be at least 4 characters long.' : 'کلمه عبور باید حداقل دارای ۴ کاراکتر باشد.');
+      return;
+    }
+    if (hasNewPassword && password !== confirmPassword) {
       setUserError(isEn ? 'Passwords do not match.' : 'رمزهای عبور وارد شده همخوانی ندارند.');
       return;
     }
@@ -204,7 +210,7 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
     try {
       const saveRes = await saveUserToDatabase({
         ...updatedUser,
-        password: password ? password.trim() : undefined,
+        password: hasNewPassword ? password.trim() : undefined,
       });
 
       if (!saveRes.success) {
@@ -239,19 +245,37 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
         return { ...g, memberUserIds: Array.from(memberSet) };
       });
 
-      onSaveUsers(newUsers);
+      // Update state without sending conflicting batch requests that could race with password saves
+      onSaveUsers(newUsers, true);
       onSaveGroups(newGroups);
+      setPassword('');
+      setConfirmPassword('');
+      setShowPassword(false);
+      setUserSuccessMessage(
+        hasNewPassword
+          ? (isEn
+              ? `User "${savedRecord.username}" profile and password updated successfully in database.`
+              : `مشخصات و کلمه عبور کاربر «${savedRecord.username}» با موفقیت در پایگاه داده ذخیره شد.`)
+          : (isEn
+              ? `User "${savedRecord.username}" profile updated successfully in database.`
+              : `مشخصات کاربر «${savedRecord.username}» با موفقیت در پایگاه داده ذخیره شد.`)
+      );
+      setTimeout(() => setUserSuccessMessage(''), 5000);
 
       // Audit Log user creation / role modification
       try {
         logPortalEvent({
           category: 'user_management',
-          action: isNew ? 'USER_CREATED' : 'USER_ROLE_CHANGED',
+          action: isNew ? 'USER_CREATED' : hasNewPassword ? 'USER_PASSWORD_CHANGED' : 'USER_ROLE_CHANGED',
           title: isNew
             ? `ایجاد کاربر محلی جدید «${savedRecord.username}» (${savedRecord.fullName})`
+            : hasNewPassword
+            ? `تغییر کلمه عبور کاربر «${savedRecord.username}»`
             : `ویرایش مشخصات و سطح دسترسی کاربر «${savedRecord.username}»`,
           title_en: isNew
             ? `New local user account created: ${savedRecord.username}`
+            : hasNewPassword
+            ? `Password updated for user: ${savedRecord.username}`
             : `User profile & role updated for ${savedRecord.username}`,
           target: {
             type: 'user',
@@ -262,15 +286,20 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
               role: savedRecord.role,
               status: savedRecord.status,
               groupIds: savedRecord.groupIds,
+              passwordChanged: hasNewPassword,
             },
           },
-          severity: isNew ? 'info' : 'notice',
+          severity: isNew ? 'info' : hasNewPassword ? 'warning' : 'notice',
           status: 'success',
           details: isNew
             ? `کاربر جدید «${savedRecord.fullName}» با شناسه ${savedRecord.username} و نقش ${savedRecord.role} در دیتابیس ثبت شد.`
+            : hasNewPassword
+            ? `کلمه عبور و مشخصات حساب کاربری ${savedRecord.username} در پایگاه داده به‌روزرسانی شد.`
             : `مشخصات، نقش یا عضویت گروه کاربر ${savedRecord.username} تغییر یافت.`,
           details_en: isNew
             ? `User ${savedRecord.username} created in database with role ${savedRecord.role}.`
+            : hasNewPassword
+            ? `Password and profile updated in database for ${savedRecord.username}.`
             : `Profile and roles updated for user ${savedRecord.username}.`,
         });
       } catch (err) {
@@ -658,6 +687,23 @@ export const LocalUsersTab: React.FC<LocalUsersTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Success Notification Banner */}
+      {userSuccessMessage && (
+        <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold">{userSuccessMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUserSuccessMessage('')}
+            className="text-emerald-400 hover:text-emerald-200 p-1 rounded-lg hover:bg-emerald-500/20 transition cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Stats Summary Ribbon */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
