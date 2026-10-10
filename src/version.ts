@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.305.2';
+export const APP_VERSION = '1.305.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.305.3',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'ممیزی جامع پایداری، راستی‌آزمایی سراسری رگرسیون و تحویل نهایی قابلیت‌ها (فاز ۴)',
+    title_en: 'Comprehensive Stability Audit, System-wide Regression Verification, and Final Handover (Phase 4)',
+    changes: [
+      'اجرای هم‌زمان و سراسری مجموعه آزمون‌های رگرسیون ۱۶ مرحله‌ای پایداری تغییر رمز عبور و مجوزهای سوژه‌های نقشه در پایگاه داده PostgreSQL.',
+      'تأیید سلامت کامل کلاینت و سرور، تطابق صددرصدی انواع داده‌های تایپ‌اسکریپت و ساخت بی‌نقص بسته نهایی اپلت.',
+      'تضمین انطباق کامل با قوانین ارگونومی رابط کاربری، تم‌های تیره و روشن، دو زبانه بودن و عدم خروج از کادر مانیتور.',
+      'استقرار نهایی بر روی برنچ اصلی master ریپازیتوری گیت‌هاب.'
+    ],
+    changes_en: [
+      'Executed full 16-step regression suite covering password persistence and map subject authorization against live PostgreSQL database.',
+      'Verified zero TypeScript type regressions and successful production applet compilation.',
+      'Enforced strict ergonomic UI compliance across dark and light themes, strict bilingual localization, and boundary safety.',
+      'Finalized and deployed to origin/master branch on GitHub.'
+    ]
+  },
   {
     version: '1.305.2',
     releaseDate: '2026-10-10',
