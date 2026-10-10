@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.307.4';
+export const APP_VERSION = '1.307.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.307.5',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'تجهیز کارت‌های جانمایی فیزیکی به دکمه‌های مستقیم حذف از ساختمان، رک، واحد و طبقه',
+    title_en: 'Direct Action Buttons on Physical Placement Cards for Building, Rack, Unit & Floor Removal',
+    changes: [
+      'افزودن دکمه مشخص و برجسته «حذف از ساختمان» (Remove from Building) با آیکون حذف و استایل باکنتراست در نوار عملیات کارت‌های تجهیزات.',
+      'افزودن دکمه عملیاتی مستقیم «حذف از رک» (Remove from Rack) هم در نوار ابزار کارت و هم در برچسب شناسه رک.',
+      'افزودن دکمه عملیاتی مستقیم «حذف از واحد» (Remove from Unit) در نوار ابزار کارت و در برچسب شناسه واحد.',
+      'افزودن دکمه عملیاتی مستقیم «حذف از طبقه» (Remove from Floor) برای تجهیزات مستقر در فضای عمومی طبقات بدون رک یا واحد.',
+      'به‌روزرسانی پیام‌های بازخورد لحظه‌ای (Feedback Toasts) و تضمین انطباق صددرصدی با زبان فعال پنل (عدم نمایش متن فارسی در حالت انگلیسی).'
+    ],
+    changes_en: [
+      'Added a prominent dedicated "Remove from Building" action button with trash icon and high-contrast styling to all placed hardware device cards.',
+      'Added direct "Remove from Rack" action buttons both in the card toolbar and rack badge for instant removal from rack cabinets.',
+      'Added direct "Remove from Unit" action buttons in the card toolbar and unit badge for instant removal from assigned rooms/units.',
+      'Added direct "Remove from Floor" action button for devices located in general floor space without specific racks or units.',
+      'Updated real-time feedback toasts with strict bilingual localization adherence (zero Persian text in English mode).'
+    ]
+  },
   {
     version: '1.307.4',
     releaseDate: '2026-10-10',

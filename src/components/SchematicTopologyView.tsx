@@ -2760,6 +2760,126 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     }
   };
 
+  const handleRemoveFromRack = async (deviceId: string) => {
+    const dev = localNodes.find((n) => n.id === deviceId);
+    if (!dev) return;
+
+    const previousNodes = [...localNodes];
+    setLocalNodes((prev) =>
+      prev.map((n) => (n.id === deviceId ? { ...n, rack: '' } : n))
+    );
+    setMovingDeviceId(deviceId);
+
+    try {
+      await updateDevice(deviceId, {
+        building: dev.building || '',
+        floor: dev.floor || '',
+        unit: dev.unit || '',
+        rack: '',
+      });
+
+      setFeedbackToast({
+        type: 'success',
+        message: isEn
+          ? `Device "${dev.name}" removed from rack.`
+          : `تجهیز «${dev.name}» با موفقیت از رک خارج شد.`,
+      });
+      setTimeout(() => setFeedbackToast(null), 4000);
+      onRefresh();
+    } catch (err: any) {
+      setLocalNodes(previousNodes);
+      setFeedbackToast({
+        type: 'error',
+        message: isEn
+          ? `Failed to remove from rack: ${err?.message || 'Unknown error'}`
+          : `خطا در خروج تجهیز از رک: ${err?.message || 'خطای ناشناخته'}`,
+      });
+      setTimeout(() => setFeedbackToast(null), 4500);
+    } finally {
+      setMovingDeviceId(null);
+    }
+  };
+
+  const handleRemoveFromUnit = async (deviceId: string) => {
+    const dev = localNodes.find((n) => n.id === deviceId);
+    if (!dev) return;
+
+    const previousNodes = [...localNodes];
+    setLocalNodes((prev) =>
+      prev.map((n) => (n.id === deviceId ? { ...n, unit: '' } : n))
+    );
+    setMovingDeviceId(deviceId);
+
+    try {
+      await updateDevice(deviceId, {
+        building: dev.building || '',
+        floor: dev.floor || '',
+        unit: '',
+        rack: dev.rack || '',
+      });
+
+      setFeedbackToast({
+        type: 'success',
+        message: isEn
+          ? `Device "${dev.name}" removed from unit.`
+          : `تجهیز «${dev.name}» با موفقیت از واحد خارج شد.`,
+      });
+      setTimeout(() => setFeedbackToast(null), 4000);
+      onRefresh();
+    } catch (err: any) {
+      setLocalNodes(previousNodes);
+      setFeedbackToast({
+        type: 'error',
+        message: isEn
+          ? `Failed to remove from unit: ${err?.message || 'Unknown error'}`
+          : `خطا در خروج تجهیز از واحد: ${err?.message || 'خطای ناشناخته'}`,
+      });
+      setTimeout(() => setFeedbackToast(null), 4500);
+    } finally {
+      setMovingDeviceId(null);
+    }
+  };
+
+  const handleRemoveFromFloor = async (deviceId: string) => {
+    const dev = localNodes.find((n) => n.id === deviceId);
+    if (!dev) return;
+
+    const previousNodes = [...localNodes];
+    setLocalNodes((prev) =>
+      prev.map((n) => (n.id === deviceId ? { ...n, floor: '', unit: '', rack: '' } : n))
+    );
+    setMovingDeviceId(deviceId);
+
+    try {
+      await updateDevice(deviceId, {
+        building: dev.building || '',
+        floor: '',
+        unit: '',
+        rack: '',
+      });
+
+      setFeedbackToast({
+        type: 'success',
+        message: isEn
+          ? `Device "${dev.name}" removed from floor.`
+          : `تجهیز «${dev.name}» با موفقیت از طبقه خارج شد.`,
+      });
+      setTimeout(() => setFeedbackToast(null), 4000);
+      onRefresh();
+    } catch (err: any) {
+      setLocalNodes(previousNodes);
+      setFeedbackToast({
+        type: 'error',
+        message: isEn
+          ? `Failed to remove from floor: ${err?.message || 'Unknown error'}`
+          : `خطا در خروج تجهیز از طبقه: ${err?.message || 'خطای ناشناخته'}`,
+      });
+      setTimeout(() => setFeedbackToast(null), 4500);
+    } finally {
+      setMovingDeviceId(null);
+    }
+  };
+
   const handleMoveDevice = async (
     deviceId: string,
     targetBuilding: string,
@@ -5347,23 +5467,59 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           )}
         </div>
 
-        <div className="text-[10px] text-slate-400 space-y-0.5">
+        <div className="text-[10px] space-y-1 mb-1.5">
           {device.unit && (
-            <div className="flex items-center gap-1">
-              <Box className="w-2.5 h-2.5 text-indigo-400" />
-              <span>{t('topology_unit_label')} {device.unit}</span>
+            <div className={`flex items-center justify-between gap-1 px-1.5 py-0.5 rounded text-[10px] ${
+              isLightMode ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
+            }`}>
+              <div className="flex items-center gap-1">
+                <Box className="w-2.5 h-2.5 text-indigo-400" />
+                <span>{t('topology_unit_label')} {device.unit}</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveFromUnit(device.id);
+                }}
+                className={`p-0.5 rounded transition cursor-pointer shrink-0 ${
+                  isLightMode ? 'text-rose-600 hover:bg-rose-100' : 'text-rose-400 hover:text-rose-200 hover:bg-rose-500/20'
+                }`}
+                title={t('topology_physical_remove_unit_btn')}
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
             </div>
           )}
           {device.rack && (
-            <div className="flex items-center gap-1 text-slate-300 font-mono">
-              <Server className="w-2.5 h-2.5 text-cyan-400" />
-              <span>{t('topology_rack_label')} {device.rack}</span>
+            <div className={`flex items-center justify-between gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono ${
+              isLightMode ? 'bg-cyan-50 text-cyan-800 border border-cyan-200' : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
+            }`}>
+              <div className="flex items-center gap-1">
+                <Server className="w-2.5 h-2.5 text-cyan-400" />
+                <span>{t('topology_rack_label')} {device.rack}</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveFromRack(device.id);
+                }}
+                className={`p-0.5 rounded transition cursor-pointer shrink-0 ${
+                  isLightMode ? 'text-rose-600 hover:bg-rose-100' : 'text-rose-400 hover:text-rose-200 hover:bg-rose-500/20'
+                }`}
+                title={t('topology_physical_remove_rack_btn')}
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
             </div>
           )}
         </div>
 
-        {/* Action Buttons: Inspect Ports, Card View & Manual Relocate / Unassign */}
-        <div className="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between text-[10px] gap-1 flex-wrap">
+        {/* Action Buttons: Inspect Ports, Card View & Manual Removal / Relocate */}
+        <div className={`mt-2 pt-1.5 border-t flex items-center justify-between text-[10px] gap-1 flex-wrap ${
+          isLightMode ? 'border-slate-200' : 'border-white/10'
+        }`}>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -5376,7 +5532,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <Cable className="w-3 h-3" />
               <span>{t('topology_inspect_ports_btn')}</span>
             </button>
-
             <button
               type="button"
               onClick={(e) => {
@@ -5390,25 +5545,88 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               <span>{isEn ? 'Card' : 'کارت'}</span>
             </button>
           </div>
-
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {device.building && device.building.trim() ? (
               <>
+                {/* Remove from Rack if placed in a rack */}
+                {device.rack && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveFromRack(device.id);
+                    }}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border font-medium cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                        : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/20'
+                    }`}
+                    title={t('topology_physical_remove_rack_btn')}
+                  >
+                    <Server className="w-2.5 h-2.5" />
+                    <span>{t('topology_physical_remove_rack_btn')}</span>
+                  </button>
+                )}
+
+                {/* Remove from Unit if placed in a unit */}
+                {device.unit && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveFromUnit(device.id);
+                    }}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border font-medium cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200'
+                        : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border-indigo-500/20'
+                    }`}
+                    title={t('topology_physical_remove_unit_btn')}
+                  >
+                    <Box className="w-2.5 h-2.5" />
+                    <span>{t('topology_physical_remove_unit_btn')}</span>
+                  </button>
+                )}
+
+                {/* Remove from Floor if placed on a floor and neither in rack nor in unit */}
+                {device.floor && !device.rack && !device.unit && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveFromFloor(device.id);
+                    }}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded border font-medium cursor-pointer transition ${
+                      isLightMode
+                        ? 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200'
+                        : 'bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/20'
+                    }`}
+                    title={t('topology_physical_remove_floor_btn')}
+                  >
+                    <Layers className="w-2.5 h-2.5" />
+                    <span>{t('topology_physical_remove_floor_btn')}</span>
+                  </button>
+                )}
+
+                {/* Main: Remove from Building button */}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleUnassignDevice(device.id);
                   }}
-                  className={`hover:underline flex items-center gap-1 font-medium cursor-pointer ${
-                    isLightMode ? 'text-amber-700 hover:text-amber-800' : 'text-amber-400 hover:text-amber-300'
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border font-semibold cursor-pointer transition ${
+                    isLightMode
+                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300 shadow-sm'
+                      : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-100 border-rose-500/30 shadow-sm'
                   }`}
-                  title={isEn ? 'Unassign (Move to Shelf)' : 'حذف جانمایی (انتقال به سینی)'}
+                  title={t('topology_physical_unassign_btn')}
                 >
-                  <PackageOpen className="w-3 h-3" />
+                  <Trash2 className="w-2.5 h-2.5" />
                   <span>{t('topology_physical_unassign_btn')}</span>
                 </button>
 
+                {/* Relocate Button */}
                 <button
                   type="button"
                   onClick={(e) => {
@@ -5423,10 +5641,14 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     setCustomRelocateUnit('');
                     setCustomRelocateRack('');
                   }}
-                  className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border font-medium cursor-pointer transition ${
+                    isLightMode
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      : 'bg-white/5 hover:bg-white/10 text-cyan-300 border-white/10'
+                  }`}
                   title={t('topology_physical_relocate_btn')}
                 >
-                  <Move className="w-3 h-3" />
+                  <Move className="w-2.5 h-2.5" />
                   <span>{t('topology_physical_relocate_btn')}</span>
                 </button>
               </>
@@ -5445,8 +5667,10 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   setCustomRelocateUnit('');
                   setCustomRelocateRack('');
                 }}
-                className={`hover:underline flex items-center gap-1 font-medium cursor-pointer ${
-                  isLightMode ? 'text-indigo-600 hover:text-indigo-700' : 'text-cyan-400 hover:text-cyan-300'
+                className={`flex items-center gap-1 px-2 py-0.5 rounded border font-medium cursor-pointer transition ${
+                  isLightMode
+                    ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                    : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/20'
                 }`}
                 title={t('topology_physical_assign_btn')}
               >
