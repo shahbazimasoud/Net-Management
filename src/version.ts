@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.12';
+export const APP_VERSION = '1.306.13';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.306.13',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'هماهنگ‌سازی و یکپارچه‌سازی فواصل چپ و راست دیوها و کارت‌های صفحه مدیریت سرویس‌های هاست پنل',
+    title_en: 'Harmonize Left and Right Spacing of Divs and Cards in Panel Host Services Manager',
+    changes: [
+      'اصلاح ساختار کانتینر صفحه مدیریت سرویس‌های هاست پنل (Panel Host Services Manager) و اعمال پدینگ استاندارد سراسری (p-4 lg:p-8) جهت همخوانی دقیق فواصل چپ و راست دیوها و کارت‌ها با سایر صفحات و زیرمنوهای تنظیمات.',
+      'حذف محدودیت max-w-7xl mx-auto بدون پدینگ که در ابعاد مختلف صفحه باعث چسبیدن کارت‌ها به لبه‌های نمایشگر یا فواصل نامتقارن و ناهمخوان در مقایسه با سایر صفحات پنل می‌شد.',
+      'هماهنگ‌سازی همزمان کانتینر صفحه تنظیمات ایمیل و یکپارچه‌سازی کامل ساختار فواصل کادرها در تمامی بخش‌های تنظیمات پنل.'
+    ],
+    changes_en: [
+      'Harmonized container structure of Panel Host Services Manager view by applying standard viewport padding (p-4 lg:p-8) to ensure consistent left and right margins and card gutters matching other settings views.',
+      'Removed unpadded max-w-7xl mx-auto constraint that caused cards and metric divs to touch viewport edges on medium viewports or display mismatched margins compared to sibling panel pages.',
+      'Synchronized email settings container padding to align with unified settings view standards.'
+    ]
+  },
   {
     version: '1.306.12',
     releaseDate: '2026-10-10',

@@ -228,7 +228,11 @@ export const EmailSettingsView: React.FC<EmailSettingsViewProps> = ({
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4 py-3 animate-fadeIn pb-16">
+    <div
+      className={`min-h-full p-4 lg:p-8 space-y-6 transition-colors duration-200 pb-16 animate-fadeIn ${
+        isLightMode ? 'text-slate-900' : 'text-slate-100'
+      }`}
+    >
       {/* Dynamic Sub-Menu Top Banner */}
       <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl border shadow-xl backdrop-blur-xl ${
         isLightMode

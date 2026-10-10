@@ -262,7 +262,11 @@ export const PanelServicesView: React.FC<PanelServicesViewProps> = ({
   ];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+    <div
+      className={`min-h-full p-4 lg:p-8 space-y-6 transition-colors duration-200 pb-16 ${
+        isLightMode ? 'text-slate-900' : 'text-slate-100'
+      }`}
+    >
       {/* Top Banner & Header */}
       <div
         className={`p-6 rounded-2xl border backdrop-blur-xl shadow-xl transition relative overflow-hidden ${
