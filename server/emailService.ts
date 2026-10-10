@@ -403,3 +403,332 @@ export async function sendTestEmail(options: {
     };
   }
 }
+
+/**
+ * Sends a high-security, responsive Two-Factor Authentication OTP email
+ * in a stunning enterprise-grade HTML format.
+ */
+export async function sendTwoFactorAuthEmail(
+  to: string,
+  code: string,
+  options?: {
+    username?: string;
+    ip?: string;
+    userAgent?: string;
+    lang?: 'fa' | 'en';
+    expiresMinutes?: number;
+  }
+): Promise<{ success: boolean; messageId?: string; error?: string; error_fa?: string }> {
+  const username = options?.username || 'User';
+  const ip = options?.ip || '127.0.0.1';
+  const userAgent = options?.userAgent || 'Web Browser';
+  const expiresMinutes = options?.expiresMinutes || 5;
+  const isEn = options?.lang === 'en';
+  const timestampStr = new Date().toUTCString();
+
+  // Retrieve outgoing mail gateway settings
+  let config: EmailConfig;
+  try {
+    const { getEmailConfig } = await import('./db');
+    config = await getEmailConfig();
+  } catch (err: any) {
+    console.warn('[Two-Factor Auth Mailer] Failed to load email config:', err.message);
+    return {
+      success: false,
+      error: 'Failed to load SMTP email settings from database.',
+      error_fa: 'بارگذاری تنظیمات درگاه ایمیل از پایگاه‌داده با خطا مواجه شد.',
+    };
+  }
+
+  // Always log the 2FA code to console so administrator has complete visibility
+  console.log(`[Two-Factor Auth Security Gateway] 🔐 OTP Code for '${username}' (${to}): [${code}]`);
+
+  // Verify SMTP configuration
+  if (!config.smtp_host || !config.smtp_host.trim()) {
+    console.warn(`[Two-Factor Auth] SMTP host is not configured. Verification code logged to server output.`);
+    return {
+      success: false,
+      error: 'SMTP outgoing mail server is not configured in Email Settings.',
+      error_fa: 'سرور ارسال ایمیل SMTP در بخش تنظیمات ایمیل پنل هنوز پیکربندی نشده است.',
+    };
+  }
+
+  const fromAddr = (config.from_email && config.from_email.trim()) || config.smtp_user.trim();
+  const fromName = (config.from_name && config.from_name.trim()) || 'NetTopology Security';
+  const from = fromName ? `"${fromName}" <${fromAddr}>` : fromAddr;
+
+  const subject = isEn
+    ? `[NetTopology] ${code} is your Two-Step Verification Code`
+    : `[NetTopology] کد تایید ورود دو مرحله‌ای شما: ${code}`;
+
+  const textBody = isEn
+    ? `NetTopology Two-Step Verification Code\n\nHello ${username},\n\nYour one-time sign-in verification code is:\n\n${code}\n\nThis code is valid for ${expiresMinutes} minutes.\nNever share this code with anyone.\n\nSign-in details:\n- Username: ${username}\n- IP Address: ${ip}\n- Timestamp: ${timestampStr}\n- Client: ${userAgent}\n`
+    : `کد تایید ورود دو مرحله‌ای NetTopology\n\nکاربر گرامی ${username}،\n\nکد تایید یک‌بار مصرف ورود به سامانه:\n\n${code}\n\nاین کد تا ${expiresMinutes} دقیقه دیگر معتبر است.\nهرگز این کد را در اختیار افراد دیگر قرار ندهید.\n\nمشخصات درخواست:\n- نام کاربری: ${username}\n- آدرس آی‌پی: ${ip}\n- تاریخ: ${timestampStr}\n- مرورگر: ${userAgent}\n`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="${isEn ? 'en' : 'fa'}" dir="${isEn ? 'ltr' : 'rtl'}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject}</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #060b18;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      color: #f1f5f9;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrapper {
+      width: 100%;
+      background-color: #060b18;
+      padding: 40px 15px;
+    }
+    .card {
+      max-width: 580px;
+      margin: 0 auto;
+      background: #0f172a;
+      border-radius: 20px;
+      border: 1px solid #1e293b;
+      overflow: hidden;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+    }
+    .top-accent {
+      height: 4px;
+      background: linear-gradient(90deg, #6366f1 0%, #06b6d4 50%, #10b981 100%);
+    }
+    .header {
+      background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 70%, #082f49 100%);
+      padding: 32px 30px 24px;
+      text-align: center;
+      border-bottom: 1px solid #1e293b;
+    }
+    .shield-badge {
+      display: inline-block;
+      width: 56px;
+      height: 56px;
+      line-height: 56px;
+      background: rgba(14, 165, 233, 0.15);
+      border: 1px solid rgba(14, 165, 233, 0.4);
+      border-radius: 16px;
+      font-size: 26px;
+      margin-bottom: 14px;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.3px;
+    }
+    .header p {
+      margin: 6px 0 0;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    .content {
+      padding: 32px 30px;
+    }
+    .greeting {
+      font-size: 15px;
+      color: #e2e8f0;
+      margin: 0 0 16px;
+      line-height: 1.6;
+    }
+    .intro {
+      font-size: 14px;
+      color: #cbd5e1;
+      margin: 0 0 24px;
+      line-height: 1.7;
+    }
+    .code-box {
+      background: #020617;
+      border: 2px dashed #0284c7;
+      border-radius: 16px;
+      padding: 24px 20px;
+      text-align: center;
+      margin: 24px 0;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+    }
+    .code-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #38bdf8;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .code-number {
+      font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+      font-size: 44px;
+      font-weight: 900;
+      letter-spacing: 14px;
+      color: #38bdf8;
+      text-shadow: 0 0 20px rgba(56, 189, 248, 0.45);
+      padding-left: 14px;
+      margin: 6px 0;
+    }
+    .validity-tag {
+      display: inline-block;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #fbbf24;
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+    .metadata-box {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin: 24px 0;
+    }
+    .metadata-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin: 0 0 12px;
+    }
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .meta-row:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .meta-label {
+      color: #94a3b8;
+    }
+    .meta-val {
+      color: #f1f5f9;
+      font-weight: 600;
+      font-family: monospace;
+    }
+    .warning-box {
+      background: rgba(239, 68, 68, 0.1);
+      border-left: 4px solid #ef4444;
+      border-radius: 0 12px 12px 0;
+      padding: 14px 18px;
+      margin: 24px 0 0;
+      color: #fca5a5;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .footer {
+      padding: 22px 30px;
+      background: #090e1c;
+      border-top: 1px solid #1e293b;
+      text-align: center;
+      font-size: 11px;
+      color: #64748b;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card">
+      <div class="top-accent"></div>
+      <div class="header">
+        <div class="shield-badge">🛡️</div>
+        <h1>NetTopology Enterprise</h1>
+        <p>${isEn ? 'Two-Step Verification Gateway' : 'درگاه امنیتی احراز هویت دو مرحله‌ای'}</p>
+      </div>
+      <div class="content">
+        <p class="greeting">
+          ${isEn ? `Hello <strong>${username}</strong>,` : `کاربر گرامی <strong>${username}</strong>،`}
+        </p>
+        <p class="intro">
+          ${
+            isEn
+              ? 'A sign-in attempt was initiated for your NetTopology account. Please submit the one-time security code below to complete your login:'
+              : 'یک درخواست ورود به حساب کاربری شما در سامانه مدیریت شبکه NetTopology ثبت گردید. جهت تایید هویت و تکمیل ورود، کد امنیتی ۶ رقمی زیر را وارد فرمایید:'
+          }
+        </p>
+
+        <div class="code-box">
+          <div class="code-label">${isEn ? 'One-Time Security Code' : 'کد تایید یک‌بار مصرف'}</div>
+          <div class="code-number">${code}</div>
+          <div class="validity-tag">
+            ⏱️ ${isEn ? `Valid for ${expiresMinutes} minutes` : `معتبر به مدت ${expiresMinutes} دقیقه`}
+          </div>
+        </div>
+
+        <div class="metadata-box">
+          <div class="metadata-title">${isEn ? 'Sign-In Request Details' : 'مشخصات درخواست ورود'}</div>
+          <div class="meta-row">
+            <span class="meta-label">${isEn ? 'Account:' : 'نام کاربری:'}</span>
+            <span class="meta-val">${username}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">${isEn ? 'IP Address:' : 'آدرس آی‌پی:'}</span>
+            <span class="meta-val">${ip}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">${isEn ? 'Timestamp:' : 'تاریخ و زمان:'}</span>
+            <span class="meta-val">${timestampStr}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">${isEn ? 'Client / Agent:' : 'دستگاه / مرورگر:'}</span>
+            <span class="meta-val">${userAgent.slice(0, 40)}</span>
+          </div>
+        </div>
+
+        <div class="warning-box">
+          <strong>⚠️ ${isEn ? 'Security Notice:' : 'هشدار امنیتی:'}</strong>
+          ${
+            isEn
+              ? 'Never disclose this code to anyone. NetTopology administrators will never ask for your verification code. If you did not request this login, please secure your account immediately.'
+              : 'این کد کاملاً محرمانه است و نباید در اختیار فرد دیگری قرار گیرد. پشتیبانی سامانه هرگز این کد را از شما نخواهد خواست. در صورتی که این ورود توسط شما انجام نشده است، بلافاصله کلمه عبور خود را تغییر دهید.'
+          }
+        </div>
+      </div>
+      <div class="footer">
+        NetTopology Security • Automated System Dispatch<br>
+        © ${new Date().getFullYear()} NetTopology Enterprise Network Platform. All rights reserved.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+
+  try {
+    const transporter = createMailTransport(config);
+    const info = await transporter.sendMail({
+      from,
+      to: to.trim(),
+      subject,
+      text: textBody,
+      html: htmlBody,
+    });
+
+    console.log(`[Two-Factor Auth] ✓ 2FA email delivered successfully to ${to} (MessageId: ${info.messageId})`);
+    return {
+      success: true,
+      messageId: info.messageId,
+    };
+  } catch (err: any) {
+    const parsed = parseSmtpError(err);
+    console.error(`[Two-Factor Auth Mail Error] Failed to send email to ${to}:`, err.message);
+    return {
+      success: false,
+      error: parsed.en,
+      error_fa: parsed.fa,
+    };
+  }
+}
+

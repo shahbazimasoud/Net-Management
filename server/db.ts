@@ -1963,6 +1963,26 @@ export async function initDatabase(): Promise<void> {
           updated_by VARCHAR(128)
         )
       `);
+
+      // 18. Two-Factor Authentication Challenges
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS two_factor_challenges (
+          token VARCHAR(128) PRIMARY KEY,
+          user_id VARCHAR(64) NOT NULL,
+          username VARCHAR(64) NOT NULL,
+          user_email VARCHAR(128) NOT NULL,
+          code_hash VARCHAR(128) NOT NULL,
+          code_salt VARCHAR(64) NOT NULL,
+          effective_policy JSONB,
+          remember_me BOOLEAN DEFAULT FALSE,
+          attempts INT DEFAULT 0,
+          max_attempts INT DEFAULT 5,
+          expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_token ON two_factor_challenges(token)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_expires ON two_factor_challenges(expires_at)");
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
@@ -4515,6 +4535,7 @@ export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
   sessionInactivityTimeoutMin: 60,
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
+  twoFactorEnabled: false,
   allowedAuthMethods: 'both',
   serverTimezone: 'Asia/Tehran',
   serverNtpServer: 'ir.pool.ntp.org',
@@ -4563,6 +4584,7 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     sessionInactivityTimeoutMin: Number(settings.sessionInactivityTimeoutMin) !== undefined ? Number(settings.sessionInactivityTimeoutMin) : current.sessionInactivityTimeoutMin,
     defaultDeviceProtocol: (settings.defaultDeviceProtocol as any) || current.defaultDeviceProtocol || 'ssh',
     systemDebugLogging: Boolean(settings.systemDebugLogging !== undefined ? settings.systemDebugLogging : current.systemDebugLogging),
+    twoFactorEnabled: Boolean(settings.twoFactorEnabled !== undefined ? settings.twoFactorEnabled : (current.twoFactorEnabled || false)),
     allowedAuthMethods: (settings.allowedAuthMethods as any) || current.allowedAuthMethods || 'both',
     serverTimezone: settings.serverTimezone !== undefined ? String(settings.serverTimezone).trim() : (current.serverTimezone || 'Asia/Tehran'),
     serverNtpServer: settings.serverNtpServer !== undefined ? String(settings.serverNtpServer).trim() : (current.serverNtpServer || 'ir.pool.ntp.org'),

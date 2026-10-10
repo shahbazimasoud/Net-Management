@@ -49,6 +49,7 @@ import {
   updateServerTimezoneApi,
   syncServerNtpApi,
   setServerManualTimeApi,
+  fetchEmailConfigApi,
 } from '../../services/api';
 import {
   loadGeneralSettings,
@@ -159,6 +160,25 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   const [manualTimeInput, setManualTimeInput] = useState<string>('');
   const [customTimezoneInput, setCustomTimezoneInput] = useState<string>('');
   const [showCustomTzField, setShowCustomTzField] = useState<boolean>(false);
+
+  // Email/SMTP Status check for 2FA
+  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
+  const [smtpHostName, setSmtpHostName] = useState<string>('');
+
+  useEffect(() => {
+    fetchEmailConfigApi()
+      .then((cfg) => {
+        if (cfg && cfg.smtp_host && cfg.smtp_host.trim()) {
+          setSmtpConfigured(true);
+          setSmtpHostName(cfg.smtp_host.trim());
+        } else {
+          setSmtpConfigured(false);
+        }
+      })
+      .catch(() => {
+        setSmtpConfigured(false);
+      });
+  }, []);
 
   // Fetch live server time from backend
   const fetchLiveServerTime = useCallback(async () => {
@@ -1754,6 +1774,105 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     </p>
                   </div>
                 )}
+
+                {/* Two-Step Verification (2FA / OTP via Email) */}
+                <div className="pt-4 mt-2 border-t border-white/10 space-y-3">
+                  <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
+                    formData.twoFactorEnabled
+                      ? isLightMode
+                        ? 'bg-indigo-50/80 border-indigo-300 shadow-sm'
+                        : 'bg-indigo-950/30 border-indigo-500/40 shadow-inner'
+                      : isLightMode
+                      ? 'bg-slate-50 border-slate-200'
+                      : 'bg-slate-900/60 border-white/5'
+                  }`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`p-2.5 rounded-xl border mt-0.5 shrink-0 ${
+                        formData.twoFactorEnabled
+                          ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-400'
+                          : 'bg-slate-800/60 border-white/10 text-slate-400'
+                      }`}>
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? 'Two-Step Verification (2FA / OTP via Email)' : 'احراز هویت دو مرحله‌ای (2FA با ارسال کد به ایمیل)'}
+                          </span>
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase border ${
+                            formData.twoFactorEnabled
+                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                              : 'bg-slate-800 text-slate-400 border-white/10'
+                          }`}>
+                            {formData.twoFactorEnabled
+                              ? (isEn ? '2FA ACTIVE' : 'فعال')
+                              : (isEn ? 'DISABLED' : 'غیرفعال')}
+                          </span>
+                          <FieldInfoTooltip
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                            title={isEn ? 'Two-Step Verification' : 'احراز هویت دو مرحله‌ای'}
+                            infoWhatEn="Enforces an authentic two-step verification flow for all users signing in with username and password. A secure 6-digit one-time code (OTP) is dispatched to the user's email."
+                            infoWhatFa="الزام تایید هویت دو مرحله‌ای برای تمامی کاربران هنگام ورود به سامانه با نام کاربری و کلمه عبور؛ کد ۶ رقمی امنیتی به ایمیل کاربر ارسال می‌شود."
+                            infoWhyEn="Hardens administrative security and prevents unauthorized panel entry even if user credentials are leaked or intercepted."
+                            infoWhyFa="ارتقای چشمگیر امنیت پنل و جلوگیری از نفوذ غیرمجاز حتی در صورت افشای رمز عبور کاربران."
+                            infoExampleEn="Highly recommended for production and enterprise networks."
+                            infoExampleFa="توصیه اکید برای تمامی شبکه‌های عملیاتی و سازمانی."
+                          />
+                        </div>
+                        <p className={`text-[11px] mt-1 leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {isEn
+                            ? 'When enabled, after entering valid credentials, users must submit a 6-digit one-time verification code dispatched to their email address in an enterprise-branded security template.'
+                            : 'در صورت فعال‌سازی، پس از ورود نام کاربری و کلمه عبور، کد تایید ۶ رقمی یک‌بار مصرف در قالبی سازمانی و زیبا به ایمیل کاربر ارسال شده و ورود تنها پس از تایید این کد امکان‌پذیر خواهد بود.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0 self-end sm:self-center">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(formData.twoFactorEnabled)}
+                        onChange={(e) => setFormData({ ...formData, twoFactorEnabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] rtl:after:left-auto rtl:after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Diagnostic / SMTP notification when 2FA is enabled */}
+                  {formData.twoFactorEnabled && (
+                    <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs ${
+                      smtpConfigured === false
+                        ? isLightMode
+                          ? 'bg-amber-50 border-amber-300 text-amber-900'
+                          : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                        : isLightMode
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                        : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
+                    }`}>
+                      {smtpConfigured === false ? (
+                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        {smtpConfigured === false ? (
+                          <p className="leading-relaxed">
+                            {isEn
+                              ? 'Notice: Outgoing SMTP mail server is not yet configured. Please configure SMTP in System -> Email Settings so users receive verification codes in their inbox.'
+                              : 'توجه: سرور ارسال ایمیل (SMTP) هنوز در سامانه پیکربندی نشده است. جهت ارسال کدها به کاربران، تنظیمات SMTP را در بخش «تنظیمات سیستم -> تنظیمات ایمیل» تکمیل فرمایید.'}
+                          </p>
+                        ) : (
+                          <p className="leading-relaxed font-medium">
+                            {isEn
+                              ? `Outgoing SMTP mail service is active (${smtpHostName || 'Configured'}). Two-Step Verification codes will be delivered to signing-in users.`
+                              : `سرویس ارسال ایمیل SMTP فعال است (${smtpHostName || 'پیکربندی شده'}). کدهای تایید دو مرحله‌ای به آدرس ایمیل کاربران ارسال خواهند شد.`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

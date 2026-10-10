@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.306.15';
+export const APP_VERSION = '1.307.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.307.0',
+    releaseDate: '2026-10-10',
+    type: 'minor',
+    title: 'افزودن قابلیت احراز هویت دو مرحله‌ای (2FA) با ارسال کد امنیتی به ایمیل در تنظیمات عمومی پنل و صفحه ورود',
+    title_en: 'Add Two-Step Verification (2FA) with Email Security Code in Panel General Settings and Login Gateway',
+    changes: [
+      'افزودن سوئیچ فعال‌سازی احراز هویت دو مرحله‌ای (Two-Step Verification - 2FA) در بخش تنظیمات عمومی پنل (Panel General Settings) به همراه نشانگر وضعیت درگاه ایمیل SMTP و راهنمای سه‌بخشی استاندارد.',
+      'توسعه قالب ایمیل اختصاصی فوق‌العاده زیبا و ریسپانسیو سازمانی با استایل تاریک نئون سایبری، بج امنیتی، نمایش کادر برجسته کد OTP، برچسب زمان اعتبار ۵ دقیقه‌ای و مشخصات کامل درخواست ورود (IP، دستگاه، زمان).',
+      'پیاده‌سازی درگاه اعتبارسنجی ورود دو مرحله‌ای در صفحه ورود (LoginPage) شامل فرم مدرن ورود کد ۶ رقمی با فوکوس خودکار، تایمر معکوس، دکمه ارسال مجدد (Resend Code) با کول‌داون ۴۵ ثانیه‌ای و امکان لغو و تغییر نام کاربری.',
+      'پشتیبانی کامل از ذخیره‌سازی و پایداری کدهای چالش در پایگاه‌داده PostgreSQL و حافظه رم سرور با مقایسه هش رمزنگاری‌شده (Timing-Safe SHA-256) و کنترل سقف ۵ بار تلاش مجاز.',
+      'رعایت کامل استانداردهای دو زبانگی (i18n) بدون استفاده از متون هاردکدشده فارسی در حالت انگلیسی و پشتیبانی دقیق از تم‌های تیره و روشن.'
+    ],
+    changes_en: [
+      'Added Two-Step Verification (2FA / OTP via Email) toggle switch in Panel General Settings with live SMTP mail gateway diagnostics and 3-part FieldInfoTooltip.',
+      'Designed an ultra-modern, enterprise-grade responsive HTML security email template featuring a dark cybersecurity aesthetic, highlighted OTP code display box, 5-minute validity badge, and complete login session telemetry (IP, client, timestamp).',
+      'Implemented Two-Step Verification modal interface on LoginPage featuring 6-digit auto-advancing passcode input, real-time expiration countdown, 45-second resend cooldown, and account switcher.',
+      'Engineered backend 2FA challenge gateway with salted SHA-256 timing-safe hash verification, PostgreSQL fallback persistence, and strict 5-attempt security lockout.',
+      'Strict adherence to bilingual i18n specifications (zero Persian text in English mode) and seamless light/dark theme contrast compliance.'
+    ]
+  },
   {
     version: '1.306.15',
     releaseDate: '2026-10-10',

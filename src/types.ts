@@ -7120,6 +7120,7 @@ export interface PanelGeneralSettings {
   sessionInactivityTimeoutMin: number;
   defaultDeviceProtocol: 'ssh' | 'telnet' | 'https';
   systemDebugLogging: boolean;
+  twoFactorEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   serverTimezone?: string;
   serverNtpServer?: string;

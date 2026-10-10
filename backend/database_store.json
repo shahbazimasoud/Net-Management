@@ -1666,7 +1666,7 @@
     "sessionInactivityTimeoutMin": null,
     "defaultDeviceProtocol": "ssh",
     "systemDebugLogging": false,
-    "updatedAt": "2026-10-09T20:47:25.342Z",
+    "updatedAt": "2026-10-10T19:25:55.873Z",
     "updatedBy": "admin",
     "serverTimezone": "Asia/Tehran",
     "faviconType": "default",
@@ -1675,7 +1675,8 @@
     "allowedAuthMethods": "both",
     "serverNtpServer": "ir.pool.ntp.org",
     "serverNtpEnabled": true,
-    "timeFormat": "24h"
+    "timeFormat": "24h",
+    "twoFactorEnabled": false
   },
   "scheduled_backup_jobs": [
     {

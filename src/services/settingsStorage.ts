@@ -692,6 +692,7 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   sessionInactivityTimeoutMin: 60,
   defaultDeviceProtocol: 'ssh',
   systemDebugLogging: false,
+  twoFactorEnabled: false,
   allowedAuthMethods: 'both',
   serverTimezone: 'Asia/Tehran',
   serverNtpServer: 'ir.pool.ntp.org',

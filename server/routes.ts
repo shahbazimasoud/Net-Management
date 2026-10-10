@@ -267,6 +267,11 @@ import {
 } from './postgresManager';
 import * as net from 'net';
 import { resolveSshBackend, executeSshBridgeAction } from './sshBackendResolver';
+import {
+  createTwoFactorChallenge,
+  verifyTwoFactorChallenge,
+  resendTwoFactorChallenge,
+} from './twoFactorService';
 import { testAndDiscoverDeviceViaSsh, detectPlatformAndRole } from './sshDiscovery';
 import {
   startDiscoveryJob,
@@ -691,6 +696,40 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       // Compute database-authoritative effective access policy from PostgreSQL
       const effectivePolicy = await getEffectivePolicyForUser(user);
 
+      // Two-Step Verification (2FA / Two-Factor Authentication) Enforcement
+      if (generalSettings.twoFactorEnabled) {
+        const lang = (req.headers['accept-language']?.includes('en') ? 'en' : 'fa') as 'fa' | 'en';
+        const challenge = await createTwoFactorChallenge(
+          user,
+          effectivePolicy,
+          rememberMe,
+          ip,
+          req.headers['user-agent'] as string,
+          lang
+        );
+
+        await addAuditLog({
+          userName: user.username,
+          action: 'Two-Factor Challenge Initiated',
+          category: 'security',
+          target: 'Auth Gateway',
+          status: 'success',
+          details: `Password validated for user "${user.username}" from IP ${ip}. 2FA verification code dispatched to ${user.email || 'user email'}.`,
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'] as string,
+        });
+
+        return res.json({
+          success: true,
+          requires2FA: true,
+          challengeToken: challenge.token,
+          emailMasked: challenge.emailMasked,
+          expiresIn: challenge.expiresInSec,
+          message: 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
+          message_en: 'A two-step verification code has been sent to your email address.',
+        });
+      }
+
       const token = generateToken(
         {
           userId: user.id,
@@ -865,6 +904,40 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         });
       }
 
+      // Two-Step Verification (2FA) Enforcement for Active Directory
+      if (generalSettings.twoFactorEnabled) {
+        const lang = (req.headers['accept-language']?.includes('en') ? 'en' : 'fa') as 'fa' | 'en';
+        const challenge = await createTwoFactorChallenge(
+          adUser,
+          effectivePolicy,
+          rememberMe,
+          ip,
+          req.headers['user-agent'] as string,
+          lang
+        );
+
+        await addAuditLog({
+          userName: adUser.username,
+          action: 'Two-Factor Challenge Initiated (AD)',
+          category: 'security',
+          target: `AD DC (${domain})`,
+          status: 'success',
+          details: `Active Directory credentials validated for "${adUser.username}" from IP ${ip}. 2FA challenge dispatched to ${adUser.email}.`,
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'] as string,
+        });
+
+        return res.json({
+          success: true,
+          requires2FA: true,
+          challengeToken: challenge.token,
+          emailMasked: challenge.emailMasked,
+          expiresIn: challenge.expiresInSec,
+          message: 'کد تایید دو مرحله‌ای به آدرس ایمیل شما ارسال شد.',
+          message_en: 'A two-step verification code has been sent to your email address.',
+        });
+      }
+
       const token = generateToken(
         {
           userId: adUser.id,
@@ -906,6 +979,132 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       error: 'Authentication service error',
       message: 'خطای غیرمنتظره در احراز هویت دیتابیس رخ داد.',
     });
+  }
+});
+
+// -------------------------------------------------------------
+// Two-Step Verification (2FA) Endpoints
+// -------------------------------------------------------------
+apiRouter.post('/auth/verify-2fa', async (req: Request, res: Response) => {
+  try {
+    const ip = getClientIp(req);
+    const { challengeToken, code } = req.body || {};
+
+    if (!challengeToken || !code) {
+      return res.status(400).json({
+        success: false,
+        error: 'Challenge token and 6-digit verification code are required.',
+        message: 'توکن درخواست و کد تایید ۶ رقمی الزامی است.',
+      });
+    }
+
+    const verification = await verifyTwoFactorChallenge(challengeToken, code, ip);
+    if (!verification.success) {
+      await addAuditLog({
+        userName: 'Unknown',
+        action: 'Two-Factor Verification Failed',
+        category: 'security',
+        target: 'Auth Gateway',
+        status: 'warning',
+        details: `Failed 2FA verification attempt from IP ${ip}: ${verification.error}`,
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'] as string,
+      });
+
+      return res.status(401).json({
+        success: false,
+        error: verification.error,
+        message: verification.message,
+        attemptsLeft: verification.attemptsLeft,
+        locked: verification.locked,
+      });
+    }
+
+    const user = verification.user;
+    const effectivePolicy = verification.effectivePolicy;
+    const rememberMe = verification.rememberMe;
+
+    const token = generateToken(
+      {
+        userId: user.id,
+        username: user.username,
+        fullName: user.fullName || user.username,
+        email: user.email,
+        role: user.role,
+        userType: user.userType || 'local',
+        policyId: effectivePolicy?.id,
+        groups: user.groups || user.groupIds,
+      },
+      rememberMe
+    );
+
+    await updateLastLogin(user.id);
+
+    await addAuditLog({
+      userName: user.username,
+      action: 'Successful Two-Factor Authentication Login',
+      category: 'security',
+      target: 'Auth Gateway',
+      status: 'success',
+      details: `User "${user.username}" successfully completed 2-Step Verification from IP ${ip}.`,
+      ipAddress: ip,
+      userAgent: req.headers['user-agent'] as string,
+    });
+
+    return res.json({
+      success: true,
+      token,
+      user,
+      effectivePolicy,
+    });
+  } catch (err: any) {
+    console.error('[API /auth/verify-2fa error]', err);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      message: 'خطای سرور در تایید کد ورود دو مرحله‌ای.',
+    });
+  }
+});
+
+apiRouter.post('/auth/resend-2fa', async (req: Request, res: Response) => {
+  try {
+    const ip = getClientIp(req);
+    const { challengeToken } = req.body || {};
+    if (!challengeToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'Challenge token is required.',
+        message: 'توکن درخواست تایید الزامی است.',
+      });
+    }
+
+    const lang = (req.headers['accept-language']?.includes('en') ? 'en' : 'fa') as 'fa' | 'en';
+    const result = await resendTwoFactorChallenge(
+      challengeToken,
+      ip,
+      req.headers['user-agent'] as string,
+      lang
+    );
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: result.error,
+        message: result.message,
+      });
+    }
+
+    return res.json({
+      success: true,
+      expiresIn: result.expiresInSec,
+      emailMasked: result.emailMasked,
+      message: result.message,
+      message_en: 'A fresh verification code has been dispatched to your email.',
+    });
+  } catch (err: any) {
+    console.error('[API /auth/resend-2fa error]', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
