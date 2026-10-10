@@ -966,16 +966,11 @@ export function loadFallbackStore(): FallbackStore {
         !['helpdesk_user', 'noc_operator', 'field_tech'].includes(u.username.toLowerCase())
     );
 
-    // If an admin user exists, synchronize its password if ADMIN_INITIAL_PASSWORD is provided in env
+    // Ensure an admin user exists (seed on initial creation only, do NOT overwrite existing user credentials)
     const adminIndex = store.users.findIndex(
       (u: any) => u && (u.username.toLowerCase() === 'admin' || u.id === 'user-admin')
     );
-    if (adminIndex >= 0) {
-      if (process.env.ADMIN_INITIAL_PASSWORD && process.env.ADMIN_INITIAL_PASSWORD.trim().length > 0) {
-        store.users[adminIndex].password_hash = defaultAdminHash.hash;
-        store.users[adminIndex].password_salt = defaultAdminHash.salt;
-      }
-    } else {
+    if (adminIndex < 0) {
       store.users.unshift(defaultUsers[0]);
     }
   } else {
@@ -1084,13 +1079,33 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
     // Purge demo users from PostgreSQL database to maintain clean credentials
     await client.query("DELETE FROM users WHERE LOWER(username) IN ('helpdesk_user', 'noc_operator', 'field_tech')");
 
-    // If ADMIN_INITIAL_PASSWORD was supplied during panel setup in shell, sync to users table
-    if (process.env.ADMIN_INITIAL_PASSWORD && process.env.ADMIN_INITIAL_PASSWORD.trim().length > 0) {
-      const adminPass = process.env.ADMIN_INITIAL_PASSWORD.trim();
-      const adminHash = hashPassword(adminPass, 'seed_salt_admin_2026');
+    // Seed initial admin user in PostgreSQL ONLY if no admin user exists yet (never overwrite changed password)
+    const adminCheckRes = await client.query(
+      "SELECT id FROM users WHERE LOWER(username) = 'admin' OR id = 'user-admin' LIMIT 1"
+    );
+    if (adminCheckRes.rows.length === 0) {
+      const initialAdminPassword =
+        (process.env.ADMIN_INITIAL_PASSWORD && process.env.ADMIN_INITIAL_PASSWORD.trim()) || 'admin123';
+      const adminHash = hashPassword(initialAdminPassword, 'seed_salt_admin_2026');
       await client.query(
-        "UPDATE users SET password_hash = $1, password_salt = $2 WHERE LOWER(username) = 'admin' OR id = 'user-admin'",
-        [adminHash.hash, adminHash.salt]
+        `INSERT INTO users (id, username, password_hash, password_salt, full_name, email, role, user_type, status, group_ids, is_builtin, created_at, last_login)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          'user-admin',
+          'admin',
+          adminHash.hash,
+          adminHash.salt,
+          'مدیر ارشد شبکه (Network Administrator)',
+          'admin@nettopology.internal',
+          'Super Administrator',
+          'local',
+          'active',
+          JSON.stringify(['group-admin']),
+          true,
+          new Date().toISOString(),
+          new Date().toISOString(),
+        ]
       );
     }
 
@@ -2162,21 +2177,23 @@ export async function saveUser(userData: any): Promise<any> {
       ((userData.id && u.id === userData.id) || u.username.toLowerCase() === cleanUser)
   );
 
+  const hasNewPassword = Boolean(userData.password && String(userData.password).trim().length > 0);
+  let newPasswordHash: string | undefined;
+  let newPasswordSalt: string | undefined;
+  if (hasNewPassword) {
+    const p = hashPassword(String(userData.password).trim());
+    newPasswordHash = p.hash;
+    newPasswordSalt = p.salt;
+  }
+
   let userRecord: any;
   if (existingIndex >= 0) {
     const prev = store.users[existingIndex];
-    let pwdHash = prev.password_hash;
-    let pwdSalt = prev.password_salt;
-    if (userData.password && String(userData.password).trim().length > 0) {
-      const p = hashPassword(String(userData.password).trim());
-      pwdHash = p.hash;
-      pwdSalt = p.salt;
-    }
     userRecord = {
       ...prev,
       username: rawUsername,
-      password_hash: pwdHash,
-      password_salt: pwdSalt,
+      password_hash: hasNewPassword ? newPasswordHash : prev.password_hash,
+      password_salt: hasNewPassword ? newPasswordSalt : prev.password_salt,
       full_name: (userData.fullName || prev.full_name || rawUsername).trim(),
       email: (userData.email || prev.email || `${cleanUser}@nettopology.internal`).trim(),
       role: userData.role || prev.role || 'NOC Analyst',
@@ -2188,11 +2205,8 @@ export async function saveUser(userData: any): Promise<any> {
     };
   } else {
     // New user creation
-    const plainPassword =
-      userData.password && String(userData.password).trim().length > 0
-        ? String(userData.password).trim()
-        : 'welcome123';
-    const p = hashPassword(plainPassword);
+    const plainPassword = hasNewPassword ? String(userData.password).trim() : 'welcome123';
+    const p = hasNewPassword ? { hash: newPasswordHash!, salt: newPasswordSalt! } : hashPassword(plainPassword);
     userRecord = {
       id: userData.id || `user-${Date.now()}`,
       username: rawUsername,
@@ -2224,42 +2238,83 @@ export async function saveUser(userData: any): Promise<any> {
   if (isPostgresReady && pool) {
     try {
       const checkRes = await pool.query(
-        'SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR id = $2 LIMIT 1',
+        'SELECT id, password_hash, password_salt FROM users WHERE LOWER(username) = LOWER($1) OR id = $2 LIMIT 1',
         [userRecord.username, userRecord.id]
       );
 
       if (checkRes.rows.length > 0) {
         const matchedId = checkRes.rows[0].id;
+        const existingRow = checkRes.rows[0];
         userRecord.id = matchedId;
-        await pool.query(
-          `UPDATE users SET
-             username = $1,
-             password_hash = COALESCE($2, password_hash),
-             password_salt = COALESCE($3, password_salt),
-             full_name = $4,
-             email = $5,
-             role = $6,
-             user_type = $7,
-             status = $8,
-             group_ids = $9,
-             is_builtin = $10,
-             updated_at = CURRENT_TIMESTAMP
-           WHERE id = $11`,
-          [
-            userRecord.username,
-            userRecord.password_hash,
-            userRecord.password_salt,
-            userRecord.full_name,
-            userRecord.email,
-            userRecord.role,
-            userRecord.user_type,
-            userRecord.status,
-            JSON.stringify(userRecord.group_ids),
-            userRecord.is_builtin,
-            matchedId,
-          ]
-        );
-        console.log(`[Database] Successfully updated user "${userRecord.username}" (ID: ${matchedId}) in PostgreSQL.`);
+
+        if (!hasNewPassword && existingRow.password_hash) {
+          // Keep database password hash authoritative when editing profile without new password
+          userRecord.password_hash = existingRow.password_hash;
+          userRecord.password_salt = existingRow.password_salt;
+          if (existingIndex >= 0) {
+            store.users[existingIndex].password_hash = existingRow.password_hash;
+            store.users[existingIndex].password_salt = existingRow.password_salt;
+            saveFallbackStore(store);
+          }
+        }
+
+        if (hasNewPassword) {
+          await pool.query(
+            `UPDATE users SET
+               username = $1,
+               password_hash = $2,
+               password_salt = $3,
+               full_name = $4,
+               email = $5,
+               role = $6,
+               user_type = $7,
+               status = $8,
+               group_ids = $9,
+               is_builtin = $10,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $11`,
+            [
+              userRecord.username,
+              userRecord.password_hash,
+              userRecord.password_salt,
+              userRecord.full_name,
+              userRecord.email,
+              userRecord.role,
+              userRecord.user_type,
+              userRecord.status,
+              JSON.stringify(userRecord.group_ids),
+              userRecord.is_builtin,
+              matchedId,
+            ]
+          );
+          console.log(`[Database] Successfully updated user credentials and profile for "${userRecord.username}" (ID: ${matchedId}) in PostgreSQL.`);
+        } else {
+          await pool.query(
+            `UPDATE users SET
+               username = $1,
+               full_name = $2,
+               email = $3,
+               role = $4,
+               user_type = $5,
+               status = $6,
+               group_ids = $7,
+               is_builtin = $8,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $9`,
+            [
+              userRecord.username,
+              userRecord.full_name,
+              userRecord.email,
+              userRecord.role,
+              userRecord.user_type,
+              userRecord.status,
+              JSON.stringify(userRecord.group_ids),
+              userRecord.is_builtin,
+              matchedId,
+            ]
+          );
+          console.log(`[Database] Successfully updated user profile "${userRecord.username}" (ID: ${matchedId}) in PostgreSQL.`);
+        }
       } else {
         await pool.query(
           `INSERT INTO users (id, username, password_hash, password_salt, full_name, email, role, user_type, status, group_ids, is_builtin, last_login, created_at, updated_at)
@@ -2321,7 +2376,10 @@ export async function saveUsersBatch(usersList: any[]): Promise<any[]> {
   for (const item of usersList) {
     if (!item || typeof item !== 'object' || !item.username) continue;
     try {
-      const saved = await saveUser(item);
+      // Stripping password field to ensure batch updates never overwrite existing credentials
+      const itemToSave = { ...item };
+      delete itemToSave.password;
+      const saved = await saveUser(itemToSave);
       results.push(saved);
     } catch (err) {
       console.error('[DB saveUsersBatch item error]', err);

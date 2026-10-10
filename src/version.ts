@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.304.6';
+export const APP_VERSION = '1.304.7';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.304.7',
+    releaseDate: '2026-10-10',
+    type: 'patch',
+    title: 'اصلاح ماندگاری تغییر رمز عبور کاربران محلی و ادمین در دیتابیس PostgreSQL و بک‌اند (فاز ۱)',
+    title_en: 'Fix User and Admin Password Persistence in PostgreSQL Database and Backend (Phase 1)',
+    changes: [
+      'حذف بازنویسی مکرر و اجباری رمز عبور مدیر ارشد (admin) از مقادیر ADMIN_INITIAL_PASSWORD در توابع loadFallbackStore و syncFallbackToPostgres.',
+      'ایمن‌سازی تابع saveUser جهت تفکیک صریح تغییر رمز عبور از ویرایش پروفایل و تولید Salt و Hash جدید PBKDF2 فقط در زمان تغییر رمز.',
+      'حفظ قطعی و اولویت‌دار رمزهای عبور موجود در جدول users دیتابیس PostgreSQL هنگام ویرایش فیلدهای غیرمحرمانه و ذخیره‌سازی دسته‌جمعی (Batch).',
+      'جلوگیری قطعی از تغییر پسورد در تابع saveUsersBatch با حذف خودکار فیلدهای رمز عبور ارسالی در درخواست‌های آرایه‌ای.',
+      'افزودن لاگ امنیتی (Audit Log) اختصاصی جهت ثبت رویداد تغییر کلمه عبور کاربران در سامانه.'
+    ],
+    changes_en: [
+      'Removed redundant overwriting of root admin password from ADMIN_INITIAL_PASSWORD in loadFallbackStore and syncFallbackToPostgres.',
+      'Secured saveUser method to strictly isolate password modifications from general profile updates, generating fresh PBKDF2 hash/salt only when a new password is provided.',
+      'Guaranteed authoritative preservation of existing PostgreSQL password hashes when editing non-credential profile fields or running batch saves.',
+      'Prevented batch operations in saveUsersBatch from unintentionally overwriting stored passwords.',
+      'Added distinct security audit logging for user credential and password update events.'
+    ]
+  },
   {
     version: '1.304.6',
     releaseDate: '2026-10-09',

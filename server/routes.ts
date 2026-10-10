@@ -1027,14 +1027,17 @@ apiRouter.post('/settings/users', async (req: Request, res: Response) => {
       });
     }
 
+    const hasPassword = Boolean(body.password && String(body.password).trim().length > 0);
     const saved = await saveUser(body);
     await addAuditLog({
       userName: saved.username,
-      action: 'Local User Saved/Updated',
+      action: hasPassword ? 'Local User Password/Profile Updated' : 'Local User Saved/Updated',
       category: 'user_management',
       target: `User: ${saved.username}`,
       status: 'success',
-      details: `User account "${saved.username}" (${saved.fullName}, role: ${saved.role}) saved successfully in database from IP ${ip}`,
+      details: hasPassword
+        ? `User account "${saved.username}" password and credentials updated successfully in database from IP ${ip}`
+        : `User account "${saved.username}" (${saved.fullName}, role: ${saved.role}) saved successfully in database from IP ${ip}`,
       ipAddress: ip,
       userAgent: req.headers['user-agent'],
     });
