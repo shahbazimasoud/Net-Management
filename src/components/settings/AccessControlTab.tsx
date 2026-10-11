@@ -2607,6 +2607,11 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       desc: isEn ? 'Download device specifications, IPs, and inventory in JSON or CSV' : 'مجوز استخراج شناسنامه، IPها و اطلاعات تجهیزات به صورت JSON و CSV',
                     },
                     {
+                      key: 'canExportServers',
+                      label: isEn ? 'Export Remote Servers Fleet (Single & Batch)' : 'استخراج و خروجی ناوگان سرورها (Export تکی و دسته‌ای)',
+                      desc: isEn ? 'Download server specifications, IPs, services, and fleet inventory in JSON or CSV' : 'مجوز استخراج شناسنامه، IPها، سرویس‌ها و مشخصات سرورها به صورت JSON و CSV',
+                    },
+                    {
                       key: 'canApplyTemplates',
                       label: isEn ? 'Apply Configuration Templates' : 'اعمال الگوها و اسکریپت‌های کانفیگ (Templates)',
                       desc: isEn ? 'Push templated CLI batches to devices' : 'امکان اعمال اسکریپت‌های گروهی سیسکو و میکروتیک',

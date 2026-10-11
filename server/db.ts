@@ -549,6 +549,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canExportBackup: true,
     canImportBackup: true,
     canExportDevices: true,
+    canExportServers: true,
     defaultServerPermissions: {
       terminal: true,
       file_explorer: true,
@@ -558,6 +559,7 @@ export const DEFAULT_ACCESS_POLICIES = [
       power_control: true,
       edit_properties: true,
       delete_server: true,
+      export_servers: true,
     },
     perServerPermissions: {},
     defaultDevicePermissions: {
@@ -3817,6 +3819,12 @@ export function isServerActionPermitted(
     (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
   if (isSuperAdmin) {
     return true;
+  }
+
+  // 6. Safe backward-compatible fallback mapping from general policy flags:
+  if (action === 'export_servers') {
+    if (policy.canExportServers === false) return false;
+    return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin);
   }
 
   // Safe defaults for non-superadmin policies without explicit grants:

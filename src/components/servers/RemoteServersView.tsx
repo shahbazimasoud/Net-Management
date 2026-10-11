@@ -37,6 +37,7 @@ import {
   Flame,
   Lock,
   Radar,
+  Download,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory, ServerActionKey } from '../../types';
 import { isServerActionAllowed } from '../../utils/rbac';
@@ -63,6 +64,7 @@ import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { BulkServerConfigModal } from './BulkServerConfigModal';
 import { RestartServerModal } from './RestartServerModal';
 import { ServerDiscoveryModal } from './ServerDiscoveryModal';
+import { ServerExportModal } from './ServerExportModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -430,6 +432,16 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   // Server Discovery & Network Scanner Modal State
   const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
+
+  // Server Fleet Export Modal State (Single & Batch with Strict Granular RBAC)
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportTargetIds, setExportTargetIds] = useState<Set<string>>(new Set());
+
+  const handleOpenExportModal = (targetIds?: Set<string>) => {
+    setExportTargetIds(targetIds || selectedServerIds);
+    setIsExportModalOpen(true);
+    undockModal('modal-server-export');
+  };
 
   // Ref to the floating 3-dots action menu dropdown container
   const menuDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -1479,6 +1491,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               </button>
             )}
 
+            {/* Export Fleet Inventory Button (Single & Batch with Strict Granular RBAC) */}
+            {(!effectivePolicy || effectivePolicy.canExportServers !== false || effectivePolicy.canManageDevices !== false) && (
+              <button
+                id="btn-server-export"
+                type="button"
+                onClick={() => handleOpenExportModal(new Set())}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700 shadow-xs'
+                    : 'bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30 shadow-xs shadow-cyan-500/10'
+                }`}
+                title={isEn ? 'Export remote servers fleet inventory (JSON / CSV)' : 'استخراج و خروجی ناوگان سرورها (JSON و CSV)'}
+              >
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isEn ? 'Export Fleet' : 'خروجی سرورها'}</span>
+              </button>
+            )}
+
             {/* Add Server & Standalone Services Dropdown Button */}
             {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
               <div className="relative">
@@ -2138,6 +2168,21 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             >
               <Sliders className="w-3.5 h-3.5" />
               <span>{isEn ? 'Bulk Linux Config' : 'پیکربندی گروهی لینوکس'}</span>
+            </button>
+
+            {/* Bulk Export Selected Button */}
+            <button
+              type="button"
+              onClick={() => handleOpenExportModal(selectedServerIds)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-bold shadow-md shadow-teal-500/20 cursor-pointer active:scale-95 transition"
+              title={isEn ? 'Export selected servers to JSON or CSV' : 'استخراج و دریافت فایل خروجی سرورهای انتخابی'}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>
+                {isEn
+                  ? `Export Selected (${selectedServerIds.size})`
+                  : `خروجی انتخابی (${selectedServerIds.size})`}
+              </span>
             </button>
           </div>
         </div>
@@ -3549,6 +3594,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                   const canPowerControl = isServerActionAllowed(s, 'power_control', effectivePolicy);
                   const canEditProperties = isServerActionAllowed(s, 'edit_properties', effectivePolicy);
                   const canDeleteServer = isServerActionAllowed(s, 'delete_server', effectivePolicy);
+                  const canExportServer = isServerActionAllowed(s, 'export_servers', effectivePolicy);
 
                   const hasAnyPrivilegedAction =
                     canTerminal ||
@@ -3558,7 +3604,8 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                     canDatabaseManagement ||
                     canPowerControl ||
                     canEditProperties ||
-                    canDeleteServer;
+                    canDeleteServer ||
+                    canExportServer;
 
                   return (
                     <>
@@ -3809,6 +3856,30 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                           <div className="flex flex-col">
                             <span>{isEn ? 'Edit Server Properties' : 'ویرایش مشخصات سرور'}</span>
                             <span className="text-[10px] text-amber-400/80 font-mono">Host, IP, Credentials, Tags</span>
+                          </div>
+                        </button>
+                      )}
+
+                      {/* Export Server Data */}
+                      {canExportServer && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuAnchor(null);
+                            handleOpenExportModal(new Set([s.id]));
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                            isEn ? 'text-left' : 'text-right'
+                          } ${
+                            isLightMode
+                              ? 'text-cyan-800 hover:bg-cyan-50'
+                              : 'text-cyan-300 hover:bg-cyan-500/15'
+                          }`}
+                        >
+                          <Download className="w-4 h-4 text-cyan-400 shrink-0" />
+                          <div className="flex flex-col">
+                            <span>{isEn ? 'Export Server Data' : 'خروجی اطلاعات سرور'}</span>
+                            <span className="text-[10px] text-cyan-400/80 font-mono">JSON / CSV</span>
                           </div>
                         </button>
                       )}
@@ -4154,6 +4225,20 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           isEn={isEn}
         />
       )}
+
+      {/* 20. Remote Server Fleet Export Modal (Single & Batch with Strict Granular RBAC) */}
+      <ServerExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => {
+          setIsExportModalOpen(false);
+          undockModal('modal-server-export');
+        }}
+        servers={servers}
+        selectedServerIds={exportTargetIds}
+        effectivePolicy={effectivePolicy}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
 
       {/* Floating Success Notification Toast */}
       {successNotification &&

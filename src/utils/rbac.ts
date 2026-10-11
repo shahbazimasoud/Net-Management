@@ -545,6 +545,15 @@ export const SERVER_ACTIONS_CATALOG: ServerActionDescriptor[] = [
     category: 'config',
     danger: true,
   },
+  {
+    key: 'export_servers',
+    labelEn: 'Export Server & Fleet Data (JSON / CSV)',
+    labelFa: 'خروجی گرفتن از اطلاعات و مشخصات سرورها (Export)',
+    descriptionEn: 'Export server specifications, hardware metrics, OS distro, services, and inventory configuration to JSON or CSV.',
+    descriptionFa: 'دریافت خروجی ساختاریافته (JSON و CSV) از مشخصات فنی، سخت‌افزار، سیستم‌عامل، سرویس‌ها و شناسنامه سرورها.',
+    category: 'management',
+    danger: false,
+  },
 ];
 
 export const FULL_SERVER_PERMISSIONS: ServerActionPermissions = {
@@ -556,6 +565,7 @@ export const FULL_SERVER_PERMISSIONS: ServerActionPermissions = {
   power_control: true,
   edit_properties: true,
   delete_server: true,
+  export_servers: true,
 };
 
 export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
@@ -567,6 +577,7 @@ export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
   power_control: false,
   edit_properties: false,
   delete_server: false,
+  export_servers: false,
 };
 
 /**
@@ -614,6 +625,12 @@ export function isServerActionPermitted(
     (policy.targetScope === 'all' && (policy.priority || 0) >= 100);
   if (isSuperAdmin) {
     return true;
+  }
+
+  // 6. Safe backward-compatible fallback mapping from general policy flags:
+  if (action === 'export_servers') {
+    if (policy.canExportServers === false) return false;
+    return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin);
   }
 
   // Safe defaults for non-superadmin policies without explicit grants:

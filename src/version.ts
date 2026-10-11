@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.309.0';
+export const APP_VERSION = '1.310.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.310.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن قابلیت استخراج داده‌های سرورهای ریموت (Export تکی و دسته‌ای) با کنترل دسترسی دقیق RBAC در Remote Servers & Automation Fleet',
+    title_en: 'Granular Multi-Vendor Remote Servers Fleet Inventory Export (Single & Batch) with Strict RBAC',
+    changes: [
+      'افزودن قابلیت استخراج شناسنامه و داده‌های ناوگان سرورهای ریموت به دو فرمت JSON و CSV به صورت تکی (از منوی سه‌نقطه هر سرور) و دسته‌ای (از نوار ابزار اصلی و نوار انتخاب گروهی سرورها).',
+      'یکپارچه‌سازی کامل با سیستم کنترل دسترسی پایگاه داده (Granular Multi-Vendor RBAC): اعمال مجوز export_servers و canExportServers در سرور و کلاینت به طوری که فقط کاربران و نقش‌های دارای مجوز قادر به خروجی گرفتن هستند.',
+      'طراحی مدال استاندارد استخراج سرورها (ServerExportModal) با پشتیبانی از فیلترهای مشخصات سخت‌افزاری، سرویس‌های وب/دیتابیس، تگ‌ها و وضعیت لحظه‌ای، مجهز به دکمه‌های سه‌گانه، مینیمایز به داک و حفظ فاصله فوتر.',
+      'حفظ کامل امنیت اطلاعات و اصل Zero-Leak Credential Security: پاکسازی خودکار کلیه پسوردهای لینوکس، ویندوز، دیتابیس‌ها و کلیدهای خصوصی SSH از خروجی‌های تولیدشده.'
+    ],
+    changes_en: [
+      'Implemented single and batch remote server fleet export supporting structured JSON and Excel-compatible CSV formats with UTF-8 BOM encoding.',
+      'Integrated strict PostgreSQL-authoritative RBAC enforcement for export_servers and canExportServers capabilities, ensuring only authorized operators can exfiltrate or download server fleet inventory.',
+      'Designed architecture-compliant ServerExportModal with granular inclusion selectors for hardware metrics, web/DB services, tags, and telemetry, along with universal triple header controls and dock minimization.',
+      'Enforced strict Zero-Leak Credential Security (Rule 14) ensuring all Linux, Windows, PostgreSQL, MySQL passwords, and SSH private keys are thoroughly sanitized before file transmission.'
+    ]
+  },
   {
     version: '1.309.0',
     releaseDate: '2026-10-11',

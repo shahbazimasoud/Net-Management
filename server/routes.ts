@@ -4218,6 +4218,11 @@ function inferServerActionKey(req: Request, serverId: string): string | null {
     return 'server_management';
   }
 
+  // 8. Server Export
+  if (urlPath.includes('/export') || urlPath.endsWith('/export')) {
+    return 'export_servers';
+  }
+
   return null;
 }
 
@@ -4409,6 +4414,171 @@ apiRouter.get('/remote-servers/tags', async (req: Request, res: Response) => {
     res.json({ success: true, tags: summary });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/remote-servers/export - Export single or batch remote servers with strict Granular Multi-Vendor RBAC enforcement
+apiRouter.post('/remote-servers/export', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, allowedServerIds, user } = await resolveRequestContextPolicy(req);
+    const {
+      serverIds,
+      format = 'json',
+      includeHardware = true,
+      includeServices = true,
+      includeTags = true,
+      includeUptime = true,
+    } = req.body;
+
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canViewServers === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits access to Remote Servers & Automation Fleet.',
+        errorFa: 'عدم دسترسی: پالیسی حساب کاربری شما اجازه دسترسی به سرورهای ریموت را نمی‌دهد.',
+      });
+    }
+
+    let allServers = await getAllRemoteServers();
+    if (!isSuperAdmin && effectivePolicy && allowedServerIds !== null) {
+      const allowedSet = new Set(allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+      allServers = allServers.filter((s: any) => {
+        const sid = (s.id || '').trim().toLowerCase();
+        const sname = (s.name || '').trim().toLowerCase();
+        const shost = (s.hostname || '').trim().toLowerCase();
+        return allowedSet.has(sid) || allowedSet.has(sname) || allowedSet.has(shost);
+      });
+    }
+
+    let targetServers = allServers;
+    if (Array.isArray(serverIds) && serverIds.length > 0) {
+      const requestedSet = new Set(serverIds.map((id: string) => (id || '').trim().toLowerCase()));
+      targetServers = allServers.filter((s: any) => requestedSet.has((s.id || '').trim().toLowerCase()));
+    }
+
+    if (targetServers.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No matching servers found to export.',
+        errorFa: 'هیچ سروری برای استخراج یافت نشد.',
+      });
+    }
+
+    // Granular RBAC Check: Ensure user is authorized to export each server
+    const unauthorized = targetServers.filter(
+      (s: any) => !isSuperAdmin && !isServerActionPermitted(effectivePolicy, s.id, 'export_servers')
+    );
+
+    if (unauthorized.length > 0) {
+      return res.status(403).json({
+        success: false,
+        error: `Access denied: You do not have RBAC permission to export ${unauthorized.length} of the requested servers.`,
+        errorFa: `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز استخراج (Export) تعداد ${unauthorized.length} از سرورهای درخواستی را ندارید.`,
+        unauthorizedIds: unauthorized.map((s: any) => s.id),
+      });
+    }
+
+    // Sanitize credentials: Zero plaintext secrets leak (Rule 14)
+    const exportData = targetServers.map((srv: any) => {
+      const s = { ...srv };
+      delete s.win_password;
+      delete s.ssh_password;
+      delete s.postgres_password;
+      delete s.mysql_password;
+      delete s.ssh_key;
+      delete s.private_key;
+      delete s.sudo_password;
+      delete s.root_password;
+
+      if (!includeHardware) {
+        delete s.cpu_cores;
+        delete s.ram_gb;
+        delete s.disk_gb;
+      }
+      if (!includeServices) {
+        delete s.has_nginx;
+        delete s.has_apache;
+        delete s.has_postgresql;
+        delete s.has_mysql;
+        delete s.installed_web_servers;
+        delete s.installed_databases;
+        delete s.active_services_count;
+      }
+      if (!includeTags) {
+        delete s.tags;
+        delete s.category;
+      }
+      if (!includeUptime) {
+        delete s.uptime_seconds;
+        delete s.uptime_formatted;
+      }
+      return s;
+    });
+
+    if (format === 'csv') {
+      const csvHeader = [
+        'ID',
+        'Name',
+        'Hostname',
+        'OS Type',
+        'OS Distro',
+        'Environment',
+        'Category',
+        'IP Address',
+        'SSH Port',
+        'SSH User',
+        'Status',
+        'vCPU Cores',
+        'RAM (GB)',
+        'Disk (GB)',
+        'Web Servers',
+        'Databases',
+        'Automation Tags',
+        'Uptime',
+        'Created At',
+      ].join(',');
+
+      const csvRows = exportData.map((s: any) => {
+        const webSvcs = [s.has_nginx ? 'Nginx' : '', s.has_apache ? 'Apache' : ''].filter(Boolean).join('; ');
+        const dbSvcs = [s.has_postgresql ? 'PostgreSQL' : '', s.has_mysql ? 'MySQL' : ''].filter(Boolean).join('; ');
+        const tagsStr = Array.isArray(s.tags) ? s.tags.join('; ') : '';
+
+        return [
+          `"${s.id || ''}"`,
+          `"${(s.name || '').replace(/"/g, '""')}"`,
+          `"${(s.hostname || '').replace(/"/g, '""')}"`,
+          `"${s.os_type || ''}"`,
+          `"${(s.os_distro || '').replace(/"/g, '""')}"`,
+          `"${s.environment || ''}"`,
+          `"${s.category || ''}"`,
+          `"${s.ip || ''}"`,
+          `"${s.port || 22}"`,
+          `"${s.username || ''}"`,
+          `"${s.is_online ? 'Online' : 'Offline'}"`,
+          `"${s.cpu_cores ?? ''}"`,
+          `"${s.ram_gb ?? ''}"`,
+          `"${s.disk_gb ?? ''}"`,
+          `"${webSvcs}"`,
+          `"${dbSvcs}"`,
+          `"${tagsStr.replace(/"/g, '""')}"`,
+          `"${(s.uptime_formatted || '').replace(/"/g, '""')}"`,
+          `"${s.created_at || ''}"`,
+        ].join(',');
+      });
+
+      const csvContent = '\uFEFF' + [csvHeader, ...csvRows].join('\r\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="remote_servers_export_${Date.now()}.csv"`);
+      return res.status(200).send(csvContent);
+    }
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      count: exportData.length,
+      servers: exportData,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در استخراج اطلاعات سرورها' });
   }
 });
 

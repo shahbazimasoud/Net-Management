@@ -581,7 +581,8 @@ export type ServerActionKey =
   | 'database_management' // PostgreSQL & MySQL Database Engines
   | 'power_control'       // Restart & Power Off / Shutdown
   | 'edit_properties'     // Edit Server Properties (Host, IP, Credentials, Port, Tags)
-  | 'delete_server';      // Delete Server from Fleet
+  | 'delete_server'       // Delete Server from Fleet
+  | 'export_servers';     // Export Server & Fleet Inventory Data (JSON / CSV)
 
 export interface ServerActionPermissions {
   terminal?: boolean;
@@ -592,6 +593,7 @@ export interface ServerActionPermissions {
   power_control?: boolean;
   edit_properties?: boolean;
   delete_server?: boolean;
+  export_servers?: boolean;
 }
 
 export type NetworkDeviceActionKey =
@@ -696,6 +698,7 @@ export interface AccessPolicy {
   canApplyTemplates: boolean;         // apply config template
   canBatchOperate: boolean;           // batch port configuration
   canExportDevices?: boolean;         // Export single and batch network equipment data
+  canExportServers?: boolean;         // Export single and batch remote server fleet data
 
   // 5. Backup & Disaster Recovery Operations
   canExportBackup?: boolean;          // Export full or partial network backup package
