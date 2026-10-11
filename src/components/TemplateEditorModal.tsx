@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Plus,
@@ -316,8 +317,8 @@ write memory`);
 
   if (!isOpen) return null;
 
-  return (
-    <div className={`fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center ${
+  return createPortal(
+    <div className={`fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center ${
       isMaximized ? 'p-0' : 'p-2 sm:p-4'
     } modal-backdrop-blur animate-fadeIn overflow-y-auto`} data-modal-backdrop="true">
       <div 
@@ -698,6 +699,7 @@ write memory`);
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   CopyPlus,
@@ -178,9 +179,11 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
 
   const commandLines = commands.split('\n');
 
-  return (
+  if (!isOpen || !sourceTemplate) return null;
+
+  return createPortal(
     <div
-      className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto"
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >
@@ -586,7 +589,8 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

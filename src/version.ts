@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.315.2';
+export const APP_VERSION = '1.315.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.315.3',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'فاز ۳: اعمال صددرصدی کنترل دسترسی دقیق RBAC، فیلتر انحصاری تجهیزات مجاز و اعتبارسنجی ممیزی در سرور برای تمپلیت‌ها',
+    title_en: 'Phase 3: Strict RBAC Enforcement, Exclusive Authorized Device Dropdown & Server Audit Logging for Config Templates',
+    changes: [
+      'ارسال effectivePolicy و ارزیابی جامع مجوزهای سراسری canApplyTemplates و مجوزهای تفکیکی apply_template برای هر تجهیز در کارت‌های تمپلیت.',
+      'نمایش دکمه اعمال تمپلیت به صورت قفل‌شده با آیکون Lock و تولتیپ هشدار امنیتی برای کاربران فاقد صلاحیت به همراه نوتیفیکیشن toast غیرمسدودکننده.',
+      'فیلتر انحصاری منوی کشویی انتخاب تجهیز درون مودال ApplyTemplateModal به‌طوری‌که تنها تجهیزات مجاز و در حیطه دسترسی RBAC کاربر نمایش می‌یابند.',
+      'اعتبارسنجی امنیتی سخت‌گیرانه در بک‌اند سرور (POST /api/templates/apply و POST /api/devices/:id/template) و ثبت کامل لاگ‌های ممیزی موفق و ناموفق در دیتابیس PostgreSQL.',
+      'ارتقای تمام مودال‌های مرتبط با تمپلیت‌ها (ApplyTemplateModal, CloneTemplateModal, TemplateEditorModal, CaptureConfigModal) به لایه پورتال z-[999990] و حریم فوتر.'
+    ],
+    changes_en: [
+      'Integrated effectivePolicy evaluation across template cards, verifying global canApplyTemplates and granular per-device apply_template capabilities.',
+      'Rendered locked/disabled Apply buttons with amber Lock icon and detailed bilingual RBAC warning tooltips for unauthorized roles, eliminating blocking alerts.',
+      'Filtered the target device dropdown in ApplyTemplateModal strictly to devices permitted under the active user RBAC scope.',
+      'Enforced strict server-side RBAC authorization on POST /api/templates/apply and POST /api/devices/:id/template with detailed PostgreSQL audit logging for approved and rejected attempts.',
+      'Standardized all template-related modals (ApplyTemplateModal, CloneTemplateModal, TemplateEditorModal, CaptureConfigModal) to top portal layer z-[999990] with footer clearance.'
+    ]
+  },
   {
     version: '1.315.2',
     releaseDate: '2026-10-11',

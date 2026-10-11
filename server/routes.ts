@@ -4152,25 +4152,121 @@ apiRouter.use(['/devices/:id/terminal', '/devices/:id/terminal/*'], async (req: 
   next();
 });
 
-// Guard for applying templates to network equipment
+// Guard for applying templates to network equipment with strict RBAC enforcement & audit logging
 apiRouter.post('/templates/apply', async (req: Request, res: Response, next: NextFunction) => {
-  const deviceId = req.body?.device_id || req.body?.deviceId;
-  if (deviceId) {
-    const check = await assertDeviceScopeAccess(req, deviceId, 'apply_template');
-    if (!check.allowed) {
-      return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
-    }
+  const deviceId = (req.body?.device_id || req.body?.deviceId || '').toString().trim();
+  if (!deviceId) {
+    return res.status(400).json({
+      success: false,
+      error: 'device_id is required to apply configuration template',
+      errorFa: 'شناسه تجهیز جهت اعمال تمپلیت کانفیگ الزامی است',
+    });
   }
+
+  const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+  // 1. Global policy check: canApplyTemplates
+  if (!isSuperAdmin && effectivePolicy && effectivePolicy.canApplyTemplates === false) {
+    try {
+      await addAuditLog({
+        userName: user?.username || 'anonymous',
+        action: 'Apply Config Template (Rejected - Global RBAC)',
+        category: 'security',
+        target: `Device ID: ${deviceId}`,
+        status: 'warning',
+        details: `Template push rejected: user policy prohibits applying templates (canApplyTemplates=false). Template: ${req.body?.template_id || 'unknown'}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch (auditErr) {
+      console.warn('[Audit log error on rejected template apply]', auditErr);
+    }
+
+    return res.status(403).json({
+      success: false,
+      error: 'Access denied: Your account policy prohibits applying configuration templates to network equipment (canApplyTemplates=false).',
+      errorFa: 'عدم دسترسی: حساب کاربری شما طبق پالیسی امنیتی (canApplyTemplates) فاقد مجوز اعمال تمپلیت‌های کانفیگ بر روی تجهیزات است.',
+    });
+  }
+
+  // 2. Granular per-device scope and action check
+  const check = await assertDeviceScopeAccess(req, deviceId, 'apply_template');
+  if (!check.allowed) {
+    try {
+      await addAuditLog({
+        userName: user?.username || 'anonymous',
+        action: 'Apply Config Template (Rejected - Scope/Action)',
+        category: 'security',
+        target: `Device ID: ${deviceId}`,
+        status: 'warning',
+        details: `Template push rejected: ${check.error}. Template: ${req.body?.template_id || 'unknown'}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch (auditErr) {
+      console.warn('[Audit log error on rejected template apply]', auditErr);
+    }
+
+    return res.status(check.status || 403).json({
+      success: false,
+      error: check.error,
+      errorFa: check.errorFa,
+    });
+  }
+
+  // 3. Log authorized template application attempt in PostgreSQL audit log
+  try {
+    await addAuditLog({
+      userName: user?.username || 'admin',
+      action: 'Apply Config Template',
+      category: 'equipment',
+      target: `Device: ${check.device?.name || deviceId} (${check.device?.ip || 'N/A'})`,
+      status: 'success',
+      details: `Authorized template push initiated for device ${check.device?.name || deviceId}. Template ID: ${req.body?.template_id || 'unknown'}`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] as string,
+    });
+  } catch (auditErr) {
+    console.warn('[Audit log error on authorized template apply]', auditErr);
+  }
+
   next();
 });
 
 // POST /devices/:id/template - Apply configuration template to network device
 apiRouter.post(['/devices/:id/template', '/devices/:id/apply-template'], async (req: Request, res: Response) => {
   try {
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+    // Global policy check
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canApplyTemplates === false) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits applying configuration templates.',
+        errorFa: 'عدم دسترسی: حساب شما فاقد مجوز اعمال تمپلیت‌های کانفیگ است.',
+      });
+    }
+
     const check = await assertDeviceScopeAccess(req, req.params.id, 'apply_template');
     if (!check.allowed) {
       return res.status(check.status || 403).json({ success: false, error: check.error, errorFa: check.errorFa });
     }
+
+    try {
+      await addAuditLog({
+        userName: user?.username || 'admin',
+        action: 'Apply Config Template',
+        category: 'equipment',
+        target: `Device: ${check.device?.name || req.params.id}`,
+        status: 'success',
+        details: `Configuration template applied to device ${check.device?.name || req.params.id}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch (auditErr) {
+      console.warn('[Audit log error on device template apply]', auditErr);
+    }
+
     return res.json({
       success: true,
       message: 'Configuration template applied successfully to device',

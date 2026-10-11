@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   DownloadCloud,
@@ -248,10 +249,12 @@ export const CaptureConfigModal: React.FC<CaptureConfigModalProps> = ({
     setTimeout(() => setCopiedRaw(false), 2000);
   };
 
-  return (
+  if (!isOpen) return null;
+
+  return createPortal(
     <div
       data-modal-backdrop="true"
-      className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md modal-backdrop-blur overflow-y-auto animate-fadeIn"
+      className="fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md modal-backdrop-blur overflow-y-auto animate-fadeIn"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -1011,6 +1014,7 @@ export const CaptureConfigModal: React.FC<CaptureConfigModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

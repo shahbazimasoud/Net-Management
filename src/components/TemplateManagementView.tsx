@@ -22,7 +22,8 @@ import {
   CheckCircle2,
   AlertCircle,
   CopyPlus,
-  DownloadCloud
+  DownloadCloud,
+  Lock
 } from 'lucide-react';
 import { ConfigTemplate, Device, AccessPolicy } from '../types';
 import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate } from '../services/api';
@@ -222,29 +223,41 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     setApplyModalOpen(false);
   };
 
-  // Open apply modal for template with smart vendor matching
+  // Open apply modal for template with smart vendor matching & RBAC permission verification
   const handleOpenApply = (templateId: string) => {
     setApplyTargetTemplateId(templateId);
     const targetTmpl = templates.find((t) => t.id === templateId);
     let matchedDevice: Device | null = null;
+
+    const isDevCisco = (d: Device) =>
+      (d.model || '').toLowerCase().includes('cisco') ||
+      (d.model || '').toLowerCase().includes('catalyst') ||
+      (d.platform || '').toLowerCase().includes('cisco');
+
+    const isDevMikroTik = (d: Device) =>
+      (d.model || '').toLowerCase().includes('mikrotik') ||
+      (d.model || '').toLowerCase().includes('routerboard') ||
+      (d.platform || '').toLowerCase().includes('mikrotik');
+
+    const isPermitted = (d: Device) =>
+      !effectivePolicy || isDeviceActionPermitted(effectivePolicy, d.id, 'apply_template');
+
     if (targetTmpl && devices && devices.length > 0) {
       if (targetTmpl.vendor === 'mikrotik') {
-        matchedDevice = devices.find((d) => 
-          (d.model || '').toLowerCase().includes('mikrotik') || 
-          (d.model || '').toLowerCase().includes('routerboard') || 
-          (d.platform || '').toLowerCase().includes('mikrotik')
-        ) || devices[0];
+        matchedDevice = devices.find((d) => isDevMikroTik(d) && isPermitted(d)) ||
+          devices.find((d) => isPermitted(d)) ||
+          devices.find(isDevMikroTik) ||
+          devices[0];
       } else if (targetTmpl.vendor === 'cisco') {
-        matchedDevice = devices.find((d) => 
-          (d.model || '').toLowerCase().includes('cisco') || 
-          (d.model || '').toLowerCase().includes('catalyst') || 
-          (d.platform || '').toLowerCase().includes('cisco')
-        ) || devices[0];
+        matchedDevice = devices.find((d) => isDevCisco(d) && isPermitted(d)) ||
+          devices.find((d) => isPermitted(d)) ||
+          devices.find(isDevCisco) ||
+          devices[0];
       } else {
-        matchedDevice = devices[0];
+        matchedDevice = devices.find(isPermitted) || devices[0];
       }
     } else if (devices && devices.length > 0) {
-      matchedDevice = devices[0];
+      matchedDevice = devices.find(isPermitted) || devices[0];
     }
     setApplyTargetDevice(matchedDevice);
     setApplyModalOpen(true);
@@ -626,36 +639,76 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 
                   <div className="flex items-center gap-2">
                     {(() => {
-                      const hasAnyPermittedDevice =
+                      const isSuperAdmin =
+                        effectivePolicy?.id === 'policy-super-admin' ||
+                        (effectivePolicy?.targetScope === 'all' && (effectivePolicy?.priority || 0) >= 100);
+
+                      const isGlobalApplyPermitted =
                         !effectivePolicy ||
-                        devices.some((d) => isDeviceActionPermitted(effectivePolicy, d.id, 'apply_template'));
+                        isSuperAdmin ||
+                        effectivePolicy.canApplyTemplates !== false;
+
+                      const isDevCisco = (d: Device) =>
+                        (d.model || '').toLowerCase().includes('cisco') ||
+                        (d.model || '').toLowerCase().includes('catalyst') ||
+                        (d.platform || '').toLowerCase().includes('cisco');
+
+                      const isDevMikroTik = (d: Device) =>
+                        (d.model || '').toLowerCase().includes('mikrotik') ||
+                        (d.model || '').toLowerCase().includes('routerboard') ||
+                        (d.platform || '').toLowerCase().includes('mikrotik');
+
+                      const compatibleDevices = devices.filter((d) => {
+                        if (tmpl.vendor === 'cisco') return isDevCisco(d);
+                        if (tmpl.vendor === 'mikrotik') return isDevMikroTik(d);
+                        return true;
+                      });
+
+                      const permittedCompatibleDevices = compatibleDevices.filter(
+                        (d) => !effectivePolicy || isDeviceActionPermitted(effectivePolicy, d.id, 'apply_template')
+                      );
+
+                      const canApply = isGlobalApplyPermitted && permittedCompatibleDevices.length > 0;
+
+                      let disabledReason = '';
+                      if (!isGlobalApplyPermitted) {
+                        disabledReason = isEn
+                          ? 'Access Denied (RBAC): Template push is restricted by your role policy (canApplyTemplates=false).'
+                          : 'دسترسی محدود شده (RBAC): اعمال تمپلیت طبق پالیسی دسترسی شما غیرفعال است (canApplyTemplates=false).';
+                      } else if (compatibleDevices.length === 0) {
+                        disabledReason = isEn
+                          ? `No compatible ${tmpl.vendor === 'cisco' ? 'Cisco' : tmpl.vendor === 'mikrotik' ? 'MikroTik' : ''} devices found in inventory.`
+                          : `هیچ تجهیز سازگاری با خانواده ${tmpl.vendor === 'cisco' ? 'سیسکو' : tmpl.vendor === 'mikrotik' ? 'میکروتیک' : ''} در لیست موجود نیست.`;
+                      } else if (permittedCompatibleDevices.length === 0) {
+                        disabledReason = isEn
+                          ? 'Access Denied (RBAC): You do not have permission (apply_template) on compatible devices.'
+                          : 'دسترسی غیرمجاز (RBAC): شما فاقد مجوز اعمال تمپلیت (apply_template) بر روی تجهیزات سازگار با این الگو هستید.';
+                      }
+
+                      if (canApply) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenApply(tmpl.id)}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
+                            title={isEn ? 'Apply configuration template to target device' : 'اعمال این الگوی پیکربندی بر روی تجهیز شبکه'}
+                          >
+                            <Play className="w-3.5 h-3.5 fill-white" />
+                            <span>{isEn ? 'Apply to Device...' : 'اعمال روی تجهیز...'}</span>
+                          </button>
+                        );
+                      }
 
                       return (
                         <button
+                          type="button"
                           onClick={() => {
-                            if (!hasAnyPermittedDevice) {
-                              alert(
-                                isEn
-                                  ? 'Access Denied: Your assigned role policy does not permit applying config templates to network equipment.'
-                                  : 'دسترسی غیرمجاز: طبق پالیسی دسترسی تعریف‌شده در سیستم RBAC، شما مجوز اعمال تمپلیت کانفیگ بر روی تجهیزات را ندارید.'
-                              );
-                              return;
-                            }
-                            handleOpenApply(tmpl.id);
+                            showToast(disabledReason);
                           }}
-                          disabled={!hasAnyPermittedDevice}
-                          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 ${
-                            hasAnyPermittedDevice
-                              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer'
-                              : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5'
-                          }`}
-                          title={
-                            hasAnyPermittedDevice
-                              ? (isEn ? 'Apply configuration template to target device' : 'اعمال این الگوی پیکربندی بر روی تجهیز شبکه')
-                              : (isEn ? 'Permission denied by Access Control (RBAC)' : 'عدم دسترسی کافی در بخش کنترل دسترسی (RBAC)')
-                          }
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition bg-slate-800/80 border border-amber-500/30 text-slate-400 opacity-60 cursor-not-allowed hover:bg-slate-800"
+                          title={disabledReason}
                         >
-                          <Play className="w-3.5 h-3.5 fill-white" />
+                          <Lock className="w-3.5 h-3.5 text-amber-400" />
                           <span>{isEn ? 'Apply to Device...' : 'اعمال روی تجهیز...'}</span>
                         </button>
                       );

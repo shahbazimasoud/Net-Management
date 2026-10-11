@@ -245,41 +245,55 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   };
 
   // Check RBAC permission for applying template on specific device
-  const isDevicePermittedForApply = (device: Device): boolean => {
+  const isDevicePermittedForApply = (device: Device | null): boolean => {
+    if (!device) return false;
     if (!effectivePolicy) return true;
+    const isSuperAdmin =
+      effectivePolicy.id === 'policy-super-admin' ||
+      (effectivePolicy.targetScope === 'all' && (effectivePolicy.priority || 0) >= 100);
+    if (isSuperAdmin) return true;
+    if (effectivePolicy.canApplyTemplates === false) return false;
     return isDeviceActionPermitted(effectivePolicy, device.id, 'apply_template');
   };
 
-  // Filter devices by template vendor family and RBAC permission
+  // Strictly filter devices to only those permitted by RBAC
+  const rbacPermittedDevices = useMemo(() => {
+    if (!effectivePolicy) return allDevices;
+    const isSuperAdmin =
+      effectivePolicy.id === 'policy-super-admin' ||
+      (effectivePolicy.targetScope === 'all' && (effectivePolicy.priority || 0) >= 100);
+    if (isSuperAdmin) return allDevices;
+    if (effectivePolicy.canApplyTemplates === false) return [];
+    return allDevices.filter((d) => isDevicePermittedForApply(d));
+  }, [allDevices, effectivePolicy]);
+
+  // Filter permitted devices by template vendor family
   const compatibleDevices = useMemo(() => {
-    let list = allDevices;
+    let list = rbacPermittedDevices;
     if (currentTemplate && currentTemplate.vendor !== 'generic') {
       list = list.filter((d) => isDeviceCompatibleWithTemplate(d, currentTemplate));
     }
     return list;
-  }, [allDevices, currentTemplate]);
+  }, [rbacPermittedDevices, currentTemplate]);
 
-  // Selectable devices based on family filter toggle and RBAC permissions
+  // Selectable devices based on family filter toggle, strictly restricted to permitted devices
   const selectableDevices = useMemo(() => {
-    const base = showAllDevices || compatibleDevices.length === 0 ? allDevices : compatibleDevices;
-    // Sort permitted devices first
-    return [...base].sort((a, b) => {
-      const aPerm = isDevicePermittedForApply(a) ? 1 : 0;
-      const bPerm = isDevicePermittedForApply(b) ? 1 : 0;
-      return bPerm - aPerm;
-    });
-  }, [showAllDevices, compatibleDevices, allDevices, effectivePolicy]);
-
-  // Auto-switch to compatible device when template changes
-  useEffect(() => {
-    if (currentTemplate && selectedDevice && !showAllDevices) {
-      if (!isDeviceCompatibleWithTemplate(selectedDevice, currentTemplate)) {
-        if (compatibleDevices.length > 0) {
-          setSelectedDevice(compatibleDevices[0]);
-        }
-      }
+    if (showAllDevices) {
+      return rbacPermittedDevices;
     }
-  }, [currentTemplate, compatibleDevices, showAllDevices]);
+    return compatibleDevices.length > 0 ? compatibleDevices : rbacPermittedDevices;
+  }, [showAllDevices, compatibleDevices, rbacPermittedDevices]);
+
+  // Auto-switch to compatible and permitted device when template or selectableDevices change
+  useEffect(() => {
+    if (selectableDevices.length > 0) {
+      if (!selectedDevice || !selectableDevices.some((d) => d.id === selectedDevice.id)) {
+        setSelectedDevice(selectableDevices[0]);
+      }
+    } else {
+      setSelectedDevice(null);
+    }
+  }, [selectableDevices, selectedDevice]);
 
   // Discovered variables including {{PLACEHOLDER}} in commands
   const allDiscoveredVariables = useMemo(() => {
@@ -428,10 +442,13 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   };
 
   const handleExecuteApply = async () => {
-    if (!selectedDevice || !currentTemplate) return;
+    if (!selectedDevice || !currentTemplate) {
+      setApplyError(isEn ? 'Please select a target device and template.' : 'لطفاً تجهیز هدف و الگوی کانفیگ را انتخاب فرمایید.');
+      return;
+    }
 
     if (!isDevicePermittedForApply(selectedDevice)) {
-      alert(
+      setApplyError(
         isEn
           ? `Access Denied: You do not have permission to apply templates to "${selectedDevice.name}".`
           : `دسترسی غیرمجاز: بر اساس سطح دسترسی تعریف‌شده در سیستم RBAC، شما مجاز به اعمال تمپلیت روی تجهیز «${selectedDevice.name}» نمی‌باشید.`
@@ -440,7 +457,11 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     }
 
     if (!isIpConfirmed || !isIpValid) {
-      alert(isEn ? 'Please review and confirm the validity of the IP address.' : 'لطفاً صحت آدرس آی‌پی (IP Address) را بررسی و تایید نمایید.');
+      setApplyError(
+        isEn
+          ? 'Please review and confirm the validity of the IP address.'
+          : 'لطفاً صحت آدرس آی‌پی (IP Address) را بررسی و تایید نمایید.'
+      );
       return;
     }
 
@@ -715,7 +736,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   <select
                     value={selectedDevice?.id || ''}
                     onChange={(e) => {
-                      const found = allDevices.find((d) => d.id === e.target.value);
+                      const found = selectableDevices.find((d) => d.id === e.target.value);
                       if (found) setSelectedDevice(found);
                     }}
                     disabled={isApplying}
@@ -729,28 +750,13 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                       const isCisco = isDeviceCisco(d);
                       const isMikroTik = isDeviceMikroTik(d);
                       const vendorTag = isMikroTik ? 'MikroTik' : isCisco ? 'Cisco' : 'Generic';
-                      const permitted = isDevicePermittedForApply(d);
                       return (
                         <option key={d.id} value={d.id}>
-                          [{vendorTag}] {d.name} ({d.ip}) - {d.model} [{d.role}] {!permitted ? (isEn ? '⚠️ [No RBAC Access]' : '⚠️ [عدم دسترسی RBAC]') : ''}
+                          [{vendorTag}] {d.name} ({d.ip}) - {d.model} [{d.role}]
                         </option>
                       );
                     })}
                   </select>
-
-                  {/* Device RBAC Access Warning Banner */}
-                  {selectedDevice && !isDevicePermittedForApply(selectedDevice) && (
-                    <div className={`mt-2 p-2 rounded-lg border flex items-center gap-2 text-xs font-medium ${
-                      isLightMode ? 'bg-rose-50 border-rose-300 text-rose-800' : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
-                    }`}>
-                      <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
-                      <span>
-                        {isEn
-                          ? `Restricted by RBAC: You do not have permission to execute templates on "${selectedDevice.name}".`
-                          : `محدودیت دسترسی RBAC: نقش فعال شما فاقد مجوز اعمال تمپلیت روی «${selectedDevice.name}» است.`}
-                      </span>
-                    </div>
-                  )}
 
                   {/* Family Compatibility Status Indicator */}
                   {selectedDevice && currentTemplate && (
@@ -785,21 +791,15 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   )}
                 </>
               ) : (
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
+                <div className={`mt-2 p-3 rounded-xl border flex items-center gap-2.5 text-xs font-semibold ${
+                  isLightMode ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                }`}>
+                  <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
                   <span>
                     {isEn
-                      ? `No compatible ${currentTemplate?.vendor === 'mikrotik' ? 'MikroTik' : 'Cisco'} devices found in inventory.`
-                      : `هیچ تجهیز هم‌خانواده‌ای (${currentTemplate?.vendor === 'mikrotik' ? 'میکروتیک' : 'سیسکو'}) در موجودی شبکه یافت نشد.`}
+                      ? 'No authorized devices available. Your assigned RBAC role does not permit applying templates to any matching network equipment.'
+                      : 'هیچ تجهیز مجازی در دسترس نیست. طبق پالیسی کنترل دسترسی (RBAC)، شما مجوز اعمال تمپلیت بر روی تجهیزات شبکه را ندارید.'}
                   </span>
-                  {allDevices.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAllDevices(true)}
-                      className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/40 text-[10px] font-bold"
-                    >
-                      {isEn ? 'Show All Devices' : 'نمایش تمام تجهیزات'}
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -1170,7 +1170,19 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveStep('preview')}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-semibold shadow-md transition active:scale-95 cursor-pointer"
+                  disabled={!selectedDevice || !isDevicePermittedForApply(selectedDevice)}
+                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold shadow-md transition active:scale-95 ${
+                    selectedDevice && isDevicePermittedForApply(selectedDevice)
+                      ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white cursor-pointer'
+                      : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
+                  }`}
+                  title={
+                    !selectedDevice
+                      ? (isEn ? 'Please select an authorized device' : 'لطفاً یک تجهیز مجاز را انتخاب نمایید')
+                      : !isDevicePermittedForApply(selectedDevice)
+                      ? (isEn ? 'Access Denied: You do not have permission to execute templates on this device' : 'عدم دسترسی: طبق سیستم RBAC شما مجاز به اعمال تمپلیت روی این تجهیز نیستید')
+                      : undefined
+                  }
                 >
                   <span>{t('apply_btn_preview')}</span>
                   <ArrowRight className={`w-4 h-4 ${isEn ? '' : 'rotate-180'}`} />
@@ -1252,7 +1264,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                 </button>
 
                 {(() => {
-                  const isPermitted = !selectedDevice || isDevicePermittedForApply(selectedDevice);
+                  const isPermitted = Boolean(selectedDevice && isDevicePermittedForApply(selectedDevice));
                   return (
                     <button
                       type="button"
@@ -1261,10 +1273,12 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                       className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition active:scale-95 ${
                         isPermitted && !isApplying
                           ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 cursor-pointer'
-                          : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5'
+                          : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
                       }`}
                       title={
-                        !isPermitted
+                        !selectedDevice
+                          ? (isEn ? 'Please select a device' : 'لطفاً تجهیز مورد نظر را انتخاب فرمایید')
+                          : !isPermitted
                           ? (isEn ? 'Restricted by RBAC: You do not have permission to apply templates to this device' : 'عدم دسترسی در بخش کنترل دسترسی (RBAC): شما مجاز به اعمال تمپلیت روی این تجهیز نیستید')
                           : undefined
                       }
