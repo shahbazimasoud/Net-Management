@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.311.0';
+export const APP_VERSION = '1.312.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.312.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن قابلیت ورود و بارگذاری تجهیزات شبکه (Import تکی و دسته‌ای) با کنترل دسترسی تفکیک‌شده RBAC در Network Equipment Inventory & Management',
+    title_en: 'Granular Multi-Vendor Network Equipment Inventory Import (Single & Batch) with Strict RBAC',
+    changes: [
+      'افزودن قابلیت بارگذاری و ورود تکی و دسته‌ای تجهیزات شبکه (Network Equipment Inventory Import) به همراه پردازش آنی فایل‌های JSON و CSV و درج مستقیم متن.',
+      'یکپارچه‌سازی کامل با سیستم کنترل دسترسی مقتدر پایگاه داده (Granular Multi-Vendor RBAC): افزودن مجوزهای canImportDevices و import_devices به مدل‌های امنیتی و اعمال کنترل دقیق در سرور و کلاینت.',
+      'افزودن فیلد دسترسی "ورود و بارگذاری تجهیزات شبکه (Import تکی و دسته‌ای)" در بخش ۴ (Global Platform Management) تب Access Control جهت مدیریت دقیق مجوزها برای نقش‌ها و کاربران مختلف.',
+      'طراحی و استقرار مدال استاندارد DeviceImportModal مجهز به سه تب بارگذاری فایل، درج مستقیم متن و ثبت سریع تکی تجهیز، همراه با پیش‌نمایش بلادرنگ و تشخیص تداخل (Skip / Overwrite).',
+      'انطباق صددرصدی با استانداردهای جامع پنجره‌ها (Universal Modal Architectural Standards): تجهیز به دکمه‌های سه‌گانه هدر، مینیمایز به داک ابزارها (ToolsDock)، رعایت حریم فوتر و سازگاری کامل با تم‌های تیره/روشن و دو زبان فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Implemented single and batch network equipment inventory import supporting structured JSON and Excel-compatible CSV formats with real-time file parsing, clipboard paste, and quick single device entry.',
+      'Integrated strict PostgreSQL-authoritative RBAC enforcement for canImportDevices and import_devices capabilities across server endpoints and client interfaces, blocking unauthorized operators with clear security alerts.',
+      'Added granular "Import Network Equipment (Single & Batch)" permission toggle in Section 4 (Global Platform Management) within the Access Control Tab in Settings.',
+      'Engineered DeviceImportModal featuring real-time candidate validation, conflict deduplication (Skip duplicate or Overwrite existing), sample templates download (JSON/CSV), and seamless error reporting.',
+      'Fully compliant with Universal Modal Architectural Standards including triple header control buttons, smooth ToolsDock minimization, boundary-safe footer clearance, and bilingual Persian/English localization.'
+    ]
+  },
   {
     version: '1.311.0',
     releaseDate: '2026-10-11',

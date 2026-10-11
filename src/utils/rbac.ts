@@ -216,6 +216,24 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     tooltipExampleEn: 'Granted to Network Auditors and IT Asset Managers; restricted for regular Helpdesk staff.',
     tooltipExampleFa: 'اعطا به ممیزان شبکه و مدیران دارایی‌های IT؛ مسدود برای پرسنل پشتیبانی عمومی.',
   },
+  {
+    key: 'import_devices',
+    labelEn: 'Import Network Equipment (Single & Batch)',
+    labelFa: 'ورود و بارگذاری تجهیزات شبکه (Import تکی و دسته‌ای)',
+    shortLabelEn: 'Import',
+    shortLabelFa: 'ورود تجهیزات',
+    descriptionEn: 'Import single or bulk network equipment records, hardware configurations, and IP specifications via JSON or CSV.',
+    descriptionFa: 'ثبت و بارگذاری تکی یا دسته‌ای تجهیزات شبکه، شناسنامه سخت‌افزاری و مشخصات IP از طریق فایل یا متن JSON و CSV.',
+    category: 'management',
+    platform: 'all',
+    danger: false,
+    tooltipWhatEn: 'Permits importing single or bulk network equipment records into the inventory catalog via JSON or CSV files or raw text.',
+    tooltipWhatFa: 'مجوز بارگذاری و ثبت مشخصات تجهیزات شبکه به صورت تکی یا دسته‌ای از طریق فایل‌های JSON یا CSV یا متن مستقیم.',
+    tooltipWhyEn: 'Enforces strict change control so only authorized administrators can register or bulk-update network switches and routers.',
+    tooltipWhyFa: 'اعمال کنترل دقیق تغییرات تا فقط مدیران مجاز بتوانند تجهیزات جدید را به صورت تکی یا گروهی وارد انبار شبکه کنند.',
+    tooltipExampleEn: 'Granted to Network Engineers and Inventory Provisioners; strictly restricted for viewer and operator roles.',
+    tooltipExampleFa: 'اعطا به مهندسین شبکه و مسئولین تامین تجهیزات؛ مسدود برای کاربران اپراتور عادی یا ناظر.',
+  },
 
   // -------------------------------------------------------------
   // Granular Port & Interface Operations (Cisco & MikroTik)
@@ -399,6 +417,7 @@ export const FULL_EQUIPMENT_PERMISSIONS: Partial<NetworkDeviceActionPermissions>
   write_memory: true,
   delete_device: true,
   export_devices: true,
+  import_devices: true,
 };
 
 export const EMPTY_EQUIPMENT_PERMISSIONS: Partial<NetworkDeviceActionPermissions> = {
@@ -412,6 +431,7 @@ export const EMPTY_EQUIPMENT_PERMISSIONS: Partial<NetworkDeviceActionPermissions
   write_memory: false,
   delete_device: false,
   export_devices: false,
+  import_devices: false,
 };
 
 export const FULL_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
@@ -425,6 +445,7 @@ export const FULL_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   write_memory: true,
   delete_device: true,
   export_devices: true,
+  import_devices: true,
   port_power: true,
   port_mode: true,
   port_vlan: true,
@@ -446,6 +467,7 @@ export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   write_memory: false,
   delete_device: false,
   export_devices: false,
+  import_devices: false,
   port_power: false,
   port_mode: false,
   port_vlan: false,
@@ -467,6 +489,7 @@ export const EMPTY_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   write_memory: false,
   delete_device: false,
   export_devices: false,
+  import_devices: false,
   port_power: false,
   port_mode: false,
   port_vlan: false,
@@ -740,6 +763,10 @@ export function isDeviceActionPermitted(
   if (action === 'export_devices') {
     if (policy.canExportDevices === false) return false;
     return Boolean(policy.canExportDevices || policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'import_devices') {
+    if (policy.canImportDevices === false) return false;
+    return Boolean(policy.canImportDevices || policy.canManageDevices || isSuperAdmin);
   }
 
   // Fallback mappings for granular port & interface capabilities:

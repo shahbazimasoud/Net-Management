@@ -30,6 +30,7 @@ import {
   ExternalLink,
   Columns3,
   Download,
+  Upload,
 } from 'lucide-react';
 import { Device, DeviceType, CustomTopologyStickyNote } from '../types';
 import { useLanguage } from '../i18n';
@@ -40,6 +41,7 @@ import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DeviceStickyNoteModal } from './DeviceStickyNoteModal';
 import { CiscoWriteConfirmModal } from './CiscoWriteConfirmModal';
 import { DeviceExportModal } from './DeviceExportModal';
+import { DeviceImportModal } from './DeviceImportModal';
 import { useAuth } from '../context/AuthContext';
 import {
   isDeviceActionPermitted,
@@ -157,6 +159,9 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   // Device Export Modal State (Single & Batch)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportTargetDeviceIds, setExportTargetDeviceIds] = useState<Set<string>>(new Set());
+
+  // Device Import Modal State (Single & Batch with RBAC)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const updateColumnPickerPosition = useCallback(() => {
     if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
@@ -601,6 +606,30 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                     : selectedDeviceIds.size > 0
                     ? `خروجی (${selectedDeviceIds.size})`
                     : 'خروجی اکسپورت'}
+                </span>
+              </button>
+            )}
+
+            {/* Import Network Equipment Button (Single / Batch with RBAC enforcement) */}
+            {(!effectivePolicy || effectivePolicy.canImportDevices !== false || effectivePolicy.canManageDevices !== false) && (
+              <button
+                id="btn-import-devices"
+                type="button"
+                onClick={() => setIsImportModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition active:scale-95 cursor-pointer ${
+                  isLightMode
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}
+                title={
+                  isEn
+                    ? 'Import Network Equipment Inventory (Single & Batch - JSON / CSV)'
+                    : 'ورود و بارگذاری تجهیزات شبکه (تکی و دسته‌ای - JSON / CSV)'
+                }
+              >
+                <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                <span>
+                  {isEn ? 'Import' : 'ورود (Import)'}
                 </span>
               </button>
             )}
@@ -2016,6 +2045,19 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
         }}
         devices={devices}
         selectedDeviceIds={exportTargetDeviceIds}
+        effectivePolicy={effectivePolicy}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* Device Import Modal (Single & Batch with strict RBAC) */}
+      <DeviceImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSuccess={() => {
+          if (onRefreshAll) onRefreshAll();
+        }}
+        existingDevices={devices}
         effectivePolicy={effectivePolicy}
         isLightMode={isLightMode}
         isEn={isEn}

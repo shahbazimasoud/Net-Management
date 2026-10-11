@@ -549,6 +549,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canExportBackup: true,
     canImportBackup: true,
     canExportDevices: true,
+    canImportDevices: true,
     canExportServers: true,
     canImportServers: true,
     defaultServerPermissions: {
@@ -575,6 +576,7 @@ export const DEFAULT_ACCESS_POLICIES = [
       write_memory: true,
       delete_device: true,
       export_devices: true,
+      import_devices: true,
     },
     perDevicePermissions: {},
     created_at: new Date().toISOString(),
@@ -3909,6 +3911,10 @@ export function isDeviceActionPermitted(
   if (action === 'export_devices') {
     if (policy.canExportDevices === false) return false;
     return Boolean(policy.canExportDevices || policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'import_devices') {
+    if (policy.canImportDevices === false) return false;
+    return Boolean(policy.canImportDevices || policy.canManageDevices || isSuperAdmin);
   }
 
   // Fallback mappings for granular port & interface capabilities:

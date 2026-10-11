@@ -609,6 +609,7 @@ export type NetworkDeviceActionKey =
   | 'write_memory'     // Save to NVRAM (Write Memory)
   | 'delete_device'    // Delete Device from System
   | 'export_devices'   // Export Device & Inventory Data (JSON / CSV)
+  | 'import_devices'   // Import Network Equipment & Inventory Data (JSON / CSV / Single / Batch)
   // Granular Port & Interface Operations (Cisco & MikroTik)
   | 'port_power'       // Administrative Status (Shutdown / No-Shutdown / Enable / Disable)
   | 'port_mode'        // Cisco Switchport Mode (Trunk / Access)
@@ -630,6 +631,7 @@ export interface NetworkDeviceActionPermissions {
   write_memory?: boolean;
   delete_device?: boolean;
   export_devices?: boolean;
+  import_devices?: boolean;
   // Granular Port & Interface Operations
   port_power?: boolean;
   port_mode?: boolean;
@@ -700,6 +702,7 @@ export interface AccessPolicy {
   canApplyTemplates: boolean;         // apply config template
   canBatchOperate: boolean;           // batch port configuration
   canExportDevices?: boolean;         // Export single and batch network equipment data
+  canImportDevices?: boolean;         // Import single and batch network equipment inventory data
   canExportServers?: boolean;         // Export single and batch remote server fleet data
   canImportServers?: boolean;         // Import single and batch remote server fleet data
 

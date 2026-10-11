@@ -2581,6 +2581,269 @@ apiRouter.post('/devices/export', async (req: Request, res: Response) => {
   }
 });
 
+// Helper function to parse CSV string into network equipment candidate objects
+function parseDevicesFromCsv(csvText: string): any[] {
+  const clean = csvText.replace(/^\uFEFF/, '').trim();
+  if (!clean) return [];
+  const lines = clean.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+
+  const parseLine = (line: string): string[] => {
+    const result: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(cur.trim());
+        cur = '';
+      } else {
+        cur += char;
+      }
+    }
+    result.push(cur.trim());
+    return result;
+  };
+
+  const headers = parseLine(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const rows: any[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseLine(lines[i]);
+    const obj: Record<string, any> = {};
+    headers.forEach((header, idx) => {
+      obj[header] = values[idx] ?? '';
+    });
+
+    const ip = (obj.ip || obj.ipaddress || obj.host || obj.sshhost || '').trim();
+    const name = (obj.name || obj.devicename || obj.hostname || obj.id || `Imported Device ${i}`).trim();
+    if (!ip && !obj.name && !obj.id) continue;
+
+    const rawType = (obj.type || obj.devicetype || '').toLowerCase();
+    const type = rawType.includes('rout')
+      ? 'router'
+      : rawType.includes('fire')
+      ? 'firewall'
+      : rawType.includes('ap') || rawType.includes('wire')
+      ? 'access_point'
+      : rawType.includes('serv')
+      ? 'server'
+      : 'switch';
+
+    const rawPlatform = (obj.platform || '').toLowerCase();
+    const platform = rawPlatform.includes('miko') || rawPlatform.includes('routeros')
+      ? 'mikrotik_routeros'
+      : rawPlatform.includes('nx')
+      ? 'cisco_nxos'
+      : rawPlatform.includes('juniper')
+      ? 'juniper_junos'
+      : rawPlatform.includes('huawei')
+      ? 'huawei_vrp'
+      : rawPlatform.includes('arista')
+      ? 'arista_eos'
+      : 'cisco_ios_xe';
+
+    rows.push({
+      id: obj.id || obj.deviceid || `dev-${Date.now()}-${i}`,
+      name,
+      ip: ip || '127.0.0.1',
+      type,
+      model: obj.model || obj.hardwaremodel || (type === 'switch' ? 'Catalyst 2960-X' : 'ISR 4331'),
+      platform,
+      role: obj.role || obj.devicerole || 'Access Switch',
+      mac_address: obj.mac || obj.macaddress || '',
+      total_ports: Number(obj.totalports || obj.ports || obj.portcount) || 24,
+      building: obj.building || '',
+      floor: obj.floor || '',
+      unit: obj.unit || '',
+      rack: obj.rack || '',
+      section: obj.section || '',
+      ssh_host: obj.sshhost || ip || '127.0.0.1',
+      ssh_port: Number(obj.sshport || obj.port) || 22,
+      ssh_username: obj.sshusername || obj.username || 'admin',
+      is_online: obj.status?.toLowerCase().includes('off') ? false : true,
+    });
+  }
+
+  return rows;
+}
+
+// POST /devices/import - Import single or batch network equipment with strict RBAC enforcement
+apiRouter.post(['/devices/import', '/network-equipment/import'], async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+    // Strict RBAC Enforcement: check if user is authorized to import network equipment
+    if (!isSuperAdmin) {
+      if (effectivePolicy && effectivePolicy.canManageDevices === false && effectivePolicy.canImportDevices === false) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Your account policy prohibits importing network equipment.',
+          errorFa: 'عدم دسترسی: پالیسی حساب کاربری شما اجازه ورود و بارگذاری تجهیزات شبکه را نمی‌دهد.',
+        });
+      }
+
+      const isImportPermitted = effectivePolicy
+        ? effectivePolicy.canImportDevices !== false &&
+          (effectivePolicy.canImportDevices === true ||
+            effectivePolicy.canManageDevices === true ||
+            effectivePolicy.defaultDevicePermissions?.import_devices === true)
+        : true;
+
+      if (!isImportPermitted) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: You do not have RBAC permission to import network equipment into inventory.',
+          errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز ورود و بارگذاری (Import) تجهیزات شبکه را ندارید.',
+        });
+      }
+    }
+
+    const { conflictMode = 'skip', devices: rawDevices, csvData } = req.body;
+
+    let candidateDevices: any[] = [];
+
+    if (typeof csvData === 'string' && csvData.trim()) {
+      candidateDevices = parseDevicesFromCsv(csvData);
+    } else if (Array.isArray(rawDevices)) {
+      candidateDevices = rawDevices;
+    } else if (Array.isArray(req.body)) {
+      candidateDevices = req.body;
+    } else if (req.body && typeof req.body === 'object' && (req.body.ip || req.body.name || req.body.id)) {
+      candidateDevices = [req.body];
+    }
+
+    if (candidateDevices.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid network equipment records found in payload to import.',
+        errorFa: 'هیچ رکورد تجهیز شبکه معتبری برای ورود در داده‌های ارسالی یافت نشد.',
+      });
+    }
+
+    // Load existing devices to detect conflicts
+    const allExisting = await getAllDevices();
+    const existingById = new Map<string, any>();
+    const existingByIp = new Map<string, any>();
+
+    allExisting.forEach((d: any) => {
+      if (d.id) existingById.set(String(d.id).toLowerCase(), d);
+      if (d.ip) existingByIp.set(String(d.ip).toLowerCase(), d);
+    });
+
+    const createdList: any[] = [];
+    const updatedList: any[] = [];
+    const skippedList: any[] = [];
+
+    for (let idx = 0; idx < candidateDevices.length; idx++) {
+      const item = candidateDevices[idx];
+      const id = (item.id || item.device_id || `dev-${Date.now()}-${idx + 1}`).trim();
+      const ip = (item.ip || item.ip_address || item['IP Address'] || '127.0.0.1').trim();
+      const name = (item.name || item.hostname || item['Name'] || item['Device Name'] || id).trim();
+
+      const existingRecord = existingById.get(id.toLowerCase()) || (ip !== '127.0.0.1' ? existingByIp.get(ip.toLowerCase()) : null);
+
+      if (existingRecord) {
+        if (conflictMode === 'skip') {
+          skippedList.push({
+            id,
+            name,
+            ip,
+            reason: 'Already exists (ID or IP match)',
+            reasonFa: 'از قبل در انبار موجود است (تطابق ID یا IP)',
+          });
+          continue;
+        } else {
+          // Overwrite mode: merge and update
+          const merged = {
+            ...existingRecord,
+            ...item,
+            id: existingRecord.id, // preserve authoritative ID
+            name,
+            ip,
+            updated_at: new Date().toISOString(),
+          };
+          const saved = await createDevice(merged);
+          updatedList.push(saved);
+          continue;
+        }
+      }
+
+      // Format clean device object
+      const cleanDevice = {
+        id,
+        name,
+        ip,
+        type: item.type || 'switch',
+        model: item.model || 'Catalyst 2960-X',
+        platform: item.platform || 'cisco_ios_xe',
+        role: item.role || 'Access Switch',
+        connection_mode: item.connection_mode || 'simulator',
+        ssh_host: item.ssh_host || ip,
+        ssh_port: Number(item.ssh_port) || 22,
+        ssh_username: item.ssh_username || 'admin',
+        is_online: item.is_online !== undefined ? Boolean(item.is_online) : true,
+        mac_address: item.mac_address || item.mac || '',
+        total_ports: Number(item.total_ports || item.ports?.length) || 24,
+        ports: Array.isArray(item.ports) ? item.ports : [],
+        building: item.building || '',
+        floor: item.floor || '',
+        unit: item.unit || '',
+        rack: item.rack || '',
+        section: item.section || '',
+        location: item.location || '',
+        created_at: new Date().toISOString(),
+      };
+
+      const saved = await createDevice(cleanDevice);
+      createdList.push(saved);
+      existingById.set(id.toLowerCase(), saved);
+      if (ip && ip !== '127.0.0.1') existingByIp.set(ip.toLowerCase(), saved);
+    }
+
+    try {
+      await addAuditLog({
+        userName: user?.username || 'admin',
+        action: 'Import Network Equipment',
+        category: 'inventory',
+        target: 'Device Inventory',
+        status: 'success',
+        details: `Imported ${createdList.length} devices, updated ${updatedList.length}, skipped ${skippedList.length} (conflict mode: ${conflictMode})`,
+        ipAddress: req.ip || '127.0.0.1',
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditErr) {
+      console.warn('[Audit log error on import_devices]', auditErr);
+    }
+
+    return res.json({
+      success: true,
+      importedCount: createdList.length,
+      updatedCount: updatedList.length,
+      skippedCount: skippedList.length,
+      devices: [...createdList, ...updatedList],
+      skipped: skippedList,
+      message: `Successfully processed ${candidateDevices.length} items: ${createdList.length} imported, ${updatedList.length} updated, ${skippedList.length} skipped.`,
+      message_en: `Successfully processed ${candidateDevices.length} items: ${createdList.length} imported, ${updatedList.length} updated, ${skippedList.length} skipped.`,
+      message_fa: `فرآیند ورود ${candidateDevices.length} تجهیز با موفقیت پایان یافت: ${createdList.length} افزوده شد، ${updatedList.length} به‌روزرسانی شد، ${skippedList.length} نادیده گرفته شد.`,
+    });
+  } catch (err: any) {
+    console.error('[Error in /devices/import]', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal server error while importing network devices.',
+      errorFa: 'خطای داخلی سرور در حین ثبت و بارگذاری تجهیزات شبکه.',
+    });
+  }
+});
+
 // POST /devices - Register new network equipment
 apiRouter.post('/devices', async (req: Request, res: Response) => {
   try {

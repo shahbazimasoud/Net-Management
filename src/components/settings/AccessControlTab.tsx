@@ -418,6 +418,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         write_memory: false,
         delete_device: false,
         export_devices: false,
+        import_devices: false,
       },
       perDevicePermissions: {},
     };
@@ -2605,6 +2606,11 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       key: 'canExportDevices',
                       label: isEn ? 'Export Network Equipment (Single & Batch)' : 'استخراج و خروجی داده‌های تجهیزات (Export تکی و دسته‌ای)',
                       desc: isEn ? 'Download device specifications, IPs, and inventory in JSON or CSV' : 'مجوز استخراج شناسنامه، IPها و اطلاعات تجهیزات به صورت JSON و CSV',
+                    },
+                    {
+                      key: 'canImportDevices',
+                      label: isEn ? 'Import Network Equipment (Single & Batch)' : 'ورود و بارگذاری تجهیزات شبکه (Import تکی و دسته‌ای)',
+                      desc: isEn ? 'Upload or paste device specifications, IPs, and inventory in JSON or CSV' : 'مجوز بارگذاری شناسنامه، IPها و مشخصات تجهیزات به صورت فایل JSON و CSV',
                     },
                     {
                       key: 'canExportServers',
