@@ -29,6 +29,7 @@ import {
   Globe,
   ExternalLink,
   Columns3,
+  Download,
 } from 'lucide-react';
 import { Device, DeviceType, CustomTopologyStickyNote } from '../types';
 import { useLanguage } from '../i18n';
@@ -38,6 +39,7 @@ import { EditDeviceModal } from './EditDeviceModal';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { DeviceStickyNoteModal } from './DeviceStickyNoteModal';
 import { CiscoWriteConfirmModal } from './CiscoWriteConfirmModal';
+import { DeviceExportModal } from './DeviceExportModal';
 import { useAuth } from '../context/AuthContext';
 import {
   isDeviceActionPermitted,
@@ -151,6 +153,10 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   // Bulk Delete State
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  // Device Export Modal State (Single & Batch)
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportTargetDeviceIds, setExportTargetDeviceIds] = useState<Set<string>>(new Set());
 
   const updateColumnPickerPosition = useCallback(() => {
     if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
@@ -562,6 +568,43 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
               <span>{t('devicelist_btn_ping_all')}</span>
             </button>
 
+            {/* Export Devices Button (Single / Batch with RBAC enforcement) */}
+            {(!effectivePolicy || effectivePolicy.canExportDevices !== false || effectivePolicy.canManageDevices !== false) && (
+              <button
+                id="btn-export-devices"
+                type="button"
+                onClick={() => {
+                  setExportTargetDeviceIds(selectedDeviceIds.size > 0 ? new Set(selectedDeviceIds) : new Set());
+                  setIsExportModalOpen(true);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition active:scale-95 cursor-pointer ${
+                  selectedDeviceIds.size > 0
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                    : 'bg-white/5 hover:bg-white/10 text-slate-200 border-white/10'
+                }`}
+                title={
+                  isEn
+                    ? selectedDeviceIds.size > 0
+                      ? `Export ${selectedDeviceIds.size} Selected Devices`
+                      : 'Export Device Inventory (JSON / CSV)'
+                    : selectedDeviceIds.size > 0
+                    ? `خروجی گرفتن از ${selectedDeviceIds.size} تجهیز انتخاب شده`
+                    : 'خروجی گرفتن از اطلاعات تجهیزات (JSON / CSV)'
+                }
+              >
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span>
+                  {isEn
+                    ? selectedDeviceIds.size > 0
+                      ? `Export (${selectedDeviceIds.size})`
+                      : 'Export'
+                    : selectedDeviceIds.size > 0
+                    ? `خروجی (${selectedDeviceIds.size})`
+                    : 'خروجی اکسپورت'}
+                </span>
+              </button>
+            )}
+
             {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
               <button
                 id="btn-sticky-register-device"
@@ -868,6 +911,30 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
             >
               {isEn ? 'Clear Selection' : 'لغو انتخاب‌ها'}
             </button>
+
+            {/* Export Selected Button */}
+            {(!effectivePolicy || effectivePolicy.canExportDevices !== false || effectivePolicy.canManageDevices !== false) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setExportTargetDeviceIds(new Set(selectedDeviceIds));
+                  setIsExportModalOpen(true);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-bold shadow-md shadow-cyan-500/20 active:scale-95 transition cursor-pointer ${
+                  isLightMode
+                    ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white'
+                    : 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white'
+                }`}
+                title={isEn ? `Export ${selectedDeviceIds.size} selected devices to JSON / CSV` : `خروجی گرفتن از ${selectedDeviceIds.size} تجهیز انتخاب شده`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>
+                  {isEn
+                    ? `Export Selected (${selectedDeviceIds.size})`
+                    : `خروجی انتخاب‌شده‌ها (${selectedDeviceIds.size})`}
+                </span>
+              </button>
+            )}
 
             {/* Bulk Delete Selected */}
             {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
@@ -1345,6 +1412,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                 const canPingKeepalive = isDeviceActionPermitted(effectivePolicy, dev.id, 'ping_keepalive');
                 const canInspectPorts = isDeviceActionPermitted(effectivePolicy, dev.id, 'inspect_ports');
                 const canWriteMemory = isDeviceActionPermitted(effectivePolicy, dev.id, 'write_memory');
+                const canExportDevice = isDeviceActionPermitted(effectivePolicy, dev.id, 'export_devices');
                 const canDeleteDevice = isDeviceActionPermitted(effectivePolicy, dev.id, 'delete_device');
 
                 const hasAnyAvailableAction =
@@ -1355,6 +1423,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                   canEditProperties ||
                   canPingKeepalive ||
                   canInspectPorts ||
+                  canExportDevice ||
                   (canWriteMemory && dev.has_unsaved_changes && Boolean(onWriteMemory)) ||
                   canDeleteDevice;
 
@@ -1572,6 +1641,32 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                         <div className="flex flex-col">
                           <span>{isEn ? 'Save to NVRAM (Write Memory)' : 'ذخیره در NVRAM (Write Memory)'}</span>
                           <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>Running &gt; Startup Config</span>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Export Device */}
+                    {canExportDevice && (
+                      <button
+                        onClick={() => {
+                          setMenuAnchor(null);
+                          setExportTargetDeviceIds(new Set([dev.id]));
+                          setIsExportModalOpen(true);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
+                          isRtl ? 'text-right' : 'text-left'
+                        } cursor-pointer ${
+                          isLightMode
+                            ? 'text-cyan-800 hover:bg-cyan-50 hover:text-cyan-950'
+                            : 'text-cyan-300 hover:bg-cyan-500/20 hover:text-white'
+                        }`}
+                      >
+                        <Download className="w-4 h-4 text-cyan-500 shrink-0" />
+                        <div className="flex flex-col">
+                          <span>{isEn ? 'Export Device Data (JSON / CSV)' : 'خروجی گرفتن از اطلاعات تجهیز (Export)'}</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-cyan-700/80' : 'text-cyan-300/70'}`}>
+                            {isEn ? 'Inventory Specs & Ports' : 'مشخصات سخت‌افزاری و پورت‌ها'}
+                          </span>
                         </div>
                       </button>
                     )}
@@ -1911,6 +2006,20 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Device Export Modal (Single & Batch with strict RBAC) */}
+      <DeviceExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => {
+          setIsExportModalOpen(false);
+          setExportTargetDeviceIds(new Set());
+        }}
+        devices={devices}
+        selectedDeviceIds={exportTargetDeviceIds}
+        effectivePolicy={effectivePolicy}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
     </div>
   );
 };

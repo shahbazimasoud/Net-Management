@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.308.1';
+export const APP_VERSION = '1.309.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.309.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن قابلیت استخراج داده‌های تجهیزات شبکه (Export تکی و دسته‌ای) با کنترل دسترسی دقیق RBAC',
+    title_en: 'Granular Multi-Vendor Network Equipment Inventory Export (Single & Batch) with Strict RBAC',
+    changes: [
+      'افزودن قابلیت استخراج شناسنامه و داده‌های تجهیزات شبکه به دو فرمت JSON و CSV به صورت تکی (از منوی سه‌نقطه هر تجهیز) و دسته‌ای (از تولبار و نوار انتخاب دسته‌ای).',
+      'یکپارچه‌سازی کامل با سیستم کنترل دسترسی پایگاه‌داده (RBAC): اعمال مجوز export_devices و canExportDevices در سرور و کلاینت به طوری که فقط کاربران و نقش‌های دارای مجوز قادر به خروجی گرفتن هستند.',
+      'طراحی مدال استاندارد استخراج داده‌ها (DeviceExportModal) منطبق بر قوانین طراحی (دکمه‌های سه‌گانه بستن، مینیمایز به داک ابزارها و تمام‌صفحه، عدم تداخل با فوتر، و راهنماهای سه‌بخشی Info).',
+      'رعایت اصل عدم افشای اعتبارنامه‌ها (Zero Plaintext Secrets Leak): پاکسازی قطعی رمزهای عبور و کلیدهای محرمانه SSH قبل از تولید و دانلود خروجی.'
+    ],
+    changes_en: [
+      'Implemented single and batch network equipment export supporting structured JSON and Microsoft Excel compatible CSV with UTF-8 BOM encoding.',
+      'Integrated strict PostgreSQL-authoritative RBAC enforcement for export_devices and canExportDevices capabilities, preventing unauthorized extraction of proprietary network data.',
+      'Added architectural standard DeviceExportModal featuring triple control buttons (Close, Minimize to Tools Dock, Fullscreen), safe footer clearance, and boundary-safe 3-part info tooltips.',
+      'Enforced zero-leak credential confidentiality by automatically stripping passwords, enable secrets, and SSH private keys before file generation.'
+    ]
+  },
   {
     version: '1.308.1',
     releaseDate: '2026-10-11',

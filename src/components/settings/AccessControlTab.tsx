@@ -417,6 +417,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         inspect_ports: true,
         write_memory: false,
         delete_device: false,
+        export_devices: false,
       },
       perDevicePermissions: {},
     };
@@ -2599,6 +2600,11 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       key: 'canManageDevices',
                       label: isEn ? 'Add / Edit / Delete Devices' : 'تعریف، ویرایش و حذف فیزیکی تجهیزات (CRUD)',
                       desc: isEn ? 'Manage network inventory topology' : 'امکان افزودن یا حذف سوئیچ و روتر در سامانه',
+                    },
+                    {
+                      key: 'canExportDevices',
+                      label: isEn ? 'Export Network Equipment (Single & Batch)' : 'استخراج و خروجی داده‌های تجهیزات (Export تکی و دسته‌ای)',
+                      desc: isEn ? 'Download device specifications, IPs, and inventory in JSON or CSV' : 'مجوز استخراج شناسنامه، IPها و اطلاعات تجهیزات به صورت JSON و CSV',
                     },
                     {
                       key: 'canApplyTemplates',

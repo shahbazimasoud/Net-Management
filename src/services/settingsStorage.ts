@@ -362,6 +362,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canBatchOperate: true,
     canExportBackup: true,
     canImportBackup: true,
+    canExportDevices: true,
   },
 ];
 

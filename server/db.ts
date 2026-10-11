@@ -548,6 +548,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canBatchOperate: true,
     canExportBackup: true,
     canImportBackup: true,
+    canExportDevices: true,
     defaultServerPermissions: {
       terminal: true,
       file_explorer: true,
@@ -569,6 +570,7 @@ export const DEFAULT_ACCESS_POLICIES = [
       inspect_ports: true,
       write_memory: true,
       delete_device: true,
+      export_devices: true,
     },
     perDevicePermissions: {},
     created_at: new Date().toISOString(),
@@ -3889,6 +3891,10 @@ export function isDeviceActionPermitted(
   }
   if (action === 'delete_device' || action === 'edit_properties') {
     return Boolean(policy.canManageDevices);
+  }
+  if (action === 'export_devices') {
+    if (policy.canExportDevices === false) return false;
+    return Boolean(policy.canExportDevices || policy.canManageDevices || isSuperAdmin);
   }
 
   // Fallback mappings for granular port & interface capabilities:

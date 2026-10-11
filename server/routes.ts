@@ -2463,6 +2463,124 @@ apiRouter.get('/devices', async (req: Request, res: Response) => {
   }
 });
 
+// POST /devices/export - Export single or batch network equipment with strict RBAC enforcement
+apiRouter.post('/devices/export', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, allowedDeviceIds, user } = await resolveRequestContextPolicy(req);
+    const { deviceIds, format = 'json', includePorts = true, includeNotes = true, includePlacement = true } = req.body;
+
+    let allDevices = await getAllDevices();
+    if (!isSuperAdmin && effectivePolicy && allowedDeviceIds !== null) {
+      const allowedSet = new Set(allowedDeviceIds);
+      allDevices = allDevices.filter((d: any) => allowedSet.has(d.id));
+    }
+
+    let targetDevices = allDevices;
+    if (Array.isArray(deviceIds) && deviceIds.length > 0) {
+      const requestedSet = new Set(deviceIds);
+      targetDevices = allDevices.filter((d: any) => requestedSet.has(d.id));
+    }
+
+    if (targetDevices.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No matching devices found to export.',
+        errorFa: 'هیچ تجهیزی برای استخراج یافت نشد.',
+      });
+    }
+
+    // Granular RBAC Check: Ensure user is authorized to export each device
+    const unauthorized = targetDevices.filter(
+      (d: any) => !isSuperAdmin && !isDeviceActionPermitted(effectivePolicy, d.id, 'export_devices')
+    );
+
+    if (unauthorized.length > 0) {
+      return res.status(403).json({
+        success: false,
+        error: `Access denied: You do not have RBAC permission to export ${unauthorized.length} of the requested devices.`,
+        errorFa: `عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز استخراج (Export) تعداد ${unauthorized.length} از تجهیزات درخواستی را ندارید.`,
+        unauthorizedIds: unauthorized.map((d: any) => d.id),
+      });
+    }
+
+    // Sanitize credentials: Zero plaintext secrets leak
+    const exportData = targetDevices.map((dev: any) => {
+      const d = { ...dev };
+      if (d.connection) {
+        const c = { ...d.connection };
+        delete c.password;
+        delete c.private_key;
+        d.connection = c;
+      }
+      delete d.ssh_password;
+      delete d.enable_password;
+      if (!includePorts) delete d.ports;
+      if (!includePlacement) {
+        delete d.building;
+        delete d.floor;
+        delete d.unit;
+        delete d.rack;
+      }
+      return d;
+    });
+
+    // Generate CSV if requested
+    if (format === 'csv') {
+      const csvHeader = [
+        'ID',
+        'Name',
+        'Type',
+        'Model',
+        'IP Address',
+        'MAC Address',
+        'Role',
+        'Status',
+        'Total Ports',
+        'Building',
+        'Floor',
+        'Unit',
+        'Rack',
+        'Has Unsaved Changes',
+      ].join(',');
+
+      const csvRows = exportData.map((d: any) => [
+        `"${d.id || ''}"`,
+        `"${(d.name || '').replace(/"/g, '""')}"`,
+        `"${d.type || ''}"`,
+        `"${(d.model || '').replace(/"/g, '""')}"`,
+        `"${d.ip || ''}"`,
+        `"${d.mac || ''}"`,
+        `"${(d.role || '').replace(/"/g, '""')}"`,
+        `"${d.is_online ? 'Online' : 'Offline'}"`,
+        `"${d.total_ports || 24}"`,
+        `"${(d.building || '').replace(/"/g, '""')}"`,
+        `"${(d.floor || '').replace(/"/g, '""')}"`,
+        `"${(d.unit || '').replace(/"/g, '""')}"`,
+        `"${(d.rack || '').replace(/"/g, '""')}"`,
+        `"${d.has_unsaved_changes ? 'Yes' : 'No'}"`,
+      ].join(','));
+
+      const csvContent = '\uFEFF' + [csvHeader, ...csvRows].join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="devices_export_${Date.now()}.csv"`);
+      return res.send(csvContent);
+    }
+
+    return res.json({
+      success: true,
+      metadata: {
+        exportedAt: new Date().toISOString(),
+        totalCount: exportData.length,
+        exportedBy: user?.username || 'admin',
+        format: 'json',
+      },
+      devices: exportData,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to export devices' });
+  }
+});
+
 // POST /devices - Register new network equipment
 apiRouter.post('/devices', async (req: Request, res: Response) => {
   try {
