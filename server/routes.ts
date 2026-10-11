@@ -4218,9 +4218,12 @@ function inferServerActionKey(req: Request, serverId: string): string | null {
     return 'server_management';
   }
 
-  // 8. Server Export
+  // 8. Server Export & Import
   if (urlPath.includes('/export') || urlPath.endsWith('/export')) {
     return 'export_servers';
+  }
+  if (urlPath.includes('/import') || urlPath.endsWith('/import')) {
+    return 'import_servers';
   }
 
   return null;
@@ -4579,6 +4582,279 @@ apiRouter.post('/remote-servers/export', async (req: Request, res: Response) => 
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message, errorFa: 'خطا در استخراج اطلاعات سرورها' });
+  }
+});
+
+// Helper function to parse CSV string into objects
+function parseServersFromCsv(csvText: string): any[] {
+  const clean = csvText.replace(/^\uFEFF/, '').trim();
+  if (!clean) return [];
+  const lines = clean.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+
+  const parseLine = (line: string): string[] => {
+    const result: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(cur.trim());
+        cur = '';
+      } else {
+        cur += char;
+      }
+    }
+    result.push(cur.trim());
+    return result;
+  };
+
+  const headers = parseLine(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const rows: any[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseLine(lines[i]);
+    const obj: Record<string, any> = {};
+    headers.forEach((header, idx) => {
+      obj[header] = values[idx] ?? '';
+    });
+
+    const name = obj.name || obj.servername || obj.hostname || obj.id || `Imported Server ${i}`;
+    const ip = obj.ip || obj.ipaddress || obj.host || obj.sshhost || '';
+    if (!ip) continue; // Skip lines without valid IP
+
+    const osRaw = (obj.ostype || obj.os || '').toLowerCase();
+    const osType = osRaw.includes('win') ? 'windows' : 'linux';
+
+    const tagsRaw = obj.automationtags || obj.tags || '';
+    const tags = tagsRaw ? tagsRaw.split(/[;,]/).map((t: string) => t.trim()).filter(Boolean) : [];
+
+    const webSvcs = (obj.webservers || '').toLowerCase();
+    const dbSvcs = (obj.databases || '').toLowerCase();
+
+    rows.push({
+      id: obj.id || undefined,
+      name,
+      hostname: obj.hostname || '',
+      ip,
+      os_type: osType,
+      os_distro: obj.osdistro || obj.distro || (osType === 'windows' ? 'Windows Server 2022' : 'Ubuntu 24.04 LTS'),
+      environment: obj.environment || 'Production',
+      category: obj.category || 'Application Server',
+      role: obj.role || 'General Server',
+      tags,
+      ssh_port: Number(obj.sshport || obj.port) || 22,
+      ssh_username: obj.sshuser || obj.username || (osType === 'windows' ? 'Administrator' : 'root'),
+      cpu_cores: obj.vcpus || obj.vcpuscores || obj.cpucores ? Number(obj.vcpus || obj.vcpuscores || obj.cpucores) : undefined,
+      ram_gb: obj.ram || obj.ramgb ? Number(obj.ram || obj.ramgb) : undefined,
+      disk_gb: obj.disk || obj.diskgb ? Number(obj.disk || obj.diskgb) : undefined,
+      has_nginx: webSvcs.includes('nginx'),
+      has_apache: webSvcs.includes('apache'),
+      has_postgresql: dbSvcs.includes('postgres'),
+      has_mysql: dbSvcs.includes('mysql'),
+      notes: obj.notes || '',
+    });
+  }
+
+  return rows;
+}
+
+// POST /api/remote-servers/import - Import single or batch remote servers with strict Granular Multi-Vendor RBAC enforcement
+apiRouter.post('/remote-servers/import', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+    // Strict RBAC Enforcement: check if user is authorized to import servers
+    if (!isSuperAdmin) {
+      if (effectivePolicy && effectivePolicy.canViewServers === false) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Your account policy prohibits access to Remote Servers & Automation Fleet.',
+          errorFa: 'عدم دسترسی: پالیسی حساب کاربری شما اجازه دسترسی به سرورهای ریموت را نمی‌دهد.',
+        });
+      }
+
+      const isImportPermitted = effectivePolicy
+        ? effectivePolicy.canImportServers !== false &&
+          (effectivePolicy.canImportServers === true ||
+            effectivePolicy.canManageDevices === true ||
+            effectivePolicy.defaultServerPermissions?.import_servers === true)
+        : true;
+
+      if (!isImportPermitted) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: You do not have RBAC permission to import servers into the fleet.',
+          errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز ورود و بارگذاری (Import) سرورها را ندارید.',
+        });
+      }
+    }
+
+    const { conflictMode = 'skip', servers: rawServers, csvData } = req.body;
+
+    let candidateServers: any[] = [];
+
+    if (typeof csvData === 'string' && csvData.trim()) {
+      candidateServers = parseServersFromCsv(csvData);
+    } else if (Array.isArray(rawServers)) {
+      candidateServers = rawServers;
+    } else if (Array.isArray(req.body)) {
+      candidateServers = req.body;
+    } else if (req.body && typeof req.body === 'object' && req.body.ip) {
+      candidateServers = [req.body];
+    }
+
+    if (candidateServers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid server records found in payload to import.',
+        errorFa: 'هیچ رکورد سرور معتبری برای ورود در داده‌های ارسالی یافت نشد.',
+      });
+    }
+
+    // Load existing servers to detect conflicts
+    const allExisting = await getAllRemoteServers();
+    const existingById = new Map<string, any>();
+    const existingByIp = new Map<string, any>();
+    const existingByHost = new Map<string, any>();
+
+    allExisting.forEach((s) => {
+      if (s.id) existingById.set(s.id.toLowerCase(), s);
+      if (s.ip) existingByIp.set(s.ip.toLowerCase(), s);
+      if (s.hostname) existingByHost.set(s.hostname.toLowerCase(), s);
+    });
+
+    const createdList: any[] = [];
+    const updatedList: any[] = [];
+    const skippedList: any[] = [];
+
+    for (const item of candidateServers) {
+      const ip = (item.ip || item.ip_address || item['IP Address'] || '').trim();
+      const name = (item.name || item.hostname || item['Name'] || item['Server Name'] || 'Imported Server').trim();
+
+      if (!ip) {
+        skippedList.push({ name, ip: 'N/A', reason: 'Missing IP address' });
+        continue;
+      }
+
+      const hostname = (item.hostname || item['Hostname'] || '').trim();
+      const existing =
+        (item.id && existingById.get(item.id.toLowerCase())) ||
+        existingByIp.get(ip.toLowerCase()) ||
+        (hostname ? existingByHost.get(hostname.toLowerCase()) : null);
+
+      if (existing) {
+        if (conflictMode === 'skip') {
+          skippedList.push({
+            id: existing.id,
+            name: existing.name || name,
+            ip,
+            reason: 'Server already exists in inventory (Skipped due to duplicate IP/hostname)',
+          });
+          continue;
+        } else if (conflictMode === 'overwrite') {
+          const merged: Partial<RemoteServer> = {
+            name: name || existing.name,
+            hostname: hostname || existing.hostname,
+            ip,
+            os_type: item.os_type || existing.os_type || 'linux',
+            os_distro: item.os_distro || existing.os_distro,
+            environment: item.environment || existing.environment || 'Production',
+            category: item.category || existing.category || 'Application Server',
+            role: item.role || existing.role || 'General Server',
+            tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : existing.tags,
+            ssh_port: Number(item.ssh_port) || existing.ssh_port || 22,
+            ssh_username: item.ssh_username || existing.ssh_username,
+            cpu_cores: Number(item.cpu_cores) || existing.cpu_cores,
+            ram_gb: Number(item.ram_gb) || existing.ram_gb,
+            disk_gb: Number(item.disk_gb) || existing.disk_gb,
+            has_nginx: item.has_nginx !== undefined ? Boolean(item.has_nginx) : existing.has_nginx,
+            has_apache: item.has_apache !== undefined ? Boolean(item.has_apache) : existing.has_apache,
+            has_postgresql: item.has_postgresql !== undefined ? Boolean(item.has_postgresql) : existing.has_postgresql,
+            has_mysql: item.has_mysql !== undefined ? Boolean(item.has_mysql) : existing.has_mysql,
+            notes: item.notes || existing.notes,
+          };
+          const updated = await updateRemoteServer(existing.id, merged);
+          if (updated) {
+            updatedList.push(sanitizeRemoteServerForClient(updated));
+          } else {
+            updatedList.push(sanitizeRemoteServerForClient({ ...existing, ...merged }));
+          }
+          continue;
+        }
+      }
+
+      // Create new server
+      const osType = (item.os_type || '').toLowerCase().includes('win') ? 'windows' : 'linux';
+      const newPayload: Partial<RemoteServer> = {
+        name,
+        hostname,
+        ip,
+        os_type: osType,
+        os_distro: item.os_distro || (osType === 'windows' ? 'Windows Server 2022' : 'Ubuntu 24.04 LTS'),
+        environment: item.environment || 'Production',
+        category: item.category || 'Application Server',
+        role: item.role || 'General Server',
+        tags: Array.isArray(item.tags) ? item.tags : [],
+        ssh_port: Number(item.ssh_port) || 22,
+        ssh_username: item.ssh_username || (osType === 'windows' ? 'Administrator' : 'root'),
+        win_protocol: item.win_protocol || 'rdp',
+        win_port: Number(item.win_port) || 3389,
+        win_username: item.win_username || 'Administrator',
+        cpu_cores: Number(item.cpu_cores) > 0 ? Number(item.cpu_cores) : undefined,
+        ram_gb: Number(item.ram_gb) > 0 ? Number(item.ram_gb) : undefined,
+        disk_gb: Number(item.disk_gb) > 0 ? Number(item.disk_gb) : undefined,
+        has_nginx: Boolean(item.has_nginx),
+        has_apache: Boolean(item.has_apache),
+        has_postgresql: Boolean(item.has_postgresql),
+        has_mysql: Boolean(item.has_mysql),
+        notes: item.notes || '',
+      };
+
+      const created = await createRemoteServer(newPayload);
+      createdList.push(sanitizeRemoteServerForClient(created));
+      // Add to local lookups to avoid duplicate within same batch
+      if (created.id) existingById.set(created.id.toLowerCase(), created);
+      existingByIp.set(ip.toLowerCase(), created);
+      if (hostname) existingByHost.set(hostname.toLowerCase(), created);
+    }
+
+    // Audit Log for the batch operation
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || user?.username || 'Admin',
+      action: 'Import Remote Servers',
+      category: 'device',
+      target: `Fleet Import (${createdList.length} new, ${updatedList.length} updated, ${skippedList.length} skipped)`,
+      status: 'success',
+      details: `Processed import of ${candidateServers.length} candidate servers (Conflict Mode: ${conflictMode}).`,
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'] || 'WebUI',
+    });
+
+    res.json({
+      success: true,
+      message: `Import completed: ${createdList.length} created, ${updatedList.length} updated, ${skippedList.length} skipped.`,
+      messageFa: `عملیات ورود با موفقیت انجام شد: ${createdList.length} سرور جدید افزوده شد، ${updatedList.length} سرور به‌روزرسانی شد و ${skippedList.length} مورد نادیده گرفته شد.`,
+      totalProcessed: candidateServers.length,
+      importedCount: createdList.length,
+      updatedCount: updatedList.length,
+      skippedCount: skippedList.length,
+      skipped: skippedList,
+      servers: [...createdList, ...updatedList],
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      errorFa: 'خطا در پردازش و ورود اطلاعات سرورها.',
+    });
   }
 });
 

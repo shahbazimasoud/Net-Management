@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.310.0';
+export const APP_VERSION = '1.311.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.311.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن قابلیت ورود و بارگذاری سرورهای ریموت (Import تکی و دسته‌ای) با کنترل دسترسی دقیق RBAC در Remote Servers & Automation Fleet',
+    title_en: 'Granular Multi-Vendor Remote Servers Fleet Inventory Import (Single & Batch) with Strict RBAC',
+    changes: [
+      'افزودن قابلیت بارگذاری و ورود تکی و دسته‌ای سرورها به ناوگان (Fleet Inventory Import) از طریق بارگذاری فایل یا درج مستقیم داده‌های ساختاریافته در قالب JSON و CSV.',
+      'یکپارچه‌سازی کامل با سیستم کنترل دسترسی مقتدر پستگرس (Granular Multi-Vendor RBAC): اعمال کنترل دقیق بر مجوز import_servers و canImportServers در سرور و کلاینت، مسدودسازی کامل عملیات برای کاربران فاقد صلاحیت به همراه پیام‌های هشدار صریح.',
+      'طراحی و استقرار مدال اختصاصی ServerImportModal مجهز به سیستم پیش‌نمایش آنی داده‌ها، اعتبارسنجی مقادیر آی‌پی، شمارش هوشمند سرورهای جدید و تکراری، و مدیریت حالت‌های تداخل (نادیده‌گرفتن یا بازنویسی / Skip or Overwrite).',
+      'انطباق صددرصدی با استانداردهای پنجره‌ها و مودال‌ها (Universal Modal Architecture): تجهیز به دکمه‌های سه‌گانه کنترلی، قابلیت مینیمایز به داک ابزارها (ToolsDock)، رعایت کامل حریم فوتر، و پشتیبانی کامل از تم‌های تیره/روشن و زبان‌های فارسی/انگلیسی.'
+    ],
+    changes_en: [
+      'Implemented single and batch remote server fleet import supporting structured JSON and Excel-compatible CSV formats with real-time file parsing and direct clipboard paste.',
+      'Integrated strict PostgreSQL-authoritative RBAC enforcement for import_servers and canImportServers permissions, blocking unauthorized users with descriptive denial banners.',
+      'Engineered ServerImportModal featuring instant candidate validation, IP deduplication against existing inventory, and configurable conflict resolution modes (Skip duplicate or Overwrite existing).',
+      'Fully compliant with Universal Modal Architectural Standards including triple header control buttons, seamless ToolsDock minimization, safe footer boundary clearance, and comprehensive bilingual i18n support.'
+    ]
+  },
   {
     version: '1.310.0',
     releaseDate: '2026-10-11',

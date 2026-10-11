@@ -550,6 +550,7 @@ export const DEFAULT_ACCESS_POLICIES = [
     canImportBackup: true,
     canExportDevices: true,
     canExportServers: true,
+    canImportServers: true,
     defaultServerPermissions: {
       terminal: true,
       file_explorer: true,
@@ -560,6 +561,7 @@ export const DEFAULT_ACCESS_POLICIES = [
       edit_properties: true,
       delete_server: true,
       export_servers: true,
+      import_servers: true,
     },
     perServerPermissions: {},
     defaultDevicePermissions: {
@@ -3825,6 +3827,10 @@ export function isServerActionPermitted(
   if (action === 'export_servers') {
     if (policy.canExportServers === false) return false;
     return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'import_servers') {
+    if (policy.canImportServers === false) return false;
+    return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin);
   }
 
   // Safe defaults for non-superadmin policies without explicit grants:

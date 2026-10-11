@@ -554,6 +554,15 @@ export const SERVER_ACTIONS_CATALOG: ServerActionDescriptor[] = [
     category: 'management',
     danger: false,
   },
+  {
+    key: 'import_servers',
+    labelEn: 'Import Server & Fleet Data (JSON / CSV)',
+    labelFa: 'ورود اطلاعات و بارگذاری سرورها (Import)',
+    descriptionEn: 'Import single or bulk servers from JSON or CSV files into the fleet with conflict validation.',
+    descriptionFa: 'بارگذاری و ورود تکی یا دسته‌ای مشخصات سرورها از طریق فایل‌های JSON و CSV به سیستم.',
+    category: 'management',
+    danger: true,
+  },
 ];
 
 export const FULL_SERVER_PERMISSIONS: ServerActionPermissions = {
@@ -566,6 +575,7 @@ export const FULL_SERVER_PERMISSIONS: ServerActionPermissions = {
   edit_properties: true,
   delete_server: true,
   export_servers: true,
+  import_servers: true,
 };
 
 export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
@@ -578,6 +588,7 @@ export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
   edit_properties: false,
   delete_server: false,
   export_servers: false,
+  import_servers: false,
 };
 
 /**
@@ -631,6 +642,10 @@ export function isServerActionPermitted(
   if (action === 'export_servers') {
     if (policy.canExportServers === false) return false;
     return Boolean(policy.canExportServers || policy.canManageDevices || isSuperAdmin);
+  }
+  if (action === 'import_servers') {
+    if (policy.canImportServers === false) return false;
+    return Boolean(policy.canImportServers || policy.canManageDevices || isSuperAdmin);
   }
 
   // Safe defaults for non-superadmin policies without explicit grants:

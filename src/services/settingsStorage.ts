@@ -364,6 +364,7 @@ export const DEFAULT_ACCESS_POLICIES: AccessPolicy[] = [
     canImportBackup: true,
     canExportDevices: true,
     canExportServers: true,
+    canImportServers: true,
   },
 ];
 

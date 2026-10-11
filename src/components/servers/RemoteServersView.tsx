@@ -38,6 +38,7 @@ import {
   Lock,
   Radar,
   Download,
+  Upload,
 } from 'lucide-react';
 import { RemoteServer, RemoteServerTagSummary, ServerCategory, ServerActionKey } from '../../types';
 import { isServerActionAllowed } from '../../utils/rbac';
@@ -65,6 +66,7 @@ import { BulkServerConfigModal } from './BulkServerConfigModal';
 import { RestartServerModal } from './RestartServerModal';
 import { ServerDiscoveryModal } from './ServerDiscoveryModal';
 import { ServerExportModal } from './ServerExportModal';
+import { ServerImportModal } from './ServerImportModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 
@@ -441,6 +443,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     setExportTargetIds(targetIds || selectedServerIds);
     setIsExportModalOpen(true);
     undockModal('modal-server-export');
+  };
+
+  // Server Fleet Import Modal State (Single & Batch with Strict Granular RBAC)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  const handleOpenImportModal = () => {
+    setIsImportModalOpen(true);
+    undockModal('modal-server-import');
   };
 
   // Ref to the floating 3-dots action menu dropdown container
@@ -1509,6 +1519,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
               </button>
             )}
 
+            {/* Import Fleet Inventory Button (Single & Batch with Strict Granular RBAC) */}
+            {(!effectivePolicy || effectivePolicy.canImportServers !== false || effectivePolicy.canManageDevices !== false) && (
+              <button
+                id="btn-server-import"
+                type="button"
+                onClick={handleOpenImportModal}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition active:scale-95 cursor-pointer ${
+                  isLightMode
+                    ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700 shadow-xs'
+                    : 'bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border-teal-500/30 shadow-xs shadow-teal-500/10'
+                }`}
+                title={isEn ? 'Import remote servers fleet inventory (JSON / CSV)' : 'ورود و بارگذاری سرورهای ریموت (JSON و CSV)'}
+              >
+                <Upload className="w-3.5 h-3.5 text-teal-400" />
+                <span>{isEn ? 'Import Fleet' : 'ورود سرورها'}</span>
+              </button>
+            )}
+
             {/* Add Server & Standalone Services Dropdown Button */}
             {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
               <div className="relative">
@@ -1659,6 +1687,30 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
                             </span>
                           </div>
                         </button>
+
+                        {/* Option 6: Import Servers (JSON / CSV) */}
+                        {(!effectivePolicy || effectivePolicy.canImportServers !== false || effectivePolicy.canManageDevices !== false) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAddMenuOpen(false);
+                              handleOpenImportModal();
+                            }}
+                            className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-xs font-medium transition cursor-pointer border-t ${
+                              isEn ? 'text-left' : 'text-right'
+                            } ${isLightMode ? 'hover:bg-teal-50 text-teal-800 border-slate-200' : 'hover:bg-teal-950/40 text-teal-200 border-white/10'}`}
+                          >
+                            <div className="p-2 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/30 shrink-0">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-semibold text-teal-400">{isEn ? 'Import Fleet (JSON / CSV)' : 'بارگذاری و ورود سرورها (JSON / CSV)'}</span>
+                              <span className={`text-[10px] truncate ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                {isEn ? 'Bulk or single import from structured file' : 'ورود دسته‌ای یا تکی مشخصات از فایل'}
+                              </span>
+                            </div>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </>,
@@ -4235,6 +4287,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         }}
         servers={servers}
         selectedServerIds={exportTargetIds}
+        effectivePolicy={effectivePolicy}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* 21. Remote Server Fleet Import Modal (Single & Batch with Strict Granular RBAC) */}
+      <ServerImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => {
+          setIsImportModalOpen(false);
+          undockModal('modal-server-import');
+        }}
+        onSuccess={() => {
+          loadFleet();
+        }}
+        existingServers={servers}
         effectivePolicy={effectivePolicy}
         isLightMode={isLightMode}
         isEn={isEn}

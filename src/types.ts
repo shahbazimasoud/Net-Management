@@ -582,7 +582,8 @@ export type ServerActionKey =
   | 'power_control'       // Restart & Power Off / Shutdown
   | 'edit_properties'     // Edit Server Properties (Host, IP, Credentials, Port, Tags)
   | 'delete_server'       // Delete Server from Fleet
-  | 'export_servers';     // Export Server & Fleet Inventory Data (JSON / CSV)
+  | 'export_servers'      // Export Server & Fleet Inventory Data (JSON / CSV)
+  | 'import_servers';     // Import Server & Fleet Inventory Data (JSON / CSV)
 
 export interface ServerActionPermissions {
   terminal?: boolean;
@@ -594,6 +595,7 @@ export interface ServerActionPermissions {
   edit_properties?: boolean;
   delete_server?: boolean;
   export_servers?: boolean;
+  import_servers?: boolean;
 }
 
 export type NetworkDeviceActionKey =
@@ -699,6 +701,7 @@ export interface AccessPolicy {
   canBatchOperate: boolean;           // batch port configuration
   canExportDevices?: boolean;         // Export single and batch network equipment data
   canExportServers?: boolean;         // Export single and batch remote server fleet data
+  canImportServers?: boolean;         // Import single and batch remote server fleet data
 
   // 5. Backup & Disaster Recovery Operations
   canExportBackup?: boolean;          // Export full or partial network backup package
