@@ -4598,6 +4598,15 @@ export async function saveActiveDirectoryConfig(config: any): Promise<void> {
 // -------------------------------------------------------------
 // General Panel Settings
 // -------------------------------------------------------------
+export interface LoginUploadedImage {
+  id: string;
+  name: string;
+  dataUrl: string;
+  uploadedAt: string;
+  width?: number;
+  height?: number;
+}
+
 export interface PanelGeneralSettings {
   panelPort: number;
   panelTitle: string;
@@ -4616,6 +4625,10 @@ export interface PanelGeneralSettings {
   systemDebugLogging: boolean;
   twoFactorEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
+  loginVisualMode?: 'animation' | 'image';
+  loginImageMode?: 'selected' | 'random';
+  loginSelectedImageId?: string;
+  loginUploadedImages?: LoginUploadedImage[];
   serverTimezone?: string;
   serverNtpServer?: string;
   serverNtpEnabled?: boolean;
@@ -4642,6 +4655,10 @@ export const DEFAULT_GENERAL_SETTINGS: PanelGeneralSettings = {
   systemDebugLogging: false,
   twoFactorEnabled: false,
   allowedAuthMethods: 'both',
+  loginVisualMode: 'animation',
+  loginImageMode: 'selected',
+  loginSelectedImageId: '',
+  loginUploadedImages: [],
   serverTimezone: 'Asia/Tehran',
   serverNtpServer: 'ir.pool.ntp.org',
   serverNtpEnabled: true,
@@ -4665,12 +4682,15 @@ export async function getGeneralSettings(): Promise<PanelGeneralSettings> {
     }
   }
   const store = loadFallbackStore();
-  return store.general_settings || DEFAULT_GENERAL_SETTINGS;
+  return {
+    ...DEFAULT_GENERAL_SETTINGS,
+    ...(store.general_settings || {}),
+  };
 }
 
 export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings>, updatedBy: string = 'admin'): Promise<PanelGeneralSettings> {
+  const current = await getGeneralSettings();
   const store = loadFallbackStore();
-  const current = store.general_settings || DEFAULT_GENERAL_SETTINGS;
   const updated: PanelGeneralSettings = {
     ...current,
     ...settings,
@@ -4691,6 +4711,18 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     systemDebugLogging: Boolean(settings.systemDebugLogging !== undefined ? settings.systemDebugLogging : current.systemDebugLogging),
     twoFactorEnabled: Boolean(settings.twoFactorEnabled !== undefined ? settings.twoFactorEnabled : (current.twoFactorEnabled || false)),
     allowedAuthMethods: (settings.allowedAuthMethods as any) || current.allowedAuthMethods || 'both',
+    loginVisualMode: (settings.loginVisualMode === 'image' || settings.loginVisualMode === 'animation')
+      ? settings.loginVisualMode
+      : (current.loginVisualMode || 'animation'),
+    loginImageMode: (settings.loginImageMode === 'random' || settings.loginImageMode === 'selected')
+      ? settings.loginImageMode
+      : (current.loginImageMode || 'selected'),
+    loginSelectedImageId: settings.loginSelectedImageId !== undefined
+      ? String(settings.loginSelectedImageId)
+      : (current.loginSelectedImageId || ''),
+    loginUploadedImages: Array.isArray(settings.loginUploadedImages)
+      ? settings.loginUploadedImages
+      : (Array.isArray(current.loginUploadedImages) ? current.loginUploadedImages : []),
     serverTimezone: settings.serverTimezone !== undefined ? String(settings.serverTimezone).trim() : (current.serverTimezone || 'Asia/Tehran'),
     serverNtpServer: settings.serverNtpServer !== undefined ? String(settings.serverNtpServer).trim() : (current.serverNtpServer || 'ir.pool.ntp.org'),
     serverNtpEnabled: settings.serverNtpEnabled !== undefined ? Boolean(settings.serverNtpEnabled) : (current.serverNtpEnabled !== false),

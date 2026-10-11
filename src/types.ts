@@ -7116,6 +7116,15 @@ export interface LinuxCronExecutionResult {
   success: boolean;
 }
 
+export interface LoginUploadedImage {
+  id: string;
+  name: string;
+  dataUrl: string;
+  uploadedAt: string;
+  width?: number;
+  height?: number;
+}
+
 export interface PanelGeneralSettings {
   panelPort: number;
   panelTitle: string;
@@ -7134,6 +7143,10 @@ export interface PanelGeneralSettings {
   systemDebugLogging: boolean;
   twoFactorEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
+  loginVisualMode?: 'animation' | 'image';
+  loginImageMode?: 'selected' | 'random';
+  loginSelectedImageId?: string;
+  loginUploadedImages?: LoginUploadedImage[];
   serverTimezone?: string;
   serverNtpServer?: string;
   serverNtpEnabled?: boolean;

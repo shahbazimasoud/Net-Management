@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.315.5';
+export const APP_VERSION = '1.316.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.316.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن بخش مدیریت نمای گرافیکی صفحه لاگین (انتخاب بین انیمیشن سه‌بعدی و گالری تصاویر اختصاصی + حالت رندوم) در تنظیمات عمومی پنل',
+    title_en: 'Add Login Page Visual Showcase Settings (3D Animation vs Custom Uploaded Image Gallery & Random Rotation) in Panel General Settings',
+    changes: [
+      'افزودن کارت تخصصی «بخش نمایشی صفحه لاگین (انیمیشن سه‌بعدی و گالری تصاویر)» در تنظیمات عمومی پنل (Panel General Settings) جهت انتخاب بین نمایش انیمیشن سه‌بعدی کره شبکه و قرارگیری عکس دلخواه.',
+      'امکان آپلود یک یا چند تصویر اختصاصی توسط مدیر سیستم با بهینه‌سازی خودکار ابعاد و ذخیره در گالری تصاویر صفحه لاگین در پایگاه داده سرور.',
+      'قابلیت مشاهده، انتخاب مجدد و مدیریت تمامی عکس‌های آپلودشده قبلی در گالری به همراه امکان حذف تصاویر دلخواه.',
+      'افزودن گزینه «حالت رندوم (Random)» جهت انتخاب و نمایش خودکار و تصادفی یکی از عکس‌های آپلودشده در هر بار بارگذاری صفحه ورود.'
+    ],
+    changes_en: [
+      'Added a dedicated "Login Page Visual Showcase (Animation & Image Gallery)" configuration section in Panel General Settings to switch between the 3D Network Globe animation and custom images.',
+      'Enabled uploading single or multiple custom images with automatic HD optimization and persistent server database storage.',
+      'Added a visual gallery of previously uploaded login images allowing one-click selection or removal at any time.',
+      'Implemented "Random Image on Every Login" mode to automatically pick and display a random image from the uploaded gallery on each login page visit.'
+    ]
+  },
   {
     version: '1.315.5',
     releaseDate: '2026-10-11',

@@ -37,13 +37,15 @@ import {
   Maximize2,
   Minimize2,
   X,
+  Shuffle,
+  Trash2,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { isUserSuperAdmin } from '../../utils/rbac';
 import { APP_VERSION } from '../../version';
 import { ThemeType } from '../Navbar';
-import { PanelGeneralSettings, ServerTimeInfo } from '../../types';
+import { PanelGeneralSettings, ServerTimeInfo, LoginUploadedImage } from '../../types';
 import {
   fetchServerTimeApi,
   updateServerTimezoneApi,
@@ -146,6 +148,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   } | null>(null);
   const [isProcessingLogo, setIsProcessingLogo] = useState(false);
   const [isProcessingFavicon, setIsProcessingFavicon] = useState(false);
+  const [isProcessingLoginImage, setIsProcessingLoginImage] = useState(false);
 
   // Server Time & Clock State
   const [serverTimeInfo, setServerTimeInfo] = useState<ServerTimeInfo | null>(null);
@@ -561,6 +564,164 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
       setIsProcessingFavicon(false);
       e.target.value = '';
     }
+  };
+
+  // Compress/scale login showcase image (up to 1920x1080 HD) so gallery images load fast and persist reliably
+  const processLoginImageFile = (file: File): Promise<LoginUploadedImage> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('File read error'));
+      reader.onload = () => {
+        const rawDataUrl = String(reader.result || '');
+        if (file.type === 'image/svg+xml' || file.type === 'image/gif') {
+          resolve({
+            id: `login-img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name: file.name,
+            dataUrl: rawDataUrl,
+            uploadedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+          });
+          return;
+        }
+        const img = new Image();
+        img.onerror = () => reject(new Error('Invalid image'));
+        img.onload = () => {
+          const maxW = 1920;
+          const maxH = 1080;
+          let width = img.naturalWidth || img.width || 1280;
+          let height = img.naturalHeight || img.height || 720;
+          if (width > maxW || height > maxH) {
+            const ratio = Math.min(maxW / width, maxH / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve({
+              id: `login-img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              name: file.name,
+              dataUrl: rawDataUrl,
+              uploadedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+              width,
+              height,
+            });
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          let compressedDataUrl = '';
+          try {
+            compressedDataUrl = canvas.toDataURL('image/webp', 0.86);
+            if (!compressedDataUrl.startsWith('data:image/webp')) {
+              compressedDataUrl = canvas.toDataURL('image/jpeg', 0.86);
+            }
+          } catch {
+            compressedDataUrl = canvas.toDataURL('image/jpeg', 0.86);
+          }
+          resolve({
+            id: `login-img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name: file.name,
+            dataUrl: compressedDataUrl,
+            uploadedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+            width,
+            height,
+          });
+        };
+        img.src = rawDataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Handle Login Showcase Image Upload (supports single or multiple images)
+  const handleLoginImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const files: File[] = Array.from(fileList);
+    for (const file of files) {
+      if (!file.type.startsWith('image/') && !file.name.toLowerCase().endsWith('.svg') && !file.name.toLowerCase().endsWith('.webp')) {
+        setSaveFeedback({
+          type: 'error',
+          message: isEn
+            ? 'Please select valid image files (PNG, JPG, WebP, SVG, GIF).'
+            : 'لطفاً فایل‌های تصویری معتبر (PNG، JPG، WebP، SVG، GIF) انتخاب نمایید.',
+        });
+        e.target.value = '';
+        return;
+      }
+      if (file.size > 15 * 1024 * 1024) {
+        setSaveFeedback({
+          type: 'error',
+          message: isEn
+            ? `File "${file.name}" exceeds the 15MB limit.`
+            : `حجم تصویر «${file.name}» بیشتر از حد مجاز ۱۵ مگابایت است.`,
+        });
+        e.target.value = '';
+        return;
+      }
+    }
+
+    setIsProcessingLoginImage(true);
+    try {
+      const processedImages: LoginUploadedImage[] = [];
+      for (const file of files) {
+        const item = await processLoginImageFile(file);
+        processedImages.push(item);
+      }
+
+      const existing = Array.isArray(formData.loginUploadedImages) ? formData.loginUploadedImages : [];
+      const updatedGallery = [...processedImages, ...existing];
+      const newestId = processedImages[0]?.id || formData.loginSelectedImageId || updatedGallery[0]?.id || '';
+
+      const nextSettings: PanelGeneralSettings = {
+        ...formData,
+        loginVisualMode: 'image',
+        loginImageMode: formData.loginImageMode || 'selected',
+        loginSelectedImageId: (formData.loginImageMode === 'random' && formData.loginSelectedImageId)
+          ? formData.loginSelectedImageId
+          : newestId,
+        loginUploadedImages: updatedGallery,
+      };
+
+      setFormData(nextSettings);
+      await saveGeneralSettings(nextSettings);
+      setSaveFeedback({
+        type: 'success',
+        message: isEn
+          ? `${processedImages.length} image(s) uploaded and saved to Login Showcase Gallery.`
+          : `${processedImages.length} تصویر جدید با موفقیت آپلود و در گالری صفحه لاگین ذخیره شد.`,
+      });
+    } catch (err: any) {
+      setSaveFeedback({
+        type: 'error',
+        message: isEn ? 'Failed to process uploaded login image.' : 'خطا در پردازش و بارگذاری تصویر صفحه لاگین.',
+      });
+    } finally {
+      setIsProcessingLoginImage(false);
+      e.target.value = '';
+    }
+  };
+
+  // Delete an uploaded image from the Login Showcase gallery
+  const handleDeleteLoginImage = async (imageId: string) => {
+    const existing = Array.isArray(formData.loginUploadedImages) ? formData.loginUploadedImages : [];
+    const remaining = existing.filter((img) => img.id !== imageId);
+    const nextSelectedId =
+      formData.loginSelectedImageId === imageId
+        ? (remaining[0]?.id || '')
+        : (formData.loginSelectedImageId || remaining[0]?.id || '');
+
+    const nextSettings: PanelGeneralSettings = {
+      ...formData,
+      loginUploadedImages: remaining,
+      loginSelectedImageId: nextSelectedId,
+      loginVisualMode: remaining.length === 0 ? 'animation' : formData.loginVisualMode,
+    };
+
+    setFormData(nextSettings);
+    await saveGeneralSettings(nextSettings);
   };
 
   // Available Themes (including Google Dark merged into panel themes)
@@ -1929,6 +2090,433 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Card 5.5: Login Page Visual Showcase (3D Animation vs Custom Uploaded Images Gallery & Random Rotation) */}
+            <div
+              className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 lg:col-span-2 ${
+                isLightMode
+                  ? 'bg-white/90 border-slate-200 shadow-slate-200/50'
+                  : 'bg-slate-950/60 border-white/10'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400">
+                    <ImageIcon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className={`text-base font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                      {isEn
+                        ? 'Login Page Visual Showcase (Animation & Image Gallery)'
+                        : 'بخش نمایشی صفحه لاگین (انیمیشن سه‌بعدی و گالری تصاویر)'}
+                    </h3>
+                    <p className={`text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn
+                        ? 'Choose between the interactive 3D Network Globe animation or custom uploaded images (fixed selection or random rotation on each login).'
+                        : 'انتخاب بین نمایش انیمیشن سه‌بعدی کره شبکه یا قرارگیری تصاویر دلخواه آپلودشده (انتخاب تصویر ثابت یا نمایش تصادفی در هر بار بارگذاری لاگین).'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-purple-400 font-bold uppercase px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    {(formData.loginVisualMode || 'animation') === 'animation'
+                      ? (isEn ? '3D GLOBE ANIMATION' : 'انیمیشن سه‌بعدی لاگین')
+                      : (formData.loginImageMode || 'selected') === 'random'
+                      ? (isEn ? 'CUSTOM IMAGE (RANDOM)' : 'تصویر سفارشی (تصادفی)')
+                      : (isEn ? 'CUSTOM IMAGE (SELECTED)' : 'تصویر سفارشی (انتخابی)')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Step 1: Switch between 3D Animation and Custom Image */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className={`text-xs font-semibold flex items-center gap-1.5 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                    <span>{isEn ? 'Login Showcase Display Type' : 'نوع نمایش بخش گرافیکی صفحه لاگین'}</span>
+                    <FieldInfoTooltip
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                      title={isEn ? 'Login Visual Showcase Mode' : 'حالت نمایش گرافیکی صفحه لاگین'}
+                      infoWhatEn="Determines whether the visual showcase area of the login page renders the interactive 3D Network Globe animation or a custom uploaded image."
+                      infoWhatFa="تعیین می‌کند که در بخش گرافیکی صفحه ورود (قسمت انیمیشن لاگین)، کره سه‌بعدی تعاملی شبکه نمایش داده شود یا تصاویر اختصاصی بارگذاری‌شده توسط شما."
+                      infoWhyEn="Allows organizations to personalize the login gateway with NOC center photos, infrastructure wallpapers, or corporate visual identity."
+                      infoWhyFa="امکان شخصی‌سازی کامل صفحه ورود سازمان با تصاویر مرکز NOC، دیتاسنتر، پوسترهای امنیتی یا حفظ نمای فضایی سه‌بعدی پیش‌فرض."
+                      infoExampleEn="3D Network Globe Animation (default) or Custom Uploaded Image Gallery (Fixed / Random)"
+                      infoExampleFa="انیمیشن سه‌بعدی کره زمین (پیش‌فرض) یا گالری تصاویر اختصاصی آپلودشده (ثابت یا تصادفی)"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Option A: 3D Login Animation */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next: PanelGeneralSettings = { ...formData, loginVisualMode: 'animation' };
+                      setFormData(next);
+                      saveGeneralSettings(next);
+                    }}
+                    className={`p-4 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
+                      (formData.loginVisualMode || 'animation') === 'animation'
+                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-md ring-1 ring-indigo-500/50'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                        : 'bg-slate-900 border-white/5 text-slate-400 hover:text-white hover:border-white/15'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-indigo-400">
+                          <Globe className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className={`text-xs font-bold block ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? '3D Interactive Network Globe Animation' : 'انیمیشن سه‌بعدی تعاملی کره شبکه (پیش‌فرض)'}
+                          </span>
+                          <span className="text-[10px] font-mono text-indigo-400">
+                            {isEn ? 'WebGL / Canvas 3D Cyber Matrix' : 'گرافیک سه‌بعدی زنده گره‌های شبکه جهانی'}
+                          </span>
+                        </div>
+                      </div>
+                      {(formData.loginVisualMode || 'animation') === 'animation' && (
+                        <Check className="w-4 h-4 text-indigo-400 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      {isEn
+                        ? 'Displays the interactive 3D global network topology animation with live telemetry arcs in the login showcase section.'
+                        : 'نمایش انیمیشن سه‌بعدی و تعاملی کره زمین و خطوط ارتباطی شبکه در بخش نمایشی صفحه ورود به سامانه.'}
+                    </p>
+                  </button>
+
+                  {/* Option B: Custom Image Showcase */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const imgs = Array.isArray(formData.loginUploadedImages) ? formData.loginUploadedImages : [];
+                      const next: PanelGeneralSettings = {
+                        ...formData,
+                        loginVisualMode: 'image',
+                        loginImageMode: formData.loginImageMode || 'selected',
+                        loginSelectedImageId: formData.loginSelectedImageId || imgs[0]?.id || '',
+                      };
+                      setFormData(next);
+                      saveGeneralSettings(next);
+                    }}
+                    className={`p-4 rounded-xl border text-left rtl:text-right transition cursor-pointer flex flex-col justify-between ${
+                      formData.loginVisualMode === 'image'
+                        ? 'bg-purple-600/20 border-purple-500 text-purple-300 shadow-md ring-1 ring-purple-500/50'
+                        : isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                        : 'bg-slate-900 border-white/5 text-slate-400 hover:text-white hover:border-white/15'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-400">
+                          <ImageIcon className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className={`text-xs font-bold block ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? 'Custom Uploaded Image Showcase' : 'قرارگیری عکس اختصاصی در بخش انیمیشن لاگین'}
+                          </span>
+                          <span className="text-[10px] font-mono text-purple-400">
+                            {isEn
+                              ? `${(formData.loginUploadedImages || []).length} Uploaded Image(s) in Gallery`
+                              : `${(formData.loginUploadedImages || []).length} تصویر آپلودشده در گالری`}
+                          </span>
+                        </div>
+                      </div>
+                      {formData.loginVisualMode === 'image' && (
+                        <Check className="w-4 h-4 text-purple-400 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                      {isEn
+                        ? 'Replaces the login animation area with your uploaded custom images. Select a specific photo or enable Random mode to rotate images on every visit.'
+                        : 'جایگزینی بخش انیمیشن صفحه لاگین با تصاویر آپلودشده توسط شما؛ با قابلیت انتخاب یک عکس مشخص از گالری یا قرار دادن روی حالت رندوم (تصادفی).'}
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 2: Image Upload, Selection Mode (Fixed vs Random) & Previously Uploaded Images Gallery */}
+              <div className={`p-4 rounded-xl border space-y-4 transition-all ${
+                isLightMode
+                  ? 'bg-slate-50/90 border-slate-200'
+                  : 'bg-slate-900/60 border-white/10'
+              }`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <label className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
+                      <span>{isEn ? 'Uploaded Login Images & Display Mode' : 'مدیریت عکس‌های آپلودشده و نحوه نمایش در لاگین'}</span>
+                      <FieldInfoTooltip
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        title={isEn ? 'Image Selection & Random Mode' : 'انتخاب تصویر و حالت رندوم (تصادفی)'}
+                        infoWhatEn="Upload custom images to your gallery and choose whether to display a single selected image or pick a random uploaded image each time the login page loads."
+                        infoWhatFa="امکان آپلود تصاویر دلخواه در گالری پنل و انتخاب بین نمایش یک عکس ثابت یا انتخاب رندوم (تصادفی) یکی از عکس‌های آپلودشده در هر بار باز شدن صفحه لاگین."
+                        infoWhyEn="Keeps all previously uploaded wallpapers accessible for one-click switching or dynamic rotation without re-uploading."
+                        infoWhyFa="حفظ تمامی عکس‌های قبلی آپلودشده در گالری جهت انتخاب مجدد با یک کلیک یا چرخش خودکار بین عکس‌ها بدون نیاز به آپلود تکراری."
+                        infoExampleEn="Upload 3–5 datacenter/NOC wallpapers and select 'Random on Every Login' or click any image to lock it."
+                        infoExampleFa="آپلود چند تصویر و انتخاب گزینه «نمایش رندوم (تصادفی)» یا کلیک روی یکی از عکس‌های گالری جهت نمایش ثابت."
+                      />
+                    </label>
+                    <p className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {isEn
+                        ? 'Upload new photos, pick from previously uploaded images below, or set to Random so a different uploaded photo appears each time.'
+                        : 'می‌توانید عکس جدید آپلود کنید، از بین عکس‌هایی که قبلاً آپلود کرده‌اید یکی را انتخاب نمایید، یا روی حالت «رندوم» بگذارید تا هر بار یکی از عکس‌ها نمایش داده شود.'}
+                    </p>
+                  </div>
+
+                  {/* Upload New Image(s) Button */}
+                  <label className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md transition cursor-pointer shrink-0">
+                    {isProcessingLoginImage ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isProcessingLoginImage
+                        ? (isEn ? 'Uploading & Optimizing...' : 'در حال آپلود و پردازش...')
+                        : (isEn ? 'Upload New Image(s)' : 'آپلود عکس جدید برای لاگین')}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*,.png,.jpg,.jpeg,.webp,.svg,.gif"
+                      multiple
+                      onChange={handleLoginImageUpload}
+                      disabled={isProcessingLoginImage}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* Image Selection Strategy: Specific Image vs Random Mode */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const imgs = Array.isArray(formData.loginUploadedImages) ? formData.loginUploadedImages : [];
+                      const next: PanelGeneralSettings = {
+                        ...formData,
+                        loginVisualMode: 'image',
+                        loginImageMode: 'selected',
+                        loginSelectedImageId: formData.loginSelectedImageId || imgs[0]?.id || '',
+                      };
+                      setFormData(next);
+                      saveGeneralSettings(next);
+                    }}
+                    className={`flex items-center justify-between p-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                      formData.loginVisualMode === 'image' && (formData.loginImageMode || 'selected') === 'selected'
+                        ? 'bg-purple-600/20 border-purple-500 text-purple-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-950/70 border-white/10 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ImageIcon className="w-4 h-4 text-purple-400 shrink-0" />
+                      <div className="text-left rtl:text-right">
+                        <div className={isLightMode ? 'text-slate-900 font-bold' : 'text-white font-bold'}>
+                          {isEn ? 'Selected Single Image' : 'نمایش عکس انتخاب‌شده از گالری'}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-normal">
+                          {isEn
+                            ? 'Always show the specific photo you click below'
+                            : 'همواره عکسی که از لیست زیر انتخاب کرده‌اید نمایش داده شود'}
+                        </div>
+                      </div>
+                    </div>
+                    {formData.loginVisualMode === 'image' && (formData.loginImageMode || 'selected') === 'selected' && (
+                      <Check className="w-4 h-4 text-purple-400 shrink-0" />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next: PanelGeneralSettings = {
+                        ...formData,
+                        loginVisualMode: 'image',
+                        loginImageMode: 'random',
+                      };
+                      setFormData(next);
+                      saveGeneralSettings(next);
+                    }}
+                    className={`flex items-center justify-between p-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                      formData.loginVisualMode === 'image' && formData.loginImageMode === 'random'
+                        ? 'bg-cyan-600/20 border-cyan-500 text-cyan-300 shadow-sm'
+                        : isLightMode
+                        ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                        : 'bg-slate-950/70 border-white/10 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Shuffle className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div className="text-left rtl:text-right">
+                        <div className={isLightMode ? 'text-slate-900 font-bold' : 'text-white font-bold'}>
+                          {isEn ? 'Random Image on Every Login' : 'حالت رندوم (انتخاب تصادفی در هر بار لاگین)'}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-normal">
+                          {isEn
+                            ? 'Automatically picks one of your uploaded photos each time'
+                            : 'در هر بار باز شدن صفحه لاگین، یکی از عکس‌های آپلودشده به‌طور تصادفی قرار می‌گیرد'}
+                        </div>
+                      </div>
+                    </div>
+                    {formData.loginVisualMode === 'image' && formData.loginImageMode === 'random' && (
+                      <Check className="w-4 h-4 text-cyan-400 shrink-0" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Previously Uploaded Images Gallery Grid */}
+                {Array.isArray(formData.loginUploadedImages) && formData.loginUploadedImages.length > 0 ? (
+                  <div className="space-y-2.5 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-semibold ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                        {isEn
+                          ? `Previously Uploaded Images (${formData.loginUploadedImages.length})`
+                          : `عکس‌های آپلودشده قبلی شما (${formData.loginUploadedImages.length} تصویر)`}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {formData.loginImageMode === 'random'
+                          ? (isEn
+                              ? 'Random mode active: All uploaded images below rotate automatically on login (click any image to select it fixed)'
+                              : 'حالت رندوم فعال است: هر بار یکی از این تصاویر به صورت تصادفی در لاگین قرار می‌گیرد (با کلیک روی هر عکس می‌توانید آن را ثابت کنید)')
+                          : (isEn
+                              ? 'Click on any image below to set it as the active login showcase photo'
+                              : 'روی هر کدام از عکس‌های زیر کلیک کنید تا در بخش انیمیشن صفحه لاگین قرار بگیرد')}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {formData.loginUploadedImages.map((img) => {
+                        const isSelectedFixed =
+                          (formData.loginImageMode || 'selected') === 'selected' &&
+                          (formData.loginSelectedImageId === img.id ||
+                            (!formData.loginSelectedImageId && formData.loginUploadedImages?.[0]?.id === img.id));
+                        const isRandomMode = formData.loginImageMode === 'random';
+
+                        return (
+                          <div
+                            key={img.id}
+                            onClick={() => {
+                              const next: PanelGeneralSettings = {
+                                ...formData,
+                                loginVisualMode: 'image',
+                                loginImageMode: 'selected',
+                                loginSelectedImageId: img.id,
+                              };
+                              setFormData(next);
+                              saveGeneralSettings(next);
+                            }}
+                            className={`group relative rounded-xl overflow-hidden border transition-all cursor-pointer flex flex-col ${
+                              formData.loginVisualMode === 'image' && isSelectedFixed
+                                ? 'border-purple-500 ring-2 ring-purple-500/40 shadow-lg'
+                                : formData.loginVisualMode === 'image' && isRandomMode
+                                ? 'border-cyan-500/50 ring-1 ring-cyan-500/30 shadow-md'
+                                : isLightMode
+                                ? 'border-slate-200 bg-white hover:border-purple-400'
+                                : 'border-white/10 bg-slate-950/80 hover:border-white/30'
+                            }`}
+                          >
+                            {/* Image Thumbnail */}
+                            <div className="relative h-32 w-full bg-slate-950 overflow-hidden">
+                              <img
+                                src={img.dataUrl}
+                                alt={img.name}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/25 pointer-events-none" />
+
+                              {/* Status Badge */}
+                              <div className="absolute top-2 left-2 rtl:left-auto rtl:right-2 flex items-center gap-1">
+                                {formData.loginVisualMode === 'image' && isSelectedFixed && (
+                                  <span className="px-2 py-0.5 rounded-md bg-purple-600 text-white text-[10px] font-bold flex items-center gap-1 shadow">
+                                    <Check className="w-3 h-3" />
+                                    <span>{isEn ? 'Active' : 'فعال'}</span>
+                                  </span>
+                                )}
+                                {formData.loginVisualMode === 'image' && isRandomMode && (
+                                  <span className="px-2 py-0.5 rounded-md bg-cyan-600/90 text-white text-[10px] font-bold flex items-center gap-1 shadow">
+                                    <Shuffle className="w-3 h-3" />
+                                    <span>{isEn ? 'In Random Pool' : 'در چرخش رندوم'}</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Delete Image Button */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteLoginImage(img.id);
+                                }}
+                                title={isEn ? 'Delete image from gallery' : 'حذف تصویر از گالری'}
+                                className="absolute top-2 right-2 rtl:right-auto rtl:left-2 p-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white transition shadow cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Resolution Badge */}
+                              {img.width && img.height && (
+                                <span className="absolute bottom-1.5 right-2 rtl:right-auto rtl:left-2 text-[9px] font-mono text-slate-300 bg-black/60 px-1.5 py-0.5 rounded">
+                                  {img.width}×{img.height}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Footer Info */}
+                            <div className={`p-2.5 flex items-center justify-between gap-2 text-xs ${
+                              isLightMode ? 'bg-white text-slate-800' : 'bg-slate-950 text-slate-200'
+                            }`}>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-semibold text-[11px] truncate" title={img.name}>
+                                  {img.name}
+                                </div>
+                                <div className="text-[9px] font-mono text-slate-400 truncate">
+                                  {img.uploadedAt}
+                                </div>
+                              </div>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 ${
+                                formData.loginVisualMode === 'image' && isSelectedFixed
+                                  ? 'bg-purple-500/15 text-purple-400 border-purple-500/30'
+                                  : isLightMode
+                                  ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                  : 'bg-white/5 text-slate-400 border-white/10'
+                              }`}>
+                                {formData.loginVisualMode === 'image' && isSelectedFixed
+                                  ? (isEn ? 'Selected' : 'انتخاب شده')
+                                  : (isEn ? 'Select' : 'انتخاب')}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`p-6 rounded-xl border border-dashed text-center space-y-2 ${
+                    isLightMode ? 'border-slate-300 bg-white/60 text-slate-600' : 'border-white/10 bg-slate-950/40 text-slate-400'
+                  }`}>
+                    <ImageIcon className="w-8 h-8 mx-auto text-purple-400/70" />
+                    <div className="text-xs font-bold">
+                      {isEn
+                        ? 'No custom login images uploaded yet'
+                        : 'هنوز هیچ تصویری برای بخش لاگین آپلود نشده است'}
+                    </div>
+                    <p className="text-[11px] max-w-md mx-auto">
+                      {isEn
+                        ? 'Click "Upload New Image(s)" above to add one or multiple photos. While no images are uploaded, the 3D Network Globe animation is displayed.'
+                        : 'روی دکمه «آپلود عکس جدید برای لاگین» کلیک کنید تا یک یا چند عکس به گالری اضافه شود. در صورت عدم وجود عکس، انیمیشن سه‌بعدی نمایش داده می‌شود.'}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

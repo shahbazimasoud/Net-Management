@@ -120,7 +120,46 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }
       }
     }).catch(() => {});
+
+    const handleSettingsChange = (e: Event) => {
+      const customEvt = e as CustomEvent<{ settings?: PanelGeneralSettings }>;
+      if (customEvt.detail?.settings) {
+        setGeneralSettings(customEvt.detail.settings);
+      } else {
+        setGeneralSettings(loadGeneralSettings());
+      }
+    };
+    window.addEventListener('nettopology_general_settings_changed', handleSettingsChange);
+    return () => window.removeEventListener('nettopology_general_settings_changed', handleSettingsChange);
   }, []);
+
+  // Random image selection seed per LoginPage mount / session visit
+  const [randomSeed] = useState<number>(() => Math.random());
+
+  const activeShowcaseImage = React.useMemo(() => {
+    if (generalSettings?.loginVisualMode !== 'image') return null;
+    const imgs = Array.isArray(generalSettings?.loginUploadedImages)
+      ? generalSettings.loginUploadedImages.filter((i) => i && i.dataUrl)
+      : [];
+    if (imgs.length === 0) return null;
+
+    if (generalSettings?.loginImageMode === 'random') {
+      const idx = Math.floor(randomSeed * imgs.length) % imgs.length;
+      return imgs[idx] || imgs[0];
+    }
+
+    if (generalSettings?.loginSelectedImageId) {
+      const found = imgs.find((i) => i.id === generalSettings.loginSelectedImageId);
+      if (found) return found;
+    }
+    return imgs[0];
+  }, [
+    generalSettings?.loginVisualMode,
+    generalSettings?.loginImageMode,
+    generalSettings?.loginSelectedImageId,
+    generalSettings?.loginUploadedImages,
+    randomSeed,
+  ]);
 
   const allowedAuth = generalSettings?.allowedAuthMethods || 'both';
 
@@ -1144,11 +1183,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* RIGHT 3/4 (70-75%): Interactive 3D Network Globe Animation */}
+      {/* RIGHT 3/4 (70-75%): Interactive 3D Network Globe Animation or Custom Uploaded Image */}
       {/* Animation section preserves authentic dark cyber aesthetic */}
       {/* ------------------------------------------------------------- */}
       <div className="flex-1 h-full relative overflow-hidden hidden md:block bg-slate-950">
-        <NetworkGlobe3D theme={theme === 'light' ? 'obsidian' : theme} />
+        {activeShowcaseImage ? (
+          <div className="relative w-full h-full bg-slate-950 overflow-hidden">
+            <img
+              src={activeShowcaseImage.dataUrl}
+              alt={activeShowcaseImage.name || 'Login Showcase'}
+              className="w-full h-full object-cover object-center select-none"
+              draggable={false}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-slate-950/30 pointer-events-none" />
+          </div>
+        ) : (
+          <NetworkGlobe3D theme={theme === 'light' ? 'obsidian' : theme} />
+        )}
       </div>
     </div>
   );

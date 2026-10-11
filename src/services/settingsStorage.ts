@@ -698,6 +698,10 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   systemDebugLogging: false,
   twoFactorEnabled: false,
   allowedAuthMethods: 'both',
+  loginVisualMode: 'animation',
+  loginImageMode: 'selected',
+  loginSelectedImageId: '',
+  loginUploadedImages: [],
   serverTimezone: 'Asia/Tehran',
   serverNtpServer: 'ir.pool.ntp.org',
   serverNtpEnabled: true,
@@ -706,7 +710,15 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   updatedBy: 'admin',
 };
 
+let inMemoryGeneralSettings: PanelGeneralSettings | null = null;
+
 export function loadGeneralSettings(): PanelGeneralSettings {
+  if (inMemoryGeneralSettings) {
+    return {
+      ...DEFAULT_PANEL_GENERAL_SETTINGS,
+      ...inMemoryGeneralSettings,
+    };
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.GENERAL_SETTINGS);
     if (raw) {
@@ -751,6 +763,8 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     console.warn('Network sync warning for general settings:', err);
   }
 
+  inMemoryGeneralSettings = finalSettings;
+
   try {
     localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(finalSettings));
   } catch (err) {
@@ -775,7 +789,12 @@ export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSet
     if (res.ok) {
       const data = await res.json();
       if (data?.settings) {
-        localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(data.settings));
+        inMemoryGeneralSettings = data.settings;
+        try {
+          localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(data.settings));
+        } catch (storageErr) {
+          console.warn('LocalStorage cache quota warning for general settings:', storageErr);
+        }
         if (typeof window !== 'undefined') {
           window.dispatchEvent(
             new CustomEvent('nettopology_general_settings_changed', { detail: { settings: data.settings } })
