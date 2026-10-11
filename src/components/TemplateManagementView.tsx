@@ -579,15 +579,6 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => handleOpenClone(tmpl)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition active:scale-95 cursor-pointer"
-                      title={isEn ? 'Clone as a new template with slight changes' : 'کلون‌گیری با نام جدید برای تجهیز دیگر با تغییرات جزیی'}
-                    >
-                      <CopyPlus className="w-3.5 h-3.5" />
-                      <span>{isEn ? 'Clone...' : 'کلون با نام دیگر...'}</span>
-                    </button>
-
-                    <button
                       onClick={() => handleOpenApply(tmpl.id)}
                       className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-[0_0_15px_rgba(16,185,129,0.3)] transition active:scale-95 cursor-pointer"
                     >

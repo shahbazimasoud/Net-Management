@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.314.0';
+export const APP_VERSION = '1.315.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.315.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'رفع مشکل دکمه اعمال تمپلیت کانفیگ (Apply to Device) و حذف دکمه کلون اضافی از کارت‌ها در صفحه الگوهای کانفیگ',
+    title_en: 'Fix "Apply to Device" Modal Opening and Remove Redundant Clone Button in Config Templates View',
+    changes: [
+      'اصلاح عملکرد دکمه «Apply to Device...» در کارت‌های تمپلیت کانفیگ (Network Equipment Config Templates & Patterns) و اطمینان از باز شدن مطمئن و بلادرنگ پنجره اعمال تمپلیت.',
+      'حذف دکمه کلون اضافی (Clone...) از فوتر کارت‌ها با توجه به تعبیه دکمه استاندارد کلون در هدر بالای کارت.',
+      'ارتقای پنجره اعمال تمپلیت (ApplyTemplateModal) منطبق بر استانداردهای جامع مودال‌ها: افزودن قابلیت تمام‌صفحه (Fullscreen toggle) با دکمه‌های سه‌گانه هدر (بستن، تمام‌صفحه و مینیمایز)، لایه پورتال z-[100000]، و چندزبانگی پیام‌های هشدار IP.'
+    ],
+    changes_en: [
+      'Fixed "Apply to Device..." action on config template cards in Network Equipment Config Templates & Patterns, ensuring reliable opening and focus of the ApplyTemplateModal.',
+      'Removed redundant bottom "Clone..." button from card footers since a dedicated Clone action already exists in the card header.',
+      'Upgraded ApplyTemplateModal in accordance with universal modal architectural standards: added full-screen mode toggle (Maximize2/Minimize2), top-level z-[100000] portal layer, and strict bilingual validation messaging.'
+    ]
+  },
   {
     version: '1.314.0',
     releaseDate: '2026-10-11',

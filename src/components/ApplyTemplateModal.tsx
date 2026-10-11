@@ -4,6 +4,8 @@ import {
   FileCode2,
   X,
   Minus,
+  Maximize2,
+  Minimize2,
   CheckCircle2,
   AlertTriangle,
   Play,
@@ -60,6 +62,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(
     initialTargetDevice || (allDevices.length > 0 ? allDevices[0] : null)
   );
+  const [isMaximized, setIsMaximized] = useState(false);
   const [templates, setTemplates] = useState<ConfigTemplate[]>(propTemplates || []);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(preselectedTemplateId || '');
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -244,7 +247,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     if (!selectedDevice || !currentTemplate) return;
 
     if (!isIpConfirmed || !isIpValid) {
-      alert('لطفاً صحت آدرس آی‌پی (IP Address) را بررسی و تایید نمایید.');
+      alert(isEn ? 'Please review and confirm the validity of the IP address.' : 'لطفاً صحت آدرس آی‌پی (IP Address) را بررسی و تایید نمایید.');
       return;
     }
 
@@ -297,14 +300,20 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed top-0 left-0 right-0 bottom-8 z-50 flex items-center justify-center p-2 sm:p-4 modal-backdrop-blur animate-fadeIn overflow-y-auto"
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center ${
+        isMaximized ? 'p-0' : 'p-2 sm:p-4'
+      } modal-backdrop-blur animate-fadeIn overflow-y-auto`}
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >
-      <div className={`w-full max-w-4xl max-h-[92vh] sm:max-h-[88vh] my-auto flex flex-col rounded-2xl overflow-hidden transition-all duration-200 ${
+      <div className={`w-full ${
+        isMaximized
+          ? 'h-full max-h-full max-w-none rounded-none border-none my-0'
+          : 'max-w-4xl max-h-[92vh] sm:max-h-[88vh] my-auto rounded-2xl border'
+      } flex flex-col overflow-hidden transition-all duration-200 ${
         isLightMode
-          ? 'bg-white border border-slate-200 text-slate-900 shadow-2xl shadow-slate-900/15'
-          : 'bg-slate-900/95 border border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-2xl'
+          ? 'bg-white border-slate-200 text-slate-900 shadow-2xl shadow-slate-900/15'
+          : 'bg-slate-900/95 border-white/10 text-slate-100 shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-2xl'
       }`}>
         {/* Modal Header (Pinned) */}
         <div className={`flex items-center justify-between p-4 sm:p-5 border-b shrink-0 transition ${
@@ -347,6 +356,17 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsMaximized((prev) => !prev)}
+              className={`p-1.5 rounded-xl transition cursor-pointer ${
+                isLightMode ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200' : 'text-slate-400 hover:text-white hover:bg-white/10'
+              }`}
+              title={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+              aria-label={isMaximized ? (isEn ? 'Exit Fullscreen' : 'خروج از حالت تمام‌صفحه') : (isEn ? 'Fullscreen' : 'تمام‌صفحه')}
+            >
+              {isMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+            </button>
             {onMinimize && (
               <button
                 type="button"
