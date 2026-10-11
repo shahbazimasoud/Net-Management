@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   LogIn,
   Globe,
-  Database,
   Layers,
   Palette,
   Sun,
@@ -539,15 +538,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     }`}
                   >
                     {generalSettings.panelTitle || 'NetTopology'}
-                  </span>
-                  <span
-                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
-                      isLight
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold'
-                        : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                    }`}
-                  >
-                    v{APP_VERSION}
                   </span>
                 </div>
                 <p className={`text-[10px] font-sans ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -1177,19 +1167,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           )}
         </div>
 
-        {/* Footer Security Badges */}
+        {/* Footer Panel Version & Security Status */}
         <div
-          className={`pt-6 border-t flex items-center justify-between text-[10px] font-mono ${
-            isLight ? 'border-slate-200 text-slate-500' : 'border-white/10 text-slate-500'
+          className={`pt-6 border-t flex items-center justify-between text-[11px] font-mono ${
+            isLight ? 'border-slate-200 text-slate-500' : 'border-white/10 text-slate-400'
           }`}
         >
-          <div className="flex items-center gap-1.5">
-            <Database className="w-3.5 h-3.5 text-cyan-600" />
-            <span>PostgreSQL Secured</span>
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-2 py-0.5 rounded border font-mono font-semibold text-[10px] ${
+                isLight
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+              }`}
+            >
+              v{APP_VERSION}
+            </span>
           </div>
           <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>TLS 1.3 Strict</span>
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span className="font-sans font-medium text-[10px]">
+              {isEn ? 'Encrypted Session' : 'نشست رمزنگاری‌شده'}
+            </span>
           </div>
         </div>
       </div>

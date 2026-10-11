@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.318.0';
+export const APP_VERSION = '1.318.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.318.1',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'ارتقای امنیت صفحه لاگین با حذف افشای مشخصات پایگاه داده و نسخه TLS و انتقال نمایش نسخه پنل به فوتر',
+    title_en: 'Harden Login Page Security by Removing Database & TLS Disclosures and Relocating Panel Version to Footer',
+    changes: [
+      'حذف برچسب‌های اطلاعاتی حساس پایگاه داده (PostgreSQL Secured) و نسخه پروتکل (TLS 1.3 Strict) از بخش فوتر صفحه لاگین به منظور رعایت اصول امنیتی و جلوگیری از فاش شدن جزئیات فنی زیرساخت پنل.',
+      'انتقال بج نمایش نسخه نرم‌افزار (v{APP_VERSION}) از هدر فرم به فوتر پایینی صفحه جهت نمایش استاندارد و حرفه‌ای در کنار شاخص ارتباط امن رمزنگاری‌شده.',
+      'حفظ تناسب و زیبایی ظاهری فوتر با پشتیبانی کامل از تم روشن و تیره و زبان‌های فارسی و انگلیسی بدون هیچ‌گونه متن هاردکدشده.'
+    ],
+    changes_en: [
+      'Removed sensitive infrastructure disclosure badges (PostgreSQL Secured and TLS 1.3 Strict) from the login page footer to prevent technical stack fingerprinting and improve security.',
+      'Relocated the panel version badge (v{APP_VERSION}) from the top branding header to the bottom footer alongside a clean encrypted session indicator.',
+      'Maintained ergonomic design and contrast in both light and dark themes with full bilingual support.'
+    ]
+  },
   {
     version: '1.318.0',
     releaseDate: '2026-10-11',
