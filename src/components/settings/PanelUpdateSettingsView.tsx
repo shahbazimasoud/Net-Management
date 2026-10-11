@@ -17,7 +17,11 @@ import {
   ExternalLink,
   Layers,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react';
 import { APP_VERSION, RELEASE_HISTORY, ReleaseNote } from '../../version';
 import { useLanguage } from '../../i18n';
@@ -53,6 +57,8 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'major' | 'minor' | 'patch'>('all');
   const [isCleanRebuild, setIsCleanRebuild] = useState(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
 
   const canCheck = canUserCheckUpdate(user, effectivePolicy);
   const canPerform = canUserPerformUpdate(user, effectivePolicy);
@@ -83,6 +89,33 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
       (note.changes_en && note.changes_en.some((c) => c.toLowerCase().includes(q)));
     return matchesVersion || matchesTitle || matchesChanges;
   });
+
+  const totalItems = filteredHistory.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+  const paginatedHistory = filteredHistory.slice(startIndex, endIndex);
+
+  const handlePageChange = (newPage: number) => {
+    const validPage = Math.min(Math.max(1, newPage), totalPages);
+    setCurrentPage(validPage);
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    setCurrentPage(1);
+  };
+
+  const handleFilterChange = (t: 'all' | 'major' | 'minor' | 'patch') => {
+    setFilterType(t);
+    setCurrentPage(1);
+  };
 
   return (
     <div
@@ -586,14 +619,15 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             </div>
           </div>
 
-          {/* Filters & Search */}
-          <div className="flex items-center gap-2.5 flex-wrap w-full sm:w-auto">
-            <div className={`flex items-center gap-1 p-1 rounded-xl border text-xs ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
+          {/* Filters, Page Size & Search */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 flex-wrap">
+            {/* Left: Type Filters */}
+            <div className={`flex items-center gap-1 p-1 rounded-xl border text-xs overflow-x-auto ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
               {(['all', 'major', 'minor', 'patch'] as const).map((t) => (
                 <button
                   key={t}
-                  onClick={() => setFilterType(t)}
-                  className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer capitalize ${
+                  onClick={() => handleFilterChange(t)}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer capitalize whitespace-nowrap ${
                     filterType === t
                       ? 'bg-indigo-600 text-white font-bold shadow-xs'
                       : isLightMode
@@ -606,27 +640,80 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
               ))}
             </div>
 
-            <div className="relative w-full sm:w-56">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 rtl:left-auto rtl:right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={isEn ? 'Search release notes...' : 'جستجو در نسخه‌ها...'}
-                className={`w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1.5 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 ${
-                  isLightMode
-                    ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
-                    : 'bg-slate-900 border-white/10 text-white placeholder:text-slate-500'
-                }`}
-              />
+            {/* Right: Page Size Selector & Search Box */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {/* Page Size Switcher (10, 50, 200) */}
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
+                <span className={`text-[11px] font-medium ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                  {isEn ? 'Per Page:' : 'در هر صفحه:'}
+                </span>
+                <div className="flex items-center gap-1">
+                  {[10, 50, 200].map((size) => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => handlePageSizeChange(size)}
+                      className={`px-2 py-0.5 rounded-lg font-mono font-bold text-xs transition cursor-pointer ${
+                        pageSize === size
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isLightMode
+                          ? 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                          : 'text-slate-400 hover:bg-white/10 hover:text-white'
+                      }`}
+                      title={isEn ? `Show ${size} releases per page` : `نمایش ${size} نسخه در هر صفحه`}
+                    >
+                      {size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Search Box */}
+              <div className="relative flex-1 sm:w-56 min-w-[180px]">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 rtl:left-auto rtl:right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder={isEn ? 'Search release notes...' : 'جستجو در نسخه‌ها...'}
+                  className={`w-full pl-8 pr-3 rtl:pl-3 rtl:pr-8 py-1.5 rounded-xl border text-xs focus:outline-none focus:border-indigo-400 ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400'
+                      : 'bg-slate-900 border-white/10 text-white placeholder:text-slate-500'
+                  }`}
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        {/* List of Releases */}
+        {/* Release Summary & Active Page Info Bar */}
+        {totalItems > 0 && (
+          <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-1 text-xs ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span>
+                {isEn ? 'Showing' : 'نمایش'} <b className={`font-mono ${isLightMode ? 'text-slate-900' : 'text-slate-200'}`}>{startIndex + 1}–{endIndex}</b> {isEn ? 'of' : 'از'} <b className={`font-mono ${isLightMode ? 'text-slate-900' : 'text-slate-200'}`}>{totalItems}</b> {isEn ? 'releases' : 'نسخه منتشرشده'}
+              </span>
+              {searchQuery && (
+                <span className="text-[11px] px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+                  {isEn ? `Filtered: "${searchQuery}"` : `فیلتر شده بر اساس: «${searchQuery}»`}
+                </span>
+              )}
+            </div>
+
+            {/* Quick Top Pagination Summary */}
+            <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              <span className="font-mono text-[11px]">
+                {isEn ? 'Page' : 'صفحه'} <b className={`font-mono ${isLightMode ? 'text-slate-900' : 'text-slate-200'}`}>{safePage}</b> / {totalPages}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* List of Releases (Paginated) */}
         <div className="space-y-4">
-          {filteredHistory.length > 0 ? (
-            filteredHistory.map((note) => {
+          {paginatedHistory.length > 0 ? (
+            paginatedHistory.map((note) => {
               const isCurrent = note.version === APP_VERSION;
               const typeBadgeColor =
                 note.type === 'major'
@@ -697,6 +784,151 @@ export const PanelUpdateSettingsView: React.FC<PanelUpdateSettingsViewProps> = (
             </div>
           )}
         </div>
+
+        {/* Bottom Pagination Controls Bar */}
+        {totalPages > 1 && (
+          <div
+            className={`pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4 ${
+              isLightMode ? 'border-slate-200' : 'border-white/10'
+            }`}
+          >
+            {/* Info Text */}
+            <div className={`text-xs ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+              <span>
+                {isEn ? 'Page' : 'صفحه'}{' '}
+                <b className={`font-mono font-bold ${isLightMode ? 'text-slate-900' : 'text-slate-200'}`}>
+                  {safePage}
+                </b>{' '}
+                {isEn ? 'of' : 'از'}{' '}
+                <b className={`font-mono font-bold ${isLightMode ? 'text-slate-900' : 'text-slate-200'}`}>
+                  {totalPages}
+                </b>{' '}
+                ({totalItems} {isEn ? 'total versions' : 'نسخه در کل'})
+              </span>
+            </div>
+
+            {/* Pagination Button Controls */}
+            <div className="flex items-center gap-1.5 flex-wrap justify-center">
+              {/* First Page */}
+              <button
+                type="button"
+                onClick={() => handlePageChange(1)}
+                disabled={safePage <= 1}
+                className={`p-2 rounded-xl border text-xs transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                    : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+                title={isEn ? 'First Page' : 'صفحه اول'}
+              >
+                {isRtl ? <ChevronsRight className="w-3.5 h-3.5" /> : <ChevronsLeft className="w-3.5 h-3.5" />}
+              </button>
+
+              {/* Previous Page */}
+              <button
+                type="button"
+                onClick={() => handlePageChange(safePage - 1)}
+                disabled={safePage <= 1}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                    : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+                title={isEn ? 'Previous Page' : 'صفحه قبل'}
+              >
+                {isRtl ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+                <span>{isEn ? 'Previous' : 'قبلی'}</span>
+              </button>
+
+              {/* Numbered Page Buttons */}
+              <div className="flex items-center gap-1 mx-1">
+                {(() => {
+                  const pages: (number | string)[] = [];
+                  const maxButtons = 5;
+
+                  if (totalPages <= 7) {
+                    for (let i = 1; i <= totalPages; i++) pages.push(i);
+                  } else {
+                    pages.push(1);
+                    const leftEllipsis = safePage > 4;
+                    const rightEllipsis = safePage < totalPages - 3;
+
+                    if (leftEllipsis) pages.push('ellipsis-left');
+
+                    const start = Math.max(2, safePage - 1);
+                    const end = Math.min(totalPages - 1, safePage + 1);
+
+                    for (let i = start; i <= end; i++) {
+                      if (!pages.includes(i)) pages.push(i);
+                    }
+
+                    if (rightEllipsis) pages.push('ellipsis-right');
+                    if (!pages.includes(totalPages)) pages.push(totalPages);
+                  }
+
+                  return pages.map((p, idx) => {
+                    if (typeof p === 'string') {
+                      return (
+                        <span key={`${p}-${idx}`} className="px-2 text-xs text-slate-500 font-mono select-none">
+                          …
+                        </span>
+                      );
+                    }
+
+                    const isActive = p === safePage;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => handlePageChange(p)}
+                        className={`min-w-[32px] h-8 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer flex items-center justify-center ${
+                          isActive
+                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                            : isLightMode
+                            ? 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                            : 'bg-slate-900 border border-white/10 text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Next Page */}
+              <button
+                type="button"
+                onClick={() => handlePageChange(safePage + 1)}
+                disabled={safePage >= totalPages}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                    : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+                title={isEn ? 'Next Page' : 'صفحه بعد'}
+              >
+                <span>{isEn ? 'Next' : 'بعدی'}</span>
+                {isRtl ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+
+              {/* Last Page */}
+              <button
+                type="button"
+                onClick={() => handlePageChange(totalPages)}
+                disabled={safePage >= totalPages}
+                className={`p-2 rounded-xl border text-xs transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed ${
+                  isLightMode
+                    ? 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                    : 'bg-slate-900 border-white/10 text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+                title={isEn ? 'Last Page' : 'صفحه آخر'}
+              >
+                {isRtl ? <ChevronsLeft className="w-3.5 h-3.5" /> : <ChevronsRight className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

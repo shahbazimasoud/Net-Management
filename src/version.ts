@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.319.1';
+export const APP_VERSION = '1.320.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.320.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن قابلیت صفحه‌بندی (Pagination) به تاریخچه تغییرات و نسخه‌ها (Release Notes) با انتخاب ۱۰، ۵۰ یا ۲۰۰ آیتم',
+    title_en: 'Add Multi-Density Pagination to Release Notes & Changelog History with 10, 50, or 200 Items per Page',
+    changes: [
+      'پیاده‌سازی سیستم صفحه‌بندی کامل و منعطف در بخش تاریخچه نسخه‌ها (Release Notes & Changelog History) در تب Panel Updates & Releases.',
+      'افزودن کنترل تغییر تعداد نمایش در هر صفحه (Per Page) با گزینه‌های سریع ۱۰، ۵۰ و ۲۰۰ نسخه.',
+      'طراحی دکمه‌های ناوبری ارگونومیک شامل صفحه قبل/بعد، اولین/آخرین صفحه، شماره صفحات با حالت فشرده و نقطه‌چین (Ellipsis)، و نمایش تعداد کل نتایج و بازه جاری (مثلاً ۱ تا ۱۰ از ۵۶۷).',
+      'همگام‌سازی هوشمند تغییر صفحه جاری هنگام اعمال فیلترهای نوع انتشار (Major/Minor/Patch) یا جستجوی زنده در متون تغییرات و عنوان‌ها.'
+    ],
+    changes_en: [
+      'Implemented robust multi-density pagination engine for Release Notes & Changelog History in the Panel Updates & Releases view.',
+      'Added dynamic page size selector with 10, 50, and 200 items per page options for optimal browsing of extensive changelog history.',
+      'Designed responsive navigation toolbar with First, Previous, Next, Last, ellipsis-aware page numbers, and active item ranges (e.g., Showing 1–10 of 567).',
+      'Added smart page reset handling when switching type filters (Major/Minor/Patch) or querying release contents in real time.'
+    ]
+  },
   {
     version: '1.319.1',
     releaseDate: '2026-10-11',
