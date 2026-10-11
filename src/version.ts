@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.315.3';
+export const APP_VERSION = '1.315.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.315.4',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'فاز ۴: راستی‌آزمایی جامع، تست عملکردی سناریوهای اعمال تمپلیت سیسکو و میکروتیک، شبیه‌سازی نقش‌های RBAC و بیلد نهایی',
+    title_en: 'Phase 4: Comprehensive Verification, End-to-End Cisco & MikroTik Template Execution Testing, RBAC Role Simulation & Final Build',
+    changes: [
+      'اجرای تست‌های راستی‌آزمایی عملکردی (Verification Suite) روی سناریوی واقعی اعمال تمپلیت‌های سوئیچ میکروتیک و سیسکو با متغیرهای پویا (DEVICE_NAME، MANAGEMENT_VLAN، IP_ADDRESS).',
+      'راستی‌آزمایی خطاهای اعتبارسنجی ورودی (HTTP 400 برای درخواست‌های فاقد device_id و HTTP 404 برای تجهیزات ناموجود در شبکه).',
+      'تست شبیه‌سازی نقش‌های RBAC و اطمینان از مسدودسازی قطعی دسترسی کاربران غیرمجاز با پاسخ HTTP 403 و لاگ ممیزی امنیتی در PostgreSQL.',
+      'تایید صحت ثبت لاگ ممیزی خودکار (Audit Logging) در پایگاه‌داده و پنل رخدادها با مقادیر دقیق تجهیز، نام کاربر، آدرس IP و وضعیت اجرا.',
+      'بررسی و تایید بیلد کامل نهایی فرانت‌اند (Vite) و بک‌اند (Node.js/esbuild server) بدون هرگونه خطای تایپ‌اسکریپت.'
+    ],
+    changes_en: [
+      'Executed automated end-to-end verification suite testing authentic MikroTik and Cisco template push workflows with customized parameters (DEVICE_NAME, MANAGEMENT_VLAN, IP_ADDRESS).',
+      'Verified input validation safeguards, returning HTTP 400 for missing device_id and HTTP 404 for non-existent target equipment.',
+      'Tested RBAC role simulation barriers, ensuring non-permitted users receive authentic HTTP 403 responses and automated audit log security events.',
+      'Validated persistent audit log emission into PostgreSQL database with accurate operator username, IP address, target device, and execution outcome.',
+      'Completed zero-error TypeScript validation and full production bundle compilation across Vite frontend and esbuild server backend.'
+    ]
+  },
   {
     version: '1.315.3',
     releaseDate: '2026-10-11',
