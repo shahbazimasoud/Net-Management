@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.316.0';
+export const APP_VERSION = '1.317.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.317.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن انیمیشن سه‌بعدی کهکشان راه شیری با غبارهای کیهانی و قابلیت زوم اسکرولی به منظومه شمسی در صفحه لاگین',
+    title_en: 'Add Interactive 3D Milky Way Galaxy & Solar System Scroll-Zoom Login Animation',
+    changes: [
+      'طراحی و پیاده‌سازی کامپوننت سه‌بعدی تعاملی کهکشان راه شیری (MilkyWayGalaxy3D) با چرخش بسیار آرام بازوهای مارپیچی، هسته درخشان کهکشان و ابرهای غبار کیهانی و سحابی‌ها.',
+      'قابلیت زوم پیوسته با اسکرول ماوس (Mouse Wheel) و نوار زوم تعاملی جهت سفر از نمای کل کهکشان راه شیری به بازوی شکارچی و ورود به منظومه شمسی.',
+      'شبیه‌سازی کامل منظومه شمسی شامل خورشید (با هاله و تاج خورشیدی)، مدار سه‌بعدی ۸ سیاره (عطارد، زهره، زمین به همراه ماه، مریخ، مشتری، زحل با حلقه‌های سه‌بعدی، اورانوس و نپتون) و کمربند سیارک‌ها.',
+      'افزودن امکان انتخاب بین دو انیمیشن سه‌بعدی «کره شبکه جهانی» و «کهکشان راه شیری و منظومه شمسی» در بخش تنظیمات عمومی پنل (Panel General Settings).'
+    ],
+    changes_en: [
+      'Created the interactive 3D Milky Way Galaxy simulation (MilkyWayGalaxy3D) featuring slowly rotating logarithmic spiral arms, glowing galactic core, and volumetric cosmic dust clouds.',
+      'Implemented smooth mouse-wheel scroll zoom and interactive controls that travel seamlessly from the 100,000 light-year Milky Way view into the Orion Spur and the Solar System.',
+      'Rendered the full 3D Solar System including the Sun with solar corona, all 8 planetary orbits (Mercury, Venus, Earth with orbiting Moon, Mars, Jupiter, Saturn with 3D rings, Uranus, Neptune), and the Main Asteroid Belt.',
+      'Added a 3D Login Animation selector in Panel General Settings to switch between the 3D Network Globe and the Milky Way Galaxy & Solar System animation.'
+    ]
+  },
   {
     version: '1.316.0',
     releaseDate: '2026-10-11',

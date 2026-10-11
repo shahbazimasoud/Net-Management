@@ -699,6 +699,7 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
   twoFactorEnabled: false,
   allowedAuthMethods: 'both',
   loginVisualMode: 'animation',
+  loginAnimationType: 'globe',
   loginImageMode: 'selected',
   loginSelectedImageId: '',
   loginUploadedImages: [],

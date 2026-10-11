@@ -2123,7 +2123,9 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono text-purple-400 font-bold uppercase px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20">
                     {(formData.loginVisualMode || 'animation') === 'animation'
-                      ? (isEn ? '3D GLOBE ANIMATION' : 'انیمیشن سه‌بعدی لاگین')
+                      ? (formData.loginAnimationType === 'milky_way'
+                          ? (isEn ? '3D MILKY WAY & SOLAR SYSTEM' : 'انیمیشن کهکشان راه شیری و منظومه شمسی')
+                          : (isEn ? '3D GLOBE ANIMATION' : 'انیمیشن کره سه‌بعدی شبکه'))
                       : (formData.loginImageMode || 'selected') === 'random'
                       ? (isEn ? 'CUSTOM IMAGE (RANDOM)' : 'تصویر سفارشی (تصادفی)')
                       : (isEn ? 'CUSTOM IMAGE (SELECTED)' : 'تصویر سفارشی (انتخابی)')}
@@ -2140,12 +2142,12 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       isEn={isEn}
                       isLightMode={isLightMode}
                       title={isEn ? 'Login Visual Showcase Mode' : 'حالت نمایش گرافیکی صفحه لاگین'}
-                      infoWhatEn="Determines whether the visual showcase area of the login page renders the interactive 3D Network Globe animation or a custom uploaded image."
-                      infoWhatFa="تعیین می‌کند که در بخش گرافیکی صفحه ورود (قسمت انیمیشن لاگین)، کره سه‌بعدی تعاملی شبکه نمایش داده شود یا تصاویر اختصاصی بارگذاری‌شده توسط شما."
-                      infoWhyEn="Allows organizations to personalize the login gateway with NOC center photos, infrastructure wallpapers, or corporate visual identity."
-                      infoWhyFa="امکان شخصی‌سازی کامل صفحه ورود سازمان با تصاویر مرکز NOC، دیتاسنتر، پوسترهای امنیتی یا حفظ نمای فضایی سه‌بعدی پیش‌فرض."
-                      infoExampleEn="3D Network Globe Animation (default) or Custom Uploaded Image Gallery (Fixed / Random)"
-                      infoExampleFa="انیمیشن سه‌بعدی کره زمین (پیش‌فرض) یا گالری تصاویر اختصاصی آپلودشده (ثابت یا تصادفی)"
+                      infoWhatEn="Determines whether the visual showcase area of the login page renders an interactive 3D space animation (Network Globe or Milky Way Galaxy) or a custom uploaded image."
+                      infoWhatFa="تعیین می‌کند که در بخش گرافیکی صفحه ورود (قسمت انیمیشن لاگین)، انیمیشن‌های سه‌بعدی تعاملی (کره شبکه جهانی یا کهکشان راه شیری و منظومه شمسی) نمایش داده شود یا تصاویر اختصاصی بارگذاری‌شده توسط شما."
+                      infoWhyEn="Allows organizations to personalize the login gateway with interactive 3D simulations, NOC center photos, or corporate visual identity."
+                      infoWhyFa="امکان شخصی‌سازی کامل صفحه ورود سازمان با شبیه‌سازهای سه‌بعدی تعاملی، تصاویر مرکز NOC یا پوسترهای اختصاصی."
+                      infoExampleEn="3D Animation (Network Globe / Milky Way Galaxy) or Custom Uploaded Image Gallery (Fixed / Random)"
+                      infoExampleFa="انیمیشن سه‌بعدی (کره زمین / کهکشان راه شیری) یا گالری تصاویر اختصاصی آپلودشده (ثابت یا تصادفی)"
                     />
                   </label>
                 </div>
@@ -2174,10 +2176,12 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         </div>
                         <div>
                           <span className={`text-xs font-bold block ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                            {isEn ? '3D Interactive Network Globe Animation' : 'انیمیشن سه‌بعدی تعاملی کره شبکه (پیش‌فرض)'}
+                            {isEn ? '3D Interactive Space & Network Animations' : 'انیمیشن‌های سه‌بعدی و تعاملی صفحه لاگین'}
                           </span>
                           <span className="text-[10px] font-mono text-indigo-400">
-                            {isEn ? 'WebGL / Canvas 3D Cyber Matrix' : 'گرافیک سه‌بعدی زنده گره‌های شبکه جهانی'}
+                            {formData.loginAnimationType === 'milky_way'
+                              ? (isEn ? 'Active: Milky Way Galaxy & Solar System' : 'فعال: کهکشان راه شیری و منظومه شمسی')
+                              : (isEn ? 'Active: 3D Network Globe & Satellites' : 'فعال: کره سه‌بعدی شبکه جهانی و ماهواره‌ها')}
                           </span>
                         </div>
                       </div>
@@ -2187,8 +2191,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     </div>
                     <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
                       {isEn
-                        ? 'Displays the interactive 3D global network topology animation with live telemetry arcs in the login showcase section.'
-                        : 'نمایش انیمیشن سه‌بعدی و تعاملی کره زمین و خطوط ارتباطی شبکه در بخش نمایشی صفحه ورود به سامانه.'}
+                        ? 'Choose between the 3D Global Network Topology Globe or the rotating Milky Way Galaxy with cosmic dust and scroll-zoom into the Solar System.'
+                        : 'نمایش انیمیشن‌های سه‌بعدی تعاملی در صفحه ورود؛ شامل کره زمین و شبکه جهانی یا کهکشان راه شیری چرخان با قابلیت زوم اسکرولی به منظومه شمسی.'}
                     </p>
                   </button>
 
@@ -2240,6 +2244,113 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         : 'جایگزینی بخش انیمیشن صفحه لاگین با تصاویر آپلودشده توسط شما؛ با قابلیت انتخاب یک عکس مشخص از گالری یا قرار دادن روی حالت رندوم (تصادفی).'}
                     </p>
                   </button>
+                </div>
+
+                {/* Step 1.5: 3D Login Animation Model Selector (Network Globe vs Milky Way Galaxy & Solar System) */}
+                <div className={`p-4 rounded-xl border space-y-3 mt-2 ${
+                  isLightMode
+                    ? 'bg-indigo-50/50 border-indigo-200/80'
+                    : 'bg-slate-900/70 border-indigo-500/20'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <label className={`text-xs font-bold flex items-center gap-1.5 ${isLightMode ? 'text-slate-800' : 'text-white'}`}>
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{isEn ? 'Select 3D Login Animation Style' : 'انتخاب نوع انیمیشن سه‌بعدی لاگین'}</span>
+                      <FieldInfoTooltip
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                        title={isEn ? '3D Login Animation Selection' : 'انتخاب انیمیشن سه‌بعدی صفحه لاگین'}
+                        infoWhatEn="Choose which interactive 3D simulation renders on the login page when Animation Mode is active: the 3D Global Network Globe or the 3D Milky Way Galaxy & Solar System."
+                        infoWhatFa="مشخص می‌کند در حالت نمایش انیمیشن، کدام شبیه‌ساز سه‌بعدی در صفحه ورود اجرا شود: «کره سه‌بعدی شبکه جهانی» یا «کهکشان راه شیری با غبارهای کیهانی و زوم به منظومه شمسی»."
+                        infoWhyEn="Provides two distinct interactive 3D experiences: global telecom infrastructure or a deep-space cosmic journey into the Solar System."
+                        infoWhyFa="امکان انتخاب بین نمای زیرساخت ارتباطی کره زمین یا نمای فضایی باشکوه کهکشان راه شیری چرخان با قابلیت اسکرول و زوم به درون منظومه شمسی."
+                        infoExampleEn="Milky Way Galaxy (scroll wheel zooms smoothly from galactic spiral arms into the Sun and 8 planets)"
+                        infoExampleFa="کهکشان راه شیری و منظومه شمسی (با چرخش آرام بازوهای کهکشانی، غبارهای مرکز کهکشان و زوم با اسکرول ماوس به سمت خورشید و سیارات)"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Animation 1: 3D Network Globe */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: PanelGeneralSettings = {
+                          ...formData,
+                          loginVisualMode: 'animation',
+                          loginAnimationType: 'globe',
+                        };
+                        setFormData(next);
+                        saveGeneralSettings(next);
+                      }}
+                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
+                        (formData.loginVisualMode || 'animation') === 'animation' && (formData.loginAnimationType || 'globe') === 'globe'
+                          ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-sm ring-1 ring-indigo-500/40'
+                          : isLightMode
+                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-2 rounded-lg bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 mt-0.5 shrink-0">
+                          <Globe className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? '3D Global Network Globe & Satellites' : 'کره سه‌بعدی شبکه جهانی و ماهواره‌ها'}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                            {isEn
+                              ? 'Interactive 3D Earth with live backbone data arcs, continental nodes, and orbital relay satellites.'
+                              : 'کره زمین سه‌بعدی با گره‌های دیتاسنتر، خطوط تبادل داده زنده و ماهواره‌های مداری.'}
+                          </p>
+                        </div>
+                      </div>
+                      {(formData.loginVisualMode || 'animation') === 'animation' && (formData.loginAnimationType || 'globe') === 'globe' && (
+                        <Check className="w-4 h-4 text-indigo-400 shrink-0 mt-1" />
+                      )}
+                    </button>
+
+                    {/* Animation 2: Milky Way Galaxy & Solar System */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: PanelGeneralSettings = {
+                          ...formData,
+                          loginVisualMode: 'animation',
+                          loginAnimationType: 'milky_way',
+                        };
+                        setFormData(next);
+                        saveGeneralSettings(next);
+                      }}
+                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
+                        (formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'milky_way'
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm ring-1 ring-amber-500/40'
+                          : isLightMode
+                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-2 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-400 mt-0.5 shrink-0">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? 'Milky Way Galaxy & Solar System (Scroll Zoom)' : 'کهکشان راه شیری و منظومه شمسی (با زوم اسکرولی)'}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                            {isEn
+                              ? 'Slowly rotating Milky Way with glowing core dust & spiral arms; scroll mouse wheel to zoom right into the Solar System!'
+                              : 'کهکشان راه شیری با چرخش بسیار آرام، غبارهای کیهانی درخشان در مرکز و قابلیت اسکرول جهت زوم و رسیدن به منظومه شمسی.'}
+                          </p>
+                        </div>
+                      </div>
+                      {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'milky_way' && (
+                        <Check className="w-4 h-4 text-amber-400 shrink-0 mt-1" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../../i18n';
 import { useAuth, AuthUser } from '../../context/AuthContext';
 import { NetworkGlobe3D, GlobeThemeType } from './NetworkGlobe3D';
+import { MilkyWayGalaxy3D } from './MilkyWayGalaxy3D';
 import { APP_VERSION } from '../../version';
 import { loadGeneralSettings, syncGeneralSettingsFromDatabase } from '../../services/settingsStorage';
 import { PanelGeneralSettings } from '../../types';
@@ -1197,6 +1198,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-slate-950/30 pointer-events-none" />
           </div>
+        ) : generalSettings?.loginAnimationType === 'milky_way' ? (
+          <MilkyWayGalaxy3D theme={theme === 'light' ? 'obsidian' : theme} />
         ) : (
           <NetworkGlobe3D theme={theme === 'light' ? 'obsidian' : theme} />
         )}

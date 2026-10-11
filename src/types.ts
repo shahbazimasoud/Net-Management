@@ -7144,6 +7144,7 @@ export interface PanelGeneralSettings {
   twoFactorEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   loginVisualMode?: 'animation' | 'image';
+  loginAnimationType?: 'globe' | 'milky_way';
   loginImageMode?: 'selected' | 'random';
   loginSelectedImageId?: string;
   loginUploadedImages?: LoginUploadedImage[];
