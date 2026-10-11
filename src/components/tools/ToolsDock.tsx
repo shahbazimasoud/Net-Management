@@ -184,7 +184,7 @@ export const ToolsDock: React.FC<ToolsDockProps> = ({
         labelFa: docked.labelFa,
         badge: docked.badge,
         category: docked.category,
-        icon: STANDARD_MODAL_ICONS[docked.id as StandardModalId] || (docked.category === 'terminal' ? Terminal : docked.category === 'device' ? Server : Activity),
+        icon: (docked.id === 'apply-template-modal' || docked.id === 'apply_template') ? FileCode2 : (STANDARD_MODAL_ICONS[docked.id as StandardModalId] || (docked.category === 'terminal' ? Terminal : docked.category === 'device' ? Server : docked.category === 'config' ? FileCode2 : Activity)),
         onRestore: () => restoreModal(docked.id),
         onClose: () => closeModal(docked.id),
       });

@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.315.0';
+export const APP_VERSION = '1.315.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.315.1',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'فاز ۱: اصلاح معماری، باز شدن قطعی و یکپارچه‌سازی مینیمایز در نوار داک مودال اعمال تمپلیت کانفیگ (ApplyTemplateModal)',
+    title_en: 'Phase 1: Universal Modal Architecture, Reliable Opening & ToolsDock Minimization for ApplyTemplateModal',
+    changes: [
+      'ارتقای کامل مودال اعمال تمپلیت کانفیگ (ApplyTemplateModal) به استاندارد پنج‌گانه Universal Modal با تعبیه دکمه‌های سه‌گانه هدر (بستن، مینیمایز، تمام‌صفحه) و حریم فوتر (bottom-8).',
+      'اتصال سیستم مینیمایز به نوار داک پایین (ToolsDock) از طریق هوک useModalDock با ثبت دسته‌بندی config، آیکون FileCode2 و حفظ وضعیت فرم.',
+      'ارتقای لایه چیدمان مودال به z-[999990] جهت جلوگیری قطعی از محبوس شدن یا پنهان ماندن زیر سایر پنجره‌ها و بک‌دراپ‌ها.',
+      'اصلاح رویداد کلیک دکمه «Apply to Device...» در کارت‌های تمپلیت و پیش‌انتخاب هوشمند اولین تجهیز هم‌خانواده (سیسکو یا میکروتیک).',
+      'تجهیز انتخابگرهای تجهیز هدف و الگوی کانفیگ به کادرهای راهنمای Info سه‌بخشی ایمن (FieldInfoTooltip).'
+    ],
+    changes_en: [
+      'Fully upgraded ApplyTemplateModal to the Universal 5-Pillar Modal Specification with triad header controls (Close, Minimize, Fullscreen) and footer clearance constraint (bottom-8).',
+      'Integrated native ToolsDock minimization via useModalDock with "config" categorization, FileCode2 icon, and complete form state preservation.',
+      'Elevated modal stacking layer to z-[999990] ensuring it opens reliably above all application windows and backdrops without being obscured.',
+      'Fixed "Apply to Device..." click handling on template cards with vendor-aware auto-preselection of matching Cisco or MikroTik target devices.',
+      'Equipped target device and template selector labels with boundary-safe 3-part FieldInfoTooltip popovers.'
+    ]
+  },
   {
     version: '1.315.0',
     releaseDate: '2026-10-11',

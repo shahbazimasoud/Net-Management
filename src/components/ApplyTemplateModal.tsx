@@ -27,6 +27,8 @@ import { Device, ConfigTemplate, TemplateApplyResult, TemplateExecutionLog } fro
 import { fetchTemplates, applyTemplateToDevice } from '../services/api';
 import { logDeviceCommand } from '../services/auditLogger';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useModalDock } from '../context/ModalDockContext';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 
 interface ApplyTemplateModalProps {
   isOpen: boolean;
@@ -52,6 +54,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   isLightMode: propIsLightMode,
 }) => {
   const { t, isEn } = useLanguage();
+  const { dockModal, undockModal } = useModalDock();
 
   const isLightMode = propIsLightMode ?? (typeof document !== 'undefined' && (
     document.querySelector('.theme-light') !== null ||
@@ -78,14 +81,81 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const [applyResult, setApplyResult] = useState<TemplateApplyResult | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
-  // Update selected device if prop changes
-  useEffect(() => {
-    if (initialTargetDevice) {
-      setSelectedDevice(initialTargetDevice);
-    } else if (allDevices.length > 0 && !selectedDevice) {
-      setSelectedDevice(allDevices[0]);
+  // Close handler with undock
+  const handleClose = () => {
+    undockModal('apply-template-modal');
+    onClose();
+  };
+
+  // Universal Minimize handler with ToolsDock registration
+  const handleMinimize = () => {
+    if (onMinimize) {
+      onMinimize();
+      return;
     }
-  }, [initialTargetDevice, allDevices]);
+    const currentTmpl = templates.find((t) => t.id === selectedTemplateId);
+    const tmplName = currentTmpl?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
+    const devName = selectedDevice?.name || (isEn ? 'Device' : 'تجهیز');
+    dockModal({
+      id: 'apply-template-modal',
+      labelEn: `Apply Template (${tmplName})`,
+      labelFa: `اعمال الگو (${tmplName})`,
+      badge: currentTmpl?.vendor === 'mikrotik' ? 'MikroTik' : currentTmpl?.vendor === 'cisco' ? 'Cisco' : 'CLI',
+      category: 'config',
+      onRestore: () => {
+        // Handled by parent or dock
+      },
+      onClose: () => {
+        undockModal('apply-template-modal');
+        onClose();
+      },
+    });
+    onClose();
+  };
+
+  // Keyboard Escape listener
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isApplying) {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isApplying]);
+
+  // Sync state whenever modal opens or initial target device changes
+  useEffect(() => {
+    if (isOpen) {
+      if (preselectedTemplateId) {
+        setSelectedTemplateId(preselectedTemplateId);
+      }
+      if (initialTargetDevice) {
+        setSelectedDevice(initialTargetDevice);
+      } else if (allDevices.length > 0) {
+        // Intelligently pick device matching template if possible
+        const tmpl = (propTemplates || templates).find((t) => t.id === (preselectedTemplateId || selectedTemplateId));
+        if (tmpl) {
+          const isMikroTikTmpl = tmpl.vendor === 'mikrotik';
+          const isCiscoTmpl = tmpl.vendor === 'cisco';
+          const matchedDev = allDevices.find((d) => {
+            const isDevMikroTik = (d.model || '').toLowerCase().includes('mikrotik') || (d.model || '').toLowerCase().includes('routerboard') || (d.platform || '').toLowerCase().includes('mikrotik');
+            const isDevCisco = (d.model || '').toLowerCase().includes('cisco') || (d.model || '').toLowerCase().includes('catalyst') || (d.platform || '').toLowerCase().includes('cisco');
+            if (isMikroTikTmpl) return isDevMikroTik;
+            if (isCiscoTmpl) return isDevCisco;
+            return true;
+          });
+          setSelectedDevice(matchedDev || allDevices[0]);
+        } else {
+          setSelectedDevice(allDevices[0]);
+        }
+      }
+      setActiveStep('variables');
+      setApplyResult(null);
+      setApplyError(null);
+    }
+  }, [isOpen, preselectedTemplateId, initialTargetDevice, allDevices]);
 
   // Sync templates if passed via props
   useEffect(() => {
@@ -300,16 +370,21 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
   return createPortal(
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center ${
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[999990] flex items-center justify-center ${
         isMaximized ? 'p-0' : 'p-2 sm:p-4'
       } modal-backdrop-blur animate-fadeIn overflow-y-auto`}
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isApplying) {
+          handleClose();
+        }
+      }}
     >
       <div className={`w-full ${
         isMaximized
           ? 'h-full max-h-full max-w-none rounded-none border-none my-0'
-          : 'max-w-4xl max-h-[92vh] sm:max-h-[88vh] my-auto rounded-2xl border'
+          : 'max-w-4xl max-h-[calc(100vh-4rem)] my-auto rounded-2xl border'
       } flex flex-col overflow-hidden transition-all duration-200 ${
         isLightMode
           ? 'bg-white border-slate-200 text-slate-900 shadow-2xl shadow-slate-900/15'
@@ -367,24 +442,24 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
             >
               {isMaximized ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
             </button>
-            {onMinimize && (
-              <button
-                type="button"
-                onClick={onMinimize}
-                className={`p-1.5 rounded-xl transition cursor-pointer ${
-                  isLightMode ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200' : 'text-slate-400 hover:text-cyan-300 hover:bg-white/10'
-                }`}
-                title={isEn ? 'Minimize' : 'مینیمایز به نوار پایین'}
-                aria-label={isEn ? 'Minimize' : 'مینیمایز'}
-              >
-                <Minus className="w-5 h-5" />
-              </button>
-            )}
             <button
-              onClick={onClose}
+              type="button"
+              onClick={handleMinimize}
+              className={`p-1.5 rounded-xl transition cursor-pointer ${
+                isLightMode ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200' : 'text-slate-400 hover:text-cyan-300 hover:bg-white/10'
+              }`}
+              title={isEn ? 'Minimize to ToolsDock' : 'مینیمایز به نوار پایین'}
+              aria-label={isEn ? 'Minimize' : 'مینیمایز'}
+            >
+              <Minus className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleClose}
               className={`p-1.5 rounded-xl transition cursor-pointer ${
                 isLightMode ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200' : 'text-slate-400 hover:text-white hover:bg-white/10'
               }`}
+              title={isEn ? 'Close' : 'بستن'}
               aria-label={t('action_close')}
             >
               <X className="w-5 h-5" />
@@ -472,11 +547,24 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
           }`}>
             {/* Target Device Selector */}
             <div>
-              <label className={`block text-xs font-semibold mb-1.5 flex items-center gap-1.5 ${
+              <label className={`block text-xs font-semibold mb-1.5 flex items-center justify-between ${
                 isLightMode ? 'text-slate-700' : 'text-slate-300'
               }`}>
-                <Server className="w-3.5 h-3.5 text-indigo-500" />
-                <span>{t('apply_target_device')}</span>
+                <div className="flex items-center gap-1.5">
+                  <Server className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>{t('apply_target_device')}</span>
+                </div>
+                <FieldInfoTooltip
+                  fieldName={isEn ? 'Target Device' : 'تجهیز هدف'}
+                  infoWhatEn="Network equipment (Cisco or MikroTik) that will receive and execute this configuration template."
+                  infoWhatFa="تجهیز شبکه (سیسکو یا میکروتیک) که این الگوی پیکربندی بر روی آن اعمال و پیاده‌سازی می‌گردد."
+                  infoWhyEn="Ensures CLI commands are provisioned to the correct physical or virtual device over authenticated SSH."
+                  infoWhyFa="تضمین تزریق امن و دقیق دستورات خط فرمان بر روی سخت‌افزار مشخص از طریق پروتکل‌های استاندارد شبکه."
+                  infoExampleEn="Core-Switch-01 (192.168.1.1)"
+                  infoExampleFa="سوییچ لایه سه یا روتر میکروتیک (۱۹۲.۱۶۸.۱.۱)"
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                />
               </label>
               {allDevices.length > 0 ? (
                 <select
@@ -514,11 +602,24 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
             {/* Template Selector */}
             <div>
-              <label className={`block text-xs font-semibold mb-1.5 flex items-center gap-1.5 ${
+              <label className={`block text-xs font-semibold mb-1.5 flex items-center justify-between ${
                 isLightMode ? 'text-slate-700' : 'text-slate-300'
               }`}>
-                <FileCode2 className="w-3.5 h-3.5 text-cyan-500" />
-                <span>{t('apply_template_label')}</span>
+                <div className="flex items-center gap-1.5">
+                  <FileCode2 className="w-3.5 h-3.5 text-cyan-500" />
+                  <span>{t('apply_template_label')}</span>
+                </div>
+                <FieldInfoTooltip
+                  fieldName={isEn ? 'Configuration Template' : 'الگوی پیکربندی'}
+                  infoWhatEn="Standardized CLI commands template containing dynamic parameter placeholders."
+                  infoWhatFa="الگو و قالب استاندارد دستورات خط فرمان حاوی متغیرهای پارامتریک جهت استقرار سریع."
+                  infoWhyEn="Prevents human typing errors and automates identical provisioning across hardware fleet."
+                  infoWhyFa="جلوگیری از خطای تایپی انسانی و استانداردسازی یکپارچه تنظیمات شبکه در ناوگان تجهیزات."
+                  infoExampleEn="Cisco 2960 Base Setup or MikroTik RouterOS Initial Setup"
+                  infoExampleFa="کانفیگ اولیه سیسکو یا راه‌اندازی روتر میکروتیک"
+                  isEn={isEn}
+                  isLightMode={isLightMode}
+                />
               </label>
               <select
                 value={selectedTemplateId}
@@ -975,7 +1076,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
                   >
                     <span>{t('apply_btn_finish')}</span>

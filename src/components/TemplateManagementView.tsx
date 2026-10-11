@@ -31,6 +31,7 @@ import { ApplyTemplateModal } from './ApplyTemplateModal';
 import { CloneTemplateModal } from './CloneTemplateModal';
 import { CaptureConfigModal } from './CaptureConfigModal';
 import { useLanguage } from '../i18n';
+import { useModalDock } from '../context/ModalDockContext';
 
 interface TemplateManagementViewProps {
   devices: Device[];
@@ -44,6 +45,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
   onOpenTerminal,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
+  const { dockModal, undockModal } = useModalDock();
   const [templates, setTemplates] = useState<ConfigTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -196,10 +198,52 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Open apply modal for template
+  // Minimize apply modal to ToolsDock
+  const handleMinimizeApply = () => {
+    const tmpl = templates.find((t) => t.id === applyTargetTemplateId);
+    const tmplName = tmpl?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
+    dockModal({
+      id: 'apply-template-modal',
+      labelEn: `Apply Template (${tmplName})`,
+      labelFa: `اعمال الگو (${tmplName})`,
+      badge: tmpl?.vendor === 'mikrotik' ? 'MikroTik' : tmpl?.vendor === 'cisco' ? 'Cisco' : 'CLI',
+      category: 'config',
+      onRestore: () => {
+        setApplyModalOpen(true);
+      },
+      onClose: () => {
+        undockModal('apply-template-modal');
+        setApplyModalOpen(false);
+      },
+    });
+    setApplyModalOpen(false);
+  };
+
+  // Open apply modal for template with smart vendor matching
   const handleOpenApply = (templateId: string) => {
     setApplyTargetTemplateId(templateId);
-    setApplyTargetDevice(devices.length > 0 ? devices[0] : null);
+    const targetTmpl = templates.find((t) => t.id === templateId);
+    let matchedDevice: Device | null = null;
+    if (targetTmpl && devices && devices.length > 0) {
+      if (targetTmpl.vendor === 'mikrotik') {
+        matchedDevice = devices.find((d) => 
+          (d.model || '').toLowerCase().includes('mikrotik') || 
+          (d.model || '').toLowerCase().includes('routerboard') || 
+          (d.platform || '').toLowerCase().includes('mikrotik')
+        ) || devices[0];
+      } else if (targetTmpl.vendor === 'cisco') {
+        matchedDevice = devices.find((d) => 
+          (d.model || '').toLowerCase().includes('cisco') || 
+          (d.model || '').toLowerCase().includes('catalyst') || 
+          (d.platform || '').toLowerCase().includes('cisco')
+        ) || devices[0];
+      } else {
+        matchedDevice = devices[0];
+      }
+    } else if (devices && devices.length > 0) {
+      matchedDevice = devices[0];
+    }
+    setApplyTargetDevice(matchedDevice);
     setApplyModalOpen(true);
   };
 
@@ -617,7 +661,11 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
       {/* Apply Template Modal */}
       <ApplyTemplateModal
         isOpen={applyModalOpen}
-        onClose={() => setApplyModalOpen(false)}
+        onClose={() => {
+          undockModal('apply-template-modal');
+          setApplyModalOpen(false);
+        }}
+        onMinimize={handleMinimizeApply}
         targetDevice={applyTargetDevice}
         allDevices={devices}
         templates={templates}
