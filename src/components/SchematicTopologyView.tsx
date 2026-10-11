@@ -2671,8 +2671,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [addUnitModal, setAddUnitModal] = useState<{ building: string; floor: string } | null>(null);
   const [newUnitInput, setNewUnitInput] = useState('');
 
-  const [addRackModal, setAddRackModal] = useState<{ building: string; floor: string } | null>(null);
+  const [addRackModal, setAddRackModal] = useState<{ building: string; floor: string; unit?: string } | null>(null);
   const [newRackInput, setNewRackInput] = useState('');
+  const [isAddRackModalMaximized, setIsAddRackModalMaximized] = useState(false);
 
   const [renameModal, setRenameModal] = useState<{
     type: 'building' | 'floor' | 'unit' | 'rack';
@@ -2704,6 +2705,32 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [assignPlacementTarget, setAssignPlacementTarget] = useState<AssignPhysicalPlacementTarget | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleMinimizeAddRack = () => {
+    if (!addRackModal) return;
+    const modalData = { ...addRackModal };
+    dockModal({
+      id: 'physical_placement_add_rack',
+      labelEn: modalData.unit
+        ? `Add Rack (${modalData.unit})`
+        : `Add Rack (${modalData.floor})`,
+      labelFa: modalData.unit
+        ? `افزودن رک (${modalData.unit})`
+        : `افزودن رک (${modalData.floor})`,
+      badge: modalData.building,
+      category: 'device',
+      onRestore: () => {
+        setAddRackModal(modalData);
+      },
+      onClose: () => {
+        undockModal('physical_placement_add_rack');
+        setAddRackModal(null);
+        setIsAddRackModalMaximized(false);
+      },
+    });
+    setAddRackModal(null);
+    setIsAddRackModalMaximized(false);
+  };
 
   const handleUnassignDevice = async (deviceId: string) => {
     const dev = localNodes.find((n) => n.id === deviceId);
@@ -3048,11 +3075,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     setTimeout(() => setFeedbackToast(null), 3000);
   };
 
-  const handleAddRack = (building: string, floor: string, customInput?: string) => {
+  const handleAddRack = (building: string, floor: string, customInput?: string, unit?: string) => {
     const rackName = (customInput !== undefined ? customInput : newRackInput).trim();
     if (!rackName) return;
-    const key = `${building}:::${floor}`;
-    const existingForFloor = customRacks[key] || [];
+    const floorKey = `${building}:::${floor}`;
+    const existingForFloor = customRacks[floorKey] || [];
     if (existingForFloor.some((r) => r.trim().toLowerCase() === rackName.toLowerCase())) {
       setFeedbackToast({
         type: 'error',
@@ -3065,15 +3092,28 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     }
     const updatedRacks = {
       ...customRacks,
-      [key]: [...existingForFloor, rackName],
+      [floorKey]: [...existingForFloor, rackName],
     };
+    if (unit) {
+      const unitKey = `${building}:::${floor}:::${unit}`;
+      const existingForUnit = customRacks[unitKey] || [];
+      if (!existingForUnit.some((r) => r.trim().toLowerCase() === rackName.toLowerCase())) {
+        updatedRacks[unitKey] = [...existingForUnit, rackName];
+      }
+    }
     setCustomRacks(updatedRacks);
     saveHierarchyState(customBuildings, customFloors, customUnits, updatedRacks);
     setAddRackModal(null);
     setNewRackInput('');
     setFeedbackToast({
       type: 'success',
-      message: isEn ? `Rack "${rackName}" created` : `رک «${rackName}» ایجاد شد`,
+      message: isEn
+        ? unit
+          ? `Rack "${rackName}" created in ${unit}`
+          : `Rack "${rackName}" created`
+        : unit
+        ? `رک «${rackName}» در اتاق «${unit}» ایجاد شد`
+        : `رک «${rackName}» ایجاد شد`,
     });
     setTimeout(() => setFeedbackToast(null), 3000);
   };
@@ -7874,6 +7914,17 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                       dragOverTarget?.floor === floorName &&
                                       dragOverTarget?.unit === unitName;
 
+                                    const unitRacks = customRacks[`${bldgName}:::${floorName}:::${unitName}`] || [];
+                                    const allUnitRacks = Array.from(
+                                      new Set([
+                                        ...unitRacks,
+                                        ...unitDevices.map((d) => d.rack).filter((r): r is string => Boolean(r && r.trim())),
+                                      ])
+                                    );
+                                    const standaloneUnitDevices = allUnitRacks.length > 0
+                                      ? unitDevices.filter((d) => !d.rack || !allUnitRacks.includes(d.rack))
+                                      : unitDevices;
+
                                     return (
                                       <div
                                         key={unitName}
@@ -7995,13 +8046,208 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                               <Plus className="w-2.5 h-2.5 text-indigo-400" />
                                               <span>{t('topology_physical_add_device_btn')}</span>
                                             </button>
+
+                                            {/* Add Rack to Room / Unit */}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAddRackModal({
+                                                  building: bldgName,
+                                                  floor: floorName,
+                                                  unit: unitName,
+                                                });
+                                                setNewRackInput('');
+                                                setIsAddRackModalMaximized(false);
+                                              }}
+                                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] transition cursor-pointer ${
+                                                isLightMode
+                                                  ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 hover:text-cyan-900 border-cyan-200 shadow-sm'
+                                                  : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 hover:text-white border-cyan-500/30 shadow-sm'
+                                              }`}
+                                              title={isEn ? `Add Rack to ${unitName}` : `افزودن رک به ${unitName}`}
+                                            >
+                                              <Server className="w-2.5 h-2.5 text-cyan-400" />
+                                              <span>{t('topology_physical_add_rack_btn')}</span>
+                                            </button>
+
                                             <span className="text-[10px] text-indigo-300/80 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
                                               {t('topology_devices_in_building', { count: unitDevices.length })}
                                             </span>
                                           </div>
                                         </div>
 
-                                        {unitDevices.length === 0 ? (
+                                        {/* Nested Racks inside Unit / Room */}
+                                        {allUnitRacks.length > 0 && (
+                                          <div className="space-y-2 mb-2.5">
+                                            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-cyan-300 uppercase tracking-wider">
+                                              <Server className="w-3 h-3 text-cyan-400" />
+                                              <span>{isEn ? `Racks in ${unitName}` : `رک‌های مستقر در ${unitName}`}</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                              {allUnitRacks.map((rName) => {
+                                                const rDevices = unitDevices.filter((d) => d.rack === rName);
+                                                const isRackHovered =
+                                                  dragOverTarget?.building === bldgName &&
+                                                  dragOverTarget?.floor === floorName &&
+                                                  dragOverTarget?.unit === unitName &&
+                                                  dragOverTarget?.rack === rName;
+
+                                                return (
+                                                  <div
+                                                    key={rName}
+                                                    onDragOver={(e) => {
+                                                      e.preventDefault();
+                                                      e.stopPropagation();
+                                                      e.dataTransfer.dropEffect = 'move';
+                                                    }}
+                                                    onDragEnter={(e) => {
+                                                      e.preventDefault();
+                                                      e.stopPropagation();
+                                                      setDragOverTarget({
+                                                        building: bldgName,
+                                                        floor: floorName,
+                                                        unit: unitName,
+                                                        rack: rName,
+                                                      });
+                                                    }}
+                                                    onDrop={(e) => {
+                                                      e.preventDefault();
+                                                      e.stopPropagation();
+                                                      let deviceId = '';
+                                                      try {
+                                                        const raw = e.dataTransfer.getData('application/json');
+                                                        if (raw) {
+                                                          const parsed = JSON.parse(raw);
+                                                          deviceId = parsed.deviceId;
+                                                        }
+                                                      } catch (err) {}
+                                                      if (!deviceId) {
+                                                        deviceId =
+                                                          e.dataTransfer.getData('text/plain') ||
+                                                          (draggedDevice ? draggedDevice.id : '');
+                                                      }
+                                                      if (deviceId) {
+                                                        handleMoveDevice(deviceId, bldgName, floorName, unitName, rName);
+                                                      }
+                                                      setDragOverTarget(null);
+                                                    }}
+                                                    className={`p-2.5 rounded-xl border transition-all ${
+                                                      isRackHovered
+                                                        ? 'bg-slate-950 border-cyan-400 ring-2 ring-cyan-400/60 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                                                        : isLightMode
+                                                        ? 'bg-cyan-50/70 border-cyan-300/80'
+                                                        : 'bg-slate-950/70 border-cyan-500/30'
+                                                    }`}
+                                                  >
+                                                    <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-cyan-500/20">
+                                                      <div className="flex items-center gap-1.5">
+                                                        <Server className="w-3 h-3 text-cyan-400" />
+                                                        <span className="font-bold text-[11px] text-cyan-300 font-mono">
+                                                          {rName}
+                                                        </span>
+                                                        <div className="flex items-center gap-0.5">
+                                                          <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                              setRenameModal({
+                                                                type: 'rack',
+                                                                building: bldgName,
+                                                                floor: floorName,
+                                                                item: rName,
+                                                                currentName: rName,
+                                                                newName: rName,
+                                                              })
+                                                            }
+                                                            className="p-0.5 rounded text-slate-400 hover:text-cyan-300 transition cursor-pointer"
+                                                            title={t('topology_physical_edit')}
+                                                          >
+                                                            <Edit2 className="w-2.5 h-2.5" />
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                              setDeleteModal({
+                                                                type: 'rack',
+                                                                building: bldgName,
+                                                                floor: floorName,
+                                                                item: rName,
+                                                                deviceCount: rDevices.length,
+                                                              })
+                                                            }
+                                                            className="p-0.5 rounded text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                                            title={t('topology_physical_delete')}
+                                                          >
+                                                            <Trash2 className="w-2.5 h-2.5" />
+                                                          </button>
+                                                        </div>
+                                                      </div>
+                                                      <div className="flex items-center gap-1">
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => {
+                                                            setAssignPlacementTarget({
+                                                              building: bldgName,
+                                                              floor: floorName,
+                                                              unit: unitName,
+                                                              rack: rName,
+                                                            });
+                                                          }}
+                                                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] transition cursor-pointer ${
+                                                            isLightMode
+                                                              ? 'bg-white hover:bg-cyan-50 text-cyan-700 border-cyan-300 shadow-xs'
+                                                              : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 hover:text-white border-cyan-500/30'
+                                                          }`}
+                                                          title={isEn ? `Add Device to ${rName}` : `افزودن تجهیز به ${rName}`}
+                                                        >
+                                                          <Plus className="w-2 h-2 text-cyan-400" />
+                                                          <span>{t('topology_physical_add_device_btn')}</span>
+                                                        </button>
+                                                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                                                          {rDevices.length}
+                                                        </span>
+                                                      </div>
+                                                    </div>
+                                                    {rDevices.length === 0 ? (
+                                                      <div className="p-2 rounded-lg border border-dashed border-cyan-500/30 text-center text-[10px] text-slate-400 flex items-center justify-center gap-1">
+                                                        <Move className="w-2.5 h-2.5 text-cyan-400 opacity-70" />
+                                                        <span>
+                                                          {isEn
+                                                            ? 'Rack empty. Drop device here.'
+                                                            : 'رک خالی است. تجهیز را اینجا رها کنید.'}
+                                                        </span>
+                                                      </div>
+                                                    ) : (
+                                                      <div className="space-y-1.5">
+                                                        {rDevices.map((dev) =>
+                                                          renderDeviceCard(dev, bldgName, floorName, unitName, rName)
+                                                        )}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Standalone devices in Unit / Room */}
+                                        {standaloneUnitDevices.length > 0 && (
+                                          <div className="space-y-1.5">
+                                            {allUnitRacks.length > 0 && (
+                                              <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider pt-1">
+                                                <Layers className="w-3 h-3 text-slate-400" />
+                                                <span>{isEn ? 'General Devices in Room' : 'سایر تجهیزات مستقر در اتاق'}</span>
+                                              </div>
+                                            )}
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                              {standaloneUnitDevices.map((dev) =>
+                                                renderDeviceCard(dev, bldgName, floorName, unitName, '')
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {unitDevices.length === 0 && allUnitRacks.length === 0 && (
                                           <div className="p-3 rounded-lg border border-dashed border-indigo-500/30 text-center text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
                                             <Move className="w-3 h-3 text-indigo-400 opacity-70" />
                                             <span>
@@ -8009,12 +8255,6 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                                 ? 'Drop devices here to assign to this unit'
                                                 : 'برای انتساب به این واحد تجهیزات را اینجا رها کنید'}
                                             </span>
-                                          </div>
-                                        ) : (
-                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                            {unitDevices.map((dev) =>
-                                              renderDeviceCard(dev, bldgName, floorName, unitName, '')
-                                            )}
                                           </div>
                                         )}
                                       </div>
@@ -9377,10 +9617,17 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         <div
           data-modal-backdrop="true"
           className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
-          onClick={() => setAddRackModal(null)}
+          onClick={() => {
+            setAddRackModal(null);
+            setIsAddRackModalMaximized(false);
+          }}
         >
           <div
-            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+            className={`relative flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${
+              isAddRackModalMaximized
+                ? 'w-full h-full max-w-none rounded-none border-0'
+                : 'w-full max-w-md rounded-2xl border my-auto'
+            } ${
               isLightMode
                 ? 'bg-white border-slate-200 text-slate-800'
                 : 'bg-slate-900 border-white/20 text-slate-100'
@@ -9388,7 +9635,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div
-              className={`flex items-center justify-between px-5 py-4 border-b ${
+              className={`flex items-center justify-between px-5 py-4 border-b shrink-0 ${
                 isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
               }`}
             >
@@ -9408,7 +9655,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       isLightMode ? 'text-slate-900' : 'text-white'
                     }`}
                   >
-                    {t('topology_physical_add_rack_btn')}
+                    {addRackModal.unit
+                      ? isEn
+                        ? `Add Rack to ${addRackModal.unit}`
+                        : `افزودن رک به ${addRackModal.unit}`
+                      : t('topology_physical_add_rack_btn')}
                   </h3>
                   <p
                     className={`text-[11px] font-mono ${
@@ -9416,35 +9667,114 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     }`}
                   >
                     {addRackModal.building} &gt; {addRackModal.floor}
+                    {addRackModal.unit ? ` > ${addRackModal.unit}` : ''}
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setAddRackModal(null)}
-                className={`p-1.5 rounded-lg transition cursor-pointer ${
-                  isLightMode
-                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                    : 'text-slate-400 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              {/* Triad Control Buttons */}
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Minimize to ToolsDock */}
+                <button
+                  type="button"
+                  onClick={handleMinimizeAddRack}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Minimize' : 'کوچک‌کردن'}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+
+                {/* Fullscreen / Restore */}
+                <button
+                  type="button"
+                  onClick={() => setIsAddRackModalMaximized((prev) => !prev)}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={
+                    isAddRackModalMaximized
+                      ? isEn
+                        ? 'Restore Window'
+                        : 'بازگردانی پنجره'
+                      : isEn
+                      ? 'Maximize Window'
+                      : 'تمام‌صفحه'
+                  }
+                >
+                  {isAddRackModalMaximized ? (
+                    <Minimize2 className="w-4 h-4" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4" />
+                  )}
+                </button>
+
+                {/* Close */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddRackModal(null);
+                    setIsAddRackModalMaximized(false);
+                  }}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Close' : 'بستن'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
               <div>
-                <label
-                  className={`block text-xs font-medium mb-1.5 ${
-                    isLightMode ? 'text-slate-700' : 'text-slate-300'
-                  }`}
-                >
-                  {t('topology_physical_new_rack_name')}
-                </label>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label
+                    className={`block text-xs font-medium ${
+                      isLightMode ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    {t('topology_physical_new_rack_name')}
+                  </label>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Network Rack Name / Cabinet ID' : 'نام و شناسه رک شبکه یا کابینت سرور'}
+                    whatIsIt={
+                      isEn
+                        ? 'The unique identifier for the physical server or network equipment rack inside the room or floor.'
+                        : 'شناسه یکتا برای رک فیزیکی سرور یا تجهیزات شبکه در این اتاق یا طبقه.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Organizes switches, patch panels, and servers inside designated rack units (U) for precise datacenter management.'
+                        : 'تجهیزات، سوئیچ‌ها و سرورها را درون یونیت‌های مشخص رک دسته‌بندی کرده تا مدیریت دیتاسنتر یا اتاق سرور با دقت بالا میسر شود.'
+                    }
+                    example={
+                      isEn
+                        ? 'e.g. Rack-A1, 42U-Core-Rack, Distribution-B, Server-Cabinet-01'
+                        : 'مانند Rack-A1، رک-سرور-۴۲، رک-توزیع-اصلی'
+                    }
+                  />
+                </div>
                 {(() => {
-                  const isDuplicate = (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
+                  const isFloorDuplicate = (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
                     (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
                   );
+                  const isUnitDuplicate = addRackModal.unit
+                    ? (customRacks[`${addRackModal.building}:::${addRackModal.floor}:::${addRackModal.unit}`] || []).some(
+                        (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
+                      )
+                    : false;
+                  const isDuplicate = isFloorDuplicate || isUnitDuplicate;
+
                   return (
                     <>
                       <input
@@ -9453,10 +9783,19 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                         onChange={(e) => setNewRackInput(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && newRackInput.trim() && !isDuplicate) {
-                            handleAddRack(addRackModal.building, addRackModal.floor, newRackInput);
+                            handleAddRack(
+                              addRackModal.building,
+                              addRackModal.floor,
+                              newRackInput,
+                              addRackModal.unit
+                            );
                           }
                         }}
-                        placeholder={isEn ? 'e.g. Rack-A1, 42U-Core-Rack, Distribution-B' : 'مانند رک اصلی سرور، Rack-A1، رک توزیع طبقه'}
+                        placeholder={
+                          isEn
+                            ? 'e.g. Rack-A1, 42U-Core-Rack, Distribution-B'
+                            : 'مانند رک اصلی سرور، Rack-A1، رک توزیع طبقه'
+                        }
                         className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
                           isDuplicate
                             ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
@@ -9471,8 +9810,8 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                           <span>⚠️</span>
                           <span>
                             {isEn
-                              ? `A rack named "${newRackInput.trim()}" already exists on this floor`
-                              : `رکی با این نام از قبل در این طبقه ثبت شده است`}
+                              ? `A rack named "${newRackInput.trim()}" already exists in this location`
+                              : `رکی با این نام از قبل در این مکان ثبت شده است`}
                           </span>
                         </p>
                       )}
@@ -9483,13 +9822,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             </div>
 
             <div
-              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t shrink-0 ${
                 isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
               }`}
             >
               <button
                 type="button"
-                onClick={() => setAddRackModal(null)}
+                onClick={() => {
+                  setAddRackModal(null);
+                  setIsAddRackModalMaximized(false);
+                }}
                 className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
                   isLightMode
                     ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
@@ -9499,13 +9841,27 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 {t('topology_physical_cancel_btn')}
               </button>
               {(() => {
-                const isDuplicate = (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
+                const isFloorDuplicate = (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
                   (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
                 );
+                const isUnitDuplicate = addRackModal.unit
+                  ? (customRacks[`${addRackModal.building}:::${addRackModal.floor}:::${addRackModal.unit}`] || []).some(
+                      (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
+                    )
+                  : false;
+                const isDuplicate = isFloorDuplicate || isUnitDuplicate;
+
                 return (
                   <button
                     type="button"
-                    onClick={() => handleAddRack(addRackModal.building, addRackModal.floor, newRackInput)}
+                    onClick={() =>
+                      handleAddRack(
+                        addRackModal.building,
+                        addRackModal.floor,
+                        newRackInput,
+                        addRackModal.unit
+                      )
+                    }
                     disabled={!newRackInput.trim() || isDuplicate}
                     className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 disabled:opacity-40 transition shadow-lg cursor-pointer"
                   >
@@ -10112,11 +10468,22 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             ] || []
           }
           availableRacks={
-            customRacks[
-              `${assignPlacementTarget.building}:::${
-                assignPlacementTarget.floor || (customFloors[assignPlacementTarget.building]?.[0] || '')
-              }`
-            ] || []
+            Array.from(
+              new Set([
+                ...(customRacks[
+                  `${assignPlacementTarget.building}:::${
+                    assignPlacementTarget.floor || (customFloors[assignPlacementTarget.building]?.[0] || '')
+                  }`
+                ] || []),
+                ...(assignPlacementTarget.unit
+                  ? customRacks[
+                      `${assignPlacementTarget.building}:::${
+                        assignPlacementTarget.floor || (customFloors[assignPlacementTarget.building]?.[0] || '')
+                      }:::${assignPlacementTarget.unit}`
+                    ] || []
+                  : []),
+              ])
+            )
           }
           inventoryDevices={allAvailableDevices}
           onAssign={async (deviceId, building, floor, unit, rack) => {

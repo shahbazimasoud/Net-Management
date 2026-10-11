@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.312.0';
+export const APP_VERSION = '1.313.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.313.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'امکان ایجاد رک در اتاق و واحدها در کنار افزودن تجهیز (Add Rack in Room / Unit) در جانمایی فیزیکی Physical Placement across Buildings & Floors',
+    title_en: 'Direct "Add Rack" alongside "Add Device" inside Rooms/Units in Physical Placement across Buildings & Floors',
+    changes: [
+      'افزودن دکمه مستقیم «افزودن رک (Add Rack)» در کنار دکمه «افزودن تجهیز (Add Device)» در هدر اتاق‌ها و واحدهای جانمایی فیزیکی (Physical Placement across Buildings & Floors).',
+      'نمایش و مدیریت ساختار رک‌های درون اتاق: تفکیک رک‌های مستقر در هر واحد، امکان افزودن تجهیز، تغییر نام، حذف رک و نمایش کارت تجهیزات درون هر رک به صورت تعاملی با پشتیبانی درگ اند دراپ.',
+      'ارتقای مدال افزودن رک (Add Rack Modal) با انطباق صددرصدی بر استانداردهای پنجره‌ها: دکمه‌های سه‌گانه هدر (بستن، تمام‌صفحه و مینیمایز به داک ابزارها ToolsDock)، مسیر کامل (ساختمان > طبقه > اتاق) و کادر راهنمای سه‌بخشی FieldInfoTooltip.',
+      'یکپارچه‌سازی انتخاب رک‌های اتاق در مدال انتساب تجهیزات (AssignPhysicalPlacementModal) و همگام‌سازی بلادرنگ پایگاه داده PostgreSQL و حافظه سلسله‌مراتب شبکه.'
+    ],
+    changes_en: [
+      'Added direct "Add Rack" action button alongside "Add Device" in room/unit headers across physical placement hierarchy (Physical Placement across Buildings & Floors).',
+      'Interactive room-nested racks rendering: dedicated rack cards within each room with hardware mounting, inline rename, delete, drag & drop support, and direct device assignment.',
+      'Upgraded Add Rack Modal according to Universal Modal Architectural Standards: triple header controls (Close, Fullscreen, ToolsDock minimize), breadcrumb context (Building > Floor > Room), and boundary-safe 3-part FieldInfoTooltip.',
+      'Synchronized unit-specific rack options with AssignPhysicalPlacementModal and real-time PostgreSQL database hierarchy persistence.'
+    ]
+  },
   {
     version: '1.312.0',
     releaseDate: '2026-10-11',
