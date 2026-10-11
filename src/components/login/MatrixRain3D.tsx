@@ -24,7 +24,7 @@ interface RainDrop {
   lastMutate: number;
 }
 
-export const MatrixRain3D: React.FC<MatrixRain3DProps> = () => {
+export const MatrixRain3D: React.FC<MatrixRain3DProps> = ({ theme = 'obsidian' }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { isEn } = useLanguage();

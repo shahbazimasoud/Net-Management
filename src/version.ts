@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.319.0';
+export const APP_VERSION = '1.319.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.319.1',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'رفع باگ عدم ذخیره‌سازی و اعمال انیمیشن باران کدهای ماتریس در صفحه لاگین',
+    title_en: 'Fix Matrix Login Animation Persistence and Server Database Validation Bug',
+    changes: [
+      'اصلاح و اضافه کردن مقدار «matrix» به اعتبارسنجی مقادیر مجاز loginAnimationType در بک‌اند و پایگاه داده (server/db.ts)، که پیش از این به دلیل محدود بودن اعتبارسنجی صرفاً به گزینه‌های globe و milky_way، مقدار matrix نادیده گرفته شده و ذخیره نمی‌شد.',
+      'همگام‌سازی کامل نوع داده PanelGeneralSettings در لایه سرور، پایگاه داده فالبک و PostgreSQL با تایپ‌های فرانت‌اند.',
+      'تضمین اعمال بلادرنگ انیمیشن ماتریس در بدو ورود به صفحه لاگین بدون فلاش یا بازگشت ناخواسته به انیمیشن کره زمین.'
+    ],
+    changes_en: [
+      'Fixed server-side database validation and persistence schema in server/db.ts to accept "matrix" as a valid loginAnimationType, resolving the bug where saving Matrix animation was previously stripped and defaulted back to globe.',
+      'Synchronized PanelGeneralSettings interface, database fallback store, and PostgreSQL upsert pipelines across backend and frontend models.',
+      'Guaranteed seamless immediate activation of Matrix Digital Rain on the login portal upon saving without caching flicker or unwanted reversion.'
+    ]
+  },
   {
     version: '1.319.0',
     releaseDate: '2026-10-11',

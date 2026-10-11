@@ -4626,7 +4626,7 @@ export interface PanelGeneralSettings {
   twoFactorEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   loginVisualMode?: 'animation' | 'image';
-  loginAnimationType?: 'globe' | 'milky_way';
+  loginAnimationType?: 'globe' | 'milky_way' | 'matrix';
   loginImageMode?: 'selected' | 'random';
   loginSelectedImageId?: string;
   loginUploadedImages?: LoginUploadedImage[];
@@ -4716,7 +4716,7 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     loginVisualMode: (settings.loginVisualMode === 'image' || settings.loginVisualMode === 'animation')
       ? settings.loginVisualMode
       : (current.loginVisualMode || 'animation'),
-    loginAnimationType: (settings.loginAnimationType === 'milky_way' || settings.loginAnimationType === 'globe')
+    loginAnimationType: (settings.loginAnimationType === 'milky_way' || settings.loginAnimationType === 'globe' || settings.loginAnimationType === 'matrix')
       ? settings.loginAnimationType
       : (current.loginAnimationType || 'globe'),
     loginImageMode: (settings.loginImageMode === 'random' || settings.loginImageMode === 'selected')
