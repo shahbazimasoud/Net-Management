@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.317.0';
+export const APP_VERSION = '1.317.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.317.1',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'رفع باگ پرش اولیه انیمیشن کره زمین در هنگام انتخاب کهکشان راه شیری یا تصویر سفارشی پس از رفرش صفحه لاگین',
+    title_en: 'Fix Initial Earth Globe Animation Flash on Login Page Refresh when Milky Way or Custom Image is Configured',
+    changes: [
+      'اصلاح ساختار رندرینگ و شرط‌های نمایشی صفحه لاگین جهت جلوگیری قطعی از نمایش و بارگذاری ناخواسته انیمیشن کره زمین در حالت انتخاب کهکشان راه شیری یا تصویر اختصاصی.',
+      'افزودن ذخیره‌سازی همگام و آنی کلیدهای وضعیت بصری صفحه لاگین در LocalStorage و کش کردن تصویر فعال جهت نمایش بی‌درنگ در فریم اول لود بدون وابستگی به تأخیر شبکه.',
+      'مدیریت سهمیه حافظه LocalStorage در برابر تصاویر حجیم آپلودشده و ذخیره ایمن تنظیمات عمومی بدون ایجاد خطای سرریز سهمیه (QuotaExceededError).'
+    ],
+    changes_en: [
+      'Fixed visual showcase rendering logic in LoginPage to strictly prevent unintended fallback and flashing of the 3D Earth Globe animation when Milky Way Galaxy or custom image mode is configured.',
+      'Implemented synchronous immediate quick-caching for login visual preference keys and cached the active showcase image in LocalStorage for instantaneous frame-0 rendering upon page refresh.',
+      'Added quota-safe LocalStorage serialization for panel general settings to prevent QuotaExceededError when multiple high-resolution base64 images are stored in the gallery.'
+    ]
+  },
   {
     version: '1.317.0',
     releaseDate: '2026-10-11',

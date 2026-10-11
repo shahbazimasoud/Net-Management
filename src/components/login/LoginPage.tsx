@@ -4,7 +4,7 @@ import { useAuth, AuthUser } from '../../context/AuthContext';
 import { NetworkGlobe3D, GlobeThemeType } from './NetworkGlobe3D';
 import { MilkyWayGalaxy3D } from './MilkyWayGalaxy3D';
 import { APP_VERSION } from '../../version';
-import { loadGeneralSettings, syncGeneralSettingsFromDatabase } from '../../services/settingsStorage';
+import { loadGeneralSettings, syncGeneralSettingsFromDatabase, STORAGE_KEYS } from '../../services/settingsStorage';
 import { PanelGeneralSettings } from '../../types';
 import {
   ShieldCheck,
@@ -142,7 +142,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     const imgs = Array.isArray(generalSettings?.loginUploadedImages)
       ? generalSettings.loginUploadedImages.filter((i) => i && i.dataUrl)
       : [];
-    if (imgs.length === 0) return null;
+    if (imgs.length === 0) {
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedRaw = localStorage.getItem(STORAGE_KEYS.LOGIN_ACTIVE_IMAGE_CACHE);
+          if (cachedRaw) {
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed && parsed.dataUrl) return parsed;
+          }
+        } catch (e) {}
+      }
+      return null;
+    }
 
     if (generalSettings?.loginImageMode === 'random') {
       const idx = Math.floor(randomSeed * imgs.length) % imgs.length;
@@ -1188,16 +1199,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       {/* Animation section preserves authentic dark cyber aesthetic */}
       {/* ------------------------------------------------------------- */}
       <div className="flex-1 h-full relative overflow-hidden hidden md:block bg-slate-950">
-        {activeShowcaseImage ? (
-          <div className="relative w-full h-full bg-slate-950 overflow-hidden">
-            <img
-              src={activeShowcaseImage.dataUrl}
-              alt={activeShowcaseImage.name || 'Login Showcase'}
-              className="w-full h-full object-cover object-center select-none"
-              draggable={false}
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-slate-950/30 pointer-events-none" />
-          </div>
+        {(generalSettings?.loginVisualMode || 'animation') === 'image' ? (
+          activeShowcaseImage ? (
+            <div className="relative w-full h-full bg-slate-950 overflow-hidden">
+              <img
+                src={activeShowcaseImage.dataUrl}
+                alt={activeShowcaseImage.name || 'Login Showcase'}
+                className="w-full h-full object-cover object-center select-none"
+                draggable={false}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-slate-950/30 pointer-events-none" />
+            </div>
+          ) : (
+            <div className="relative w-full h-full bg-slate-950 overflow-hidden flex items-center justify-center">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,#1e1b4b_0%,#020617_100%)] opacity-80" />
+              <div className="relative flex flex-col items-center gap-3">
+                <div className="w-8 h-8 rounded-full border-2 border-purple-500/30 border-t-purple-400 animate-spin" />
+                <span className="text-[11px] font-mono text-purple-300/80">
+                  {isEn ? 'Loading visual showcase...' : 'در حال بارگذاری تصویر انتخابی...'}
+                </span>
+              </div>
+            </div>
+          )
         ) : generalSettings?.loginAnimationType === 'milky_way' ? (
           <MilkyWayGalaxy3D theme={theme === 'light' ? 'obsidian' : theme} />
         ) : (

@@ -20,6 +20,11 @@ export const STORAGE_KEYS = {
   LOCAL_GROUPS: 'nettopology_local_groups_v1',
   DEVICE_STICKY_NOTES: 'nettopology_device_sticky_notes_v1',
   GENERAL_SETTINGS: 'nettopology_general_settings_v1',
+  LOGIN_VISUAL_MODE: 'nettopology_login_visual_mode_v1',
+  LOGIN_ANIMATION_TYPE: 'nettopology_login_anim_type_v1',
+  LOGIN_IMAGE_MODE: 'nettopology_login_image_mode_v1',
+  LOGIN_SELECTED_IMAGE_ID: 'nettopology_login_selected_image_id_v1',
+  LOGIN_ACTIVE_IMAGE_CACHE: 'nettopology_login_active_image_cache_v1',
 };
 
 // Initial Seed: Local Groups
@@ -713,26 +718,128 @@ export const DEFAULT_PANEL_GENERAL_SETTINGS: PanelGeneralSettings = {
 
 let inMemoryGeneralSettings: PanelGeneralSettings | null = null;
 
+// Synchronously cache high-priority login visual keys to avoid any flicker/flashing on refresh
+function persistLoginVisualQuickCache(settings: Partial<PanelGeneralSettings>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (settings.loginVisualMode) {
+      localStorage.setItem(STORAGE_KEYS.LOGIN_VISUAL_MODE, settings.loginVisualMode);
+    }
+    if (settings.loginAnimationType) {
+      localStorage.setItem(STORAGE_KEYS.LOGIN_ANIMATION_TYPE, settings.loginAnimationType);
+    }
+    if (settings.loginImageMode) {
+      localStorage.setItem(STORAGE_KEYS.LOGIN_IMAGE_MODE, settings.loginImageMode);
+    }
+    if (settings.loginSelectedImageId !== undefined) {
+      localStorage.setItem(STORAGE_KEYS.LOGIN_SELECTED_IMAGE_ID, settings.loginSelectedImageId);
+    }
+    // Cache the active showcase image so it can be rendered instantly from cache on mount
+    if (settings.loginVisualMode === 'image' && Array.isArray(settings.loginUploadedImages) && settings.loginUploadedImages.length > 0) {
+      const validImages = settings.loginUploadedImages.filter((i) => i && i.dataUrl);
+      if (validImages.length > 0) {
+        let activeImg = validImages[0];
+        if (settings.loginSelectedImageId) {
+          const matched = validImages.find((i) => i.id === settings.loginSelectedImageId);
+          if (matched) activeImg = matched;
+        }
+        // Save to dedicated key if within reasonable single-image quota limit
+        if (activeImg && activeImg.dataUrl && activeImg.dataUrl.length < 2500000) {
+          localStorage.setItem(STORAGE_KEYS.LOGIN_ACTIVE_IMAGE_CACHE, JSON.stringify(activeImg));
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore non-fatal storage errors
+  }
+}
+
+// Save general settings to localStorage safely without failing if base64 images exceed browser storage quota
+function saveGeneralSettingsToLocalStorageSafely(settings: PanelGeneralSettings): void {
+  if (typeof window === 'undefined') return;
+  persistLoginVisualQuickCache(settings);
+  try {
+    localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(settings));
+  } catch (quotaErr) {
+    // If browser localStorage quota (5MB) is exceeded by multiple uploaded images,
+    // preserve all settings, themes, and image metadata with stripped dataUrl so settings are never lost
+    try {
+      const pruned: PanelGeneralSettings = {
+        ...settings,
+        loginUploadedImages: (settings.loginUploadedImages || []).map((img) => ({
+          ...img,
+          dataUrl: '', // strip bulky base64 dataUrl so general settings never exceed localStorage quota
+        })),
+      };
+      localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(pruned));
+    } catch (e) {
+      console.warn('LocalStorage fallback save warning:', e);
+    }
+  }
+}
+
 export function loadGeneralSettings(): PanelGeneralSettings {
+  let settings: PanelGeneralSettings = DEFAULT_PANEL_GENERAL_SETTINGS;
   if (inMemoryGeneralSettings) {
-    return {
+    settings = {
       ...DEFAULT_PANEL_GENERAL_SETTINGS,
       ...inMemoryGeneralSettings,
     };
-  }
-  try {
-    const raw = localStorage.getItem(STORAGE_KEYS.GENERAL_SETTINGS);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        ...DEFAULT_PANEL_GENERAL_SETTINGS,
-        ...parsed,
-      };
+  } else {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.GENERAL_SETTINGS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        settings = {
+          ...DEFAULT_PANEL_GENERAL_SETTINGS,
+          ...parsed,
+        };
+      }
+    } catch (err) {
+      console.error('Error loading general settings from localStorage', err);
     }
-  } catch (err) {
-    console.error('Error loading general settings from localStorage', err);
   }
-  return DEFAULT_PANEL_GENERAL_SETTINGS;
+
+  // Synchronously overlay persistent dedicated login visual keys so frame 0 has exact user choice
+  if (typeof window !== 'undefined') {
+    try {
+      const quickVisualMode = localStorage.getItem(STORAGE_KEYS.LOGIN_VISUAL_MODE) as 'animation' | 'image' | null;
+      const quickAnimType = localStorage.getItem(STORAGE_KEYS.LOGIN_ANIMATION_TYPE) as 'globe' | 'milky_way' | null;
+      const quickImgMode = localStorage.getItem(STORAGE_KEYS.LOGIN_IMAGE_MODE) as 'selected' | 'random' | null;
+      const quickSelectedId = localStorage.getItem(STORAGE_KEYS.LOGIN_SELECTED_IMAGE_ID);
+
+      if (quickVisualMode) {
+        settings.loginVisualMode = quickVisualMode;
+      }
+      if (quickAnimType) {
+        settings.loginAnimationType = quickAnimType;
+      }
+      if (quickImgMode) {
+        settings.loginImageMode = quickImgMode;
+      }
+      if (quickSelectedId !== null && quickSelectedId !== undefined) {
+        settings.loginSelectedImageId = quickSelectedId;
+      }
+
+      // If in image mode and images array is empty or lacks dataUrl, hydrate from cached active image
+      if (settings.loginVisualMode === 'image') {
+        const hasValidImg = Array.isArray(settings.loginUploadedImages) && settings.loginUploadedImages.some((i) => i && i.dataUrl);
+        if (!hasValidImg) {
+          const cachedActiveRaw = localStorage.getItem(STORAGE_KEYS.LOGIN_ACTIVE_IMAGE_CACHE);
+          if (cachedActiveRaw) {
+            try {
+              const cachedActive = JSON.parse(cachedActiveRaw);
+              if (cachedActive && cachedActive.dataUrl) {
+                settings.loginUploadedImages = [cachedActive];
+              }
+            } catch (e) {}
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  return settings;
 }
 
 export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings>): Promise<PanelGeneralSettings> {
@@ -742,6 +849,16 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
     ...settings,
     updatedAt: new Date().toISOString(),
   };
+
+  // Immediate synchronous optimistic update to eliminate any race condition on page refresh or navigation
+  inMemoryGeneralSettings = merged;
+  saveGeneralSettingsToLocalStorageSafely(merged);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('nettopology_general_settings_changed', { detail: { settings: merged } })
+    );
+  }
 
   let finalSettings = merged;
 
@@ -758,25 +875,12 @@ export async function saveGeneralSettings(settings: Partial<PanelGeneralSettings
       const data = await res.json();
       if (data?.settings) {
         finalSettings = data.settings;
+        inMemoryGeneralSettings = finalSettings;
+        saveGeneralSettingsToLocalStorageSafely(finalSettings);
       }
     }
   } catch (err) {
     console.warn('Network sync warning for general settings:', err);
-  }
-
-  inMemoryGeneralSettings = finalSettings;
-
-  try {
-    localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(finalSettings));
-  } catch (err) {
-    console.warn('LocalStorage save warning:', err);
-  }
-
-  // Broadcast system-wide event across this window and all tabs/components
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent('nettopology_general_settings_changed', { detail: { settings: finalSettings } })
-    );
   }
 
   return finalSettings;
@@ -791,11 +895,7 @@ export async function syncGeneralSettingsFromDatabase(): Promise<PanelGeneralSet
       const data = await res.json();
       if (data?.settings) {
         inMemoryGeneralSettings = data.settings;
-        try {
-          localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(data.settings));
-        } catch (storageErr) {
-          console.warn('LocalStorage cache quota warning for general settings:', storageErr);
-        }
+        saveGeneralSettingsToLocalStorageSafely(data.settings);
         if (typeof window !== 'undefined') {
           window.dispatchEvent(
             new CustomEvent('nettopology_general_settings_changed', { detail: { settings: data.settings } })
