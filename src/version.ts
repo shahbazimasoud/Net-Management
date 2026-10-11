@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.308.0';
+export const APP_VERSION = '1.308.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.308.1',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'رفع باگ ناپدید شدن صفحه هنگام باز شدن منوی سه‌نقطه در تم روشن',
+    title_en: 'Fix Page Disappearance Bug When Opening 3-Dot Action Menu in Light Theme',
+    changes: [
+      'اصلاح پس‌زمینه شفاف (Backdrop) منوی سه‌نقطه در صفحه Remote Servers & Automation Fleet و Network Equipment Inventory از bg-black/10 به bg-transparent.',
+      'حذف قانون سراسری ناخواسته در استایل‌های تم روشن که تمامی کلاس‌های bg-black/10 را به رنگ خاکستری مات (#f1f5f9) تبدیل می‌کرد و باعث پوشاندن کل صفحه می‌شد.',
+      'تجهیز کامل منوی سه‌نقطه در جدول تجهیزات به استایل‌های سازگار با تم روشن با کنتراست ارگونومیک، تفکیک بصری و هاورهای بهینه.'
+    ],
+    changes_en: [
+      'Fixed 3-dot dropdown dismisser backdrop in Remote Servers & Automation Fleet and Network Equipment Inventory from bg-black/10 to bg-transparent.',
+      'Eliminated global light theme CSS rule that inadvertently converted fixed full-screen bg-black/10 backdrops into an opaque solid sheet (#f1f5f9).',
+      'Enhanced Network Equipment 3-dot action dropdown menu with high-contrast, theme-adaptive light and dark styling and refined hover states.'
+    ]
+  },
   {
     version: '1.308.0',
     releaseDate: '2026-10-10',

@@ -3467,7 +3467,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           <>
             {/* Transparent backdrop */}
             <div
-              className="fixed inset-0 z-[9998] bg-black/10"
+              className="fixed inset-0 z-[9998] bg-transparent"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuAnchor(null);

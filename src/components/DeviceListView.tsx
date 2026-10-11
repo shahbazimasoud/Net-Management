@@ -1296,7 +1296,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
           <>
             {/* Transparent backdrop */}
             <div
-              className="fixed inset-0 z-[9998] bg-black/10"
+              className="fixed inset-0 z-[9998] bg-transparent"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuAnchor(null);
@@ -1314,15 +1314,25 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                 maxHeight: 'calc(100vh - 24px)',
                 zIndex: 9999,
               }}
-              className={`w-64 rounded-2xl shadow-2xl p-1.5 border border-white/15 backdrop-blur-2xl bg-slate-950/95 font-sans device-action-dropdown animate-fadeIn overflow-y-auto overscroll-contain custom-scrollbar ${
+              className={`w-64 rounded-2xl shadow-2xl p-1.5 border font-sans device-action-dropdown animate-fadeIn overflow-y-auto overscroll-contain custom-scrollbar ${
                 isRtl ? 'text-right' : 'text-left'
+              } ${
+                isLightMode
+                  ? 'bg-white/95 border-slate-200 text-slate-900 shadow-slate-900/25'
+                  : 'bg-slate-950/95 border-white/15 backdrop-blur-2xl text-slate-100 shadow-black/80'
               }`}
               onClick={(e) => e.stopPropagation()}
               onWheel={(e) => e.stopPropagation()}
             >
-              <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between text-[11px] font-mono">
-                <span className="font-bold text-white truncate max-w-[120px]">{menuAnchor.device.name}</span>
-                <span className="text-indigo-400 font-semibold">{menuAnchor.device.ip}</span>
+              <div
+                className={`px-3 py-2 border-b flex items-center justify-between text-[11px] font-mono ${
+                  isLightMode ? 'border-slate-200' : 'border-white/10'
+                }`}
+              >
+                <span className={`font-bold truncate max-w-[120px] ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                  {menuAnchor.device.name}
+                </span>
+                <span className="text-indigo-500 font-semibold">{menuAnchor.device.ip}</span>
               </div>
 
               {(() => {
@@ -1352,9 +1362,9 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                   <div className="py-1 space-y-0.5">
                     {/* Web Configs (e.g. iLO, ESXi, RouterOS WebFig, Web GUI) */}
                     {canWebConfigs && Array.isArray(dev.web_configs) && dev.web_configs.length > 0 && (
-                      <div className="mb-1 border-b border-white/10 pb-1">
-                        <div className="px-3 py-1 text-[10px] font-bold text-sky-400 flex items-center gap-1.5 uppercase tracking-wider">
-                          <Globe className="w-3 h-3 text-sky-400" />
+                      <div className={`mb-1 border-b pb-1 ${isLightMode ? 'border-slate-200' : 'border-white/10'}`}>
+                        <div className="px-3 py-1 text-[10px] font-bold text-sky-500 flex items-center gap-1.5 uppercase tracking-wider">
+                          <Globe className="w-3 h-3 text-sky-500" />
                           <span>{isEn ? 'Web Config & Consoles' : 'کنسول‌های وب و مدیریت'}</span>
                         </div>
                         {dev.web_configs.map((wc, idx) => {
@@ -1366,22 +1376,26 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                               target="_blank"
                               rel="noreferrer"
                               onClick={() => setMenuAnchor(null)}
-                              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium text-sky-200 hover:bg-sky-500/20 hover:text-white transition ${
+                              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-medium transition ${
                                 isRtl ? 'text-right' : 'text-left'
-                              } group/webitem cursor-pointer`}
+                              } group/webitem cursor-pointer ${
+                                isLightMode
+                                  ? 'text-sky-700 hover:bg-sky-50 hover:text-sky-900'
+                                  : 'text-sky-200 hover:bg-sky-500/20 hover:text-white'
+                              }`}
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <Globe className="w-3.5 h-3.5 text-sky-400 group-hover/webitem:scale-110 transition shrink-0" />
+                                <Globe className="w-3.5 h-3.5 text-sky-500 group-hover/webitem:scale-110 transition shrink-0" />
                                 <div className="flex flex-col min-w-0">
                                   <span className="font-semibold truncate">
                                     {wc.title.trim() || (isEn ? `Web Interface ${idx + 1}` : `کنسول وب ${idx + 1}`)}
                                   </span>
-                                  <span className="text-[10px] text-sky-300/70 font-mono truncate max-w-[170px]" dir="ltr">
+                                  <span className={`text-[10px] font-mono truncate max-w-[170px] ${isLightMode ? 'text-sky-600/70' : 'text-sky-300/70'}`} dir="ltr">
                                     {wc.url}
                                   </span>
                                 </div>
                               </div>
-                              <ExternalLink className="w-3.5 h-3.5 text-sky-400 opacity-60 group-hover/webitem:opacity-100 shrink-0 ml-1.5 rtl:mr-1.5 rtl:ml-0" />
+                              <ExternalLink className="w-3.5 h-3.5 text-sky-500 opacity-60 group-hover/webitem:opacity-100 shrink-0 ml-1.5 rtl:mr-1.5 rtl:ml-0" />
                             </a>
                           );
                         })}
@@ -1395,14 +1409,18 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           setMenuAnchor(null);
                           onConnectTerminal(dev);
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200 transition ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
                           isRtl ? 'text-right' : 'text-left'
-                        } group/item cursor-pointer`}
+                        } group/item cursor-pointer ${
+                          isLightMode
+                            ? 'text-emerald-700 hover:bg-emerald-50 hover:text-emerald-900'
+                            : 'text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200'
+                        }`}
                       >
-                        <Terminal className="w-4 h-4 text-emerald-400 group-hover/item:scale-110 transition shrink-0" />
+                        <Terminal className="w-4 h-4 text-emerald-500 group-hover/item:scale-110 transition shrink-0" />
                         <div className="flex flex-col">
                           <span>{isEn ? 'SSH Console Direct' : 'کانکت به ترمینال سیسکو'}</span>
-                          <span className="text-[10px] text-emerald-500/80 font-mono">CLI Terminal</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-emerald-600/80' : 'text-emerald-500/80'}`}>CLI Terminal</span>
                         </div>
                       </button>
                     )}
@@ -1414,14 +1432,18 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           setMenuAnchor(null);
                           onApplyTemplate(dev);
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-cyan-300 hover:bg-cyan-500/15 hover:text-cyan-200 transition ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
                           isRtl ? 'text-right' : 'text-left'
-                        } group/item cursor-pointer`}
+                        } group/item cursor-pointer ${
+                          isLightMode
+                            ? 'text-cyan-700 hover:bg-cyan-50 hover:text-cyan-900'
+                            : 'text-cyan-300 hover:bg-cyan-500/15 hover:text-cyan-200'
+                        }`}
                       >
-                        <FileCode2 className="w-4 h-4 text-cyan-400 group-hover/item:scale-110 transition shrink-0" />
+                        <FileCode2 className="w-4 h-4 text-cyan-500 group-hover/item:scale-110 transition shrink-0" />
                         <div className="flex flex-col">
                           <span>{isEn ? 'Apply Config Template' : 'اعمال تمپلیت کانفیگ'}</span>
-                          <span className="text-[10px] text-cyan-400/70">{isEn ? 'Variables & Deploy' : 'تکمیل متغیرها و اجرا'}</span>
+                          <span className={`text-[10px] ${isLightMode ? 'text-cyan-600/70' : 'text-cyan-400/70'}`}>{isEn ? 'Variables & Deploy' : 'تکمیل متغیرها و اجرا'}</span>
                         </div>
                       </button>
                     )}
@@ -1433,18 +1455,22 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           setMenuAnchor(null);
                           handleOpenDeviceNote(dev);
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-300 hover:bg-amber-500/15 hover:text-amber-200 transition ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
                           isRtl ? 'text-right' : 'text-left'
-                        } group/item cursor-pointer`}
+                        } group/item cursor-pointer ${
+                          isLightMode
+                            ? 'text-amber-700 hover:bg-amber-50 hover:text-amber-900'
+                            : 'text-amber-300 hover:bg-amber-500/15 hover:text-amber-200'
+                        }`}
                       >
-                        <StickyNote className="w-4 h-4 text-amber-400 group-hover/item:scale-110 transition shrink-0" />
+                        <StickyNote className="w-4 h-4 text-amber-500 group-hover/item:scale-110 transition shrink-0" />
                         <div className="flex flex-col">
                           <span>
                             {getNoteForDevice(dev.id)
                               ? (isEn ? 'View / Edit Sticky Note' : 'مشاهده و ویرایش یادداشت چسبان')
                               : (isEn ? 'Add Sticky Note' : 'افزودن یادداشت چسبان')}
                           </span>
-                          <span className="text-[10px] text-amber-400/80 font-mono">
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>
                             {getNoteForDevice(dev.id)
                               ? (getNoteForDevice(dev.id)?.title || 'Note')
                               : (isEn ? 'Attach note to device' : 'پیوست یادداشت به تجهیز')}
@@ -1464,14 +1490,18 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                             setInternalEditingDevice(dev);
                           }
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-amber-300 hover:bg-amber-500/15 hover:text-amber-200 transition ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
                           isRtl ? 'text-right' : 'text-left'
-                        } group/item cursor-pointer`}
+                        } group/item cursor-pointer ${
+                          isLightMode
+                            ? 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                            : 'text-amber-300 hover:bg-amber-500/15 hover:text-amber-200'
+                        }`}
                       >
-                        <Edit3 className="w-4 h-4 text-amber-400 group-hover/item:scale-110 transition shrink-0" />
+                        <Edit3 className={`w-4 h-4 group-hover/item:scale-110 transition shrink-0 ${isLightMode ? 'text-indigo-600' : 'text-amber-400'}`} />
                         <div className="flex flex-col">
                           <span>{isEn ? 'Edit Device Properties' : 'ویرایش مشخصات تجهیز'}</span>
-                          <span className="text-[10px] text-amber-400/80 font-mono">Hostname, IP, Role & Location</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-amber-400/80'}`}>Hostname, IP, Role & Location</span>
                         </div>
                       </button>
                     )}
@@ -1484,14 +1514,18 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           handlePing(dev.id);
                         }}
                         disabled={pingingId === dev.id}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:bg-white/10 transition ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
                           isRtl ? 'text-right' : 'text-left'
-                        } cursor-pointer`}
+                        } cursor-pointer ${
+                          isLightMode
+                            ? 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                            : 'text-slate-200 hover:bg-white/10'
+                        }`}
                       >
-                        <RefreshCw className={`w-4 h-4 text-indigo-400 shrink-0 ${pingingId === dev.id ? 'animate-spin' : ''}`} />
+                        <RefreshCw className={`w-4 h-4 text-indigo-500 shrink-0 ${pingingId === dev.id ? 'animate-spin' : ''}`} />
                         <div className="flex flex-col">
                           <span>{isEn ? 'Ping & Keepalive Telemetry (ICMP)' : 'تست پینگ و تاخیر لحظه‌ای (ICMP)'}</span>
-                          <span className="text-[10px] text-slate-400 font-mono">Real ICMP Echo Probe</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>Real ICMP Echo Probe</span>
                         </div>
                       </button>
                     )}
@@ -1503,14 +1537,18 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           setMenuAnchor(null);
                           onInspectPorts(dev);
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:bg-white/10 transition ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
                           isRtl ? 'text-right' : 'text-left'
-                        } cursor-pointer`}
+                        } cursor-pointer ${
+                          isLightMode
+                            ? 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+                            : 'text-slate-200 hover:bg-white/10'
+                        }`}
                       >
-                        <Cable className="w-4 h-4 text-indigo-400 shrink-0" />
+                        <Cable className="w-4 h-4 text-indigo-500 shrink-0" />
                         <div className="flex flex-col">
                           <span>{isEn ? 'Inspect Interfaces & VLANs' : 'مشاهده وضعیت پورت‌ها و VLAN'}</span>
-                          <span className="text-[10px] text-slate-400 font-mono">{dev.total_ports || 24} Interfaces</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>{dev.total_ports || 24} Interfaces</span>
                         </div>
                       </button>
                     )}
@@ -1522,14 +1560,18 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                           setMenuAnchor(null);
                           setConfirmWriteDevice(dev);
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-amber-300 hover:bg-amber-500/15 transition ${
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition ${
                           isRtl ? 'text-right' : 'text-left'
-                        } cursor-pointer`}
+                        } cursor-pointer ${
+                          isLightMode
+                            ? 'text-amber-700 hover:bg-amber-50 hover:text-amber-900'
+                            : 'text-amber-300 hover:bg-amber-500/15'
+                        }`}
                       >
-                        <Save className="w-4 h-4 text-amber-400 shrink-0" />
+                        <Save className="w-4 h-4 text-amber-500 shrink-0" />
                         <div className="flex flex-col">
                           <span>{isEn ? 'Save to NVRAM (Write Memory)' : 'ذخیره در NVRAM (Write Memory)'}</span>
-                          <span className="text-[10px] text-amber-400/80 font-mono">Running &gt; Startup Config</span>
+                          <span className={`text-[10px] font-mono ${isLightMode ? 'text-amber-600/80' : 'text-amber-400/80'}`}>Running &gt; Startup Config</span>
                         </div>
                       </button>
                     )}
@@ -1537,24 +1579,28 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                     {/* Delete Device */}
                     {canDeleteDevice && (
                       <>
-                        <div className="my-1 border-t border-white/10" />
+                        <div className={`my-1 border-t ${isLightMode ? 'border-slate-200' : 'border-white/10'}`} />
                         <button
                           onClick={() => {
                             setMenuAnchor(null);
                             setDeviceToDelete(dev);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition ${
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition ${
                             isRtl ? 'text-right' : 'text-left'
-                          } cursor-pointer`}
+                          } cursor-pointer ${
+                            isLightMode
+                              ? 'text-rose-700 hover:bg-rose-50 hover:text-rose-900'
+                              : 'text-rose-400 hover:bg-rose-500/20 hover:text-rose-300'
+                          }`}
                         >
-                          <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+                          <Trash2 className="w-4 h-4 text-rose-500 shrink-0" />
                           <span>{isEn ? 'Delete Device from System' : 'حذف تجهیز از سیستم'}</span>
                         </button>
                       </>
                     )}
 
                     {!hasAnyAvailableAction && (
-                      <div className="px-3 py-4 text-center text-xs text-slate-400">
+                      <div className={`px-3 py-4 text-center text-xs ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                         {isEn ? 'No actions permitted for this device' : 'هیچ عملیاتی برای این تجهیز مجاز نیست'}
                       </div>
                     )}

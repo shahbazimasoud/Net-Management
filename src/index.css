@@ -1060,10 +1060,16 @@
   border-color: #cbd5e1 !important;
 }
 
-.theme-light .bg-black\/10,
-.theme-light .bg-black\/20 {
+.theme-light .bg-black\/10:not([class*="fixed"]):not([class*="backdrop"]),
+.theme-light .bg-black\/20:not([class*="fixed"]):not([class*="backdrop"]) {
   background-color: #f1f5f9 !important;
   border-color: #cbd5e1 !important;
+}
+
+.theme-light [class*="fixed"][class*="inset-0"].bg-black\/10,
+.theme-light [class*="fixed"][class*="inset-0"].bg-black\/20,
+.theme-light [class*="fixed"][class*="inset-0"].bg-transparent {
+  background-color: transparent !important;
 }
 
 .theme-light .bg-black\/25,
