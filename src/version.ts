@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.317.1';
+export const APP_VERSION = '1.318.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.318.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'بازطراحی ساختار صفحه تنظیمات عمومی پنل به صورت تب‌بندی ماژولار و دسته‌بندی‌شده',
+    title_en: 'Modular Categorized Tabbed Redesign of Panel General Settings',
+    changes: [
+      'تفکیک کامل و تبدیل صفحه طویل تنظیمات عمومی پنل به تب‌های اختصاصی، سریع و ارگونومیک (هویت و برندینگ، ظاهر و قالب، نمای صفحه لاگین، امنیت و دسترسی، شبکه و درگاه‌ها، زمان و NTP، تلمتری سرور، نقشه ماژول‌ها و نمایش یکپارچه).',
+      'افزودن نوار ناوبری افقی تب‌ها با آیکون‌های اختصاصی، وضعیت فعال برجسته، بج‌های راهنما و بنر توضیحی هر تب.',
+      'ایجاد دکمه ذخیره سریع در هدر صفحه در کنار دکمه ذخیره استاندارد فوتر برای راحتی دسترسی و ذخیره‌سازی از داخل هر تب.',
+      'حفظ کامل و ۱۰۰٪ مقادیر ورودی و فرم‌ها هنگام جابجایی بین تب‌های مختلف بدون نیاز به ذخیره زودهنگام.'
+    ],
+    changes_en: [
+      'Completely refactored and organized the long monolithic Panel General Settings page into intuitive, modular, focused tabs (Identity & Branding, Appearance & Themes, Login Showcase, Security & Auth, Network & Port, Time & NTP, Live Telemetry, Module Roadmap, and All-in-One view).',
+      'Added an ergonomic horizontal tab navigation bar with category icons, active pill highlights, badges, and active tab description guidance banners.',
+      'Introduced a quick-save button in the page header alongside the standard bottom actions footer for effortless saving from any active tab.',
+      'Preserved 100% of form inputs and unsaved configurations in state across smooth tab transitions without loss of changes.'
+    ]
+  },
   {
     version: '1.317.1',
     releaseDate: '2026-10-11',

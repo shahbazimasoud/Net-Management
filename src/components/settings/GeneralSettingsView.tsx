@@ -117,6 +117,105 @@ const COMMON_TIMEZONES: TimezonePreset[] = [
   { id: 'Australia/Sydney', nameEn: 'Sydney (Eastern Australia)', nameFa: 'سیدنی (استرالیا)', offset: 'UTC+10:00', groupEn: 'Asia & Pacific', groupFa: 'آسیا و اقیانوسیه' },
 ];
 
+export type GeneralSettingsTabId =
+  | 'branding'
+  | 'appearance'
+  | 'login_visual'
+  | 'security'
+  | 'network'
+  | 'time'
+  | 'telemetry'
+  | 'roadmap'
+  | 'all';
+
+export interface SettingsTabDef {
+  id: GeneralSettingsTabId;
+  labelEn: string;
+  labelFa: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badgeEn?: string;
+  badgeFa?: string;
+  descEn: string;
+  descFa: string;
+}
+
+export const SETTINGS_TABS: SettingsTabDef[] = [
+  {
+    id: 'branding',
+    labelEn: 'Identity & Branding',
+    labelFa: 'هویت و برندینگ',
+    icon: Sparkles,
+    descEn: 'Customize application title, subtitle, custom branding logos, and browser tab favicons.',
+    descFa: 'شخصی‌سازی عنوان سامانه، زیرعنوان، لوگو و نشان تجاری در هدر و فاو‌آیکون تب مرورگر.',
+  },
+  {
+    id: 'appearance',
+    labelEn: 'Appearance & Themes',
+    labelFa: 'ظاهر و قالب',
+    icon: Palette,
+    descEn: 'Configure default themes for new sessions (Obsidian, Emerald, Cobalt, Rose, Amber, Light, Google Dark) and language preferences.',
+    descFa: 'انتخاب تم پیش‌فرض سامانه برای نشست‌های جدید و تعیین زبان اولیه پنل (فارسی / انگلیسی).',
+  },
+  {
+    id: 'login_visual',
+    labelEn: 'Login Showcase',
+    labelFa: 'نمای صفحه لاگین',
+    icon: ImageIcon,
+    badgeEn: '3D/Gallery',
+    badgeFa: 'سه‌بعدی/گالری',
+    descEn: 'Manage interactive 3D simulations (Network Globe or Milky Way Galaxy) and custom uploaded login photo galleries with random rotation.',
+    descFa: 'مدیریت انیمیشن‌های سه‌بعدی صفحه لاگین (کره شبکه و کهکشان راه شیری) یا گالری تصاویر آپلودشده اختصاصی و چرخش تصادفی.',
+  },
+  {
+    id: 'security',
+    labelEn: 'Security & Auth',
+    labelFa: 'امنیت و دسترسی',
+    icon: KeyRound,
+    descEn: 'Set allowed authentication methods (Local only, Active Directory only, or Both), 2FA Email OTP, and inactivity session timeouts.',
+    descFa: 'تعیین روش‌های مجاز ورود به سامانه (محلی، اکتیودایرکتوری یا هر دو)، تایید دو مرحله‌ای (2FA) و زمان انقضای نشست کاربری.',
+  },
+  {
+    id: 'network',
+    labelEn: 'Network & Port',
+    labelFa: 'شبکه و درگاه‌ها',
+    icon: Sliders,
+    descEn: 'Configure system listening port (default 3000), telemetry refresh intervals, default device protocols, and debug logs.',
+    descFa: 'تنظیم پورت لیسن سرور (پیش‌فرض ۳۰۰۰)، فواصل به‌روزرسانی تلمتری، پروتکل پیش‌فرض تجهیزات و لاگ دیباگ.',
+  },
+  {
+    id: 'time',
+    labelEn: 'Time & NTP',
+    labelFa: 'زمان و NTP',
+    icon: Clock,
+    descEn: 'Configure server timezone, automatic Network Time Protocol (NTP) synchronization, and manual date/time overrides.',
+    descFa: 'تنظیم منطقه زمانی سرور، همگام‌سازی خودکار پروتکل زمان شبکه (NTP) و تنظیم دستی ساعت و تاریخ.',
+  },
+  {
+    id: 'telemetry',
+    labelEn: 'Live Telemetry',
+    labelFa: 'تلمتری سرور',
+    icon: Activity,
+    descEn: 'Monitor live backend engines, connected device counts, PostgreSQL database storage, and system uptime.',
+    descFa: 'پایش بی‌درنگ انجین‌های بک‌اند، تعداد تجهیزات شبکه، سلامت پایگاه داده PostgreSQL و پایداری سیستم.',
+  },
+  {
+    id: 'roadmap',
+    labelEn: 'Module Roadmap',
+    labelFa: 'نقشه ماژول‌ها',
+    icon: Layers,
+    descEn: 'Explore integrated feature milestones across completed development phases.',
+    descFa: 'مشاهده گام‌ها و قابلیت‌های توسعه‌یافته در فازهای سیستم مدیریت شبکه.',
+  },
+  {
+    id: 'all',
+    labelEn: 'All in One',
+    labelFa: 'نمایش یکپارچه',
+    icon: Settings,
+    descEn: 'View all configuration cards in a single unified page layout.',
+    descFa: 'مشاهده یکجای تمامی کارت‌ها و بخش‌های تنظیمی پنل در یک صفحه پیوسته.',
+  },
+];
+
 export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   isLightMode = false,
   panelTheme = 'obsidian',
@@ -127,8 +226,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   const { isEn, language, setLanguage } = useLanguage();
   const { user, effectivePolicy } = useAuth();
 
-  // Active submodule sub-tab: 'config' (Panel Settings), 'telemetry' (Live Telemetry), 'roadmap' (Phases Roadmap)
-  const [activeSubSection, setActiveSubSection] = useState<'config' | 'telemetry' | 'roadmap'>('config');
+  // Active tab in General Settings (Identity, Appearance, Login Visual, Security, Network, Time, Telemetry, Roadmap, All)
+  const [activeTab, setActiveTab] = useState<GeneralSettingsTabId>('branding');
 
   // Form State for General Settings
   const [formData, setFormData] = useState<PanelGeneralSettings>(() => loadGeneralSettings());
@@ -821,45 +920,104 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
             </div>
           </div>
 
-          {/* Quick Sub-navigation Tabs */}
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/60 border border-white/10 self-start md:self-auto flex-wrap">
-            <button
-              onClick={() => setActiveSubSection('config')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                activeSubSection === 'config'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Panel Configuration' : 'تنظیمات پنل'}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubSection('telemetry')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                activeSubSection === 'telemetry'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Live Telemetry' : 'تلمتری زنده سرور'}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubSection('roadmap')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                activeSubSection === 'roadmap'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Phases Roadmap' : 'مسیر ماژول‌ها'}</span>
-            </button>
+          {/* Right: Quick Action & Status */}
+          <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+            {formData.updatedAt && (
+              <span className="text-[11px] text-slate-500 font-mono hidden lg:inline">
+                {isEn ? `Saved: ${formData.updatedAt.slice(0, 16)}` : `آخرین ذخیره: ${formData.updatedAt.slice(0, 16)}`}
+              </span>
+            )}
+            {activeTab !== 'telemetry' && activeTab !== 'roadmap' && (
+              <button
+                type="button"
+                onClick={handleSaveSettings as any}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white font-bold text-xs shadow-md shadow-indigo-600/25 transition cursor-pointer active:scale-98 disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{isEn ? 'Saving...' : 'در حال ذخیره...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Save Settings' : 'ذخیره تنظیمات'}</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
+      </div>
+
+      {/* Tab Navigation Bar */}
+      <div
+        className={`p-1.5 rounded-2xl border backdrop-blur-xl shadow-md ${
+          isLightMode
+            ? 'bg-white/90 border-slate-200 shadow-slate-200/50'
+            : 'bg-slate-950/70 border-white/10 shadow-black/40'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          {SETTINGS_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-600 to-sky-600 text-white shadow-md shadow-indigo-600/30 ring-1 ring-white/20'
+                    : isLightMode
+                    ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+                }`}
+              >
+                <Icon
+                  className={`w-4 h-4 ${
+                    isActive ? 'text-white' : isLightMode ? 'text-slate-500' : 'text-slate-400'
+                  }`}
+                />
+                <span>{isEn ? tab.labelEn : tab.labelFa}</span>
+                {tab.badgeEn && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold ${
+                      isActive
+                        ? 'bg-white/25 text-white'
+                        : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                    }`}
+                  >
+                    {isEn ? tab.badgeEn : tab.badgeFa}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Active Tab Description Banner */}
+      <div
+        className={`px-4 py-2.5 rounded-xl border flex items-center justify-between text-xs animate-fadeIn ${
+          isLightMode
+            ? 'bg-slate-50 border-slate-200 text-slate-600'
+            : 'bg-slate-900/40 border-white/5 text-slate-400'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <Info className="w-4 h-4 text-sky-400 shrink-0" />
+          <span>
+            {isEn
+              ? SETTINGS_TABS.find((t) => t.id === activeTab)?.descEn
+              : SETTINGS_TABS.find((t) => t.id === activeTab)?.descFa}
+          </span>
+        </div>
+        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/5 border border-white/10 hidden sm:inline">
+          {activeTab.toUpperCase()}
+        </span>
       </div>
 
       {/* Save Feedback Toast / Alert */}
@@ -889,10 +1047,11 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
       )}
 
       {/* SUB-SECTION 1: Panel Configuration Form */}
-      {activeSubSection === 'config' && (
-        <form onSubmit={handleSaveSettings} className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {activeTab !== 'telemetry' && activeTab !== 'roadmap' && (
+        <form onSubmit={handleSaveSettings} className="space-y-6 animate-fadeIn">
+          <div className={activeTab === 'all' ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : 'space-y-6 max-w-5xl mx-auto'}>
             {/* Card 1: Panel Identity & Branding */}
+            {(activeTab === 'branding' || activeTab === 'all') && (
             <div
               className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
                 isLightMode
@@ -1422,8 +1581,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 )}
               </div>
             </div>
+            )}
 
             {/* Card 2: Networking & Listening Port */}
+            {(activeTab === 'network' || activeTab === 'all') && (
             <div
               className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
                 isLightMode
@@ -1578,8 +1739,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 </div>
               </div>
             </div>
+            )}
 
             {/* Card 3: Default Appearance & Themes */}
+            {(activeTab === 'appearance' || activeTab === 'all') && (
             <div
               className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
                 isLightMode
@@ -1638,8 +1801,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 })}
               </div>
             </div>
+            )}
 
             {/* Card 4: Default Language & Session Security */}
+            {(activeTab === 'appearance' || activeTab === 'all') && (
             <div
               className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
                 isLightMode
@@ -1785,8 +1950,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 </label>
               </div>
             </div>
+            )}
 
             {/* Card 5: Allowed Authentication Methods & Login Gateways */}
+            {(activeTab === 'security' || activeTab === 'all') && (
             <div
               className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
                 isLightMode
@@ -2092,8 +2259,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 </div>
               </div>
             </div>
+            )}
 
             {/* Card 5.5: Login Page Visual Showcase (3D Animation vs Custom Uploaded Images Gallery & Random Rotation) */}
+            {(activeTab === 'login_visual' || activeTab === 'all') && (
             <div
               className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 lg:col-span-2 ${
                 isLightMode
@@ -2630,8 +2799,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 )}
               </div>
             </div>
+            )}
 
             {/* Card 6: Server Time, Timezone & NTP Management */}
+            {(activeTab === 'time' || activeTab === 'all') && (
             <div
               className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-5 ${
                 isLightMode
@@ -3020,6 +3191,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 </button>
               </div>
             </div>
+            )}
           </div>
 
           {/* Form Actions Footer */}
@@ -3073,7 +3245,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
       )}
 
       {/* SUB-SECTION 2: Live System Telemetry */}
-      {activeSubSection === 'telemetry' && (
+      {(activeTab === 'telemetry' || activeTab === 'all') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn">
           {/* Card 1: Live Status Info */}
           <div
@@ -3193,7 +3365,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
       )}
 
       {/* SUB-SECTION 3: Phases Roadmap & Quick Links */}
-      {activeSubSection === 'roadmap' && (
+      {(activeTab === 'roadmap' || activeTab === 'all') && (
         <div className="space-y-4 animate-fadeIn">
           <div
             className={`p-6 rounded-2xl border backdrop-blur-xl shadow-lg space-y-4 ${
@@ -3298,7 +3470,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                   </div>
                 </div>
                 <button
-                  onClick={() => setActiveSubSection('config')}
+                  onClick={() => setActiveTab('branding')}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-xs font-semibold transition shrink-0 cursor-pointer"
                 >
                   <Sliders className="w-3.5 h-3.5" />
