@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.315.4';
+export const APP_VERSION = '1.315.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.315.5',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'تثبیت و یکپارچه‌سازی ظاهر دارک انیمیشن سه‌بعدی کره زمین در صفحه لاگین در تم روشن',
+    title_en: 'Enforce Dark Cyber Aesthetics for 3D Globe Animation on Login Page in Light Mode',
+    changes: [
+      'یکپارچه‌سازی بخش انیمیشن سه‌بعدی شبکه جهانی (NetworkGlobe3D) در سمت راست صفحه لاگین به‌طوری‌که حتی هنگام انتخاب تم روشن (Clean Light)، تمام المان‌ها، برچسب‌ها و کارت‌های تلمتری منحصراً با تم تیره نمایش می‌یابند.',
+      'تثبیت پس‌زمینه کانتینر انیمیشن، ماتریس سایبری و کارت‌های شاخص‌های ترافیکی (Throughput، Latency، Active Trunks، Packet Flow) در حالت تیره (Dark Slate و شفافیت نئونی).',
+      'حفظ کامل ظاهر تم روشن در کارت فرم ورود (ورود محلی و اکتیو دایرکتوری، فیلدهای نام کاربری و رمز عبور) بدون تغییر.'
+    ],
+    changes_en: [
+      'Standardized the 3D Interactive Network Globe animation section on the right side of the login page to always render with dark cyber visuals even when the light theme (Clean Light) is active.',
+      'Enforced dark theme styling across animation container background, cyber grid matrix, top telemetry badges, and bottom metrics cards (Throughput, Latency, Active Trunks, Packet Flow).',
+      'Preserved clean light theme appearance on the left authentication form card (Local and Active Directory logins, inputs, and controls).'
+    ]
+  },
   {
     version: '1.315.4',
     releaseDate: '2026-10-11',

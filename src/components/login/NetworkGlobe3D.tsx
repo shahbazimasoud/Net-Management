@@ -201,7 +201,8 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { isEn } = useLanguage();
 
-  const isLight = theme === 'light';
+  // The 3D animation section always preserves the authentic dark cyber aesthetic even in light mode
+  const isLight = false;
 
   const [metrics, setMetrics] = useState({
     throughput: '894.2 Gbps',
@@ -544,17 +545,18 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
             dotHighlight: '#fdd663',
           };
         case 'light':
+          // Animation section always maintains rich dark obsidian cyber aesthetic
           return {
-            glowA: 'rgba(79, 70, 229, 0.15)',
-            glowB: 'rgba(148, 163, 184, 0.08)',
-            rim: 'rgba(79, 70, 229, 0.45)',
-            grid: 'rgba(148, 163, 184, 0.25)',
-            gridEq: 'rgba(79, 70, 229, 0.4)',
-            arc: 'rgba(79, 70, 229, 0.45)',
-            nodeCore: '#4338ca',
-            nodeEdge: '#2563eb',
-            dotColor: '#3b82f6',
-            dotHighlight: '#1d4ed8',
+            glowA: 'rgba(99, 102, 241, 0.25)',
+            glowB: 'rgba(56, 189, 248, 0.08)',
+            rim: 'rgba(99, 102, 241, 0.35)',
+            grid: 'rgba(99, 102, 241, 0.1)',
+            gridEq: 'rgba(56, 189, 248, 0.25)',
+            arc: 'rgba(99, 102, 241, 0.4)',
+            nodeCore: '#38bdf8',
+            nodeEdge: '#818cf8',
+            dotColor: '#6366f1',
+            dotHighlight: '#38bdf8',
           };
         case 'obsidian':
         default:
@@ -1168,19 +1170,11 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
   return (
     <div
       ref={containerRef}
-      className={`relative w-full h-full min-h-[480px] flex items-center justify-center overflow-hidden select-none transition-colors duration-500 ${
-        isLight
-          ? 'bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50/60'
-          : 'bg-gradient-to-br from-slate-950 via-[#0a0f1d] to-[#030712]'
-      }`}
+      className="relative w-full h-full min-h-[480px] flex items-center justify-center overflow-hidden select-none bg-gradient-to-br from-slate-950 via-[#0a0f1d] to-[#030712] text-slate-100"
     >
       {/* Background Cyber Grid Matrix */}
       <div
-        className={`absolute inset-0 pointer-events-none ${
-          isLight
-            ? 'bg-[radial-gradient(#6366f1_1px,transparent_1px)] [background-size:32px_32px] opacity-15'
-            : 'bg-[radial-gradient(#6366f1_1px,transparent_1px)] [background-size:32px_32px] opacity-15'
-        }`}
+        className="absolute inset-0 pointer-events-none bg-[radial-gradient(#6366f1_1px,transparent_1px)] [background-size:32px_32px] opacity-15"
       />
 
       {/* 3D WebGL Canvas */}
@@ -1189,34 +1183,24 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
       {/* Header Telemetry Badge */}
       <div className="absolute top-6 left-6 right-6 flex flex-wrap items-center justify-between gap-4 z-20 pointer-events-none">
         <div
-          className={`flex items-center gap-3 backdrop-blur-md px-4 py-2 rounded-2xl border shadow-xl ${
-            isLight
-              ? 'bg-white/80 border-slate-200 text-slate-800'
-              : 'bg-white/5 border-white/10 text-white'
-          }`}
+          className="flex items-center gap-3 backdrop-blur-md px-4 py-2 rounded-2xl border shadow-xl bg-white/5 border-white/10 text-white"
         >
           <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
           <div>
             <div
-              className={`text-[11px] font-bold font-mono tracking-wider flex items-center gap-1.5 ${
-                isLight ? 'text-slate-900' : 'text-white'
-              }`}
+              className="text-[11px] font-bold font-mono tracking-wider flex items-center gap-1.5 text-white"
             >
-              <Globe2 className="w-3.5 h-3.5 text-indigo-600 dark:text-cyan-400" />
+              <Globe2 className="w-3.5 h-3.5 text-cyan-400" />
               <span>{isEn ? 'GLOBAL MESH & ORBITAL CONSTELLATION' : 'توپولوژی یکپارچه شبکه جهانی و منظومه مداری'}</span>
             </div>
-            <p className={`text-[9px] font-sans ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            <p className="text-[9px] font-sans text-slate-400">
               {isEn ? 'Autonomous Ground Stations & Space Station Mesh Link' : 'ایستگاه‌های زمینی و پیوند بلادرنگ ایستگاه‌های فضایی'}
             </p>
           </div>
         </div>
 
         <div
-          className={`hidden lg:flex items-center gap-2 backdrop-blur-md px-3 py-1.5 rounded-xl border text-[11px] font-mono ${
-            isLight
-              ? 'bg-white/80 border-slate-200 text-indigo-700'
-              : 'bg-white/5 border-white/10 text-cyan-300'
-          }`}
+          className="hidden lg:flex items-center gap-2 backdrop-blur-md px-3 py-1.5 rounded-xl border text-[11px] font-mono bg-white/5 border-white/10 text-cyan-300"
         >
           <Satellite className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
           <span>{isEn ? 'ORBITAL MESH: 3 STATIONS ACTIVE (LEO/ISL)' : 'شبکه مداری: ۳ ایستگاه فضایی فعال (LEO/ISL)'}</span>
@@ -1226,65 +1210,49 @@ export const NetworkGlobe3D: React.FC<NetworkGlobe3DProps> = ({ theme = 'obsidia
       {/* Footer Metrics Overlay */}
       <div className="absolute bottom-6 left-6 right-6 grid grid-cols-2 sm:grid-cols-4 gap-3 z-20 pointer-events-none">
         <div
-          className={`backdrop-blur-md p-3 rounded-xl border shadow-lg ${
-            isLight
-              ? 'bg-white/85 border-slate-200 text-slate-800'
-              : 'bg-slate-900/60 border-white/10 text-white'
-          }`}
+          className="backdrop-blur-md p-3 rounded-xl border shadow-lg bg-slate-900/60 border-white/10 text-white"
         >
-          <div className={`flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 text-slate-400">
             <Activity className="w-3 h-3 text-cyan-500" />
             <span>{isEn ? 'THROUGHPUT' : 'پهنای باند فعال'}</span>
           </div>
-          <div className={`font-bold font-mono text-sm sm:text-base ${isLight ? 'text-cyan-700' : 'text-cyan-300'}`}>
+          <div className="font-bold font-mono text-sm sm:text-base text-cyan-300">
             {metrics.throughput}
           </div>
         </div>
 
         <div
-          className={`backdrop-blur-md p-3 rounded-xl border shadow-lg ${
-            isLight
-              ? 'bg-white/85 border-slate-200 text-slate-800'
-              : 'bg-slate-900/60 border-white/10 text-white'
-          }`}
+          className="backdrop-blur-md p-3 rounded-xl border shadow-lg bg-slate-900/60 border-white/10 text-white"
         >
-          <div className={`flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 text-slate-400">
             <Wifi className="w-3 h-3 text-indigo-500" />
             <span>{isEn ? 'TRANSIT LATENCY' : 'میانگین تاخیر (Latency)'}</span>
           </div>
-          <div className={`font-bold font-mono text-sm sm:text-base ${isLight ? 'text-indigo-700' : 'text-indigo-300'}`}>
+          <div className="font-bold font-mono text-sm sm:text-base text-indigo-300">
             {metrics.latency}
           </div>
         </div>
 
         <div
-          className={`backdrop-blur-md p-3 rounded-xl border shadow-lg ${
-            isLight
-              ? 'bg-white/85 border-slate-200 text-slate-800'
-              : 'bg-slate-900/60 border-white/10 text-white'
-          }`}
+          className="backdrop-blur-md p-3 rounded-xl border shadow-lg bg-slate-900/60 border-white/10 text-white"
         >
-          <div className={`flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 text-slate-400">
             <Radio className="w-3 h-3 text-emerald-500" />
             <span>{isEn ? 'ACTIVE TRUNKS' : 'پیوندهای فعال'}</span>
           </div>
-          <div className={`font-bold font-mono text-sm sm:text-base ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
+          <div className="font-bold font-mono text-sm sm:text-base text-emerald-300">
             {metrics.activeLinks} {isEn ? 'Circuits' : 'ترانک فیبر'}
           </div>
         </div>
 
         <div
-          className={`backdrop-blur-md p-3 rounded-xl border shadow-lg ${
-            isLight
-              ? 'bg-white/85 border-slate-200 text-slate-800'
-              : 'bg-slate-900/60 border-white/10 text-white'
-          }`}
+          className="backdrop-blur-md p-3 rounded-xl border shadow-lg bg-slate-900/60 border-white/10 text-white"
         >
-          <div className={`flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono mb-1 text-slate-400">
             <Cpu className="w-3 h-3 text-amber-500" />
             <span>{isEn ? 'PACKET FLOW' : 'سرعت بسته‌ها'}</span>
           </div>
-          <div className={`font-bold font-mono text-sm sm:text-base ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>
+          <div className="font-bold font-mono text-sm sm:text-base text-amber-300">
             {metrics.packetsSec}
           </div>
         </div>

@@ -1145,9 +1145,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       {/* ------------------------------------------------------------- */}
       {/* RIGHT 3/4 (70-75%): Interactive 3D Network Globe Animation */}
+      {/* Animation section preserves authentic dark cyber aesthetic */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex-1 h-full relative overflow-hidden hidden md:block">
-        <NetworkGlobe3D theme={theme} />
+      <div className="flex-1 h-full relative overflow-hidden hidden md:block bg-slate-950">
+        <NetworkGlobe3D theme={theme === 'light' ? 'obsidian' : theme} />
       </div>
     </div>
   );
