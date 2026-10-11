@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.313.0';
+export const APP_VERSION = '1.314.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.314.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'رفع مشکل افزودن رک و فعال‌سازی کامل دکمه و ساختار افزودن واحد/اتاق درون اتاق‌ها (Add Unit/Room) در جانمایی فیزیکی',
+    title_en: 'Fix Rack Addition Bug and Implement Add Unit / Room Inside Rooms in Physical Placement View',
+    changes: [
+      'رفع کامل باگ افزودن رک در جانمایی فیزیکی (Physical Placement across Buildings & Floors): اصلاح منطق اعتبارسنجی نام تکراری (Duplicate Check) برای تفکیک رک‌های طبقه و اتاق، جلوگیری از غیرفعال ماندن بی‌مورد دکمه ثبت و ارتقای اعتبارسنجی کلیدهای کامپوزیت رک.',
+      'تجهیز هدر هر اتاق و واحد به دکمه اختصاصی «+ افزودن واحد / اتاق (+ Add Unit / Room)» با استایل استاندارد، عنوان دوزبانه و آیکون یکپارچه برای ایجاد ساختار درختی و تودرتو.',
+      'پیاده‌سازی رندرینگ بصری کامل واحدها و بخش‌های تودرتو درون کارت اتاق به همراه مدیریت رک‌ها و دکمه حذف و تفکیک سلسله‌مراتبی.',
+      'اصلاح ذخیره‌سازی و تبدیل سلسله‌مراتب در سرور (server/db.ts) جهت پشتیبانی بی‌نقص از رک‌های درون واحدها و واحدهای تودرتو و همگام‌سازی کامل پایگاه‌داده.'
+    ],
+    changes_en: [
+      'Fixed rack addition failure in Physical Placement across Buildings & Floors: corrected duplicate detection logic separating floor-level from unit-level racks so the creation button activates properly.',
+      'Added dedicated "+ Add Unit / Room" button inside every room/unit card with strict bilingual support, custom icon, and responsive styling to allow nesting sub-units/rooms.',
+      'Implemented full nested sub-units rendering inside room cards with inline sub-unit racks management, device counts, and deletion handlers.',
+      'Enhanced server-side hierarchy conversion algorithms (server/db.ts) to authoritatively map unit-nested racks and parent-child room relationships in PostgreSQL and store.'
+    ]
+  },
   {
     version: '1.313.0',
     releaseDate: '2026-10-11',

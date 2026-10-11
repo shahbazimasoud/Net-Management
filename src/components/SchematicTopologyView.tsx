@@ -2499,7 +2499,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     } catch (e) {
       console.error('[Save hierarchy error]', e);
     } finally {
-      isSavingHierarchyRef.current = false;
+      setTimeout(() => {
+        isSavingHierarchyRef.current = false;
+      }, 600);
       window.dispatchEvent(new CustomEvent('nettopology_hierarchy_updated'));
     }
   };
@@ -2668,8 +2670,9 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [showAddBuildingModal, setShowAddBuildingModal] = useState(false);
   const [newBuildingInput, setNewBuildingInput] = useState('');
 
-  const [addUnitModal, setAddUnitModal] = useState<{ building: string; floor: string } | null>(null);
+  const [addUnitModal, setAddUnitModal] = useState<{ building: string; floor: string; parentUnit?: string } | null>(null);
   const [newUnitInput, setNewUnitInput] = useState('');
+  const [isAddUnitModalMaximized, setIsAddUnitModalMaximized] = useState(false);
 
   const [addRackModal, setAddRackModal] = useState<{ building: string; floor: string; unit?: string } | null>(null);
   const [newRackInput, setNewRackInput] = useState('');
@@ -2705,6 +2708,32 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const [assignPlacementTarget, setAssignPlacementTarget] = useState<AssignPhysicalPlacementTarget | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleMinimizeAddUnit = () => {
+    if (!addUnitModal) return;
+    const modalData = { ...addUnitModal };
+    dockModal({
+      id: 'physical_placement_add_unit',
+      labelEn: modalData.parentUnit
+        ? `Add Unit (${modalData.parentUnit})`
+        : `Add Unit (${modalData.floor})`,
+      labelFa: modalData.parentUnit
+        ? `افزودن واحد (${modalData.parentUnit})`
+        : `افزودن واحد (${modalData.floor})`,
+      badge: modalData.building,
+      category: 'device',
+      onRestore: () => {
+        setAddUnitModal(modalData);
+      },
+      onClose: () => {
+        undockModal('physical_placement_add_unit');
+        setAddUnitModal(null);
+        setIsAddUnitModalMaximized(false);
+      },
+    });
+    setAddUnitModal(null);
+    setIsAddUnitModalMaximized(false);
+  };
 
   const handleMinimizeAddRack = () => {
     if (!addRackModal) return;
@@ -3056,21 +3085,64 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
     setTimeout(() => setFeedbackToast(null), 3000);
   };
 
-  const handleAddUnit = (building: string, floor: string, customInput?: string) => {
+  const handleAddUnit = (building: string, floor: string, customInput?: string, parentUnit?: string) => {
     const unitName = (customInput !== undefined ? customInput : newUnitInput).trim();
     if (!unitName) return;
-    const key = `${building}:::${floor}`;
-    const updatedUnits = {
-      ...customUnits,
-      [key]: Array.from(new Set([...(customUnits[key] || []), unitName])),
+
+    const floorKey = `${building}:::${floor}`;
+    const updatedBuildings = Array.from(new Set([...customBuildings, building]));
+    const updatedFloors = {
+      ...customFloors,
+      [building]: Array.from(new Set([...(customFloors[building] || []), floor])),
     };
+    const updatedUnits = { ...customUnits };
+
+    if (parentUnit) {
+      const parentKey = `${building}:::${floor}:::${parentUnit}`;
+      const existingSub = customUnits[parentKey] || [];
+      if (existingSub.some((u) => u.trim().toLowerCase() === unitName.toLowerCase())) {
+        setFeedbackToast({
+          type: 'error',
+          message: isEn
+            ? `A unit/room named "${unitName}" already exists in ${parentUnit}`
+            : `واحد یا اتاقی با نام «${unitName}» از قبل در «${parentUnit}» وجود دارد`,
+        });
+        setTimeout(() => setFeedbackToast(null), 3000);
+        return;
+      }
+      updatedUnits[parentKey] = Array.from(new Set([...existingSub, unitName]));
+      updatedUnits[floorKey] = Array.from(new Set([...(updatedUnits[floorKey] || []), parentUnit]));
+    } else {
+      const existing = customUnits[floorKey] || [];
+      if (existing.some((u) => u.trim().toLowerCase() === unitName.toLowerCase())) {
+        setFeedbackToast({
+          type: 'error',
+          message: isEn
+            ? `A unit/room named "${unitName}" already exists on this floor`
+            : `واحد یا اتاقی با نام «${unitName}» از قبل در این طبقه وجود دارد`,
+        });
+        setTimeout(() => setFeedbackToast(null), 3000);
+        return;
+      }
+      updatedUnits[floorKey] = Array.from(new Set([...existing, unitName]));
+    }
+
+    setCustomBuildings(updatedBuildings);
+    setCustomFloors(updatedFloors);
     setCustomUnits(updatedUnits);
-    saveHierarchyState(customBuildings, customFloors, updatedUnits, customRacks);
+    saveHierarchyState(updatedBuildings, updatedFloors, updatedUnits, customRacks);
     setAddUnitModal(null);
     setNewUnitInput('');
+    setIsAddUnitModalMaximized(false);
     setFeedbackToast({
       type: 'success',
-      message: isEn ? `Unit "${unitName}" created` : `واحد «${unitName}» ایجاد شد`,
+      message: isEn
+        ? parentUnit
+          ? `Unit "${unitName}" added to ${parentUnit}`
+          : `Unit "${unitName}" created`
+        : parentUnit
+        ? `واحد / اتاق «${unitName}» در «${parentUnit}» ایجاد شد`
+        : `واحد / اتاق «${unitName}» ایجاد شد`,
     });
     setTimeout(() => setFeedbackToast(null), 3000);
   };
@@ -3078,42 +3150,64 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
   const handleAddRack = (building: string, floor: string, customInput?: string, unit?: string) => {
     const rackName = (customInput !== undefined ? customInput : newRackInput).trim();
     if (!rackName) return;
-    const floorKey = `${building}:::${floor}`;
-    const existingForFloor = customRacks[floorKey] || [];
-    if (existingForFloor.some((r) => r.trim().toLowerCase() === rackName.toLowerCase())) {
-      setFeedbackToast({
-        type: 'error',
-        message: isEn
-          ? `A rack named "${rackName}" already exists on this floor`
-          : `رکی با نام «${rackName}» از قبل در این طبقه وجود دارد`,
-      });
-      setTimeout(() => setFeedbackToast(null), 3000);
-      return;
-    }
-    const updatedRacks = {
-      ...customRacks,
-      [floorKey]: [...existingForFloor, rackName],
+
+    const updatedBuildings = Array.from(new Set([...customBuildings, building]));
+    const updatedFloors = {
+      ...customFloors,
+      [building]: Array.from(new Set([...(customFloors[building] || []), floor])),
     };
+    let updatedUnits = { ...customUnits };
+    let updatedRacks = { ...customRacks };
+
     if (unit) {
       const unitKey = `${building}:::${floor}:::${unit}`;
       const existingForUnit = customRacks[unitKey] || [];
-      if (!existingForUnit.some((r) => r.trim().toLowerCase() === rackName.toLowerCase())) {
-        updatedRacks[unitKey] = [...existingForUnit, rackName];
+      if (existingForUnit.some((r) => r.trim().toLowerCase() === rackName.toLowerCase())) {
+        setFeedbackToast({
+          type: 'error',
+          message: isEn
+            ? `A rack named "${rackName}" already exists in ${unit}`
+            : `رکی با نام «${rackName}» از قبل در «${unit}» وجود دارد`,
+        });
+        setTimeout(() => setFeedbackToast(null), 3000);
+        return;
       }
+      updatedRacks[unitKey] = [...existingForUnit, rackName];
+      const floorUnitKey = `${building}:::${floor}`;
+      updatedUnits[floorUnitKey] = Array.from(new Set([...(updatedUnits[floorUnitKey] || []), unit]));
+    } else {
+      const floorKey = `${building}:::${floor}`;
+      const existingForFloor = customRacks[floorKey] || [];
+      if (existingForFloor.some((r) => r.trim().toLowerCase() === rackName.toLowerCase())) {
+        setFeedbackToast({
+          type: 'error',
+          message: isEn
+            ? `A rack named "${rackName}" already exists on this floor`
+            : `رکی با نام «${rackName}» از قبل در این طبقه وجود دارد`,
+        });
+        setTimeout(() => setFeedbackToast(null), 3000);
+        return;
+      }
+      updatedRacks[floorKey] = [...existingForFloor, rackName];
     }
+
+    setCustomBuildings(updatedBuildings);
+    setCustomFloors(updatedFloors);
+    setCustomUnits(updatedUnits);
     setCustomRacks(updatedRacks);
-    saveHierarchyState(customBuildings, customFloors, customUnits, updatedRacks);
+    saveHierarchyState(updatedBuildings, updatedFloors, updatedUnits, updatedRacks);
     setAddRackModal(null);
     setNewRackInput('');
+    setIsAddRackModalMaximized(false);
     setFeedbackToast({
       type: 'success',
       message: isEn
         ? unit
           ? `Rack "${rackName}" created in ${unit}`
-          : `Rack "${rackName}" created`
+          : `Rack "${rackName}" created on ${floor}`
         : unit
         ? `رک «${rackName}» در اتاق «${unit}» ایجاد شد`
-        : `رک «${rackName}» ایجاد شد`,
+        : `رک «${rackName}» در طبقه «${floor}» ایجاد شد`,
     });
     setTimeout(() => setFeedbackToast(null), 3000);
   };
@@ -3221,6 +3315,16 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
       if (updatedUnits[key]) {
         updatedUnits[key] = updatedUnits[key].map((u) => (u === currentName ? trimmed : u));
       }
+      const oldUnitKey = `${building}:::${floor}:::${currentName}`;
+      const newUnitKey = `${building}:::${floor}:::${trimmed}`;
+      if (updatedRacks[oldUnitKey]) {
+        updatedRacks[newUnitKey] = updatedRacks[oldUnitKey];
+        delete updatedRacks[oldUnitKey];
+      }
+      if (updatedUnits[oldUnitKey]) {
+        updatedUnits[newUnitKey] = updatedUnits[oldUnitKey];
+        delete updatedUnits[oldUnitKey];
+      }
     } else if (type === 'rack' && floor) {
       const affectedDevices = localNodes.filter(
         (n) => n.building === building && n.floor === floor && n.rack === currentName
@@ -3238,10 +3342,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         } catch (err) {}
       }
 
-      const key = `${building}:::${floor}`;
-      if (updatedRacks[key]) {
-        updatedRacks[key] = updatedRacks[key].map((r) => (r === currentName ? trimmed : r));
-      }
+      Object.keys(updatedRacks).forEach((k) => {
+        if (k.startsWith(`${building}:::${floor}`)) {
+          updatedRacks[k] = updatedRacks[k].map((r) => (r === currentName ? trimmed : r));
+        }
+      });
     }
 
     setCustomBuildings(updatedBuildings);
@@ -3324,10 +3429,17 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           await updateDevice(dev.id, { unit: '' });
         } catch (err) {}
       }
-      const key = `${building}:::${floor}`;
-      if (updatedUnits[key]) {
-        updatedUnits[key] = updatedUnits[key].filter((u) => u !== item);
-      }
+      Object.keys(updatedUnits).forEach((k) => {
+        if (k.startsWith(`${building}:::${floor}`)) {
+          updatedUnits[k] = updatedUnits[k].filter((u) => u !== item);
+        }
+      });
+      // Also remove any rack keys nested inside this unit
+      Object.keys(updatedRacks).forEach((k) => {
+        if (k.startsWith(`${building}:::${floor}:::${item}`)) {
+          delete updatedRacks[k];
+        }
+      });
     } else if (type === 'rack' && floor && item) {
       const affectedDevices = localNodes.filter(
         (n) => n.building === building && n.floor === floor && n.rack === item
@@ -3344,10 +3456,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
           await updateDevice(dev.id, { rack: '' });
         } catch (err) {}
       }
-      const key = `${building}:::${floor}`;
-      if (updatedRacks[key]) {
-        updatedRacks[key] = updatedRacks[key].filter((r) => r !== item);
-      }
+      Object.keys(updatedRacks).forEach((k) => {
+        if (k.startsWith(`${building}:::${floor}`)) {
+          updatedRacks[k] = updatedRacks[k].filter((r) => r !== item);
+        }
+      });
     }
 
     setCustomBuildings(updatedBuildings);
@@ -5140,23 +5253,35 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
 
     // 3. Prepopulate custom added units
     Object.entries(customUnits).forEach(([key, unitList]) => {
-      const [b, f] = key.split(':::');
+      const parts = key.split(':::');
+      const b = parts[0];
+      const f = parts[1];
+      const parentU = parts[2];
       if (b && f) {
         const floorData = ensureFloor(b, f);
-        (unitList as string[]).forEach((u) => {
-          if (!floorData.units[u]) floorData.units[u] = [];
-        });
+        if (!parentU) {
+          (unitList as string[]).forEach((u) => {
+            if (!floorData.units[u]) floorData.units[u] = [];
+          });
+        }
       }
     });
 
     // 4. Prepopulate custom added racks
     Object.entries(customRacks).forEach(([key, rackList]) => {
-      const [b, f] = key.split(':::');
+      const parts = key.split(':::');
+      const b = parts[0];
+      const f = parts[1];
+      const u = parts[2];
       if (b && f) {
         const floorData = ensureFloor(b, f);
-        (rackList as string[]).forEach((r) => {
-          if (!floorData.racks[r]) floorData.racks[r] = [];
-        });
+        if (u) {
+          if (!floorData.units[u]) floorData.units[u] = [];
+        } else {
+          (rackList as string[]).forEach((r) => {
+            if (!floorData.racks[r]) floorData.racks[r] = [];
+          });
+        }
       }
     });
 
@@ -7915,6 +8040,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                       dragOverTarget?.unit === unitName;
 
                                     const unitRacks = customRacks[`${bldgName}:::${floorName}:::${unitName}`] || [];
+                                    const subUnits = customUnits[`${bldgName}:::${floorName}:::${unitName}`] || [];
                                     const allUnitRacks = Array.from(
                                       new Set([
                                         ...unitRacks,
@@ -8045,6 +8171,29 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                             >
                                               <Plus className="w-2.5 h-2.5 text-indigo-400" />
                                               <span>{t('topology_physical_add_device_btn')}</span>
+                                            </button>
+
+                                            {/* Add Unit / Room inside Unit / Room */}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAddUnitModal({
+                                                  building: bldgName,
+                                                  floor: floorName,
+                                                  parentUnit: unitName,
+                                                });
+                                                setNewUnitInput('');
+                                                setIsAddUnitModalMaximized(false);
+                                              }}
+                                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] transition cursor-pointer ${
+                                                isLightMode
+                                                  ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-900 border-indigo-200 shadow-sm'
+                                                  : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border-indigo-500/30 shadow-sm'
+                                              }`}
+                                              title={isEn ? `Add Unit / Room to ${unitName}` : `افزودن واحد / اتاق به ${unitName}`}
+                                            >
+                                              <Boxes className="w-2.5 h-2.5 text-indigo-400" />
+                                              <span>{t('topology_physical_add_unit_btn')}</span>
                                             </button>
 
                                             {/* Add Rack to Room / Unit */}
@@ -8230,6 +8379,101 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                           </div>
                                         )}
 
+                                        {/* Nested Sub-Units inside Room / Unit */}
+                                        {subUnits.length > 0 && (
+                                          <div className="space-y-2 mb-2.5">
+                                            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-indigo-300 uppercase tracking-wider">
+                                              <Boxes className="w-3 h-3 text-indigo-400" />
+                                              <span>{isEn ? `Sub-units / Rooms in ${unitName}` : `بخش‌ها و اتاق‌های زیرمجموعه ${unitName}`}</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                              {subUnits.map((subUName) => {
+                                                const subKey = `${bldgName}:::${floorName}:::${subUName}`;
+                                                const subRacks = customRacks[subKey] || [];
+                                                return (
+                                                  <div
+                                                    key={subUName}
+                                                    className={`p-2.5 rounded-lg border transition ${
+                                                      isLightMode
+                                                        ? 'bg-slate-50 border-indigo-200'
+                                                        : 'bg-indigo-950/40 border-indigo-500/20'
+                                                    }`}
+                                                  >
+                                                    <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-indigo-500/20">
+                                                      <div className="flex items-center gap-1.5">
+                                                        <Box className="w-3 h-3 text-indigo-400" />
+                                                        <span className="font-semibold text-[11px] text-indigo-200">
+                                                          {subUName}
+                                                        </span>
+                                                      </div>
+                                                      <div className="flex items-center gap-1">
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => {
+                                                            setAddRackModal({
+                                                              building: bldgName,
+                                                              floor: floorName,
+                                                              unit: subUName,
+                                                            });
+                                                            setNewRackInput('');
+                                                            setIsAddRackModalMaximized(false);
+                                                          }}
+                                                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] transition cursor-pointer ${
+                                                            isLightMode
+                                                              ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-200 shadow-sm'
+                                                              : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 hover:text-white border-cyan-500/30 shadow-sm'
+                                                          }`}
+                                                          title={isEn ? `Add Rack to ${subUName}` : `افزودن رک به ${subUName}`}
+                                                        >
+                                                          <Server className="w-2 h-2 text-cyan-400" />
+                                                          <span>{t('topology_physical_add_rack_btn')}</span>
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() =>
+                                                            setDeleteModal({
+                                                              type: 'unit',
+                                                              building: bldgName,
+                                                              floor: floorName,
+                                                              item: subUName,
+                                                              deviceCount: 0,
+                                                            })
+                                                          }
+                                                          className="p-1 rounded text-slate-400 hover:text-rose-400 transition"
+                                                          title={t('topology_physical_delete')}
+                                                        >
+                                                          <Trash2 className="w-2.5 h-2.5" />
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                    {subRacks.length > 0 ? (
+                                                      <div className="space-y-1">
+                                                        <div className="flex items-center gap-1 text-[9px] text-cyan-300 font-medium">
+                                                          <Server className="w-2.5 h-2.5 text-cyan-400" />
+                                                          <span>{isEn ? `${subRacks.length} Rack(s)` : `${subRacks.length} رک`}</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-1">
+                                                          {subRacks.map((r) => (
+                                                            <span
+                                                              key={r}
+                                                              className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-mono"
+                                                            >
+                                                              {r}
+                                                            </span>
+                                                          ))}
+                                                        </div>
+                                                      </div>
+                                                    ) : (
+                                                      <p className="text-[10px] text-slate-400 italic">
+                                                        {isEn ? 'No racks inside sub-unit' : 'بدون رک داخلی'}
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
                                         {/* Standalone devices in Unit / Room */}
                                         {standaloneUnitDevices.length > 0 && (
                                           <div className="space-y-1.5">
@@ -8246,8 +8490,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                                             </div>
                                           </div>
                                         )}
-
-                                        {unitDevices.length === 0 && allUnitRacks.length === 0 && (
+                                        {unitDevices.length === 0 && allUnitRacks.length === 0 && subUnits.length === 0 && (
                                           <div className="p-3 rounded-lg border border-dashed border-indigo-500/30 text-center text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
                                             <Move className="w-3 h-3 text-indigo-400 opacity-70" />
                                             <span>
@@ -9499,10 +9742,17 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
         <div
           data-modal-backdrop="true"
           className="fixed top-0 left-0 right-0 bottom-8 z-[100000] flex items-center justify-center p-4 modal-backdrop-blur"
-          onClick={() => setAddUnitModal(null)}
+          onClick={() => {
+            setAddUnitModal(null);
+            setIsAddUnitModalMaximized(false);
+          }}
         >
           <div
-            className={`relative w-full max-w-md flex flex-col rounded-2xl border shadow-2xl overflow-hidden my-auto ${
+            className={`relative flex flex-col shadow-2xl overflow-hidden transition-all duration-200 ${
+              isAddUnitModalMaximized
+                ? 'w-full h-full max-w-none rounded-none border-0'
+                : 'w-full max-w-md rounded-2xl border my-auto'
+            } ${
               isLightMode
                 ? 'bg-white border-slate-200 text-slate-800'
                 : 'bg-slate-900 border-white/20 text-slate-100'
@@ -9510,7 +9760,7 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div
-              className={`flex items-center justify-between px-5 py-4 border-b ${
+              className={`flex items-center justify-between px-5 py-4 border-b shrink-0 ${
                 isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/60 border-white/10'
               }`}
             >
@@ -9530,7 +9780,11 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                       isLightMode ? 'text-slate-900' : 'text-white'
                     }`}
                   >
-                    {t('topology_physical_add_unit_btn')}
+                    {addUnitModal.parentUnit
+                      ? isEn
+                        ? `Add Unit / Room to ${addUnitModal.parentUnit}`
+                        : `افزودن واحد / اتاق به ${addUnitModal.parentUnit}`
+                      : t('topology_physical_add_unit_btn')}
                   </h3>
                   <p
                     className={`text-[11px] font-mono ${
@@ -9538,59 +9792,167 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                     }`}
                   >
                     {addUnitModal.building} &gt; {addUnitModal.floor}
+                    {addUnitModal.parentUnit ? ` > ${addUnitModal.parentUnit}` : ''}
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setAddUnitModal(null)}
-                className={`p-1.5 rounded-lg transition cursor-pointer ${
-                  isLightMode
-                    ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
-                    : 'text-slate-400 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              {/* Triad Control Buttons */}
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Minimize to ToolsDock */}
+                <button
+                  type="button"
+                  onClick={handleMinimizeAddUnit}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Minimize' : 'کوچک‌کردن'}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                {/* Fullscreen / Restore */}
+                <button
+                  type="button"
+                  onClick={() => setIsAddUnitModalMaximized((prev) => !prev)}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={
+                    isAddUnitModalMaximized
+                      ? isEn
+                        ? 'Restore Window'
+                        : 'بازگردانی پنجره'
+                      : isEn
+                      ? 'Maximize Window'
+                      : 'تمام‌صفحه'
+                  }
+                >
+                  {isAddUnitModalMaximized ? (
+                    <Minimize2 className="w-4 h-4" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4" />
+                  )}
+                </button>
+                {/* Close */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddUnitModal(null);
+                    setIsAddUnitModalMaximized(false);
+                  }}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={isEn ? 'Close' : 'بستن'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
               <div>
-                <label
-                  className={`block text-xs font-medium mb-1.5 ${
-                    isLightMode ? 'text-slate-700' : 'text-slate-300'
-                  }`}
-                >
-                  {t('topology_physical_new_unit_name')}
-                </label>
-                <input
-                  type="text"
-                  value={newUnitInput}
-                  onChange={(e) => setNewUnitInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newUnitInput.trim()) {
-                      handleAddUnit(addUnitModal.building, addUnitModal.floor, newUnitInput);
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label
+                    className={`block text-xs font-medium ${
+                      isLightMode ? 'text-slate-700' : 'text-slate-300'
+                    }`}
+                  >
+                    {t('topology_physical_new_unit_name')}
+                  </label>
+                  <FieldInfoTooltip
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                    fieldName={isEn ? 'Unit / Room Name' : 'نام واحد / اتاق'}
+                    whatIsIt={
+                      isEn
+                        ? 'Designated room, office, datacenter pod, or department inside this building floor.'
+                        : 'اتاق، بخش، سالن سرور یا دپارتمان مشخص در این طبقه از ساختمان.'
                     }
-                  }}
-                  placeholder={isEn ? 'e.g. IT Department, Server Room 102, Finance' : 'مانند واحد فناوری اطلاعات، اتاق سرور ۱۰۲، مالی'}
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
-                    isLightMode
-                      ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-indigo-500'
-                      : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:ring-indigo-400'
-                  }`}
-                  autoFocus
-                />
+                    whyNeeded={
+                      isEn
+                        ? 'Provides granular physical grouping for network racks and equipment within architectural spaces.'
+                        : 'امکان دسته‌بندی دقیق فیزیکی تجهیزات و رک‌ها را در فضاهای معماری فراهم می‌آورد.'
+                    }
+                    example={
+                      isEn
+                        ? 'e.g. Server Room 101, IT Department, Network Operations Center, NOC'
+                        : 'مانند اتاق سرور ۱۰۱، واحد فناوری اطلاعات، مرکز عملیات شبکه'
+                    }
+                  />
+                </div>
+                {(() => {
+                  const floorUnitKey = `${addUnitModal.building}:::${addUnitModal.floor}`;
+                  const parentKey = addUnitModal.parentUnit
+                    ? `${addUnitModal.building}:::${addUnitModal.floor}:::${addUnitModal.parentUnit}`
+                    : '';
+                  const isUnitDup = (customUnits[parentKey || floorUnitKey] || []).some(
+                    (u) => u.trim().toLowerCase() === newUnitInput.trim().toLowerCase()
+                  );
+
+                  return (
+                    <>
+                      <input
+                        type="text"
+                        value={newUnitInput}
+                        onChange={(e) => setNewUnitInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newUnitInput.trim() && !isUnitDup) {
+                            handleAddUnit(
+                              addUnitModal.building,
+                              addUnitModal.floor,
+                              newUnitInput,
+                              addUnitModal.parentUnit
+                            );
+                          }
+                        }}
+                        placeholder={
+                          isEn
+                            ? 'e.g. IT Department, Server Room 102, Finance'
+                            : 'مانند واحد فناوری اطلاعات، اتاق سرور ۱۰۲، مالی'
+                        }
+                        className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:ring-1 ${
+                          isUnitDup
+                            ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                            : isLightMode
+                            ? 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-indigo-500'
+                            : 'bg-slate-950/80 border-white/15 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:ring-indigo-400'
+                        }`}
+                        autoFocus
+                      />
+                      {isUnitDup && (
+                        <p className="mt-1.5 text-xs text-red-500 font-medium flex items-center gap-1">
+                          <span>⚠️</span>
+                          <span>
+                            {isEn
+                              ? `A unit named "${newUnitInput.trim()}" already exists in this location`
+                              : `واحدی با این نام از قبل در این مکان ثبت شده است`}
+                          </span>
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
             <div
-              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t ${
+              className={`flex items-center justify-end gap-2.5 px-5 py-3.5 border-t shrink-0 ${
                 isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-white/10'
               }`}
             >
               <button
                 type="button"
-                onClick={() => setAddUnitModal(null)}
+                onClick={() => {
+                  setAddUnitModal(null);
+                  setIsAddUnitModalMaximized(false);
+                }}
                 className={`px-4 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
                   isLightMode
                     ? 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200'
@@ -9599,14 +9961,33 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
               >
                 {t('topology_physical_cancel_btn')}
               </button>
-              <button
-                type="button"
-                onClick={() => handleAddUnit(addUnitModal.building, addUnitModal.floor, newUnitInput)}
-                disabled={!newUnitInput.trim()}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-40 transition shadow-lg cursor-pointer"
-              >
-                {t('topology_physical_create_btn')}
-              </button>
+              {(() => {
+                const floorUnitKey = `${addUnitModal.building}:::${addUnitModal.floor}`;
+                const parentKey = addUnitModal.parentUnit
+                  ? `${addUnitModal.building}:::${addUnitModal.floor}:::${addUnitModal.parentUnit}`
+                  : '';
+                const isUnitDup = (customUnits[parentKey || floorUnitKey] || []).some(
+                  (u) => u.trim().toLowerCase() === newUnitInput.trim().toLowerCase()
+                );
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleAddUnit(
+                        addUnitModal.building,
+                        addUnitModal.floor,
+                        newUnitInput,
+                        addUnitModal.parentUnit
+                      )
+                    }
+                    disabled={!newUnitInput.trim() || isUnitDup}
+                    className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-40 transition shadow-lg cursor-pointer"
+                  >
+                    {t('topology_physical_create_btn')}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -9765,15 +10146,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                   />
                 </div>
                 {(() => {
-                  const isFloorDuplicate = (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
+                  const isFloorDuplicate = !addRackModal.unit && (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
                     (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
                   );
-                  const isUnitDuplicate = addRackModal.unit
-                    ? (customRacks[`${addRackModal.building}:::${addRackModal.floor}:::${addRackModal.unit}`] || []).some(
-                        (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
-                      )
-                    : false;
-                  const isDuplicate = isFloorDuplicate || isUnitDuplicate;
+                  const isUnitDuplicate = Boolean(addRackModal.unit) && (customRacks[`${addRackModal.building}:::${addRackModal.floor}:::${addRackModal.unit}`] || []).some(
+                    (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
+                  );
+                  const isDuplicate = addRackModal.unit ? isUnitDuplicate : isFloorDuplicate;
 
                   return (
                     <>
@@ -9841,15 +10220,13 @@ export const SchematicTopologyView: React.FC<SchematicTopologyViewProps> = ({
                 {t('topology_physical_cancel_btn')}
               </button>
               {(() => {
-                const isFloorDuplicate = (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
+                const isFloorDuplicate = !addRackModal.unit && (customRacks[`${addRackModal.building}:::${addRackModal.floor}`] || []).some(
                   (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
                 );
-                const isUnitDuplicate = addRackModal.unit
-                  ? (customRacks[`${addRackModal.building}:::${addRackModal.floor}:::${addRackModal.unit}`] || []).some(
-                      (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
-                    )
-                  : false;
-                const isDuplicate = isFloorDuplicate || isUnitDuplicate;
+                const isUnitDuplicate = Boolean(addRackModal.unit) && (customRacks[`${addRackModal.building}:::${addRackModal.floor}:::${addRackModal.unit}`] || []).some(
+                  (r) => r.trim().toLowerCase() === newRackInput.trim().toLowerCase()
+                );
+                const isDuplicate = addRackModal.unit ? isUnitDuplicate : isFloorDuplicate;
 
                 return (
                   <button

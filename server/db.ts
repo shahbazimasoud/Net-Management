@@ -670,13 +670,33 @@ export function convertHierarchyNodesToStructured(nodes: any[]): PhysicalHierarc
     }
 
     if (bldg && flr) {
+      buildingsSet.add(bldg);
+      if (!floors[bldg]) floors[bldg] = [];
+      if (!floors[bldg].includes(flr)) floors[bldg].push(flr);
+
       const key = `${bldg}:::${flr}`;
       if (n.type === 'unit') {
+        const parentUnit = n.metadata?.parentUnit;
+        if (parentUnit) {
+          const parentKey = `${bldg}:::${flr}:::${parentUnit}`;
+          if (!units[parentKey]) units[parentKey] = [];
+          if (!units[parentKey].includes(n.name)) units[parentKey].push(n.name);
+        }
         if (!units[key]) units[key] = [];
         if (!units[key].includes(n.name)) units[key].push(n.name);
       } else if (n.type === 'rack') {
-        if (!racks[key]) racks[key] = [];
-        if (!racks[key].includes(n.name)) racks[key].push(n.name);
+        const parentNode = nodes.find((item) => item.id === n.parentId);
+        const unitName = n.metadata?.unit || (parentNode?.type === 'unit' ? parentNode.name : '');
+        if (unitName) {
+          if (!units[key]) units[key] = [];
+          if (!units[key].includes(unitName)) units[key].push(unitName);
+          const unitRackKey = `${bldg}:::${flr}:::${unitName}`;
+          if (!racks[unitRackKey]) racks[unitRackKey] = [];
+          if (!racks[unitRackKey].includes(n.name)) racks[unitRackKey].push(n.name);
+        } else {
+          if (!racks[key]) racks[key] = [];
+          if (!racks[key].includes(n.name)) racks[key].push(n.name);
+        }
       } else if (n.type === 'section') {
         if (!sections[key]) sections[key] = [];
         if (!sections[key].includes(n.name)) sections[key].push(n.name);
@@ -698,11 +718,23 @@ export function convertStructuredToHierarchyNodes(
   existingNodes: any[] = []
 ): any[] {
   const result: any[] = [];
-  const bList = Array.isArray(structured.buildings) ? structured.buildings : [];
-  const fMap = structured.floors && typeof structured.floors === 'object' ? structured.floors : {};
-  const uMap = structured.units && typeof structured.units === 'object' ? structured.units : {};
-  const rMap = structured.racks && typeof structured.racks === 'object' ? structured.racks : {};
-  const sMap = structured.sections && typeof structured.sections === 'object' ? structured.sections : {};
+  const bList = Array.isArray(structured.buildings) ? [...structured.buildings] : [];
+  const fMap = structured.floors && typeof structured.floors === 'object' ? { ...structured.floors } : {};
+  const uMap = structured.units && typeof structured.units === 'object' ? { ...structured.units } : {};
+  const rMap = structured.racks && typeof structured.racks === 'object' ? { ...structured.racks } : {};
+  const sMap = structured.sections && typeof structured.sections === 'object' ? { ...structured.sections } : {};
+
+  // Ensure all buildings and floors referenced in keys are present in bList and fMap
+  for (const map of [uMap, rMap, sMap]) {
+    for (const key of Object.keys(map)) {
+      const [b, f] = key.split(':::');
+      if (b && !bList.includes(b)) bList.push(b);
+      if (b && f) {
+        if (!fMap[b]) fMap[b] = [];
+        if (!fMap[b].includes(f)) fMap[b].push(f);
+      }
+    }
+  }
 
   const cleanSlug = (str: string) =>
     str
@@ -760,43 +792,71 @@ export function convertStructuredToHierarchyNodes(
     }
   }
 
+  const unitKeyToId = new Map<string, string>();
   for (const [key, unitsList] of Object.entries(uMap)) {
-    const [bName, flr] = key.split(':::');
-    const floorId = floorKeyToId.get(key) || `floor-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}`;
+    const parts = key.split(':::');
+    const bName = parts[0];
+    const flr = parts[1];
+    const parentUnitName = parts[2];
+    const floorKey = `${bName}:::${flr}`;
+    const floorId = floorKeyToId.get(floorKey) || `floor-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}`;
+    const parentUnitId = parentUnitName ? unitKeyToId.get(`${floorKey}:::${parentUnitName}`) : null;
+
     if (Array.isArray(unitsList)) {
       for (const unit of unitsList) {
         const existing = existingNodes.find(
-          (n) => n.type === 'unit' && n.name === unit && (n.parentId === floorId || n.metadata?.floor === flr)
+          (n) => n.type === 'unit' && n.name === unit && (n.parentId === (parentUnitId || floorId) || n.metadata?.floor === flr)
         );
-        const id = existing?.id || `unit-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}-${cleanSlug(unit)}`;
+        const id = existing?.id || (parentUnitName
+          ? `unit-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}-${cleanSlug(parentUnitName)}-${cleanSlug(unit)}`
+          : `unit-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}-${cleanSlug(unit)}`);
+        unitKeyToId.set(`${floorKey}:::${unit}`, id);
         result.push({
           id,
           type: 'unit',
-          parentId: floorId,
+          parentId: parentUnitId || floorId,
           name: unit,
           description: existing?.description || `Unit ${unit}`,
-          metadata: { ...(existing?.metadata || {}), building: bName, floor: flr },
+          metadata: {
+            ...(existing?.metadata || {}),
+            building: bName,
+            floor: flr,
+            ...(parentUnitName ? { parentUnit: parentUnitName } : {}),
+          },
         });
       }
     }
   }
 
   for (const [key, racksList] of Object.entries(rMap)) {
-    const [bName, flr] = key.split(':::');
-    const floorId = floorKeyToId.get(key) || `floor-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}`;
+    const parts = key.split(':::');
+    const bName = parts[0] || 'Default Building';
+    const flr = parts[1] || 'Floor 1';
+    const unitName = parts[2] || '';
+    const floorKey = `${bName}:::${flr}`;
+    const floorId = floorKeyToId.get(floorKey) || `floor-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}`;
+    const unitId = unitName ? unitKeyToId.get(`${floorKey}:::${unitName}`) || `unit-${cleanSlug(bName)}-${cleanSlug(flr)}-${cleanSlug(unitName)}` : null;
+
     if (Array.isArray(racksList)) {
       for (const rack of racksList) {
         const existing = existingNodes.find(
-          (n) => n.type === 'rack' && n.name === rack && (n.parentId === floorId || n.metadata?.floor === flr)
+          (n) => n.type === 'rack' && n.name === rack && (n.parentId === (unitId || floorId) || (n.metadata?.floor === flr && (unitName ? n.metadata?.unit === unitName : !n.metadata?.unit)))
         );
-        const id = existing?.id || `rack-${cleanSlug(bName || 'bldg')}-${cleanSlug(flr || 'flr')}-${cleanSlug(rack)}`;
+        const id = existing?.id || (unitName
+          ? `rack-${cleanSlug(bName)}-${cleanSlug(flr)}-${cleanSlug(unitName)}-${cleanSlug(rack)}`
+          : `rack-${cleanSlug(bName)}-${cleanSlug(flr)}-${cleanSlug(rack)}`);
         result.push({
           id,
           type: 'rack',
-          parentId: floorId,
+          parentId: unitId || floorId,
           name: rack,
           description: existing?.description || `Rack ${rack}`,
-          metadata: { ...(existing?.metadata || {}), building: bName, floor: flr },
+          metadata: {
+            ...(existing?.metadata || {}),
+            building: bName,
+            floor: flr,
+            ...(unitName ? { unit: unitName } : {}),
+          },
         });
       }
     }
@@ -2915,12 +2975,30 @@ export async function saveHierarchy(payload: any): Promise<{
       nodes = payload.hierarchy;
       structured = convertHierarchyNodesToStructured(nodes);
     } else {
+      const bSet = new Set<string>(Array.isArray(payload.buildings) ? payload.buildings : []);
+      const fMap: Record<string, string[]> = payload.floors && typeof payload.floors === 'object' ? { ...payload.floors } : {};
+      const uMap: Record<string, string[]> = payload.units && typeof payload.units === 'object' ? { ...payload.units } : {};
+      const rMap: Record<string, string[]> = payload.racks && typeof payload.racks === 'object' ? { ...payload.racks } : {};
+      const sMap: Record<string, string[]> = payload.sections && typeof payload.sections === 'object' ? { ...payload.sections } : {};
+
+      // Auto-populate missing buildings and floors from unit and rack keys
+      for (const map of [uMap, rMap, sMap]) {
+        for (const key of Object.keys(map)) {
+          const [b, f] = key.split(':::');
+          if (b) bSet.add(b);
+          if (b && f) {
+            if (!fMap[b]) fMap[b] = [];
+            if (!fMap[b].includes(f)) fMap[b].push(f);
+          }
+        }
+      }
+
       structured = {
-        buildings: Array.isArray(payload.buildings) ? payload.buildings : [],
-        floors: payload.floors && typeof payload.floors === 'object' ? payload.floors : {},
-        units: payload.units && typeof payload.units === 'object' ? payload.units : {},
-        racks: payload.racks && typeof payload.racks === 'object' ? payload.racks : {},
-        sections: payload.sections && typeof payload.sections === 'object' ? payload.sections : {},
+        buildings: Array.from(bSet),
+        floors: fMap,
+        units: uMap,
+        racks: rMap,
+        sections: sMap,
       };
       const currentNodes = Array.isArray(store.topology_hierarchy) ? store.topology_hierarchy : [];
       nodes = convertStructuredToHierarchyNodes(structured, currentNodes);
