@@ -1119,6 +1119,7 @@ export default function App() {
           {activeTab === 'templates' && (
             <TemplateManagementView
               devices={authorizedDevices}
+              effectivePolicy={effectivePolicy}
               onDeviceUpdated={loadData}
               onOpenTerminal={openTerminal}
             />

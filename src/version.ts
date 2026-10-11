@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.315.1';
+export const APP_VERSION = '1.315.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.315.2',
+    releaseDate: '2026-10-11',
+    type: 'patch',
+    title: 'فاز ۲: ادغام کامل کنترل دسترسی چندفروشنده‌ای (Granular RBAC) و اعتبارسنجی مقادیر متغیرها در اعمال تمپلیت کانفیگ',
+    title_en: 'Phase 2: Granular Multi-Vendor RBAC Access Control Integration & Variable Validation in ApplyTemplateModal',
+    changes: [
+      'اعمال کنترل دسترسی گرانولار RBAC در سطح دکمه «Apply to Device...» در نمای کارت‌های تمپلیت و پیشگیری از اقدام کاربران فاقد مجوز apply_template.',
+      'افزودن ارزیابی امنیتی لحظه‌ای به ازای هر تجهیز (isDeviceActionPermitted) در انتخابگر تجهیزات مودال اعمال تمپلیت.',
+      'افزودن برچسب هشدار عدم دسترسی (⚠️ No RBAC Access) در لیست کشویی تجهیزات و نمایش بنر اخطار دسترسی برای تجهیزات خارج از حیطه مجاز.',
+      'غیرفعال‌سازی دکمه اجرای نهایی و مهار کامل رویداد کلیک در مرحله ۲ (Dry Run / Execute) در صورت عدم احراز دسترسی کاربر به تجهیز منتخب.',
+      'تکمیل اعتبارسنجی مقادیر آدرس IP، ساب‌نت، گیت‌وی و جایگذاری متغیرهای فرم با کادرهای راهنمای Info سه‌بخشی ایمن.'
+    ],
+    changes_en: [
+      'Enforced Granular RBAC access control on the "Apply to Device..." card button, preventing unauthorized execution for users without apply_template capability.',
+      'Integrated real-time per-device security evaluation (isDeviceActionPermitted) into ApplyTemplateModal target equipment picker.',
+      'Added restricted access badges (⚠️ No RBAC Access) inside device dropdown options and displayed a contextual restriction banner for out-of-scope devices.',
+      'Disabled the final execution button and guarded the execution handler in Step 2 (Dry Run / Execute) when the selected device lacks RBAC clearance.',
+      'Completed parameter validation for IP address, subnet mask, default gateway, and dynamic form variables with boundary-safe 3-part FieldInfoTooltip popovers.'
+    ]
+  },
   {
     version: '1.315.1',
     releaseDate: '2026-10-11',

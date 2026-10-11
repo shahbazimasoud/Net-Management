@@ -24,7 +24,7 @@ import {
   CopyPlus,
   DownloadCloud
 } from 'lucide-react';
-import { ConfigTemplate, Device } from '../types';
+import { ConfigTemplate, Device, AccessPolicy } from '../types';
 import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate } from '../services/api';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import { ApplyTemplateModal } from './ApplyTemplateModal';
@@ -32,15 +32,18 @@ import { CloneTemplateModal } from './CloneTemplateModal';
 import { CaptureConfigModal } from './CaptureConfigModal';
 import { useLanguage } from '../i18n';
 import { useModalDock } from '../context/ModalDockContext';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 interface TemplateManagementViewProps {
   devices: Device[];
+  effectivePolicy?: AccessPolicy | null;
   onDeviceUpdated?: (device: Device) => void;
   onOpenTerminal?: (device: Device) => void;
 }
 
 export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
   devices,
+  effectivePolicy,
   onDeviceUpdated,
   onOpenTerminal,
 }) => {
@@ -622,13 +625,41 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                   </span>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleOpenApply(tmpl.id)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-[0_0_15px_rgba(16,185,129,0.3)] transition active:scale-95 cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-white" />
-                      <span>{isEn ? 'Apply to Device...' : 'اعمال روی تجهیز...'}</span>
-                    </button>
+                    {(() => {
+                      const hasAnyPermittedDevice =
+                        !effectivePolicy ||
+                        devices.some((d) => isDeviceActionPermitted(effectivePolicy, d.id, 'apply_template'));
+
+                      return (
+                        <button
+                          onClick={() => {
+                            if (!hasAnyPermittedDevice) {
+                              alert(
+                                isEn
+                                  ? 'Access Denied: Your assigned role policy does not permit applying config templates to network equipment.'
+                                  : 'دسترسی غیرمجاز: طبق پالیسی دسترسی تعریف‌شده در سیستم RBAC، شما مجوز اعمال تمپلیت کانفیگ بر روی تجهیزات را ندارید.'
+                              );
+                              return;
+                            }
+                            handleOpenApply(tmpl.id);
+                          }}
+                          disabled={!hasAnyPermittedDevice}
+                          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 ${
+                            hasAnyPermittedDevice
+                              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer'
+                              : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5'
+                          }`}
+                          title={
+                            hasAnyPermittedDevice
+                              ? (isEn ? 'Apply configuration template to target device' : 'اعمال این الگوی پیکربندی بر روی تجهیز شبکه')
+                              : (isEn ? 'Permission denied by Access Control (RBAC)' : 'عدم دسترسی کافی در بخش کنترل دسترسی (RBAC)')
+                          }
+                        >
+                          <Play className="w-3.5 h-3.5 fill-white" />
+                          <span>{isEn ? 'Apply to Device...' : 'اعمال روی تجهیز...'}</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -668,6 +699,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
         onMinimize={handleMinimizeApply}
         targetDevice={applyTargetDevice}
         allDevices={devices}
+        effectivePolicy={effectivePolicy}
         templates={templates}
         preselectedTemplateId={applyTargetTemplateId}
         onApplied={(updatedDevice) => {

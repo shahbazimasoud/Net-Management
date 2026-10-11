@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FileCode2,
@@ -23,12 +23,13 @@ import {
   Layers,
   Sparkles
 } from 'lucide-react';
-import { Device, ConfigTemplate, TemplateApplyResult, TemplateExecutionLog } from '../types';
+import { Device, ConfigTemplate, TemplateApplyResult, TemplateExecutionLog, AccessPolicy } from '../types';
 import { fetchTemplates, applyTemplateToDevice } from '../services/api';
 import { logDeviceCommand } from '../services/auditLogger';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 interface ApplyTemplateModalProps {
   isOpen: boolean;
@@ -36,6 +37,7 @@ interface ApplyTemplateModalProps {
   onMinimize?: () => void;
   targetDevice: Device | null;
   allDevices?: Device[];
+  effectivePolicy?: AccessPolicy | null;
   templates?: ConfigTemplate[];
   preselectedTemplateId?: string;
   onApplied?: (updatedDevice: Device) => void;
@@ -48,6 +50,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   onMinimize,
   targetDevice: initialTargetDevice,
   allDevices = [],
+  effectivePolicy,
   templates: propTemplates,
   preselectedTemplateId,
   onApplied,
@@ -72,6 +75,8 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const [activeStep, setActiveStep] = useState<'variables' | 'preview' | 'executing' | 'done'>('variables');
 
   // Interactive Variables State
+  const [showAllDevices, setShowAllDevices] = useState(false);
+  const prevDeviceRef = useRef<string | null>(null);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [isIpConfirmed, setIsIpConfirmed] = useState<boolean>(true);
   const [copiedScript, setCopiedScript] = useState(false);
@@ -219,64 +224,173 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     return templates.find((t) => t.id === selectedTemplateId) || null;
   }, [templates, selectedTemplateId]);
 
+  // Vendor detection helpers
+  const isDeviceCisco = (d: Device) => {
+    const model = (d.model || '').toLowerCase();
+    const platform = (d.platform || '').toLowerCase();
+    return model.includes('cisco') || model.includes('catalyst') || platform.includes('cisco') || model.includes('ios');
+  };
+
+  const isDeviceMikroTik = (d: Device) => {
+    const model = (d.model || '').toLowerCase();
+    const platform = (d.platform || '').toLowerCase();
+    return model.includes('mikrotik') || model.includes('routerboard') || model.includes('crs') || model.includes('ccr') || model.includes('chr') || platform.includes('mikrotik');
+  };
+
+  const isDeviceCompatibleWithTemplate = (device: Device, template: ConfigTemplate | null) => {
+    if (!template) return true;
+    if (template.vendor === 'cisco') return isDeviceCisco(device);
+    if (template.vendor === 'mikrotik') return isDeviceMikroTik(device);
+    return true;
+  };
+
+  // Check RBAC permission for applying template on specific device
+  const isDevicePermittedForApply = (device: Device): boolean => {
+    if (!effectivePolicy) return true;
+    return isDeviceActionPermitted(effectivePolicy, device.id, 'apply_template');
+  };
+
+  // Filter devices by template vendor family and RBAC permission
+  const compatibleDevices = useMemo(() => {
+    let list = allDevices;
+    if (currentTemplate && currentTemplate.vendor !== 'generic') {
+      list = list.filter((d) => isDeviceCompatibleWithTemplate(d, currentTemplate));
+    }
+    return list;
+  }, [allDevices, currentTemplate]);
+
+  // Selectable devices based on family filter toggle and RBAC permissions
+  const selectableDevices = useMemo(() => {
+    const base = showAllDevices || compatibleDevices.length === 0 ? allDevices : compatibleDevices;
+    // Sort permitted devices first
+    return [...base].sort((a, b) => {
+      const aPerm = isDevicePermittedForApply(a) ? 1 : 0;
+      const bPerm = isDevicePermittedForApply(b) ? 1 : 0;
+      return bPerm - aPerm;
+    });
+  }, [showAllDevices, compatibleDevices, allDevices, effectivePolicy]);
+
+  // Auto-switch to compatible device when template changes
+  useEffect(() => {
+    if (currentTemplate && selectedDevice && !showAllDevices) {
+      if (!isDeviceCompatibleWithTemplate(selectedDevice, currentTemplate)) {
+        if (compatibleDevices.length > 0) {
+          setSelectedDevice(compatibleDevices[0]);
+        }
+      }
+    }
+  }, [currentTemplate, compatibleDevices, showAllDevices]);
+
+  // Discovered variables including {{PLACEHOLDER}} in commands
+  const allDiscoveredVariables = useMemo(() => {
+    if (!currentTemplate) return [];
+    const varsMap = new Map<string, { name: string; label: string; description?: string; default_value?: string; type?: string }>();
+
+    // Standard known fields
+    const defaultLabels: Record<string, { labelEn: string; labelFa: string; descEn: string; descFa: string }> = {
+      DEVICE_NAME: { labelEn: 'Device Name (Hostname)', labelFa: 'نام هاست و شناسه تجهیز', descEn: 'System hostname configured on the device', descFa: 'نام هاست تجهیز در شبکه' },
+      IP_ADDRESS: { labelEn: 'Management IP Address', labelFa: 'آدرس آی‌پی مدیریتی', descEn: 'IPv4 address for management interface', descFa: 'آدرس آی‌پی اینترفیس مدیریتی' },
+      SUBNET_MASK: { labelEn: 'Subnet Mask', labelFa: 'ماسک زیرشبکه', descEn: 'IPv4 dotted subnet mask', descFa: 'ماسک شبکه استاندارد (255.255.255.0)' },
+      SUBNET_CIDR: { labelEn: 'Subnet CIDR Prefix', labelFa: 'طول پیشوند زیرشبکه (CIDR)', descEn: 'CIDR prefix length (e.g. 24)', descFa: 'پیشوند شبکه میکروتیک (مثلاً 24)' },
+      DEFAULT_GATEWAY: { labelEn: 'Default Gateway', labelFa: 'دروازه پیش‌فرض (Gateway)', descEn: 'Next-hop default gateway IP', descFa: 'آدرس آی‌پی روتر پیش‌فرض' },
+      MANAGEMENT_VLAN: { labelEn: 'Management VLAN ID', labelFa: 'شناسه وی‌لن مدیریتی (VLAN ID)', descEn: 'VLAN number for management', descFa: 'شماره وی‌لن پیش‌فرض مدیریت' },
+      BUILDING: { labelEn: 'Building Location', labelFa: 'نام ساختمان', descEn: 'Physical building name', descFa: 'ساختمان استقرار فیزیکی' },
+      FLOOR: { labelEn: 'Floor Level', labelFa: 'طبقه استقرار', descEn: 'Floor location', descFa: 'طبقه محل نصب تجهیز' },
+      UNIT: { labelEn: 'Room / Unit', labelFa: 'واحد / اتاق', descEn: 'Room or administrative unit', descFa: 'اتاق یا واحد اداری' },
+      RACK: { labelEn: 'Rack Number', labelFa: 'شماره رک', descEn: 'Server/network rack identifier', descFa: 'شناسه رک تجهیزات' },
+    };
+
+    // 1. Template defined variables
+    (currentTemplate.variables || []).forEach((v) => {
+      const known = defaultLabels[v.name];
+      varsMap.set(v.name, {
+        ...v,
+        label: isEn ? (known ? known.labelEn : v.label) : (known ? known.labelFa : v.label),
+        description: isEn ? (known ? known.descEn : v.description) : (known ? known.descFa : v.description),
+      });
+    });
+
+    // 2. Discover placeholders in commands matching {{VAR}}
+    const matches = (currentTemplate.commands || '').matchAll(/\{\{([A-Za-z0-9_]+)\}\}/g);
+    for (const match of matches) {
+      const varName = match[1];
+      if (!varsMap.has(varName)) {
+        const known = defaultLabels[varName];
+        varsMap.set(varName, {
+          name: varName,
+          label: isEn ? (known ? known.labelEn : varName.replace(/_/g, ' ')) : (known ? known.labelFa : varName.replace(/_/g, ' ')),
+          description: isEn ? (known ? known.descEn : '') : (known ? known.descFa : ''),
+          default_value: '',
+          type: 'text',
+        });
+      }
+    }
+
+    return Array.from(varsMap.values());
+  }, [currentTemplate, isEn]);
+
   // Pre-fill variable values based on current device and template
   useEffect(() => {
     if (!currentTemplate || !selectedDevice) return;
 
-    const initialVars: Record<string, string> = {};
-    (currentTemplate.variables || []).forEach((v) => {
-      let val = v.default_value || '';
+    setVariableValues((prev) => {
+      const isNewDevice = prevDeviceRef.current !== selectedDevice.id;
+      const initialVars: Record<string, string> = isNewDevice ? {} : { ...prev };
 
-      switch (v.name) {
-        case 'DEVICE_NAME':
-          val = selectedDevice.name || val;
-          break;
-        case 'IP_ADDRESS':
-          val = selectedDevice.ip || val;
-          break;
-        case 'BUILDING':
-          val = selectedDevice.building || val;
-          break;
-        case 'FLOOR':
-          val = selectedDevice.floor || val;
-          break;
-        case 'UNIT':
-          val = selectedDevice.unit || val;
-          break;
-        case 'RACK':
-          val = selectedDevice.rack || val;
-          break;
-        case 'DEFAULT_GATEWAY':
-          // Attempt to find gateway from IP or default
-          if (selectedDevice.ip) {
-            const parts = selectedDevice.ip.split('.');
-            if (parts.length === 4) {
-              val = `${parts[0]}.${parts[1]}.${parts[2]}.254`;
-            }
+      allDiscoveredVariables.forEach((v) => {
+        if (isNewDevice || initialVars[v.name] === undefined || initialVars[v.name] === '') {
+          let val = v.default_value || '';
+
+          switch (v.name) {
+            case 'DEVICE_NAME':
+              val = selectedDevice.name || val;
+              break;
+            case 'IP_ADDRESS':
+              val = selectedDevice.ip || val;
+              break;
+            case 'BUILDING':
+              val = selectedDevice.building || val;
+              break;
+            case 'FLOOR':
+              val = selectedDevice.floor || val;
+              break;
+            case 'UNIT':
+              val = selectedDevice.unit || val;
+              break;
+            case 'RACK':
+              val = selectedDevice.rack || val;
+              break;
+            case 'DEFAULT_GATEWAY':
+              if (selectedDevice.ip) {
+                const parts = selectedDevice.ip.split('.');
+                if (parts.length === 4) {
+                  val = `${parts[0]}.${parts[1]}.${parts[2]}.254`;
+                }
+              }
+              break;
+            case 'SUBNET_MASK':
+              val = '255.255.255.0';
+              break;
+            case 'SUBNET_CIDR':
+              val = '24';
+              break;
+            case 'MANAGEMENT_VLAN':
+              val = '1';
+              break;
+            default:
+              break;
           }
-          break;
-        case 'SUBNET_MASK':
-          val = '255.255.255.0';
-          break;
-        case 'SUBNET_CIDR':
-          val = '24';
-          break;
-        case 'MANAGEMENT_VLAN':
-          val = '1';
-          break;
-        default:
-          break;
-      }
 
-      initialVars[v.name] = val;
+          initialVars[v.name] = val;
+        }
+      });
+
+      return initialVars;
     });
 
-    setVariableValues(initialVars);
+    prevDeviceRef.current = selectedDevice.id;
     setIsIpConfirmed(true);
-    setActiveStep('variables');
-    setApplyResult(null);
-    setApplyError(null);
-  }, [currentTemplate, selectedDevice]);
+  }, [currentTemplate, selectedDevice, allDiscoveredVariables]);
 
   // Render script preview
   const renderedScript = useMemo(() => {
@@ -315,6 +429,15 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
   const handleExecuteApply = async () => {
     if (!selectedDevice || !currentTemplate) return;
+
+    if (!isDevicePermittedForApply(selectedDevice)) {
+      alert(
+        isEn
+          ? `Access Denied: You do not have permission to apply templates to "${selectedDevice.name}".`
+          : `دسترسی غیرمجاز: بر اساس سطح دسترسی تعریف‌شده در سیستم RBAC، شما مجاز به اعمال تمپلیت روی تجهیز «${selectedDevice.name}» نمی‌باشید.`
+      );
+      return;
+    }
 
     if (!isIpConfirmed || !isIpValid) {
       alert(isEn ? 'Please review and confirm the validity of the IP address.' : 'لطفاً صحت آدرس آی‌پی (IP Address) را بررسی و تایید نمایید.');
@@ -547,56 +670,137 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
           }`}>
             {/* Target Device Selector */}
             <div>
-              <label className={`block text-xs font-semibold mb-1.5 flex items-center justify-between ${
-                isLightMode ? 'text-slate-700' : 'text-slate-300'
-              }`}>
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className={`text-xs font-semibold flex items-center gap-1.5 ${
+                  isLightMode ? 'text-slate-700' : 'text-slate-300'
+                }`}>
                   <Server className="w-3.5 h-3.5 text-indigo-500" />
                   <span>{t('apply_target_device')}</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  {allDevices.length > compatibleDevices.length && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllDevices(!showAllDevices)}
+                      className={`text-[10px] px-2 py-0.5 rounded-lg border font-mono transition cursor-pointer ${
+                        showAllDevices
+                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                          : isLightMode
+                          ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
+                          : 'bg-white/5 hover:bg-white/10 text-slate-400 border-white/10'
+                      }`}
+                      title={showAllDevices ? (isEn ? 'Filter to family devices' : 'محدودسازی به تجهیزات هم‌خانواده') : (isEn ? 'Show all devices in inventory' : 'نمایش تمام تجهیزات موجود')}
+                    >
+                      {showAllDevices
+                        ? (isEn ? `Show All (${allDevices.length})` : `تمام تجهیزات (${allDevices.length})`)
+                        : (isEn ? `Family Only (${compatibleDevices.length})` : `فقط هم‌خانواده (${compatibleDevices.length})`)}
+                    </button>
+                  )}
+                  <FieldInfoTooltip
+                    fieldName={isEn ? 'Target Device' : 'تجهیز هدف'}
+                    infoWhatEn="Network equipment (Cisco or MikroTik) that will receive and execute this configuration template."
+                    infoWhatFa="تجهیز شبکه (سیسکو یا میکروتیک) که این الگوی پیکربندی بر روی آن اعمال و پیاده‌سازی می‌گردد."
+                    infoWhyEn="Ensures CLI commands are provisioned to the correct physical or virtual device of the matching family."
+                    infoWhyFa="تضمین تزریق امن و دقیق دستورات خط فرمان بر روی تجهیزات هم‌خانواده و سازگار."
+                    infoExampleEn="Core-Switch-01 (192.168.1.1)"
+                    infoExampleFa="سوییچ لایه سه یا روتر میکروتیک (۱۹۲.۱۶۸.۱.۱)"
+                    isEn={isEn}
+                    isLightMode={isLightMode}
+                  />
                 </div>
-                <FieldInfoTooltip
-                  fieldName={isEn ? 'Target Device' : 'تجهیز هدف'}
-                  infoWhatEn="Network equipment (Cisco or MikroTik) that will receive and execute this configuration template."
-                  infoWhatFa="تجهیز شبکه (سیسکو یا میکروتیک) که این الگوی پیکربندی بر روی آن اعمال و پیاده‌سازی می‌گردد."
-                  infoWhyEn="Ensures CLI commands are provisioned to the correct physical or virtual device over authenticated SSH."
-                  infoWhyFa="تضمین تزریق امن و دقیق دستورات خط فرمان بر روی سخت‌افزار مشخص از طریق پروتکل‌های استاندارد شبکه."
-                  infoExampleEn="Core-Switch-01 (192.168.1.1)"
-                  infoExampleFa="سوییچ لایه سه یا روتر میکروتیک (۱۹۲.۱۶۸.۱.۱)"
-                  isEn={isEn}
-                  isLightMode={isLightMode}
-                />
-              </label>
-              {allDevices.length > 0 ? (
-                <select
-                  value={selectedDevice?.id || ''}
-                  onChange={(e) => {
-                    const found = allDevices.find((d) => d.id === e.target.value);
-                    if (found) setSelectedDevice(found);
-                  }}
-                  disabled={isApplying}
-                  className={`w-full rounded-xl px-3 py-2 text-xs focus:outline-none font-mono transition ${
-                    isLightMode
-                      ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
-                      : 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
-                  }`}
-                >
-                  {allDevices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} ({d.ip}) - {d.model} [{d.role}]
-                    </option>
-                  ))}
-                </select>
-              ) : selectedDevice ? (
-                <div className={`p-2.5 rounded-xl border font-mono text-xs flex items-center justify-between ${
-                  isLightMode
-                    ? 'bg-white border-slate-200 text-indigo-700'
-                    : 'bg-slate-950/80 border-white/10 text-cyan-300'
-                }`}>
-                  <span>{selectedDevice.name}</span>
-                  <span className={isLightMode ? 'text-slate-500' : 'text-slate-400'}>{selectedDevice.ip}</span>
-                </div>
+              </div>
+
+              {selectableDevices.length > 0 ? (
+                <>
+                  <select
+                    value={selectedDevice?.id || ''}
+                    onChange={(e) => {
+                      const found = allDevices.find((d) => d.id === e.target.value);
+                      if (found) setSelectedDevice(found);
+                    }}
+                    disabled={isApplying}
+                    className={`w-full rounded-xl px-3 py-2 text-xs focus:outline-none font-mono transition ${
+                      isLightMode
+                        ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
+                        : 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
+                    }`}
+                  >
+                    {selectableDevices.map((d) => {
+                      const isCisco = isDeviceCisco(d);
+                      const isMikroTik = isDeviceMikroTik(d);
+                      const vendorTag = isMikroTik ? 'MikroTik' : isCisco ? 'Cisco' : 'Generic';
+                      const permitted = isDevicePermittedForApply(d);
+                      return (
+                        <option key={d.id} value={d.id}>
+                          [{vendorTag}] {d.name} ({d.ip}) - {d.model} [{d.role}] {!permitted ? (isEn ? '⚠️ [No RBAC Access]' : '⚠️ [عدم دسترسی RBAC]') : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {/* Device RBAC Access Warning Banner */}
+                  {selectedDevice && !isDevicePermittedForApply(selectedDevice) && (
+                    <div className={`mt-2 p-2 rounded-lg border flex items-center gap-2 text-xs font-medium ${
+                      isLightMode ? 'bg-rose-50 border-rose-300 text-rose-800' : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                    }`}>
+                      <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>
+                        {isEn
+                          ? `Restricted by RBAC: You do not have permission to execute templates on "${selectedDevice.name}".`
+                          : `محدودیت دسترسی RBAC: نقش فعال شما فاقد مجوز اعمال تمپلیت روی «${selectedDevice.name}» است.`}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Family Compatibility Status Indicator */}
+                  {selectedDevice && currentTemplate && (
+                    <div className="mt-2 flex items-center justify-between text-[11px]">
+                      {isDeviceCompatibleWithTemplate(selectedDevice, currentTemplate) ? (
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium ${
+                          isLightMode ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        }`}>
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+                          <span>
+                            {isEn
+                              ? `Compatible with ${currentTemplate.vendor === 'mikrotik' ? 'MikroTik RouterOS' : currentTemplate.vendor === 'cisco' ? 'Cisco IOS-XE' : 'Generic CLI'}`
+                              : `سازگار با خانواده ${currentTemplate.vendor === 'mikrotik' ? 'میکروتیک (RouterOS)' : currentTemplate.vendor === 'cisco' ? 'سیسکو (IOS-XE)' : 'عمومی'}`}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium ${
+                          isLightMode ? 'bg-amber-50 text-amber-800 border border-amber-300' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        }`}>
+                          <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                          <span>
+                            {isEn
+                              ? `Family Mismatch: Template is ${currentTemplate.vendor.toUpperCase()} but device is ${isDeviceMikroTik(selectedDevice) ? 'MikroTik' : isDeviceCisco(selectedDevice) ? 'Cisco' : 'Generic'}`
+                              : `عدم تطابق خانواده: تمپلیت ${currentTemplate.vendor.toUpperCase()} است ولی تجهیز ${isDeviceMikroTik(selectedDevice) ? 'میکروتیک' : isDeviceCisco(selectedDevice) ? 'سیسکو' : 'عمومی'} می‌باشد`}
+                          </span>
+                        </span>
+                      )}
+                      <span className={`font-mono text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {selectedDevice.ip}
+                      </span>
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="text-xs text-rose-500">{isEn ? 'No device selected.' : 'هیچ تجهیزی انتخاب نشده است.'}</div>
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
+                  <span>
+                    {isEn
+                      ? `No compatible ${currentTemplate?.vendor === 'mikrotik' ? 'MikroTik' : 'Cisco'} devices found in inventory.`
+                      : `هیچ تجهیز هم‌خانواده‌ای (${currentTemplate?.vendor === 'mikrotik' ? 'میکروتیک' : 'سیسکو'}) در موجودی شبکه یافت نشد.`}
+                  </span>
+                  {allDevices.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllDevices(true)}
+                      className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-500/40 text-[10px] font-bold"
+                    >
+                      {isEn ? 'Show All Devices' : 'نمایش تمام تجهیزات'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -722,13 +926,54 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   </button>
                 </div>
 
-                {/* Direct IP input override */}
-                <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-3 border-t ${
+                {/* Direct Network & Host Parameter Overrides */}
+                <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-3 border-t ${
                   isLightMode ? 'border-slate-200' : 'border-white/10'
                 }`}>
                   <div>
-                    <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      {t('apply_ip_field')}
+                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      <span>{isEn ? 'Host Name (DEVICE_NAME)' : 'نام هاست و شناسه تجهیز'}</span>
+                      <FieldInfoTooltip
+                        fieldName={isEn ? 'Device Hostname' : 'نام هاست تجهیز'}
+                        infoWhatEn="System identifier hostname to be set on the target hardware."
+                        infoWhatFa="شناسه و نام سیستم تجهیز که در تنظیمات خط فرمان ست می‌شود."
+                        infoWhyEn="Required for network discovery, DNS records, and inventory identification."
+                        infoWhyFa="الزامی برای شناسایی تجهیز در شبکه، مانیتورینگ و لاگ‌های سیستمی."
+                        infoExampleEn="SW-ACCESS-02"
+                        infoExampleFa="SW-FLOOR1-CORE"
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
+                    </label>
+                    <input
+                      type="text"
+                      value={variableValues['DEVICE_NAME'] || ''}
+                      onChange={(e) =>
+                        setVariableValues({ ...variableValues, DEVICE_NAME: e.target.value })
+                      }
+                      placeholder={selectedDevice?.name || 'Device-Hostname'}
+                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono focus:outline-none transition ${
+                        isLightMode
+                          ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
+                          : 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
+                      }`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      <span>{t('apply_ip_field')}</span>
+                      <FieldInfoTooltip
+                        fieldName={isEn ? 'Management IP' : 'آدرس آی‌پی مدیریتی'}
+                        infoWhatEn="IPv4 management address to configure on the target network device."
+                        infoWhatFa="آدرس آی‌پی مدیریتی نسخه ۴ که بر روی اینترفیس اصلی تجهیز تنظیم می‌شود."
+                        infoWhyEn="Target device communication and remote access rely directly on this IP address."
+                        infoWhyFa="تمام دسترسی‌های خط فرمان، SSH و مانیتورینگ از طریق این آدرس انجام خواهد شد."
+                        infoExampleEn="192.168.10.15"
+                        infoExampleFa="۱۹۲.۱۶۸.۱۰.۱۵"
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
                     </label>
                     <input
                       type="text"
@@ -751,8 +996,19 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   </div>
 
                   <div>
-                    <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      {t('apply_subnet_field')}
+                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      <span>{t('apply_subnet_field')}</span>
+                      <FieldInfoTooltip
+                        fieldName={isEn ? 'Subnet Mask / Prefix' : 'ماسک شبکه / پیشوند'}
+                        infoWhatEn="Subnet mask or CIDR prefix length determining the broadcast domain."
+                        infoWhatFa="ماسک زیرشبکه یا طول پیشوند شبکه که محدوده آدرس‌های معتبر را مشخص می‌کند."
+                        infoWhyEn="Required for IP routing and correct subnet assignment on interface."
+                        infoWhyFa="برای مسیریابی صحیح بسته‌ها در لایه ۳ شبکه ضروری است."
+                        infoExampleEn="255.255.255.0 or 24"
+                        infoExampleFa="255.255.255.0 یا 24"
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
                     </label>
                     <input
                       type="text"
@@ -777,8 +1033,19 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   </div>
 
                   <div>
-                    <label className={`block text-[11px] font-medium mb-1 ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      {t('apply_gateway_field')}
+                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                      <span>{t('apply_gateway_field')}</span>
+                      <FieldInfoTooltip
+                        fieldName={isEn ? 'Default Gateway' : 'گیت‌وی پیش‌فرض'}
+                        infoWhatEn="Next-hop gateway router IP address for traffic exiting the local subnet."
+                        infoWhatFa="آدرس آی‌پی روتر یا سوییچ لایه بالاتر برای خروج ترافیک از زیرشبکه."
+                        infoWhyEn="Ensures the device can communicate beyond its immediate local segment."
+                        infoWhyFa="امکان برقراری ارتباط تجهیز با سایر بخش‌های شبکه و اینترنت را فراهم می‌سازد."
+                        infoExampleEn="192.168.1.254"
+                        infoExampleFa="۱۹۲.۱۶۸.۱.۲۵۴"
+                        isEn={isEn}
+                        isLightMode={isLightMode}
+                      />
                     </label>
                     <input
                       type="text"
@@ -812,8 +1079,8 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {(currentTemplate.variables || [])
-                    .filter((v) => !['IP_ADDRESS', 'SUBNET_MASK', 'SUBNET_CIDR', 'DEFAULT_GATEWAY'].includes(v.name))
+                  {allDiscoveredVariables
+                    .filter((v) => !['DEVICE_NAME', 'IP_ADDRESS', 'SUBNET_MASK', 'SUBNET_CIDR', 'DEFAULT_GATEWAY'].includes(v.name))
                     .map((variable) => (
                       <div
                         key={variable.name}
@@ -824,18 +1091,31 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1">
-                          <label className={`text-[11px] font-medium truncate ${
+                          <label className={`text-[11px] font-medium truncate flex items-center gap-1 ${
                             isLightMode ? 'text-slate-800' : 'text-slate-200'
                           }`}>
-                            {variable.label}
+                            <span>{variable.label}</span>
                           </label>
-                          <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
-                            isLightMode
-                              ? 'text-cyan-700 bg-cyan-100/70 border-cyan-300'
-                              : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20'
-                          }`}>
-                            {`{{${variable.name}}}`}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
+                              isLightMode
+                                ? 'text-cyan-700 bg-cyan-100/70 border-cyan-300'
+                                : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20'
+                            }`}>
+                              {`{{${variable.name}}}`}
+                            </span>
+                            <FieldInfoTooltip
+                              fieldName={variable.label}
+                              infoWhatEn={`Template parameter placeholder for ${variable.name}.`}
+                              infoWhatFa={`متغیر و پارامتر جایگزین در قالب دستورات برای ${variable.name}.`}
+                              infoWhyEn="Replaces placeholder dynamically in CLI commands during execution."
+                              infoWhyFa="این مقدار قبل از اجرای اسکریپت بر روی تجهیز، در متن فرامین جایگزین می‌گردد."
+                              infoExampleEn={variable.default_value || 'Custom Value'}
+                              infoExampleFa={variable.default_value || 'مقدار سفارشی'}
+                              isEn={isEn}
+                              isLightMode={isLightMode}
+                            />
+                          </div>
                         </div>
                         <input
                           type={variable.type === 'password' ? 'password' : 'text'}
@@ -971,15 +1251,29 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   {isEn ? '← Back to Variables' : '← بازگشت به ویرایش متغیرها'}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleExecuteApply}
-                  disabled={isApplying}
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md transition active:scale-95 cursor-pointer disabled:opacity-50"
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>{t('apply_btn_execute')}</span>
-                </button>
+                {(() => {
+                  const isPermitted = !selectedDevice || isDevicePermittedForApply(selectedDevice);
+                  return (
+                    <button
+                      type="button"
+                      onClick={handleExecuteApply}
+                      disabled={isApplying || !isPermitted}
+                      className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition active:scale-95 ${
+                        isPermitted && !isApplying
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 cursor-pointer'
+                          : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5'
+                      }`}
+                      title={
+                        !isPermitted
+                          ? (isEn ? 'Restricted by RBAC: You do not have permission to apply templates to this device' : 'عدم دسترسی در بخش کنترل دسترسی (RBAC): شما مجاز به اعمال تمپلیت روی این تجهیز نیستید')
+                          : undefined
+                      }
+                    >
+                      <Play className="w-4 h-4 fill-white" />
+                      <span>{t('apply_btn_execute')}</span>
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           )}
