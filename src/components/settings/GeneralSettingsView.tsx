@@ -39,6 +39,7 @@ import {
   X,
   Shuffle,
   Trash2,
+  Binary,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
@@ -2292,7 +2293,9 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono text-purple-400 font-bold uppercase px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20">
                     {(formData.loginVisualMode || 'animation') === 'animation'
-                      ? (formData.loginAnimationType === 'milky_way'
+                      ? (formData.loginAnimationType === 'matrix'
+                          ? (isEn ? '3D MATRIX DIGITAL RAIN & CORE' : 'ماتریس سه‌بعدی و جریان کدهای دیجیتال')
+                          : formData.loginAnimationType === 'milky_way'
                           ? (isEn ? '3D MILKY WAY & SOLAR SYSTEM' : 'انیمیشن کهکشان راه شیری و منظومه شمسی')
                           : (isEn ? '3D GLOBE ANIMATION' : 'انیمیشن کره سه‌بعدی شبکه'))
                       : (formData.loginImageMode || 'selected') === 'random'
@@ -2348,7 +2351,9 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                             {isEn ? '3D Interactive Space & Network Animations' : 'انیمیشن‌های سه‌بعدی و تعاملی صفحه لاگین'}
                           </span>
                           <span className="text-[10px] font-mono text-indigo-400">
-                            {formData.loginAnimationType === 'milky_way'
+                            {formData.loginAnimationType === 'matrix'
+                              ? (isEn ? 'Active: 3D Matrix Digital Rain & Architecture' : 'فعال: جریان کدهای دیجیتال ماتریس و معماری هسته')
+                              : formData.loginAnimationType === 'milky_way'
                               ? (isEn ? 'Active: Milky Way Galaxy & Solar System' : 'فعال: کهکشان راه شیری و منظومه شمسی')
                               : (isEn ? 'Active: 3D Network Globe & Satellites' : 'فعال: کره سه‌بعدی شبکه جهانی و ماهواره‌ها')}
                           </span>
@@ -2360,8 +2365,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     </div>
                     <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
                       {isEn
-                        ? 'Choose between the 3D Global Network Topology Globe or the rotating Milky Way Galaxy with cosmic dust and scroll-zoom into the Solar System.'
-                        : 'نمایش انیمیشن‌های سه‌بعدی تعاملی در صفحه ورود؛ شامل کره زمین و شبکه جهانی یا کهکشان راه شیری چرخان با قابلیت زوم اسکرولی به منظومه شمسی.'}
+                        ? 'Choose between the 3D Global Network Topology Globe, rotating Milky Way Galaxy & Solar System, or 3D Matrix cascading code rain with deep architecture core exploration.'
+                        : 'نمایش انیمیشن‌های سه‌بعدی تعاملی در صفحه ورود؛ شامل کره زمین و شبکه جهانی، کهکشان راه شیری با زوم اسکرولی به منظومه شمسی، یا ریزش کدهای دیجیتال ماتریس با نفوذ به هسته معماری.'}
                     </p>
                   </button>
 
@@ -2429,17 +2434,17 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         isEn={isEn}
                         isLightMode={isLightMode}
                         title={isEn ? '3D Login Animation Selection' : 'انتخاب انیمیشن سه‌بعدی صفحه لاگین'}
-                        infoWhatEn="Choose which interactive 3D simulation renders on the login page when Animation Mode is active: the 3D Global Network Globe or the 3D Milky Way Galaxy & Solar System."
-                        infoWhatFa="مشخص می‌کند در حالت نمایش انیمیشن، کدام شبیه‌ساز سه‌بعدی در صفحه ورود اجرا شود: «کره سه‌بعدی شبکه جهانی» یا «کهکشان راه شیری با غبارهای کیهانی و زوم به منظومه شمسی»."
-                        infoWhyEn="Provides two distinct interactive 3D experiences: global telecom infrastructure or a deep-space cosmic journey into the Solar System."
-                        infoWhyFa="امکان انتخاب بین نمای زیرساخت ارتباطی کره زمین یا نمای فضایی باشکوه کهکشان راه شیری چرخان با قابلیت اسکرول و زوم به درون منظومه شمسی."
-                        infoExampleEn="Milky Way Galaxy (scroll wheel zooms smoothly from galactic spiral arms into the Sun and 8 planets)"
-                        infoExampleFa="کهکشان راه شیری و منظومه شمسی (با چرخش آرام بازوهای کهکشانی، غبارهای مرکز کهکشان و زوم با اسکرول ماوس به سمت خورشید و سیارات)"
+                        infoWhatEn="Choose which interactive 3D simulation renders on the login page when Animation Mode is active: 3D Global Network Globe, 3D Milky Way Galaxy & Solar System, or 3D Matrix Digital Rain & Architecture Core."
+                        infoWhatFa="مشخص می‌کند در حالت نمایش انیمیشن، کدام شبیه‌ساز سه‌بعدی در صفحه ورود اجرا شود: «کره سه‌بعدی شبکه جهانی»، «کهکشان راه شیری با زوم اسکرولی به منظومه شمسی» یا «ریزش کدهای دیجیتال ماتریس با نفوذ به هسته معماری با اسکرول»."
+                        infoWhyEn="Provides three distinct interactive 3D experiences: global telecom infrastructure, deep-space cosmic journey, or authentic cyberpunk Matrix digital rain."
+                        infoWhyFa="امکان انتخاب بین سه تجربه سه‌بعدی تعاملی: زیرساخت ارتباطی کره زمین، نمای کیهانی کهکشان راه شیری یا ریزش باران کدهای هکری ماتریس با معماری هسته پنهان."
+                        infoExampleEn="3D Matrix Digital Rain (scrolling smoothly dives into the inner 3D holographic Matrix architecture & sentinel nodes)"
+                        infoExampleFa="ماتریس سه‌بعدی (با اسکرول ماوس به آرامی وارد لایه‌های زیرین و هسته هولوگرافیک ماتریس و نودهای شبکه می‌شوید)"
                       />
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Animation 1: 3D Network Globe */}
                     <button
                       type="button"
@@ -2506,17 +2511,57 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         </div>
                         <div>
                           <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                            {isEn ? 'Milky Way Galaxy & Solar System (Scroll Zoom)' : 'کهکشان راه شیری و منظومه شمسی (با زوم اسکرولی)'}
+                            {isEn ? 'Milky Way Galaxy & Solar System' : 'کهکشان راه شیری و منظومه شمسی'}
                           </div>
                           <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
                             {isEn
-                              ? 'Slowly rotating Milky Way with glowing core dust & spiral arms; scroll mouse wheel to zoom right into the Solar System!'
-                              : 'کهکشان راه شیری با چرخش بسیار آرام، غبارهای کیهانی درخشان در مرکز و قابلیت اسکرول جهت زوم و رسیدن به منظومه شمسی.'}
+                              ? 'Slowly rotating Milky Way with glowing core dust & spiral arms; scroll mouse wheel to zoom into Solar System.'
+                              : 'کهکشان راه شیری با چرخش بسیار آرام، غبارهای کیهانی درخشان در مرکز و قابلیت اسکرول جهت زوم به منظومه شمسی.'}
                           </p>
                         </div>
                       </div>
                       {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'milky_way' && (
                         <Check className="w-4 h-4 text-amber-400 shrink-0 mt-1" />
+                      )}
+                    </button>
+
+                    {/* Animation 3: 3D Matrix Digital Rain & Architecture Core */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: PanelGeneralSettings = {
+                          ...formData,
+                          loginVisualMode: 'animation',
+                          loginAnimationType: 'matrix',
+                        };
+                        setFormData(next);
+                        saveGeneralSettings(next);
+                      }}
+                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
+                        (formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'matrix'
+                          ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300 shadow-sm ring-1 ring-emerald-500/40'
+                          : isLightMode
+                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 mt-0.5 shrink-0">
+                          <Binary className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? '3D Matrix Digital Rain (Scroll Deep Core)' : 'باران کدهای ماتریس (با نفوذ به هسته با اسکرول)'}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                            {isEn
+                              ? 'Cascading cyber code rain; scroll wheel smoothly unveils the inner 3D holographic Matrix architecture & sentinel nodes.'
+                              : 'ریزش باران حروف و کدهای ماتریس؛ با اسکرول ماوس، معماری هولوگرافیک هسته ماتریس و نودهای شبکه در میان حروف آشکار می‌شوند.'}
+                          </p>
+                        </div>
+                      </div>
+                      {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'matrix' && (
+                        <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-1" />
                       )}
                     </button>
                   </div>

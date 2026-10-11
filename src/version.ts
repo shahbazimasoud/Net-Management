@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.318.1';
+export const APP_VERSION = '1.319.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.319.0',
+    releaseDate: '2026-10-11',
+    type: 'minor',
+    title: 'افزودن انیمیشن سه‌بعدی باران کدهای ماتریس (Matrix Digital Rain) با قابلیت اسکرول و آشکارسازی هسته معماری',
+    title_en: 'Add 3D Matrix Digital Rain Animation with Interactive Scroll Revealing Inner Architecture Core',
+    changes: [
+      'طراحی و پیاده‌سازی شبیه‌ساز سه‌بعدی باران کدهای ماتریس (MatrixRain3D) با حروف کاتاکانا، لاتین، عملگرهای سایبری و جلوه فسفری درخشان در سمت راست صفحه لاگین.',
+      'پیاده‌سازی قابلیت زوم عمیق با اسکرول ماوس (Scroll Zoom): با اسکرول به داخل، ساختار هولوگرافیک هسته ماتریس، حلقه‌های چرخان کد، نودهای شش‌ضلعی شبکه و وضعیت اتصال گره‌ها در میان باران کدر محو پدیدار می‌شوند.',
+      'افزودن گزینه انتخاب انیمیشن ماتریس به بخش «انتخاب سبک انیمیشن سه‌بعدی صفحه لاگین» (Select 3D Login Animation Style) در تنظیمات عمومی پنل به همراه ذخیره‌سازی همگام و بلادرنگ.',
+      'پشتیبانی کامل از چرخش تعاملی با درگ ماوس، اسلایدر کنترل عمق، ریست نما و سازگاری دوزبانه انگلیسی و فارسی.'
+    ],
+    changes_en: [
+      'Developed and implemented the 3D Matrix Digital Rain simulation (MatrixRain3D) with authentic cascading phosphor glyphs, glowing leaders, and CRT scanline overlay on the login portal.',
+      'Integrated deep scroll wheel zoom: scrolling forward seamlessly reveals the inner holographic Matrix architecture core, rotating concentric code rings, and connected sentinel nodes with live network telemetry.',
+      'Added the Matrix theme option to "Select 3D Login Animation Style" in Panel General Settings with synchronous persistent caching and zero-flicker loading.',
+      'Full support for interactive mouse drag rotation, touch navigation, zoom slider, view reset, and 100% bilingual English/Persian localization.'
+    ]
+  },
   {
     version: '1.318.1',
     releaseDate: '2026-10-11',

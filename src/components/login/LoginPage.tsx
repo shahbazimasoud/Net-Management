@@ -3,6 +3,7 @@ import { useLanguage } from '../../i18n';
 import { useAuth, AuthUser } from '../../context/AuthContext';
 import { NetworkGlobe3D, GlobeThemeType } from './NetworkGlobe3D';
 import { MilkyWayGalaxy3D } from './MilkyWayGalaxy3D';
+import { MatrixRain3D } from './MatrixRain3D';
 import { APP_VERSION } from '../../version';
 import { loadGeneralSettings, syncGeneralSettingsFromDatabase, STORAGE_KEYS } from '../../services/settingsStorage';
 import { PanelGeneralSettings } from '../../types';
@@ -1220,6 +1221,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
           )
+        ) : generalSettings?.loginAnimationType === 'matrix' ? (
+          <MatrixRain3D theme={theme === 'light' ? 'obsidian' : theme} />
         ) : generalSettings?.loginAnimationType === 'milky_way' ? (
           <MilkyWayGalaxy3D theme={theme === 'light' ? 'obsidian' : theme} />
         ) : (

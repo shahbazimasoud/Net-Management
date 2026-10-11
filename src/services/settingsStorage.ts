@@ -804,7 +804,7 @@ export function loadGeneralSettings(): PanelGeneralSettings {
   if (typeof window !== 'undefined') {
     try {
       const quickVisualMode = localStorage.getItem(STORAGE_KEYS.LOGIN_VISUAL_MODE) as 'animation' | 'image' | null;
-      const quickAnimType = localStorage.getItem(STORAGE_KEYS.LOGIN_ANIMATION_TYPE) as 'globe' | 'milky_way' | null;
+      const quickAnimType = localStorage.getItem(STORAGE_KEYS.LOGIN_ANIMATION_TYPE) as 'globe' | 'milky_way' | 'matrix' | null;
       const quickImgMode = localStorage.getItem(STORAGE_KEYS.LOGIN_IMAGE_MODE) as 'selected' | 'random' | null;
       const quickSelectedId = localStorage.getItem(STORAGE_KEYS.LOGIN_SELECTED_IMAGE_ID);
 
