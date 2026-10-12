@@ -294,15 +294,15 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           </div>
         </div>
 
-        {/* Top Action Buttons - Unified size with DeviceListView: px-3.5 py-1.5 rounded-xl text-xs font-medium gap-1.5 */}
-        <div className="flex items-center flex-wrap gap-2">
+        {/* Top Action Buttons - Compact side-by-side layout */}
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
           {/* Extract Live Config Button */}
           <button
             onClick={() => setCaptureModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(16,185,129,0.3)] transition active:scale-95 border border-emerald-400/30 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-medium shadow-xs transition active:scale-95 border border-emerald-400/30 cursor-pointer whitespace-nowrap shrink-0"
             title={t('templates_btn_extract_live_title')}
           >
-            <DownloadCloud className="w-3.5 h-3.5 text-emerald-200" />
+            <DownloadCloud className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
             <span>{t('templates_btn_extract_live')}</span>
           </button>
 
@@ -312,9 +312,9 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
               setTemplateToEdit(null);
               setEditorOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-[11px] font-medium shadow-xs transition border border-white/10 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>{t('templates_btn_create_new')}</span>
           </button>
 
@@ -322,10 +322,10 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           {templates.length > 0 && (
             <button
               onClick={() => handleOpenClone(templates[0])}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-medium shadow-xs transition active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-medium shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
               title={t('templates_btn_clone_top_title')}
             >
-              <CopyPlus className="w-3.5 h-3.5 text-cyan-400" />
+              <CopyPlus className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span>{t('templates_btn_clone_top')}</span>
             </button>
           )}
@@ -334,7 +334,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           <button
             onClick={loadTemplates}
             title={t('action_refresh')}
-            className="flex items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition cursor-pointer"
+            className="flex items-center justify-center p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition cursor-pointer shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>

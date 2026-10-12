@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.320.0';
+export const APP_VERSION = '1.320.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.320.1',
+    releaseDate: '2026-10-12',
+    type: 'patch',
+    title: 'بهینه‌سازی سایز و چیدمان فشرده دکمه‌های اکشن در صفحه الگوهای کانفیگ',
+    title_en: 'Action Buttons Layout & Compact Ergonomic Sizing in Config Templates View',
+    changes: [
+      'بهینه‌سازی ارگونومیک سایز، پدینگ و تایپوگرافی دکمه‌های اکشن سه‌گانه در هدر صفحه Network Equipment Config Templates & Patterns شامل «استخراج الگو از تجهیز زنده»، «تعریف الگوی جدید» و «کلون از الگوها».',
+      'افزودن کلاس‌های whitespace-nowrap و shrink-0 به همراه پدینگ فشرده px-2.5 py-1.5 و فونت text-[11px] جهت جلوگیری از شکست نامناسب خطوط و قرارگیری منظم و شکیل دکمه‌ها در کنار یکدیگر در عرض‌های مختلف صفحه نمایش.',
+      'حفظ کامل دکمه تازه‌سازی (Refresh) در چیدمان فلکس‌باکس یکپارچه هدر بدون تداخل با عنوان یا بج‌های صفحه.'
+    ],
+    changes_en: [
+      'Optimized ergonomic sizing, padding, and typography for the top 3 action buttons in Network Equipment Config Templates & Patterns view ("Extract Template from Live Device", "Define New Template", and "Clone from Templates").',
+      'Applied whitespace-nowrap, shrink-0, compact padding (px-2.5 py-1.5), and text-[11px] styling to prevent awkward line breaks and guarantee clean side-by-side button placement across different viewport sizes.',
+      'Maintained the inline list refresh button in a harmonized flex container layout without wrapping or colliding with the page header badge.'
+    ]
+  },
   {
     version: '1.320.0',
     releaseDate: '2026-10-11',
