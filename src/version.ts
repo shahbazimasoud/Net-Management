@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.326.0';
+export const APP_VERSION = '1.327.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.327.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'تکمیل نهایی و پاک‌سازی فرم قدیمی اینلاین به همراه اتصال داک و آزمون‌های خودکار مودال پالیسی‌های دسترسی (فاز ۴)',
+    title_en: 'Final Integration, Legacy Inline Cleanup, ToolsDock Docking & Automated E2E Suite for Access Policy Modal (Phase 4)',
+    changes: [
+      'حذف کامل بیش از ۳۳۰۰ خط فرم حجیم و تو در توی قدیمی اینلاین از تب AccessControlTab و جایگزینی قطعی با مودال مدرن تب‌بندی‌شده AccessPolicyModal.',
+      'یکپارچه‌سازی کامل قابلیت مینیمایز با نوار داک ابزارها (ToolsDock) با نام‌گذاری پویا و بازگردانی سریع استیت پالیسی بدون تداخل با سایر پنجره‌ها.',
+      'پیاده‌سازی مجموعه آزمون‌های خودکار انتها به انتها (test_phase4_policy_modal.ts) و اعتبارسنجی ۱۰۰ درصدی ذخیره‌سازی، خواندن و اعمال قوانین تفکیکی سرور و کلاینت.',
+      'بهبود چشمگیر عملکرد و خوانایی کد با کاهش بار پردازشی تب تنظیمات و رعایت استانداردهای جامع و سخت‌گیرانه مودال‌ها.'
+    ],
+    changes_en: [
+      'Completely removed over 3,300 lines of legacy inline form clutter from AccessControlTab, switching exclusively to the modern tabbed AccessPolicyModal.',
+      'Fully integrated modal minimization with ToolsDock for seamless background docking and instant restoration without conflicting with other workspaces.',
+      'Implemented an automated end-to-end test suite (test_phase4_policy_modal.ts) verifying 100% of policy persistence, retrieval, and granular server/client evaluations.',
+      'Significantly improved render performance and code maintainability across the RBAC management suite while adhering to strict universal modal architectural standards.'
+    ]
+  },
   {
     version: '1.326.0',
     releaseDate: '2026-10-12',
