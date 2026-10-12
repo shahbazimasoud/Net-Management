@@ -2847,13 +2847,41 @@ apiRouter.post(['/devices/import', '/network-equipment/import'], async (req: Req
 // POST /devices - Register new network equipment
 apiRouter.post('/devices', async (req: Request, res: Response) => {
   try {
-    const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
     if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
       return res.status(403).json({
         success: false,
         error: 'Access denied: You do not have permission to register or add new network devices under your RBAC policy.',
         errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز افزودن یا ثبت تجهیز جدید را ندارید.',
       });
+    }
+
+    // RBAC Security Check: Veto initial configuration template if user lacks canApplyTemplates authority
+    const initialTemplateId = req.body?.initial_template_id || req.body?.templateId || req.body?.selectedTemplateId || req.body?.template_id;
+    if (initialTemplateId) {
+      const canApply = isSuperAdmin || (effectivePolicy ? effectivePolicy.canApplyTemplates !== false && Boolean(effectivePolicy.canApplyTemplates) : true);
+      if (!canApply) {
+        try {
+          await addAuditLog({
+            userName: user?.username || 'anonymous',
+            action: 'Register Device with Template (Rejected - RBAC Veto)',
+            category: 'security',
+            target: `Device: ${req.body?.name || req.body?.ip || 'New Device'}`,
+            status: 'warning',
+            details: `Initial template deployment vetoed: user policy prohibits applying templates (canApplyTemplates=false). Template: ${initialTemplateId}`,
+            ipAddress: getClientIp(req),
+            userAgent: req.headers['user-agent'] as string,
+          });
+        } catch (auditErr) {
+          console.warn('[Audit log error on rejected initial template register]', auditErr);
+        }
+
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: You do not have permission to apply configuration templates (canApplyTemplates required in active RBAC policy). Initial template deployment has been vetoed.',
+          errorFa: 'عدم دسترسی: شما فاقد مجوز اعمال قالب‌های پیکربندی (canApplyTemplates) در پالیسی RBAC فعال خود هستید. اعمال قالب اولیه وتو گردید.',
+        });
+      }
     }
 
     const newDevice = await createDevice(req.body);

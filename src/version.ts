@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.322.0';
+export const APP_VERSION = '1.323.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.323.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'قفل امنیتی RBAC روی بخش تمپلیت اولیه در ثبت تجهیز جدید (Register New Device)',
+    title_en: 'Granular RBAC Security Lock & Server Veto for Initial Configuration Templates in Device Registration',
+    changes: [
+      'افزودن قفل امنیتی RBAC روی بخش Optional Initial Configuration Template در مودال ثبت تجهیز جدید شبکه (AddDeviceModal).',
+      'غیرفعال‌سازی و قفل‌کردن خودکار سلکتور تمپلیت بر روی گزینه «هیچکدام / None» برای کاربران فاقد مجوز canApplyTemplates در پالیسی RBAC فعال.',
+      'تعبیه نشان امنیتی شفاف (نشان Lock به همراه کادر هشدار دو زبانه) جهت اطلاع‌رسانی عدم دسترسی به اعمال تمپلیت به کاربر.',
+      'صحت‌سنجی و اعتبارسنجی مقتدرانه در لایه سرور (POST /api/devices): ارزیابی توکن و پالیسی کاربر و وتوی فوری هرگونه درخواست ثبت تجهیز همراه با شناسه قالب توسط کاربران غیرمجاز با پاسخ 403 Forbidden.'
+    ],
+    changes_en: [
+      'Enforced granular RBAC governance over Optional Initial Configuration Template selection within Register New Device modal (AddDeviceModal).',
+      'Automatically locked and disabled the template dropdown selector to "None" for users lacking "canApplyTemplates" permission in their active RBAC policy.',
+      'Integrated a prominent bilingual security lock badge and warning card informing users of required template deployment privileges.',
+      'Implemented authoritative server-side veto logic in POST /api/devices endpoint: rejects any template assignment requests with HTTP 403 Forbidden when initiated by unauthorized users.'
+    ]
+  },
   {
     version: '1.322.0',
     releaseDate: '2026-10-12',

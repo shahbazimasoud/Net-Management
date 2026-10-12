@@ -967,3 +967,17 @@ export function isTemplateImportPermitted(policy?: AccessPolicy | null, isSuperA
   if (policy.canImportTemplates === false) return false;
   return Boolean(policy.canImportTemplates ?? (policy.canManageDevices !== false));
 }
+
+/**
+ * Evaluates whether a user or active policy is authorized to apply configuration templates to devices.
+ * Strict RBAC rule: Returns true if user is super admin or if active policy permits applying templates (canApplyTemplates !== false).
+ */
+export function isTemplateApplyPermitted(
+  policy?: AccessPolicy | null,
+  isSuperAdmin: boolean = false
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!policy) return true;
+  if (policy.canApplyTemplates === false) return false;
+  return Boolean(policy.canApplyTemplates);
+}
