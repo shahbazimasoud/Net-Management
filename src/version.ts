@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.320.1';
+export const APP_VERSION = '1.321.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.321.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'یکپارچه‌سازی والت رمز عبور (Password Vault) در مودال کلون تمپلیت و استخراج الگوی زنده',
+    title_en: 'Password Vault Credentials Integration & Window Controls in Clone Template and Live Extraction Modals',
+    changes: [
+      'افزودن فیلدهای مشخص نام کاربری (Username) و رمز عبور (Password) به مودال Clone from Templates به همراه دکمه فراخوانی گاوصندوق امن رمزها (Pick from Password Vault).',
+      'امکان واکشی و درج خودکار نام کاربری و رمز عبور تجهیزات هدف از والت رمز و همگام‌سازی بلادرنگ با متغیرهای تمپلیت (نظیر USERNAME، PASSWORD و ADMIN_PASS).',
+      'تجهیز مودال Clone from Templates به دکمه‌های سه‌گانه کنترلی هدر (بستن، مینیمایز به نوار داک ToolsDock و حالت تمام‌صفحه) و کادر راهنمای سه‌بخشی FieldInfoTooltip مطابق با استانداردهای جامع مودال‌ها.',
+      'افزودن دکمه انتخاب از والت رمز عبور به فرم استخراج الگوی زنده از تجهیز (CaptureConfigModal) برای فیلدهای Username، Password و Enable Secret.'
+    ],
+    changes_en: [
+      'Added dedicated Username and Password credential inputs with "Pick from Password Vault" action to the Clone Template modal.',
+      'Enabled 1-click credential retrieval from encrypted Password Vault to auto-fill authentication fields and synchronize matching template variables (such as USERNAME, PASSWORD, and ADMIN_PASS).',
+      'Equipped Clone Template modal with universal header triple controls (Close, Minimize to ToolsDock, and Fullscreen Maximize toggle) along with boundary-safe 3-part FieldInfoTooltip conforming to design constitutions.',
+      'Integrated Password Vault picker into Live Template Extraction modal (CaptureConfigModal) for rapid selection of Username, Password, and Enable Secret.'
+    ]
+  },
   {
     version: '1.320.1',
     releaseDate: '2026-10-12',

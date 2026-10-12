@@ -202,6 +202,27 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Minimize clone modal to ToolsDock
+  const handleMinimizeClone = () => {
+    const tmplName = cloneSourceTemplate?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
+    dockModal({
+      id: 'clone-template-modal',
+      labelEn: `Clone (${tmplName})`,
+      labelFa: `کلون (${tmplName})`,
+      badge: cloneSourceTemplate?.vendor === 'mikrotik' ? 'MikroTik' : cloneSourceTemplate?.vendor === 'cisco' ? 'Cisco' : 'Clone',
+      category: 'config',
+      onRestore: () => {
+        setCloneModalOpen(true);
+      },
+      onClose: () => {
+        undockModal('clone-template-modal');
+        setCloneModalOpen(false);
+        setCloneSourceTemplate(null);
+      },
+    });
+    setCloneModalOpen(false);
+  };
+
   // Minimize apply modal to ToolsDock
   const handleMinimizeApply = () => {
     const tmpl = templates.find((t) => t.id === applyTargetTemplateId);
@@ -734,9 +755,11 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
       <CloneTemplateModal
         isOpen={cloneModalOpen}
         onClose={() => {
+          undockModal('clone-template-modal');
           setCloneModalOpen(false);
           setCloneSourceTemplate(null);
         }}
+        onMinimize={handleMinimizeClone}
         sourceTemplate={cloneSourceTemplate}
         onSaveClone={handleSaveClone}
         onCloneAndApply={handleCloneAndApply}
