@@ -4233,6 +4233,174 @@ apiRouter.post('/templates/apply', async (req: Request, res: Response, next: Nex
   next();
 });
 
+function getStoredConfigTemplates(): any[] {
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (!fs.existsSync(netPath)) return [];
+    const raw = fs.readFileSync(netPath, 'utf-8');
+    const data = JSON.parse(raw);
+    return data.templates || [];
+  } catch (err) {
+    console.error('[getStoredConfigTemplates error]', err);
+    return [];
+  }
+}
+
+function saveStoredConfigTemplates(templates: any[]): boolean {
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    let data: any = {};
+    if (fs.existsSync(netPath)) {
+      const raw = fs.readFileSync(netPath, 'utf-8');
+      data = JSON.parse(raw);
+    }
+    data.templates = templates;
+    fs.writeFileSync(netPath, JSON.stringify(data, null, 2), 'utf-8');
+    return true;
+  } catch (err) {
+    console.error('[saveStoredConfigTemplates error]', err);
+    return false;
+  }
+}
+
+// GET /api/templates/export-package - Export all config templates as a package (Guarded by RBAC canExportTemplates)
+apiRouter.get('/templates/export-package', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canExportTemplates === false) {
+      try {
+        await addAuditLog({
+          userName: user?.username || 'anonymous',
+          action: 'Export Config Templates (Rejected - RBAC)',
+          category: 'security',
+          target: 'Templates Package',
+          status: 'warning',
+          details: 'User policy prohibits exporting configuration templates (canExportTemplates=false).',
+          ipAddress: getClientIp(req),
+          userAgent: req.headers['user-agent'] as string,
+        });
+      } catch {}
+
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits exporting configuration templates (canExportTemplates=false).',
+        errorFa: 'عدم دسترسی: حساب کاربری شما فاقد مجوز استخراج و برون‌بری الگوهای کانفیگ است.',
+      });
+    }
+
+    const templates = getStoredConfigTemplates();
+
+    try {
+      await addAuditLog({
+        userName: user?.username || 'admin',
+        action: 'Export Config Templates',
+        category: 'equipment',
+        target: `Templates Library (${templates.length} templates)`,
+        status: 'success',
+        details: `Exported ${templates.length} configuration templates package.`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch {}
+
+    return res.json({
+      success: true,
+      templates,
+      exported_at: new Date().toISOString(),
+      total: templates.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/templates/import-package - Import config templates package (Guarded by RBAC canImportTemplates)
+apiRouter.post('/templates/import-package', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
+
+    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canImportTemplates === false) {
+      try {
+        await addAuditLog({
+          userName: user?.username || 'anonymous',
+          action: 'Import Config Templates (Rejected - RBAC)',
+          category: 'security',
+          target: 'Templates Package',
+          status: 'warning',
+          details: 'User policy prohibits importing configuration templates (canImportTemplates=false).',
+          ipAddress: getClientIp(req),
+          userAgent: req.headers['user-agent'] as string,
+        });
+      } catch {}
+
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Your account policy prohibits importing configuration templates (canImportTemplates=false).',
+        errorFa: 'عدم دسترسی: حساب کاربری شما فاقد مجوز بارگذاری و درون‌ریزی الگوهای کانفیگ است.',
+      });
+    }
+
+    const incomingTemplates = Array.isArray(req.body?.templates) ? req.body.templates : (Array.isArray(req.body) ? req.body : []);
+    if (!incomingTemplates.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'No valid templates provided in payload.',
+        errorFa: 'هیچ الگوی معتبری در بسته ورودی یافت نشد.',
+      });
+    }
+
+    const currentTemplates = getStoredConfigTemplates();
+    const existingMap = new Map(currentTemplates.map((t: any) => [t.id, t]));
+
+    let importedCount = 0;
+    for (const t of incomingTemplates) {
+      if (!t.name || !t.commands) continue;
+      const tmplId = t.id || `template-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const sanitized = {
+        ...t,
+        id: tmplId,
+        name: t.name.trim(),
+        vendor: t.vendor || 'cisco',
+        target_type: t.target_type || 'switch',
+        role: t.role || 'Imported Template',
+        description: t.description || '',
+        commands: t.commands,
+        variables: Array.isArray(t.variables) ? t.variables : [],
+        updated_at: new Date().toISOString(),
+        created_at: t.created_at || new Date().toISOString(),
+      };
+      existingMap.set(tmplId, sanitized);
+      importedCount++;
+    }
+
+    const updatedList = Array.from(existingMap.values());
+    saveStoredConfigTemplates(updatedList);
+
+    try {
+      await addAuditLog({
+        userName: user?.username || 'admin',
+        action: 'Import Config Templates',
+        category: 'equipment',
+        target: `Templates Library (${importedCount} imported)`,
+        status: 'success',
+        details: `Successfully imported ${importedCount} configuration templates into library. Total templates: ${updatedList.length}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch {}
+
+    return res.json({
+      success: true,
+      importedCount,
+      total: updatedList.length,
+      message: `Successfully imported ${importedCount} templates.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST /devices/:id/template - Apply configuration template to network device
 apiRouter.post(['/devices/:id/template', '/devices/:id/apply-template'], async (req: Request, res: Response) => {
   try {

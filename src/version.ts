@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.321.0';
+export const APP_VERSION = '1.322.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.322.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'توسعه ماتریس کنترل دسترسی RBAC برای برون‌بری و درون‌ریزی الگوهای کانفیگ (Export & Import)',
+    title_en: 'Granular Multi-Vendor RBAC Governance for Configuration Templates Export and Import Operations',
+    changes: [
+      'افزودن دو قابلیت امنیتی مجزای canExportTemplates و canImportTemplates به ماتریس سطوح دسترسی (RBAC) در تب Granular Multi-Vendor Access Control و ذخیره‌سازی مقتدرانه در پایگاه داده PostgreSQL.',
+      'پیاده‌سازی اندپوینت‌های امن /api/templates/export-package و /api/templates/import-package با ارزیابی توکن و پالیسی امنیتی در لایه سرور به همراه ثبت لاگ‌های ممیزی (Audit Logging).',
+      'تعبیه دکمه‌های شکیل، ریسپانسیو و فشرده Export و Import در نوار ابزار صفحه Network Equipment Config Templates & Patterns با بررسی دسترسی‌های RBAC کلاینت و سرور.',
+      'جلوگیری قطعی از دسترسی کاربران غیرمجاز به استخراج یا دستکاری الگوهای کانفیگ تجهیزات شبکه با پیام‌های خطای دو زبانه.'
+    ],
+    changes_en: [
+      'Added distinct canExportTemplates and canImportTemplates capabilities to Granular Multi-Vendor Access Control (RBAC) matrix with authoritative PostgreSQL persistence.',
+      'Implemented secure server-side endpoints /api/templates/export-package and /api/templates/import-package with token policy validation and audit trail logging.',
+      'Integrated compact, responsive Export and Import action buttons into Network Equipment Config Templates & Patterns toolbar with client and server permission guards.',
+      'Prevented unauthorized extraction or modification of proprietary network templates with informative bilingual access denial notices.'
+    ]
+  },
   {
     version: '1.321.0',
     releaseDate: '2026-10-12',

@@ -2627,6 +2627,16 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
                       label: isEn ? 'Apply Configuration Templates' : 'اعمال الگوها و اسکریپت‌های کانفیگ (Templates)',
                       desc: isEn ? 'Push templated CLI batches to devices' : 'امکان اعمال اسکریپت‌های گروهی سیسکو و میکروتیک',
                     },
+                    {
+                      key: 'canExportTemplates',
+                      label: isEn ? 'Export Config Templates (Single & Package)' : 'استخراج و خروجی الگوهای کانفیگ (Export الگوها)',
+                      desc: isEn ? 'Download configuration templates as JSON package' : 'مجوز برون‌بری الگوها به صورت پکیج فایل JSON',
+                    },
+                    {
+                      key: 'canImportTemplates',
+                      label: isEn ? 'Import Config Templates (Single & Package)' : 'ورود و بارگذاری الگوهای کانفیگ (Import الگوها)',
+                      desc: isEn ? 'Upload and register new templates from JSON package' : 'مجوز بارگذاری و افزودن الگوها از فایل پکیج JSON',
+                    },
                   ].map(({ key, label, desc }) => {
                     const checked = (editingPolicy as any)[key];
                     return (

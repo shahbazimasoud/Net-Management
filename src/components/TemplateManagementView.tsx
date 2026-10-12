@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FileCode2,
   Plus,
@@ -23,17 +23,19 @@ import {
   AlertCircle,
   CopyPlus,
   DownloadCloud,
+  Download,
+  Upload,
   Lock
 } from 'lucide-react';
 import { ConfigTemplate, Device, AccessPolicy } from '../types';
-import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate } from '../services/api';
+import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate, exportTemplatesPackage, importTemplatesPackage } from '../services/api';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import { ApplyTemplateModal } from './ApplyTemplateModal';
 import { CloneTemplateModal } from './CloneTemplateModal';
 import { CaptureConfigModal } from './CaptureConfigModal';
 import { useLanguage } from '../i18n';
 import { useModalDock } from '../context/ModalDockContext';
-import { isDeviceActionPermitted } from '../utils/rbac';
+import { isDeviceActionPermitted, isTemplateExportPermitted, isTemplateImportPermitted } from '../utils/rbac';
 
 interface TemplateManagementViewProps {
   devices: Device[];
@@ -50,6 +52,13 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // RBAC Permission checks for template operations
+  const isSuperAdmin = effectivePolicy?.name === 'Super Admin' || effectivePolicy?.priority === 0 || (effectivePolicy as any)?.isSuperAdmin;
+  const canExport = isTemplateExportPermitted(effectivePolicy, isSuperAdmin);
+  const canImport = isTemplateImportPermitted(effectivePolicy, isSuperAdmin);
+
   const [templates, setTemplates] = useState<ConfigTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +211,63 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Export templates package handler guarded by RBAC
+  const handleExportTemplates = async () => {
+    if (!canExport) {
+      alert(isEn
+        ? 'Access Denied: Your account policy prohibits exporting configuration templates (canExportTemplates=false).'
+        : 'عدم دسترسی: حساب کاربری شما فاقد مجوز برون‌بری و استخراج الگوهای کانفیگ است (canExportTemplates=false).');
+      return;
+    }
+    try {
+      const data = await exportTemplatesPackage();
+      const blob = new Blob([JSON.stringify(data.templates, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `config_templates_package_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(isEn ? `Successfully exported ${data.total} configuration templates.` : `تعداد ${data.total} الگوی کانفیگ با موفقیت برون‌بری شد.`);
+    } catch (err: any) {
+      alert(err.message || (isEn ? 'Failed to export templates' : 'خطا در برون‌بری الگوها'));
+    }
+  };
+
+  // Import templates package handler guarded by RBAC
+  const handleImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canImport) {
+      alert(isEn
+        ? 'Access Denied: Your account policy prohibits importing configuration templates (canImportTemplates=false).'
+        : 'عدم دسترسی: حساب کاربری شما فاقد مجوز بارگذاری و درون‌ریزی الگوهای کانفیگ است (canImportTemplates=false).');
+      return;
+    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      let parsed = JSON.parse(text);
+      if (parsed.templates && Array.isArray(parsed.templates)) {
+        parsed = parsed.templates;
+      }
+      if (!Array.isArray(parsed)) {
+        throw new Error(isEn ? 'Invalid format. File must contain an array of templates.' : 'فرمت نامعتبر است. فایل باید شامل آرایه‌ای از الگوها باشد.');
+      }
+      const res = await importTemplatesPackage(parsed);
+      showToast(isEn ? `Successfully imported ${res.importedCount} templates.` : `تعداد ${res.importedCount} الگو با موفقیت به کتابخانه افزوده شد.`);
+      await loadTemplates();
+    } catch (err: any) {
+      alert(err.message || (isEn ? 'Failed to import templates' : 'خطا در درون‌ریزی الگوها'));
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   // Minimize clone modal to ToolsDock
   const handleMinimizeClone = () => {
     const tmplName = cloneSourceTemplate?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
@@ -350,6 +416,50 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
               <span>{t('templates_btn_clone_top')}</span>
             </button>
           )}
+
+          {/* Export Templates Button */}
+          <button
+            onClick={handleExportTemplates}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
+              canExport
+                ? 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border-purple-500/30'
+                : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
+            }`}
+            title={canExport ? (isEn ? 'Export All Config Templates as JSON Package' : 'برون‌بری کلیه الگوهای کانفیگ به صورت بسته JSON') : (isEn ? 'Access Denied: Export Templates prohibited by RBAC' : 'عدم دسترسی: برون‌بری الگوها در سطوح دسترسی غیرفعال است')}
+          >
+            <Download className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <span>{isEn ? 'Export' : 'برون‌بری'}</span>
+          </button>
+
+          {/* Import Templates Button */}
+          <button
+            onClick={() => {
+              if (!canImport) {
+                alert(isEn
+                  ? 'Access Denied: Your account policy prohibits importing configuration templates (canImportTemplates=false).'
+                  : 'عدم دسترسی: حساب کاربری شما فاقد مجوز بارگذاری و درون‌ریزی الگوهای کانفیگ است (canImportTemplates=false).');
+                return;
+              }
+              fileInputRef.current?.click();
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
+              canImport
+                ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
+            }`}
+            title={canImport ? (isEn ? 'Import Config Templates from JSON Package' : 'درون‌ریزی و بارگذاری الگوهای کانفیگ از فایل JSON') : (isEn ? 'Access Denied: Import Templates prohibited by RBAC' : 'عدم دسترسی: درون‌ریزی الگوها در سطوح دسترسی غیرفعال است')}
+          >
+            <Upload className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>{isEn ? 'Import' : 'درون‌ریزی'}</span>
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={handleImportFileChange}
+            className="hidden"
+          />
 
           {/* Refresh List Button */}
           <button

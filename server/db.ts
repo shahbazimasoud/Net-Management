@@ -552,6 +552,8 @@ export const DEFAULT_ACCESS_POLICIES = [
     canImportDevices: true,
     canExportServers: true,
     canImportServers: true,
+    canExportTemplates: true,
+    canImportTemplates: true,
     defaultServerPermissions: {
       terminal: true,
       file_explorer: true,

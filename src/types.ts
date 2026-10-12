@@ -705,6 +705,8 @@ export interface AccessPolicy {
   canImportDevices?: boolean;         // Import single and batch network equipment inventory data
   canExportServers?: boolean;         // Export single and batch remote server fleet data
   canImportServers?: boolean;         // Import single and batch remote server fleet data
+  canExportTemplates?: boolean;       // Export single and batch config templates
+  canImportTemplates?: boolean;       // Import config templates package
 
   // 5. Backup & Disaster Recovery Operations
   canExportBackup?: boolean;          // Export full or partial network backup package

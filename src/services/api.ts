@@ -708,6 +708,34 @@ export async function fetchTemplates(): Promise<{ templates: ConfigTemplate[]; t
   return res.json();
 }
 
+export async function exportTemplatesPackage(): Promise<{ success: boolean; templates: ConfigTemplate[]; exported_at: string; total: number }> {
+  const token = localStorage.getItem('token') || localStorage.getItem('nettopology_auth_token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/templates/export-package`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.errorFa || 'Failed to export templates package');
+  }
+  return res.json();
+}
+
+export async function importTemplatesPackage(templates: Partial<ConfigTemplate>[]): Promise<{ success: boolean; importedCount: number; message: string }> {
+  const token = localStorage.getItem('token') || localStorage.getItem('nettopology_auth_token');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/templates/import-package`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ templates }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.errorFa || 'Failed to import templates package');
+  }
+  return res.json();
+}
+
 export async function fetchTemplate(id: string): Promise<{ template: ConfigTemplate }> {
   const res = await fetch(`${API_BASE}/templates/${id}`);
   if (!res.ok) throw new Error('Failed to fetch template');
