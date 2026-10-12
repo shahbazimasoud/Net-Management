@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.325.0';
+export const APP_VERSION = '1.326.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.326.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'پیاده‌سازی ماژول‌های ناوگان سرورها، عملیات سراسری و ماتریس تفکیکی در مودال پالیسی‌های دسترسی (AccessPolicyModal فاز ۳)',
+    title_en: 'Granular Linux Fleet, Global Operations & Overrides Matrix Tab Modules in Access Policy Modal (Phase 3)',
+    changes: [
+      'تکمیل تب ۵ (ناوگان سرورها): تنظیمات اختیارات پیش‌فرض ۸گانه سرورها شامل ترمینال SSH، کاوشگر فایل SFTP، مانیتورینگ منابع، وب‌سرورها، دیتابیس‌ها و کنترل پاور با کلیدهای Select All / Deselect All.',
+      'تکمیل تب ۶ (عملیات سراسری و الگوها): کنترل اختیارات ارسال، استخراج و ورود الگوها (canApplyTemplates, canExportTemplates, canImportTemplates)، مدیریت چرخه حیات تجهیزات و بکاپ‌های جامع دیتابیس.',
+      'تکمیل تب ۷ (ماتریس تفکیکی): پیاده‌سازی زیرتب‌های مجزا برای تجهیزات شبکه و ناوگان سرورها با امکان جستجو، فیلترینگ استثنائات، ریست به پیش‌فرض و تغییر تک‌تک اکشن‌ها به ازای هر دستگاه یا سرور.'
+    ],
+    changes_en: [
+      'Completed Tab 5 (Linux & Servers): 8 default server permissions including SSH terminal, SFTP explorer, system telemetry, web servers, databases, and power actions with bulk Select/Deselect buttons.',
+      'Completed Tab 6 (Global & Templates): Governance for template push, export/import packages (canApplyTemplates, canExportTemplates, canImportTemplates), equipment lifecycle, and disaster recovery.',
+      'Completed Tab 7 (Granular Matrix): Dual sub-tabs for network equipment and server fleet with real-time search, exception filters, reset to default, and per-device/server action overrides.'
+    ]
+  },
   {
     version: '1.325.0',
     releaseDate: '2026-10-12',
