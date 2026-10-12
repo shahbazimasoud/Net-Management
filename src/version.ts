@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.327.0';
+export const APP_VERSION = '1.328.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.328.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'توسعه نماهای سه‌گانه، سفارشی‌سازی ستون‌ها و صفحه‌بندی پیشرفته برای لیست پالیسی‌های دسترسی (Configured Access Policies)',
+    title_en: 'Multi-View Engine, Customizable Column Picker & Advanced Pagination for Configured Access Policies',
+    changes: [
+      'پیاده‌سازی نماهای سه‌گانه (لیستی List View، جدولی متراکم Dense Table View و کارت‌های گرید Grid Cards) مشابه صفحه Remote Servers & Automation Fleet با ذخیره‌سازی انتخاب کاربر در حافظه محلی.',
+      'تجهیز به قابلیت سفارشی‌سازی و انتخاب ۱۱ ستون نمایشی از طریق منوی پاپ‌اور Columns با امکان فعال/غیرفعال‌سازی، انتخاب همه و بازنشانی به حالت پیش‌فرض.',
+      'افزودن موتور صفحه‌بندی پیشرفته (Pagination) با امکان انتخاب تعداد آیتم در صفحه (۵، ۱۰، ۲۰، ۵۰ و همه)، ناوبری صفحات و شمارنده دقیق وضعیت پالیسی‌ها.',
+      'افزودن نوار ابزار جستجو و فیلترهای بلادرنگ هویت (AD / Local) و محدوده هدف (Target Scope) به همراه امکان کپی و تکثیر سریع پالیسی‌ها (Duplicate Policy).'
+    ],
+    changes_en: [
+      'Implemented triple viewing modes (List View, Dense Table View, and Grid Cards) modeled after Remote Servers & Automation Fleet with persistent localStorage state.',
+      'Added a customizable 11-column visibility selector via portal dropdown with bulk Select All, individual toggles, and Reset to Default.',
+      'Integrated advanced pagination controls with configurable page sizes (5, 10, 20, 50, and All), first/prev/page/next/last navigation, and item count summaries.',
+      'Introduced real-time search, identity (AD/Local) and scope filters, alongside instant policy duplication (Duplicate Policy) with full audit logging.'
+    ]
+  },
   {
     version: '1.327.0',
     releaseDate: '2026-10-12',
