@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.324.0';
+export const APP_VERSION = '1.325.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.325.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'پیاده‌سازی فرم‌های تخصصی تب‌های ۱ تا ۴ در مودال استاندارد پالیسی‌های دسترسی (AccessPolicyModal فاز ۲)',
+    title_en: 'Interactive Identity, Navigation, Cisco & MikroTik Tab Modules in Universal Access Policy Modal (Phase 2)',
+    changes: [
+      'تکمیل تب ۱ (هویت و دامنه): جستجوی بلادرنگ کاربران و گروه‌های اکتیو دایرکتوری و محلی، کارت‌های خلاصه انتخاب هویت، و تفکیک محدوده به تمام تجهیزات، گروه‌های دیتابیس یا دستگاه‌های خاص.',
+      'تکمیل تب ۲ (صفحات و ابزارها): سوئیچ‌های کنترل دسترسی به بخش‌های ده‌گانه پنل همراه با دکمه‌های Select All / Deselect All و کادرهای راهنمای سه‌بخشی FieldInfoTooltip.',
+      'تکمیل تب ۳ (تجهیزات سیسکو): دسته‌بندی سه‌سطحی ترمینال CLI، کنترل پاور اینترفیس، تخصیص VLAN، امنیت پورت (Port Security)، ذخیره NVRAM و عملیات دسته‌ای.',
+      'تکمیل تب ۴ (تجهیزات میکروتیک): ماژول محافظت امن Safe Mode، رول‌های فایروال و NAT، بکاپ‌گیری باینری و اسکریپت RSC، فیلترینگ Bridge VLAN، استخر IP و کامنت‌گذاری.'
+    ],
+    changes_en: [
+      'Completed Tab 1 (Identity & Scope): Real-time search for Active Directory & local users/groups, selected identity badges, and flexible scope targeting (all, groups, or specific devices).',
+      'Completed Tab 2 (Navigation & Views): Granular toggles for all 10 panel views with quick Select All / Deselect All actions and boundary-safe 3-part FieldInfoTooltips.',
+      'Completed Tab 3 (Cisco Equipment): 3-tier CLI terminal privileges, interface power control, VLAN assignment, Port Security, NVRAM write memory, and bulk port configuration.',
+      'Completed Tab 4 (MikroTik RouterOS): Safe Mode protection, Firewall & NAT rules, binary backup & RSC export, Bridge VLAN filtering, IP pool management, and interface comments.'
+    ]
+  },
   {
     version: '1.324.0',
     releaseDate: '2026-10-12',
