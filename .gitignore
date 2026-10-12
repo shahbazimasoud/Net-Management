@@ -15,4 +15,6 @@ venv*/
 backend/venv*/
 backend/.venv*/
 backend/snapshots/
+backend/server_backups/
+bun.lock*
 *.enc.json

@@ -78,6 +78,7 @@ import {
 } from '../../utils/rbac';
 import { fetchRemoteServers } from '../../services/api';
 import { FieldInfoTooltip } from '../vpn/FieldInfoTooltip';
+import { AccessPolicyModal } from './AccessPolicyModal';
 import {
   loadLocalUsers,
   loadLocalGroups,
@@ -123,6 +124,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
   );
   const [editingPolicy, setEditingPolicy] = useState<AccessPolicy | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
   const [vendorFilter, setVendorFilter] = useState<'all' | 'cisco' | 'mikrotik' | 'generic' | 'servers' | 'devices'>('all');
 
   // Live database-backed states for subjects and scopes
@@ -430,6 +432,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     const activeDevGroups = data?.devGroups && data.devGroups.length > 0 ? data.devGroups : liveDeviceGroups;
     setEditingPolicy(getBlankPolicy(activeGroups, activeDevGroups));
     setIsCreating(true);
+    setIsPolicyModalOpen(true);
     setVendorFilter('all');
     setServerSearchQuery('');
     setDeviceSearchQuery('');
@@ -463,6 +466,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       perDevicePermissions: policy.perDevicePermissions || {},
     });
     setIsCreating(false);
+    setIsPolicyModalOpen(true);
     setVendorFilter('all');
     setServerSearchQuery('');
     setDeviceSearchQuery('');
@@ -634,15 +638,16 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     }
   };
 
-  const handleSavePolicy = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingPolicy) return;
+  const handleSavePolicy = (e?: React.FormEvent, policyToSave?: AccessPolicy) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const targetPolicy = policyToSave || editingPolicy;
+    if (!targetPolicy) return;
 
     let updated: AccessPolicy[];
     if (isCreating) {
-      updated = [...policies, editingPolicy];
+      updated = [...policies, targetPolicy];
     } else {
-      updated = policies.map((p) => (p.id === editingPolicy.id ? editingPolicy : p));
+      updated = policies.map((p) => (p.id === targetPolicy.id ? targetPolicy : p));
     }
     onSavePolicies(updated);
 
@@ -651,27 +656,27 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         category: 'rbac_policy',
         action: isCreating ? 'RBAC_POLICY_CREATED' : 'RBAC_POLICY_UPDATED',
         title: isCreating
-          ? `ایجاد پالیسی دسترسی جدید «${editingPolicy.name}»`
-          : `تغییر سطح دسترسی و اختیارات در پالیسی «${editingPolicy.name}»`,
+          ? `ایجاد پالیسی دسترسی جدید «${targetPolicy.name}»`
+          : `تغییر سطح دسترسی و اختیارات در پالیسی «${targetPolicy.name}»`,
         title_en: isCreating
-          ? `New access policy created: ${editingPolicy.name}`
-          : `Access policy updated: ${editingPolicy.name}`,
+          ? `New access policy created: ${targetPolicy.name}`
+          : `Access policy updated: ${targetPolicy.name}`,
         target: {
           type: 'policy',
-          id: editingPolicy.id,
-          name: editingPolicy.name,
+          id: targetPolicy.id,
+          name: targetPolicy.name,
           metadata: {
-            subjectName: editingPolicy.subjectName,
-            subjectType: editingPolicy.subjectType,
-            canExportBackup: editingPolicy.permissions?.canExportBackup,
-            canImportBackup: editingPolicy.permissions?.canImportBackup,
-            terminalAccess: editingPolicy.permissions?.terminalAccess,
+            subjectName: targetPolicy.subjectName,
+            subjectType: targetPolicy.subjectType,
+            canExportBackup: targetPolicy.permissions?.canExportBackup,
+            canImportBackup: targetPolicy.permissions?.canImportBackup,
+            terminalAccess: targetPolicy.permissions?.terminalAccess,
           }
         },
         severity: 'notice',
         status: 'success',
-        details: `پالیسی ${editingPolicy.name} برای ${editingPolicy.subjectType} ${editingPolicy.subjectName} ذخیره شد.`,
-        details_en: `Access policy ${editingPolicy.name} saved.`,
+        details: `پالیسی ${targetPolicy.name} برای ${targetPolicy.subjectType} ${targetPolicy.subjectName} ذخیره شد.`,
+        details_en: `Access policy ${targetPolicy.name} saved.`,
       });
     } catch (err) {
       // ignore
@@ -679,6 +684,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
 
     setEditingPolicy(null);
     setIsCreating(false);
+    setIsPolicyModalOpen(false);
   };
 
   const activePolicyObj = policies.find((p) => p.id === activeSimulatedPolicyId) || policies[0];
@@ -932,7 +938,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       </div>
 
       {/* Comprehensive Policy Editor Drawer / Form Modal */}
-      {editingPolicy && (
+      {editingPolicy && !isPolicyModalOpen && (
         <div className="p-5 rounded-2xl bg-slate-900/95 border border-indigo-500/40 shadow-2xl space-y-5 animate-fadeIn">
           <div className="flex items-center justify-between border-b border-white/10 pb-3">
             <div className="flex items-center gap-2">
@@ -4291,6 +4297,30 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
           </form>
         </div>
       )}
+
+      {/* Modern Tabbed Universal Access Policy Modal */}
+      <AccessPolicyModal
+        isOpen={isPolicyModalOpen}
+        onClose={() => {
+          setIsPolicyModalOpen(false);
+          setEditingPolicy(null);
+        }}
+        onMinimize={() => {
+          setIsPolicyModalOpen(false);
+        }}
+        isCreating={isCreating}
+        editingPolicy={editingPolicy}
+        onSavePolicy={async (policy) => {
+          handleSavePolicy(undefined, policy);
+        }}
+        isLightMode={isLight}
+        liveLocalUsers={liveLocalUsers}
+        liveLocalGroups={liveLocalGroups}
+        liveAdConfig={liveAdConfig}
+        devices={devices}
+        liveDeviceGroups={liveDeviceGroups}
+        liveServers={liveServers}
+      />
     </div>
   );
 };

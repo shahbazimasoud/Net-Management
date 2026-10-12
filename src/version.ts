@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.323.0';
+export const APP_VERSION = '1.324.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.324.0',
+    releaseDate: '2026-10-12',
+    type: 'minor',
+    title: 'ایجاد ساختار مودال استاندارد و تب‌بندی‌شده برای تعریف و ویرایش پالیسی‌های دسترسی (AccessPolicyModal)',
+    title_en: 'Universal Tabbed Access Policy Modal Architecture for Granular Multi-Vendor RBAC Governance',
+    changes: [
+      'طراحی و ساخت کامپوننت مودال استاندارد و مدرن AccessPolicyModal جهت تعریف و ویرایش جامع پالیسی‌های سطح دسترسی RBAC.',
+      'تجهیز هدر مودال به دکمه‌های سه‌گانه کنترلی (بستن X، مینیمایز Minus به نوار داک ابزارها، و بزرگ‌نمایی تمام‌صفحه Maximize/Restore) مطابق با استانداردهای جامع مودال‌ها.',
+      'مهار کامل کادر و پس‌زمینه مودال تا بالای حریم همیشگی فوتر (bottom-8) جهت حفظ دسترسی پایدار به نوار داک ابزارها.',
+      'پیاده‌سازی نوار تب‌بندی ارگونومیک ۷گانه با آیکون‌های اختصاصی و پشتیبانی کامل از تم روشن، تم تیره و زبان‌های فارسی و انگلیسی.'
+    ],
+    changes_en: [
+      'Engineered dedicated and modern AccessPolicyModal component for comprehensive creation and editing of RBAC access policies.',
+      'Equipped modal header with universal triple window controls (Close, Minimize to ToolsDock, and Fullscreen Maximize/Restore toggle) adhering to strict modal architectural standards.',
+      'Enforced strict universal footer clearance (bottom-8) preventing overlay obstruction of ToolsDock and system telemetry.',
+      'Implemented ergonomic 7-tab navigation bar with dedicated vendor icons, full dark/light theme adaptability, and strict bilingual localization.'
+    ]
+  },
   {
     version: '1.323.0',
     releaseDate: '2026-10-12',
