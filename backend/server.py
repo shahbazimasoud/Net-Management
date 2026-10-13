@@ -181,6 +181,7 @@ def record_audit_log(data: Dict[str, Any], user: str, device_id: str, device_nam
     if len(logs) > 500:
         data["audit_logs"] = logs[:500]
     save_data(data)
+    return entry
 
 def sanitize_device(device):
     if not device:
@@ -3248,35 +3249,86 @@ class NetworkAPIHandler(BaseHTTPRequestHandler):
             raw_commands = tmpl.get("commands", "")
             rendered_script = render_template_commands(raw_commands, resolved_vars)
 
-            # Simulate realistic terminal stream logs
+            # Simulate realistic terminal stream logs with syntax validation
             logs = simulate_device_execution(tmpl, rendered_script, device)
 
-            # Update confirmed device properties in database
-            if "DEVICE_NAME" in resolved_vars and str(resolved_vars["DEVICE_NAME"]).strip():
-                device["name"] = str(resolved_vars["DEVICE_NAME"]).strip()
-            if "IP_ADDRESS" in resolved_vars and str(resolved_vars["IP_ADDRESS"]).strip():
-                device["ip"] = str(resolved_vars["IP_ADDRESS"]).strip()
-            if "BUILDING" in resolved_vars and str(resolved_vars["BUILDING"]).strip():
-                device["building"] = str(resolved_vars["BUILDING"]).strip()
-            if "FLOOR" in resolved_vars and str(resolved_vars["FLOOR"]).strip():
-                device["floor"] = str(resolved_vars["FLOOR"]).strip()
-            if "UNIT" in resolved_vars and str(resolved_vars["UNIT"]).strip():
-                device["unit"] = str(resolved_vars["UNIT"]).strip()
-            if "RACK" in resolved_vars and str(resolved_vars["RACK"]).strip():
-                device["rack"] = str(resolved_vars["RACK"]).strip()
+            # Update confirmed device properties in database (synced fields)
+            synced_fields = []
+
+            name_val = resolved_vars.get("DEVICE_NAME") or resolved_vars.get("HOSTNAME") or resolved_vars.get("NEW_HOSTNAME") or resolved_vars.get("HOST_NAME") or resolved_vars.get("SYSTEM_NAME")
+            if name_val and str(name_val).strip():
+                device["name"] = str(name_val).strip()
+                synced_fields.append("name")
+
+            ip_val = resolved_vars.get("IP_ADDRESS") or resolved_vars.get("MANAGEMENT_IP") or resolved_vars.get("NEW_IP") or resolved_vars.get("HOST_IP") or resolved_vars.get("DEVICE_IP") or resolved_vars.get("IP")
+            if ip_val and str(ip_val).strip():
+                device["ip"] = str(ip_val).strip()
+                synced_fields.append("ip")
+
+            bld_val = resolved_vars.get("BUILDING") or resolved_vars.get("BUILDING_NAME")
+            if bld_val and str(bld_val).strip():
+                device["building"] = str(bld_val).strip()
+                synced_fields.append("building")
+
+            floor_val = resolved_vars.get("FLOOR") or resolved_vars.get("FLOOR_NAME")
+            if floor_val and str(floor_val).strip():
+                device["floor"] = str(floor_val).strip()
+                synced_fields.append("floor")
+
+            unit_val = resolved_vars.get("UNIT") or resolved_vars.get("ROOM") or resolved_vars.get("OFFICE")
+            if unit_val and str(unit_val).strip():
+                device["unit"] = str(unit_val).strip()
+                synced_fields.append("unit")
+
+            rack_val = resolved_vars.get("RACK") or resolved_vars.get("RACK_ID") or resolved_vars.get("CABINET")
+            if rack_val and str(rack_val).strip():
+                device["rack"] = str(rack_val).strip()
+                synced_fields.append("rack")
 
             device["has_unsaved_changes"] = False
             device["last_seen"] = "هم اکنون (اعمال شده با تمپلیت)"
             device["last_modified_time"] = time.strftime("%H:%M:%S")
 
+            # Also synchronize corresponding topology nodes if present
+            for node in data.get("nodes", []):
+                if node.get("deviceId") == dev_id or node.get("id") == dev_id:
+                    if "name" in synced_fields:
+                        node["label"] = device["name"]
+                    if "ip" in synced_fields:
+                        node["ip"] = device["ip"]
+
+            # Save state
             save_data(data)
+
+            # Record audit log in persistent PostgreSQL & JSON store
+            user_name = body.get("user_name") or "Network Administrator"
+            audit_entry = record_audit_log(
+                data,
+                user=user_name,
+                device_id=device.get("id"),
+                device_name=device.get("name"),
+                action="apply_config_template",
+                details=json.dumps({
+                    "template_id": tmpl.get("id"),
+                    "template_name": tmpl.get("name"),
+                    "vendor": tmpl.get("vendor"),
+                    "applied_ip": device.get("ip"),
+                    "resolved_variables": resolved_vars,
+                    "synced_fields": synced_fields,
+                    "total_commands_executed": len(logs)
+                }, ensure_ascii=False),
+                result="success"
+            )
 
             self._send_json(200, {
                 "success": True,
                 "message": f"تمپلیت «{tmpl.get('name')}» با موفقیت روی تجهیز {device.get('name')} اعمال و در حافظه ذخیره گردید.",
                 "device": device,
                 "rendered_script": rendered_script,
-                "logs": logs
+                "logs": logs,
+                "synced_fields": synced_fields,
+                "audit_id": audit_entry.get("id") if audit_entry else None,
+                "audit_timestamp": audit_entry.get("timestamp") if audit_entry else None
             })
             return
 

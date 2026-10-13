@@ -680,6 +680,25 @@ export const translations = {
     apply_gate_signoff_ip: 'I explicitly acknowledge that the device management IP will change to {newIp} and agree to reconnect via the new address.',
     apply_gate_blocked_summary: 'Safety gate is currently locked. Resolve the highlighted warnings and complete the engineering sign-off checklist to proceed.',
 
+    // Phase 4: Live Execution Engine & Terminal Stream
+    apply_stream_executing_line: 'Executing Command {current} of {total} ({percent}%)',
+    apply_stream_current_command: 'Current Command: {command}',
+    apply_stream_fast_forward: 'Skip Animation / Show All',
+    apply_stream_auto_scroll: 'Auto Scroll',
+    apply_stream_filter_all: 'All Lines ({count})',
+    apply_stream_filter_errors: 'Errors ({count})',
+    apply_stream_filter_warns: 'Warnings ({count})',
+    apply_stream_copy_logs: 'Copy Terminal Output',
+    apply_stream_copied: 'Copied to Clipboard!',
+    apply_stream_badge_success: 'SUCCESS',
+    apply_stream_badge_warning: 'WARNING',
+    apply_stream_badge_error: 'FAILED',
+    apply_stream_badge_info: 'INFO',
+    apply_stream_db_synced: 'Database Synchronized: {fields}',
+    apply_stream_audit_logged: 'PostgreSQL Server Audit Log recorded (#{id})',
+    apply_stream_nvram_verified: 'NVRAM & Running Configuration in sync',
+    apply_stream_execution_stats: '{total} Commands Executed • {success} Succeeded • {warn} Warnings • {errors} Errors',
+
     // Port Inspector Modal
     port_inspector_title: 'Switch Port Inspector & Faceplate',
     port_inspector_filter_all: 'All Ports',
@@ -1428,6 +1447,25 @@ export const translations = {
     apply_gate_signoff_risk: 'مسئولیت ریسک عملیاتی و اثر احتمالی بر سرویس‌های شبکه را می‌پذیرم.',
     apply_gate_signoff_ip: 'تغییر آدرس آی‌پی مدیریتی تجهیز به {newIp} را صراحتاً تایید کرده و قطعی نشست فعلی را می‌پذیرم.',
     apply_gate_blocked_summary: 'گیت ایمنی قفل است. لطفاً هشدارهای مشخص‌شده را بررسی نموده و چک‌لیست تصدیق مهندسی را علامت بزنید.',
+
+    // Phase 4: Live Execution Engine & Terminal Stream
+    apply_stream_executing_line: 'در حال اجرای دستور {current} از {total} ({percent}%)',
+    apply_stream_current_command: 'دستور جاری: {command}',
+    apply_stream_fast_forward: 'رد کردن انیمیشن / نمایش کامل',
+    apply_stream_auto_scroll: 'پیمایش خودکار',
+    apply_stream_filter_all: 'همه خطوط ({count})',
+    apply_stream_filter_errors: 'خطاها ({count})',
+    apply_stream_filter_warns: 'هشدارها ({count})',
+    apply_stream_copy_logs: 'کپی خروجی ترمینال',
+    apply_stream_copied: 'در حافظه کپی شد!',
+    apply_stream_badge_success: 'موفق',
+    apply_stream_badge_warning: 'هشدار',
+    apply_stream_badge_error: 'خطا',
+    apply_stream_badge_info: 'پیام',
+    apply_stream_db_synced: 'همگام‌سازی با پایگاه داده اصلی: {fields}',
+    apply_stream_audit_logged: 'لاگ ممیزی امنیتی در دیتابیس سرور ثبت شد (#{id})',
+    apply_stream_nvram_verified: 'همگام‌سازی کامل با حافظه پایدار (NVRAM) و Running-Config',
+    apply_stream_execution_stats: '{total} دستور اجرا شد • {success} موفق • {warn} هشدار • {errors} خطا',
 
     // Port Inspector Modal
     port_inspector_title: 'مشاهده و مدیریت پورت‌های سوئیچ',

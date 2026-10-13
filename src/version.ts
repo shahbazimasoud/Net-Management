@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.330.0';
+export const APP_VERSION = '1.331.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.331.0',
+    releaseDate: '2026-10-13',
+    type: 'minor',
+    title: 'فاز ۴: موتور اجرای زنده، استریم لاگ‌های ترمینال، به‌روزرسانی مشخصات تجهیز و آزمون‌های E2E',
+    title_en: 'Phase 4: Live Execution Engine, Terminal Streaming, DB Sync & E2E Testing Suite',
+    changes: [
+      'پیاده‌سازی موتور استریم بلادرنگ خطوط فرمان در کنسول مجازی همراه با پیشرفت درصدی، تایم‌استمپ و برچسب‌های وضعیت خط (SUCCESS, WARNING, FAILED, INFO).',
+      'تعبیه دکمه عبور سریع از انیمیشن (Fast-Forward / Show All)، پیمایش خودکار (Auto-Scroll)، فیلتر خطوط بر اساس خطاها و هشدارها و کپی خروجی ترمینال.',
+      'همگام‌سازی بلادرنگ مشخصات تجهیز در پایگاه داده اصلی (نام، آی‌پی مدیریتی، ساختمان، طبقه، واحد و رک) و به‌روزرسانی برچسب نودهای توپولوژی.',
+      'ثبت قطعی و سروری رویداد در مخزن ممیزی امنیتی PostgreSQL همراه با شناسه اختصاصی Audit ID، نام کاربر و جزئیات پارامترها.',
+      'تدوین و اجرای موفقیت‌آمیز آزمون خودکار انتها به انتها (test_strict_apply_template_suite.ts) با اعتبارسنجی ۱۰۰ درصدی کلیه جریان‌ها.'
+    ],
+    changes_en: [
+      'Implemented virtual terminal live streaming engine with progressive percentage indicator, timestamps, and line status badges (SUCCESS, WARNING, FAILED, INFO).',
+      'Added fast-forward animation skip, auto-scroll toggle, error/warning line filters, and copy terminal transcript button.',
+      'Real-time database synchronization of updated device attributes (name, IP address, building, floor, unit, rack) and topology node labels.',
+      'Authoritative server-side security audit logging in PostgreSQL vault with dedicated Audit ID, operator username, and parameters payload.',
+      'Authored and verified comprehensive end-to-end automated test suite (test_strict_apply_template_suite.ts) with 100% passing tests.'
+    ]
+  },
   {
     version: '1.330.0',
     releaseDate: '2026-10-13',

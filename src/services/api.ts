@@ -777,6 +777,7 @@ export async function applyTemplateToDevice(params: {
   device_id: string;
   template_id: string;
   resolved_variables: Record<string, string | number>;
+  user_name?: string;
 }): Promise<TemplateApplyResult> {
   const res = await fetch(`${API_BASE}/templates/apply`, {
     method: 'POST',

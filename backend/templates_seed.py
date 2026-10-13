@@ -397,11 +397,11 @@ def simulate_device_execution(template, rendered_commands, device):
     
     for line in lines:
         stripped = line.strip()
-        if not stripped or stripped.startswith("!"):
+        if not stripped:
             continue
         
-        # Handle comment or banner in terminal
-        if stripped.startswith("#"):
+        # Handle comments, documentation or sections in terminal
+        if stripped.startswith("#") or stripped.startswith("!"):
             logs.append({
                 "timestamp": time.strftime("%H:%M:%S"),
                 "command": stripped,
@@ -414,6 +414,20 @@ def simulate_device_execution(template, rendered_commands, device):
         prompt_before = current_prompt
         output = ""
         status = "ok"
+
+        # Check for un-rendered variables or syntax error flags
+        if "{{" in stripped or "}}" in stripped:
+            status = "error"
+            output = "% Error: Unresolved template variable detected in line."
+        elif stripped.lower() == "shutdown":
+            status = "warn"
+            output = "% LINK-5-CHANGED: Interface administratively shut down."
+        elif stripped.lower().startswith("no ") and not stripped.lower().startswith("no shutdown") and not stripped.lower().startswith("no service password-encryption"):
+            status = "warn"
+            output = ""
+        elif stripped.lower() == "no shutdown":
+            status = "ok"
+            output = "% LINK-3-UPDOWN: Interface status changed to UP."
 
         if vendor == "cisco":
             if stripped == "enable":
@@ -455,7 +469,8 @@ def simulate_device_execution(template, rendered_commands, device):
                 if m:
                     dev_name = m.group(1)
                     current_prompt = f"[admin@{dev_name}] >"
-            output = "[OK]"
+            if not output and status == "ok":
+                output = "[OK]"
 
         logs.append({
             "timestamp": time.strftime("%H:%M:%S"),

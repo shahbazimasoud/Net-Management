@@ -39,7 +39,11 @@ import {
   Lock,
   Unlock,
   Activity,
-  Flame
+  Flame,
+  FastForward,
+  Database,
+  ScrollText,
+  CheckCheck
 } from 'lucide-react';
 import { Device, ConfigTemplate, TemplateApplyResult, TemplateExecutionLog, AccessPolicy } from '../types';
 import { fetchTemplates, applyTemplateToDevice } from '../services/api';
@@ -175,6 +179,31 @@ export function validateVariableField(name: string, value: string): ValidationRe
   return { valid: true };
 }
 
+export function isVendorCompatible(device: Device, template: ConfigTemplate | null): boolean {
+  if (!template) return true;
+  const model = (device.model || '').toLowerCase();
+  const platform = (device.platform || '').toLowerCase();
+  const isCisco = model.includes('cisco') || model.includes('catalyst') || platform.includes('cisco') || model.includes('ios');
+  const isMikroTik = model.includes('mikrotik') || model.includes('routerboard') || model.includes('crs') || model.includes('ccr') || model.includes('chr') || platform.includes('mikrotik');
+  if (template.vendor === 'cisco') return isCisco;
+  if (template.vendor === 'mikrotik') return isMikroTik;
+  return true;
+}
+
+export function isManagementIpModified(oldIp: string, newIp: string): boolean {
+  return (oldIp || '').trim() !== (newIp || '').trim();
+}
+
+export function assessOperationalRisk(params: {
+  isIpChanged: boolean;
+  hasVlanChange?: boolean;
+  hasHostnameChange?: boolean;
+}): 'high' | 'medium' | 'low' {
+  if (params.isIpChanged) return 'high';
+  if (params.hasVlanChange || params.hasHostnameChange) return 'medium';
+  return 'low';
+}
+
 interface ApplyTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -241,8 +270,22 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const [applyResult, setApplyResult] = useState<TemplateApplyResult | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
-  // Close handler with undock
+  // Phase 4: Live Execution Streaming & Terminal Console State
+  const [streamedLogs, setStreamedLogs] = useState<TemplateExecutionLog[]>([]);
+  const [currentStreamIndex, setCurrentStreamIndex] = useState<number>(0);
+  const [isStreamingActive, setIsStreamingActive] = useState<boolean>(false);
+  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const [logFilter, setLogFilter] = useState<'all' | 'errors' | 'warns'>('all');
+  const [copiedTerminalLogs, setCopiedTerminalLogs] = useState(false);
+  const terminalEndRef = useRef<HTMLDivElement | null>(null);
+  const streamingTimerRef = useRef<any>(null);
+
+  // Close handler with undock and streaming timer cleanup
   const handleClose = () => {
+    if (streamingTimerRef.current) {
+      clearInterval(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+    }
     undockModal('apply-template-modal');
     onClose();
   };
@@ -313,6 +356,13 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       setActiveStep('variables');
       setApplyResult(null);
       setApplyError(null);
+      setStreamedLogs([]);
+      setCurrentStreamIndex(0);
+      setIsStreamingActive(false);
+      if (streamingTimerRef.current) {
+        clearInterval(streamingTimerRef.current);
+        streamingTimerRef.current = null;
+      }
     }
   }, [isOpen, preselectedTemplateId, initialTargetDevice, allDevices]);
 
@@ -762,18 +812,45 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     setIsApplying(true);
     setActiveStep('executing');
     setApplyError(null);
+    setStreamedLogs([]);
+    setCurrentStreamIndex(0);
+    setIsStreamingActive(true);
 
     try {
       const result = await applyTemplateToDevice({
         device_id: selectedDevice.id,
         template_id: currentTemplate.id,
         resolved_variables: variableValues,
+        user_name: effectivePolicy?.name || 'Super Admin',
       });
 
       setApplyResult(result);
-      setActiveStep('done');
 
-      // Audit Log template application
+      // Start progressive line-by-line terminal stream with realistic execution pacing
+      const allLogs = result.logs || [];
+      if (allLogs.length === 0) {
+        setIsStreamingActive(false);
+        setActiveStep('done');
+      } else {
+        let index = 0;
+        const streamInterval = 65; // Paced CLI stream
+        if (streamingTimerRef.current) clearInterval(streamingTimerRef.current);
+        streamingTimerRef.current = setInterval(() => {
+          if (index < allLogs.length) {
+            const nextLog = allLogs[index];
+            setStreamedLogs((prev) => [...prev, nextLog]);
+            setCurrentStreamIndex(index + 1);
+            index++;
+          } else {
+            if (streamingTimerRef.current) clearInterval(streamingTimerRef.current);
+            streamingTimerRef.current = null;
+            setIsStreamingActive(false);
+            setActiveStep('done');
+          }
+        }, streamInterval);
+      }
+
+      // Audit Log template application in client logger
       try {
         logDeviceCommand({
           deviceId: selectedDevice.id,
@@ -787,7 +864,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
           riskLevel: 'medium',
           status: 'success',
           outputSummary: result.message,
-          notes: `اعمال موفقیت‌آمیز قالب «${currentTemplate.name}»`,
+          notes: `اعمال موفقیت‌آمیز قالب «${currentTemplate.name}» (Audit ID: ${result.audit_id || 'audit-db'})`,
         });
       } catch (logErr) {
         console.warn('Failed to audit template execution:', logErr);
@@ -797,12 +874,47 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
         onApplied(result.device);
       }
     } catch (err: any) {
+      if (streamingTimerRef.current) clearInterval(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+      setIsStreamingActive(false);
       setApplyError(err.message || (isEn ? 'Error applying template to device.' : 'خطا در اعمال تمپلیت روی تجهیز'));
       setActiveStep('preview');
     } finally {
       setIsApplying(false);
     }
   };
+
+  // Instant fast-forward stream skip animation
+  const handleFastForwardStream = () => {
+    if (streamingTimerRef.current) {
+      clearInterval(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+    }
+    if (applyResult?.logs) {
+      setStreamedLogs(applyResult.logs);
+      setCurrentStreamIndex(applyResult.logs.length);
+      setIsStreamingActive(false);
+      setActiveStep('done');
+    }
+  };
+
+  // Copy complete terminal output
+  const handleCopyTerminalLogs = () => {
+    const logsToFormat = streamedLogs.length > 0 ? streamedLogs : (applyResult?.logs || []);
+    const formatted = logsToFormat
+      .map((l) => `[${l.timestamp}] [${l.status.toUpperCase()}] ${l.prompt} ${l.command}${l.output ? '\n' + l.output : ''}`)
+      .join('\n');
+    navigator.clipboard.writeText(formatted);
+    setCopiedTerminalLogs(true);
+    setTimeout(() => setCopiedTerminalLogs(false), 2000);
+  };
+
+  // Auto-scroll effect
+  useEffect(() => {
+    if (autoScroll && terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [streamedLogs.length, autoScroll]);
 
   // Group discovered variables by category
   const categorizedVariables = useMemo(() => {
@@ -2247,107 +2359,432 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
             </div>
           )}
 
-          {/* STEP 3: Live Terminal Execution Stream */}
-          {(activeStep === 'executing' || activeStep === 'done') && (
-            <div className="space-y-4 animate-fadeIn">
-              {/* Execution Status Header */}
-              <div
-                className={`p-4 rounded-xl border flex items-center justify-between transition ${
-                  activeStep === 'done'
-                    ? isLightMode
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
-                      : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
-                    : isLightMode
-                    ? 'bg-indigo-50 border-indigo-300 text-indigo-950'
-                    : 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  {activeStep === 'executing' ? (
-                    <RefreshCw className="w-5 h-5 text-cyan-600 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+          {/* STEP 4: Live Terminal Execution Stream & Database Sync */}
+          {(activeStep === 'executing' || activeStep === 'done') && (() => {
+            const activeLogList = streamedLogs.length > 0 ? streamedLogs : (applyResult?.logs || []);
+            const totalLogsCount = applyResult?.logs?.length || activeLogList.length || 0;
+            const progressPercent = totalLogsCount > 0 ? Math.min(100, Math.round((currentStreamIndex / totalLogsCount) * 100)) : 100;
+            
+            const okLogsCount = activeLogList.filter((l) => l.status === 'ok').length;
+            const warnLogsCount = activeLogList.filter((l) => l.status === 'warn').length;
+            const errorLogsCount = activeLogList.filter((l) => l.status === 'error').length;
+
+            const filteredLogs = activeLogList.filter((l) => {
+              if (logFilter === 'errors') return l.status === 'error';
+              if (logFilter === 'warns') return l.status === 'warn';
+              return true;
+            });
+
+            const currentExecutingCommand = isStreamingActive && applyResult?.logs && currentStreamIndex > 0
+              ? applyResult.logs[currentStreamIndex - 1]?.command
+              : '';
+
+            return (
+              <div className="space-y-4 animate-fadeIn">
+                {/* Execution Status Header with Live Progress */}
+                <div
+                  className={`p-4 rounded-xl border transition ${
+                    activeStep === 'done'
+                      ? isLightMode
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                        : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                      : isLightMode
+                      ? 'bg-indigo-50 border-indigo-300 text-indigo-950'
+                      : 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {isStreamingActive ? (
+                        <RefreshCw className="w-5 h-5 text-cyan-600 animate-spin flex-shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                      )}
+                      <div>
+                        <h4 className={`font-bold text-sm ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                          {isStreamingActive
+                            ? t('apply_executing_title')
+                            : t('apply_success_title')}
+                        </h4>
+                        <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
+                          {isEn ? 'Target Device: ' : 'تجهیز هدف: '}
+                          <span className={`font-mono font-bold ${isLightMode ? 'text-slate-950' : 'text-white'}`}>
+                            {selectedDevice?.name}
+                          </span>
+                          {' '}| {isEn ? 'IP Address: ' : 'آدرس آی‌پی: '}
+                          <span className={`font-mono font-bold ${isLightMode ? 'text-indigo-700' : 'text-cyan-300'}`}>
+                            {selectedDevice?.ip}
+                          </span>
+                          {' '}| {isEn ? 'Architecture: ' : 'معماری: '}
+                          <span className="font-semibold uppercase">{currentTemplate?.vendor}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isStreamingActive && (
+                        <button
+                          type="button"
+                          onClick={handleFastForwardStream}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                            isLightMode
+                              ? 'bg-white hover:bg-slate-100 text-indigo-700 border-indigo-300 shadow-xs'
+                              : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-500/40'
+                          }`}
+                          title={isEn ? 'Skip line-by-line animation and show all commands' : 'رد کردن انیمیشن خط به خط و نمایش سریع همه دستورات'}
+                        >
+                          <FastForward className="w-3.5 h-3.5" />
+                          <span>{t('apply_stream_fast_forward')}</span>
+                        </button>
+                      )}
+
+                      {activeStep === 'done' && (
+                        <span className={`px-3 py-1 rounded-lg border text-xs font-bold ${
+                          isLightMode
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        }`}>
+                          {t('apply_stream_nvram_verified')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Progressive Execution Progress Bar */}
+                  {isStreamingActive && (
+                    <div className="mt-3.5 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-mono">
+                        <span className={isLightMode ? 'text-slate-700' : 'text-slate-300'}>
+                          {t('apply_stream_executing_line')
+                            .replace('{current}', String(currentStreamIndex))
+                            .replace('{total}', String(totalLogsCount))
+                            .replace('{percent}', String(progressPercent))}
+                        </span>
+                        {currentExecutingCommand && (
+                          <span className={`truncate max-w-md ${isLightMode ? 'text-indigo-600' : 'text-cyan-400 font-bold'}`}>
+                            {currentExecutingCommand}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`w-full h-2 rounded-full overflow-hidden ${
+                        isLightMode ? 'bg-slate-200' : 'bg-slate-800'
+                      }`}>
+                        <div
+                          className="h-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-500 transition-all duration-100 ease-out"
+                          style={{ width: `${progressPercent}%` }}
+                        />
+                      </div>
+                    </div>
                   )}
-                  <div>
-                    <h4 className={`font-bold text-sm ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                      {activeStep === 'executing'
-                        ? t('apply_executing_title')
-                        : t('apply_success_title')}
-                    </h4>
-                    <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
-                      {isEn ? 'Device: ' : 'تجهیز: '}<span className={`font-mono font-bold ${isLightMode ? 'text-slate-950' : 'text-white'}`}>{selectedDevice?.name}</span> | {isEn ? 'New IP: ' : 'آی‌پی جدید: '}{' '}
-                      <span className={`font-mono font-bold ${isLightMode ? 'text-indigo-700' : 'text-cyan-300'}`}>{selectedDevice?.ip}</span> | {isEn ? 'Status: Synced with DB' : 'وضعیت: پایدار در دیتابیس'}
-                    </p>
+
+                  {/* Completion Statistics Bar */}
+                  {activeStep === 'done' && (
+                    <div className={`mt-3 pt-3 border-t text-xs flex flex-wrap items-center justify-between gap-2 ${
+                      isLightMode ? 'border-emerald-200 text-emerald-900' : 'border-emerald-500/30 text-emerald-200'
+                    }`}>
+                      <span>
+                        {t('apply_stream_execution_stats')
+                          .replace('{total}', String(totalLogsCount))
+                          .replace('{success}', String(okLogsCount))
+                          .replace('{warn}', String(warnLogsCount))
+                          .replace('{errors}', String(errorLogsCount))}
+                      </span>
+                      <span className="font-mono text-[11px] opacity-80">
+                        {isEn ? 'Execution finished at: ' : 'اتمام اجرا در زمان: '}
+                        {new Date().toLocaleTimeString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Database Sync and Audit Log Confirmation Cards */}
+                {activeStep === 'done' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Database Sync Status Card */}
+                    <div className={`p-3.5 rounded-xl border flex items-start gap-3 transition ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-800'
+                        : 'bg-white/5 border-white/10 text-slate-200'
+                    }`}>
+                      <div className="p-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 mt-0.5">
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-bold text-xs">{isEn ? 'Database Record Synchronized' : 'همگام‌سازی دیتابیس تجهیز'}</h5>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            {isEn ? 'SYNCED' : 'همگام شد'}
+                          </span>
+                        </div>
+                        <p className={`text-[11px] mt-1 font-mono ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {applyResult?.synced_fields && applyResult.synced_fields.length > 0
+                            ? t('apply_stream_db_synced').replace('{fields}', applyResult.synced_fields.join(', '))
+                            : (isEn ? 'All device identity parameters synced in primary store.' : 'کلیه مشخصات هویتی تجهیز در دیتابیس اصلی ذخیره شد.')}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-slate-400">
+                          <span>{isEn ? 'Name: ' : 'نام: '}<strong>{selectedDevice?.name}</strong></span>
+                          <span>•</span>
+                          <span>{isEn ? 'IP: ' : 'آی‌پی: '}<strong>{selectedDevice?.ip}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Server-Side PostgreSQL Audit Log Card */}
+                    <div className={`p-3.5 rounded-xl border flex items-start gap-3 transition ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-200 text-slate-800'
+                        : 'bg-white/5 border-white/10 text-slate-200'
+                    }`}>
+                      <div className="p-2 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 mt-0.5">
+                        <ScrollText className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-bold text-xs">{isEn ? 'PostgreSQL Security Audit Log' : 'ثبت لاگ ممیزی امنیتی سرور'}</h5>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                            {isEn ? 'AUDITED' : 'ثبت شد'}
+                          </span>
+                        </div>
+                        <p className={`text-[11px] mt-1 font-mono ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                          {t('apply_stream_audit_logged').replace('{id}', applyResult?.audit_id || 'audit-srv')}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-slate-400">
+                          <span>{isEn ? 'Operator: ' : 'کاربر: '}<strong>{effectivePolicy?.name || 'Super Admin'}</strong></span>
+                          <span>•</span>
+                          <span>{isEn ? 'Action: ' : 'عملیات: '}<strong>apply_config_template</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Virtual Terminal Console Controls Bar */}
+                <div className={`flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border text-xs ${
+                  isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-800'
+                }`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                      {isEn ? 'Console Filter:' : 'فیلتر خطوط:'}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setLogFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                        logFilter === 'all'
+                          ? isLightMode
+                            ? 'bg-white text-indigo-700 font-bold shadow-xs border border-indigo-300'
+                            : 'bg-indigo-600/30 text-cyan-300 border border-cyan-500/40'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {t('apply_stream_filter_all').replace('{count}', String(activeLogList.length))}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLogFilter('errors')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                        logFilter === 'errors'
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {t('apply_stream_filter_errors').replace('{count}', String(errorLogsCount))}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLogFilter('warns')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
+                        logFilter === 'warns'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
+                          : isLightMode
+                          ? 'text-slate-600 hover:text-slate-900'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {t('apply_stream_filter_warns').replace('{count}', String(warnLogsCount))}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Auto-scroll toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setAutoScroll((prev) => !prev)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition cursor-pointer ${
+                        autoScroll
+                          ? isLightMode
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                          : isLightMode
+                          ? 'bg-white text-slate-500 border-slate-300'
+                          : 'bg-white/5 text-slate-400 border-white/10'
+                      }`}
+                    >
+                      <span>{t('apply_stream_auto_scroll')}:</span>
+                      <strong className="font-bold">{autoScroll ? 'ON' : 'OFF'}</strong>
+                    </button>
+
+                    {/* Copy Terminal Logs Button */}
+                    <button
+                      type="button"
+                      onClick={handleCopyTerminalLogs}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium border transition cursor-pointer ${
+                        copiedTerminalLogs
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : isLightMode
+                          ? 'bg-white hover:bg-slate-200 text-slate-700 border-slate-300'
+                          : 'bg-white/10 hover:bg-white/15 text-slate-200 border-white/10'
+                      }`}
+                    >
+                      {copiedTerminalLogs ? (
+                        <>
+                          <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{t('apply_stream_copied')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>{t('apply_stream_copy_logs')}</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
 
-                {activeStep === 'done' && (
-                  <span className={`px-3 py-1 rounded-lg border text-xs font-bold ${
-                    isLightMode
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                  }`}>
-                    Running & Startup Synced
-                  </span>
-                )}
-              </div>
+                {/* Virtual Terminal Console Stream Output */}
+                <div className={`border rounded-xl p-4 font-mono text-xs max-h-96 overflow-y-auto dir-ltr text-left space-y-2 shadow-inner select-text ${
+                  isLightMode
+                    ? 'bg-slate-900 border-slate-700 text-slate-200'
+                    : 'bg-slate-950 border-white/15 text-slate-300'
+                }`}>
+                  {filteredLogs.map((log: TemplateExecutionLog, idx: number) => {
+                    const statusBadgeClass =
+                      log.status === 'ok'
+                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                        : log.status === 'warn'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : log.status === 'error'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                        : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
 
-              {/* Streaming Terminal Log Output */}
-              <div className={`border rounded-xl p-4 font-mono text-xs max-h-96 overflow-y-auto dir-ltr text-left space-y-1.5 shadow-inner ${
-                isLightMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-slate-950 border-white/15 text-slate-300'
-              }`}>
-                {applyResult?.logs.map((log: TemplateExecutionLog, idx: number) => (
-                  <div key={idx} className="leading-snug">
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-500 select-none text-[10px] font-mono">[{log.timestamp}]</span>
-                      <span className="text-cyan-400 font-bold select-none">{log.prompt}</span>
-                      <span className="text-white font-medium">{log.command}</span>
+                    const statusBadgeLabel =
+                      log.status === 'ok'
+                        ? t('apply_stream_badge_success')
+                        : log.status === 'warn'
+                        ? t('apply_stream_badge_warning')
+                        : log.status === 'error'
+                        ? t('apply_stream_badge_error')
+                        : t('apply_stream_badge_info');
+
+                    return (
+                      <div key={idx} className="leading-snug transition-all">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-slate-500 select-none text-[10px] font-mono">
+                            [{log.timestamp}]
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border select-none ${statusBadgeClass}`}>
+                            {statusBadgeLabel}
+                          </span>
+                          <span className="text-cyan-400 font-bold select-none">
+                            {log.prompt}
+                          </span>
+                          <span className="text-white font-medium">
+                            {log.command}
+                          </span>
+                        </div>
+                        {log.output && (
+                          <div
+                            className={`pl-4 mt-1 select-text whitespace-pre-wrap ${
+                              log.status === 'error'
+                                ? 'text-rose-400'
+                                : log.status === 'warn'
+                                ? 'text-amber-400'
+                                : 'text-emerald-400/90'
+                            }`}
+                          >
+                            {log.output}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Active cursor pulse when streaming is in flight */}
+                  {isStreamingActive && (
+                    <div className="flex items-center gap-2 pt-1 text-cyan-400">
+                      <span className="text-[10px] text-slate-500">[{new Date().toLocaleTimeString()}]</span>
+                      <span className="text-cyan-400 font-bold">
+                        {selectedDevice?.model?.toLowerCase().includes('mikrotik') ? `[admin@${selectedDevice?.name}] >` : `${selectedDevice?.name}#`}
+                      </span>
+                      <span className="inline-block w-2.5 h-4 bg-cyan-400 animate-pulse" />
                     </div>
-                    {log.output && (
-                      <div
-                        className={`pl-4 select-text whitespace-pre-wrap ${
-                          log.status === 'error'
-                            ? 'text-rose-400'
-                            : log.status === 'warn'
-                            ? 'text-amber-400'
-                            : 'text-emerald-400/90'
+                  )}
+
+                  <div ref={terminalEndRef} />
+                </div>
+
+                {/* Done Modal Actions */}
+                {activeStep === 'done' && (
+                  <div className={`flex items-center justify-between pt-4 border-t ${
+                    isLightMode ? 'border-slate-200' : 'border-white/10'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleDownloadScript}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                          isLightMode
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                            : 'bg-white/10 hover:bg-white/15 text-slate-200'
                         }`}
                       >
-                        {log.output}
-                      </div>
-                    )}
+                        <Download className="w-4 h-4" />
+                        <span>{t('apply_download_backup')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCopyTerminalLogs}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                          copiedTerminalLogs
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : isLightMode
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                            : 'bg-white/10 hover:bg-white/15 text-slate-200'
+                        }`}
+                      >
+                        {copiedTerminalLogs ? (
+                          <>
+                            <CheckCheck className="w-4 h-4 text-emerald-400" />
+                            <span>{t('apply_stream_copied')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4" />
+                            <span>{t('apply_stream_copy_logs')}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleClose}
+                      className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
+                    >
+                      <span>{t('apply_btn_finish')}</span>
+                    </button>
                   </div>
-                ))}
+                )}
               </div>
-
-              {/* Done Modal Actions */}
-              {activeStep === 'done' && (
-                <div className={`flex items-center justify-between pt-4 border-t ${
-                  isLightMode ? 'border-slate-200' : 'border-white/10'
-                }`}>
-                  <button
-                    onClick={handleDownloadScript}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
-                      isLightMode
-                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
-                        : 'bg-white/10 hover:bg-white/15 text-slate-200'
-                    }`}
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>{t('apply_download_backup')}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
-                  >
-                    <span>{t('apply_btn_finish')}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </div>,

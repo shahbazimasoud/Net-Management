@@ -439,6 +439,9 @@ export interface TemplateApplyResult {
   device: Device;
   rendered_script: string;
   logs: TemplateExecutionLog[];
+  synced_fields?: string[];
+  audit_id?: string;
+  audit_timestamp?: string;
 }
 
 export interface DeviceConfigExtractOptions {
