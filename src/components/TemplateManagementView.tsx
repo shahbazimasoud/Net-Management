@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileCode2,
   Plus,
@@ -23,26 +23,23 @@ import {
   AlertCircle,
   CopyPlus,
   DownloadCloud,
-  Download,
-  Upload,
   Lock
 } from 'lucide-react';
 import { ConfigTemplate, Device, AccessPolicy } from '../types';
-import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate, exportTemplatesPackage, importTemplatesPackage } from '../services/api';
+import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate } from '../services/api';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import { ApplyTemplateModal } from './ApplyTemplateModal';
 import { CloneTemplateModal } from './CloneTemplateModal';
 import { CaptureConfigModal } from './CaptureConfigModal';
 import { useLanguage } from '../i18n';
 import { useModalDock } from '../context/ModalDockContext';
-import { isDeviceActionPermitted, isTemplateExportPermitted, isTemplateImportPermitted } from '../utils/rbac';
+import { isDeviceActionPermitted } from '../utils/rbac';
 
 interface TemplateManagementViewProps {
   devices: Device[];
   effectivePolicy?: AccessPolicy | null;
   onDeviceUpdated?: (device: Device) => void;
   onOpenTerminal?: (device: Device) => void;
-  isLightMode?: boolean;
 }
 
 export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
@@ -50,17 +47,9 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
   effectivePolicy,
   onDeviceUpdated,
   onOpenTerminal,
-  isLightMode,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // RBAC Permission checks for template operations
-  const isSuperAdmin = effectivePolicy?.name === 'Super Admin' || effectivePolicy?.priority === 0 || (effectivePolicy as any)?.isSuperAdmin;
-  const canExport = isTemplateExportPermitted(effectivePolicy, isSuperAdmin);
-  const canImport = isTemplateImportPermitted(effectivePolicy, isSuperAdmin);
-
   const [templates, setTemplates] = useState<ConfigTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -213,84 +202,6 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Export templates package handler guarded by RBAC
-  const handleExportTemplates = async () => {
-    if (!canExport) {
-      alert(isEn
-        ? 'Access Denied: Your account policy prohibits exporting configuration templates (canExportTemplates=false).'
-        : 'عدم دسترسی: حساب کاربری شما فاقد مجوز برون‌بری و استخراج الگوهای کانفیگ است (canExportTemplates=false).');
-      return;
-    }
-    try {
-      const data = await exportTemplatesPackage();
-      const blob = new Blob([JSON.stringify(data.templates, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `config_templates_package_${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast(isEn ? `Successfully exported ${data.total} configuration templates.` : `تعداد ${data.total} الگوی کانفیگ با موفقیت برون‌بری شد.`);
-    } catch (err: any) {
-      alert(err.message || (isEn ? 'Failed to export templates' : 'خطا در برون‌بری الگوها'));
-    }
-  };
-
-  // Import templates package handler guarded by RBAC
-  const handleImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!canImport) {
-      alert(isEn
-        ? 'Access Denied: Your account policy prohibits importing configuration templates (canImportTemplates=false).'
-        : 'عدم دسترسی: حساب کاربری شما فاقد مجوز بارگذاری و درون‌ریزی الگوهای کانفیگ است (canImportTemplates=false).');
-      return;
-    }
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      let parsed = JSON.parse(text);
-      if (parsed.templates && Array.isArray(parsed.templates)) {
-        parsed = parsed.templates;
-      }
-      if (!Array.isArray(parsed)) {
-        throw new Error(isEn ? 'Invalid format. File must contain an array of templates.' : 'فرمت نامعتبر است. فایل باید شامل آرایه‌ای از الگوها باشد.');
-      }
-      const res = await importTemplatesPackage(parsed);
-      showToast(isEn ? `Successfully imported ${res.importedCount} templates.` : `تعداد ${res.importedCount} الگو با موفقیت به کتابخانه افزوده شد.`);
-      await loadTemplates();
-    } catch (err: any) {
-      alert(err.message || (isEn ? 'Failed to import templates' : 'خطا در درون‌ریزی الگوها'));
-    } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  // Minimize clone modal to ToolsDock
-  const handleMinimizeClone = () => {
-    const tmplName = cloneSourceTemplate?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
-    dockModal({
-      id: 'clone-template-modal',
-      labelEn: `Clone (${tmplName})`,
-      labelFa: `کلون (${tmplName})`,
-      badge: cloneSourceTemplate?.vendor === 'mikrotik' ? 'MikroTik' : cloneSourceTemplate?.vendor === 'cisco' ? 'Cisco' : 'Clone',
-      category: 'config',
-      onRestore: () => {
-        setCloneModalOpen(true);
-      },
-      onClose: () => {
-        undockModal('clone-template-modal');
-        setCloneModalOpen(false);
-        setCloneSourceTemplate(null);
-      },
-    });
-    setCloneModalOpen(false);
-  };
-
   // Minimize apply modal to ToolsDock
   const handleMinimizeApply = () => {
     const tmpl = templates.find((t) => t.id === applyTargetTemplateId);
@@ -314,7 +225,6 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 
   // Open apply modal for template with smart vendor matching & RBAC permission verification
   const handleOpenApply = (templateId: string) => {
-    undockModal('apply-template-modal');
     setApplyTargetTemplateId(templateId);
     const targetTmpl = templates.find((t) => t.id === templateId);
     let matchedDevice: Device | null = null;
@@ -357,7 +267,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     <div className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto ${isRtl ? 'text-right' : 'text-left'} text-slate-100 animate-fadeIn`}>
       {/* Toast Notification */}
       {toastMessage && (
-        <div className={`fixed top-6 ${isRtl ? 'left-6' : 'right-6'} z-[1000005] flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs shadow-[0_0_25px_rgba(16,185,129,0.3)] animate-fadeIn`}>
+        <div className={`fixed bottom-6 ${isRtl ? 'left-6' : 'right-6'} z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs shadow-[0_0_25px_rgba(16,185,129,0.3)] animate-fadeIn`}>
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>
@@ -384,15 +294,15 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           </div>
         </div>
 
-        {/* Top Action Buttons - Compact side-by-side layout */}
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+        {/* Top Action Buttons - Unified size with DeviceListView: px-3.5 py-1.5 rounded-xl text-xs font-medium gap-1.5 */}
+        <div className="flex items-center flex-wrap gap-2">
           {/* Extract Live Config Button */}
           <button
             onClick={() => setCaptureModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-medium shadow-xs transition active:scale-95 border border-emerald-400/30 cursor-pointer whitespace-nowrap shrink-0"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(16,185,129,0.3)] transition active:scale-95 border border-emerald-400/30 cursor-pointer"
             title={t('templates_btn_extract_live_title')}
           >
-            <DownloadCloud className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
+            <DownloadCloud className="w-3.5 h-3.5 text-emerald-200" />
             <span>{t('templates_btn_extract_live')}</span>
           </button>
 
@@ -402,9 +312,9 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
               setTemplateToEdit(null);
               setEditorOpen(true);
             }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-[11px] font-medium shadow-xs transition border border-white/10 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <Plus className="w-3.5 h-3.5" />
             <span>{t('templates_btn_create_new')}</span>
           </button>
 
@@ -412,63 +322,19 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           {templates.length > 0 && (
             <button
               onClick={() => handleOpenClone(templates[0])}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-medium shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-medium shadow-xs transition active:scale-95 cursor-pointer"
               title={t('templates_btn_clone_top_title')}
             >
-              <CopyPlus className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <CopyPlus className="w-3.5 h-3.5 text-cyan-400" />
               <span>{t('templates_btn_clone_top')}</span>
             </button>
           )}
-
-          {/* Export Templates Button */}
-          <button
-            onClick={handleExportTemplates}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
-              canExport
-                ? 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border-purple-500/30'
-                : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
-            }`}
-            title={canExport ? (isEn ? 'Export All Config Templates as JSON Package' : 'برون‌بری کلیه الگوهای کانفیگ به صورت بسته JSON') : (isEn ? 'Access Denied: Export Templates prohibited by RBAC' : 'عدم دسترسی: برون‌بری الگوها در سطوح دسترسی غیرفعال است')}
-          >
-            <Download className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-            <span>{isEn ? 'Export' : 'برون‌بری'}</span>
-          </button>
-
-          {/* Import Templates Button */}
-          <button
-            onClick={() => {
-              if (!canImport) {
-                alert(isEn
-                  ? 'Access Denied: Your account policy prohibits importing configuration templates (canImportTemplates=false).'
-                  : 'عدم دسترسی: حساب کاربری شما فاقد مجوز بارگذاری و درون‌ریزی الگوهای کانفیگ است (canImportTemplates=false).');
-                return;
-              }
-              fileInputRef.current?.click();
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
-              canImport
-                ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
-                : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
-            }`}
-            title={canImport ? (isEn ? 'Import Config Templates from JSON Package' : 'درون‌ریزی و بارگذاری الگوهای کانفیگ از فایل JSON') : (isEn ? 'Access Denied: Import Templates prohibited by RBAC' : 'عدم دسترسی: درون‌ریزی الگوها در سطوح دسترسی غیرفعال است')}
-          >
-            <Upload className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span>{isEn ? 'Import' : 'درون‌ریزی'}</span>
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            onChange={handleImportFileChange}
-            className="hidden"
-          />
 
           {/* Refresh List Button */}
           <button
             onClick={loadTemplates}
             title={t('action_refresh')}
-            className="flex items-center justify-center p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition cursor-pointer shrink-0"
+            className="flex items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
@@ -766,7 +632,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                 </div>
 
                 {/* Card Footer Actions */}
-                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between relative z-20">
+                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
                   <span className="text-[11px] text-slate-400 font-mono">
                     {commandLines.length} {isEn ? 'CLI lines' : 'خط دستور CLI'}
                   </span>
@@ -777,22 +643,54 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                         effectivePolicy?.id === 'policy-super-admin' ||
                         (effectivePolicy?.targetScope === 'all' && (effectivePolicy?.priority || 0) >= 100);
 
-                       const isGlobalApplyPermitted =
+                      const isGlobalApplyPermitted =
                         !effectivePolicy ||
                         isSuperAdmin ||
                         effectivePolicy.canApplyTemplates !== false;
 
-                      if (isGlobalApplyPermitted) {
+                      const isDevCisco = (d: Device) =>
+                        (d.model || '').toLowerCase().includes('cisco') ||
+                        (d.model || '').toLowerCase().includes('catalyst') ||
+                        (d.platform || '').toLowerCase().includes('cisco');
+
+                      const isDevMikroTik = (d: Device) =>
+                        (d.model || '').toLowerCase().includes('mikrotik') ||
+                        (d.model || '').toLowerCase().includes('routerboard') ||
+                        (d.platform || '').toLowerCase().includes('mikrotik');
+
+                      const compatibleDevices = devices.filter((d) => {
+                        if (tmpl.vendor === 'cisco') return isDevCisco(d);
+                        if (tmpl.vendor === 'mikrotik') return isDevMikroTik(d);
+                        return true;
+                      });
+
+                      const permittedCompatibleDevices = compatibleDevices.filter(
+                        (d) => !effectivePolicy || isDeviceActionPermitted(effectivePolicy, d.id, 'apply_template')
+                      );
+
+                      const canApply = isGlobalApplyPermitted && permittedCompatibleDevices.length > 0;
+
+                      let disabledReason = '';
+                      if (!isGlobalApplyPermitted) {
+                        disabledReason = isEn
+                          ? 'Access Denied (RBAC): Template push is restricted by your role policy (canApplyTemplates=false).'
+                          : 'دسترسی محدود شده (RBAC): اعمال تمپلیت طبق پالیسی دسترسی شما غیرفعال است (canApplyTemplates=false).';
+                      } else if (compatibleDevices.length === 0) {
+                        disabledReason = isEn
+                          ? `No compatible ${tmpl.vendor === 'cisco' ? 'Cisco' : tmpl.vendor === 'mikrotik' ? 'MikroTik' : ''} devices found in inventory.`
+                          : `هیچ تجهیز سازگاری با خانواده ${tmpl.vendor === 'cisco' ? 'سیسکو' : tmpl.vendor === 'mikrotik' ? 'میکروتیک' : ''} در لیست موجود نیست.`;
+                      } else if (permittedCompatibleDevices.length === 0) {
+                        disabledReason = isEn
+                          ? 'Access Denied (RBAC): You do not have permission (apply_template) on compatible devices.'
+                          : 'دسترسی غیرمجاز (RBAC): شما فاقد مجوز اعمال تمپلیت (apply_template) بر روی تجهیزات سازگار با این الگو هستید.';
+                      }
+
+                      if (canApply) {
                         return (
                           <button
                             type="button"
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleOpenApply(tmpl.id);
-                            }}
-                            className="relative z-20 flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer pointer-events-auto"
+                            onClick={() => handleOpenApply(tmpl.id)}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
                             title={isEn ? 'Apply configuration template to target device' : 'اعمال این الگوی پیکربندی بر روی تجهیز شبکه'}
                           >
                             <Play className="w-3.5 h-3.5 fill-white" />
@@ -801,16 +699,10 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                         );
                       }
 
-                      const disabledReason = isEn
-                        ? 'Access Denied (RBAC): Template push is restricted by your role policy (canApplyTemplates=false).'
-                        : 'دسترسی محدود شده (RBAC): اعمال تمپلیت طبق پالیسی دسترسی شما غیرفعال است (canApplyTemplates=false).';
-
                       return (
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
+                          onClick={() => {
                             showToast(disabledReason);
                           }}
                           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition bg-slate-800/80 border border-amber-500/30 text-slate-400 opacity-60 cursor-not-allowed hover:bg-slate-800"
@@ -842,11 +734,9 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
       <CloneTemplateModal
         isOpen={cloneModalOpen}
         onClose={() => {
-          undockModal('clone-template-modal');
           setCloneModalOpen(false);
           setCloneSourceTemplate(null);
         }}
-        onMinimize={handleMinimizeClone}
         sourceTemplate={cloneSourceTemplate}
         onSaveClone={handleSaveClone}
         onCloneAndApply={handleCloneAndApply}
@@ -854,13 +744,10 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 
       {/* Apply Template Modal */}
       <ApplyTemplateModal
-        key={applyModalOpen ? `apply-${applyTargetTemplateId || 'default'}` : 'apply-closed'}
         isOpen={applyModalOpen}
         onClose={() => {
           undockModal('apply-template-modal');
           setApplyModalOpen(false);
-          setApplyTargetTemplateId(undefined);
-          setApplyTargetDevice(null);
         }}
         onMinimize={handleMinimizeApply}
         targetDevice={applyTargetDevice}
@@ -868,7 +755,6 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
         effectivePolicy={effectivePolicy}
         templates={templates}
         preselectedTemplateId={applyTargetTemplateId}
-        isLightMode={isLightMode}
         onApplied={(updatedDevice) => {
           showToast(isEn ? `Template applied successfully to "${updatedDevice.name}".` : `تمپلیت با موفقیت روی «${updatedDevice.name}» اعمال شد.`);
           if (onDeviceUpdated) onDeviceUpdated(updatedDevice);

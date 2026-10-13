@@ -21,14 +21,10 @@ import {
   Copy,
   CheckCircle2,
   Key,
-  KeyRound,
-  EyeOff,
   Network,
   Trash2,
   Plus
 } from 'lucide-react';
-import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
-import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import {
   Device,
   ConfigTemplate,
@@ -74,10 +70,6 @@ export const CaptureConfigModal: React.FC<CaptureConfigModalProps> = ({
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [enablePassword, setEnablePassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showEnablePassword, setShowEnablePassword] = useState(false);
-  const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
-  const [vaultPickerTarget, setVaultPickerTarget] = useState<'password' | 'enable'>('password');
 
   // Smart options
   const [autoParameterize, setAutoParameterize] = useState(true);
@@ -488,32 +480,6 @@ export const CaptureConfigModal: React.FC<CaptureConfigModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2 pb-1 border-t border-white/5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-                    <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>{isEn ? 'Device Authentication Credentials' : 'مشخصات احراز هویت تجهیز'}</span>
-                    <FieldInfoTooltip
-                      title={isEn ? 'Device Authentication & Password Vault' : 'احراز هویت و والت پسورد'}
-                      whatIsIt={isEn ? 'Login credentials used to connect to the physical/virtual network device to extract its running configuration.' : 'نام کاربری و رمز عبوری که جهت لاگین و اتصال SSH/Telnet به تجهیز زنده برای استخراج کانفیگ استفاده می‌شود.'}
-                      whyNeeded={isEn ? 'Required to authenticate privileged session on device. Use Password Vault for 1-click secure fill.' : 'جهت برقراری سشن امن و خواندن کانفیگ ضروری است. می‌توانید مستقیماً از والت رمز عبور استفاده کنید.'}
-                      practicalExample={isEn ? 'Select admin / secret from Password Vault' : 'انتخاب مستقیم نام کاربری و رمز از والت رمز عبور'}
-                      isLightMode={false}
-                      isEn={isEn}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setVaultPickerTarget('password');
-                      setIsVaultPickerOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-semibold transition active:scale-95 cursor-pointer shadow-xs"
-                  >
-                    <KeyRound className="w-3 h-3 text-cyan-400" />
-                    <span>{isEn ? 'Pick from Password Vault...' : 'انتخاب از والت پسورد...'}</span>
-                  </button>
-                </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
                   <div>
                     <label className="block text-[11px] text-slate-400 mb-1">
@@ -532,62 +498,28 @@ export const CaptureConfigModal: React.FC<CaptureConfigModalProps> = ({
                     <label className="block text-[11px] text-slate-400 mb-1">
                       {isEn ? 'Password:' : 'رمز عبور (Password):'}
                     </label>
-                    <div className="relative">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2 pr-9 text-xs text-white font-mono focus:outline-none focus:border-cyan-500 text-left ltr shadow-inner"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition cursor-pointer"
-                        title={showPassword ? (isEn ? 'Hide Password' : 'مخفی‌سازی رمز') : (isEn ? 'Show Password' : 'نمایش رمز')}
-                      >
-                        {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-500 text-left ltr shadow-inner"
+                    />
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] text-slate-400">
-                        {isEn 
-                          ? (vendor === 'cisco' ? 'Enable / Secret Password:' : 'Enable Password (Optional):') 
-                          : `رمز Enable / Secret ${vendor === 'cisco' ? '(سیسکو)' : '(اختیاری)'}:`}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVaultPickerTarget('enable');
-                          setIsVaultPickerOpen(true);
-                        }}
-                        className="text-[10px] text-cyan-400 hover:underline flex items-center gap-0.5"
-                        title={isEn ? 'Pick Enable Secret from Vault' : 'انتخاب رمز Enable از والت'}
-                      >
-                        <KeyRound className="w-2.5 h-2.5" />
-                        <span>{isEn ? 'Vault' : 'والت'}</span>
-                      </button>
-                    </div>
-                    <div className="relative">
-                      <input
-                        type={showEnablePassword ? 'text' : 'password'}
-                        value={enablePassword}
-                        onChange={(e) => setEnablePassword(e.target.value)}
-                        placeholder={isEn ? 'Password for # privileged' : 'رمز ورود به # privileged'}
-                        className="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2 pr-9 text-xs text-white font-mono focus:outline-none focus:border-cyan-500 text-left ltr shadow-inner"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowEnablePassword(!showEnablePassword)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition cursor-pointer"
-                        title={showEnablePassword ? (isEn ? 'Hide Password' : 'مخفی‌سازی رمز') : (isEn ? 'Show Password' : 'نمایش رمز')}
-                      >
-                        {showEnablePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      {isEn 
+                        ? (vendor === 'cisco' ? 'Enable / Secret Password:' : 'Enable Password (Optional):') 
+                        : `رمز Enable / Secret ${vendor === 'cisco' ? '(سیسکو)' : '(اختیاری)'}:`}
+                    </label>
+                    <input
+                      type="password"
+                      value={enablePassword}
+                      onChange={(e) => setEnablePassword(e.target.value)}
+                      placeholder={isEn ? 'Password for # privileged' : 'رمز ورود به # privileged'}
+                      className="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-500 text-left ltr shadow-inner"
+                    />
                   </div>
                 </div>
               </div>
@@ -1082,27 +1014,6 @@ export const CaptureConfigModal: React.FC<CaptureConfigModalProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Select Password from Vault Modal */}
-      <VaultPasswordPickerModal
-        isOpen={isVaultPickerOpen}
-        onClose={() => setIsVaultPickerOpen(false)}
-        targetHost={ip.trim()}
-        isLightMode={false}
-        isEn={isEn}
-        zIndex={999995}
-        onSelectPassword={(pickedPassword, pickedUsername) => {
-          if (vaultPickerTarget === 'password') {
-            setPassword(pickedPassword);
-            if (pickedUsername) {
-              setUsername(pickedUsername);
-            }
-          } else if (vaultPickerTarget === 'enable') {
-            setEnablePassword(pickedPassword);
-          }
-          setIsVaultPickerOpen(false);
-        }}
-      />
     </div>,
     document.body
   );

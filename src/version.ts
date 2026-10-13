@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.333.0';
+export const APP_VERSION = '1.333.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.333.1',
+    releaseDate: '2026-10-13',
+    type: 'patch',
+    title: 'رفع مشکل بلاک شدن و شروع به کار سریع سرور توسعه (Dev Server)',
+    title_en: 'Fix Dev Server Startup Blocking & Port Resolution',
+    changes: [
+      'رفع مشکل بلاک شدن سرور در زمان استارت‌آپ به دلیل اجرای همگام اسکریپت‌های مجازی‌ساز SSH در محیط‌های فاقد پکیج‌های پیش‌فرض.',
+      'تضمین اتصال سریع به پورت ۳۰۰۰ و جلوگیری از تداخل پورت با پروکسی Nginx کانتینر.'
+    ],
+    changes_en: [
+      'Fixed server startup blocking caused by synchronous auto-provisioning scripts during boot in container environments.',
+      'Guaranteed rapid binding to port 3000 and prevented port conflicts with the container Nginx reverse proxy.'
+    ]
+  },
   {
     version: '1.333.0',
     releaseDate: '2026-10-13',
