@@ -42,6 +42,7 @@ interface TemplateManagementViewProps {
   effectivePolicy?: AccessPolicy | null;
   onDeviceUpdated?: (device: Device) => void;
   onOpenTerminal?: (device: Device) => void;
+  isLightMode?: boolean;
 }
 
 export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
@@ -49,6 +50,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
   effectivePolicy,
   onDeviceUpdated,
   onOpenTerminal,
+  isLightMode,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
@@ -784,7 +786,11 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                         return (
                           <button
                             type="button"
-                            onClick={() => handleOpenApply(tmpl.id)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleOpenApply(tmpl.id);
+                            }}
                             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
                             title={isEn ? 'Apply configuration template to target device' : 'اعمال این الگوی پیکربندی بر روی تجهیز شبکه'}
                           >
@@ -801,7 +807,9 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                       return (
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             showToast(disabledReason);
                           }}
                           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition bg-slate-800/80 border border-amber-500/30 text-slate-400 opacity-60 cursor-not-allowed hover:bg-slate-800"
@@ -856,6 +864,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
         effectivePolicy={effectivePolicy}
         templates={templates}
         preselectedTemplateId={applyTargetTemplateId}
+        isLightMode={isLightMode}
         onApplied={(updatedDevice) => {
           showToast(isEn ? `Template applied successfully to "${updatedDevice.name}".` : `تمپلیت با موفقیت روی «${updatedDevice.name}» اعمال شد.`);
           if (onDeviceUpdated) onDeviceUpdated(updatedDevice);

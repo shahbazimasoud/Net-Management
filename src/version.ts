@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.332.0';
+export const APP_VERSION = '1.332.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.332.1',
+    releaseDate: '2026-10-13',
+    type: 'patch',
+    title: 'رفع مشکل باز نشدن مودال اعمال تمپلیت کانفیگ (Apply to Device) در کروم و اپرا و ایمن‌سازی کلیک بک‌دراپ',
+    title_en: 'Fix "Apply to Device" Modal Opening Failure in Chrome & Opera and Prevent Accidental Backdrop Dismissal',
+    changes: [
+      'برطرف‌سازی مغایرت رویدادی در مرورگرهای مبتنی بر Chromium (کروم، اپرا، اج) و پیشگیری از بسته شدن آنی مودال ناشی از ارسال رویداد کلیک بر روی بک‌دراپ تازه لودشده.',
+      'پیاده‌سازی مکانیزم تایید دو مرحله‌ای رویداد (mousedown/click) و تعبیه قفل پیش‌فرض ایمنی (preventBackdropClose) جهت محافظت از فرم در حال پیکربندی.',
+      'افزودن دکمه سوئیچ قفل بک‌دراپ (Lock/Unlock) به هدر پنجره با پشتیبانی کامل از تم‌های تیره و روشن و چندزبانگی.',
+      'اعمال stopPropagation و preventDefault روی دکمه اعمال در کارت‌های الگو جهت مهار کامل حباب رویدادهای ماوس.',
+      'انتقال ایمن و مهار خطاهای دسترسی به استوریج مرورگر با try/catch جهت تضمین عملکرد بدون خطا در تمام مرورگرها.'
+    ],
+    changes_en: [
+      'Fixed Chromium-specific (Chrome, Opera, Edge) event dispatch disparity where newly mounted portal backdrop caught immediate click and closed the modal.',
+      'Implemented dual-phase mousedown/click verification with preventBackdropClose security lock enabled by default to protect in-progress configurations.',
+      'Added Lock/Unlock backdrop dismiss toggle button in the modal header with full bilingual tooltips and light/dark theme contrast adaptation.',
+      'Enforced stopPropagation and preventDefault on template card buttons to eliminate event leakage to parent and document listeners.',
+      'Encapsulated localStorage theme detection in resilient try/catch guards to ensure error-free rendering across all browser sandboxes.'
+    ]
+  },
   {
     version: '1.332.0',
     releaseDate: '2026-10-13',

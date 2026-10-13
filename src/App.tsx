@@ -1122,6 +1122,7 @@ export default function App() {
               effectivePolicy={effectivePolicy}
               onDeviceUpdated={loadData}
               onOpenTerminal={openTerminal}
+              isLightMode={isLightMode}
             />
           )}
 
