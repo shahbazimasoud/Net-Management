@@ -2269,14 +2269,13 @@
     inset 0 1px 1px rgba(255, 255, 255, 0.12);
 }
 
-/* Spatial 3D hover layout depth */
+/* Spatial layout depth */
 .spatial-depth-card {
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
-  transform-style: preserve-3d;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
 }
 
 .spatial-depth-card:hover {
-  transform: translateY(-6px) translateZ(10px) rotateX(1.5deg) rotateY(1.5deg);
+  transform: translateY(-4px);
 }
 
 /* Custom glow animations */

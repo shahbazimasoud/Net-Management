@@ -766,7 +766,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                 </div>
 
                 {/* Card Footer Actions */}
-                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between relative z-20">
                   <span className="text-[11px] text-slate-400 font-mono">
                     {commandLines.length} {isEn ? 'CLI lines' : 'خط دستور CLI'}
                   </span>
@@ -777,7 +777,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                         effectivePolicy?.id === 'policy-super-admin' ||
                         (effectivePolicy?.targetScope === 'all' && (effectivePolicy?.priority || 0) >= 100);
 
-                      const isGlobalApplyPermitted =
+                       const isGlobalApplyPermitted =
                         !effectivePolicy ||
                         isSuperAdmin ||
                         effectivePolicy.canApplyTemplates !== false;
@@ -786,12 +786,13 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                         return (
                           <button
                             type="button"
+                            onPointerDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
                               handleOpenApply(tmpl.id);
                             }}
-                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
+                            className="relative z-20 flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer pointer-events-auto"
                             title={isEn ? 'Apply configuration template to target device' : 'اعمال این الگوی پیکربندی بر روی تجهیز شبکه'}
                           >
                             <Play className="w-3.5 h-3.5 fill-white" />

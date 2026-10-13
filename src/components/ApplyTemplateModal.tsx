@@ -1105,7 +1105,10 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
     >
-      <div className={`w-full ${
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        className={`w-full ${
         isMaximized
           ? 'h-full max-h-full max-w-none rounded-none border-none my-0'
           : 'max-w-7xl max-h-[calc(100vh-4rem)] my-auto rounded-2xl border'

@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.332.1';
+export const APP_VERSION = '1.332.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.332.2',
+    releaseDate: '2026-10-13',
+    type: 'patch',
+    title: 'رفع مشکل عدم نمایش مودال اعمال تمپلیت کانفیگ (Apply to Device) در کروم و سایر مرورگرها و حذف تداخل ۳D Hit-Testing کارت‌ها',
+    title_en: 'Fix "Apply to Device" Modal Opening Failure in Chrome and Other Browsers by Eliminating 3D Hit-Testing Collision on Template Cards',
+    changes: [
+      'برطرف‌سازی ریشه‌ای مشکل عدم پاسخگویی دکمه «Apply to Device...» در مرورگرهای مبتنی بر Chromium (کروم، اج، اپرا) ناشی از تداخل Hit-Testing در ساختار کارت‌های سه‌بعدی (spatial-depth-card).',
+      'تغییر ترنزیشن کارت‌های الگو به شتاب‌دهنده دوبعدی استاندارد (translateY) جهت تضمین دریافت و هدایت بی‌نقص رویدادهای ماوس به دکمه‌های اقدام روی تمامی موتورهای مرورگر (Blink و Gecko).',
+      'افزودن مهار رویدادهای pointerdown و stopPropagation به دکمه اعمال در کارت‌ها و کانتینر دیالوگ مودال پورتال ApplyTemplateModal جهت جلوگیری از نشت رویداد به پس‌زمینه.'
+    ],
+    changes_en: [
+      'Resolved the root cause of the "Apply to Device..." button failing to trigger the Interactive Template Deployment modal in Chromium browsers (Chrome, Edge, Opera) due to 3D matrix hit-testing occlusion on spatial-depth cards.',
+      'Switched template card spatial hover dynamics to resilient 2D GPU acceleration (translateY), guaranteeing seamless pointer event dispatching across both Blink and Gecko layout engines.',
+      'Added pointerdown interception and stopPropagation guards to both the template card action button and the ApplyTemplateModal dialog container to eliminate event leakage.'
+    ]
+  },
   {
     version: '1.332.1',
     releaseDate: '2026-10-13',
