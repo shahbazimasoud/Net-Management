@@ -30,7 +30,16 @@ import {
   Hash,
   Network,
   MapPin,
-  Sliders
+  Sliders,
+  ShieldCheck,
+  AlertOctagon,
+  WifiOff,
+  CheckSquare,
+  Square,
+  Lock,
+  Unlock,
+  Activity,
+  Flame
 } from 'lucide-react';
 import { Device, ConfigTemplate, TemplateApplyResult, TemplateExecutionLog, AccessPolicy } from '../types';
 import { fetchTemplates, applyTemplateToDevice } from '../services/api';
@@ -208,7 +217,12 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const [templates, setTemplates] = useState<ConfigTemplate[]>(propTemplates || []);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(preselectedTemplateId || '');
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [activeStep, setActiveStep] = useState<'variables' | 'preview' | 'executing' | 'done'>('variables');
+  const [activeStep, setActiveStep] = useState<'variables' | 'risk_gate' | 'preview' | 'executing' | 'done'>('variables');
+
+  // Phase 3: Strict Safety Gate & Engineering Sign-Off State
+  const [signOffVarsConfirmed, setSignOffVarsConfirmed] = useState(false);
+  const [signOffRiskConfirmed, setSignOffRiskConfirmed] = useState(false);
+  const [signOffIpConfirmed, setSignOffIpConfirmed] = useState(false);
 
   // Phase 2: Split View & Highlighting State
   const [splitViewMode, setSplitViewMode] = useState<'split' | 'form' | 'cli'>('split');
@@ -560,6 +574,105 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     return Object.keys(validationErrors).length === 0;
   }, [validationErrors]);
 
+  // Phase 3: Dynamic Management IP Change Detection
+  const isIpChanging = useMemo(() => {
+    if (!selectedDevice) return false;
+    const targetIp = (variableValues['IP_ADDRESS'] || '').trim();
+    if (!targetIp) return false;
+    return targetIp !== selectedDevice.ip.trim();
+  }, [selectedDevice, variableValues]);
+
+  // Phase 3: Vendor & OS Architecture Compatibility Guard
+  const isVendorMismatch = useMemo(() => {
+    if (!selectedDevice || !currentTemplate) return false;
+    return !isDeviceCompatibleWithTemplate(selectedDevice, currentTemplate);
+  }, [selectedDevice, currentTemplate]);
+
+  // Phase 3: RBAC Clearance Status
+  const isRbacCleared = useMemo(() => {
+    if (!selectedDevice) return false;
+    return isDevicePermittedForApply(selectedDevice);
+  }, [selectedDevice, effectivePolicy]);
+
+  // Phase 3: Dynamic Impact & Risk Assessment
+  const riskAssessment = useMemo(() => {
+    if (!currentTemplate || !selectedDevice) {
+      return { level: 'low' as const, flags: [] as string[] };
+    }
+    const flags: string[] = [];
+    const script = (currentTemplate.commands || '').toLowerCase();
+
+    if (isIpChanging) {
+      flags.push(isEn ? 'Management IP Address is being reconfigured' : 'آدرس آی‌پی مدیریتی در حال تغییر است');
+    }
+    if (
+      script.includes('interface vlan 1') ||
+      script.includes('vlan 1') ||
+      script.includes('/interface bridge') ||
+      script.includes('spanning-tree')
+    ) {
+      flags.push(isEn ? 'Core VLAN 1 or RouterOS Bridge infrastructure modified' : 'ساختار وی‌لن ۱ یا بریج مرکزی روتر در حال بازپیکربندی است');
+    }
+    if (
+      script.includes('ip route') ||
+      script.includes('/ip route') ||
+      script.includes('default-gateway') ||
+      (variableValues['DEFAULT_GATEWAY'] && variableValues['DEFAULT_GATEWAY'] !== selectedDevice.ip)
+    ) {
+      flags.push(isEn ? 'Default gateway / L3 routing table modified' : 'مسیریابی پیش‌فرض یا جدول روتینگ لایه سه تغییر می‌یابد');
+    }
+    if (
+      script.includes('firewall') ||
+      script.includes('access-list') ||
+      script.includes('/ip firewall') ||
+      script.includes('crypto')
+    ) {
+      flags.push(isEn ? 'Firewall filter or ACL security policies modified' : 'قوانین فایروال یا لیست‌های کنترل دسترسی (ACL) بازنویسی می‌شوند');
+    }
+    if (variableValues['DEVICE_NAME'] && variableValues['DEVICE_NAME'] !== selectedDevice.name) {
+      flags.push(isEn ? 'System hostname is being renamed' : 'نام هاست و شناسه تجهیز تغییر خواهد کرد');
+    }
+
+    let level: 'high' | 'medium' | 'low' = 'low';
+    if (
+      isIpChanging ||
+      flags.some((f) =>
+        f.includes('VLAN 1') ||
+        f.includes('Bridge') ||
+        f.includes('routing') ||
+        f.includes('Firewall') ||
+        f.includes('فایروال') ||
+        f.includes('بریج') ||
+        f.includes('مسیریابی')
+      )
+    ) {
+      level = 'high';
+    } else if (flags.length > 0) {
+      level = 'medium';
+    }
+
+    return { level, flags };
+  }, [currentTemplate, selectedDevice, isIpChanging, variableValues, isEn]);
+
+  // Phase 3: Strict Safety Gate Clearance Boolean
+  const isSafetyGateCleared = useMemo(() => {
+    if (!isAllVariablesValid) return false;
+    if (isVendorMismatch) return false;
+    if (!isRbacCleared) return false;
+    if (!signOffVarsConfirmed) return false;
+    if (!signOffRiskConfirmed) return false;
+    if (isIpChanging && !signOffIpConfirmed) return false;
+    return true;
+  }, [
+    isAllVariablesValid,
+    isVendorMismatch,
+    isRbacCleared,
+    signOffVarsConfirmed,
+    signOffRiskConfirmed,
+    isIpChanging,
+    signOffIpConfirmed,
+  ]);
+
   // Render raw script with replaced variables
   const renderedScript = useMemo(() => {
     if (!currentTemplate) return '';
@@ -628,20 +741,20 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       return;
     }
 
-    if (!isAllVariablesValid) {
+    if (isVendorMismatch) {
       setApplyError(
         isEn
-          ? 'Please fix all highlighted parameter validation errors before applying.'
-          : 'لطفاً کلیه خطاهای اعتبارسنجی مشخص‌شده در متغیرها را پیش از اعمال برطرف نمایید.'
+          ? 'Cannot apply: Vendor / OS architecture mismatch between template and target device.'
+          : 'خطای بحرانی: عدم تطابق معماری سیستم‌عامل و برند تجهیز با قالب کانفیگ.'
       );
       return;
     }
 
-    if (!isIpConfirmed) {
+    if (!isSafetyGateCleared) {
       setApplyError(
         isEn
-          ? 'Please review and confirm the validity of the IP address.'
-          : 'لطفاً صحت آدرس آی‌پی (IP Address) را بررسی و تایید نمایید.'
+          ? 'Safety Gate locked: Please complete the engineering sign-off checklist in the Safety Gate step.'
+          : 'گیت ایمنی قفل است: لطفاً چک‌لیست تصدیق مهندسی را در مرحله سنجش ریسک و ایمنی تایید فرمایید.'
       );
       return;
     }
@@ -968,14 +1081,37 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
               }`}>
                 1
               </span>
-              <span>{isEn ? '1. Live Variables & Split Diff' : '۱. متغیرها و پیش‌نمایش زنده'}</span>
+              <span>{t('apply_step_variables')}</span>
+            </button>
+
+            <span className={isLightMode ? 'text-slate-400' : 'text-slate-600'}>→</span>
+
+            <button
+              onClick={() => setActiveStep('risk_gate')}
+              disabled={isApplying || !isAllVariablesValid}
+              className={`flex items-center gap-1.5 font-medium px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                activeStep === 'risk_gate'
+                  ? isLightMode
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300 font-bold shadow-xs'
+                    : 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                  : isLightMode
+                  ? 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-400 hover:text-slate-200'
+              } ${!isAllVariablesValid ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                isLightMode ? 'bg-amber-200 text-amber-900' : 'bg-amber-500/20 border border-amber-500/40'
+              }`}>
+                2
+              </span>
+              <span>{t('apply_step_risk_gate')}</span>
             </button>
 
             <span className={isLightMode ? 'text-slate-400' : 'text-slate-600'}>→</span>
 
             <button
               onClick={() => setActiveStep('preview')}
-              disabled={isApplying || !isAllVariablesValid}
+              disabled={isApplying || !isSafetyGateCleared}
               className={`flex items-center gap-1.5 font-medium px-2.5 py-1 rounded-lg transition cursor-pointer ${
                 activeStep === 'preview'
                   ? isLightMode
@@ -984,14 +1120,14 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   : isLightMode
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-slate-400 hover:text-slate-200'
-              } ${!isAllVariablesValid ? 'opacity-50 cursor-not-allowed' : ''}`}
+              } ${!isSafetyGateCleared ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
                 isLightMode ? 'bg-indigo-200 text-indigo-800' : 'bg-cyan-500/20 border border-cyan-500/40'
               }`}>
-                2
+                3
               </span>
-              <span>{t('apply_step2')}</span>
+              <span>{t('apply_step_preview')}</span>
             </button>
 
             <span className={isLightMode ? 'text-slate-400' : 'text-slate-600'}>→</span>
@@ -1010,9 +1146,9 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
               <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
                 isLightMode ? 'bg-emerald-200 text-emerald-800' : 'bg-emerald-500/20 border border-emerald-500/40'
               }`}>
-                3
+                4
               </span>
-              <span>{t('apply_step3')}</span>
+              <span>{t('apply_step_executing')}</span>
             </div>
           </div>
         </div>
@@ -1596,31 +1732,421 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setActiveStep('preview')}
-                  disabled={!selectedDevice || !isDevicePermittedForApply(selectedDevice) || !isAllVariablesValid}
+                  onClick={() => setActiveStep('risk_gate')}
+                  disabled={!selectedDevice || !isAllVariablesValid}
                   className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold shadow-md transition active:scale-95 ${
-                    selectedDevice && isDevicePermittedForApply(selectedDevice) && isAllVariablesValid
+                    selectedDevice && isAllVariablesValid
                       ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.3)]'
                       : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
                   }`}
                   title={
                     !selectedDevice
                       ? (isEn ? 'Please select an authorized device' : 'لطفاً یک تجهیز مجاز را انتخاب نمایید')
-                      : !isDevicePermittedForApply(selectedDevice)
-                      ? (isEn ? 'Access Denied: You do not have permission to execute templates on this device' : 'عدم دسترسی: طبق سیستم RBAC شما مجاز به اعمال تمپلیت روی این تجهیز نیستید')
                       : !isAllVariablesValid
                       ? (isEn ? 'Fix all validation errors before proceeding' : 'لطفاً ابتدا خطاهای اعتبارسنجی را برطرف فرمایید')
                       : undefined
                   }
                 >
-                  <span>{t('apply_btn_preview')}</span>
+                  <span>{t('apply_btn_to_risk_gate')}</span>
                   <ArrowRight className={`w-4 h-4 ${isEn ? '' : 'rotate-180'}`} />
                 </button>
               </div>
             </div>
           )}
 
-          {/* STEP 2: Pre-Flight Safety & Clean CLI Dry-Run */}
+          {/* STEP 2: Strict Safety Gate & Operational Impact Assessment */}
+          {activeStep === 'risk_gate' && currentTemplate && selectedDevice && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Gate Header Banner */}
+              <div
+                className={`p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 transition ${
+                  isSafetyGateCleared
+                    ? isLightMode
+                      ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                      : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
+                    : isLightMode
+                    ? 'bg-amber-50/90 border-amber-300 text-amber-950 shadow-xs'
+                    : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`p-2 rounded-xl ${
+                      isSafetyGateCleared
+                        ? isLightMode ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500/20 text-emerald-300'
+                        : isLightMode ? 'bg-amber-100 text-amber-800' : 'bg-amber-500/20 text-amber-300'
+                    }`}
+                  >
+                    {isSafetyGateCleared ? <ShieldCheck className="w-6 h-6" /> : <ShieldAlert className="w-6 h-6" />}
+                  </div>
+                  <div>
+                    <h4 className={`text-sm font-bold flex items-center gap-2 ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}>
+                      <span>{t('apply_gate_title')}</span>
+                    </h4>
+                    <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
+                      {t('apply_gate_subtitle')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-3 py-1 rounded-lg text-xs font-mono font-bold border transition ${
+                      isSafetyGateCleared
+                        ? isLightMode
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : isLightMode
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    }`}
+                  >
+                    {isSafetyGateCleared ? (
+                      <span className="flex items-center gap-1.5">
+                        <Unlock className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'SAFETY GATE CLEARED' : 'گیت ایمنی باز شد'}</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'SAFETY GATE LOCKED' : 'گیت ایمنی قفل است'}</span>
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid: 2 Columns for Gate Checks */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Vendor & OS Compatibility Card */}
+                <div
+                  className={`p-4 rounded-xl border transition ${
+                    isVendorMismatch
+                      ? 'bg-rose-500/10 border-rose-500/50 shadow-xs'
+                      : isLightMode
+                      ? 'bg-slate-50 border-slate-200 shadow-xs'
+                      : 'bg-slate-900/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h5 className={`text-xs font-bold flex items-center gap-2 ${
+                      isVendorMismatch ? 'text-rose-400' : isLightMode ? 'text-slate-900' : 'text-slate-200'
+                    }`}>
+                      {isVendorMismatch ? <AlertOctagon className="w-4 h-4 text-rose-500" /> : <Cpu className="w-4 h-4 text-cyan-400" />}
+                      <span>{t('apply_gate_vendor_title')}</span>
+                    </h5>
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
+                        isVendorMismatch
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : isLightMode
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      }`}
+                    >
+                      {isVendorMismatch ? (isEn ? 'MISMATCH' : 'عدم تطابق') : (isEn ? 'MATCHED' : 'تطابق کامل')}
+                    </span>
+                  </div>
+
+                  <p className={`text-xs leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
+                    {isVendorMismatch
+                      ? t('apply_gate_vendor_mismatch_desc')
+                          .replace('{templateVendor}', currentTemplate.vendor.toUpperCase())
+                          .replace('{deviceVendor}', (selectedDevice.model || selectedDevice.platform || 'Other').toUpperCase())
+                      : t('apply_gate_vendor_match_desc')}
+                  </p>
+
+                  <div className={`mt-3 p-2.5 rounded-lg text-[11px] font-mono flex items-center justify-between border ${
+                    isLightMode ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-950 border-white/5 text-slate-300'
+                  }`}>
+                    <span>{isEn ? 'Template OS Architecture:' : 'معماری قالب:'} <b>{currentTemplate.vendor.toUpperCase()}</b></span>
+                    <span>{isEn ? 'Target Device Platform:' : 'سیستم‌عامل تجهیز:'} <b>{(selectedDevice.model || selectedDevice.platform || 'Generic').toUpperCase()}</b></span>
+                  </div>
+                </div>
+
+                {/* 2. RBAC Authoritative Security Card */}
+                <div
+                  className={`p-4 rounded-xl border transition ${
+                    !isRbacCleared
+                      ? 'bg-rose-500/10 border-rose-500/50 shadow-xs'
+                      : isLightMode
+                      ? 'bg-slate-50 border-slate-200 shadow-xs'
+                      : 'bg-slate-900/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h5 className={`text-xs font-bold flex items-center gap-2 ${
+                      !isRbacCleared ? 'text-rose-400' : isLightMode ? 'text-slate-900' : 'text-slate-200'
+                    }`}>
+                      <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                      <span>{t('apply_gate_rbac_title')}</span>
+                    </h5>
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
+                        isRbacCleared
+                          ? isLightMode
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                          : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                      }`}
+                    >
+                      {isRbacCleared ? t('apply_gate_rbac_approved') : t('apply_gate_rbac_denied')}
+                    </span>
+                  </div>
+
+                  <p className={`text-xs leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
+                    {isRbacCleared
+                      ? t('apply_gate_rbac_details')
+                          .replace('{policy}', effectivePolicy?.name || 'Default Administrator')
+                          .replace('{scope}', effectivePolicy?.targetScope || 'All Devices')
+                      : t('apply_gate_rbac_denied_details').replace('{device}', selectedDevice.name)}
+                  </p>
+
+                  <div className={`mt-3 p-2.5 rounded-lg text-[11px] font-mono flex items-center justify-between border ${
+                    isLightMode ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-950 border-white/5 text-slate-300'
+                  }`}>
+                    <span>{isEn ? 'Global apply_templates:' : 'مجوز سراسری تمپلیت:'} <b>{effectivePolicy?.canApplyTemplates !== false ? 'Granted' : 'Revoked'}</b></span>
+                    <span>{isEn ? 'Device Target Clearance:' : 'صلاحیت دسترسی تجهیز:'} <b>{isRbacCleared ? 'Authorized' : 'Restricted'}</b></span>
+                  </div>
+                </div>
+
+                {/* 3. Management IP Change & Session Continuity */}
+                <div
+                  className={`p-4 rounded-xl border transition md:col-span-2 ${
+                    isIpChanging
+                      ? isLightMode
+                        ? 'bg-rose-50 border-rose-300 shadow-xs'
+                        : 'bg-rose-500/10 border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.15)]'
+                      : isLightMode
+                      ? 'bg-slate-50 border-slate-200 shadow-xs'
+                      : 'bg-slate-900/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h5 className={`text-xs font-bold flex items-center gap-2 ${
+                      isIpChanging ? 'text-rose-500' : isLightMode ? 'text-slate-900' : 'text-slate-200'
+                    }`}>
+                      {isIpChanging ? <WifiOff className="w-4 h-4 text-rose-500" /> : <Network className="w-4 h-4 text-cyan-400" />}
+                      <span>{t('apply_gate_ip_change_title')}</span>
+                    </h5>
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
+                        isIpChanging
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                          : isLightMode
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      }`}
+                    >
+                      {isIpChanging ? (isEn ? 'IP CHANGING' : 'تغییر آدرس آی‌پی') : (isEn ? 'IP UNCHANGED' : 'آی‌پی بدون تغییر')}
+                    </span>
+                  </div>
+
+                  <p className={`text-xs leading-relaxed ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
+                    {isIpChanging
+                      ? t('apply_gate_ip_changed_desc')
+                          .replace('{oldIp}', selectedDevice.ip)
+                          .replace('{newIp}', variableValues['IP_ADDRESS'] || '')
+                      : t('apply_gate_ip_preserved_desc').replace('{ip}', selectedDevice.ip)}
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                    <div className={`p-3 rounded-lg border font-mono text-xs flex items-center justify-between ${
+                      isLightMode ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-950 border-white/5 text-slate-300'
+                    }`}>
+                      <span className="text-[11px] text-slate-500">{isEn ? 'Current IP:' : 'آی‌پی فعلی تجهیز:'}</span>
+                      <b className="text-cyan-500">{selectedDevice.ip}</b>
+                    </div>
+                    <div className={`p-3 rounded-lg border font-mono text-xs flex items-center justify-between ${
+                      isIpChanging
+                        ? isLightMode ? 'bg-rose-100 border-rose-300 text-rose-900' : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                        : isLightMode ? 'bg-white border-slate-200 text-slate-800' : 'bg-slate-950 border-white/5 text-slate-300'
+                    }`}>
+                      <span className="text-[11px] text-slate-500">{isEn ? 'Target New IP:' : 'آی‌پی هدف جدید:'}</span>
+                      <b className={isIpChanging ? 'text-rose-400 font-bold' : 'text-emerald-400'}>
+                        {variableValues['IP_ADDRESS'] || selectedDevice.ip}
+                      </b>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Operational Risk Classification Matrix */}
+                <div className={`p-4 rounded-xl border md:col-span-2 transition ${
+                  isLightMode ? 'bg-slate-50 border-slate-200 shadow-xs' : 'bg-slate-900/60 border-white/10'
+                }`}>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h5 className={`text-xs font-bold flex items-center gap-2 ${
+                      isLightMode ? 'text-slate-900' : 'text-slate-200'
+                    }`}>
+                      <Activity className="w-4 h-4 text-amber-400" />
+                      <span>{t('apply_gate_risk_matrix_title')}</span>
+                    </h5>
+                    <span
+                      className={`text-[10px] font-mono px-2.5 py-0.5 rounded-md font-bold border ${
+                        riskAssessment.level === 'high'
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : riskAssessment.level === 'medium'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      }`}
+                    >
+                      {riskAssessment.level === 'high'
+                        ? t('apply_gate_risk_high')
+                        : riskAssessment.level === 'medium'
+                        ? t('apply_gate_risk_medium')
+                        : t('apply_gate_risk_low')}
+                    </span>
+                  </div>
+
+                  <p className={`text-xs leading-relaxed ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                    {riskAssessment.level === 'high'
+                      ? t('apply_gate_risk_high_desc')
+                      : riskAssessment.level === 'medium'
+                      ? t('apply_gate_risk_medium_desc')
+                      : t('apply_gate_risk_low_desc')}
+                  </p>
+
+                  {riskAssessment.flags.length > 0 && (
+                    <div className="mt-3 space-y-1.5">
+                      <div className="text-[11px] font-semibold text-slate-400">
+                        {isEn ? 'Detected Impact Triggers:' : 'عوامل تاثیرگذار شناسایی‌شده:'}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {riskAssessment.flags.map((flag, idx) => (
+                          <span
+                            key={idx}
+                            className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium flex items-center gap-1.5 ${
+                              riskAssessment.level === 'high'
+                                ? isLightMode ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                : isLightMode ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                            }`}
+                          >
+                            <Flame className="w-3 h-3 shrink-0" />
+                            <span>{flag}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. Mandatory Engineering Sign-Off Checklist */}
+                <div className={`p-4 rounded-xl border md:col-span-2 space-y-3 transition ${
+                  isLightMode ? 'bg-white border-slate-300 shadow-sm' : 'bg-slate-950/80 border-cyan-500/30 shadow-inner'
+                }`}>
+                  <div className="flex items-center justify-between border-b pb-2 border-white/5">
+                    <h5 className={`text-xs font-bold flex items-center gap-2 ${
+                      isLightMode ? 'text-slate-900' : 'text-white'
+                    }`}>
+                      <CheckSquare className="w-4 h-4 text-cyan-400" />
+                      <span>{t('apply_gate_signoff_title')}</span>
+                    </h5>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {isEn ? 'Required before execution' : 'الزامی جهت تایید نهایی'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {/* Checkbox 1: Variables verified */}
+                    <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition cursor-pointer select-none ${
+                      signOffVarsConfirmed
+                        ? isLightMode ? 'bg-emerald-50 border-emerald-300 text-emerald-950' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                        : isLightMode ? 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={signOffVarsConfirmed}
+                        onChange={(e) => setSignOffVarsConfirmed(e.target.checked)}
+                        className="mt-0.5 rounded text-cyan-600 focus:ring-cyan-500"
+                      />
+                      <span className="text-xs font-medium leading-relaxed">
+                        {t('apply_gate_signoff_vars')}
+                      </span>
+                    </label>
+
+                    {/* Checkbox 2: Risk acknowledged */}
+                    <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition cursor-pointer select-none ${
+                      signOffRiskConfirmed
+                        ? isLightMode ? 'bg-emerald-50 border-emerald-300 text-emerald-950' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                        : isLightMode ? 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={signOffRiskConfirmed}
+                        onChange={(e) => setSignOffRiskConfirmed(e.target.checked)}
+                        className="mt-0.5 rounded text-cyan-600 focus:ring-cyan-500"
+                      />
+                      <span className="text-xs font-medium leading-relaxed">
+                        {t('apply_gate_signoff_risk')}
+                      </span>
+                    </label>
+
+                    {/* Checkbox 3: IP change double-confirmed (if IP changed) */}
+                    {isIpChanging && (
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition cursor-pointer select-none ${
+                        signOffIpConfirmed
+                          ? isLightMode ? 'bg-emerald-50 border-emerald-300 text-emerald-950' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                          : isLightMode ? 'bg-rose-50 border-rose-300 text-rose-950 hover:bg-rose-100' : 'bg-rose-500/15 border-rose-500/40 text-rose-200 hover:bg-rose-500/20'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={signOffIpConfirmed}
+                          onChange={(e) => setSignOffIpConfirmed(e.target.checked)}
+                          className="mt-0.5 rounded text-rose-600 focus:ring-rose-500"
+                        />
+                        <span className="text-xs font-bold leading-relaxed">
+                          {t('apply_gate_signoff_ip').replace('{newIp}', variableValues['IP_ADDRESS'] || '')}
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2 Footer Navigation Bar */}
+              <div className={`flex flex-wrap items-center justify-between gap-3 pt-4 border-t ${
+                isLightMode ? 'border-slate-200' : 'border-white/10'
+              }`}>
+                <button
+                  type="button"
+                  onClick={() => setActiveStep('variables')}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+                    isLightMode
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                      : 'bg-white/10 hover:bg-white/15 text-slate-300'
+                  }`}
+                >
+                  {isEn ? '← Back to Variables' : '← بازگشت به ویرایش متغیرها'}
+                </button>
+
+                <div className="flex items-center gap-3">
+                  {!isSafetyGateCleared && (
+                    <span className="text-xs text-amber-400 font-medium hidden sm:inline">
+                      {t('apply_gate_blocked_summary')}
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('preview')}
+                    disabled={!isSafetyGateCleared}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold shadow-md transition active:scale-95 ${
+                      isSafetyGateCleared
+                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                        : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
+                    }`}
+                  >
+                    <span>{t('apply_btn_proceed_to_preview')}</span>
+                    <ArrowRight className={`w-4 h-4 ${isEn ? '' : 'rotate-180'}`} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3: Pre-Flight Safety & Clean CLI Dry-Run */}
           {activeStep === 'preview' && currentTemplate && (
             <div className="space-y-4 animate-fadeIn">
               <div className={`flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border text-xs transition ${
@@ -1676,31 +2202,31 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                 <pre className="whitespace-pre font-mono leading-relaxed">{renderedScript}</pre>
               </div>
 
-              {/* Step 2 Actions */}
+              {/* Step 3 Actions */}
               <div className={`flex items-center justify-between pt-4 border-t ${
                 isLightMode ? 'border-slate-200' : 'border-white/10'
               }`}>
                 <button
                   type="button"
-                  onClick={() => setActiveStep('variables')}
+                  onClick={() => setActiveStep('risk_gate')}
                   className={`px-4 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
                     isLightMode
                       ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
                       : 'bg-white/10 hover:bg-white/15 text-slate-300'
                   }`}
                 >
-                  {isEn ? '← Back to Variables & Split Diff' : '← بازگشت به ویرایش متغیرها و پیش‌نمایش'}
+                  {t('apply_btn_back_to_risk_gate')}
                 </button>
 
                 {(() => {
-                  const isPermitted = Boolean(selectedDevice && isDevicePermittedForApply(selectedDevice));
+                  const isPermitted = isSafetyGateCleared;
                   return (
                     <button
                       type="button"
                       onClick={handleExecuteApply}
-                      disabled={isApplying || !isPermitted || !isAllVariablesValid}
+                      disabled={isApplying || !isPermitted}
                       className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition active:scale-95 ${
-                        isPermitted && !isApplying && isAllVariablesValid
+                        isPermitted && !isApplying
                           ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.35)]'
                           : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
                       }`}
@@ -1708,9 +2234,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                         !selectedDevice
                           ? (isEn ? 'Please select a device' : 'لطفاً تجهیز مورد نظر را انتخاب فرمایید')
                           : !isPermitted
-                          ? (isEn ? 'Restricted by RBAC: You do not have permission to apply templates to this device' : 'عدم دسترسی در بخش کنترل دسترسی (RBAC): شما مجاز به اعمال تمپلیت روی این تجهیز نیستید')
-                          : !isAllVariablesValid
-                          ? (isEn ? 'Validation errors detected' : 'خطای اعتبارسنجی در متغیرها وجود دارد')
+                          ? (isEn ? 'Safety Gate Locked: All checks and sign-offs required' : 'گیت ایمنی قفل است: تایید کلیه چک‌ها و تصدیق مهندسی الزامی است')
                           : undefined
                       }
                     >

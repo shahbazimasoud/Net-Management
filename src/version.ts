@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.329.0';
+export const APP_VERSION = '1.330.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.330.0',
+    releaseDate: '2026-10-13',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۳ اعمال الگوهای کانفیگ: گیت تاییدیه سخت‌گیرانه، سنجش ریسک و بررسی مجوزهای RBAC (Strict Safety Gate & Risk Assessment) در مودال Apply to Device',
+    title_en: 'Phase 3: Strict Safety Gate, Impact Analysis & Multi-Layer RBAC Clearance in Apply to Device Modal',
+    changes: [
+      'پیاده‌سازی گام اختصاصی و مستقل گیت تاییدیه امن و سنجش ریسک عملیاتی (Strict Safety Gate & Risk Assessment) به عنوان مرحله دوم جریان اعمال تمپلیت.',
+      'تعبیه ماژول گارد تطابق برند و معماری سیستم‌عامل (Vendor & OS Architecture Guard) جهت جلوگیری قطعی و قفل سخت‌گیرانه اعمال الگوهای سیسکو روی میکروتیک یا برعکس.',
+      'طراحی سیستم تحلیل اثر و هشدار قرمز تغییر آدرس آی‌پی مدیریتی (Management IP Loss-of-Access Risk) با الزام تاییدیه صریح مهندسی جهت جلوگیری از قطعی ناخواسته جلسه کاری.',
+      'پیاده‌سازی ماتریس سطح‌بندی ریسک عملیاتی (High/Medium/Low) با شناسایی خودکار عوامل بحرانی (وی‌لن یک، بریج‌ها، روت‌های پیش‌فرض و رول‌های فایروال).',
+      'اعمال قفل‌های چندلایه امنیتی پایگاه داده (RBAC Authoritative Clearance) شامل بررسی مجوز سراسری canApplyTemplates و دسترسی تفکیکی تجهیز apply_template.',
+      'تعبیه چک‌لیست سه‌گانه تصدیق مهندسی (Engineering Sign-Off Checklist) جهت باز شدن قفل دکمه پیش‌نمایش نهایی و ارسال فرامین.'
+    ],
+    changes_en: [
+      'Engineered dedicated Step 2: Strict Safety Gate & Operational Impact Assessment in the Apply Template to Live Device workflow.',
+      'Implemented Vendor & OS Architecture Compatibility Guard with a hard lock blocking execution if template syntax does not match target device OS family (Cisco vs MikroTik).',
+      'Built Management IP & Connectivity Impact Analysis with critical red risk warning and mandatory double-confirmation when management IP/gateway changes.',
+      'Integrated dynamic Operational Risk Classification Matrix (High/Medium/Low) detecting critical triggers across L3 routing, core VLAN 1, RouterOS bridges, and firewalls.',
+      'Enforced multi-layer database-authoritative RBAC clearance auditing global canApplyTemplates and granular per-device apply_template permissions.',
+      'Engineered mandatory Engineering Sign-Off Checklist requiring explicit verification of variable accuracy, operational risk acceptance, and session disconnection acknowledgement.'
+    ]
+  },
   {
     version: '1.329.0',
     releaseDate: '2026-10-13',
