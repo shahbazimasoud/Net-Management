@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.332.2';
+export const APP_VERSION = '1.332.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.332.3',
+    releaseDate: '2026-10-13',
+    type: 'patch',
+    title: 'تطبیق دقیق و بلادرنگ الگوی انتخابی با کارت کلیک‌شده در پنجره اعمال تمپلیت کانفیگ (Apply to Device)',
+    title_en: 'Exact Synchronization of Selected Config Template with Clicked Card in Apply Template Modal',
+    changes: [
+      'همگام‌سازی قطعی و بلادرنگ فیلد «Selected Config Template» در مودال ApplyTemplateModal با همان کارتی که کاربر روی دکمه Apply to Device آن کلیک کرده است.',
+      'افزودن کارت خلاصه اطلاعات و پارامترهای الگوی انتخابی در زیر منوی کشویی جهت نمایش بلادرنگ نام، سازنده (Cisco/MikroTik)، خطوط CLI و تعداد متغیرها.',
+      'اصلاح منطق بازآرایی متغیرها (isNewTemplate) به گونه‌ای که با تغییر الگو، تمامی مقادیر پیش‌فرض و مقادیر هوشمند متغیرها متناسب با الگوی جدید بازنشانی و بارگذاری شوند.',
+      'تعبیه کلید یونیک داینامیک بر روی مودال و پاکسازی استیت پس از بسته شدن پنجره جهت جلوگیری از ماندگاری یا نشت استیت الگوی قبلی.'
+    ],
+    changes_en: [
+      'Guaranteed exact real-time synchronization between the clicked card and the "Selected Config Template" field inside ApplyTemplateModal.',
+      'Introduced a dedicated live template details summary card directly below the selector dropdown showing vendor badges, command lines count, and dynamic variables.',
+      'Refactored variable pre-fill mechanics (isNewTemplate) to cleanly reset and load default and smart values whenever a different template is selected.',
+      'Added dynamic instance keying and state sanitization on modal closure to eliminate stale template leaks across successive invocations.'
+    ]
+  },
   {
     version: '1.332.2',
     releaseDate: '2026-10-13',

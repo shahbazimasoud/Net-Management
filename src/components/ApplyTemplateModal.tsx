@@ -268,6 +268,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   // Interactive Variables State
   const [showAllDevices, setShowAllDevices] = useState(false);
   const prevDeviceRef = useRef<string | null>(null);
+  const prevTemplateRef = useRef<string | null>(null);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [isIpConfirmed, setIsIpConfirmed] = useState<boolean>(true);
   const [copiedScript, setCopiedScript] = useState(false);
@@ -354,17 +355,36 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, isApplying]);
 
+  const effectiveTemplates = useMemo(() => {
+    if (propTemplates && propTemplates.length > 0) return propTemplates;
+    return templates;
+  }, [propTemplates, templates]);
+
+  const currentTemplate = useMemo(() => {
+    if (selectedTemplateId) {
+      const found = effectiveTemplates.find((t) => t.id === selectedTemplateId);
+      if (found) return found;
+    }
+    if (preselectedTemplateId) {
+      const found = effectiveTemplates.find((t) => t.id === preselectedTemplateId);
+      if (found) return found;
+    }
+    return effectiveTemplates[0] || null;
+  }, [effectiveTemplates, selectedTemplateId, preselectedTemplateId]);
+
   // Sync state whenever modal opens or initial target device changes
   useEffect(() => {
     if (isOpen) {
       if (preselectedTemplateId) {
         setSelectedTemplateId(preselectedTemplateId);
+      } else if (!selectedTemplateId && effectiveTemplates.length > 0) {
+        setSelectedTemplateId(effectiveTemplates[0].id);
       }
       if (initialTargetDevice) {
         setSelectedDevice(initialTargetDevice);
       } else if (allDevices.length > 0) {
         // Pick device matching template if possible
-        const tmpl = (propTemplates || templates).find((t) => t.id === (preselectedTemplateId || selectedTemplateId));
+        const tmpl = effectiveTemplates.find((t) => t.id === (preselectedTemplateId || selectedTemplateId)) || effectiveTemplates[0];
         if (tmpl) {
           const isMikroTikTmpl = tmpl.vendor === 'mikrotik';
           const isCiscoTmpl = tmpl.vendor === 'cisco';
@@ -391,16 +411,19 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
         streamingTimerRef.current = null;
       }
     }
-  }, [isOpen, preselectedTemplateId, initialTargetDevice, allDevices]);
+  }, [isOpen, preselectedTemplateId, initialTargetDevice, allDevices, effectiveTemplates]);
 
   // Sync templates if passed via props
   useEffect(() => {
     if (propTemplates && propTemplates.length > 0) {
       setTemplates(propTemplates);
+      if (preselectedTemplateId) {
+        setSelectedTemplateId(preselectedTemplateId);
+      }
     }
-  }, [propTemplates]);
+  }, [propTemplates, preselectedTemplateId]);
 
-  // Sync preselected template
+  // Sync preselected template directly whenever it changes
   useEffect(() => {
     if (preselectedTemplateId) {
       setSelectedTemplateId(preselectedTemplateId);
@@ -449,10 +472,6 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
         setLoadingTemplates(false);
       });
   }, [isOpen, preselectedTemplateId, propTemplates]);
-
-  const currentTemplate = useMemo(() => {
-    return templates.find((t) => t.id === selectedTemplateId) || null;
-  }, [templates, selectedTemplateId]);
 
   // Vendor detection helpers
   const isDeviceCisco = (d: Device) => {
@@ -616,12 +635,14 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   useEffect(() => {
     if (!currentTemplate || !selectedDevice) return;
 
+    const isNewTemplate = prevTemplateRef.current !== currentTemplate.id;
+    const isNewDevice = prevDeviceRef.current !== selectedDevice.id;
+
     setVariableValues((prev) => {
-      const isNewDevice = prevDeviceRef.current !== selectedDevice.id;
-      const initialVars: Record<string, string> = isNewDevice ? {} : { ...prev };
+      const initialVars: Record<string, string> = (isNewDevice || isNewTemplate) ? {} : { ...prev };
 
       allDiscoveredVariables.forEach((v) => {
-        if (isNewDevice || initialVars[v.name] === undefined || initialVars[v.name] === '') {
+        if (isNewDevice || isNewTemplate || initialVars[v.name] === undefined || initialVars[v.name] === '') {
           const smartVal = getSmartDefault(v.name, selectedDevice);
           initialVars[v.name] = smartVal || v.default_value || '';
         }
@@ -630,6 +651,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       return initialVars;
     });
 
+    prevTemplateRef.current = currentTemplate.id;
     prevDeviceRef.current = selectedDevice.id;
     setIsIpConfirmed(true);
   }, [currentTemplate, selectedDevice, allDiscoveredVariables]);
@@ -1455,7 +1477,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                 />
               </label>
               <select
-                value={selectedTemplateId}
+                value={currentTemplate ? currentTemplate.id : selectedTemplateId}
                 onChange={(e) => setSelectedTemplateId(e.target.value)}
                 disabled={isApplying || loadingTemplates}
                 className={`w-full rounded-xl px-3 py-2 text-xs focus:outline-none transition ${
@@ -1464,12 +1486,40 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                     : 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
                 }`}
               >
-                {templates.map((t) => (
+                {effectiveTemplates.map((t) => (
                   <option key={t.id} value={t.id}>
                     [{t.vendor.toUpperCase()}] {t.name} ({t.target_type})
                   </option>
                 ))}
               </select>
+
+              {/* Selected Template Live Details Card */}
+              {currentTemplate && (
+                <div className={`mt-2 p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${
+                  isLightMode
+                    ? 'bg-cyan-50/90 border-cyan-200 text-slate-800 shadow-xs'
+                    : 'bg-cyan-950/40 border-cyan-500/30 text-cyan-200'
+                }`}>
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
+                      currentTemplate.vendor === 'mikrotik'
+                        ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                        : currentTemplate.vendor === 'cisco'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-slate-500/20 text-slate-300 border-slate-500/40'
+                    }`}>
+                      {currentTemplate.vendor === 'mikrotik' ? 'MikroTik RouterOS' : currentTemplate.vendor === 'cisco' ? 'Cisco IOS-XE' : 'Generic CLI'}
+                    </span>
+                    <span className="font-bold truncate max-w-sm">{currentTemplate.name}</span>
+                    <span className="text-[10px] opacity-75 font-mono">({currentTemplate.role || currentTemplate.target_type})</span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 text-[11px] font-mono opacity-80">
+                    <span>{(currentTemplate.commands || '').split('\n').filter((l: string) => l.trim()).length} {isEn ? 'CLI lines' : 'خط دستور'}</span>
+                    <span>•</span>
+                    <span>{allDiscoveredVariables.length} {isEn ? 'parameters' : 'پارامتر'}</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

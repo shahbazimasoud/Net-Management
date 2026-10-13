@@ -854,10 +854,13 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 
       {/* Apply Template Modal */}
       <ApplyTemplateModal
+        key={applyModalOpen ? `apply-${applyTargetTemplateId || 'default'}` : 'apply-closed'}
         isOpen={applyModalOpen}
         onClose={() => {
           undockModal('apply-template-modal');
           setApplyModalOpen(false);
+          setApplyTargetTemplateId(undefined);
+          setApplyTargetDevice(null);
         }}
         onMinimize={handleMinimizeApply}
         targetDevice={applyTargetDevice}
