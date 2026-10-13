@@ -312,6 +312,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 
   // Open apply modal for template with smart vendor matching & RBAC permission verification
   const handleOpenApply = (templateId: string) => {
+    undockModal('apply-template-modal');
     setApplyTargetTemplateId(templateId);
     const targetTmpl = templates.find((t) => t.id === templateId);
     let matchedDevice: Device | null = null;
@@ -354,7 +355,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     <div className={`p-4 sm:p-6 space-y-4 max-w-7xl mx-auto ${isRtl ? 'text-right' : 'text-left'} text-slate-100 animate-fadeIn`}>
       {/* Toast Notification */}
       {toastMessage && (
-        <div className={`fixed bottom-6 ${isRtl ? 'left-6' : 'right-6'} z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs shadow-[0_0_25px_rgba(16,185,129,0.3)] animate-fadeIn`}>
+        <div className={`fixed top-6 ${isRtl ? 'left-6' : 'right-6'} z-[1000005] flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs shadow-[0_0_25px_rgba(16,185,129,0.3)] animate-fadeIn`}>
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>
@@ -779,44 +780,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                         isSuperAdmin ||
                         effectivePolicy.canApplyTemplates !== false;
 
-                      const isDevCisco = (d: Device) =>
-                        (d.model || '').toLowerCase().includes('cisco') ||
-                        (d.model || '').toLowerCase().includes('catalyst') ||
-                        (d.platform || '').toLowerCase().includes('cisco');
-
-                      const isDevMikroTik = (d: Device) =>
-                        (d.model || '').toLowerCase().includes('mikrotik') ||
-                        (d.model || '').toLowerCase().includes('routerboard') ||
-                        (d.platform || '').toLowerCase().includes('mikrotik');
-
-                      const compatibleDevices = devices.filter((d) => {
-                        if (tmpl.vendor === 'cisco') return isDevCisco(d);
-                        if (tmpl.vendor === 'mikrotik') return isDevMikroTik(d);
-                        return true;
-                      });
-
-                      const permittedCompatibleDevices = compatibleDevices.filter(
-                        (d) => !effectivePolicy || isDeviceActionPermitted(effectivePolicy, d.id, 'apply_template')
-                      );
-
-                      const canApply = isGlobalApplyPermitted && permittedCompatibleDevices.length > 0;
-
-                      let disabledReason = '';
-                      if (!isGlobalApplyPermitted) {
-                        disabledReason = isEn
-                          ? 'Access Denied (RBAC): Template push is restricted by your role policy (canApplyTemplates=false).'
-                          : 'دسترسی محدود شده (RBAC): اعمال تمپلیت طبق پالیسی دسترسی شما غیرفعال است (canApplyTemplates=false).';
-                      } else if (compatibleDevices.length === 0) {
-                        disabledReason = isEn
-                          ? `No compatible ${tmpl.vendor === 'cisco' ? 'Cisco' : tmpl.vendor === 'mikrotik' ? 'MikroTik' : ''} devices found in inventory.`
-                          : `هیچ تجهیز سازگاری با خانواده ${tmpl.vendor === 'cisco' ? 'سیسکو' : tmpl.vendor === 'mikrotik' ? 'میکروتیک' : ''} در لیست موجود نیست.`;
-                      } else if (permittedCompatibleDevices.length === 0) {
-                        disabledReason = isEn
-                          ? 'Access Denied (RBAC): You do not have permission (apply_template) on compatible devices.'
-                          : 'دسترسی غیرمجاز (RBAC): شما فاقد مجوز اعمال تمپلیت (apply_template) بر روی تجهیزات سازگار با این الگو هستید.';
-                      }
-
-                      if (canApply) {
+                      if (isGlobalApplyPermitted) {
                         return (
                           <button
                             type="button"
@@ -829,6 +793,10 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                           </button>
                         );
                       }
+
+                      const disabledReason = isEn
+                        ? 'Access Denied (RBAC): Template push is restricted by your role policy (canApplyTemplates=false).'
+                        : 'دسترسی محدود شده (RBAC): اعمال تمپلیت طبق پالیسی دسترسی شما غیرفعال است (canApplyTemplates=false).';
 
                       return (
                         <button

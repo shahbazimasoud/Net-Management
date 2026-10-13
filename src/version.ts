@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.331.0';
+export const APP_VERSION = '1.332.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.332.0',
+    releaseDate: '2026-10-13',
+    type: 'minor',
+    title: 'اصلاح باز شدن بلادرنگ پنجره اعمال تمپلیت کانفیگ (Apply to Device) از روی کارت‌ها و انتقال Toast به بالای صفحه',
+    title_en: 'Fix Instant "Apply to Device" Modal Opening from Template Cards & Relocate Toast Notification to Header',
+    changes: [
+      'اصلاح عملکرد دکمه «Apply to Device...» در تمامی کارت‌های الگوهای کانفیگ جهت باز شدن تضمینی و بلادرنگ پنجره مودال اعمال الگو (ApplyTemplateModal).',
+      'حذف مسدودسازی پیش‌فرض کلیک در صورت عدم وجود سخت‌افزار پیش‌انتخاب‌شده هم‌خانواده در انبار تجهیزات و واگذاری ارزیابی سازگاری معماری به گیت ایمنی هوشمند درون مودال.',
+      'انتقال اعلان‌های وضعیت و پیام‌های بازخورد صفحه (Toast Notifications) به لایه فوقانی و بالای صفحه (top-6 z-[1000005]) جهت جلوگیری از پنهان ماندن پشت نوار ابزار فوتر.',
+      'خروج خودکار و بازیابی وضعیت مودال از نوار داک (undockModal) در هنگام کلیک مجدد بر روی دکمه اعمال در کارت‌ها.'
+    ],
+    changes_en: [
+      'Fixed "Apply to Device..." action on all config template cards to guarantee immediate opening and focus of the ApplyTemplateModal workspace.',
+      'Removed premature inventory pre-match gating on card buttons, delegating hardware family compatibility and risk assessment to the modal safety gate.',
+      'Relocated feedback notifications (Toast) to the top header layer (top-6 z-[1000005]), preventing occlusion by the bottom footer and ToolsDock bar.',
+      'Automated dock restoration and un-minimization (undockModal) upon triggering template application from card actions.'
+    ]
+  },
   {
     version: '1.331.0',
     releaseDate: '2026-10-13',
