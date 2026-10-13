@@ -623,6 +623,26 @@ export const translations = {
     apply_download_backup: 'Download Command Log',
     apply_btn_finish: 'Finish & Close',
 
+    // Phase 2: Live Variables & Rendered CLI Diff
+    apply_view_mode_split: 'Split View (Dual Pane)',
+    apply_view_mode_form: 'Variables Form',
+    apply_view_mode_cli: 'CLI Preview',
+    apply_diff_highlight_mode: 'Highlight Injected Variables',
+    apply_diff_plain_mode: 'Raw CLI Text',
+    apply_all_valid_badge: 'All Parameters Valid',
+    apply_errors_count_badge: '{count} Validation Issues',
+    apply_injected_stats: '{injected}/{total} Variables Injected • {lines} CLI Lines',
+    apply_search_cli_placeholder: 'Search rendered CLI commands...',
+    apply_reset_all_vars: 'Reset All Variables to Defaults',
+    apply_reset_single_var: 'Reset to default value',
+    apply_sec_identity_title: 'Device Identification',
+    apply_sec_network_title: 'L3 Network & Addressing',
+    apply_sec_vlan_title: 'L2 Switching & VLANs',
+    apply_sec_location_title: 'Physical Placement & Rack',
+    apply_sec_custom_title: 'Custom Template Parameters',
+    apply_validation_error_summary: 'Please correct the highlighted validation issues before previewing or executing commands.',
+    apply_fix_errors_to_continue: 'Fix validation errors to continue',
+
     // Port Inspector Modal
     port_inspector_title: 'Switch Port Inspector & Faceplate',
     port_inspector_filter_all: 'All Ports',
@@ -1314,6 +1334,26 @@ export const translations = {
     apply_success_title: 'قالب پیکربندی با موفقیت اعمال و در NVRAM ذخیره شد',
     apply_download_backup: 'دانلود گزارش اجرا',
     apply_btn_finish: 'اتمام و بستن',
+
+    // فاز ۲: رابط تعاملی متغیرها و پیش‌نمایش بلادرنگ اسکریپت
+    apply_view_mode_split: 'نمای تفکیک‌شده (دو پنلی)',
+    apply_view_mode_form: 'فرم متغیرها',
+    apply_view_mode_cli: 'پیش‌نمایش CLI',
+    apply_diff_highlight_mode: 'هایلایت متغیرهای تزریق‌شده',
+    apply_diff_plain_mode: 'متن خط فرمان خام',
+    apply_all_valid_badge: 'تمام پارامترها معتبر است',
+    apply_errors_count_badge: '{count} خطای اعتبارسنجی',
+    apply_injected_stats: '{injected} از {total} متغیر تزریق‌شده • {lines} خط فرمان',
+    apply_search_cli_placeholder: 'جستجو در خطوط فرامین رندرشده...',
+    apply_reset_all_vars: 'بازنشانی همه به مقادیر پیش‌فرض',
+    apply_reset_single_var: 'بازنشانی به مقدار پیش‌فرض',
+    apply_sec_identity_title: 'هویت و نام تجهیز',
+    apply_sec_network_title: 'آدرس‌دهی شبکه لایه سه',
+    apply_sec_vlan_title: 'سوئیچینگ لایه دو و وی‌لن‌ها',
+    apply_sec_location_title: 'استقرار فیزیکی و رک',
+    apply_sec_custom_title: 'سایر پارامترهای قالب کانفیگ',
+    apply_validation_error_summary: 'لطفاً خطاهای اعتبارسنجی مشخص‌شده را پیش از ادامه برطرف فرمایید.',
+    apply_fix_errors_to_continue: 'رفع خطاهای اعتبارسنجی برای ادامه',
 
     // Port Inspector Modal
     port_inspector_title: 'مشاهده و مدیریت پورت‌های سوئیچ',

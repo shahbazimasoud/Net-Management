@@ -37,7 +37,7 @@ async function runPhase4Tests() {
   
   const superAdminPolicy = { id: 'policy-super-admin', targetScope: 'all', priority: 100, canApplyTemplates: true };
   assert(
-    isTemplateApplyPermitted(superAdminPolicy, true) === true,
+    isTemplateApplyPermitted(superAdminPolicy as any, true) === true,
     'isTemplateApplyPermitted returns true for Super Admin'
   );
 

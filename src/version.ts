@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.328.0';
+export const APP_VERSION = '1.329.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.329.0',
+    releaseDate: '2026-10-13',
+    type: 'minor',
+    title: 'پیاده‌سازی فاز ۲ اعمال الگوهای کانفیگ: طراحی رابط تعاملی متغیرها و پیش‌نمایش بلادرنگ اسکریپت (Live Variables & Rendered CLI Diff) در مودال Apply to Device',
+    title_en: 'Phase 2: Live Variables Editor & Real-Time Rendered CLI Diff Engine in Apply to Device Modal',
+    changes: [
+      'طراحی نمای تفکیک‌شده دوپنلی (Split View) شامل پنل فرم متغیرها در کنار پیش‌نمایش ترمینال خط فرمان با امکان سوئیچ به نماهای تک‌پنلی (فقط فرم یا فقط ترمینال).',
+      'پیاده‌سازی موتور اعتبارسنجی بلادرنگ و سخت‌گیرانه (Strict Validation) برای ساختار آدرس‌های IPv4، ماسک شبکه پیوسته، پیشوند CIDR، شناسه‌های استاندارد VLAN (بین ۱ تا ۴۰۹۴) و نام‌های هاست استاندارد به همراه نمایش هشدار خط‌به‌خط.',
+      'رندر بلادرنگ دستورات خط فرمان با هایلایت متمایز توکن‌های تزریق‌شده (Injected Variable Highlighting) با امکان تغییر بین حالت هایلایت رنگی و متن خام ترمینال.',
+      'دسته‌بندی هوشمند متغیرها (هویت تجهیز، لایه ۳ و شبکه، لایه ۲ و وی‌لن‌ها، موقعیت فیزیکی و رک، و متغیرهای سفارشی) با مقادیر پیش‌فرض هوشمند و امکان بازنشانی تکی و دسته‌ای.'
+    ],
+    changes_en: [
+      'Implemented interactive Dual-Pane Split View featuring a categorized Variables Form side-by-side with a Live Syntax-Highlighted CLI Diff Terminal.',
+      'Engineered real-time Strict Validation for IPv4 addresses, contiguous subnet masks, CIDR prefixes, standard 802.1Q VLAN IDs (1-4094), and RFC 1123 hostnames with field-level alerts.',
+      'Built dynamic Injected Variable Token Highlighting in the rendered CLI stream with live keystroke updates and a toggle between highlighted badges and raw CLI text.',
+      'Added intelligent categorization of template variables (Identity, Layer-3 Network, Layer-2 VLANs, Physical Rack Placement, and Custom Parameters) with one-click smart resets to device defaults.'
+    ]
+  },
   {
     version: '1.328.0',
     releaseDate: '2026-10-12',

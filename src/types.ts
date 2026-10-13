@@ -499,9 +499,13 @@ export interface DeviceGroup {
 // ==========================================
 // Settings: Active Directory / LDAP Integration
 // ==========================================
+export type ServerGroup = DeviceGroup;
+
 export interface ADSecurityGroup {
   dn: string;
   cn: string;
+  displayName?: string;
+  sAMAccountName?: string;
   description: string;
   memberCount: number;
 }
@@ -509,6 +513,8 @@ export interface ADSecurityGroup {
 export interface ADUser {
   dn: string;
   samAccountName: string;
+  userPrincipalName?: string;
+  mail?: string;
   displayName: string;
   email: string;
   department: string;
@@ -610,6 +616,8 @@ export type NetworkDeviceActionKey =
   | 'delete_device'    // Delete Device from System
   | 'export_devices'   // Export Device & Inventory Data (JSON / CSV)
   | 'import_devices'   // Import Network Equipment & Inventory Data (JSON / CSV / Single / Batch)
+  | 'export_templates' // Export single and batch config templates
+  | 'import_templates' // Import config templates package
   // Granular Port & Interface Operations (Cisco & MikroTik)
   | 'port_power'       // Administrative Status (Shutdown / No-Shutdown / Enable / Disable)
   | 'port_mode'        // Cisco Switchport Mode (Trunk / Access)
@@ -670,6 +678,10 @@ export interface AccessPolicy {
   canViewSettings: boolean;
   canViewServers?: boolean;
   canViewLogs?: boolean;
+  canViewDiscovery?: boolean;
+  canViewNetworkTools?: boolean;
+  canViewPhysicalPlacement?: boolean;
+  canBulkConfigurePorts?: boolean;
   canCheckUpdate?: boolean;
   canPerformUpdate?: boolean;
 
@@ -1602,6 +1614,7 @@ export interface RemoteServer {
   name: string;
   hostname?: string;
   ip: string;
+  os?: string;
   os_type: 'linux' | 'windows';
   os_distro?: string;
   category: 'Infrastructure' | 'Database' | 'Kubernetes' | 'Web / App' | 'Monitoring' | 'Active Directory' | 'General' | string;

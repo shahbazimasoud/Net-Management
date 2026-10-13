@@ -1394,7 +1394,9 @@ export default function App() {
         }
         targetDevice={applyTemplateDevice}
         allDevices={devices}
+        effectivePolicy={effectivePolicy}
         preselectedTemplateId={applyPreselectedTemplateId}
+        isLightMode={panelTheme === 'light'}
         onApplied={(updatedDevice) => {
           loadData();
           showToast(t('toast_template_applied', { name: updatedDevice.name }));

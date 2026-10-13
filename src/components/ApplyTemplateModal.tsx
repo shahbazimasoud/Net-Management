@@ -21,7 +21,16 @@ import {
   RefreshCw,
   Cpu,
   Layers,
-  Sparkles
+  Sparkles,
+  RotateCcw,
+  SplitSquareVertical,
+  Eye,
+  Search,
+  AlertCircle,
+  Hash,
+  Network,
+  MapPin,
+  Sliders
 } from 'lucide-react';
 import { Device, ConfigTemplate, TemplateApplyResult, TemplateExecutionLog, AccessPolicy } from '../types';
 import { fetchTemplates, applyTemplateToDevice } from '../services/api';
@@ -30,6 +39,132 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { isDeviceActionPermitted } from '../utils/rbac';
+
+export interface ValidationResult {
+  valid: boolean;
+  errorEn?: string;
+  errorFa?: string;
+}
+
+// 1. Strict IPv4 validator
+export function validateStrictIPv4(val: string): ValidationResult {
+  const trimmed = (val || '').trim();
+  if (!trimmed) {
+    return { valid: false, errorEn: 'IP address is required', errorFa: 'آدرس آی‌پی الزامی است' };
+  }
+  const parts = trimmed.split('.');
+  if (parts.length !== 4) {
+    return { valid: false, errorEn: 'Must have 4 octets separated by dots (e.g. 192.168.1.1)', errorFa: 'باید ۴ بخش عددی با نقطه باشد (مثال: ۱۹۲.۱۶۸.۱.۱)' };
+  }
+  for (let i = 0; i < 4; i++) {
+    const p = parts[i];
+    if (!/^\d+$/.test(p)) {
+      return { valid: false, errorEn: `Octet ${i + 1} must be numeric`, errorFa: `بخش ${i + 1} باید عدد باشد` };
+    }
+    const num = parseInt(p, 10);
+    if (num < 0 || num > 255) {
+      return { valid: false, errorEn: `Octet ${i + 1} must be between 0 and 255`, errorFa: `بخش ${i + 1} باید بین ۰ تا ۲۵۵ باشد` };
+    }
+    if (p.length > 1 && p.startsWith('0')) {
+      return { valid: false, errorEn: `Octet ${i + 1} cannot have leading zeroes`, errorFa: `بخش ${i + 1} نباید با صفر شروع شود` };
+    }
+  }
+  const first = parseInt(parts[0], 10);
+  if (first === 0 || first === 127) {
+    return { valid: false, errorEn: `Prefix ${parts[0]}.0.0.0 is reserved / invalid host`, errorFa: `پیشوند ${parts[0]} رزرو شده است و برای هاست مجاز نیست` };
+  }
+  if (first >= 224 && first <= 239) {
+    return { valid: false, errorEn: 'Multicast address range (224–239.x) cannot be assigned to host', errorFa: 'آدرس مالتی‌کست نمی‌تواند به عنوان آی‌پی هاست تنظیم گردد' };
+  }
+  if (first >= 240) {
+    return { valid: false, errorEn: 'Class E / reserved address range', errorFa: 'آدرس رزرو کلاس E' };
+  }
+  return { valid: true };
+}
+
+// 2. Strict Subnet Mask validator
+const VALID_SUBNET_MASKS = new Set([
+  '255.0.0.0', '255.128.0.0', '255.192.0.0', '255.224.0.0', '255.240.0.0', '255.248.0.0', '255.252.0.0', '255.254.0.0',
+  '255.255.0.0', '255.255.128.0', '255.255.192.0', '255.255.224.0', '255.255.240.0', '255.255.248.0', '255.255.252.0', '255.255.254.0',
+  '255.255.255.0', '255.255.255.128', '255.255.255.192', '255.255.255.224', '255.255.255.240', '255.255.255.248', '255.255.255.252',
+  '255.255.255.254', '255.255.255.255'
+]);
+
+export function validateStrictSubnetMask(val: string): ValidationResult {
+  const trimmed = (val || '').trim();
+  if (!trimmed) {
+    return { valid: false, errorEn: 'Subnet mask is required', errorFa: 'ماسک زیرشبکه الزامی است' };
+  }
+  if (!VALID_SUBNET_MASKS.has(trimmed)) {
+    return { valid: false, errorEn: 'Invalid subnet mask (must be contiguous e.g. 255.255.255.0)', errorFa: 'ماسک نامعتبر است (باید ماسک استاندارد مانند 255.255.255.0 باشد)' };
+  }
+  return { valid: true };
+}
+
+// 3. Strict CIDR prefix validator
+export function validateStrictCIDR(val: string): ValidationResult {
+  const clean = (val || '').replace('/', '').trim();
+  if (!clean) {
+    return { valid: false, errorEn: 'CIDR prefix is required', errorFa: 'طول پیشوند CIDR الزامی است' };
+  }
+  const num = parseInt(clean, 10);
+  if (isNaN(num) || num < 1 || num > 32) {
+    return { valid: false, errorEn: 'CIDR must be an integer between 1 and 32', errorFa: 'پیشوند CIDR باید عددی بین ۱ تا ۳۲ باشد' };
+  }
+  return { valid: true };
+}
+
+// 4. Strict VLAN ID validator (IEEE 802.1Q)
+export function validateStrictVLAN(val: string): ValidationResult {
+  const trimmed = (val || '').trim();
+  if (!trimmed) {
+    return { valid: false, errorEn: 'VLAN ID is required', errorFa: 'شناسه وی‌لن الزامی است' };
+  }
+  const num = parseInt(trimmed, 10);
+  if (isNaN(num) || num < 1 || num > 4094) {
+    return { valid: false, errorEn: 'VLAN ID must be an integer between 1 and 4094', errorFa: 'شناسه VLAN باید بین ۱ تا ۴۰۹۴ باشد' };
+  }
+  return { valid: true };
+}
+
+// 5. Strict Hostname validator (RFC 1123)
+export function validateStrictHostname(val: string): ValidationResult {
+  const trimmed = (val || '').trim();
+  if (!trimmed) {
+    return { valid: false, errorEn: 'Hostname is required', errorFa: 'نام هاست الزامی است' };
+  }
+  if (trimmed.length > 63) {
+    return { valid: false, errorEn: 'Hostname must be 63 characters or less', errorFa: 'طول نام هاست نباید بیشتر از ۶۳ کاراکتر باشد' };
+  }
+  if (!/^[a-zA-Z0-9]([-a-zA-Z0-9_]*[a-zA-Z0-9])?$/.test(trimmed)) {
+    return { valid: false, errorEn: 'Alphanumeric with hyphens/underscores only (no spaces)', errorFa: 'فقط حروف، اعداد، خط تیره یا آندرلاین بدون فاصله' };
+  }
+  return { valid: true };
+}
+
+// Universal Variable Validator
+export function validateVariableField(name: string, value: string): ValidationResult {
+  const upper = name.toUpperCase();
+  if (upper === 'IP_ADDRESS' || upper === 'DEFAULT_GATEWAY' || upper.includes('IP') || upper.includes('GATEWAY') || upper.includes('DNS') || upper.includes('NTP')) {
+    return validateStrictIPv4(value);
+  }
+  if (upper === 'SUBNET_MASK') {
+    return validateStrictSubnetMask(value);
+  }
+  if (upper === 'SUBNET_CIDR' || upper === 'CIDR') {
+    return validateStrictCIDR(value);
+  }
+  if (upper === 'MANAGEMENT_VLAN' || upper === 'VLAN_ID' || upper === 'VLAN') {
+    return validateStrictVLAN(value);
+  }
+  if (upper === 'DEVICE_NAME' || upper === 'HOSTNAME') {
+    return validateStrictHostname(value);
+  }
+  if (!value || value.trim().length === 0) {
+    return { valid: false, errorEn: 'Field cannot be empty', errorFa: 'این مقدار نمی‌تواند خالی باشد' };
+  }
+  return { valid: true };
+}
 
 interface ApplyTemplateModalProps {
   isOpen: boolean;
@@ -65,6 +200,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     localStorage.getItem('panel_theme') === 'light' ||
     localStorage.getItem('theme_mode') === 'light'
   ));
+
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(
     initialTargetDevice || (allDevices.length > 0 ? allDevices[0] : null)
   );
@@ -73,6 +209,11 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(preselectedTemplateId || '');
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [activeStep, setActiveStep] = useState<'variables' | 'preview' | 'executing' | 'done'>('variables');
+
+  // Phase 2: Split View & Highlighting State
+  const [splitViewMode, setSplitViewMode] = useState<'split' | 'form' | 'cli'>('split');
+  const [highlightTokens, setHighlightTokens] = useState(true);
+  const [cliSearchQuery, setCliSearchQuery] = useState('');
 
   // Interactive Variables State
   const [showAllDevices, setShowAllDevices] = useState(false);
@@ -100,7 +241,6 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     }
     const currentTmpl = templates.find((t) => t.id === selectedTemplateId);
     const tmplName = currentTmpl?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
-    const devName = selectedDevice?.name || (isEn ? 'Device' : 'تجهیز');
     dockModal({
       id: 'apply-template-modal',
       labelEn: `Apply Template (${tmplName})`,
@@ -139,7 +279,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       if (initialTargetDevice) {
         setSelectedDevice(initialTargetDevice);
       } else if (allDevices.length > 0) {
-        // Intelligently pick device matching template if possible
+        // Pick device matching template if possible
         const tmpl = (propTemplates || templates).find((t) => t.id === (preselectedTemplateId || selectedTemplateId));
         if (tmpl) {
           const isMikroTikTmpl = tmpl.vendor === 'mikrotik';
@@ -197,7 +337,6 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
         if (preselectedTemplateId) {
           setSelectedTemplateId(preselectedTemplateId);
         } else if (res.templates.length > 0) {
-          // Smart match based on selected device type and model
           const dev = selectedDevice || (allDevices.length > 0 ? allDevices[0] : null);
           if (dev) {
             const isMikroTik = dev.model?.toLowerCase().includes('mikrotik') || dev.model?.toLowerCase().includes('routerboard') || dev.model?.toLowerCase().includes('crs');
@@ -302,12 +441,14 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
     // Standard known fields
     const defaultLabels: Record<string, { labelEn: string; labelFa: string; descEn: string; descFa: string }> = {
-      DEVICE_NAME: { labelEn: 'Device Name (Hostname)', labelFa: 'نام هاست و شناسه تجهیز', descEn: 'System hostname configured on the device', descFa: 'نام هاست تجهیز در شبکه' },
+      DEVICE_NAME: { labelEn: 'Device Hostname', labelFa: 'نام هاست و شناسه تجهیز', descEn: 'System hostname configured on the device', descFa: 'نام هاست تجهیز در شبکه' },
       IP_ADDRESS: { labelEn: 'Management IP Address', labelFa: 'آدرس آی‌پی مدیریتی', descEn: 'IPv4 address for management interface', descFa: 'آدرس آی‌پی اینترفیس مدیریتی' },
       SUBNET_MASK: { labelEn: 'Subnet Mask', labelFa: 'ماسک زیرشبکه', descEn: 'IPv4 dotted subnet mask', descFa: 'ماسک شبکه استاندارد (255.255.255.0)' },
       SUBNET_CIDR: { labelEn: 'Subnet CIDR Prefix', labelFa: 'طول پیشوند زیرشبکه (CIDR)', descEn: 'CIDR prefix length (e.g. 24)', descFa: 'پیشوند شبکه میکروتیک (مثلاً 24)' },
       DEFAULT_GATEWAY: { labelEn: 'Default Gateway', labelFa: 'دروازه پیش‌فرض (Gateway)', descEn: 'Next-hop default gateway IP', descFa: 'آدرس آی‌پی روتر پیش‌فرض' },
       MANAGEMENT_VLAN: { labelEn: 'Management VLAN ID', labelFa: 'شناسه وی‌لن مدیریتی (VLAN ID)', descEn: 'VLAN number for management', descFa: 'شماره وی‌لن پیش‌فرض مدیریت' },
+      VLAN_ID: { labelEn: 'VLAN Identifier', labelFa: 'شناسه وی‌لن (VLAN ID)', descEn: 'Standard 802.1Q VLAN number (1-4094)', descFa: 'شماره وی‌لن استاندارد شبکه' },
+      VLAN_NAME: { labelEn: 'VLAN Name', labelFa: 'نام وی‌لن', descEn: 'Administrative VLAN description name', descFa: 'عنوان تفکیک‌کننده شبکه وی‌لن' },
       BUILDING: { labelEn: 'Building Location', labelFa: 'نام ساختمان', descEn: 'Physical building name', descFa: 'ساختمان استقرار فیزیکی' },
       FLOOR: { labelEn: 'Floor Level', labelFa: 'طبقه استقرار', descEn: 'Floor location', descFa: 'طبقه محل نصب تجهیز' },
       UNIT: { labelEn: 'Room / Unit', labelFa: 'واحد / اتاق', descEn: 'Room or administrative unit', descFa: 'اتاق یا واحد اداری' },
@@ -343,6 +484,43 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     return Array.from(varsMap.values());
   }, [currentTemplate, isEn]);
 
+  // Compute smart default for a variable from the device
+  const getSmartDefault = (varName: string, dev: Device | null): string => {
+    if (!dev) return '';
+    switch (varName) {
+      case 'DEVICE_NAME':
+      case 'HOSTNAME':
+        return dev.name || '';
+      case 'IP_ADDRESS':
+        return dev.ip || '';
+      case 'BUILDING':
+        return dev.building || '';
+      case 'FLOOR':
+        return dev.floor || '';
+      case 'UNIT':
+        return dev.unit || '';
+      case 'RACK':
+        return dev.rack || '';
+      case 'DEFAULT_GATEWAY':
+        if (dev.ip) {
+          const parts = dev.ip.split('.');
+          if (parts.length === 4) {
+            return `${parts[0]}.${parts[1]}.${parts[2]}.254`;
+          }
+        }
+        return '';
+      case 'SUBNET_MASK':
+        return '255.255.255.0';
+      case 'SUBNET_CIDR':
+        return '24';
+      case 'MANAGEMENT_VLAN':
+      case 'VLAN_ID':
+        return '1';
+      default:
+        return '';
+    }
+  };
+
   // Pre-fill variable values based on current device and template
   useEffect(() => {
     if (!currentTemplate || !selectedDevice) return;
@@ -353,49 +531,8 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
 
       allDiscoveredVariables.forEach((v) => {
         if (isNewDevice || initialVars[v.name] === undefined || initialVars[v.name] === '') {
-          let val = v.default_value || '';
-
-          switch (v.name) {
-            case 'DEVICE_NAME':
-              val = selectedDevice.name || val;
-              break;
-            case 'IP_ADDRESS':
-              val = selectedDevice.ip || val;
-              break;
-            case 'BUILDING':
-              val = selectedDevice.building || val;
-              break;
-            case 'FLOOR':
-              val = selectedDevice.floor || val;
-              break;
-            case 'UNIT':
-              val = selectedDevice.unit || val;
-              break;
-            case 'RACK':
-              val = selectedDevice.rack || val;
-              break;
-            case 'DEFAULT_GATEWAY':
-              if (selectedDevice.ip) {
-                const parts = selectedDevice.ip.split('.');
-                if (parts.length === 4) {
-                  val = `${parts[0]}.${parts[1]}.${parts[2]}.254`;
-                }
-              }
-              break;
-            case 'SUBNET_MASK':
-              val = '255.255.255.0';
-              break;
-            case 'SUBNET_CIDR':
-              val = '24';
-              break;
-            case 'MANAGEMENT_VLAN':
-              val = '1';
-              break;
-            default:
-              break;
-          }
-
-          initialVars[v.name] = val;
+          const smartVal = getSmartDefault(v.name, selectedDevice);
+          initialVars[v.name] = smartVal || v.default_value || '';
         }
       });
 
@@ -406,41 +543,76 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     setIsIpConfirmed(true);
   }, [currentTemplate, selectedDevice, allDiscoveredVariables]);
 
-  // Render script preview
+  // Phase 2: Real-time Strict Validation across all discovered variables
+  const validationErrors = useMemo(() => {
+    const errors: Record<string, ValidationResult> = {};
+    allDiscoveredVariables.forEach((v) => {
+      const val = variableValues[v.name] ?? '';
+      const res = validateVariableField(v.name, val);
+      if (!res.valid) {
+        errors[v.name] = res;
+      }
+    });
+    return errors;
+  }, [allDiscoveredVariables, variableValues]);
+
+  const isAllVariablesValid = useMemo(() => {
+    return Object.keys(validationErrors).length === 0;
+  }, [validationErrors]);
+
+  // Render raw script with replaced variables
   const renderedScript = useMemo(() => {
     if (!currentTemplate) return '';
-    let script = currentTemplate.commands;
+    let script = currentTemplate.commands || '';
     Object.entries(variableValues).forEach(([k, v]) => {
       script = script.split(`{{${k}}}`).join(v || `[${k}]`);
     });
     return script;
   }, [currentTemplate, variableValues]);
 
-  // Simple IPv4 format check
-  const isIpValid = useMemo(() => {
-    const ip = variableValues['IP_ADDRESS'];
-    if (!ip) return false;
-    const regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-    return regex.test(ip.trim());
-  }, [variableValues]);
-
+  // Copy raw script
   const handleCopyScript = () => {
     navigator.clipboard.writeText(renderedScript);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 2000);
   };
 
+  // Download raw script
   const handleDownloadScript = () => {
     const ext = currentTemplate?.vendor === 'mikrotik' ? 'rsc' : 'cfg';
     const blob = new Blob([renderedScript], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${variableValues['DEVICE_NAME'] || 'device-config'}.${ext}`;
+    link.download = `${variableValues['DEVICE_NAME'] || selectedDevice?.name || 'device-config'}.${ext}`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
+  // Reset all variables to smart defaults
+  const handleResetAllVariables = () => {
+    if (!selectedDevice) return;
+    const resetVars: Record<string, string> = {};
+    allDiscoveredVariables.forEach((v) => {
+      const smartVal = getSmartDefault(v.name, selectedDevice);
+      resetVars[v.name] = smartVal || v.default_value || '';
+    });
+    setVariableValues(resetVars);
+    setIsIpConfirmed(true);
+  };
+
+  // Reset single variable
+  const handleResetSingleVariable = (varName: string) => {
+    if (!selectedDevice) return;
+    const smartVal = getSmartDefault(varName, selectedDevice);
+    const tmplVar = allDiscoveredVariables.find((v) => v.name === varName);
+    setVariableValues((prev) => ({
+      ...prev,
+      [varName]: smartVal || tmplVar?.default_value || '',
+    }));
+  };
+
+  // Execute template deployment
   const handleExecuteApply = async () => {
     if (!selectedDevice || !currentTemplate) {
       setApplyError(isEn ? 'Please select a target device and template.' : 'لطفاً تجهیز هدف و الگوی کانفیگ را انتخاب فرمایید.');
@@ -456,7 +628,16 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       return;
     }
 
-    if (!isIpConfirmed || !isIpValid) {
+    if (!isAllVariablesValid) {
+      setApplyError(
+        isEn
+          ? 'Please fix all highlighted parameter validation errors before applying.'
+          : 'لطفاً کلیه خطاهای اعتبارسنجی مشخص‌شده در متغیرها را پیش از اعمال برطرف نمایید.'
+      );
+      return;
+    }
+
+    if (!isIpConfirmed) {
       setApplyError(
         isEn
           ? 'Please review and confirm the validity of the IP address.'
@@ -503,11 +684,161 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
         onApplied(result.device);
       }
     } catch (err: any) {
-      setApplyError(err.message || 'خطا در اعمال تمپلیت روی تجهیز');
+      setApplyError(err.message || (isEn ? 'Error applying template to device.' : 'خطا در اعمال تمپلیت روی تجهیز'));
       setActiveStep('preview');
     } finally {
       setIsApplying(false);
     }
+  };
+
+  // Group discovered variables by category
+  const categorizedVariables = useMemo(() => {
+    const categories: {
+      id: 'identity' | 'network' | 'vlan' | 'location' | 'custom';
+      titleEn: string;
+      titleFa: string;
+      icon: any;
+      vars: typeof allDiscoveredVariables;
+    }[] = [
+      {
+        id: 'identity',
+        titleEn: 'Identity & Host',
+        titleFa: 'هویت و نام تجهیز',
+        icon: Hash,
+        vars: [],
+      },
+      {
+        id: 'network',
+        titleEn: 'L3 Network & Addressing',
+        titleFa: 'آدرس‌دهی شبکه لایه سه',
+        icon: Network,
+        vars: [],
+      },
+      {
+        id: 'vlan',
+        titleEn: 'L2 Switching & VLANs',
+        titleFa: 'سوئیچینگ لایه دو و وی‌لن‌ها',
+        icon: Layers,
+        vars: [],
+      },
+      {
+        id: 'location',
+        titleEn: 'Physical Placement & Rack',
+        titleFa: 'استقرار فیزیکی و رک',
+        icon: MapPin,
+        vars: [],
+      },
+      {
+        id: 'custom',
+        titleEn: 'Additional Parameters',
+        titleFa: 'سایر پارامترهای قالب کانفیگ',
+        icon: Sliders,
+        vars: [],
+      },
+    ];
+
+    allDiscoveredVariables.forEach((v) => {
+      const u = v.name.toUpperCase();
+      if (u === 'DEVICE_NAME' || u === 'HOSTNAME' || u === 'DOMAIN_NAME') {
+        categories[0].vars.push(v);
+      } else if (u.includes('IP') || u.includes('SUBNET') || u.includes('GATEWAY') || u.includes('DNS') || u.includes('CIDR') || u.includes('NTP')) {
+        categories[1].vars.push(v);
+      } else if (u.includes('VLAN') || u.includes('PORT') || u.includes('TRUNK')) {
+        categories[2].vars.push(v);
+      } else if (u === 'BUILDING' || u === 'FLOOR' || u === 'UNIT' || u === 'RACK' || u.includes('ROOM')) {
+        categories[3].vars.push(v);
+      } else {
+        categories[4].vars.push(v);
+      }
+    });
+
+    return categories.filter((c) => c.vars.length > 0);
+  }, [allDiscoveredVariables]);
+
+  // Phase 2: Live Syntax & Diff Token Renderer for the Terminal
+  const renderHighlightedCLILines = () => {
+    if (!currentTemplate) return null;
+    const raw = currentTemplate.commands || '';
+    const lines = raw.split('\n');
+    const query = cliSearchQuery.trim().toLowerCase();
+
+    return lines.map((line, lineIdx) => {
+      const isLineMatch = !query || line.toLowerCase().includes(query) || Object.entries(variableValues).some(([k, v]) => (v || '').toLowerCase().includes(query) && line.includes(`{{${k}}}`));
+
+      if (query && !isLineMatch) return null;
+
+      const parts = line.split(/(\{\{[A-Za-z0-9_]+\}\})/g);
+
+      return (
+        <div
+          key={lineIdx}
+          className={`flex items-start font-mono text-xs leading-relaxed group hover:bg-white/5 px-2 py-0.5 rounded transition ${
+            !isLineMatch ? 'opacity-30' : ''
+          }`}
+        >
+          <span className="w-8 shrink-0 text-right pr-2.5 text-slate-600 select-none text-[11px] font-mono">
+            {lineIdx + 1}
+          </span>
+          <div className="flex-1 whitespace-pre-wrap break-all dir-ltr text-left">
+            {parts.map((part, partIdx) => {
+              const match = part.match(/^\{\{([A-Za-z0-9_]+)\}\}$/);
+              if (match) {
+                const varName = match[1];
+                const val = variableValues[varName];
+                const hasVal = val !== undefined && val !== '';
+                const fieldError = validationErrors[varName];
+                const isInvalid = Boolean(fieldError);
+
+                if (!highlightTokens) {
+                  return (
+                    <span key={partIdx} className={hasVal ? 'text-cyan-300 font-semibold' : 'text-amber-400 font-bold'}>
+                      {hasVal ? val : `{{${varName}}}`}
+                    </span>
+                  );
+                }
+
+                return (
+                  <span
+                    key={partIdx}
+                    className={`inline-block px-1.5 py-0.2 mx-0.5 rounded font-mono font-bold text-[11px] transition-all shadow-xs ${
+                      isInvalid
+                        ? 'bg-rose-500/25 text-rose-300 border border-rose-500/60 ring-1 ring-rose-500/30'
+                        : hasVal
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.25)]'
+                        : 'bg-amber-500/25 text-amber-300 border border-amber-500/50 animate-pulse'
+                    }`}
+                    title={`${varName}: ${hasVal ? val : (isEn ? '[EMPTY]' : '[خالی]')}${
+                      isInvalid ? ` — ${isEn ? fieldError?.errorEn : fieldError?.errorFa}` : ''
+                    }`}
+                  >
+                    {hasVal ? val : `[${varName}]`}
+                  </span>
+                );
+              }
+
+              // CLI command keyword highlighting
+              const isComment = part.trim().startsWith('!') || part.trim().startsWith('#');
+              const isSectionHeader = part.trim().startsWith('interface') || part.trim().startsWith('router') || part.trim().startsWith('/ip') || part.trim().startsWith('/interface');
+
+              return (
+                <span
+                  key={partIdx}
+                  className={
+                    isComment
+                      ? 'text-slate-500 italic'
+                      : isSectionHeader
+                      ? 'text-cyan-400 font-semibold'
+                      : 'text-slate-200'
+                  }
+                >
+                  {part}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      );
+    });
   };
 
   if (!isOpen) return null;
@@ -528,7 +859,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       <div className={`w-full ${
         isMaximized
           ? 'h-full max-h-full max-w-none rounded-none border-none my-0'
-          : 'max-w-4xl max-h-[calc(100vh-4rem)] my-auto rounded-2xl border'
+          : 'max-w-7xl max-h-[calc(100vh-4rem)] my-auto rounded-2xl border'
       } flex flex-col overflow-hidden transition-all duration-200 ${
         isLightMode
           ? 'bg-white border-slate-200 text-slate-900 shadow-2xl shadow-slate-900/15'
@@ -567,6 +898,9 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                     : currentTemplate?.vendor === 'cisco'
                     ? 'Cisco IOS-XE'
                     : 'Generic CLI'}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-semibold">
+                  Phase 2: Live Split-View & Diff
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -634,14 +968,14 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
               }`}>
                 1
               </span>
-              <span>{t('apply_step1')}</span>
+              <span>{isEn ? '1. Live Variables & Split Diff' : '۱. متغیرها و پیش‌نمایش زنده'}</span>
             </button>
 
             <span className={isLightMode ? 'text-slate-400' : 'text-slate-600'}>→</span>
 
             <button
               onClick={() => setActiveStep('preview')}
-              disabled={isApplying}
+              disabled={isApplying || !isAllVariablesValid}
               className={`flex items-center gap-1.5 font-medium px-2.5 py-1 rounded-lg transition cursor-pointer ${
                 activeStep === 'preview'
                   ? isLightMode
@@ -650,7 +984,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   : isLightMode
                   ? 'text-slate-600 hover:text-slate-900'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+              } ${!isAllVariablesValid ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
                 isLightMode ? 'bg-indigo-200 text-indigo-800' : 'bg-cyan-500/20 border border-cyan-500/40'
@@ -684,7 +1018,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
         </div>
 
         {/* Modal Body (Scrollable) */}
-        <div className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 ${isLightMode ? 'bg-white' : ''}`}>
+        <div className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 ${isLightMode ? 'bg-white' : ''}`}>
           {/* Target Device & Template Selector Bar */}
           <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border transition ${
             isLightMode ? 'bg-slate-50/90 border-slate-200' : 'bg-white/5 border-white/10'
@@ -852,317 +1186,410 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
             </div>
           )}
 
-          {/* STEP 1: Interactive Variables & IP Confirmation */}
+          {/* STEP 1: Live Variables & Split-View CLI Diff */}
           {activeStep === 'variables' && currentTemplate && (
-            <div className="space-y-5 animate-fadeIn">
-              {/* Interactive IP Confirmation Box (Crucial User Request) */}
-              <div
-                className={`p-4 rounded-xl border transition-all ${
-                  isIpConfirmed && isIpValid
-                    ? isLightMode
-                      ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
-                      : 'bg-emerald-500/10 border-emerald-500/30'
-                    : isLightMode
-                    ? 'bg-amber-50/90 border-amber-300 text-amber-950 shadow-xs'
-                    : 'bg-amber-500/15 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`p-2 rounded-xl mt-0.5 ${
-                        isIpConfirmed && isIpValid
-                          ? isLightMode ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500/20 text-emerald-300'
-                          : isLightMode ? 'bg-amber-100 text-amber-700' : 'bg-amber-500/20 text-amber-300 animate-pulse'
-                      }`}
-                    >
-                      <ShieldAlert className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className={`text-sm font-bold flex items-center gap-2 ${
-                        isLightMode ? 'text-slate-900' : 'text-white'
-                      }`}>
-                        <span>{t('apply_ip_check_title')}</span>
-                        {isIpValid ? (
-                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${
-                            isLightMode ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                          }`}>
-                            {t('apply_ip_valid')}
-                          </span>
-                        ) : (
-                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${
-                            isLightMode ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
-                          }`}>
-                            {t('apply_ip_invalid')}
-                          </span>
-                        )}
-                      </h4>
-                      <p className={`text-xs mt-1 ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
-                        {t('apply_ip_desc').replace('{ip}', selectedDevice?.ip || variableValues['IP_ADDRESS'] || '')}
-                      </p>
-                    </div>
-                  </div>
-
+            <div className="space-y-4 animate-fadeIn">
+              {/* Toolbar: View Mode Selector + Validation Summary */}
+              <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 transition ${
+                isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-white/10'
+              }`}>
+                {/* View Mode Toggle */}
+                <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-950/40 border border-white/5">
                   <button
                     type="button"
-                    onClick={() => setIsIpConfirmed(!isIpConfirmed)}
-                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shadow-sm cursor-pointer ${
-                      isIpConfirmed
-                        ? 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs'
-                        : 'bg-amber-600 text-white hover:bg-amber-500'
+                    onClick={() => setSplitViewMode('split')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      splitViewMode === 'split'
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                        : 'text-slate-400 hover:text-white'
                     }`}
+                    title={isEn ? 'Dual Pane Split View' : 'نمای تفکیک‌شده دوپنلی'}
                   >
-                    {isIpConfirmed ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{t('apply_ip_confirmed_btn')}</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        <span>{t('apply_ip_unconfirmed_btn')}</span>
-                      </>
-                    )}
+                    <SplitSquareVertical className="w-3.5 h-3.5" />
+                    <span>{t('apply_view_mode_split')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSplitViewMode('form')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      splitViewMode === 'form'
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title={isEn ? 'Variables Form Only' : 'فقط فرم متغیرها'}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>{t('apply_view_mode_form')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSplitViewMode('cli')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      splitViewMode === 'cli'
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title={isEn ? 'CLI Preview Only' : 'فقط پیش‌نمایش CLI'}
+                  >
+                    <Terminal className="w-3.5 h-3.5" />
+                    <span>{t('apply_view_mode_cli')}</span>
                   </button>
                 </div>
 
-                {/* Direct Network & Host Parameter Overrides */}
-                <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-3 border-t ${
-                  isLightMode ? 'border-slate-200' : 'border-white/10'
-                }`}>
-                  <div>
-                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <span>{isEn ? 'Host Name (DEVICE_NAME)' : 'نام هاست و شناسه تجهیز'}</span>
-                      <FieldInfoTooltip
-                        fieldName={isEn ? 'Device Hostname' : 'نام هاست تجهیز'}
-                        infoWhatEn="System identifier hostname to be set on the target hardware."
-                        infoWhatFa="شناسه و نام سیستم تجهیز که در تنظیمات خط فرمان ست می‌شود."
-                        infoWhyEn="Required for network discovery, DNS records, and inventory identification."
-                        infoWhyFa="الزامی برای شناسایی تجهیز در شبکه، مانیتورینگ و لاگ‌های سیستمی."
-                        infoExampleEn="SW-ACCESS-02"
-                        infoExampleFa="SW-FLOOR1-CORE"
-                        isEn={isEn}
-                        isLightMode={isLightMode}
-                      />
-                    </label>
-                    <input
-                      type="text"
-                      value={variableValues['DEVICE_NAME'] || ''}
-                      onChange={(e) =>
-                        setVariableValues({ ...variableValues, DEVICE_NAME: e.target.value })
-                      }
-                      placeholder={selectedDevice?.name || 'Device-Hostname'}
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono focus:outline-none transition ${
-                        isLightMode
-                          ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
-                          : 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
-                      }`}
-                    />
-                  </div>
+                {/* Validation Status Pill & Stats */}
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                    {t('apply_injected_stats')
+                      .replace('{injected}', String(allDiscoveredVariables.filter((v) => Boolean(variableValues[v.name])).length))
+                      .replace('{total}', String(allDiscoveredVariables.length))
+                      .replace('{lines}', String((currentTemplate.commands || '').split('\n').filter((l) => l.trim()).length))}
+                  </span>
 
-                  <div>
-                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <span>{t('apply_ip_field')}</span>
-                      <FieldInfoTooltip
-                        fieldName={isEn ? 'Management IP' : 'آدرس آی‌پی مدیریتی'}
-                        infoWhatEn="IPv4 management address to configure on the target network device."
-                        infoWhatFa="آدرس آی‌پی مدیریتی نسخه ۴ که بر روی اینترفیس اصلی تجهیز تنظیم می‌شود."
-                        infoWhyEn="Target device communication and remote access rely directly on this IP address."
-                        infoWhyFa="تمام دسترسی‌های خط فرمان، SSH و مانیتورینگ از طریق این آدرس انجام خواهد شد."
-                        infoExampleEn="192.168.10.15"
-                        infoExampleFa="۱۹۲.۱۶۸.۱۰.۱۵"
-                        isEn={isEn}
-                        isLightMode={isLightMode}
-                      />
-                    </label>
-                    <input
-                      type="text"
-                      value={variableValues['IP_ADDRESS'] || ''}
-                      onChange={(e) => {
-                        setVariableValues({ ...variableValues, IP_ADDRESS: e.target.value });
-                        setIsIpConfirmed(false);
-                      }}
-                      placeholder="192.168.1.1"
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono focus:outline-none transition ${
-                        isLightMode
-                          ? isIpValid
-                            ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
-                            : 'bg-white border border-rose-400 text-slate-900 focus:border-rose-500'
-                          : isIpValid
-                          ? 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
-                          : 'bg-slate-950 border border-rose-500 text-white focus:border-rose-400'
-                      }`}
-                    />
-                  </div>
+                  {isAllVariablesValid ? (
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                      isLightMode ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    }`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>{t('apply_all_valid_badge')}</span>
+                    </span>
+                  ) : (
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                      isLightMode ? 'bg-rose-100 text-rose-800 border border-rose-300' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                    }`}>
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                      <span>{t('apply_errors_count_badge').replace('{count}', String(Object.keys(validationErrors).length))}</span>
+                    </span>
+                  )}
 
-                  <div>
-                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <span>{t('apply_subnet_field')}</span>
-                      <FieldInfoTooltip
-                        fieldName={isEn ? 'Subnet Mask / Prefix' : 'ماسک شبکه / پیشوند'}
-                        infoWhatEn="Subnet mask or CIDR prefix length determining the broadcast domain."
-                        infoWhatFa="ماسک زیرشبکه یا طول پیشوند شبکه که محدوده آدرس‌های معتبر را مشخص می‌کند."
-                        infoWhyEn="Required for IP routing and correct subnet assignment on interface."
-                        infoWhyFa="برای مسیریابی صحیح بسته‌ها در لایه ۳ شبکه ضروری است."
-                        infoExampleEn="255.255.255.0 or 24"
-                        infoExampleFa="255.255.255.0 یا 24"
-                        isEn={isEn}
-                        isLightMode={isLightMode}
-                      />
-                    </label>
-                    <input
-                      type="text"
-                      value={
-                        currentTemplate.vendor === 'mikrotik'
-                          ? variableValues['SUBNET_CIDR'] || '24'
-                          : variableValues['SUBNET_MASK'] || '255.255.255.0'
-                      }
-                      onChange={(e) => {
-                        if (currentTemplate.vendor === 'mikrotik') {
-                          setVariableValues({ ...variableValues, SUBNET_CIDR: e.target.value });
-                        } else {
-                          setVariableValues({ ...variableValues, SUBNET_MASK: e.target.value });
-                        }
-                      }}
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono focus:outline-none transition ${
-                        isLightMode
-                          ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
-                          : 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
-                      }`}
-                    />
-                  </div>
-
-                  <div>
-                    <label className={`block text-[11px] font-medium mb-1 flex items-center justify-between ${isLightMode ? 'text-slate-700' : 'text-slate-300'}`}>
-                      <span>{t('apply_gateway_field')}</span>
-                      <FieldInfoTooltip
-                        fieldName={isEn ? 'Default Gateway' : 'گیت‌وی پیش‌فرض'}
-                        infoWhatEn="Next-hop gateway router IP address for traffic exiting the local subnet."
-                        infoWhatFa="آدرس آی‌پی روتر یا سوییچ لایه بالاتر برای خروج ترافیک از زیرشبکه."
-                        infoWhyEn="Ensures the device can communicate beyond its immediate local segment."
-                        infoWhyFa="امکان برقراری ارتباط تجهیز با سایر بخش‌های شبکه و اینترنت را فراهم می‌سازد."
-                        infoExampleEn="192.168.1.254"
-                        infoExampleFa="۱۹۲.۱۶۸.۱.۲۵۴"
-                        isEn={isEn}
-                        isLightMode={isLightMode}
-                      />
-                    </label>
-                    <input
-                      type="text"
-                      value={variableValues['DEFAULT_GATEWAY'] || ''}
-                      onChange={(e) =>
-                        setVariableValues({ ...variableValues, DEFAULT_GATEWAY: e.target.value })
-                      }
-                      placeholder="192.168.1.254"
-                      className={`w-full px-3 py-2 rounded-xl text-xs font-mono focus:outline-none transition ${
-                        isLightMode
-                          ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
-                          : 'bg-slate-950 border border-white/15 text-white focus:border-cyan-500'
-                      }`}
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetAllVariables}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer ${
+                      isLightMode
+                        ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-xs'
+                        : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                    }`}
+                    title={t('apply_reset_all_vars')}
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span className="hidden md:inline">{t('apply_reset_all_vars')}</span>
+                  </button>
                 </div>
               </div>
 
-              {/* Other Template Variables Grid */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className={`text-xs font-bold flex items-center gap-1.5 ${
-                    isLightMode ? 'text-slate-800' : 'text-slate-300'
-                  }`}>
-                    <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>{t('apply_other_params')}</span>
-                  </h4>
-                  <span className={`text-[11px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                    {t('apply_other_params_desc')}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {allDiscoveredVariables
-                    .filter((v) => !['DEVICE_NAME', 'IP_ADDRESS', 'SUBNET_MASK', 'SUBNET_CIDR', 'DEFAULT_GATEWAY'].includes(v.name))
-                    .map((variable) => (
-                      <div
-                        key={variable.name}
-                        className={`p-3 rounded-xl border transition ${
-                          isLightMode
-                            ? 'bg-slate-50/90 border-slate-200 focus-within:border-cyan-600/60 shadow-xs'
-                            : 'bg-white/5 border-white/10 focus-within:border-cyan-500/50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <label className={`text-[11px] font-medium truncate flex items-center gap-1 ${
-                            isLightMode ? 'text-slate-800' : 'text-slate-200'
-                          }`}>
-                            <span>{variable.label}</span>
-                          </label>
-                          <div className="flex items-center gap-1">
-                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
-                              isLightMode
-                                ? 'text-cyan-700 bg-cyan-100/70 border-cyan-300'
-                                : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20'
+              {/* Split Dual-Pane View Container */}
+              <div className={`grid gap-5 ${
+                splitViewMode === 'split' ? 'grid-cols-1 xl:grid-cols-12' : 'grid-cols-1'
+              }`}>
+                {/* LEFT PANE: Variables & Parameters Form */}
+                {(splitViewMode === 'split' || splitViewMode === 'form') && (
+                  <div className={`${splitViewMode === 'split' ? 'xl:col-span-6 space-y-4' : 'space-y-4'}`}>
+                    {/* Management IP Confirmation Box */}
+                    <div
+                      className={`p-4 rounded-xl border transition-all ${
+                        isIpConfirmed && !validationErrors['IP_ADDRESS']
+                          ? isLightMode
+                            ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                            : 'bg-emerald-500/10 border-emerald-500/30'
+                          : isLightMode
+                          ? 'bg-amber-50/90 border-amber-300 text-amber-950 shadow-xs'
+                          : 'bg-amber-500/15 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={`p-2 rounded-xl mt-0.5 ${
+                              isIpConfirmed && !validationErrors['IP_ADDRESS']
+                                ? isLightMode ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500/20 text-emerald-300'
+                                : isLightMode ? 'bg-amber-100 text-amber-700' : 'bg-amber-500/20 text-amber-300 animate-pulse'
+                            }`}
+                          >
+                            <ShieldAlert className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className={`text-sm font-bold flex items-center gap-2 ${
+                              isLightMode ? 'text-slate-900' : 'text-white'
                             }`}>
-                              {`{{${variable.name}}}`}
-                            </span>
-                            <FieldInfoTooltip
-                              fieldName={variable.label}
-                              infoWhatEn={`Template parameter placeholder for ${variable.name}.`}
-                              infoWhatFa={`متغیر و پارامتر جایگزین در قالب دستورات برای ${variable.name}.`}
-                              infoWhyEn="Replaces placeholder dynamically in CLI commands during execution."
-                              infoWhyFa="این مقدار قبل از اجرای اسکریپت بر روی تجهیز، در متن فرامین جایگزین می‌گردد."
-                              infoExampleEn={variable.default_value || 'Custom Value'}
-                              infoExampleFa={variable.default_value || 'مقدار سفارشی'}
-                              isEn={isEn}
-                              isLightMode={isLightMode}
-                            />
+                              <span>{t('apply_ip_check_title')}</span>
+                              {!validationErrors['IP_ADDRESS'] ? (
+                                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${
+                                  isLightMode ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                                }`}>
+                                  {t('apply_ip_valid')}
+                                </span>
+                              ) : (
+                                <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${
+                                  isLightMode ? 'bg-rose-100 text-rose-800 border-rose-300' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                                }`}>
+                                  {t('apply_ip_invalid')}
+                                </span>
+                              )}
+                            </h4>
+                            <p className={`text-xs mt-1 ${isLightMode ? 'text-slate-600' : 'text-slate-300'}`}>
+                              {t('apply_ip_desc').replace('{ip}', selectedDevice?.ip || variableValues['IP_ADDRESS'] || '')}
+                            </p>
                           </div>
                         </div>
-                        <input
-                          type={variable.type === 'password' ? 'password' : 'text'}
-                          value={variableValues[variable.name] || ''}
-                          onChange={(e) =>
-                            setVariableValues({
-                              ...variableValues,
-                              [variable.name]: e.target.value,
-                            })
-                          }
-                          placeholder={variable.default_value || ''}
-                          className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-mono focus:outline-none transition ${
-                            isLightMode
-                              ? 'bg-white border border-slate-300 text-slate-900 focus:border-cyan-600 shadow-xs'
-                              : 'bg-slate-950 border border-white/10 text-white focus:border-cyan-400'
+
+                        <button
+                          type="button"
+                          onClick={() => setIsIpConfirmed(!isIpConfirmed)}
+                          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shadow-sm cursor-pointer ${
+                            isIpConfirmed
+                              ? 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs'
+                              : 'bg-amber-600 text-white hover:bg-amber-500'
                           }`}
-                        />
-                        {variable.description && (
-                          <div className={`text-[10px] mt-1 truncate ${
-                            isLightMode ? 'text-slate-500' : 'text-slate-400'
-                          }`} title={variable.description}>
-                            {variable.description}
-                          </div>
-                        )}
+                        >
+                          {isIpConfirmed ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>{t('apply_ip_confirmed_btn')}</span>
+                            </>
+                          ) : (
+                            <>
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              <span>{t('apply_ip_unconfirmed_btn')}</span>
+                            </>
+                          )}
+                        </button>
                       </div>
-                    ))}
-                </div>
+                    </div>
+
+                    {/* Categorized Variable Sections */}
+                    {categorizedVariables.map((category) => {
+                      const IconComp = category.icon;
+                      return (
+                        <div
+                          key={category.id}
+                          className={`p-4 rounded-xl border space-y-3 transition ${
+                            isLightMode ? 'bg-slate-50/80 border-slate-200 shadow-xs' : 'bg-slate-900/60 border-white/10'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between border-b pb-2 border-white/5">
+                            <h4 className={`text-xs font-bold flex items-center gap-2 ${
+                              isLightMode ? 'text-slate-800' : 'text-slate-200'
+                            }`}>
+                              <IconComp className="w-4 h-4 text-cyan-400" />
+                              <span>{isEn ? category.titleEn : category.titleFa}</span>
+                            </h4>
+                            <span className="text-[10px] font-mono text-slate-500">
+                              {category.vars.length} {isEn ? 'parameters' : 'متغیر'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {category.vars.map((variable) => {
+                              const val = variableValues[variable.name] ?? '';
+                              const err = validationErrors[variable.name];
+                              const isInvalid = Boolean(err);
+
+                              return (
+                                <div
+                                  key={variable.name}
+                                  className={`p-3 rounded-xl border transition ${
+                                    isInvalid
+                                      ? 'border-rose-500/50 bg-rose-500/5'
+                                      : isLightMode
+                                      ? 'bg-white border-slate-200 focus-within:border-cyan-600 shadow-xs'
+                                      : 'bg-slate-950/70 border-white/10 focus-within:border-cyan-500/50'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <label className={`text-[11px] font-semibold truncate flex items-center gap-1 ${
+                                      isLightMode ? 'text-slate-800' : 'text-slate-200'
+                                    }`}>
+                                      <span>{variable.label}</span>
+                                    </label>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border ${
+                                        isLightMode
+                                          ? 'text-cyan-700 bg-cyan-100/70 border-cyan-300'
+                                          : 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20'
+                                      }`}>
+                                        {`{{${variable.name}}}`}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleResetSingleVariable(variable.name)}
+                                        className="p-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-white/10 transition cursor-pointer"
+                                        title={t('apply_reset_single_var')}
+                                      >
+                                        <RotateCcw className="w-3 h-3" />
+                                      </button>
+                                      <FieldInfoTooltip
+                                        fieldName={variable.label}
+                                        infoWhatEn={variable.description || `Parameter placeholder for ${variable.name}.`}
+                                        infoWhatFa={variable.description || `متغیر خط فرمان برای ${variable.name}.`}
+                                        infoWhyEn="Replaces token dynamically during CLI execution on the target hardware."
+                                        infoWhyFa="قبل از ارسال فرامین به تجهیز، این مقدار در دستورات جایگزین می‌گردد."
+                                        infoExampleEn={variable.default_value || 'Custom Value'}
+                                        infoExampleFa={variable.default_value || 'مقدار سفارشی'}
+                                        isEn={isEn}
+                                        isLightMode={isLightMode}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <input
+                                    type={variable.type === 'password' ? 'password' : 'text'}
+                                    value={val}
+                                    onChange={(e) => {
+                                      setVariableValues({
+                                        ...variableValues,
+                                        [variable.name]: e.target.value,
+                                      });
+                                      if (variable.name === 'IP_ADDRESS') {
+                                        setIsIpConfirmed(false);
+                                      }
+                                    }}
+                                    placeholder={variable.default_value || `{{${variable.name}}}`}
+                                    className={`w-full px-3 py-1.5 rounded-lg text-xs font-mono focus:outline-none transition ${
+                                      isInvalid
+                                        ? 'bg-rose-500/10 border border-rose-500 text-rose-200 focus:ring-1 focus:ring-rose-500'
+                                        : isLightMode
+                                        ? 'bg-slate-50 border border-slate-300 text-slate-900 focus:border-cyan-600'
+                                        : 'bg-slate-900 border border-white/10 text-white focus:border-cyan-400'
+                                    }`}
+                                  />
+
+                                  {/* Field-level error explanation */}
+                                  {isInvalid ? (
+                                    <div className="flex items-center gap-1 text-[10px] text-rose-400 mt-1 font-mono">
+                                      <AlertTriangle className="w-3 h-3 shrink-0" />
+                                      <span>{isEn ? err?.errorEn : err?.errorFa}</span>
+                                    </div>
+                                  ) : (
+                                    variable.description && (
+                                      <div className={`text-[10px] mt-1 truncate ${
+                                        isLightMode ? 'text-slate-500' : 'text-slate-400'
+                                      }`} title={variable.description}>
+                                        {variable.description}
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* RIGHT PANE: Live Rendered CLI Diff Terminal */}
+                {(splitViewMode === 'split' || splitViewMode === 'cli') && (
+                  <div className={`${splitViewMode === 'split' ? 'xl:col-span-6 space-y-3' : 'space-y-3'}`}>
+                    {/* Terminal Header Bar */}
+                    <div className="p-3 rounded-xl bg-slate-950 border border-white/10 flex flex-wrap items-center justify-between gap-2.5">
+                      {/* Left: Terminal Window Dots & Badge */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 mr-1">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80 inline-block" />
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80 inline-block" />
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 inline-block" />
+                        </div>
+                        <Terminal className="w-4 h-4 text-cyan-400" />
+                        <span className="text-xs font-mono font-bold text-slate-200">
+                          {selectedDevice?.name || 'Device'}: CLI Live Diff
+                        </span>
+                      </div>
+
+                      {/* Right: Controls & Search */}
+                      <div className="flex items-center gap-2">
+                        {/* Token Highlight Toggle */}
+                        <button
+                          type="button"
+                          onClick={() => setHighlightTokens(!highlightTokens)}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer border ${
+                            highlightTokens
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-xs'
+                              : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+                          }`}
+                          title={highlightTokens ? t('apply_diff_highlight_mode') : t('apply_diff_plain_mode')}
+                        >
+                          <Sparkles className="w-3 h-3 text-emerald-400" />
+                          <span className="hidden sm:inline">
+                            {highlightTokens ? t('apply_diff_highlight_mode') : t('apply_diff_plain_mode')}
+                          </span>
+                        </button>
+
+                        {/* Copy Script */}
+                        <button
+                          type="button"
+                          onClick={handleCopyScript}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/10 hover:bg-white/15 text-slate-200 border border-white/10 transition cursor-pointer"
+                        >
+                          {copiedScript ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span className="hidden sm:inline">{copiedScript ? t('apply_copied_script') : t('apply_copy_script')}</span>
+                        </button>
+
+                        {/* Download Script */}
+                        <button
+                          type="button"
+                          onClick={handleDownloadScript}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-white/10 hover:bg-white/15 text-slate-200 border border-white/10 transition cursor-pointer"
+                          title={t('apply_download_script')}
+                        >
+                          <Download className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Terminal Search Filter Bar */}
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={cliSearchQuery}
+                        onChange={(e) => setCliSearchQuery(e.target.value)}
+                        placeholder={t('apply_search_cli_placeholder')}
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-950 border border-white/10 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition font-mono"
+                      />
+                      {cliSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setCliSearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Live Highlighted CLI Output Container */}
+                    <div className="rounded-xl p-3 bg-slate-950 border border-cyan-500/25 max-h-[500px] xl:max-h-[580px] overflow-y-auto selection:bg-cyan-500/30 shadow-inner">
+                      <div className="space-y-0.5">
+                        {renderHighlightedCLILines()}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Step 1 Footer Action */}
-              <div className={`flex items-center justify-between pt-4 border-t ${
+              {/* Step 1 Footer Action Bar */}
+              <div className={`flex flex-wrap items-center justify-between gap-3 pt-4 border-t ${
                 isLightMode ? 'border-slate-200' : 'border-white/10'
               }`}>
                 <div className="text-xs">
-                  {isIpConfirmed && isIpValid ? (
-                    <span className={`flex items-center gap-1 font-medium ${
+                  {isAllVariablesValid && isIpConfirmed ? (
+                    <span className={`flex items-center gap-1.5 font-medium ${
                       isLightMode ? 'text-emerald-700' : 'text-emerald-400'
                     }`}>
-                      <Check className="w-3.5 h-3.5" />
-                      {t('apply_ready_to_preview')}
+                      <Check className="w-4 h-4 text-emerald-500" />
+                      <span>{t('apply_ready_to_preview')}</span>
                     </span>
                   ) : (
-                    <span className={`flex items-center gap-1 font-medium ${
+                    <span className={`flex items-center gap-1.5 font-medium ${
                       isLightMode ? 'text-amber-700' : 'text-amber-400'
                     }`}>
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      {t('apply_need_ip_confirm')}
+                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      <span>
+                        {!isIpConfirmed
+                          ? t('apply_need_ip_confirm')
+                          : t('apply_validation_error_summary')}
+                      </span>
                     </span>
                   )}
                 </div>
@@ -1170,10 +1597,10 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveStep('preview')}
-                  disabled={!selectedDevice || !isDevicePermittedForApply(selectedDevice)}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold shadow-md transition active:scale-95 ${
-                    selectedDevice && isDevicePermittedForApply(selectedDevice)
-                      ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white cursor-pointer'
+                  disabled={!selectedDevice || !isDevicePermittedForApply(selectedDevice) || !isAllVariablesValid}
+                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-semibold shadow-md transition active:scale-95 ${
+                    selectedDevice && isDevicePermittedForApply(selectedDevice) && isAllVariablesValid
+                      ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.3)]'
                       : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
                   }`}
                   title={
@@ -1181,6 +1608,8 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                       ? (isEn ? 'Please select an authorized device' : 'لطفاً یک تجهیز مجاز را انتخاب نمایید')
                       : !isDevicePermittedForApply(selectedDevice)
                       ? (isEn ? 'Access Denied: You do not have permission to execute templates on this device' : 'عدم دسترسی: طبق سیستم RBAC شما مجاز به اعمال تمپلیت روی این تجهیز نیستید')
+                      : !isAllVariablesValid
+                      ? (isEn ? 'Fix all validation errors before proceeding' : 'لطفاً ابتدا خطاهای اعتبارسنجی را برطرف فرمایید')
                       : undefined
                   }
                 >
@@ -1191,7 +1620,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
             </div>
           )}
 
-          {/* STEP 2: Live Command Preview (Dry Run) */}
+          {/* STEP 2: Pre-Flight Safety & Clean CLI Dry-Run */}
           {activeStep === 'preview' && currentTemplate && (
             <div className="space-y-4 animate-fadeIn">
               <div className={`flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border text-xs transition ${
@@ -1260,7 +1689,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                       : 'bg-white/10 hover:bg-white/15 text-slate-300'
                   }`}
                 >
-                  {isEn ? '← Back to Variables' : '← بازگشت به ویرایش متغیرها'}
+                  {isEn ? '← Back to Variables & Split Diff' : '← بازگشت به ویرایش متغیرها و پیش‌نمایش'}
                 </button>
 
                 {(() => {
@@ -1269,10 +1698,10 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                     <button
                       type="button"
                       onClick={handleExecuteApply}
-                      disabled={isApplying || !isPermitted}
+                      disabled={isApplying || !isPermitted || !isAllVariablesValid}
                       className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition active:scale-95 ${
-                        isPermitted && !isApplying
-                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 cursor-pointer'
+                        isPermitted && !isApplying && isAllVariablesValid
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 cursor-pointer shadow-[0_0_20px_rgba(16,185,129,0.35)]'
                           : 'bg-slate-700/60 opacity-50 cursor-not-allowed border border-white/5 text-slate-400'
                       }`}
                       title={
@@ -1280,6 +1709,8 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                           ? (isEn ? 'Please select a device' : 'لطفاً تجهیز مورد نظر را انتخاب فرمایید')
                           : !isPermitted
                           ? (isEn ? 'Restricted by RBAC: You do not have permission to apply templates to this device' : 'عدم دسترسی در بخش کنترل دسترسی (RBAC): شما مجاز به اعمال تمپلیت روی این تجهیز نیستید')
+                          : !isAllVariablesValid
+                          ? (isEn ? 'Validation errors detected' : 'خطای اعتبارسنجی در متغیرها وجود دارد')
                           : undefined
                       }
                     >
