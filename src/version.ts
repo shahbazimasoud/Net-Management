@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.333.1';
+export const APP_VERSION = '1.334.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.334.0',
+    releaseDate: '2026-10-13',
+    type: 'minor',
+    title: 'پیوند پویا و همگام‌سازی ارجاعی رمزهای ولت با تجهیزات و سرورها (فاز ۱: اسکیما و مدل داده دیتابیس)',
+    title_en: 'Dynamic Vault Password Binding & Cascade Sync (Phase 1: Database Schema & Data Model)',
+    changes: [
+      'افزودن فیلدهای ارجاع ولت ssh_vault_item_id و enable_vault_item_id به جدول devices در پایگاه داده PostgreSQL و اسکریپت backend/schema.sql جهت پشتیبانی از اتصال By-Reference به گذرواژه‌های ولت.',
+      'افزودن فیلدهای ارجاع ولت ssh_vault_item_id (رمز SSH لینوکس)، win_vault_item_id (رمز لاگین و RDP ویندوز)، و db_vault_item_id (رمز دیتابیس‌های PostgreSQL/MySQL) به جدول remote_servers در دیتابیس و schema.sql.',
+      'ایجاد ایندکس‌های بهینه‌سازی B-Tree در دیتابیس PostgreSQL برای تسریع جستجو و تطبیق آبشار همگام‌سازی رمزها بر روی فیلدهای ارجاع ولت در جداول تجهیزات و سرورها.',
+      'به‌روزرسانی جامع تعاریف تایپ‌اسکریپت در src/types.ts (اینترفیس‌های Device و RemoteServer) و ساختار استور سرور در server/db.ts جهت تبادل و ذخیره‌سازی امن شناسه ولت بدون نشت متن خام رمز.'
+    ],
+    changes_en: [
+      'Added vault reference fields ssh_vault_item_id and enable_vault_item_id to the devices table in PostgreSQL database and backend/schema.sql to support enterprise By-Reference credential binding.',
+      'Added vault reference fields ssh_vault_item_id (Linux SSH), win_vault_item_id (Windows RDP/Logon), and db_vault_item_id (PostgreSQL/MySQL databases) to remote_servers in PostgreSQL and backend/schema.sql.',
+      'Created high-performance B-Tree database indexes in PostgreSQL to accelerate dynamic resolution and cascade sync queries across equipment and server fleets.',
+      'Updated comprehensive TypeScript definitions in src/types.ts (Device and RemoteServer interfaces) and server store persistence in server/db.ts for zero-leak credential confidentiality.'
+    ]
+  },
   {
     version: '1.333.1',
     releaseDate: '2026-10-13',

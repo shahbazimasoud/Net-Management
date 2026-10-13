@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS devices (
     ssh_username VARCHAR(64) DEFAULT 'admin',
     ssh_password VARCHAR(128),
     enable_password VARCHAR(128),
+    ssh_vault_item_id VARCHAR(64),
+    enable_vault_item_id VARCHAR(64),
     connection_data JSONB DEFAULT '{}'::jsonb,
     ports JSONB DEFAULT '[]'::jsonb,
     building VARCHAR(128),
@@ -106,6 +108,8 @@ CREATE INDEX IF NOT EXISTS idx_devices_platform ON devices(platform);
 CREATE INDEX IF NOT EXISTS idx_devices_building ON devices(building);
 CREATE INDEX IF NOT EXISTS idx_devices_floor ON devices(floor);
 CREATE INDEX IF NOT EXISTS idx_devices_rack ON devices(rack);
+CREATE INDEX IF NOT EXISTS idx_devices_ssh_vault ON devices(ssh_vault_item_id);
+CREATE INDEX IF NOT EXISTS idx_devices_enable_vault ON devices(enable_vault_item_id);
 
 -- Safe migration for existing devices table columns
 DO $$ BEGIN
@@ -117,6 +121,8 @@ DO $$ BEGIN
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS location VARCHAR(128);
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS hierarchy_id VARCHAR(64);
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_version VARCHAR(32) DEFAULT 'legacy';
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_vault_item_id VARCHAR(64);
 EXCEPTION WHEN OTHERS THEN
     NULL;
 END $$;
@@ -295,12 +301,14 @@ CREATE TABLE IF NOT EXISTS remote_servers (
     ssh_port INT DEFAULT 22,
     ssh_username VARCHAR(64) DEFAULT 'root',
     ssh_password VARCHAR(255),
+    ssh_vault_item_id VARCHAR(64),
     ssh_key_path VARCHAR(255),
     default_shell VARCHAR(32) DEFAULT 'bash', -- 'bash' | 'zsh' | 'sh'
     win_protocol VARCHAR(32) DEFAULT 'rdp', -- 'rdp' | 'powershell' | 'winrm'
     win_port INT DEFAULT 3389,
     win_username VARCHAR(64) DEFAULT 'Administrator',
     win_password TEXT DEFAULT '',
+    win_vault_item_id VARCHAR(64),
     win_domain VARCHAR(64) DEFAULT '',
     rdp_security VARCHAR(16) DEFAULT 'any', -- 'any' | 'nla' | 'tls' | 'rdp'
     status VARCHAR(32) DEFAULT 'untested', -- 'online' | 'offline' | 'unreachable' | 'untested'
@@ -320,6 +328,7 @@ CREATE TABLE IF NOT EXISTS remote_servers (
     postgres_port INT DEFAULT 5432,
     postgres_user VARCHAR(64) DEFAULT 'postgres',
     postgres_password TEXT DEFAULT '',
+    db_vault_item_id VARCHAR(64),
     postgres_database VARCHAR(64) DEFAULT 'postgres',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -336,11 +345,17 @@ ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_port INT DEFAULT 54
 ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_user VARCHAR(64) DEFAULT 'postgres';
 ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_password TEXT DEFAULT '';
 ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS postgres_database VARCHAR(64) DEFAULT 'postgres';
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64);
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS win_vault_item_id VARCHAR(64);
+ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS db_vault_item_id VARCHAR(64);
 
 CREATE INDEX IF NOT EXISTS idx_remote_servers_os_type ON remote_servers(os_type);
 CREATE INDEX IF NOT EXISTS idx_remote_servers_environment ON remote_servers(environment);
 CREATE INDEX IF NOT EXISTS idx_remote_servers_category ON remote_servers(category);
 CREATE INDEX IF NOT EXISTS idx_remote_servers_ip ON remote_servers(ip);
+CREATE INDEX IF NOT EXISTS idx_remote_servers_ssh_vault ON remote_servers(ssh_vault_item_id);
+CREATE INDEX IF NOT EXISTS idx_remote_servers_win_vault ON remote_servers(win_vault_item_id);
+CREATE INDEX IF NOT EXISTS idx_remote_servers_db_vault ON remote_servers(db_vault_item_id);
 
 -- 14. Server Categories (Dynamic Fleet Grouping with Localization & Color Badging)
 CREATE TABLE IF NOT EXISTS server_categories (

@@ -113,6 +113,8 @@ export interface Device {
   ssh_username?: string;
   ssh_password?: string;
   enable_password?: string;
+  ssh_vault_item_id?: string;
+  enable_vault_item_id?: string;
   ssh_status?: 'connected' | 'authenticated' | 'disconnected' | 'failed';
   ssh_connected?: boolean;
   power_supplies?: number;
@@ -496,6 +498,16 @@ export interface DeviceGroup {
   updatedAt: string;
 }
 
+export interface ServerGroup {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  server_ids?: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
 // ==========================================
 // Settings: Active Directory / LDAP Integration
 // ==========================================
@@ -504,6 +516,8 @@ export interface ADSecurityGroup {
   cn: string;
   description: string;
   memberCount: number;
+  displayName?: string;
+  sAMAccountName?: string;
 }
 
 export interface ADUser {
@@ -515,6 +529,8 @@ export interface ADUser {
   title: string;
   groups: string[];
   enabled: boolean;
+  userPrincipalName?: string;
+  mail?: string;
 }
 
 export interface ActiveDirectoryConfig {
@@ -700,7 +716,10 @@ export interface AccessPolicy {
   // 4. Global Infrastructure Operations
   canManageDevices: boolean;          // add, edit, delete device
   canApplyTemplates: boolean;         // apply config template
+  canExportTemplates?: boolean;       // Export templates
   canBatchOperate: boolean;           // batch port configuration
+  canBulkConfigurePorts?: boolean;    // bulk configure switch ports
+  canViewDiscovery?: boolean;         // discover devices/servers
   canExportDevices?: boolean;         // Export single and batch network equipment data
   canImportDevices?: boolean;         // Import single and batch network equipment inventory data
   canExportServers?: boolean;         // Export single and batch remote server fleet data
@@ -1601,6 +1620,7 @@ export interface RemoteServer {
   hostname?: string;
   ip: string;
   os_type: 'linux' | 'windows';
+  os?: string;
   os_distro?: string;
   category: 'Infrastructure' | 'Database' | 'Kubernetes' | 'Web / App' | 'Monitoring' | 'Active Directory' | 'General' | string;
   environment: 'Production' | 'Staging' | 'Development' | 'DMZ' | string;
@@ -1613,6 +1633,7 @@ export interface RemoteServer {
   ssh_user?: string;
   ssh_password?: string;
   ssh_password_set?: boolean;
+  ssh_vault_item_id?: string;
   ssh_key?: string;
   default_shell?: 'bash' | 'zsh' | 'sh';
   win_protocol?: 'rdp' | 'powershell' | 'winrm' | 'ssh';
@@ -1622,6 +1643,7 @@ export interface RemoteServer {
   win_user?: string;
   win_password?: string;
   win_password_set?: boolean;
+  win_vault_item_id?: string;
   rdp_security?: 'any' | 'nla' | 'tls' | 'rdp';
   vnc_port?: number;
   vnc_username?: string;
@@ -1648,6 +1670,7 @@ export interface RemoteServer {
   postgres_password?: string;
   postgres_password_set?: boolean;
   postgres_database?: string;
+  db_vault_item_id?: string;
   mysql_port?: number;
   mysql_user?: string;
   mysql_password?: string;

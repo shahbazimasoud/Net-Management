@@ -2024,6 +2024,12 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS server_ids JSONB DEFAULT '[]'::jsonb");
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
       await client.query("ALTER TABLE device_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64)");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS win_vault_item_id VARCHAR(64)");
+      await client.query("ALTER TABLE remote_servers ADD COLUMN IF NOT EXISTS db_vault_item_id VARCHAR(64)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_remote_servers_ssh_vault ON remote_servers(ssh_vault_item_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_remote_servers_win_vault ON remote_servers(win_vault_item_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_remote_servers_db_vault ON remote_servers(db_vault_item_id)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_version VARCHAR(32) DEFAULT 'legacy'");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS building VARCHAR(128)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS floor VARCHAR(128)");
@@ -2032,6 +2038,10 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS section VARCHAR(128)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS location VARCHAR(128)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS hierarchy_id VARCHAR(64)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_vault_item_id VARCHAR(64)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_devices_ssh_vault ON devices(ssh_vault_item_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_devices_enable_vault ON devices(enable_vault_item_id)");
       await client.query(`
         CREATE TABLE IF NOT EXISTS device_placements (
           id VARCHAR(64) PRIMARY KEY,
@@ -4143,6 +4153,8 @@ export async function getAllDevices(): Promise<any[]> {
             section: r.section || (r.connection_data && r.connection_data.section) || '',
             location: r.location || '',
             hierarchy_id: r.hierarchy_id || '',
+            ssh_vault_item_id: r.ssh_vault_item_id || undefined,
+            enable_vault_item_id: r.enable_vault_item_id || undefined,
             ports,
           };
         });
@@ -4196,6 +4208,8 @@ export async function createDevice(deviceData: any): Promise<any> {
     section: (deviceData.section || '').trim(),
     location: (deviceData.location || '').trim(),
     hierarchy_id: (deviceData.hierarchy_id || deviceData.hierarchyId || '').trim(),
+    ssh_vault_item_id: (deviceData.ssh_vault_item_id || '').trim() || undefined,
+    enable_vault_item_id: (deviceData.enable_vault_item_id || '').trim() || undefined,
   };
 
   const existingIdx = store.devices.findIndex((d: any) => d.id === id);
@@ -4255,8 +4269,9 @@ export async function createDevice(deviceData: any): Promise<any> {
       await pool.query(
         `INSERT INTO devices (
           id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username,
-          is_online, latency_ms, mac_address, uptime_str, ports, ssh_version, building, floor, unit, rack, section, location, hierarchy_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+          is_online, latency_ms, mac_address, uptime_str, ports, ssh_version, building, floor, unit, rack, section, location, hierarchy_id,
+          ssh_vault_item_id, enable_vault_item_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           ip = EXCLUDED.ip,
@@ -4280,7 +4295,9 @@ export async function createDevice(deviceData: any): Promise<any> {
           rack = EXCLUDED.rack,
           section = EXCLUDED.section,
           location = EXCLUDED.location,
-          hierarchy_id = EXCLUDED.hierarchy_id`,
+          hierarchy_id = EXCLUDED.hierarchy_id,
+          ssh_vault_item_id = EXCLUDED.ssh_vault_item_id,
+          enable_vault_item_id = EXCLUDED.enable_vault_item_id`,
         [
           newDevice.id,
           newDevice.name,
@@ -4306,6 +4323,8 @@ export async function createDevice(deviceData: any): Promise<any> {
           newDevice.section,
           newDevice.location,
           newDevice.hierarchy_id,
+          newDevice.ssh_vault_item_id || null,
+          newDevice.enable_vault_item_id || null,
         ]
       );
 
@@ -4364,6 +4383,8 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
     section: updates.section !== undefined ? updates.section.trim() : (existing.section || ''),
     location: updates.location !== undefined ? updates.location.trim() : (existing.location || ''),
     hierarchy_id: updates.hierarchy_id !== undefined ? updates.hierarchy_id : (existing.hierarchy_id || ''),
+    ssh_vault_item_id: updates.ssh_vault_item_id !== undefined ? (updates.ssh_vault_item_id ? updates.ssh_vault_item_id.trim() : null) : existing.ssh_vault_item_id,
+    enable_vault_item_id: updates.enable_vault_item_id !== undefined ? (updates.enable_vault_item_id ? updates.enable_vault_item_id.trim() : null) : existing.enable_vault_item_id,
   };
 
   const store = loadFallbackStore();
@@ -4430,7 +4451,9 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           ssh_host = $8, ssh_port = $9, ssh_username = $10, is_online = $11,
           latency_ms = $12, mac_address = $13, uptime_str = $14, ports = $15,
           ssh_version = $16, building = $17, floor = $18, unit = $19, rack = $20,
-          section = $21, location = $22, hierarchy_id = $23, updated_at = CURRENT_TIMESTAMP
+          section = $21, location = $22, hierarchy_id = $23,
+          ssh_vault_item_id = $24, enable_vault_item_id = $25,
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = $1`,
         [
           updated.id,
@@ -4456,6 +4479,8 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           updated.section || '',
           updated.location || '',
           updated.hierarchy_id || '',
+          updated.ssh_vault_item_id || null,
+          updated.enable_vault_item_id || null,
         ]
       );
 
@@ -5656,6 +5681,7 @@ function rowToRemoteServer(r: any): RemoteServer {
     ssh_username: r.ssh_username || 'root',
     ssh_password: r.ssh_password || '',
     ssh_password_set: Boolean(r.ssh_password && String(r.ssh_password).trim().length > 0),
+    ssh_vault_item_id: r.ssh_vault_item_id || undefined,
     ssh_key_path: r.ssh_key_path || '',
     default_shell: (r.default_shell || 'bash') as 'bash' | 'zsh' | 'sh',
     win_protocol: (r.win_protocol || 'rdp') as 'rdp' | 'powershell' | 'winrm',
@@ -5663,6 +5689,7 @@ function rowToRemoteServer(r: any): RemoteServer {
     win_username: r.win_username || 'Administrator',
     win_password: r.win_password || '',
     win_password_set: Boolean(r.win_password && String(r.win_password).trim().length > 0),
+    win_vault_item_id: r.win_vault_item_id || undefined,
     win_domain: r.win_domain && r.win_domain !== 'CORP.INTERNAL' ? r.win_domain : '',
     rdp_security: (['any', 'nla', 'tls', 'rdp'].includes(String(r.rdp_security || '').toLowerCase())
       ? String(r.rdp_security).toLowerCase()
@@ -5686,6 +5713,7 @@ function rowToRemoteServer(r: any): RemoteServer {
     postgres_password: r.postgres_password || '',
     postgres_password_set: Boolean(r.postgres_password && String(r.postgres_password).trim().length > 0),
     postgres_database: r.postgres_database || 'postgres',
+    db_vault_item_id: r.db_vault_item_id || undefined,
     mysql_port: r.mysql_port ? Number(r.mysql_port) : 3306,
     mysql_user: r.mysql_user || 'root',
     mysql_password: r.mysql_password || '',
@@ -5903,6 +5931,9 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
     uptime_str: data.uptime_str || '',
     location: data.location?.trim() || 'Datacenter A',
     notes: data.notes?.trim() || '',
+    ssh_vault_item_id: data.ssh_vault_item_id?.trim() || undefined,
+    win_vault_item_id: data.win_vault_item_id?.trim() || undefined,
+    db_vault_item_id: data.db_vault_item_id?.trim() || undefined,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -5929,9 +5960,10 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
           postgres_port, postgres_user, postgres_password, postgres_database,
           server_type, mysql_port, mysql_user, mysql_password, mysql_database, web_http_port, web_https_port,
+          ssh_vault_item_id, win_vault_item_id, db_vault_item_id,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -5978,6 +6010,9 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           mysql_database = EXCLUDED.mysql_database,
           web_http_port = EXCLUDED.web_http_port,
           web_https_port = EXCLUDED.web_https_port,
+          ssh_vault_item_id = EXCLUDED.ssh_vault_item_id,
+          win_vault_item_id = EXCLUDED.win_vault_item_id,
+          db_vault_item_id = EXCLUDED.db_vault_item_id,
           updated_at = NOW()`,
         [
           newServer.id,
@@ -6026,6 +6061,9 @@ export async function createRemoteServer(data: Partial<RemoteServer>): Promise<R
           newServer.mysql_database || 'mysql',
           newServer.web_http_port || 80,
           newServer.web_https_port || 443,
+          newServer.ssh_vault_item_id || null,
+          newServer.win_vault_item_id || null,
+          newServer.db_vault_item_id || null,
           newServer.created_at,
           newServer.updated_at,
         ]
@@ -6188,6 +6226,9 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
     location: updates.location !== undefined ? updates.location.trim() : current.location,
     notes: updates.notes !== undefined ? updates.notes.trim() : (updates.description !== undefined ? updates.description.trim() : (current.notes || current.description || '')),
     description: updates.description !== undefined ? updates.description.trim() : (updates.notes !== undefined ? updates.notes.trim() : (current.description || current.notes || '')),
+    ssh_vault_item_id: updates.ssh_vault_item_id !== undefined ? (updates.ssh_vault_item_id ? updates.ssh_vault_item_id.trim() : undefined) : current.ssh_vault_item_id,
+    win_vault_item_id: updates.win_vault_item_id !== undefined ? (updates.win_vault_item_id ? updates.win_vault_item_id.trim() : undefined) : current.win_vault_item_id,
+    db_vault_item_id: updates.db_vault_item_id !== undefined ? (updates.db_vault_item_id ? updates.db_vault_item_id.trim() : undefined) : current.db_vault_item_id,
     updated_at: new Date().toISOString(),
   };
 
@@ -6218,9 +6259,10 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           installed_web_servers, installed_databases, has_apache, has_nginx, has_postgresql, has_mysql,
           postgres_port, postgres_user, postgres_password, postgres_database,
           server_type, mysql_port, mysql_user, mysql_password, mysql_database, web_http_port, web_https_port,
+          ssh_vault_item_id, win_vault_item_id, db_vault_item_id,
           created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51)
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           hostname = EXCLUDED.hostname,
@@ -6267,6 +6309,9 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           mysql_database = EXCLUDED.mysql_database,
           web_http_port = EXCLUDED.web_http_port,
           web_https_port = EXCLUDED.web_https_port,
+          ssh_vault_item_id = EXCLUDED.ssh_vault_item_id,
+          win_vault_item_id = EXCLUDED.win_vault_item_id,
+          db_vault_item_id = EXCLUDED.db_vault_item_id,
           updated_at = NOW()`,
         [
           updated.id,
@@ -6315,6 +6360,9 @@ export async function updateRemoteServer(id: string, updates: Partial<RemoteServ
           updated.mysql_database || 'mysql',
           updated.web_http_port || 80,
           updated.web_https_port || 443,
+          updated.ssh_vault_item_id || null,
+          updated.win_vault_item_id || null,
+          updated.db_vault_item_id || null,
           updated.created_at || new Date().toISOString(),
           updated.updated_at,
         ]
