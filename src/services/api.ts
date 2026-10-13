@@ -703,7 +703,10 @@ export async function resetDemoData(): Promise<any> {
 }
 
 export async function fetchTemplates(): Promise<{ templates: ConfigTemplate[]; total: number }> {
-  const res = await fetch(`${API_BASE}/templates`);
+  const token = localStorage.getItem('token') || localStorage.getItem('nettopology_auth_token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/templates`, { headers });
   if (!res.ok) throw new Error('Failed to fetch templates');
   return res.json();
 }
@@ -737,39 +740,61 @@ export async function importTemplatesPackage(templates: Partial<ConfigTemplate>[
 }
 
 export async function fetchTemplate(id: string): Promise<{ template: ConfigTemplate }> {
-  const res = await fetch(`${API_BASE}/templates/${id}`);
+  const token = localStorage.getItem('token') || localStorage.getItem('nettopology_auth_token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/templates/${id}`, { headers });
   if (!res.ok) throw new Error('Failed to fetch template');
   return res.json();
 }
 
-export async function createTemplate(template: Partial<ConfigTemplate>): Promise<{ template: ConfigTemplate; message: string }> {
+export async function createTemplate(template: Partial<ConfigTemplate>): Promise<{ template: ConfigTemplate; message: string; message_en?: string }> {
+  const token = localStorage.getItem('token') || localStorage.getItem('nettopology_auth_token');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}/templates`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(template),
   });
-  if (!res.ok) throw new Error('Failed to create template');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.errorFa || 'Failed to create template');
+  }
   return res.json();
 }
 
 export async function updateTemplate(
   id: string,
   updates: Partial<ConfigTemplate>
-): Promise<{ template: ConfigTemplate; message: string }> {
+): Promise<{ template: ConfigTemplate; message: string; message_en?: string }> {
+  const token = localStorage.getItem('token') || localStorage.getItem('nettopology_auth_token');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}/templates/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error('Failed to update template');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.errorFa || 'Failed to update template');
+  }
   return res.json();
 }
 
-export async function deleteTemplate(id: string): Promise<{ message: string }> {
+export async function deleteTemplate(id: string): Promise<{ message: string; message_en?: string }> {
+  const token = localStorage.getItem('token') || localStorage.getItem('nettopology_auth_token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}/templates/${id}`, {
     method: 'DELETE',
+    headers,
   });
-  if (!res.ok) throw new Error('Failed to delete template');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.errorFa || 'Failed to delete template');
+  }
   return res.json();
 }
 

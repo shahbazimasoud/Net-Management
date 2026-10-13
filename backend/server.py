@@ -1214,9 +1214,26 @@ def load_data():
             save_data_unsafe(data)
             return data
 
+def sync_database_store_templates(templates_list):
+    """
+    Synchronizes config templates to database_store.json to guarantee database persistence.
+    """
+    try:
+        db_store_path = os.path.join(os.path.dirname(__file__), "database_store.json")
+        if os.path.exists(db_store_path):
+            with open(db_store_path, "r", encoding="utf-8") as f:
+                store = json.load(f)
+            store["config_templates"] = templates_list
+            with open(db_store_path, "w", encoding="utf-8") as f:
+                json.dump(store, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Warning] Failed to sync database_store templates: {e}")
+
 def save_data_unsafe(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    if "templates" in data and isinstance(data["templates"], list):
+        sync_database_store_templates(data["templates"])
 
 def save_data(data):
     with db_lock:

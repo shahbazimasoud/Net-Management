@@ -207,6 +207,7 @@ export interface FallbackStore {
   email_config?: EmailConfig;
   audit_report_schedule?: any;
   audit_email_reports?: any[];
+  config_templates?: any[];
 }
 
 export interface ScheduledBackupJob {
@@ -1127,6 +1128,21 @@ export function loadFallbackStore(): FallbackStore {
       }
     ];
   }
+  if (!Array.isArray(store.config_templates) || store.config_templates.length === 0) {
+    try {
+      const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+      if (fs.existsSync(netPath)) {
+        const raw = fs.readFileSync(netPath, 'utf-8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.templates) && data.templates.length > 0) {
+          store.config_templates = data.templates;
+        }
+      }
+    } catch {}
+    if (!Array.isArray(store.config_templates)) {
+      store.config_templates = [];
+    }
+  }
 
   return store;
 }
@@ -1870,7 +1886,67 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
   } catch (err: any) {
     console.warn('[Database Sync Notice] Bulk Server Reports sync notice:', err.message);
   }
+
+  // 16. Sync Config Templates (Network Equipment Configuration Templates & Patterns)
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS config_templates (
+        id VARCHAR(128) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        vendor VARCHAR(64) NOT NULL DEFAULT 'cisco',
+        target_type VARCHAR(64) NOT NULL DEFAULT 'switch',
+        target_platform VARCHAR(64),
+        category VARCHAR(64),
+        role VARCHAR(128) DEFAULT 'Access Switch',
+        description TEXT,
+        default_cli_mode VARCHAR(64) DEFAULT 'GLOBAL_CONFIG',
+        commands TEXT NOT NULL DEFAULT '',
+        variables JSONB NOT NULL DEFAULT '[]'::jsonb,
+        author VARCHAR(128) DEFAULT 'Network Administrator',
+        is_builtin BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    const tmplCountRes = await client.query('SELECT count(*) as count FROM config_templates');
+    if (parseInt(tmplCountRes.rows[0]?.count || '0', 10) === 0) {
+      const tmplsToSeed = (Array.isArray(initialData.config_templates) && initialData.config_templates.length > 0)
+        ? initialData.config_templates
+        : [];
+      for (const t of tmplsToSeed) {
+        if (!t || !t.id || !t.name) continue;
+        await client.query(
+          `INSERT INTO config_templates (
+            id, name, vendor, target_type, target_platform, category, role, description,
+            default_cli_mode, commands, variables, author, is_builtin, created_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           ON CONFLICT (id) DO NOTHING`,
+          [
+            t.id,
+            t.name,
+            t.vendor || 'cisco',
+            t.target_type || 'switch',
+            t.target_platform || null,
+            t.category || null,
+            t.role || 'Access Switch',
+            t.description || '',
+            t.default_cli_mode || 'GLOBAL_CONFIG',
+            t.commands || '',
+            JSON.stringify(t.variables || []),
+            t.author || 'Network Administrator',
+            Boolean(t.is_builtin),
+            t.created_at || new Date().toISOString(),
+            t.updated_at || new Date().toISOString()
+          ]
+        );
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Database Sync Notice] Config Templates sync notice:', err.message);
+  }
 }
+
 
 /**
  * Initialize PostgreSQL connection pool and run migration if needed
@@ -7156,5 +7232,296 @@ export async function deleteScheduledBackupJob(id: string): Promise<boolean> {
   }
   return true;
 }
+
+// ============================================================================
+// 18. Network Equipment Configuration Templates & Patterns (PostgreSQL & Database Store)
+// ============================================================================
+
+export interface ConfigTemplateRecord {
+  id: string;
+  name: string;
+  vendor: 'cisco' | 'mikrotik' | 'juniper' | 'huawei' | string;
+  target_type: 'switch' | 'router' | 'firewall' | 'all' | string;
+  target_platform?: string;
+  category?: string;
+  role: string;
+  description: string;
+  default_cli_mode?: string;
+  commands: string;
+  variables: any[];
+  author?: string;
+  created_at?: string;
+  updated_at?: string;
+  is_builtin?: boolean;
+}
+
+export function syncTemplatesToNetworkDataJson(templates: any[]): void {
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    let data: any = {};
+    if (fs.existsSync(netPath)) {
+      const raw = fs.readFileSync(netPath, 'utf-8');
+      data = JSON.parse(raw);
+    }
+    data.templates = templates;
+    fs.writeFileSync(netPath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[syncTemplatesToNetworkDataJson error]', err);
+  }
+}
+
+export async function getConfigTemplates(): Promise<ConfigTemplateRecord[]> {
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM config_templates ORDER BY created_at ASC');
+      if (res.rows.length > 0) {
+        return res.rows.map((r: any) => ({
+          ...r,
+          variables: typeof r.variables === 'string' ? JSON.parse(r.variables) : (r.variables || []),
+          is_builtin: Boolean(r.is_builtin),
+        }));
+      }
+    } catch (err: any) {
+      console.warn('[DB getConfigTemplates PG warning, falling back to local store]', err.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (Array.isArray(store.config_templates) && store.config_templates.length > 0) {
+    try {
+      if (fs.existsSync(FALLBACK_FILE)) {
+        const raw = fs.readFileSync(FALLBACK_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed.config_templates) || parsed.config_templates.length === 0) {
+          parsed.config_templates = store.config_templates;
+          saveFallbackStore(parsed);
+        }
+      } else {
+        saveFallbackStore(store);
+      }
+    } catch {}
+    return store.config_templates;
+  }
+
+  // Fallback to network_data.json if store empty
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const raw = fs.readFileSync(netPath, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.templates) && data.templates.length > 0) {
+        store.config_templates = data.templates;
+        saveFallbackStore(store);
+        return data.templates;
+      }
+    }
+  } catch {}
+
+  return [];
+}
+
+export async function getConfigTemplateById(id: string): Promise<ConfigTemplateRecord | null> {
+  if (isPostgresConnected() && pool) {
+    try {
+      const res = await pool.query('SELECT * FROM config_templates WHERE id = $1', [id]);
+      if (res.rows.length > 0) {
+        const r = res.rows[0];
+        return {
+          ...r,
+          variables: typeof r.variables === 'string' ? JSON.parse(r.variables) : (r.variables || []),
+          is_builtin: Boolean(r.is_builtin),
+        };
+      }
+    } catch (err: any) {
+      console.warn('[DB getConfigTemplateById PG warning]', err.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const list = store.config_templates || [];
+  return list.find((t: any) => t && t.id === id) || null;
+}
+
+export async function createConfigTemplate(templateData: Partial<ConfigTemplateRecord>): Promise<ConfigTemplateRecord> {
+  const newId = templateData.id || `tmpl-${templateData.vendor || 'custom'}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+  const now = new Date().toISOString();
+  const tmpl: ConfigTemplateRecord = {
+    id: newId,
+    name: templateData.name || 'New Template',
+    vendor: templateData.vendor || 'cisco',
+    target_type: templateData.target_type || 'switch',
+    target_platform: templateData.target_platform || undefined,
+    category: templateData.category || undefined,
+    role: templateData.role || 'Access Switch',
+    description: templateData.description || '',
+    default_cli_mode: templateData.default_cli_mode || 'GLOBAL_CONFIG',
+    commands: templateData.commands || '',
+    variables: Array.isArray(templateData.variables) ? templateData.variables : [],
+    author: templateData.author || 'Network Administrator',
+    is_builtin: Boolean(templateData.is_builtin),
+    created_at: templateData.created_at || now,
+    updated_at: now,
+  };
+
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO config_templates (
+          id, name, vendor, target_type, target_platform, category, role, description,
+          default_cli_mode, commands, variables, author, is_builtin, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          vendor = EXCLUDED.vendor,
+          target_type = EXCLUDED.target_type,
+          target_platform = EXCLUDED.target_platform,
+          category = EXCLUDED.category,
+          role = EXCLUDED.role,
+          description = EXCLUDED.description,
+          default_cli_mode = EXCLUDED.default_cli_mode,
+          commands = EXCLUDED.commands,
+          variables = EXCLUDED.variables,
+          author = EXCLUDED.author,
+          updated_at = EXCLUDED.updated_at`,
+        [
+          tmpl.id,
+          tmpl.name,
+          tmpl.vendor,
+          tmpl.target_type,
+          tmpl.target_platform || null,
+          tmpl.category || null,
+          tmpl.role,
+          tmpl.description,
+          tmpl.default_cli_mode,
+          tmpl.commands,
+          JSON.stringify(tmpl.variables),
+          tmpl.author,
+          tmpl.is_builtin,
+          tmpl.created_at,
+          tmpl.updated_at,
+        ]
+      );
+    } catch (err: any) {
+      console.error('[DB createConfigTemplate PG error]', err.message);
+    }
+  }
+
+  // Update fallback store
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.config_templates)) {
+    store.config_templates = [];
+  }
+  const existingIdx = store.config_templates.findIndex((t: any) => t && t.id === tmpl.id);
+  if (existingIdx !== -1) {
+    store.config_templates[existingIdx] = tmpl;
+  } else {
+    store.config_templates.push(tmpl);
+  }
+  saveFallbackStore(store);
+
+  // Sync to network_data.json
+  syncTemplatesToNetworkDataJson(store.config_templates);
+
+  return tmpl;
+}
+
+export async function updateConfigTemplate(id: string, updates: Partial<ConfigTemplateRecord>): Promise<ConfigTemplateRecord | null> {
+  const existing = await getConfigTemplateById(id);
+  if (!existing) return null;
+
+  const now = new Date().toISOString();
+  const updated: ConfigTemplateRecord = {
+    ...existing,
+    ...updates,
+    id: existing.id,
+    variables: Array.isArray(updates.variables) ? updates.variables : existing.variables,
+    updated_at: now,
+  };
+
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query(
+        `UPDATE config_templates SET
+          name = $1,
+          vendor = $2,
+          target_type = $3,
+          target_platform = $4,
+          category = $5,
+          role = $6,
+          description = $7,
+          default_cli_mode = $8,
+          commands = $9,
+          variables = $10,
+          author = $11,
+          updated_at = $12
+        WHERE id = $13`,
+        [
+          updated.name,
+          updated.vendor,
+          updated.target_type,
+          updated.target_platform || null,
+          updated.category || null,
+          updated.role,
+          updated.description,
+          updated.default_cli_mode,
+          updated.commands,
+          JSON.stringify(updated.variables),
+          updated.author,
+          updated.updated_at,
+          id,
+        ]
+      );
+    } catch (err: any) {
+      console.error('[DB updateConfigTemplate PG error]', err.message);
+    }
+  }
+
+  // Update fallback store
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.config_templates)) {
+    store.config_templates = [];
+  }
+  const idx = store.config_templates.findIndex((t: any) => t && t.id === id);
+  if (idx !== -1) {
+    store.config_templates[idx] = updated;
+  } else {
+    store.config_templates.push(updated);
+  }
+  saveFallbackStore(store);
+
+  // Sync to network_data.json
+  syncTemplatesToNetworkDataJson(store.config_templates);
+
+  return updated;
+}
+
+export async function deleteConfigTemplate(id: string): Promise<boolean> {
+  if (isPostgresConnected() && pool) {
+    try {
+      await pool.query('DELETE FROM config_templates WHERE id = $1', [id]);
+    } catch (err: any) {
+      console.error('[DB deleteConfigTemplate PG error]', err.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  if (Array.isArray(store.config_templates)) {
+    store.config_templates = store.config_templates.filter((t: any) => t && t.id !== id);
+    saveFallbackStore(store);
+    syncTemplatesToNetworkDataJson(store.config_templates);
+  }
+  return true;
+}
+
+export async function saveConfigTemplatesBulk(templates: ConfigTemplateRecord[]): Promise<number> {
+  let count = 0;
+  for (const tmpl of templates) {
+    if (!tmpl || !tmpl.name) continue;
+    await createConfigTemplate(tmpl);
+    count++;
+  }
+  return count;
+}
+
 
 

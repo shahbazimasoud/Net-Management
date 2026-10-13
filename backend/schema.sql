@@ -448,4 +448,26 @@ CREATE TABLE IF NOT EXISTS scheduled_backup_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_backup_jobs_enabled ON scheduled_backup_jobs(enabled);
 
+-- 18. Network Equipment Configuration Templates & Patterns
+CREATE TABLE IF NOT EXISTS config_templates (
+    id VARCHAR(128) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    vendor VARCHAR(64) NOT NULL DEFAULT 'cisco',
+    target_type VARCHAR(64) NOT NULL DEFAULT 'switch',
+    target_platform VARCHAR(64),
+    category VARCHAR(64),
+    role VARCHAR(128) DEFAULT 'Access Switch',
+    description TEXT,
+    default_cli_mode VARCHAR(64) DEFAULT 'GLOBAL_CONFIG',
+    commands TEXT NOT NULL DEFAULT '',
+    variables JSONB NOT NULL DEFAULT '[]'::jsonb,
+    author VARCHAR(128) DEFAULT 'Network Administrator',
+    is_builtin BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_config_templates_vendor ON config_templates(vendor);
+CREATE INDEX IF NOT EXISTS idx_config_templates_target_type ON config_templates(target_type);
+
 

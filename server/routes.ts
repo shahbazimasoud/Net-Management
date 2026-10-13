@@ -119,6 +119,13 @@ import {
   saveScheduledBackupJob,
   deleteScheduledBackupJob,
   ScheduledBackupJob,
+  getConfigTemplates,
+  getConfigTemplateById,
+  createConfigTemplate,
+  updateConfigTemplate,
+  deleteConfigTemplate,
+  saveConfigTemplatesBulk,
+  ConfigTemplateRecord,
 } from './db';
 import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
 import {
@@ -4261,35 +4268,63 @@ apiRouter.post('/templates/apply', async (req: Request, res: Response, next: Nex
   next();
 });
 
-function getStoredConfigTemplates(): any[] {
+// GET /api/templates - List all configuration templates from database
+apiRouter.get('/templates', async (req: Request, res: Response) => {
   try {
-    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
-    if (!fs.existsSync(netPath)) return [];
-    const raw = fs.readFileSync(netPath, 'utf-8');
-    const data = JSON.parse(raw);
-    return data.templates || [];
-  } catch (err) {
-    console.error('[getStoredConfigTemplates error]', err);
-    return [];
+    const templates = await getConfigTemplates();
+    return res.json({
+      success: true,
+      templates,
+      total: templates.length,
+    });
+  } catch (err: any) {
+    console.error('[GET /api/templates error]', err);
+    return res.status(500).json({ success: false, error: err.message, templates: [], total: 0 });
   }
-}
+});
 
-function saveStoredConfigTemplates(templates: any[]): boolean {
+// POST /api/templates - Define or extract new configuration template (saved in PostgreSQL & DB store)
+apiRouter.post('/templates', async (req: Request, res: Response) => {
   try {
-    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
-    let data: any = {};
-    if (fs.existsSync(netPath)) {
-      const raw = fs.readFileSync(netPath, 'utf-8');
-      data = JSON.parse(raw);
+    const { user } = await resolveRequestContextPolicy(req);
+    const body = req.body || {};
+    if (!body.name || !body.name.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Template name is required.',
+        errorFa: 'نام الگوی کانفیگ الزامی است.',
+      });
     }
-    data.templates = templates;
-    fs.writeFileSync(netPath, JSON.stringify(data, null, 2), 'utf-8');
-    return true;
-  } catch (err) {
-    console.error('[saveStoredConfigTemplates error]', err);
-    return false;
+
+    const created = await createConfigTemplate({
+      ...body,
+      author: body.author || user?.username || 'Network Administrator',
+    });
+
+    try {
+      await addAuditLog({
+        userName: user?.username || body.author || 'Network Administrator',
+        action: 'Create Config Template',
+        category: 'equipment',
+        target: `Template: ${created.name} (${created.vendor}/${created.target_type})`,
+        status: 'success',
+        details: `Created new configuration template "${created.name}". ID: ${created.id}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch {}
+
+    return res.status(201).json({
+      success: true,
+      template: created,
+      message: `تمپلیت «${created.name}» با موفقیت تعریف و در دیتابیس ذخیره گردید.`,
+      message_en: `Template "${created.name}" created and saved to database successfully.`,
+    });
+  } catch (err: any) {
+    console.error('[POST /api/templates error]', err);
+    return res.status(500).json({ success: false, error: err.message });
   }
-}
+});
 
 // GET /api/templates/export-package - Export all config templates as a package (Guarded by RBAC canExportTemplates)
 apiRouter.get('/templates/export-package', async (req: Request, res: Response) => {
@@ -4317,7 +4352,7 @@ apiRouter.get('/templates/export-package', async (req: Request, res: Response) =
       });
     }
 
-    const templates = getStoredConfigTemplates();
+    const templates = await getConfigTemplates();
 
     try {
       await addAuditLog({
@@ -4378,32 +4413,14 @@ apiRouter.post('/templates/import-package', async (req: Request, res: Response) 
       });
     }
 
-    const currentTemplates = getStoredConfigTemplates();
-    const existingMap = new Map(currentTemplates.map((t: any) => [t.id, t]));
-
     let importedCount = 0;
     for (const t of incomingTemplates) {
       if (!t.name || !t.commands) continue;
-      const tmplId = t.id || `template-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const sanitized = {
-        ...t,
-        id: tmplId,
-        name: t.name.trim(),
-        vendor: t.vendor || 'cisco',
-        target_type: t.target_type || 'switch',
-        role: t.role || 'Imported Template',
-        description: t.description || '',
-        commands: t.commands,
-        variables: Array.isArray(t.variables) ? t.variables : [],
-        updated_at: new Date().toISOString(),
-        created_at: t.created_at || new Date().toISOString(),
-      };
-      existingMap.set(tmplId, sanitized);
+      await createConfigTemplate(t);
       importedCount++;
     }
 
-    const updatedList = Array.from(existingMap.values());
-    saveStoredConfigTemplates(updatedList);
+    const currentTemplates = await getConfigTemplates();
 
     try {
       await addAuditLog({
@@ -4412,7 +4429,7 @@ apiRouter.post('/templates/import-package', async (req: Request, res: Response) 
         category: 'equipment',
         target: `Templates Library (${importedCount} imported)`,
         status: 'success',
-        details: `Successfully imported ${importedCount} configuration templates into library. Total templates: ${updatedList.length}`,
+        details: `Successfully imported ${importedCount} configuration templates into library. Total templates: ${currentTemplates.length}`,
         ipAddress: getClientIp(req),
         userAgent: req.headers['user-agent'] as string,
       });
@@ -4421,8 +4438,100 @@ apiRouter.post('/templates/import-package', async (req: Request, res: Response) 
     return res.json({
       success: true,
       importedCount,
-      total: updatedList.length,
+      total: currentTemplates.length,
       message: `Successfully imported ${importedCount} templates.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/templates/:id - Fetch single template from database
+apiRouter.get('/templates/:id', async (req: Request, res: Response) => {
+  try {
+    const template = await getConfigTemplateById(req.params.id);
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        error: 'Template not found',
+        errorFa: 'تمپلیت مورد نظر یافت نشد.',
+      });
+    }
+    return res.json({ success: true, template });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/templates/:id - Update existing template in database
+apiRouter.put('/templates/:id', async (req: Request, res: Response) => {
+  try {
+    const { user } = await resolveRequestContextPolicy(req);
+    const updated = await updateConfigTemplate(req.params.id, req.body || {});
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        error: 'Template not found',
+        errorFa: 'تمپلیت مورد نظر جهت ویرایش یافت نشد.',
+      });
+    }
+
+    try {
+      await addAuditLog({
+        userName: user?.username || 'Network Administrator',
+        action: 'Update Config Template',
+        category: 'equipment',
+        target: `Template: ${updated.name}`,
+        status: 'success',
+        details: `Updated configuration template "${updated.name}". ID: ${updated.id}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch {}
+
+    return res.json({
+      success: true,
+      template: updated,
+      message: `تمپلیت «${updated.name}» با موفقیت به‌روزرسانی و در دیتابیس ذخیره شد.`,
+      message_en: `Template "${updated.name}" updated and saved to database successfully.`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/templates/:id - Delete template from database
+apiRouter.delete('/templates/:id', async (req: Request, res: Response) => {
+  try {
+    const { user } = await resolveRequestContextPolicy(req);
+    const existing = await getConfigTemplateById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Template not found',
+        errorFa: 'تمپلیت مورد نظر جهت حذف یافت نشد.',
+      });
+    }
+
+    await deleteConfigTemplate(req.params.id);
+
+    try {
+      await addAuditLog({
+        userName: user?.username || 'Network Administrator',
+        action: 'Delete Config Template',
+        category: 'equipment',
+        target: `Template: ${existing.name}`,
+        status: 'success',
+        details: `Deleted configuration template "${existing.name}". ID: ${existing.id}`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'] as string,
+      });
+    } catch {}
+
+    return res.json({
+      success: true,
+      message: `تمپلیت «${existing.name}» با موفقیت از دیتابیس حذف گردید.`,
+      message_en: `Template "${existing.name}" deleted from database successfully.`,
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });

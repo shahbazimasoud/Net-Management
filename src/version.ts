@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.332.3';
+export const APP_VERSION = '1.333.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.333.0',
+    releaseDate: '2026-10-13',
+    type: 'minor',
+    title: 'ذخیره‌سازی کامل و پایدار الگوهای پیکربندی شبکه (Config Templates) در پایگاه داده PostgreSQL و استور سرور',
+    title_en: 'Persistent Database & PostgreSQL Storage for Network Equipment Config Templates & Patterns',
+    changes: [
+      'ایجاد جدول و اسکیما اختصاصی config_templates در پایگاه داده PostgreSQL و اسکریپت migration اسکیما در schema.sql جهت ذخیره‌سازی رسمی و پایدار تمامی کارت‌های الگوهای پیکربندی شبکه.',
+      'توسعه مسیرهای کامل CRUD در API سرور (/api/templates) متصل به دیتابیس برای ذخیره‌سازی مطمئن الگوهای جدید ایجادشده از طریق «تعریف تمپلیت جدید» (Define New Template).',
+      'پشتیبانی کامل از ذخیره‌سازی مستقیم در دیتابیس پس از استخراج الگو از تجهیزات زنده (Extract Template from Live Device) از طریق CaptureConfigModal.',
+      'همگام‌سازی بلادرنگ پایگاه داده PostgreSQL با مخزن پایدار سرور (database_store.json) و فایل الگوها، جهت تضمین ثبات داده‌ها حتی در شرایط آفلاین بودن موقت پایگاه داده.',
+      'افزودن ثبت وقایع امنیتی (Audit Logging) جامع به همراه نام کاربر و آدرس IP برای تمامی عملیات ساخت، ویرایش، حذف و بارگذاری الگوهای پیکربندی.'
+    ],
+    changes_en: [
+      'Created dedicated config_templates table and schema migration in PostgreSQL database and schema.sql for enterprise persistence of all configuration pattern cards.',
+      'Implemented complete database-backed CRUD endpoints at /api/templates ensuring templates defined via "Define New Template" are stored directly in PostgreSQL and persistent DB store.',
+      'Integrated robust database persistence when extracting templates from live equipment via "Extract Template from Live Device" (CaptureConfigModal).',
+      'Guaranteed atomic synchronization across PostgreSQL, the server fallback store (database_store.json), and templates library with zero state loss.',
+      'Introduced comprehensive RBAC-aware audit logging recording user, timestamp, and IP address for all template creation, mutation, and deletion operations.'
+    ]
+  },
   {
     version: '1.332.3',
     releaseDate: '2026-10-13',
