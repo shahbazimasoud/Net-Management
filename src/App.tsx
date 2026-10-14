@@ -1637,6 +1637,7 @@ export default function App() {
         onMinimize={() => handleMinimizeTool('password_vault')}
         isEn={isEn}
         isLightMode={isLightMode}
+        devices={devices}
       />
     </div>
   );

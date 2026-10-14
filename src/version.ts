@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.336.0';
+export const APP_VERSION = '1.337.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.337.0',
+    releaseDate: '2026-10-14',
+    type: 'minor',
+    title: 'نمایش تجهیزات و سرورهای متصل در والت رمز عبور و هشدار همگام‌سازی آبشاری (فاز ۴)',
+    title_en: 'Vault Insights for Connected Devices/Servers & Cascade Sync Notice Alert (Phase 4)',
+    changes: [
+      'پیاده‌سازی بخش بینش‌های ولت (Vault Insights) در کارت‌های گذرواژه مودال PasswordVaultModal جهت نمایش زنده تجهیزات و سرورهای متصل (بج استفاده‌شده در: Switch-Core-01, Srv-App-01).',
+      'تجهیز فرم ویرایش گذرواژه در ولت به کادر هشدار هوشمند و راهنمای همگام‌سازی آبشاری: «توجه: با تغییر این رمز، دسترسی تمامی تجهیزات متصل به این آیتم نیز به‌صورت خودکار به‌روزرسانی خواهد شد.» همراه با لیست چیپ‌های تجهیزات و سرورهای تحت تاثیر.',
+      'افزودن تابع تجمیعی getAllVaultLinkedTargetsSummary و اندپوینت‌های بهینه‌سازی‌شده دسته‌ای (/api/vault/all-linked-targets) جهت جلوگیری از درخواست‌های N+1 و افزایش سرعت بارگذاری کارت‌ها.',
+      'همگام‌سازی دوطرفه اتصال تجهیزات بین خلاصه سرور و آرایه کلاینت devices جهت نمایش بلادرنگ و بدون تاخیر.',
+      'پشتیبانی کامل از تم روشن و تیره و رعایت ۱۰۰٪ قوانین دوزبانه انگلیسی و فارسی.'
+    ],
+    changes_en: [
+      'Implemented Vault Insights section on password cards inside PasswordVaultModal displaying active connected devices and servers (e.g. badge "Used in: Switch-Core-01, Srv-App-01").',
+      'Equipped password edit form inside vault with intelligent guidance alert: "Notice: Changing this password will automatically update credentials for all connected devices and servers." alongside chips of all affected targets.',
+      'Engineered optimized batch endpoint (/api/vault/all-linked-targets and getAllVaultLinkedTargetsSummary) preventing N+1 queries and ensuring instant load times.',
+      'Integrated bi-directional cross-referencing between backend summary and client devices state for zero-latency updates.',
+      'Maintained 100% theme adaptability (Dark/Light) and strict zero Persian text in English mode.'
+    ]
+  },
   {
     version: '1.336.0',
     releaseDate: '2026-10-13',

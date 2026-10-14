@@ -29,6 +29,8 @@ import {
   Download,
   AlertCircle,
   ExternalLink,
+  Link2,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { FieldInfoTooltip } from '../vpn/FieldInfoTooltip';
@@ -49,12 +51,19 @@ export interface VaultItem {
   updatedAt: string;
 }
 
+export interface VaultLinkedTargetSummary {
+  devices: Array<{ id: string; name: string; ip?: string; role?: string; type: 'ssh' | 'enable' | 'both' }>;
+  servers: Array<{ id: string; name: string; ip?: string; os_type: string; type: 'ssh' | 'win' | 'db' }>;
+  totalCount: number;
+}
+
 export interface PasswordVaultModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMinimize: () => void;
   isLightMode: boolean;
   isEn: boolean;
+  devices?: any[];
 }
 
 const CATEGORIES = [
@@ -104,12 +113,17 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
   onMinimize,
   isLightMode,
   isEn,
+  devices = [],
 }) => {
   const { user, token } = useAuth();
   const [isMaximized, setIsMaximized] = useState(false);
   const [items, setItems] = useState<VaultItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Linked targets summary map (itemId -> { devices, servers, totalCount })
+  const [linkedTargetsSummary, setLinkedTargetsSummary] = useState<Record<string, VaultLinkedTargetSummary>>({});
+  const [isLoadingLinked, setIsLoadingLinked] = useState(false);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -192,9 +206,57 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
     }
   }, [isOpen, getAuthHeaders, isEn]);
 
+  // Fetch linked targets summary (Vault Insights)
+  const fetchLinkedTargets = useCallback(async () => {
+    if (!isOpen) return;
+    setIsLoadingLinked(true);
+    try {
+      const res = await fetch('/api/vault/all-linked-targets', {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.summary) {
+          setLinkedTargetsSummary(data.summary);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch vault linked targets summary:', err);
+    } finally {
+      setIsLoadingLinked(false);
+    }
+  }, [isOpen, getAuthHeaders]);
+
+  // Helper to resolve linked targets from both server summary and in-memory devices prop
+  const getLinkedEntitiesForItem = useCallback((itemId: string) => {
+    const summary = linkedTargetsSummary[itemId] || { devices: [], servers: [], totalCount: 0 };
+    const devList = [...summary.devices];
+    const srvList = [...summary.servers];
+
+    if (Array.isArray(devices)) {
+      for (const d of devices) {
+        const matchesSsh = d.ssh_vault_item_id === itemId;
+        const matchesEnable = d.enable_vault_item_id === itemId;
+        if ((matchesSsh || matchesEnable) && !devList.some((x) => x.id === d.id)) {
+          devList.push({
+            id: d.id,
+            name: d.name || d.id,
+            ip: d.ip,
+            role: d.role,
+            type: matchesSsh && matchesEnable ? 'both' : matchesSsh ? 'ssh' : 'enable',
+          });
+        }
+      }
+    }
+
+    const total = devList.length + srvList.length;
+    return { devices: devList, servers: srvList, totalCount: total };
+  }, [linkedTargetsSummary, devices]);
+
   useEffect(() => {
     if (isOpen) {
       fetchVaultItems();
+      fetchLinkedTargets();
     } else {
       // Clear sensitive reveals when closed
       setRevealedPasswords({});
@@ -204,7 +266,7 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
       setAuthPasswordInput('');
       setAuthError(null);
     }
-  }, [isOpen, fetchVaultItems]);
+  }, [isOpen, fetchVaultItems, fetchLinkedTargets]);
 
   // Reveal password on-demand (prompts user for login password)
   const handleToggleReveal = (item: VaultItem) => {
@@ -378,6 +440,7 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
         }
         setIsFormOpen(false);
         fetchVaultItems();
+        fetchLinkedTargets();
       } else {
         alert(isEn ? 'Failed to save: ' + (data.error || 'Unknown error') : 'خطا در ذخیره‌سازی: ' + (data.error || 'خطای نامشخص'));
       }
@@ -400,6 +463,7 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
       if (data.success) {
         setItems((prev) => prev.filter((i) => i.id !== id));
         setDeleteConfirmId(null);
+        fetchLinkedTargets();
         setRevealedPasswords((prev) => {
           const next = { ...prev };
           delete next[id];
@@ -890,6 +954,109 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
                         )}
                       </div>
 
+                      {/* Vault Insights: Connected Devices & Servers (Phase 4) */}
+                      {(() => {
+                        const linked = getLinkedEntitiesForItem(item.id);
+                        const hasLinked = linked.totalCount > 0;
+                        const allTargets = [
+                          ...linked.devices.map((d) => ({
+                            name: d.name,
+                            sub: d.ip || d.role || '',
+                            isDevice: true,
+                            badge: d.type === 'both' ? 'SSH+EN' : d.type.toUpperCase(),
+                          })),
+                          ...linked.servers.map((s) => ({
+                            name: s.name,
+                            sub: s.ip || s.os_type || '',
+                            isDevice: false,
+                            badge: s.type.toUpperCase(),
+                          })),
+                        ];
+
+                        if (hasLinked) {
+                          const displayTargets = allTargets.slice(0, 2);
+                          const remainingCount = allTargets.length - 2;
+
+                          return (
+                            <div
+                              id={`vault-card-linked-badge-${item.id}`}
+                              className={`mb-3 p-2 rounded-xl border text-[11px] transition-all select-none ${
+                                isLightMode
+                                  ? 'bg-cyan-50/90 border-cyan-300 text-slate-800'
+                                  : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
+                              }`}
+                              title={
+                                isEn
+                                  ? `Connected to ${linked.totalCount} active targets: ${allTargets.map((t) => t.name).join(', ')}`
+                                  : `متصل به ${linked.totalCount} تجهیز فعال: ${allTargets.map((t) => t.name).join('، ')}`
+                              }
+                            >
+                              <div className="flex items-center justify-between gap-1 mb-1.5">
+                                <div className="flex items-center gap-1.5 font-semibold">
+                                  <Link2 className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                                  <span className={isLightMode ? 'text-cyan-950' : 'text-cyan-300'}>
+                                    {isEn ? 'Used in:' : 'استفاده‌شده در:'}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold border ${
+                                    isLightMode
+                                      ? 'bg-cyan-100 text-cyan-800 border-cyan-200'
+                                      : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                                  }`}
+                                >
+                                  {linked.totalCount} {isEn ? (linked.totalCount === 1 ? 'target' : 'targets') : 'تجهیز/سرور'}
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1">
+                                {displayTargets.map((t, idx) => (
+                                  <span
+                                    key={idx}
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-mono text-[10px] border max-w-[140px] truncate ${
+                                      isLightMode
+                                        ? 'bg-white text-slate-800 border-slate-200 shadow-2xs'
+                                        : 'bg-slate-900/90 text-slate-200 border-slate-700/80'
+                                    }`}
+                                    title={`${t.name}${t.sub ? ` (${t.sub})` : ''} [${t.badge}]`}
+                                  >
+                                    {t.isDevice ? (
+                                      <Router className="w-2.5 h-2.5 text-cyan-500 shrink-0" />
+                                    ) : (
+                                      <Server className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
+                                    )}
+                                    <span className="truncate">{t.name}</span>
+                                  </span>
+                                ))}
+                                {remainingCount > 0 && (
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium border cursor-help ${
+                                      isLightMode
+                                        ? 'bg-slate-100 text-slate-600 border-slate-200'
+                                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                                    }`}
+                                    title={allTargets.slice(2).map((t) => t.name).join(', ')}
+                                  >
+                                    {isEn ? `+${remainingCount} more` : `+${remainingCount} دیگر`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div
+                            className={`mb-3 px-2 py-1 rounded-lg text-[10px] flex items-center gap-1.5 select-none ${
+                              isLightMode ? 'text-slate-400 bg-slate-50' : 'text-slate-500 bg-slate-950/40'
+                            }`}
+                          >
+                            <Link2 className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>{isEn ? 'Not linked to any device yet' : 'هنوز به رکوردی متصل نشده است'}</span>
+                          </div>
+                        );
+                      })()}
+
                       {/* Notes snippet if any */}
                       {item.notes && (
                         <p
@@ -1070,6 +1237,107 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
 
               {/* Form Fields with 3-Part FieldInfoTooltip */}
               <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar text-xs">
+                {/* Cascade Sync Alert / Notice (Phase 4 Requirement) */}
+                {editingItem && (() => {
+                  const linked = getLinkedEntitiesForItem(editingItem.id);
+                  const hasLinked = linked.totalCount > 0;
+                  const allTargets = [
+                    ...linked.devices.map((d) => ({ name: d.name, type: 'device', sub: d.role || d.ip, bind: d.type })),
+                    ...linked.servers.map((s) => ({ name: s.name, type: 'server', sub: s.os_type || s.ip, bind: s.type })),
+                  ];
+
+                  return (
+                    <div
+                      id="vault-edit-cascade-sync-notice"
+                      className={`p-3.5 rounded-xl border transition-all ${
+                        hasLinked
+                          ? isLightMode
+                            ? 'bg-amber-50/90 border-amber-300 text-amber-950 shadow-xs'
+                            : 'bg-amber-950/30 border-amber-500/40 text-amber-200 shadow-sm'
+                          : isLightMode
+                          ? 'bg-cyan-50/90 border-cyan-300 text-cyan-950'
+                          : 'bg-cyan-950/30 border-cyan-500/40 text-cyan-200'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div
+                          className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+                            hasLinked
+                              ? isLightMode
+                                ? 'bg-amber-200 text-amber-900'
+                                : 'bg-amber-500/20 text-amber-300'
+                              : isLightMode
+                              ? 'bg-cyan-200 text-cyan-900'
+                              : 'bg-cyan-500/20 text-cyan-300'
+                          }`}
+                        >
+                          <RefreshCw className="w-4 h-4 text-amber-500 animate-[spin_4s_linear_infinite]" />
+                        </div>
+
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-xs">
+                              {isEn
+                                ? 'Dynamic Cascade Synchronization Notice'
+                                : 'همگام‌سازی خودکار و آبشاری (Cascade Sync)'}
+                            </span>
+                            {hasLinked && (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                                  isLightMode
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                    : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                }`}
+                              >
+                                {linked.totalCount} {isEn ? (linked.totalCount === 1 ? 'Target Connected' : 'Targets Connected') : 'تجهیز متصل'}
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] leading-relaxed font-medium">
+                            {isEn
+                              ? 'Notice: Changing this password will automatically update credentials for all connected devices and servers.'
+                              : 'توجه: با تغییر این رمز، دسترسی تمامی تجهیزات متصل به این آیتم نیز به‌صورت خودکار به‌روزرسانی خواهد شد.'}
+                          </p>
+
+                          {hasLinked && (
+                            <div className="pt-2 border-t border-amber-300/40 dark:border-amber-500/20">
+                              <span
+                                className={`text-[10px] block mb-1 font-semibold ${
+                                  isLightMode ? 'text-amber-900' : 'text-amber-300'
+                                }`}
+                              >
+                                {isEn ? 'Affected Connected Targets:' : 'تجهیزات و سرورهای متصل تحت تاثیر:'}
+                              </span>
+                              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar">
+                                {allTargets.map((t, idx) => (
+                                  <span
+                                    key={idx}
+                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                                      isLightMode
+                                        ? 'bg-white text-slate-800 border-amber-300 shadow-2xs'
+                                        : 'bg-slate-900 text-slate-200 border-amber-500/40'
+                                    }`}
+                                    title={`${t.name}${t.sub ? ` (${t.sub})` : ''} [${t.bind.toUpperCase()}]`}
+                                  >
+                                    {t.type === 'device' ? (
+                                      <Router className="w-2.5 h-2.5 text-cyan-500 shrink-0" />
+                                    ) : (
+                                      <Server className="w-2.5 h-2.5 text-emerald-500 shrink-0" />
+                                    )}
+                                    <span className="font-semibold">{t.name}</span>
+                                    <span className="text-[9px] opacity-70">({t.bind.toUpperCase()})</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* 1. Name / Label */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">

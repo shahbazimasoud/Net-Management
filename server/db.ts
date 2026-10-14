@@ -7299,6 +7299,148 @@ export async function getVaultLinkedTargets(vaultItemId: string): Promise<{
 }
 
 /**
+ * Returns a complete map of all vault item IDs and their actively bound network devices and servers.
+ * Used for instant Vault Insights across all cards in the password vault UI without N+1 HTTP calls.
+ */
+export async function getAllVaultLinkedTargetsSummary(): Promise<Record<string, {
+  devices: Array<{ id: string; name: string; ip?: string; role?: string; type: 'ssh' | 'enable' | 'both' }>;
+  servers: Array<{ id: string; name: string; ip?: string; os_type: string; type: 'ssh' | 'win' | 'db' }>;
+  totalCount: number;
+}>> {
+  const result: Record<string, {
+    devices: Array<{ id: string; name: string; ip?: string; role?: string; type: 'ssh' | 'enable' | 'both' }>;
+    servers: Array<{ id: string; name: string; ip?: string; os_type: string; type: 'ssh' | 'win' | 'db' }>;
+    totalCount: number;
+  }> = {};
+
+  const ensureEntry = (id: string) => {
+    if (!result[id]) {
+      result[id] = { devices: [], servers: [], totalCount: 0 };
+    }
+    return result[id];
+  };
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const devRes = await pool.query(
+        'SELECT id, name, ip, role, ssh_vault_item_id, enable_vault_item_id FROM devices WHERE ssh_vault_item_id IS NOT NULL OR enable_vault_item_id IS NOT NULL'
+      );
+      if (devRes && Array.isArray(devRes.rows)) {
+        for (const row of devRes.rows) {
+          const sshId = row.ssh_vault_item_id ? String(row.ssh_vault_item_id).trim() : '';
+          const enableId = row.enable_vault_item_id ? String(row.enable_vault_item_id).trim() : '';
+          
+          if (sshId && enableId && sshId === enableId) {
+            const entry = ensureEntry(sshId);
+            if (!entry.devices.some((d) => d.id === row.id)) {
+              entry.devices.push({ id: row.id, name: row.name || row.id, ip: row.ip, role: row.role, type: 'both' });
+              entry.totalCount++;
+            }
+          } else {
+            if (sshId) {
+              const entry = ensureEntry(sshId);
+              if (!entry.devices.some((d) => d.id === row.id)) {
+                entry.devices.push({ id: row.id, name: row.name || row.id, ip: row.ip, role: row.role, type: 'ssh' });
+                entry.totalCount++;
+              }
+            }
+            if (enableId) {
+              const entry = ensureEntry(enableId);
+              if (!entry.devices.some((d) => d.id === row.id)) {
+                entry.devices.push({ id: row.id, name: row.name || row.id, ip: row.ip, role: row.role, type: 'enable' });
+                entry.totalCount++;
+              }
+            }
+          }
+        }
+      }
+
+      const srvRes = await pool.query(
+        'SELECT id, name, ip, os_type, ssh_vault_item_id, win_vault_item_id, db_vault_item_id FROM remote_servers WHERE ssh_vault_item_id IS NOT NULL OR win_vault_item_id IS NOT NULL OR db_vault_item_id IS NOT NULL'
+      );
+      if (srvRes && Array.isArray(srvRes.rows)) {
+        for (const row of srvRes.rows) {
+          const sshId = row.ssh_vault_item_id ? String(row.ssh_vault_item_id).trim() : '';
+          const winId = row.win_vault_item_id ? String(row.win_vault_item_id).trim() : '';
+          const dbId = row.db_vault_item_id ? String(row.db_vault_item_id).trim() : '';
+
+          if (sshId) {
+            const entry = ensureEntry(sshId);
+            if (!entry.servers.some((s) => s.id === row.id && s.type === 'ssh')) {
+              entry.servers.push({ id: row.id, name: row.name || row.id, ip: row.ip, os_type: row.os_type || 'linux', type: 'ssh' });
+              entry.totalCount++;
+            }
+          }
+          if (winId) {
+            const entry = ensureEntry(winId);
+            if (!entry.servers.some((s) => s.id === row.id && s.type === 'win')) {
+              entry.servers.push({ id: row.id, name: row.name || row.id, ip: row.ip, os_type: row.os_type || 'windows', type: 'win' });
+              entry.totalCount++;
+            }
+          }
+          if (dbId) {
+            const entry = ensureEntry(dbId);
+            if (!entry.servers.some((s) => s.id === row.id && s.type === 'db')) {
+              entry.servers.push({ id: row.id, name: row.name || row.id, ip: row.ip, os_type: row.os_type || 'linux', type: 'db' });
+              entry.totalCount++;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[getAllVaultLinkedTargetsSummary PostgreSQL query notice]:', e.message);
+    }
+  }
+
+  // Also verify fallback store
+  try {
+    const store = loadFallbackStore();
+    const allDevices = Array.isArray(store.devices) ? store.devices : [];
+    for (const d of allDevices) {
+      const sshId = d.ssh_vault_item_id ? String(d.ssh_vault_item_id).trim() : '';
+      const enableId = d.enable_vault_item_id ? String(d.enable_vault_item_id).trim() : '';
+      if (sshId && !result[sshId]?.devices.some((x) => x.id === d.id)) {
+        const entry = ensureEntry(sshId);
+        entry.devices.push({ id: d.id, name: d.name || d.id, ip: d.ip, role: d.role, type: sshId === enableId ? 'both' : 'ssh' });
+        entry.totalCount++;
+      }
+      if (enableId && enableId !== sshId && !result[enableId]?.devices.some((x) => x.id === d.id)) {
+        const entry = ensureEntry(enableId);
+        entry.devices.push({ id: d.id, name: d.name || d.id, ip: d.ip, role: d.role, type: 'enable' });
+        entry.totalCount++;
+      }
+    }
+
+    const allServers = Array.isArray(store.remote_servers) ? store.remote_servers : [];
+    for (const s of allServers) {
+      const sshId = s.ssh_vault_item_id ? String(s.ssh_vault_item_id).trim() : '';
+      const winId = s.win_vault_item_id ? String(s.win_vault_item_id).trim() : '';
+      const dbId = s.db_vault_item_id ? String(s.db_vault_item_id).trim() : '';
+      if (sshId && !result[sshId]?.servers.some((x) => x.id === s.id && x.type === 'ssh')) {
+        const entry = ensureEntry(sshId);
+        entry.servers.push({ id: s.id, name: s.name || s.id, ip: s.ip, os_type: s.os_type || 'linux', type: 'ssh' });
+        entry.totalCount++;
+      }
+      if (winId && !result[winId]?.servers.some((x) => x.id === s.id && x.type === 'win')) {
+        const entry = ensureEntry(winId);
+        entry.servers.push({ id: s.id, name: s.name || s.id, ip: s.ip, os_type: s.os_type || 'windows', type: 'win' });
+        entry.totalCount++;
+      }
+      if (dbId && !result[dbId]?.servers.some((x) => x.id === s.id && x.type === 'db')) {
+        const entry = ensureEntry(dbId);
+        entry.servers.push({ id: s.id, name: s.name || s.id, ip: s.ip, os_type: s.os_type || 'linux', type: 'db' });
+        entry.totalCount++;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[getAllVaultLinkedTargetsSummary fallback store notice]:', err.message);
+  }
+
+  return result;
+}
+
+/**
  * Automatic Cascade Synchronization Engine:
  * When a user updates or changes a password in the vault, this engine automatically
  * finds all connected network devices (switches, routers) and remote servers (Linux, Windows, DB)

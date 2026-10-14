@@ -115,6 +115,7 @@ import {
   saveUserVaultItem,
   deleteUserVaultItem,
   getVaultLinkedTargets,
+  getAllVaultLinkedTargetsSummary,
   cascadeSyncVaultItem,
   CascadeSyncResult,
   UserVaultItem,
@@ -16063,6 +16064,24 @@ const handleVaultItemUpdate = async (req: Request, res: Response) => {
 
 apiRouter.put('/vault/:id', handleVaultItemUpdate);
 apiRouter.put('/user-password-vault/:id', handleVaultItemUpdate);
+
+// GET /api/vault/all-linked-targets & /api/user-password-vault/all-linked-targets
+const handleAllVaultLinkedTargets = async (req: Request, res: Response) => {
+  try {
+    const summary = await getAllVaultLinkedTargetsSummary();
+    return res.json({
+      success: true,
+      summary,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+apiRouter.get('/vault/all-linked-targets', handleAllVaultLinkedTargets);
+apiRouter.get('/user-password-vault/all-linked-targets', handleAllVaultLinkedTargets);
+apiRouter.get('/vault/linked-targets-summary', handleAllVaultLinkedTargets);
+apiRouter.get('/user-password-vault/linked-targets-summary', handleAllVaultLinkedTargets);
 
 // GET /api/vault/:id/linked-targets & /api/user-password-vault/:id/linked-targets
 const handleVaultLinkedTargets = async (req: Request, res: Response) => {
