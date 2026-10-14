@@ -205,7 +205,27 @@ export async function getAdaptiveSshClient(
   const host = (server.ip || server.hostname || '').trim();
   const port = server.ssh_port || 22;
   const username = server.ssh_username || 'root';
-  const password = ephemeralPassword || server.ssh_password || '';
+  let password = ephemeralPassword || '';
+  if (!password && server.ssh_vault_item_id) {
+    try {
+      const { resolveDynamicVaultPassword } = await import('./db');
+      const vaultPass = await resolveDynamicVaultPassword(server.ssh_vault_item_id);
+      if (vaultPass) password = vaultPass;
+    } catch (vaultErr: any) {
+      console.warn('[LinuxFileExplorer] Dynamic vault resolution error:', vaultErr.message);
+    }
+  }
+  if (!password && server.ssh_password) {
+    password = server.ssh_password;
+  }
+  if (password && password.startsWith('enc:v1:')) {
+    try {
+      const { decryptServerSecret } = await import('./vaultCrypto');
+      password = decryptServerSecret(password);
+    } catch (decErr: any) {
+      console.warn('[LinuxFileExplorer] AES-256-GCM decryption notice:', decErr.message);
+    }
+  }
 
   if (!host) {
     throw new Error('Server IP or hostname is required for SSH connection.');

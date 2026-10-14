@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
-import { encryptServerSecret } from './vaultCrypto';
+import { encryptServerSecret, decryptServerSecret, decryptVaultSecret } from './vaultCrypto';
 
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
@@ -139,6 +139,7 @@ export interface RemoteServer {
   ssh_username?: string;
   ssh_password?: string;
   ssh_password_set?: boolean;
+  ssh_vault_item_id?: string;
   ssh_key_path?: string;
   ssh_key?: string;
   default_shell?: 'bash' | 'zsh' | 'sh';
@@ -147,6 +148,7 @@ export interface RemoteServer {
   win_username?: string;
   win_password?: string;
   win_password_set?: boolean;
+  win_vault_item_id?: string;
   win_domain?: string;
   rdp_security?: 'any' | 'nla' | 'tls' | 'rdp';
   vnc_port?: number;
@@ -167,6 +169,7 @@ export interface RemoteServer {
   postgres_password?: string;
   postgres_password_set?: boolean;
   postgres_database?: string;
+  db_vault_item_id?: string;
   mysql_port?: number;
   mysql_user?: string;
   mysql_password?: string;
@@ -5739,19 +5742,19 @@ export function sanitizeRemoteServerForClient(s: RemoteServer): RemoteServer {
   return {
     ...s,
     win_password_set: Boolean(
-      s.win_password_set || (s.win_password && String(s.win_password).trim().length > 0)
+      s.win_password_set || s.win_vault_item_id || (s.win_password && String(s.win_password).trim().length > 0)
     ),
     win_password: '', // Stripped to ensure zero-leak credential confidentiality
     ssh_password_set: Boolean(
-      s.ssh_password_set || (s.ssh_password && String(s.ssh_password).trim().length > 0)
+      s.ssh_password_set || s.ssh_vault_item_id || (s.ssh_password && String(s.ssh_password).trim().length > 0)
     ),
     ssh_password: '', // Stripped to ensure zero-leak credential confidentiality
     postgres_password_set: Boolean(
-      s.postgres_password_set || (s.postgres_password && String(s.postgres_password).trim().length > 0)
+      s.postgres_password_set || s.db_vault_item_id || (s.postgres_password && String(s.postgres_password).trim().length > 0)
     ),
     postgres_password: '', // Stripped to ensure zero-leak credential confidentiality
     mysql_password_set: Boolean(
-      s.mysql_password_set || (s.mysql_password && String(s.mysql_password).trim().length > 0)
+      s.mysql_password_set || s.db_vault_item_id || (s.mysql_password && String(s.mysql_password).trim().length > 0)
     ),
     mysql_password: '', // Stripped to ensure zero-leak credential confidentiality
   };
@@ -6902,6 +6905,554 @@ export async function deleteUserVaultItem(id: string, userId: string): Promise<b
   }
 
   return deletedInFallback;
+}
+
+export interface CascadeSyncTargetItem {
+  id: string;
+  name: string;
+  ip?: string;
+  type: 'ssh' | 'enable' | 'both' | 'win' | 'db';
+}
+
+export interface CascadeSyncResult {
+  vaultItemId: string;
+  vaultItemName: string;
+  affectedDevices: CascadeSyncTargetItem[];
+  affectedServers: CascadeSyncTargetItem[];
+  totalDevicesCount: number;
+  totalServersCount: number;
+}
+
+/**
+ * Retrieves a vault item authoritatively by its unique identifier across users.
+ * Checks PostgreSQL first, with seamless fallback to database_store.
+ */
+export async function getVaultItemById(id: string): Promise<UserVaultItem | null> {
+  if (!id || typeof id !== 'string') return null;
+  const cleanId = id.trim();
+  if (!cleanId) return null;
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        'SELECT * FROM user_password_vault WHERE id = $1 LIMIT 1',
+        [cleanId]
+      );
+      if (res && res.rows.length > 0) {
+        const r = res.rows[0];
+        return {
+          id: r.id,
+          user_id: r.user_id,
+          name: r.name,
+          username: r.username || '',
+          encrypted_password: r.encrypted_password,
+          iv: r.iv,
+          tag: r.tag,
+          password_hash: r.password_hash || undefined,
+          password_salt: r.password_salt || undefined,
+          category: r.category || 'general',
+          target_host: r.target_host || '',
+          notes: r.notes || '',
+          tags: Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? JSON.parse(r.tags || '[]') : [],
+          strength: r.strength || 'strong',
+          created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+          updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+        };
+      }
+    } catch (e: any) {
+      console.warn('[DB Error getVaultItemById from PostgreSQL, fallback used]:', e.message);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.user_password_vault) ? store.user_password_vault : [];
+  const found = list.find((item: any) => item.id === cleanId);
+  return found || null;
+}
+
+/**
+ * Real-time Dynamic Credential Resolver:
+ * Directly fetches the authentic, live encrypted secret from the vault record and
+ * decrypts it in-flight using AES-256-GCM. Ensures zero staleness and zero plain-text storage.
+ */
+export async function resolveDynamicVaultPassword(
+  vaultItemId: string | undefined | null
+): Promise<string | null> {
+  if (!vaultItemId || typeof vaultItemId !== 'string') return null;
+  const cleanId = vaultItemId.trim();
+  if (!cleanId) return null;
+
+  try {
+    const item = await getVaultItemById(cleanId);
+    if (!item || !item.encrypted_password || !item.iv || !item.tag) {
+      return null;
+    }
+    const plain = decryptVaultSecret(item.encrypted_password, item.iv, item.tag, item.user_id);
+    return plain || null;
+  } catch (err: any) {
+    console.warn(`[resolveDynamicVaultPassword] Decryption failure for vault item "${cleanId}":`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Resolves authentic credentials for a network device (Cisco, MikroTik, switch, router).
+ * Inspects dynamic vault binding for SSH/Telnet and enable modes first.
+ */
+export async function resolveDeviceCredentials(device: any): Promise<{
+  username: string;
+  password: string;
+  enablePassword: string;
+  isPasswordFromVault: boolean;
+  isEnableFromVault: boolean;
+  vaultItemName?: string;
+  enableVaultItemName?: string;
+}> {
+  let username = device?.ssh_username || device?.connection?.username || 'admin';
+  let password = '';
+  let enablePassword = '';
+  let isPasswordFromVault = false;
+  let isEnableFromVault = false;
+  let vaultItemName: string | undefined;
+  let enableVaultItemName: string | undefined;
+
+  // 1. Resolve SSH Password: Dynamic Vault First
+  if (device?.ssh_vault_item_id) {
+    const vaultItem = await getVaultItemById(device.ssh_vault_item_id);
+    if (vaultItem) {
+      vaultItemName = vaultItem.name;
+      if (vaultItem.username && (!device.ssh_username || device.ssh_username === 'admin')) {
+        username = vaultItem.username;
+      }
+      try {
+        const decrypted = decryptVaultSecret(
+          vaultItem.encrypted_password,
+          vaultItem.iv,
+          vaultItem.tag,
+          vaultItem.user_id
+        );
+        if (decrypted) {
+          password = decrypted;
+          isPasswordFromVault = true;
+        }
+      } catch (err: any) {
+        console.warn(`[resolveDeviceCredentials] Error resolving vault secret for device ${device?.id}:`, err.message);
+      }
+    }
+  }
+
+  // Fallback to stored device password if not resolved from vault
+  if (!password) {
+    const raw = device?.ssh_password || device?.connection?.password || '';
+    if (raw) {
+      password = decryptServerSecret(raw);
+    }
+  }
+
+  // 2. Resolve Enable Password: Dynamic Vault First
+  if (device?.enable_vault_item_id) {
+    const enableItem = await getVaultItemById(device.enable_vault_item_id);
+    if (enableItem) {
+      enableVaultItemName = enableItem.name;
+      try {
+        const decrypted = decryptVaultSecret(
+          enableItem.encrypted_password,
+          enableItem.iv,
+          enableItem.tag,
+          enableItem.user_id
+        );
+        if (decrypted) {
+          enablePassword = decrypted;
+          isEnableFromVault = true;
+        }
+      } catch (err: any) {
+        console.warn(`[resolveDeviceCredentials] Error resolving enable vault secret for device ${device?.id}:`, err.message);
+      }
+    }
+  }
+
+  // Fallback to stored enable password if not resolved from vault
+  if (!enablePassword) {
+    const raw = device?.enable_password || '';
+    if (raw) {
+      enablePassword = decryptServerSecret(raw);
+    }
+  }
+
+  return {
+    username,
+    password,
+    enablePassword,
+    isPasswordFromVault,
+    isEnableFromVault,
+    vaultItemName,
+    enableVaultItemName,
+  };
+}
+
+/**
+ * Resolves authentic credentials for a remote server (Linux, Windows, Database).
+ * Dynamically decodes live secrets from linked vault records.
+ */
+export async function resolveServerCredentials(
+  server: any,
+  authType: 'ssh' | 'win' | 'db' = 'ssh'
+): Promise<{
+  username: string;
+  password: string;
+  isFromVault: boolean;
+  vaultItemName?: string;
+}> {
+  let username = '';
+  let password = '';
+  let isFromVault = false;
+  let vaultItemName: string | undefined;
+
+  if (authType === 'ssh') {
+    username = server?.ssh_username || 'root';
+    if (server?.ssh_vault_item_id) {
+      const vaultItem = await getVaultItemById(server.ssh_vault_item_id);
+      if (vaultItem) {
+        vaultItemName = vaultItem.name;
+        if (vaultItem.username && (!server.ssh_username || server.ssh_username === 'root')) {
+          username = vaultItem.username;
+        }
+        try {
+          const decrypted = decryptVaultSecret(
+            vaultItem.encrypted_password,
+            vaultItem.iv,
+            vaultItem.tag,
+            vaultItem.user_id
+          );
+          if (decrypted) {
+            password = decrypted;
+            isFromVault = true;
+          }
+        } catch (err: any) {
+          console.warn(`[resolveServerCredentials:ssh] Vault decryption error for server ${server?.id}:`, err.message);
+        }
+      }
+    }
+    if (!password && server?.ssh_password) {
+      password = decryptServerSecret(server.ssh_password);
+    }
+  } else if (authType === 'win') {
+    username = server?.win_username || 'Administrator';
+    if (server?.win_vault_item_id) {
+      const vaultItem = await getVaultItemById(server.win_vault_item_id);
+      if (vaultItem) {
+        vaultItemName = vaultItem.name;
+        if (vaultItem.username && (!server.win_username || server.win_username === 'Administrator')) {
+          username = vaultItem.username;
+        }
+        try {
+          const decrypted = decryptVaultSecret(
+            vaultItem.encrypted_password,
+            vaultItem.iv,
+            vaultItem.tag,
+            vaultItem.user_id
+          );
+          if (decrypted) {
+            password = decrypted;
+            isFromVault = true;
+          }
+        } catch (err: any) {
+          console.warn(`[resolveServerCredentials:win] Vault decryption error for server ${server?.id}:`, err.message);
+        }
+      }
+    }
+    if (!password && server?.win_password) {
+      password = decryptServerSecret(server.win_password);
+    }
+  } else if (authType === 'db') {
+    username = server?.postgres_user || server?.mysql_user || 'postgres';
+    if (server?.db_vault_item_id) {
+      const vaultItem = await getVaultItemById(server.db_vault_item_id);
+      if (vaultItem) {
+        vaultItemName = vaultItem.name;
+        try {
+          const decrypted = decryptVaultSecret(
+            vaultItem.encrypted_password,
+            vaultItem.iv,
+            vaultItem.tag,
+            vaultItem.user_id
+          );
+          if (decrypted) {
+            password = decrypted;
+            isFromVault = true;
+          }
+        } catch (err: any) {
+          console.warn(`[resolveServerCredentials:db] Vault decryption error for server ${server?.id}:`, err.message);
+        }
+      }
+    }
+    if (!password) {
+      const raw = server?.postgres_password || server?.mysql_password || '';
+      if (raw) {
+        password = decryptServerSecret(raw);
+      }
+    }
+  }
+
+  return { username, password, isFromVault, vaultItemName };
+}
+
+/**
+ * Returns all network devices and remote servers actively bound to a given vault item.
+ * Used for Vault Insights in UI and Cascade Synchronization safety audits.
+ */
+export async function getVaultLinkedTargets(vaultItemId: string): Promise<{
+  devices: Array<{ id: string; name: string; ip?: string; role?: string; type: 'ssh' | 'enable' | 'both' }>;
+  servers: Array<{ id: string; name: string; ip?: string; os_type: string; type: 'ssh' | 'win' | 'db' }>;
+}> {
+  if (!vaultItemId || typeof vaultItemId !== 'string') {
+    return { devices: [], servers: [] };
+  }
+  const cleanId = vaultItemId.trim();
+
+  const linkedDevices: Array<{ id: string; name: string; ip?: string; role?: string; type: 'ssh' | 'enable' | 'both' }> = [];
+  const linkedServers: Array<{ id: string; name: string; ip?: string; os_type: string; type: 'ssh' | 'win' | 'db' }> = [];
+
+  // 1. Check devices in PostgreSQL
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const devRes = await pool.query(
+        'SELECT id, name, ip, role, ssh_vault_item_id, enable_vault_item_id FROM devices WHERE ssh_vault_item_id = $1 OR enable_vault_item_id = $1',
+        [cleanId]
+      );
+      if (devRes && Array.isArray(devRes.rows)) {
+        for (const row of devRes.rows) {
+          const isSsh = row.ssh_vault_item_id === cleanId;
+          const isEnable = row.enable_vault_item_id === cleanId;
+          linkedDevices.push({
+            id: row.id,
+            name: row.name || row.id,
+            ip: row.ip,
+            role: row.role,
+            type: isSsh && isEnable ? 'both' : isSsh ? 'ssh' : 'enable',
+          });
+        }
+      }
+
+      const srvRes = await pool.query(
+        'SELECT id, name, ip, os_type, ssh_vault_item_id, win_vault_item_id, db_vault_item_id FROM remote_servers WHERE ssh_vault_item_id = $1 OR win_vault_item_id = $1 OR db_vault_item_id = $1',
+        [cleanId]
+      );
+      if (srvRes && Array.isArray(srvRes.rows)) {
+        for (const row of srvRes.rows) {
+          const isSsh = row.ssh_vault_item_id === cleanId;
+          const isWin = row.win_vault_item_id === cleanId;
+          const isDb = row.db_vault_item_id === cleanId;
+          const t: 'ssh' | 'win' | 'db' = isWin ? 'win' : isDb ? 'db' : 'ssh';
+          linkedServers.push({
+            id: row.id,
+            name: row.name || row.id,
+            ip: row.ip,
+            os_type: row.os_type || 'linux',
+            type: t,
+          });
+        }
+      }
+    } catch (e: any) {
+      console.warn('[getVaultLinkedTargets PostgreSQL query notice]:', e.message);
+    }
+  }
+
+  // 2. If PostgreSQL returned empty, check fallback store
+  if (linkedDevices.length === 0 && linkedServers.length === 0) {
+    const store = loadFallbackStore();
+    const allDevices = Array.isArray(store.devices) ? store.devices : [];
+    for (const d of allDevices) {
+      const isSsh = d.ssh_vault_item_id === cleanId;
+      const isEnable = d.enable_vault_item_id === cleanId;
+      if (isSsh || isEnable) {
+        linkedDevices.push({
+          id: d.id,
+          name: d.name || d.id,
+          ip: d.ip,
+          role: d.role,
+          type: isSsh && isEnable ? 'both' : isSsh ? 'ssh' : 'enable',
+        });
+      }
+    }
+
+    const allServers = Array.isArray(store.remote_servers) ? store.remote_servers : [];
+    for (const s of allServers) {
+      const isSsh = s.ssh_vault_item_id === cleanId;
+      const isWin = s.win_vault_item_id === cleanId;
+      const isDb = s.db_vault_item_id === cleanId;
+      if (isSsh || isWin || isDb) {
+        linkedServers.push({
+          id: s.id,
+          name: s.name || s.id,
+          ip: s.ip,
+          os_type: s.os_type || 'linux',
+          type: isWin ? 'win' : isDb ? 'db' : 'ssh',
+        });
+      }
+    }
+  }
+
+  return { devices: linkedDevices, servers: linkedServers };
+}
+
+/**
+ * Automatic Cascade Synchronization Engine:
+ * When a user updates or changes a password in the vault, this engine automatically
+ * finds all connected network devices (switches, routers) and remote servers (Linux, Windows, DB)
+ * bound to this vault item ID, updates their encrypted credentials at rest with AES-256-GCM,
+ * and maintains 100% database synchronization.
+ */
+export async function cascadeSyncVaultItem(
+  vaultItemId: string,
+  newPlainTextPassword: string,
+  vaultItemName?: string
+): Promise<CascadeSyncResult> {
+  const cleanId = (vaultItemId || '').trim();
+  const cleanPass = (newPlainTextPassword || '').trim();
+  const name = vaultItemName || cleanId;
+
+  const result: CascadeSyncResult = {
+    vaultItemId: cleanId,
+    vaultItemName: name,
+    affectedDevices: [],
+    affectedServers: [],
+    totalDevicesCount: 0,
+    totalServersCount: 0,
+  };
+
+  if (!cleanId || !cleanPass) return result;
+
+  // 1. Generate new AES-256-GCM encrypted server secret for storage at rest
+  const encryptedServerSecret = encryptServerSecret(cleanPass);
+
+  // 2. Discover linked targets
+  const linked = await getVaultLinkedTargets(cleanId);
+  result.affectedDevices = linked.devices;
+  result.affectedServers = linked.servers;
+  result.totalDevicesCount = linked.devices.length;
+  result.totalServersCount = linked.servers.length;
+
+  // 3. PostgreSQL Database Synchronization
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      // Cascade to devices
+      for (const dev of linked.devices) {
+        if (dev.type === 'both') {
+          await pool.query(
+            'UPDATE devices SET ssh_password = $1, enable_password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [encryptedServerSecret, dev.id]
+          );
+        } else if (dev.type === 'ssh') {
+          await pool.query(
+            'UPDATE devices SET ssh_password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [encryptedServerSecret, dev.id]
+          );
+        } else if (dev.type === 'enable') {
+          await pool.query(
+            'UPDATE devices SET enable_password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [encryptedServerSecret, dev.id]
+          );
+        }
+      }
+
+      // Cascade to remote servers
+      for (const srv of linked.servers) {
+        if (srv.type === 'ssh') {
+          await pool.query(
+            'UPDATE remote_servers SET ssh_password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [encryptedServerSecret, srv.id]
+          );
+        } else if (srv.type === 'win') {
+          await pool.query(
+            'UPDATE remote_servers SET win_password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [encryptedServerSecret, srv.id]
+          );
+        } else if (srv.type === 'db') {
+          await pool.query(
+            'UPDATE remote_servers SET postgres_password = $1, mysql_password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [encryptedServerSecret, srv.id]
+          );
+        }
+      }
+    } catch (pgErr: any) {
+      console.error('[cascadeSyncVaultItem PostgreSQL sync error]:', pgErr.message);
+    }
+  }
+
+  // 4. Memory & Fallback Store Synchronization
+  const store = loadFallbackStore();
+  let storeDirty = false;
+
+  if (Array.isArray(store.devices)) {
+    for (const d of store.devices) {
+      if (d.ssh_vault_item_id === cleanId) {
+        d.ssh_password = encryptedServerSecret;
+        storeDirty = true;
+      }
+      if (d.enable_vault_item_id === cleanId) {
+        d.enable_password = encryptedServerSecret;
+        storeDirty = true;
+      }
+    }
+  }
+
+  if (Array.isArray(store.remote_servers)) {
+    for (const s of store.remote_servers) {
+      if (s.ssh_vault_item_id === cleanId) {
+        s.ssh_password = encryptedServerSecret;
+        s.ssh_password_set = true;
+        storeDirty = true;
+      }
+      if (s.win_vault_item_id === cleanId) {
+        s.win_password = encryptedServerSecret;
+        s.win_password_set = true;
+        storeDirty = true;
+      }
+      if (s.db_vault_item_id === cleanId) {
+        s.postgres_password = encryptedServerSecret;
+        s.postgres_password_set = true;
+        s.mysql_password = encryptedServerSecret;
+        s.mysql_password_set = true;
+        storeDirty = true;
+      }
+    }
+  }
+
+  if (storeDirty) {
+    saveFallbackStore(store);
+  }
+
+  // 5. Sync to backend/network_data.json
+  try {
+    const netPath = path.join(process.cwd(), 'backend', 'network_data.json');
+    if (fs.existsSync(netPath)) {
+      const netData = JSON.parse(fs.readFileSync(netPath, 'utf-8'));
+      let netDirty = false;
+      if (Array.isArray(netData.devices)) {
+        for (const d of netData.devices) {
+          if (d.ssh_vault_item_id === cleanId) {
+            d.ssh_password = encryptedServerSecret;
+            netDirty = true;
+          }
+          if (d.enable_vault_item_id === cleanId) {
+            d.enable_password = encryptedServerSecret;
+            netDirty = true;
+          }
+        }
+      }
+      if (netDirty) {
+        fs.writeFileSync(netPath, JSON.stringify(netData, null, 2), 'utf-8');
+      }
+    }
+  } catch (netErr: any) {
+    console.warn('[cascadeSyncVaultItem network_data.json sync notice]:', netErr.message);
+  }
+
+  return result;
 }
 
 export async function getBulkServerReports(): Promise<any[]> {

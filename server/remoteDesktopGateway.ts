@@ -45,6 +45,8 @@ async function resolveTargetServerRecord(serverId: string, projectRoot: string):
     return {
       ...fileRecord,
       ...dbRecord,
+      win_vault_item_id: dbRecord.win_vault_item_id || fileRecord.win_vault_item_id || undefined,
+      ssh_vault_item_id: dbRecord.ssh_vault_item_id || fileRecord.ssh_vault_item_id || undefined,
       win_password: dbRecord.win_password || fileRecord.win_password || '',
       vnc_password: dbRecord.vnc_password || fileRecord.vnc_password || '',
       rdp_security: normalizeRdpSecurity(dbRecord.rdp_security || fileRecord.rdp_security),
@@ -53,6 +55,8 @@ async function resolveTargetServerRecord(serverId: string, projectRoot: string):
   const single = dbRecord || fileRecord;
   return {
     ...single,
+    win_vault_item_id: single.win_vault_item_id || undefined,
+    ssh_vault_item_id: single.ssh_vault_item_id || undefined,
     rdp_security: normalizeRdpSecurity(single.rdp_security),
   };
 }
@@ -725,7 +729,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       normalizedUser: norm.username,
       normalizedDomain: norm.domain,
       rdpSecurity,
-      hasPasswordConfigured: Boolean(serverRecord.win_password || serverRecord.vnc_password),
+      hasPasswordConfigured: Boolean(serverRecord.win_password || serverRecord.vnc_password || serverRecord.win_vault_item_id),
     });
   });
 
@@ -805,9 +809,29 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     const targetUsername = normalized.username;
     const targetDomain = normalized.domain;
     const isEphemeralAuth = typeof sessionPassword === 'string' && sessionPassword.length > 0;
-    const targetPassword = isEphemeralAuth
+    let targetPassword = isEphemeralAuth
       ? sessionPassword
       : (isRdp ? serverRecord.win_password || '' : serverRecord.vnc_password || '');
+
+    // Dynamic Credential Resolver: Live Vault binding first
+    if (!isEphemeralAuth && !targetPassword && isRdp && serverRecord.win_vault_item_id) {
+      try {
+        const { resolveDynamicVaultPassword } = await import('./db');
+        const vaultPass = await resolveDynamicVaultPassword(serverRecord.win_vault_item_id);
+        if (vaultPass) targetPassword = vaultPass;
+      } catch (vaultErr: any) {
+        console.warn('[RemoteDesktop] Dynamic vault resolution error:', vaultErr.message);
+      }
+    }
+
+    if (targetPassword && targetPassword.startsWith('enc:v1:')) {
+      try {
+        const { decryptServerSecret } = await import('./vaultCrypto');
+        targetPassword = decryptServerSecret(targetPassword);
+      } catch (decErr: any) {
+        console.warn('[RemoteDesktop] AES-256-GCM decryption notice:', decErr.message);
+      }
+    }
     const targetSecurity = normalizeRdpSecurity(rdp_security || security || serverRecord.rdp_security || 'any');
 
     const sessionToken = crypto.randomBytes(32).toString('hex');

@@ -32,7 +32,7 @@ import {
   Trash2,
   BookmarkPlus,
 } from 'lucide-react';
-import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig, isMikroTikDevice } from '../types';
+import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig, isMikroTikDevice, AccessPolicy } from '../types';
 import { fetchTemplates, testDeviceConnection, pingHost, fetchDevices, saveSecretToVault } from '../services/api';
 import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
@@ -40,6 +40,8 @@ import { CiscoTerminalModal } from './CiscoTerminalModal';
 import { MikroTikTerminalModal } from './MikroTikTerminalModal';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
+import { useAuth } from '../context/AuthContext';
+import { isTemplateApplyPermitted, isUserSuperAdmin } from '../utils/rbac';
 
 export interface AddDeviceModalProps {
   isOpen: boolean;
@@ -49,6 +51,8 @@ export interface AddDeviceModalProps {
   onOpenTerminal?: (device: Device) => void;
   onDeviceCreatedWithTemplate?: (device: Device, templateId: string) => void;
   isLightMode?: boolean;
+  effectivePolicy?: AccessPolicy | null;
+  isSuperAdmin?: boolean;
 }
 
 export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
@@ -59,8 +63,15 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   onOpenTerminal,
   onDeviceCreatedWithTemplate,
   isLightMode: propIsLightMode,
+  effectivePolicy: propEffectivePolicy,
+  isSuperAdmin: propIsSuperAdmin,
 }) => {
   const { isRtl, isEn } = useLanguage();
+  const { user, effectivePolicy: authEffectivePolicy } = useAuth();
+
+  const effectivePolicy = propEffectivePolicy ?? authEffectivePolicy;
+  const isSuperAdmin = propIsSuperAdmin ?? isUserSuperAdmin(user, effectivePolicy);
+  const canApplyTemplates = isTemplateApplyPermitted(effectivePolicy, isSuperAdmin);
 
   const isLightMode = propIsLightMode ?? (typeof document !== 'undefined' && (
     document.querySelector('.theme-light') !== null ||
@@ -163,6 +174,13 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   // Config Templates & Initial Deployment
   const [templates, setTemplates] = useState<ConfigTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+
+  // Lock template selector to None if user lacks canApplyTemplates RBAC permission
+  useEffect(() => {
+    if (!canApplyTemplates && selectedTemplateId) {
+      setSelectedTemplateId('');
+    }
+  }, [canApplyTemplates, selectedTemplateId]);
 
   // Physical Hierarchy Suggestions
   const [hierarchyBuildings, setHierarchyBuildings] = useState<string[]>([]);
@@ -768,6 +786,7 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             url: wc.url.trim(),
           }))
           .filter((wc) => wc.url.length > 0),
+        initial_template_id: canApplyTemplates && selectedTemplateId ? selectedTemplateId : undefined,
       };
 
       const created = await onAdd(devicePayload);
@@ -863,8 +882,8 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         window.dispatchEvent(new CustomEvent('nettopology_hierarchy_updated'));
       } catch (e) {}
 
-      // If user selected an initial configuration template, trigger template deployment
-      if (selectedTemplateId && onDeviceCreatedWithTemplate && created) {
+      // If user selected an initial configuration template and has RBAC permission, trigger template deployment
+      if (canApplyTemplates && selectedTemplateId && onDeviceCreatedWithTemplate && created) {
         onDeviceCreatedWithTemplate(created as Device, selectedTemplateId);
       }
 
@@ -2789,24 +2808,47 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             }`}>
               <div className="flex items-center justify-between">
                 <div className={`flex items-center gap-1.5 text-xs font-bold ${
-                  isLightMode ? 'text-indigo-600' : 'text-indigo-400'
+                  !canApplyTemplates
+                    ? isLightMode ? 'text-amber-700' : 'text-amber-400'
+                    : isLightMode ? 'text-indigo-600' : 'text-indigo-400'
                 }`}>
                   <FileCode2 className="w-3.5 h-3.5" />
                   <span>{isEn ? 'Optional Initial Configuration Template:' : 'قالب پیکربندی اولیه پس از ثبت (اختیاری):'}</span>
                 </div>
-                <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {isEn ? 'Immediate Deployment' : 'اعمال خودکار کانفیگ'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {!canApplyTemplates && (
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                      isLightMode
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : 'bg-amber-950/60 text-amber-300 border-amber-700/60'
+                    }`}>
+                      <Lock className="w-2.5 h-2.5" />
+                      {isEn ? 'RBAC Locked' : 'قفل امنیتی'}
+                    </span>
+                  )}
+                  <span className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {isEn ? 'Immediate Deployment' : 'اعمال خودکار کانفیگ'}
+                  </span>
+                </div>
               </div>
 
               <div>
                 <select
-                  value={selectedTemplateId}
-                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  value={canApplyTemplates ? selectedTemplateId : ''}
+                  onChange={(e) => {
+                    if (canApplyTemplates) {
+                      setSelectedTemplateId(e.target.value);
+                    }
+                  }}
+                  disabled={!canApplyTemplates}
                   className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none transition ${
-                    isLightMode
-                      ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                      : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
+                    !canApplyTemplates
+                      ? isLightMode
+                        ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed select-none'
+                        : 'bg-slate-900/60 border-slate-800 text-slate-500 cursor-not-allowed select-none'
+                      : isLightMode
+                        ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
+                        : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
                   }`}
                 >
                   <option value="">
@@ -2814,19 +2856,42 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       ? 'None (Register as unconfigured / bare-metal device)'
                       : 'هیچکدام (ثبت به صورت تجهیز خام بدون ارسال کانفیگ اولیه)'}
                   </option>
-                  {templates.map((tpl) => (
+                  {canApplyTemplates && templates.map((tpl) => (
                     <option key={tpl.id} value={tpl.id}>
                       {tpl.name} ({tpl.target_platform}) - {tpl.category}
                     </option>
                   ))}
                 </select>
-                {selectedTemplateId && (
+
+                {!canApplyTemplates ? (
+                  <div className={`mt-2 p-2.5 rounded-lg border flex items-start gap-2 text-xs ${
+                    isLightMode
+                      ? 'bg-amber-50/90 border-amber-200/80 text-amber-800'
+                      : 'bg-amber-950/40 border-amber-800/60 text-amber-300'
+                  }`}>
+                    <Lock className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="font-semibold flex items-center gap-1.5">
+                        <span>
+                          {isEn
+                            ? 'Template Application Locked (RBAC Permission Required)'
+                            : 'قفل امنیتی اعمال تمپلیت (نیازمند مجوز در RBAC)'}
+                        </span>
+                      </div>
+                      <p className={`text-[11px] leading-relaxed ${isLightMode ? 'text-amber-700' : 'text-amber-400'}`}>
+                        {isEn
+                          ? 'Applying configuration templates requires "canApplyTemplates" permission in your active RBAC policy. This selector is locked to None to prevent unauthorized automated configuration.'
+                          : 'اعمال قالب‌های پیکربندی نیازمند مجوز «canApplyTemplates» در پالیسی RBAC شما است. این انتخابگر برای جلوگیری از ارسال پیکربندی غیرمجاز بر روی حالت «هیچکدام» قفل شده است.'}
+                      </p>
+                    </div>
+                  </div>
+                ) : selectedTemplateId ? (
                   <p className={`text-[10px] mt-1.5 ${isLightMode ? 'text-indigo-600' : 'text-indigo-400'}`}>
                     {isEn
                       ? 'The interactive template applicator will open automatically right after this device is registered.'
                       : 'پس از ثبت موفق تجهیز، پنجره اعمال تعاملی این قالب به صورت خودکار باز خواهد شد.'}
                   </p>
-                )}
+                ) : null}
               </div>
             </div>
           </div>

@@ -598,8 +598,22 @@ export async function runAdaptiveSshCommand(
   const isWindows = server.os_type === 'windows';
   const host = (server.ip || server.hostname || '').trim();
   const port = isWindows ? (server.ssh_port || server.win_port || 22) : (server.ssh_port || 22);
-  const username = (isWindows ? (server.win_username || server.ssh_username) : (server.ssh_username || server.win_username)) || (isWindows ? 'Administrator' : 'root');
-  const rawPassword = ephemeralPassword || (isWindows ? (server.win_password || server.ssh_password) : (server.ssh_password || server.win_password)) || '';
+  const username = isWindows
+    ? (server.win_username || (server as any).win_user || server.ssh_username || (server as any).ssh_user || 'Administrator').trim()
+    : (server.ssh_username || (server as any).ssh_user || 'root').trim();
+  let rawPassword = ephemeralPassword || (isWindows ? (server.win_password || server.ssh_password) : (server.ssh_password || server.win_password)) || '';
+  if (!rawPassword) {
+    const vaultId = isWindows ? (server.win_vault_item_id || server.ssh_vault_item_id) : (server.ssh_vault_item_id || server.win_vault_item_id);
+    if (vaultId) {
+      try {
+        const { resolveDynamicVaultPassword } = await import('./db');
+        const vaultPass = await resolveDynamicVaultPassword(vaultId);
+        if (vaultPass) rawPassword = vaultPass;
+      } catch (vaultErr: any) {
+        console.warn('[LinuxServerMonitor] Dynamic vault resolution notice:', vaultErr.message);
+      }
+    }
+  }
   const password = rawPassword ? decryptServerSecret(rawPassword) : '';
 
   if (!host) {

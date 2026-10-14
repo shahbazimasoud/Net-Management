@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FileCode2,
   Plus,
@@ -23,17 +23,20 @@ import {
   AlertCircle,
   CopyPlus,
   DownloadCloud,
-  Lock
+  Download,
+  Upload,
+  Lock,
+  RotateCcw
 } from 'lucide-react';
 import { ConfigTemplate, Device, AccessPolicy } from '../types';
-import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate } from '../services/api';
+import { fetchTemplates, createTemplate, updateTemplate, deleteTemplate, exportTemplatesPackage, importTemplatesPackage } from '../services/api';
 import { TemplateEditorModal } from './TemplateEditorModal';
 import { ApplyTemplateModal } from './ApplyTemplateModal';
 import { CloneTemplateModal } from './CloneTemplateModal';
 import { CaptureConfigModal } from './CaptureConfigModal';
 import { useLanguage } from '../i18n';
 import { useModalDock } from '../context/ModalDockContext';
-import { isDeviceActionPermitted } from '../utils/rbac';
+import { isDeviceActionPermitted, isTemplateExportPermitted, isTemplateImportPermitted } from '../utils/rbac';
 
 interface TemplateManagementViewProps {
   devices: Device[];
@@ -50,6 +53,13 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // RBAC Permission checks for template operations
+  const isSuperAdmin = effectivePolicy?.name === 'Super Admin' || effectivePolicy?.priority === 0 || (effectivePolicy as any)?.isSuperAdmin;
+  const canExport = isTemplateExportPermitted(effectivePolicy, isSuperAdmin);
+  const canImport = isTemplateImportPermitted(effectivePolicy, isSuperAdmin);
+
   const [templates, setTemplates] = useState<ConfigTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +68,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [vendorFilter, setVendorFilter] = useState<'all' | 'cisco' | 'mikrotik' | 'generic'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'switch' | 'router'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'standard' | 'snapshots'>('all');
 
   // Modals state
   const [editorOpen, setEditorOpen] = useState(false);
@@ -115,9 +126,15 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
       const matchVendor = vendorFilter === 'all' || t.vendor === vendorFilter;
       const matchType = typeFilter === 'all' || t.target_type === typeFilter || t.target_type === 'all';
 
-      return matchSearch && matchVendor && matchType;
+      const isSnapshot = t.role === 'Backup Snapshot' || t.name.startsWith('[Backup Snapshot]');
+      const matchCategory =
+        categoryFilter === 'all' ||
+        (categoryFilter === 'snapshots' && isSnapshot) ||
+        (categoryFilter === 'standard' && !isSnapshot);
+
+      return matchSearch && matchVendor && matchType && matchCategory;
     });
-  }, [templates, searchTerm, vendorFilter, typeFilter]);
+  }, [templates, searchTerm, vendorFilter, typeFilter, categoryFilter]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -126,7 +143,8 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     const mikrotikCount = templates.filter((t) => t.vendor === 'mikrotik').length;
     const switchCount = templates.filter((t) => t.target_type === 'switch').length;
     const routerCount = templates.filter((t) => t.target_type === 'router').length;
-    return { total, ciscoCount, mikrotikCount, switchCount, routerCount };
+    const snapshotCount = templates.filter((t) => t.role === 'Backup Snapshot' || t.name.startsWith('[Backup Snapshot]')).length;
+    return { total, ciscoCount, mikrotikCount, switchCount, routerCount, snapshotCount };
   }, [templates]);
 
   // Save or update handler
@@ -200,6 +218,84 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
     navigator.clipboard.writeText(commands);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Export templates package handler guarded by RBAC
+  const handleExportTemplates = async () => {
+    if (!canExport) {
+      alert(isEn
+        ? 'Access Denied: Your account policy prohibits exporting configuration templates (canExportTemplates=false).'
+        : 'عدم دسترسی: حساب کاربری شما فاقد مجوز برون‌بری و استخراج الگوهای کانفیگ است (canExportTemplates=false).');
+      return;
+    }
+    try {
+      const data = await exportTemplatesPackage();
+      const blob = new Blob([JSON.stringify(data.templates, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `config_templates_package_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(isEn ? `Successfully exported ${data.total} configuration templates.` : `تعداد ${data.total} الگوی کانفیگ با موفقیت برون‌بری شد.`);
+    } catch (err: any) {
+      alert(err.message || (isEn ? 'Failed to export templates' : 'خطا در برون‌بری الگوها'));
+    }
+  };
+
+  // Import templates package handler guarded by RBAC
+  const handleImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canImport) {
+      alert(isEn
+        ? 'Access Denied: Your account policy prohibits importing configuration templates (canImportTemplates=false).'
+        : 'عدم دسترسی: حساب کاربری شما فاقد مجوز بارگذاری و درون‌ریزی الگوهای کانفیگ است (canImportTemplates=false).');
+      return;
+    }
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      let parsed = JSON.parse(text);
+      if (parsed.templates && Array.isArray(parsed.templates)) {
+        parsed = parsed.templates;
+      }
+      if (!Array.isArray(parsed)) {
+        throw new Error(isEn ? 'Invalid format. File must contain an array of templates.' : 'فرمت نامعتبر است. فایل باید شامل آرایه‌ای از الگوها باشد.');
+      }
+      const res = await importTemplatesPackage(parsed);
+      showToast(isEn ? `Successfully imported ${res.importedCount} templates.` : `تعداد ${res.importedCount} الگو با موفقیت به کتابخانه افزوده شد.`);
+      await loadTemplates();
+    } catch (err: any) {
+      alert(err.message || (isEn ? 'Failed to import templates' : 'خطا در درون‌ریزی الگوها'));
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Minimize clone modal to ToolsDock
+  const handleMinimizeClone = () => {
+    const tmplName = cloneSourceTemplate?.name || (isEn ? 'Config Template' : 'الگوی کانفیگ');
+    dockModal({
+      id: 'clone-template-modal',
+      labelEn: `Clone (${tmplName})`,
+      labelFa: `کلون (${tmplName})`,
+      badge: cloneSourceTemplate?.vendor === 'mikrotik' ? 'MikroTik' : cloneSourceTemplate?.vendor === 'cisco' ? 'Cisco' : 'Clone',
+      category: 'config',
+      onRestore: () => {
+        setCloneModalOpen(true);
+      },
+      onClose: () => {
+        undockModal('clone-template-modal');
+        setCloneModalOpen(false);
+        setCloneSourceTemplate(null);
+      },
+    });
+    setCloneModalOpen(false);
   };
 
   // Minimize apply modal to ToolsDock
@@ -294,15 +390,15 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           </div>
         </div>
 
-        {/* Top Action Buttons - Unified size with DeviceListView: px-3.5 py-1.5 rounded-xl text-xs font-medium gap-1.5 */}
-        <div className="flex items-center flex-wrap gap-2">
+        {/* Top Action Buttons - Compact side-by-side layout */}
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
           {/* Extract Live Config Button */}
           <button
             onClick={() => setCaptureModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(16,185,129,0.3)] transition active:scale-95 border border-emerald-400/30 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-medium shadow-xs transition active:scale-95 border border-emerald-400/30 cursor-pointer whitespace-nowrap shrink-0"
             title={t('templates_btn_extract_live_title')}
           >
-            <DownloadCloud className="w-3.5 h-3.5 text-emerald-200" />
+            <DownloadCloud className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
             <span>{t('templates_btn_extract_live')}</span>
           </button>
 
@@ -312,9 +408,9 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
               setTemplateToEdit(null);
               setEditorOpen(true);
             }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-[0_0_15px_rgba(99,102,241,0.35)] transition border border-white/10 active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-[11px] font-medium shadow-xs transition border border-white/10 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>{t('templates_btn_create_new')}</span>
           </button>
 
@@ -322,19 +418,63 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
           {templates.length > 0 && (
             <button
               onClick={() => handleOpenClone(templates[0])}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-medium shadow-xs transition active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-medium shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
               title={t('templates_btn_clone_top_title')}
             >
-              <CopyPlus className="w-3.5 h-3.5 text-cyan-400" />
+              <CopyPlus className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
               <span>{t('templates_btn_clone_top')}</span>
             </button>
           )}
+
+          {/* Export Templates Button */}
+          <button
+            onClick={handleExportTemplates}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
+              canExport
+                ? 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border-purple-500/30'
+                : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
+            }`}
+            title={canExport ? (isEn ? 'Export All Config Templates as JSON Package' : 'برون‌بری کلیه الگوهای کانفیگ به صورت بسته JSON') : (isEn ? 'Access Denied: Export Templates prohibited by RBAC' : 'عدم دسترسی: برون‌بری الگوها در سطوح دسترسی غیرفعال است')}
+          >
+            <Download className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <span>{isEn ? 'Export' : 'برون‌بری'}</span>
+          </button>
+
+          {/* Import Templates Button */}
+          <button
+            onClick={() => {
+              if (!canImport) {
+                alert(isEn
+                  ? 'Access Denied: Your account policy prohibits importing configuration templates (canImportTemplates=false).'
+                  : 'عدم دسترسی: حساب کاربری شما فاقد مجوز بارگذاری و درون‌ریزی الگوهای کانفیگ است (canImportTemplates=false).');
+                return;
+              }
+              fileInputRef.current?.click();
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
+              canImport
+                ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
+            }`}
+            title={canImport ? (isEn ? 'Import Config Templates from JSON Package' : 'درون‌ریزی و بارگذاری الگوهای کانفیگ از فایل JSON') : (isEn ? 'Access Denied: Import Templates prohibited by RBAC' : 'عدم دسترسی: درون‌ریزی الگوها در سطوح دسترسی غیرفعال است')}
+          >
+            <Upload className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>{isEn ? 'Import' : 'درون‌ریزی'}</span>
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={handleImportFileChange}
+            className="hidden"
+          />
 
           {/* Refresh List Button */}
           <button
             onClick={loadTemplates}
             title={t('action_refresh')}
-            className="flex items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition cursor-pointer"
+            className="flex items-center justify-center p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition cursor-pointer shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
@@ -471,6 +611,44 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
               }`}
             >
               {isEn ? 'Router' : 'روتر'}
+            </button>
+          </div>
+
+          {/* Category Filter: All | Standard | Snapshots */}
+          <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs template-filter-group">
+            <span className="text-[11px] text-slate-400 px-2 font-medium">
+              {isEn ? 'Category:' : 'دسته‌بندی:'}
+            </span>
+            <button
+              onClick={() => setCategoryFilter('all')}
+              className={`px-2.5 py-1 rounded-lg transition text-xs cursor-pointer ${
+                categoryFilter === 'all'
+                  ? 'bg-cyan-600 text-white font-semibold shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {isEn ? 'All' : 'همه'}
+            </button>
+            <button
+              onClick={() => setCategoryFilter('standard')}
+              className={`px-2.5 py-1 rounded-lg transition text-xs cursor-pointer ${
+                categoryFilter === 'standard'
+                  ? 'bg-cyan-600 text-white font-semibold shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {isEn ? 'Standard' : 'استاندارد'}
+            </button>
+            <button
+              onClick={() => setCategoryFilter('snapshots')}
+              className={`px-2.5 py-1 rounded-lg transition text-xs cursor-pointer flex items-center gap-1 ${
+                categoryFilter === 'snapshots'
+                  ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>{isEn ? `Snapshots (${stats.snapshotCount})` : `بکاپ‌ها (${stats.snapshotCount})`}</span>
             </button>
           </div>
         </div>
@@ -734,9 +912,11 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
       <CloneTemplateModal
         isOpen={cloneModalOpen}
         onClose={() => {
+          undockModal('clone-template-modal');
           setCloneModalOpen(false);
           setCloneSourceTemplate(null);
         }}
+        onMinimize={handleMinimizeClone}
         sourceTemplate={cloneSourceTemplate}
         onSaveClone={handleSaveClone}
         onCloneAndApply={handleCloneAndApply}
@@ -755,6 +935,10 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
         effectivePolicy={effectivePolicy}
         templates={templates}
         preselectedTemplateId={applyTargetTemplateId}
+        onBackupCreated={(newTmpl) => {
+          showToast(isEn ? `Pre-apply backup snapshot "${newTmpl.name}" saved and added to templates list.` : `نسخه پشتیبان زنده «${newTmpl.name}» قبل از اعمال، با موفقیت به لیست الگوهای کانفیگ افزوده شد.`);
+          loadTemplates();
+        }}
         onApplied={(updatedDevice) => {
           showToast(isEn ? `Template applied successfully to "${updatedDevice.name}".` : `تمپلیت با موفقیت روی «${updatedDevice.name}» اعمال شد.`);
           if (onDeviceUpdated) onDeviceUpdated(updatedDevice);

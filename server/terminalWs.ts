@@ -135,7 +135,19 @@ export function setupTerminalWebSocket(
           if (!port || port === 22) port = srv.ssh_port || 22;
           if (!username) username = srv.ssh_username || 'root';
           if (!password && !srv.prompt_password_on_connect) {
-            password = srv.ssh_password || '';
+            // Dynamic Credential Resolver: Live Vault binding first
+            if (srv.ssh_vault_item_id) {
+              try {
+                const { resolveDynamicVaultPassword } = await import('./db');
+                const vaultPass = await resolveDynamicVaultPassword(srv.ssh_vault_item_id);
+                if (vaultPass) password = vaultPass;
+              } catch (vaultErr: any) {
+                console.warn('[TerminalWs] Dynamic vault resolution notice for server:', vaultErr.message);
+              }
+            }
+            if (!password) {
+              password = srv.ssh_password || '';
+            }
           }
           if (!devPlatform) devPlatform = 'generic_linux';
 
@@ -186,7 +198,19 @@ export function setupTerminalWebSocket(
           if (!port || port === 22) port = dev.connection?.port || dev.ssh_port || 22;
           if (!username) username = dev.connection?.username || dev.ssh_username || 'admin';
           if (!password) {
-            password = dev.connection?.password || dev.ssh_password || '';
+            // Dynamic Credential Resolver: Live Vault binding first
+            if (dev.ssh_vault_item_id) {
+              try {
+                const { resolveDynamicVaultPassword } = await import('./db');
+                const vaultPass = await resolveDynamicVaultPassword(dev.ssh_vault_item_id);
+                if (vaultPass) password = vaultPass;
+              } catch (vaultErr: any) {
+                console.warn('[TerminalWs] Dynamic vault resolution notice for device:', vaultErr.message);
+              }
+            }
+            if (!password) {
+              password = dev.connection?.password || dev.ssh_password || '';
+            }
           }
           if (!devPlatform) {
             devPlatform = dev.platform || dev.device_type || '';
@@ -240,9 +264,16 @@ export function setupTerminalWebSocket(
       console.warn('[TerminalWs] Database store lookup warning:', err);
     }
 
-    // Decrypt credentials if stored encrypted
+    // Decrypt credentials if stored encrypted (Fernet or AES-256-GCM enc:v1:)
     if (password && password.startsWith('enc:fernet:')) {
       password = decryptFernetCredential(password, projectRoot);
+    } else if (password && password.startsWith('enc:v1:')) {
+      try {
+        const { decryptServerSecret } = await import('./vaultCrypto');
+        password = decryptServerSecret(password);
+      } catch (decErr: any) {
+        console.warn('[TerminalWs] AES-256-GCM secret decryption notice:', decErr.message);
+      }
     }
 
     // Ensure username is never empty and appropriately defaulted

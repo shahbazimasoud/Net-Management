@@ -82,7 +82,7 @@ import {
   syncGeneralSettingsFromDatabase,
 } from './services/settingsStorage';
 import { AccessPolicy, LocalGroup, DeviceGroup, ActiveDirectoryConfig, PanelGeneralSettings } from './types';
-import { isDeviceActionPermitted, isUserSuperAdmin } from './utils/rbac';
+import { isDeviceActionPermitted, isUserSuperAdmin, isTemplateApplyPermitted } from './utils/rbac';
 
 export default function App() {
   const { t, isRtl, isEn, setLanguage } = useLanguage();
@@ -1345,7 +1345,13 @@ export default function App() {
         }
         onAdd={handleAddDevice}
         onOpenTerminal={(dev) => openTerminal(dev as any)}
+        effectivePolicy={effectivePolicy}
+        isSuperAdmin={isSuperAdmin}
         onDeviceCreatedWithTemplate={(createdDevice, templateId) => {
+          if (!isTemplateApplyPermitted(effectivePolicy, isSuperAdmin)) {
+            console.warn('[RBAC Veto] User lacks canApplyTemplates authority. Initial template application suppressed.');
+            return;
+          }
           setApplyTemplateDevice(createdDevice);
           setApplyPreselectedTemplateId(templateId);
         }}
@@ -1389,6 +1395,9 @@ export default function App() {
         targetDevice={applyTemplateDevice}
         allDevices={devices}
         preselectedTemplateId={applyPreselectedTemplateId}
+        onBackupCreated={() => {
+          loadData();
+        }}
         onApplied={(updatedDevice) => {
           loadData();
           showToast(t('toast_template_applied', { name: updatedDevice.name }));

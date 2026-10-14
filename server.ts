@@ -54,15 +54,7 @@ const getPort = (): number => {
     const val = parseInt(process.argv[portArgIndex + 1], 10);
     if (!isNaN(val)) return val;
   }
-  if (process.env.APP_PORT) {
-    const val = parseInt(process.env.APP_PORT, 10);
-    if (!isNaN(val)) return val;
-  }
-  if (process.env.PORT && process.env.PORT !== '8080') {
-    const val = parseInt(process.env.PORT, 10);
-    if (!isNaN(val)) return val;
-  }
-  return 3000;
+  return process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 };
 
 const getHost = (): string => {

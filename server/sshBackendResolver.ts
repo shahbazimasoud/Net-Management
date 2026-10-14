@@ -182,7 +182,7 @@ let isAutoProvisioning = false;
  * Python executable and script with absolute paths. All SSH code paths (Test & Fetch, Terminal,
  * Port modal) must use this resolver, with strictly NO fallback to system Python.
  */
-export function resolveSshBackend(sshVersion?: string | null, autoProvision: boolean = false): SshBackendResolution {
+export function resolveSshBackend(sshVersion?: string | null): SshBackendResolution {
   const clean = String(sshVersion || '').toLowerCase().trim();
   const version: SshVersionMode = clean.includes('modern') ? 'modern' : 'legacy';
 
@@ -192,8 +192,8 @@ export function resolveSshBackend(sshVersion?: string | null, autoProvision: boo
   // Verify whether pythonBin exists and Paramiko is functional
   let verifyResult = pythonBin ? verifyParamikoInPython(pythonBin, version) : { ok: false, error: 'No python binary' };
 
-  // If missing or broken, attempt auto-provisioning via setup script only when explicitly requested
-  if (!verifyResult.ok && !isAutoProvisioning && autoProvision) {
+  // If missing or broken, attempt auto-provisioning via setup script
+  if (!verifyResult.ok && !isAutoProvisioning) {
     const setupScript = path.resolve(getProjectRoot(), 'scripts', 'setup-ssh-venvs.sh');
     if (fs.existsSync(setupScript)) {
       console.warn(`[SSH Backend Resolver] Dedicated ${version.toUpperCase()} Python venv with Paramiko not verified at '${pythonBin || venvDir}'. Running setup script: ${setupScript}...`);
@@ -267,7 +267,7 @@ export function checkSshBackendsOnStartup(): {
 
   for (const mode of modes) {
     try {
-      const resolution = resolveSshBackend(mode, false);
+      const resolution = resolveSshBackend(mode);
       if (mode === 'legacy') {
         legacyOk = true;
         legacyVersion = resolution.paramikoInstalled;

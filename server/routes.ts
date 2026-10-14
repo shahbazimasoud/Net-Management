@@ -111,8 +111,12 @@ import {
   deleteServerCategory,
   getUserVaultItems,
   getUserVaultItemById,
+  getVaultItemById,
   saveUserVaultItem,
   deleteUserVaultItem,
+  getVaultLinkedTargets,
+  cascadeSyncVaultItem,
+  CascadeSyncResult,
   UserVaultItem,
   getAllScheduledBackupJobs,
   getScheduledBackupJobById,
@@ -15937,8 +15941,8 @@ apiRouter.post('/vault', async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/vault/:id - Update an existing vault item
-apiRouter.put('/vault/:id', async (req: Request, res: Response) => {
+// PUT /api/vault/:id & PUT /api/user-password-vault/:id - Update an existing vault item with Dynamic Cascade Sync
+const handleVaultItemUpdate = async (req: Request, res: Response) => {
   try {
     const user = resolveVaultUser(req);
     if (!user) {
@@ -15959,14 +15963,28 @@ apiRouter.put('/vault/:id', async (req: Request, res: Response) => {
     let passwordHash = existing.password_hash;
     let passwordSalt = existing.password_salt;
 
-    // If new password provided, re-encrypt and re-hash
+    let cascadeResult: CascadeSyncResult | null = null;
+
+    // If new password provided, re-encrypt, re-hash, and trigger automatic Cascade Synchronization
     if (password && typeof password === 'string' && password.trim()) {
-      const enc = encryptVaultSecret(password.trim(), user.userId);
+      const trimmedPass = password.trim();
+      const enc = encryptVaultSecret(trimmedPass, user.userId);
       ciphertext = enc.ciphertext;
       iv = enc.iv;
       tag = enc.tag;
       passwordHash = enc.hash;
       passwordSalt = enc.salt;
+
+      // Automatically execute Cascade Synchronization to all connected network devices and servers
+      try {
+        cascadeResult = await cascadeSyncVaultItem(
+          existing.id,
+          trimmedPass,
+          name !== undefined ? String(name).trim() : existing.name
+        );
+      } catch (cascadeErr: any) {
+        console.error('[CascadeSync Error during vault item update]:', cascadeErr.message);
+      }
     }
 
     const updated = await saveUserVaultItem({
@@ -15988,19 +16006,39 @@ apiRouter.put('/vault/:id', async (req: Request, res: Response) => {
       updated_at: new Date().toISOString(),
     });
 
-    await addAuditLog({
-      userName: user.username,
-      action: 'Password Vault Item Updated',
-      category: 'security',
-      target: `Vault / ${updated.name}`,
-      status: 'success',
-      details: `User updated vault credential "${updated.name}"`,
-      ipAddress: getClientIp(req),
-      userAgent: req.headers['user-agent'],
-    });
+    // Intelligent Audit Log: record specific cascade details if bound targets were synced
+    if (cascadeResult && (cascadeResult.totalDevicesCount > 0 || cascadeResult.totalServersCount > 0)) {
+      const isEn = req.headers['x-language'] === 'en' || req.query.lang === 'en' || (req.headers['accept-language'] || '').startsWith('en');
+      const detailsMsg = isEn
+        ? `Vault credential "${updated.name}" password was updated, and access credentials for ${cascadeResult.totalDevicesCount} network device(s) and ${cascadeResult.totalServersCount} connected server(s) were automatically synchronized.`
+        : `رمز عبور آیتم ولت "${updated.name}" تغییر یافت و دسترسی ${cascadeResult.totalDevicesCount} سوئیچ و ${cascadeResult.totalServersCount} سرور متصل به‌طور خودکار همگام گردید.`;
+
+      await addAuditLog({
+        userName: user.username,
+        action: 'Dynamic Vault Password Cascade Sync',
+        category: 'security',
+        target: `Vault / ${updated.name}`,
+        status: 'success',
+        details: detailsMsg,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
+    } else {
+      await addAuditLog({
+        userName: user.username,
+        action: 'Password Vault Item Updated',
+        category: 'security',
+        target: `Vault / ${updated.name}`,
+        status: 'success',
+        details: `User updated vault credential "${updated.name}"`,
+        ipAddress: getClientIp(req),
+        userAgent: req.headers['user-agent'],
+      });
+    }
 
     res.json({
       success: true,
+      cascadeSync: cascadeResult || undefined,
       item: {
         id: updated.id,
         userId: updated.user_id,
@@ -16021,7 +16059,30 @@ apiRouter.put('/vault/:id', async (req: Request, res: Response) => {
     console.error('[API PUT /vault/:id error]', err);
     res.status(500).json({ success: false, error: err.message });
   }
-});
+};
+
+apiRouter.put('/vault/:id', handleVaultItemUpdate);
+apiRouter.put('/user-password-vault/:id', handleVaultItemUpdate);
+
+// GET /api/vault/:id/linked-targets & /api/user-password-vault/:id/linked-targets
+const handleVaultLinkedTargets = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const linked = await getVaultLinkedTargets(id);
+    return res.json({
+      success: true,
+      vaultItemId: id,
+      devices: linked.devices,
+      servers: linked.servers,
+      totalCount: linked.devices.length + linked.servers.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+apiRouter.get('/vault/:id/linked-targets', handleVaultLinkedTargets);
+apiRouter.get('/user-password-vault/:id/linked-targets', handleVaultLinkedTargets);
 
 // DELETE /api/vault/:id - Delete a vault item
 apiRouter.delete('/vault/:id', async (req: Request, res: Response) => {

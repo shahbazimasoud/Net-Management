@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
+  Minus,
+  Maximize2,
+  Minimize2,
   CopyPlus,
   Save,
   Play,
@@ -10,6 +13,9 @@ import {
   Sliders,
   Check,
   Eye,
+  EyeOff,
+  KeyRound,
+  Lock,
   AlertCircle,
   ArrowRight,
   Sparkles,
@@ -19,23 +25,39 @@ import {
 } from 'lucide-react';
 import { ConfigTemplate, TemplateVariable, TemplateTargetType, Device } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useModalDock } from '../context/ModalDockContext';
+import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 
 interface CloneTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onMinimize?: () => void;
   sourceTemplate: ConfigTemplate | null;
   onSaveClone: (clonedData: Partial<ConfigTemplate>) => Promise<ConfigTemplate>;
-  onCloneAndApply?: (clonedTemplate: ConfigTemplate) => void;
+  onCloneAndApply?: (clonedTemplate: ConfigTemplate, credentials?: { username?: string; password?: string }) => void;
+  isLightMode?: boolean;
 }
 
 export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
   isOpen,
   onClose,
+  onMinimize,
   sourceTemplate,
   onSaveClone,
   onCloneAndApply,
+  isLightMode: propIsLightMode,
 }) => {
   const { t, isEn } = useLanguage();
+  const { dockModal, undockModal } = useModalDock();
+
+  const isLightMode = propIsLightMode ?? (typeof document !== 'undefined' && (
+    document.querySelector('.theme-light') !== null ||
+    document.documentElement.classList.contains('light') ||
+    localStorage.getItem('panel_theme') === 'light' ||
+    localStorage.getItem('theme_mode') === 'light'
+  ));
+
   const [name, setName] = useState('');
   const [vendor, setVendor] = useState<'cisco' | 'mikrotik' | 'generic'>('cisco');
   const [targetType, setTargetType] = useState<TemplateTargetType>('switch');
@@ -44,6 +66,13 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
   const [defaultCliMode, setDefaultCliMode] = useState<string>('GLOBAL_CONFIG');
   const [commands, setCommands] = useState('');
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
+
+  // Credentials and Vault Picker State
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'editor' | 'variables' | 'preview'>('editor');
   const [saving, setSaving] = useState(false);
@@ -65,15 +94,94 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
       setDefaultCliMode(sourceTemplate.default_cli_mode || 'GLOBAL_CONFIG');
       setCommands(sourceTemplate.commands);
       // Deep clone variables
-      setVariables(
-        sourceTemplate.variables
-          ? sourceTemplate.variables.map((v) => ({ ...v }))
-          : []
-      );
+      const clonedVars = sourceTemplate.variables
+        ? sourceTemplate.variables.map((v) => ({ ...v }))
+        : [];
+      setVariables(clonedVars);
+
+      // Check if existing variables have username or password defaults
+      const userVar = clonedVars.find((v) => ['USERNAME', 'USER', 'ADMIN_USER', 'SSH_USER'].includes(v.name.toUpperCase()));
+      const passVar = clonedVars.find((v) => ['PASSWORD', 'PASS', 'ADMIN_PASS', 'SSH_PASS'].includes(v.name.toUpperCase()));
+      if (userVar && userVar.default_value) {
+        setUsername(userVar.default_value);
+      } else {
+        setUsername('admin');
+      }
+      if (passVar && passVar.default_value) {
+        setPassword(passVar.default_value);
+      } else {
+        setPassword('');
+      }
+
       setActiveTab('editor');
       setErrorMsg(null);
+      setIsMaximized(false);
     }
   }, [sourceTemplate, isOpen, isEn]);
+
+  // Synchronize credentials with template variables if matching variables exist
+  const syncCredentialsToVariables = (newUser?: string, newPass?: string) => {
+    const varKeysUser = ['USERNAME', 'USER', 'ADMIN_USER', 'SSH_USER', 'LOGIN_USER'];
+    const varKeysPass = ['PASSWORD', 'PASS', 'ADMIN_PASS', 'SSH_PASS', 'SECRET', 'ENABLE_SECRET'];
+    setVariables((prevVars) =>
+      prevVars.map((v) => {
+        const upper = v.name.toUpperCase();
+        if (newUser !== undefined && varKeysUser.includes(upper)) {
+          return { ...v, default_value: newUser };
+        }
+        if (newPass !== undefined && varKeysPass.includes(upper)) {
+          return { ...v, default_value: newPass };
+        }
+        return v;
+      })
+    );
+  };
+
+  const handleUsernameChange = (val: string) => {
+    setUsername(val);
+    syncCredentialsToVariables(val, undefined);
+  };
+
+  const handlePasswordChange = (val: string) => {
+    setPassword(val);
+    syncCredentialsToVariables(undefined, val);
+  };
+
+  const handleSelectFromVault = (selectedPassword: string, selectedUsername?: string) => {
+    if (selectedUsername) {
+      setUsername(selectedUsername);
+    }
+    if (selectedPassword) {
+      setPassword(selectedPassword);
+    }
+    syncCredentialsToVariables(selectedUsername, selectedPassword);
+    setIsVaultPickerOpen(false);
+  };
+
+  const handleClose = () => {
+    undockModal('clone-template-modal');
+    onClose();
+  };
+
+  const handleMinimize = () => {
+    if (onMinimize) {
+      onMinimize();
+      return;
+    }
+    dockModal({
+      id: 'clone-template-modal',
+      labelEn: `Clone: ${sourceTemplate?.name || 'Template'}`,
+      labelFa: `کلون: ${sourceTemplate?.name || 'الگو'}`,
+      badge: 'Clone',
+      category: 'config',
+      onRestore: () => {},
+      onClose: () => {
+        undockModal('clone-template-modal');
+        onClose();
+      },
+    });
+    onClose();
+  };
 
   if (!isOpen || !sourceTemplate) return null;
 
@@ -164,10 +272,10 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
       });
 
       if (andApply && onCloneAndApply) {
-        onClose();
-        onCloneAndApply(clonedTemplate);
+        handleClose();
+        onCloneAndApply(clonedTemplate, { username, password });
       } else {
-        onClose();
+        handleClose();
       }
     } catch (err: any) {
       console.error('Error saving clone:', err);
@@ -187,9 +295,13 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
     >
-      <div className="w-full max-w-5xl max-h-[92vh] sm:max-h-[88vh] my-auto flex flex-col bg-slate-900/95 border border-cyan-500/30 rounded-2xl shadow-[0_0_60px_rgba(6,182,212,0.25)] overflow-hidden text-slate-100 backdrop-blur-2xl">
+      <div className={`flex flex-col bg-slate-900/95 border border-cyan-500/30 shadow-[0_0_60px_rgba(6,182,212,0.25)] overflow-hidden text-slate-100 backdrop-blur-2xl transition-all duration-200 ${
+        isMaximized
+          ? 'w-full h-full max-w-none max-h-none rounded-none'
+          : 'w-full max-w-5xl max-h-[92vh] sm:max-h-[88vh] my-auto rounded-2xl'
+      }`}>
         
-        {/* Header (Pinned) */}
+        {/* Header (Pinned with 3 Control Buttons) */}
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-white/10 bg-slate-950/70 shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500/20 to-indigo-500/20 text-cyan-300 border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
@@ -222,13 +334,37 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition"
-            aria-label={t('action_close')}
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          {/* Header 3 Control Buttons (Minus, Maximize/Restore, Close) */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleMinimize}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              title={isEn ? 'Minimize to Tools Dock' : 'کوچک‌سازی به داک ابزارها'}
+              aria-label="Minimize"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsMaximized(!isMaximized)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              title={isMaximized ? (isEn ? 'Restore Window Size' : 'بازیابی اندازه پنجره') : (isEn ? 'Maximize Window' : 'تمام‌صفحه کردن پنجره')}
+              aria-label="Maximize"
+            >
+              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+              title={isEn ? 'Close' : 'بستن'}
+              aria-label={t('action_close')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Info Banner */}
@@ -328,6 +464,82 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
                   placeholder={t('clone_modal_desc_placeholder')}
                   className="w-full bg-slate-950 border border-white/15 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* Target Device & Clone Credentials with Password Vault Picker */}
+          <div className="p-4 rounded-xl bg-slate-950/60 border border-cyan-500/20 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-white">
+                      {isEn ? 'Target Credentials & Password Vault' : 'مشخصات احراز هویت و اتصال والت پسورد'}
+                    </span>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Device Credentials & Password Vault' : 'مشخصات دسترسی و والت پسورد'}
+                      whatIsIt={isEn ? 'Device authentication credentials used when configuring or applying this cloned template.' : 'نام کاربری و کلمه عبور تجهیز که برای اعمال یا شخصی‌سازی متغیرهای این الگوی کلون‌شده استفاده می‌شود.'}
+                      whyNeeded={isEn ? 'Allows 1-click credential retrieval from encrypted Password Vault without exposing plaintext secrets.' : 'امکان واکشی ۱-کلیکی کریدنشال‌ها از گاوصندوق رمز بدون نیاز به تایپ دستی و جلوگیری از نشت اطلاعات را فراهم می‌کند.'}
+                      practicalExample={isEn ? 'Select "Core-Switch-01" from Password Vault to auto-fill username & secret' : 'انتخاب مستقیم تجهیز از والت برای درج خودکار یوزرنیم و پسورد'}
+                      isLightMode={false}
+                      isEn={isEn}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {isEn ? 'Select credentials from Password Vault to auto-populate authentication variables' : 'انتخاب مستقیم مشخصات از گاوصندوق رمز عبور جهت مقداردهی خودکار متغیرهای تمپلیت'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsVaultPickerOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600/30 to-indigo-600/30 hover:from-cyan-600/50 hover:to-indigo-600/50 text-cyan-300 border border-cyan-500/40 text-xs font-semibold shadow-xs transition active:scale-95 cursor-pointer"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
+                <span>{isEn ? 'Pick from Password Vault...' : 'انتخاب از والت پسورد...'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  {isEn ? 'Username:' : 'نام کاربری (Username):'}
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => handleUsernameChange(e.target.value)}
+                  placeholder="admin"
+                  className="w-full bg-slate-950 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-cyan-500 shadow-inner"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  {isEn ? 'Password:' : 'رمز عبور (Password):'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => handlePasswordChange(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-slate-950 border border-white/15 rounded-xl px-3.5 py-2 pr-9 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-cyan-500 shadow-inner"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white transition cursor-pointer"
+                    title={showPassword ? (isEn ? 'Hide Password' : 'مخفی‌سازی رمز') : (isEn ? 'Show Password' : 'نمایش رمز')}
+                  >
+                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -589,6 +801,17 @@ export const CloneTemplateModal: React.FC<CloneTemplateModalProps> = ({
         </div>
 
       </div>
+
+      {/* Select Password from Vault Modal */}
+      <VaultPasswordPickerModal
+        isOpen={isVaultPickerOpen}
+        onClose={() => setIsVaultPickerOpen(false)}
+        targetHost=""
+        isLightMode={false}
+        isEn={isEn}
+        zIndex={999995}
+        onSelectPassword={handleSelectFromVault}
+      />
     </div>,
     document.body
   );

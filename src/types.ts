@@ -127,6 +127,10 @@ export interface Device {
   winbox_port?: number;
   ssh_version?: 'legacy' | 'modern' | string;
   tags?: string[];
+  port?: number;
+  username?: string;
+  password?: string;
+  protocol?: 'ssh' | 'telnet';
 }
 
 export interface DeviceWebConfig {
@@ -398,7 +402,7 @@ export interface VlanInfo {
 export type ThemeType = 'obsidian' | 'emerald' | 'cobalt' | 'rose' | 'amber' | 'light' | 'google-dark';
 
 export type TemplateVendor = 'cisco' | 'mikrotik' | 'generic';
-export type TemplateTargetType = 'switch' | 'router' | 'access_point' | 'all';
+export type TemplateTargetType = 'switch' | 'router' | 'access_point' | 'firewall' | 'server' | 'all';
 
 export interface TemplateVariable {
   name: string;
@@ -432,7 +436,8 @@ export interface TemplateExecutionLog {
   command: string;
   prompt: string;
   output: string;
-  status: 'ok' | 'info' | 'warn' | 'error';
+  status: 'ok' | 'info' | 'warn' | 'error' | 'success';
+  duration_ms?: number;
 }
 
 export interface TemplateApplyResult {
@@ -441,6 +446,15 @@ export interface TemplateApplyResult {
   device: Device;
   rendered_script: string;
   logs: TemplateExecutionLog[];
+  execution_mode?: string;
+  command_summary?: {
+    total?: number;
+    success?: number;
+    warning?: number;
+    error?: number;
+    [key: string]: any;
+  };
+  total_duration_ms?: number;
 }
 
 export interface DeviceConfigExtractOptions {
@@ -618,6 +632,8 @@ export type NetworkDeviceActionKey =
   | 'web_configs'      // Web Config & Consoles (WebFig, iLO, Web GUI)
   | 'terminal'         // SSH Console Direct / CLI Terminal
   | 'apply_template'   // Apply Config Template (Variables & Deploy)
+  | 'export_templates' // Export Config Template
+  | 'import_templates' // Import Config Template
   | 'device_note'      // Add / Edit / View Sticky Note
   | 'edit_properties'  // Edit Device Properties (Hostname, IP, Role, Location)
   | 'ping_keepalive'   // Ping & Keepalive Telemetry Check
@@ -640,6 +656,8 @@ export interface NetworkDeviceActionPermissions {
   web_configs?: boolean;
   terminal?: boolean;
   apply_template?: boolean;
+  export_templates?: boolean;
+  import_templates?: boolean;
   device_note?: boolean;
   edit_properties?: boolean;
   ping_keepalive?: boolean;
@@ -686,11 +704,13 @@ export interface AccessPolicy {
   canViewSettings: boolean;
   canViewServers?: boolean;
   canViewLogs?: boolean;
+  canViewNetworkTools?: boolean;
+  canViewPhysicalPlacement?: boolean;
   canCheckUpdate?: boolean;
   canPerformUpdate?: boolean;
 
   // 1. Cisco IOS / IOS-XE Granular Capabilities
-  terminalAccess: 'none' | 'view_only' | 'full';
+  terminalAccess: 'none' | 'view_only' | 'exec' | 'full';
   canToggleAdminStatus: boolean;      // shutdown / no shutdown
   canChangeVlan: boolean;             // assign VLAN
   canEditDescription: boolean;        // set port description
@@ -717,6 +737,7 @@ export interface AccessPolicy {
   canManageDevices: boolean;          // add, edit, delete device
   canApplyTemplates: boolean;         // apply config template
   canExportTemplates?: boolean;       // Export templates
+  canImportTemplates?: boolean;       // Import templates
   canBatchOperate: boolean;           // batch port configuration
   canBulkConfigurePorts?: boolean;    // bulk configure switch ports
   canViewDiscovery?: boolean;         // discover devices/servers
@@ -7228,5 +7249,21 @@ export interface EmailTestResult {
   latencyMs: number;
   server_auth_methods?: string[];
   used_auth_method?: string;
+}
+
+export interface CascadeSyncTargetItem {
+  id: string;
+  name: string;
+  ip?: string;
+  type: 'ssh' | 'enable' | 'both' | 'win' | 'db';
+}
+
+export interface CascadeSyncResult {
+  vaultItemId: string;
+  vaultItemName: string;
+  affectedDevices: CascadeSyncTargetItem[];
+  affectedServers: CascadeSyncTargetItem[];
+  totalDevicesCount: number;
+  totalServersCount: number;
 }
 

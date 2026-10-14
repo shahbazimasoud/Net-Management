@@ -36,7 +36,8 @@ export interface VaultPasswordPickerModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMinimize?: () => void;
-  onSelectPassword: (password: string, username?: string) => void;
+  onSelectPassword?: (password: string, username?: string) => void;
+  onSelectSecret?: (secret: { id?: string; name?: string; password?: string; username?: string }) => void;
   targetHost?: string;
   isLightMode?: boolean;
   isEn?: boolean;
@@ -48,6 +49,7 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
   onClose,
   onMinimize,
   onSelectPassword,
+  onSelectSecret,
   targetHost = '',
   isLightMode = false,
   isEn = false,
@@ -189,7 +191,17 @@ export const VaultPasswordPickerModal: React.FC<VaultPasswordPickerModalProps> =
       }
 
       if (data && typeof data.password === 'string') {
-        onSelectPassword(data.password, selectedItemForAuth.username);
+        if (onSelectPassword) {
+          onSelectPassword(data.password, selectedItemForAuth.username);
+        }
+        if (onSelectSecret) {
+          onSelectSecret({
+            id: selectedItemForAuth.id,
+            name: selectedItemForAuth.name,
+            password: data.password,
+            username: selectedItemForAuth.username,
+          });
+        }
         setSelectedItemForAuth(null);
         onClose();
       } else {

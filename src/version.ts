@@ -10,201 +10,47 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.334.0';
+export const APP_VERSION = '1.335.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
   {
-    version: '1.334.0',
+    version: '1.335.0',
     releaseDate: '2026-10-13',
     type: 'minor',
-    title: 'پیوند پویا و همگام‌سازی ارجاعی رمزهای ولت با تجهیزات و سرورها (فاز ۱: اسکیما و مدل داده دیتابیس)',
-    title_en: 'Dynamic Vault Password Binding & Cascade Sync (Phase 1: Database Schema & Data Model)',
+    title: 'پیاده‌سازی لایه بک‌اند، موتور حل پویای رمز عبور و آبشار همگام‌سازی خودکار با ولت (فاز ۲)',
+    title_en: 'Backend Dynamic Credential Resolver & Automated Cascade Synchronization with Password Vault (Phase 2)',
     changes: [
-      'افزودن فیلدهای ارجاع ولت ssh_vault_item_id و enable_vault_item_id به جدول devices در پایگاه داده PostgreSQL و اسکریپت backend/schema.sql جهت پشتیبانی از اتصال By-Reference به گذرواژه‌های ولت.',
-      'افزودن فیلدهای ارجاع ولت ssh_vault_item_id (رمز SSH لینوکس)، win_vault_item_id (رمز لاگین و RDP ویندوز)، و db_vault_item_id (رمز دیتابیس‌های PostgreSQL/MySQL) به جدول remote_servers در دیتابیس و schema.sql.',
-      'ایجاد ایندکس‌های بهینه‌سازی B-Tree در دیتابیس PostgreSQL برای تسریع جستجو و تطبیق آبشار همگام‌سازی رمزها بر روی فیلدهای ارجاع ولت در جداول تجهیزات و سرورها.',
-      'به‌روزرسانی جامع تعاریف تایپ‌اسکریپت در src/types.ts (اینترفیس‌های Device و RemoteServer) و ساختار استور سرور در server/db.ts جهت تبادل و ذخیره‌سازی امن شناسه ولت بدون نشت متن خام رمز.'
+      'پیاده‌سازی موتور حل پویای احراز هویت (Dynamic Credential Resolver) در ماژول‌های اتصال سرور شامل Terminal WebSocket، RDP Gateway، Linux File Explorer و Linux Server Monitor جهت بازخوانی بلادرنگ رمز از ولت پیش از اتصال.',
+      'توسعه سیستم آبشار همگام‌سازی خودکار (Cascade Synchronization) در زمان به‌روزرسانی آیتم‌های ولت (PUT /api/vault/:id و PUT /api/user-password-vault/:id) جهت همگام‌سازی ۱۰۰٪ رمزهای رمزنگاری‌شده در کلیه سوئیچ‌ها، روترها و سرورهای متصل.',
+      'افزودن اندپوینت‌های استعلام تجهیزات و سرورهای متصل به ولت (/api/vault/:id/linked-targets) جهت نمایش بینش‌ها و پیوندهای فعال.',
+      'ثبت لاگ امنیتی هوشمند (Audit Log) با شفاف‌سازی دقیق تعداد تجهیزات شبکه و سرورهای همگام‌شده بدون درز اطلاعات حساس.',
+      'رفع خطاهای راه‌اندازی سرور، نصب وابستگی‌های پکیج‌ها و اعتبارسنجی کامل تایپ‌های TypeScript در تمام بخش‌ها.'
     ],
     changes_en: [
-      'Added vault reference fields ssh_vault_item_id and enable_vault_item_id to the devices table in PostgreSQL database and backend/schema.sql to support enterprise By-Reference credential binding.',
-      'Added vault reference fields ssh_vault_item_id (Linux SSH), win_vault_item_id (Windows RDP/Logon), and db_vault_item_id (PostgreSQL/MySQL databases) to remote_servers in PostgreSQL and backend/schema.sql.',
-      'Created high-performance B-Tree database indexes in PostgreSQL to accelerate dynamic resolution and cascade sync queries across equipment and server fleets.',
-      'Updated comprehensive TypeScript definitions in src/types.ts (Device and RemoteServer interfaces) and server store persistence in server/db.ts for zero-leak credential confidentiality.'
-    ]
-  },
-  {
-    version: '1.333.1',
-    releaseDate: '2026-10-13',
-    type: 'patch',
-    title: 'رفع مشکل بلاک شدن و شروع به کار سریع سرور توسعه (Dev Server)',
-    title_en: 'Fix Dev Server Startup Blocking & Port Resolution',
-    changes: [
-      'رفع مشکل بلاک شدن سرور در زمان استارت‌آپ به دلیل اجرای همگام اسکریپت‌های مجازی‌ساز SSH در محیط‌های فاقد پکیج‌های پیش‌فرض.',
-      'تضمین اتصال سریع به پورت ۳۰۰۰ و جلوگیری از تداخل پورت با پروکسی Nginx کانتینر.'
-    ],
-    changes_en: [
-      'Fixed server startup blocking caused by synchronous auto-provisioning scripts during boot in container environments.',
-      'Guaranteed rapid binding to port 3000 and prevented port conflicts with the container Nginx reverse proxy.'
-    ]
-  },
-  {
-    version: '1.333.0',
-    releaseDate: '2026-10-13',
-    type: 'minor',
-    title: 'ذخیره‌سازی کامل و پایدار الگوهای پیکربندی شبکه (Config Templates) در پایگاه داده PostgreSQL و استور سرور',
-    title_en: 'Persistent Database & PostgreSQL Storage for Network Equipment Config Templates & Patterns',
-    changes: [
-      'ایجاد جدول و اسکیما اختصاصی config_templates در پایگاه داده PostgreSQL و اسکریپت migration اسکیما در schema.sql جهت ذخیره‌سازی رسمی و پایدار تمامی کارت‌های الگوهای پیکربندی شبکه.',
-      'توسعه مسیرهای کامل CRUD در API سرور (/api/templates) متصل به دیتابیس برای ذخیره‌سازی مطمئن الگوهای جدید ایجادشده از طریق «تعریف تمپلیت جدید» (Define New Template).',
-      'پشتیبانی کامل از ذخیره‌سازی مستقیم در دیتابیس پس از استخراج الگو از تجهیزات زنده (Extract Template from Live Device) از طریق CaptureConfigModal.',
-      'همگام‌سازی بلادرنگ پایگاه داده PostgreSQL با مخزن پایدار سرور (database_store.json) و فایل الگوها، جهت تضمین ثبات داده‌ها حتی در شرایط آفلاین بودن موقت پایگاه داده.',
-      'افزودن ثبت وقایع امنیتی (Audit Logging) جامع به همراه نام کاربر و آدرس IP برای تمامی عملیات ساخت، ویرایش، حذف و بارگذاری الگوهای پیکربندی.'
-    ],
-    changes_en: [
-      'Created dedicated config_templates table and schema migration in PostgreSQL database and schema.sql for enterprise persistence of all configuration pattern cards.',
-      'Implemented complete database-backed CRUD endpoints at /api/templates ensuring templates defined via "Define New Template" are stored directly in PostgreSQL and persistent DB store.',
-      'Integrated robust database persistence when extracting templates from live equipment via "Extract Template from Live Device" (CaptureConfigModal).',
-      'Guaranteed atomic synchronization across PostgreSQL, the server fallback store (database_store.json), and templates library with zero state loss.',
-      'Introduced comprehensive RBAC-aware audit logging recording user, timestamp, and IP address for all template creation, mutation, and deletion operations.'
-    ]
-  },
-  {
-    version: '1.332.3',
-    releaseDate: '2026-10-13',
-    type: 'patch',
-    title: 'تطبیق دقیق و بلادرنگ الگوی انتخابی با کارت کلیک‌شده در پنجره اعمال تمپلیت کانفیگ (Apply to Device)',
-    title_en: 'Exact Synchronization of Selected Config Template with Clicked Card in Apply Template Modal',
-    changes: [
-      'همگام‌سازی قطعی و بلادرنگ فیلد «Selected Config Template» در مودال ApplyTemplateModal با همان کارتی که کاربر روی دکمه Apply to Device آن کلیک کرده است.',
-      'افزودن کارت خلاصه اطلاعات و پارامترهای الگوی انتخابی در زیر منوی کشویی جهت نمایش بلادرنگ نام، سازنده (Cisco/MikroTik)، خطوط CLI و تعداد متغیرها.',
-      'اصلاح منطق بازآرایی متغیرها (isNewTemplate) به گونه‌ای که با تغییر الگو، تمامی مقادیر پیش‌فرض و مقادیر هوشمند متغیرها متناسب با الگوی جدید بازنشانی و بارگذاری شوند.',
-      'تعبیه کلید یونیک داینامیک بر روی مودال و پاکسازی استیت پس از بسته شدن پنجره جهت جلوگیری از ماندگاری یا نشت استیت الگوی قبلی.'
-    ],
-    changes_en: [
-      'Guaranteed exact real-time synchronization between the clicked card and the "Selected Config Template" field inside ApplyTemplateModal.',
-      'Introduced a dedicated live template details summary card directly below the selector dropdown showing vendor badges, command lines count, and dynamic variables.',
-      'Refactored variable pre-fill mechanics (isNewTemplate) to cleanly reset and load default and smart values whenever a different template is selected.',
-      'Added dynamic instance keying and state sanitization on modal closure to eliminate stale template leaks across successive invocations.'
-    ]
-  },
-  {
-    version: '1.332.2',
-    releaseDate: '2026-10-13',
-    type: 'patch',
-    title: 'رفع مشکل عدم نمایش مودال اعمال تمپلیت کانفیگ (Apply to Device) در کروم و سایر مرورگرها و حذف تداخل ۳D Hit-Testing کارت‌ها',
-    title_en: 'Fix "Apply to Device" Modal Opening Failure in Chrome and Other Browsers by Eliminating 3D Hit-Testing Collision on Template Cards',
-    changes: [
-      'برطرف‌سازی ریشه‌ای مشکل عدم پاسخگویی دکمه «Apply to Device...» در مرورگرهای مبتنی بر Chromium (کروم، اج، اپرا) ناشی از تداخل Hit-Testing در ساختار کارت‌های سه‌بعدی (spatial-depth-card).',
-      'تغییر ترنزیشن کارت‌های الگو به شتاب‌دهنده دوبعدی استاندارد (translateY) جهت تضمین دریافت و هدایت بی‌نقص رویدادهای ماوس به دکمه‌های اقدام روی تمامی موتورهای مرورگر (Blink و Gecko).',
-      'افزودن مهار رویدادهای pointerdown و stopPropagation به دکمه اعمال در کارت‌ها و کانتینر دیالوگ مودال پورتال ApplyTemplateModal جهت جلوگیری از نشت رویداد به پس‌زمینه.'
-    ],
-    changes_en: [
-      'Resolved the root cause of the "Apply to Device..." button failing to trigger the Interactive Template Deployment modal in Chromium browsers (Chrome, Edge, Opera) due to 3D matrix hit-testing occlusion on spatial-depth cards.',
-      'Switched template card spatial hover dynamics to resilient 2D GPU acceleration (translateY), guaranteeing seamless pointer event dispatching across both Blink and Gecko layout engines.',
-      'Added pointerdown interception and stopPropagation guards to both the template card action button and the ApplyTemplateModal dialog container to eliminate event leakage.'
-    ]
-  },
-  {
-    version: '1.332.1',
-    releaseDate: '2026-10-13',
-    type: 'patch',
-    title: 'رفع مشکل باز نشدن مودال اعمال تمپلیت کانفیگ (Apply to Device) در کروم و اپرا و ایمن‌سازی کلیک بک‌دراپ',
-    title_en: 'Fix "Apply to Device" Modal Opening Failure in Chrome & Opera and Prevent Accidental Backdrop Dismissal',
-    changes: [
-      'برطرف‌سازی مغایرت رویدادی در مرورگرهای مبتنی بر Chromium (کروم، اپرا، اج) و پیشگیری از بسته شدن آنی مودال ناشی از ارسال رویداد کلیک بر روی بک‌دراپ تازه لودشده.',
-      'پیاده‌سازی مکانیزم تایید دو مرحله‌ای رویداد (mousedown/click) و تعبیه قفل پیش‌فرض ایمنی (preventBackdropClose) جهت محافظت از فرم در حال پیکربندی.',
-      'افزودن دکمه سوئیچ قفل بک‌دراپ (Lock/Unlock) به هدر پنجره با پشتیبانی کامل از تم‌های تیره و روشن و چندزبانگی.',
-      'اعمال stopPropagation و preventDefault روی دکمه اعمال در کارت‌های الگو جهت مهار کامل حباب رویدادهای ماوس.',
-      'انتقال ایمن و مهار خطاهای دسترسی به استوریج مرورگر با try/catch جهت تضمین عملکرد بدون خطا در تمام مرورگرها.'
-    ],
-    changes_en: [
-      'Fixed Chromium-specific (Chrome, Opera, Edge) event dispatch disparity where newly mounted portal backdrop caught immediate click and closed the modal.',
-      'Implemented dual-phase mousedown/click verification with preventBackdropClose security lock enabled by default to protect in-progress configurations.',
-      'Added Lock/Unlock backdrop dismiss toggle button in the modal header with full bilingual tooltips and light/dark theme contrast adaptation.',
-      'Enforced stopPropagation and preventDefault on template card buttons to eliminate event leakage to parent and document listeners.',
-      'Encapsulated localStorage theme detection in resilient try/catch guards to ensure error-free rendering across all browser sandboxes.'
-    ]
-  },
-  {
-    version: '1.332.0',
-    releaseDate: '2026-10-13',
-    type: 'minor',
-    title: 'اصلاح باز شدن بلادرنگ پنجره اعمال تمپلیت کانفیگ (Apply to Device) از روی کارت‌ها و انتقال Toast به بالای صفحه',
-    title_en: 'Fix Instant "Apply to Device" Modal Opening from Template Cards & Relocate Toast Notification to Header',
-    changes: [
-      'اصلاح عملکرد دکمه «Apply to Device...» در تمامی کارت‌های الگوهای کانفیگ جهت باز شدن تضمینی و بلادرنگ پنجره مودال اعمال الگو (ApplyTemplateModal).',
-      'حذف مسدودسازی پیش‌فرض کلیک در صورت عدم وجود سخت‌افزار پیش‌انتخاب‌شده هم‌خانواده در انبار تجهیزات و واگذاری ارزیابی سازگاری معماری به گیت ایمنی هوشمند درون مودال.',
-      'انتقال اعلان‌های وضعیت و پیام‌های بازخورد صفحه (Toast Notifications) به لایه فوقانی و بالای صفحه (top-6 z-[1000005]) جهت جلوگیری از پنهان ماندن پشت نوار ابزار فوتر.',
-      'خروج خودکار و بازیابی وضعیت مودال از نوار داک (undockModal) در هنگام کلیک مجدد بر روی دکمه اعمال در کارت‌ها.'
-    ],
-    changes_en: [
-      'Fixed "Apply to Device..." action on all config template cards to guarantee immediate opening and focus of the ApplyTemplateModal workspace.',
-      'Removed premature inventory pre-match gating on card buttons, delegating hardware family compatibility and risk assessment to the modal safety gate.',
-      'Relocated feedback notifications (Toast) to the top header layer (top-6 z-[1000005]), preventing occlusion by the bottom footer and ToolsDock bar.',
-      'Automated dock restoration and un-minimization (undockModal) upon triggering template application from card actions.'
-    ]
-  },
-  {
-    version: '1.331.0',
-    releaseDate: '2026-10-13',
-    type: 'minor',
-    title: 'فاز ۴: موتور اجرای زنده، استریم لاگ‌های ترمینال، به‌روزرسانی مشخصات تجهیز و آزمون‌های E2E',
-    title_en: 'Phase 4: Live Execution Engine, Terminal Streaming, DB Sync & E2E Testing Suite',
-    changes: [
-      'پیاده‌سازی موتور استریم بلادرنگ خطوط فرمان در کنسول مجازی همراه با پیشرفت درصدی، تایم‌استمپ و برچسب‌های وضعیت خط (SUCCESS, WARNING, FAILED, INFO).',
-      'تعبیه دکمه عبور سریع از انیمیشن (Fast-Forward / Show All)، پیمایش خودکار (Auto-Scroll)، فیلتر خطوط بر اساس خطاها و هشدارها و کپی خروجی ترمینال.',
-      'همگام‌سازی بلادرنگ مشخصات تجهیز در پایگاه داده اصلی (نام، آی‌پی مدیریتی، ساختمان، طبقه، واحد و رک) و به‌روزرسانی برچسب نودهای توپولوژی.',
-      'ثبت قطعی و سروری رویداد در مخزن ممیزی امنیتی PostgreSQL همراه با شناسه اختصاصی Audit ID، نام کاربر و جزئیات پارامترها.',
-      'تدوین و اجرای موفقیت‌آمیز آزمون خودکار انتها به انتها (test_strict_apply_template_suite.ts) با اعتبارسنجی ۱۰۰ درصدی کلیه جریان‌ها.'
-    ],
-    changes_en: [
-      'Implemented virtual terminal live streaming engine with progressive percentage indicator, timestamps, and line status badges (SUCCESS, WARNING, FAILED, INFO).',
-      'Added fast-forward animation skip, auto-scroll toggle, error/warning line filters, and copy terminal transcript button.',
-      'Real-time database synchronization of updated device attributes (name, IP address, building, floor, unit, rack) and topology node labels.',
-      'Authoritative server-side security audit logging in PostgreSQL vault with dedicated Audit ID, operator username, and parameters payload.',
-      'Authored and verified comprehensive end-to-end automated test suite (test_strict_apply_template_suite.ts) with 100% passing tests.'
-    ]
-  },
-  {
-    version: '1.330.0',
-    releaseDate: '2026-10-13',
-    type: 'minor',
-    title: 'پیاده‌سازی فاز ۳ اعمال الگوهای کانفیگ: گیت تاییدیه سخت‌گیرانه، سنجش ریسک و بررسی مجوزهای RBAC (Strict Safety Gate & Risk Assessment) در مودال Apply to Device',
-    title_en: 'Phase 3: Strict Safety Gate, Impact Analysis & Multi-Layer RBAC Clearance in Apply to Device Modal',
-    changes: [
-      'پیاده‌سازی گام اختصاصی و مستقل گیت تاییدیه امن و سنجش ریسک عملیاتی (Strict Safety Gate & Risk Assessment) به عنوان مرحله دوم جریان اعمال تمپلیت.',
-      'تعبیه ماژول گارد تطابق برند و معماری سیستم‌عامل (Vendor & OS Architecture Guard) جهت جلوگیری قطعی و قفل سخت‌گیرانه اعمال الگوهای سیسکو روی میکروتیک یا برعکس.',
-      'طراحی سیستم تحلیل اثر و هشدار قرمز تغییر آدرس آی‌پی مدیریتی (Management IP Loss-of-Access Risk) با الزام تاییدیه صریح مهندسی جهت جلوگیری از قطعی ناخواسته جلسه کاری.',
-      'پیاده‌سازی ماتریس سطح‌بندی ریسک عملیاتی (High/Medium/Low) با شناسایی خودکار عوامل بحرانی (وی‌لن یک، بریج‌ها، روت‌های پیش‌فرض و رول‌های فایروال).',
-      'اعمال قفل‌های چندلایه امنیتی پایگاه داده (RBAC Authoritative Clearance) شامل بررسی مجوز سراسری canApplyTemplates و دسترسی تفکیکی تجهیز apply_template.',
-      'تعبیه چک‌لیست سه‌گانه تصدیق مهندسی (Engineering Sign-Off Checklist) جهت باز شدن قفل دکمه پیش‌نمایش نهایی و ارسال فرامین.'
-    ],
-    changes_en: [
-      'Engineered dedicated Step 2: Strict Safety Gate & Operational Impact Assessment in the Apply Template to Live Device workflow.',
-      'Implemented Vendor & OS Architecture Compatibility Guard with a hard lock blocking execution if template syntax does not match target device OS family (Cisco vs MikroTik).',
-      'Built Management IP & Connectivity Impact Analysis with critical red risk warning and mandatory double-confirmation when management IP/gateway changes.',
-      'Integrated dynamic Operational Risk Classification Matrix (High/Medium/Low) detecting critical triggers across L3 routing, core VLAN 1, RouterOS bridges, and firewalls.',
-      'Enforced multi-layer database-authoritative RBAC clearance auditing global canApplyTemplates and granular per-device apply_template permissions.',
-      'Engineered mandatory Engineering Sign-Off Checklist requiring explicit verification of variable accuracy, operational risk acceptance, and session disconnection acknowledgement.'
+      'Implemented Dynamic Credential Resolver across connection modules (Terminal WebSocket, RDP Gateway, Linux File Explorer, Linux Server Monitor) to resolve live encrypted credentials from vault before establishing connections.',
+      'Engineered automated Cascade Synchronization upon vault item modifications (PUT /api/vault/:id and PUT /api/user-password-vault/:id) ensuring all connected network devices and remote servers receive immediate ciphertext updates.',
+      'Created linked targets query endpoints (/api/vault/:id/linked-targets) returning connected equipment and servers.',
+      'Integrated intelligent security audit logging detailing synchronized equipment counts without exposing credentials.',
+      'Resolved dev server startup issues, installed package dependencies, and validated strict TypeScript type-checking across the codebase.'
     ]
   },
   {
     version: '1.329.0',
-    releaseDate: '2026-10-13',
+    releaseDate: '2026-10-12',
     type: 'minor',
-    title: 'پیاده‌سازی فاز ۲ اعمال الگوهای کانفیگ: طراحی رابط تعاملی متغیرها و پیش‌نمایش بلادرنگ اسکریپت (Live Variables & Rendered CLI Diff) در مودال Apply to Device',
-    title_en: 'Phase 2: Live Variables Editor & Real-Time Rendered CLI Diff Engine in Apply to Device Modal',
+    title: 'پیاده‌سازی گارد بکاپ زنده پیش از اعمال تمپلیت، ویرایشگر تعاملی متغیرها در پیش‌نمایش و گیت تایید سخت‌گیرانه (فاز ۱)',
+    title_en: 'Pre-Apply Live Config Backup Guard, Inline Interactive Variables Editor & Strict Approval Gate (Phase 1)',
     changes: [
-      'طراحی نمای تفکیک‌شده دوپنلی (Split View) شامل پنل فرم متغیرها در کنار پیش‌نمایش ترمینال خط فرمان با امکان سوئیچ به نماهای تک‌پنلی (فقط فرم یا فقط ترمینال).',
-      'پیاده‌سازی موتور اعتبارسنجی بلادرنگ و سخت‌گیرانه (Strict Validation) برای ساختار آدرس‌های IPv4، ماسک شبکه پیوسته، پیشوند CIDR، شناسه‌های استاندارد VLAN (بین ۱ تا ۴۰۹۴) و نام‌های هاست استاندارد به همراه نمایش هشدار خط‌به‌خط.',
-      'رندر بلادرنگ دستورات خط فرمان با هایلایت متمایز توکن‌های تزریق‌شده (Injected Variable Highlighting) با امکان تغییر بین حالت هایلایت رنگی و متن خام ترمینال.',
-      'دسته‌بندی هوشمند متغیرها (هویت تجهیز، لایه ۳ و شبکه، لایه ۲ و وی‌لن‌ها، موقعیت فیزیکی و رک، و متغیرهای سفارشی) با مقادیر پیش‌فرض هوشمند و امکان بازنشانی تکی و دسته‌ای.'
+      'پیاده‌سازی گارد استخراج بکاپ زنده (Pre-Apply Live Config Backup Guard) در مودال ApplyTemplateModal مشابه Live Device Config Extractor جهت اتصال مستقیم به تجهیز، استخراج کانفیگ جاری، ذخیره‌سازی خودکار در قالب یک تمپلیت جدید و افزودن آن به لیست الگوهای صفحه.',
+      'توسعه ویرایشگر تعاملی متغیرها در مرحله پیش‌نمایش فرامین (Live Variables Split-View Editor) با قابلیت تغییر آنی متغیرها و کامپایل و مشاهده لحظه‌ای تغییرات در ترمینال خروجی.',
+      'پیاده‌سازی موتور اسکن فرامین پرریسک و مخرب (Danger Command Analyzer) جهت شناسایی هوشمند فرامینی مانند write erase، reload، shutdown و system reset-configuration به همراه درجه‌بندی ریسک (Critical / High / Medium).',
+      'تجهیز به گیت تایید سخت‌گیرانه چندعاملی (Strict Production Approval Gate) شامل چک‌باکس‌های تایید ایمنی و الزام به تایپ دقیق نام هاست تجهیز جهت باز شدن دکمه اعمال فرامین.'
     ],
     changes_en: [
-      'Implemented interactive Dual-Pane Split View featuring a categorized Variables Form side-by-side with a Live Syntax-Highlighted CLI Diff Terminal.',
-      'Engineered real-time Strict Validation for IPv4 addresses, contiguous subnet masks, CIDR prefixes, standard 802.1Q VLAN IDs (1-4094), and RFC 1123 hostnames with field-level alerts.',
-      'Built dynamic Injected Variable Token Highlighting in the rendered CLI stream with live keystroke updates and a toggle between highlighted badges and raw CLI text.',
-      'Added intelligent categorization of template variables (Identity, Layer-3 Network, Layer-2 VLANs, Physical Rack Placement, and Custom Parameters) with one-click smart resets to device defaults.'
+      'Implemented Pre-Apply Live Config Backup Guard in ApplyTemplateModal modeled after Live Device Config Extractor to capture current running configs over SSH, package them as new templates, and dynamically populate them into the templates library list.',
+      'Added an inline interactive variables editor directly inside the Preview step (Split-View) enabling real-time variable tweaking with reactive command re-compilation in the live terminal.',
+      'Developed an automated Danger Command Analyzer flagging destructive operations (write erase, reload, shutdown, system reset-configuration) with severity classification.',
+      'Engineered a strict multi-factor approval gate requiring explicit security acknowledgements and target hostname typing confirmation before deployment.'
     ]
   },
   {

@@ -1522,6 +1522,30 @@
       "details": "Backup generated successfully in 681ms. File: auto_backup_servers_only_2026-10-13T05-47-38-726Z_job-servers-fleet.json (3.63 KB).",
       "ip_address": "127.0.0.1",
       "user_agent": ""
+    },
+    {
+      "id": "log-1791934605012-9xzw4",
+      "timestamp": "2026-10-13T23:36:45.012Z",
+      "user_name": "cron_daemon",
+      "action": "BACKUP_EXPORT",
+      "category": "disaster_recovery",
+      "target": "Scope: full (Engine: fallback_json)",
+      "status": "success",
+      "details": "Exported full backup. Servers: 0, Devices: 1, Users: 1. Encrypted: false, Sanitized: false",
+      "ip_address": "127.0.0.1",
+      "user_agent": "NetTopology-DR-Engine"
+    },
+    {
+      "id": "log-1791934605520-ojvl9",
+      "timestamp": "2026-10-13T23:36:45.520Z",
+      "user_name": "cron_daemon",
+      "action": "SCHEDULED_BACKUP_EXECUTE",
+      "category": "disaster_recovery",
+      "target": "Job: Daily Disaster Recovery Snapshot (بکاپ جامع روزانه) (job-daily-dr)",
+      "status": "success",
+      "details": "Backup generated successfully in 903ms. File: auto_backup_full_2026-10-13T23-36-45-199Z_job-daily-dr.json (26.08 KB).",
+      "ip_address": "127.0.0.1",
+      "user_agent": ""
     }
   ],
   "ad_config": {
@@ -1817,11 +1841,11 @@
       "retention_days": 30,
       "last_status": "success",
       "created_at": "2026-09-14T00:00:00.000Z",
-      "updated_at": "2026-10-13T05:47:38.294Z",
-      "last_run_at": "2026-10-13T05:47:38.294Z",
-      "next_run_at": "2026-10-13T23:30:00.000Z",
-      "last_result_details": "Backup generated successfully in 620ms. File: auto_backup_full_2026-10-13T05-47-37-986Z_job-daily-dr.json (26.08 KB).",
-      "last_backup_file": "auto_backup_full_2026-10-13T05-47-37-986Z_job-daily-dr.json"
+      "updated_at": "2026-10-13T23:36:45.395Z",
+      "last_run_at": "2026-10-13T23:36:45.395Z",
+      "next_run_at": "2026-10-14T23:30:00.000Z",
+      "last_result_details": "Backup generated successfully in 903ms. File: auto_backup_full_2026-10-13T23-36-45-199Z_job-daily-dr.json (26.08 KB).",
+      "last_backup_file": "auto_backup_full_2026-10-13T23-36-45-199Z_job-daily-dr.json"
     },
     {
       "id": "job-servers-fleet",
