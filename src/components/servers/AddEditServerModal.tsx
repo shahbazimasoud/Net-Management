@@ -35,8 +35,9 @@ import { RemoteServer, ServerCategory } from '../../types';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ManageServerCategoriesModal } from './ManageServerCategoriesModal';
 import { VaultPasswordPickerModal } from '../vault/VaultPasswordPickerModal';
+import { VaultLinkedPasswordBadge } from '../vault/VaultLinkedPasswordBadge';
 import { useAuth } from '../../context/AuthContext';
-import { testStandaloneMysqlConnection, saveSecretToVault } from '../../services/api';
+import { testStandaloneMysqlConnection, saveSecretToVault, fetchVaultItems } from '../../services/api';
 
 export interface AddEditServerModalProps {
   isOpen: boolean;
@@ -134,6 +135,12 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
   const [showWinPassword, setShowWinPassword] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
   const [vaultPickerTarget, setVaultPickerTarget] = useState<'ssh' | 'windows' | 'postgres' | 'mysql'>('ssh');
+  const [sshVaultItemId, setSshVaultItemId] = useState<string | undefined>(serverToEdit?.ssh_vault_item_id);
+  const [sshVaultItemName, setSshVaultItemName] = useState<string>('');
+  const [winVaultItemId, setWinVaultItemId] = useState<string | undefined>(serverToEdit?.win_vault_item_id);
+  const [winVaultItemName, setWinVaultItemName] = useState<string>('');
+  const [dbVaultItemId, setDbVaultItemId] = useState<string | undefined>(serverToEdit?.db_vault_item_id);
+  const [dbVaultItemName, setDbVaultItemName] = useState<string>('');
 
   // Vault saving state
   const [saveSshToVault, setSaveSshToVault] = useState(false);
@@ -262,8 +269,45 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         setWebHttpPort(serverToEdit.web_http_port || 80);
         setWebHttpsPort(serverToEdit.web_https_port || 443);
         setServerType(serverToEdit.server_type || (serverToEdit.has_postgresql ? 'postgresql' : serverToEdit.has_mysql ? 'mysql' : serverToEdit.has_nginx ? 'nginx' : serverToEdit.has_apache ? 'apache' : serverToEdit.os_type || 'linux'));
+
+        const sSshVault = serverToEdit.ssh_vault_item_id || undefined;
+        const sWinVault = serverToEdit.win_vault_item_id || undefined;
+        const sDbVault = serverToEdit.db_vault_item_id || undefined;
+        setSshVaultItemId(sSshVault);
+        setWinVaultItemId(sWinVault);
+        setDbVaultItemId(sDbVault);
+        setSshVaultItemName('');
+        setWinVaultItemName('');
+        setDbVaultItemName('');
+
+        if (sSshVault || sWinVault || sDbVault) {
+          fetchVaultItems()
+            .then((vRes) => {
+              if (vRes && Array.isArray(vRes.items)) {
+                if (sSshVault) {
+                  const m = vRes.items.find((it: any) => it.id === sSshVault);
+                  if (m) setSshVaultItemName(m.name);
+                }
+                if (sWinVault) {
+                  const m = vRes.items.find((it: any) => it.id === sWinVault);
+                  if (m) setWinVaultItemName(m.name);
+                }
+                if (sDbVault) {
+                  const m = vRes.items.find((it: any) => it.id === sDbVault);
+                  if (m) setDbVaultItemName(m.name);
+                }
+              }
+            })
+            .catch(() => {});
+        }
       } else {
         // Defaults for new server or service based on initialServiceMode
+        setSshVaultItemId(undefined);
+        setSshVaultItemName('');
+        setWinVaultItemId(undefined);
+        setWinVaultItemName('');
+        setDbVaultItemId(undefined);
+        setDbVaultItemName('');
         setHostname('');
         setIp('');
         setEnvironment('Production');
@@ -579,6 +623,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
         cpu_cores: cpuCores !== '' && Number(cpuCores) > 0 ? Number(cpuCores) : undefined,
         ram_gb: ramGb !== '' && Number(ramGb) > 0 ? Number(ramGb) : undefined,
         disk_gb: diskGb !== '' && Number(diskGb) > 0 ? Number(diskGb) : undefined,
+        db_vault_item_id: dbVaultItemId ? dbVaultItemId.trim() : (serverToEdit ? null : undefined),
         ...(osType === 'linux'
           ? {
               ssh_port: Number(sshPort) || 22,
@@ -586,6 +631,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               ssh_password: promptPasswordOnConnect
                 ? ''
                 : (sshPassword.trim().length > 0 ? sshPassword : (serverToEdit ? undefined : '')),
+              ssh_vault_item_id: sshVaultItemId ? sshVaultItemId.trim() : (serverToEdit ? null : undefined),
               default_shell: defaultShell,
             }
           : {
@@ -596,6 +642,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               win_password: promptPasswordOnConnect
                 ? ''
                 : (winPassword.trim().length > 0 ? winPassword : (serverToEdit ? undefined : '')),
+              win_vault_item_id: winVaultItemId ? winVaultItemId.trim() : (serverToEdit ? null : undefined),
             }),
       };
 
@@ -1155,45 +1202,60 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="relative flex-1">
-                            <input
-                              type={showPostgresPassword ? 'text' : 'password'}
-                              value={postgresPassword}
-                              onChange={(e) => setPostgresPassword(e.target.value)}
-                              placeholder={
-                                serverToEdit?.postgres_password_set
-                                  ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
-                                  : (isEn ? 'Enter password' : 'رمز عبور را وارد کنید')
-                              }
-                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
-                                isLightMode
-                                  ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
-                                  : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
-                              }`}
-                            />
+                        {dbVaultItemId ? (
+                          <VaultLinkedPasswordBadge
+                            vaultItemId={dbVaultItemId}
+                            vaultItemName={dbVaultItemName}
+                            onUnlink={() => {
+                              setDbVaultItemId(undefined);
+                              setDbVaultItemName('');
+                              setPostgresPassword('');
+                            }}
+                            isLightMode={isLightMode}
+                            isEn={isEn}
+                            compact
+                          />
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1">
+                              <input
+                                type={showPostgresPassword ? 'text' : 'password'}
+                                value={postgresPassword}
+                                onChange={(e) => setPostgresPassword(e.target.value)}
+                                placeholder={
+                                  serverToEdit?.postgres_password_set
+                                    ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
+                                    : (isEn ? 'Enter password' : 'رمز عبور را وارد کنید')
+                                }
+                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
+                                  isLightMode
+                                    ? 'bg-white border-slate-300 text-slate-800 focus:border-blue-500'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-blue-400'
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPostgresPassword(!showPostgresPassword)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                                title={showPostgresPassword ? (isEn ? 'Hide' : 'مخفی کردن') : (isEn ? 'Show' : 'نمایش')}
+                              >
+                                {showPostgresPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
                             <button
                               type="button"
-                              onClick={() => setShowPostgresPassword(!showPostgresPassword)}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
-                              title={showPostgresPassword ? (isEn ? 'Hide' : 'مخفی کردن') : (isEn ? 'Show' : 'نمایش')}
+                              onClick={() => {
+                                setVaultPickerTarget('postgres');
+                                setIsVaultPickerOpen(true);
+                              }}
+                              className="px-2 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 text-xs font-medium flex items-center gap-1 shrink-0 transition cursor-pointer"
+                              title={isEn ? 'Pick password from Vault' : 'انتخاب رمز از والت'}
                             >
-                              {showPostgresPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              <KeyRound className="w-3.5 h-3.5" />
+                              <span className="text-[10px] hidden sm:inline">{isEn ? 'Vault' : 'والت'}</span>
                             </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setVaultPickerTarget('postgres');
-                              setIsVaultPickerOpen(true);
-                            }}
-                            className="px-2 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 text-xs font-medium flex items-center gap-1 shrink-0 transition cursor-pointer"
-                            title={isEn ? 'Pick password from Vault' : 'انتخاب رمز از والت'}
-                          >
-                            <KeyRound className="w-3.5 h-3.5" />
-                            <span className="text-[10px] hidden sm:inline">{isEn ? 'Vault' : 'والت'}</span>
-                          </button>
-                        </div>
+                        )}
                       </div>
                       {/* Port */}
                       <div className="space-y-1">
@@ -1344,46 +1406,61 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="relative flex-1">
-                            <input
-                              type={showMysqlPassword ? 'text' : 'password'}
-                              value={mysqlPassword}
-                              onChange={(e) => setMysqlPassword(e.target.value)}
-                              placeholder={
-                                serverToEdit?.mysql_password_set
-                                  ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
-                                  : (isEn ? 'Enter MySQL password' : 'رمز عبور MySQL را وارد کنید')
-                              }
-                              className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
-                                isLightMode
-                                  ? 'bg-white border-slate-300 text-slate-800 focus:border-amber-500'
-                                  : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-amber-400'
-                              }`}
-                            />
+                        {dbVaultItemId ? (
+                          <VaultLinkedPasswordBadge
+                            vaultItemId={dbVaultItemId}
+                            vaultItemName={dbVaultItemName}
+                            onUnlink={() => {
+                              setDbVaultItemId(undefined);
+                              setDbVaultItemName('');
+                              setMysqlPassword('');
+                            }}
+                            isLightMode={isLightMode}
+                            isEn={isEn}
+                            compact
+                          />
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1">
+                              <input
+                                type={showMysqlPassword ? 'text' : 'password'}
+                                value={mysqlPassword}
+                                onChange={(e) => setMysqlPassword(e.target.value)}
+                                placeholder={
+                                  serverToEdit?.mysql_password_set
+                                    ? (isEn ? '•••••••• (Keep existing)' : '•••••••• (حفظ رمز فعلی)')
+                                    : (isEn ? 'Enter MySQL password' : 'رمز عبور MySQL را وارد کنید')
+                                }
+                                className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-colors pr-8 ${
+                                  isLightMode
+                                    ? 'bg-white border-slate-300 text-slate-800 focus:border-amber-500'
+                                    : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-amber-400'
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowMysqlPassword(!showMysqlPassword)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                                title={showMysqlPassword ? (isEn ? 'Hide' : 'مخفی') : (isEn ? 'Show' : 'نمایش')}
+                              >
+                                {showMysqlPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                            {/* Pick from Vault button */}
                             <button
                               type="button"
-                              onClick={() => setShowMysqlPassword(!showMysqlPassword)}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
-                              title={showMysqlPassword ? (isEn ? 'Hide' : 'مخفی') : (isEn ? 'Show' : 'نمایش')}
+                              onClick={() => {
+                                setVaultPickerTarget('mysql');
+                                setIsVaultPickerOpen(true);
+                              }}
+                              className="px-2 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-1 shrink-0 transition cursor-pointer"
+                              title={isEn ? 'Pick password from Vault' : 'انتخاب رمز از والت'}
                             >
-                              {showMysqlPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              <KeyRound className="w-3.5 h-3.5" />
+                              <span className="text-[10px] hidden sm:inline">{isEn ? 'Vault' : 'والت'}</span>
                             </button>
                           </div>
-                          {/* Pick from Vault button */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setVaultPickerTarget('mysql');
-                              setIsVaultPickerOpen(true);
-                            }}
-                            className="px-2 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-1 shrink-0 transition cursor-pointer"
-                            title={isEn ? 'Pick password from Vault' : 'انتخاب رمز از والت'}
-                          >
-                            <KeyRound className="w-3.5 h-3.5" />
-                            <span className="text-[10px] hidden sm:inline">{isEn ? 'Vault' : 'والت'}</span>
-                          </button>
-                        </div>
+                        )}
                       </div>
 
                       {/* Port */}
@@ -2023,6 +2100,18 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                         : 'سیاست عدم ذخیره‌سازی فعال است: رمز عبور هنگام اتصال به کنسول SSH درخواست خواهد شد.'}
                     </span>
                   </div>
+                ) : sshVaultItemId ? (
+                  <VaultLinkedPasswordBadge
+                    vaultItemId={sshVaultItemId}
+                    vaultItemName={sshVaultItemName}
+                    onUnlink={() => {
+                      setSshVaultItemId(undefined);
+                      setSshVaultItemName('');
+                      setSshPassword('');
+                    }}
+                    isLightMode={isLightMode}
+                    isEn={isEn}
+                  />
                 ) : (
                   <div className="relative">
                     <input
@@ -2049,7 +2138,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                   </div>
                 )}
 
-                {serverToEdit && !promptPasswordOnConnect && (
+                {serverToEdit && !promptPasswordOnConnect && !sshVaultItemId && (
                   <p className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                     {isEn
                       ? 'Leave blank to preserve current password.'
@@ -2058,7 +2147,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                 )}
 
                 {/* Save to Personal Vault prompt and instant button */}
-                {!promptPasswordOnConnect && sshPassword.trim().length > 0 && (
+                {!promptPasswordOnConnect && !sshVaultItemId && sshPassword.trim().length > 0 && (
                   <div className="pt-1 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -2255,6 +2344,18 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                           : 'سیاست عدم ذخیره‌سازی فعال است: رمز عبور هنگام اتصال به ریموت دسکتاپ/VNC درخواست خواهد شد.'}
                       </span>
                     </div>
+                  ) : winVaultItemId ? (
+                    <VaultLinkedPasswordBadge
+                      vaultItemId={winVaultItemId}
+                      vaultItemName={winVaultItemName}
+                      onUnlink={() => {
+                        setWinVaultItemId(undefined);
+                        setWinVaultItemName('');
+                        setWinPassword('');
+                      }}
+                      isLightMode={isLightMode}
+                      isEn={isEn}
+                    />
                   ) : (
                     <div className="relative">
                       <input
@@ -2281,7 +2382,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                     </div>
                   )}
 
-                  {serverToEdit && !promptPasswordOnConnect && (
+                  {serverToEdit && !promptPasswordOnConnect && !winVaultItemId && (
                     <p className={`text-[10px] ${isLightMode ? 'text-slate-500' : 'text-slate-400'}`}>
                       {isEn
                         ? 'Leave blank to preserve current password.'
@@ -2290,7 +2391,7 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
                   )}
 
                   {/* Save to Personal Vault prompt and instant button */}
-                  {!promptPasswordOnConnect && winPassword.trim().length > 0 && (
+                  {!promptPasswordOnConnect && !winVaultItemId && winPassword.trim().length > 0 && (
                     <div className="pt-1 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -2545,10 +2646,44 @@ export const AddEditServerModal: React.FC<AddEditServerModalProps> = ({
               if (username && !sshUsername) {
                 setSshUsername(username);
               }
-            } else {
+            } else if (vaultPickerTarget === 'windows') {
               setWinPassword(password);
               if (username && !winUsername) {
                 setWinUsername(username);
+              }
+            } else if (vaultPickerTarget === 'postgres') {
+              setPostgresPassword(password);
+              if (username && !postgresUser) {
+                setPostgresUser(username);
+              }
+            } else if (vaultPickerTarget === 'mysql') {
+              setMysqlPassword(password);
+              if (username && !mysqlUser) {
+                setMysqlUser(username);
+              }
+            }
+            setIsVaultPickerOpen(false);
+          }}
+          onSelectSecret={(secret) => {
+            if (vaultPickerTarget === 'ssh') {
+              setSshVaultItemId(secret.id || undefined);
+              setSshVaultItemName(secret.name || '');
+              if (secret.password) setSshPassword(secret.password);
+              if (secret.username && !sshUsername) setSshUsername(secret.username);
+            } else if (vaultPickerTarget === 'windows') {
+              setWinVaultItemId(secret.id || undefined);
+              setWinVaultItemName(secret.name || '');
+              if (secret.password) setWinPassword(secret.password);
+              if (secret.username && !winUsername) setWinUsername(secret.username);
+            } else if (vaultPickerTarget === 'postgres' || vaultPickerTarget === 'mysql') {
+              setDbVaultItemId(secret.id || undefined);
+              setDbVaultItemName(secret.name || '');
+              if (vaultPickerTarget === 'postgres') {
+                if (secret.password) setPostgresPassword(secret.password);
+                if (secret.username && !postgresUser) setPostgresUser(secret.username);
+              } else if (vaultPickerTarget === 'mysql') {
+                if (secret.password) setMysqlPassword(secret.password);
+                if (secret.username && !mysqlUser) setMysqlUser(secret.username);
               }
             }
             setIsVaultPickerOpen(false);

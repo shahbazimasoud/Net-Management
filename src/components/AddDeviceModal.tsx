@@ -40,6 +40,7 @@ import { CiscoTerminalModal } from './CiscoTerminalModal';
 import { MikroTikTerminalModal } from './MikroTikTerminalModal';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
+import { VaultLinkedPasswordBadge } from './vault/VaultLinkedPasswordBadge';
 import { useAuth } from '../context/AuthContext';
 import { isTemplateApplyPermitted, isUserSuperAdmin } from '../utils/rbac';
 
@@ -118,6 +119,10 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   const [saveEnableToVault, setSaveEnableToVault] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
   const [vaultPickerTarget, setVaultPickerTarget] = useState<'password' | 'enable'>('password');
+  const [sshVaultItemId, setSshVaultItemId] = useState<string | undefined>(undefined);
+  const [sshVaultItemName, setSshVaultItemName] = useState<string>('');
+  const [enableVaultItemId, setEnableVaultItemId] = useState<string | undefined>(undefined);
+  const [enableVaultItemName, setEnableVaultItemName] = useState<string>('');
 
   // Web Config URLs (e.g. iLO, ESXi, RouterOS WebFig, Web GUI)
   const [webConfigs, setWebConfigs] = useState<DeviceWebConfig[]>([]);
@@ -298,6 +303,10 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
     setSshUsername('admin');
     setSshPassword('');
     setEnablePassword('');
+    setSshVaultItemId(undefined);
+    setSshVaultItemName('');
+    setEnableVaultItemId(undefined);
+    setEnableVaultItemName('');
     setShowPassword(false);
     setSaveSshToVault(false);
     setSaveEnableToVault(false);
@@ -770,6 +779,8 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         ssh_username: sshUsername.trim() || 'admin',
         ssh_password: sshPassword,
         enable_password: enablePassword,
+        ssh_vault_item_id: sshVaultItemId || undefined,
+        enable_vault_item_id: enableVaultItemId || undefined,
         ssh_status: sshTestResult?.success ? 'authenticated' : 'configured',
         serial_number: serialNumber.trim() || undefined,
         mac: mac.trim() || undefined,
@@ -1915,48 +1926,64 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                       </button>
                     </div>
                   </div>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={sshPassword}
-                    onChange={(e) => setSshPassword(e.target.value)}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
-                      isLightMode
-                        ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                        : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
-                    }`}
-                    dir="ltr"
-                  />
-
-                  {/* Non-intrusive Save to Vault prompt when password manually entered */}
-                  {sshPassword.trim().length > 0 && (
-                    <div className="pt-1.5">
-                      <label
-                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] cursor-pointer select-none transition-all ${
-                          saveSshToVault
-                            ? isLightMode
-                              ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-xs'
-                              : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                            : isLightMode
-                            ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                            : 'bg-slate-900/40 hover:bg-slate-800 border-slate-800 text-slate-400'
+                  {sshVaultItemId ? (
+                    <VaultLinkedPasswordBadge
+                      vaultItemId={sshVaultItemId}
+                      vaultItemName={sshVaultItemName}
+                      onUnlink={() => {
+                        setSshVaultItemId(undefined);
+                        setSshVaultItemName('');
+                        setSshPassword('');
+                      }}
+                      isLightMode={isLightMode}
+                      isEn={isEn}
+                    />
+                  ) : (
+                    <>
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={sshPassword}
+                        onChange={(e) => setSshPassword(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                        className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
+                            : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
                         }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={saveSshToVault}
-                          onChange={(e) => setSaveSshToVault(e.target.checked)}
-                          className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
-                        />
-                        <BookmarkPlus className={`w-3 h-3 ${saveSshToVault ? 'text-amber-500' : 'text-slate-400'}`} />
-                        <span>
-                          {isEn
-                            ? 'Save to Personal Vault?'
-                            : 'ذخیره در والت شخصی؟'}
-                        </span>
-                      </label>
-                    </div>
+                        dir="ltr"
+                      />
+
+                      {/* Non-intrusive Save to Vault prompt when password manually entered */}
+                      {sshPassword.trim().length > 0 && (
+                        <div className="pt-1.5">
+                          <label
+                            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] cursor-pointer select-none transition-all ${
+                              saveSshToVault
+                                ? isLightMode
+                                  ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-xs'
+                                  : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                                : isLightMode
+                                ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                                : 'bg-slate-900/40 hover:bg-slate-800 border-slate-800 text-slate-400'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={saveSshToVault}
+                              onChange={(e) => setSaveSshToVault(e.target.checked)}
+                              className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                            />
+                            <BookmarkPlus className={`w-3 h-3 ${saveSshToVault ? 'text-amber-500' : 'text-slate-400'}`} />
+                            <span>
+                              {isEn
+                                ? 'Save to Personal Vault?'
+                                : 'ذخیره در والت شخصی؟'}
+                            </span>
+                          </label>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -2026,48 +2053,64 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                         <span>{isEn ? 'From Vault' : 'از ولت'}</span>
                       </button>
                     </div>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={enablePassword}
-                      onChange={(e) => setEnablePassword(e.target.value)}
-                      placeholder="cisco"
-                      autoComplete="off"
-                      className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
-                        isLightMode
-                          ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                          : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
-                      }`}
-                      dir="ltr"
-                    />
-
-                    {/* Non-intrusive Save to Vault prompt when Enable Secret manually entered */}
-                    {enablePassword.trim().length > 0 && (
-                      <div className="pt-1.5">
-                        <label
-                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] cursor-pointer select-none transition-all ${
-                            saveEnableToVault
-                              ? isLightMode
-                                ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-xs'
-                                : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                              : isLightMode
-                              ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                              : 'bg-slate-900/40 hover:bg-slate-800 border-slate-800 text-slate-400'
+                    {enableVaultItemId ? (
+                      <VaultLinkedPasswordBadge
+                        vaultItemId={enableVaultItemId}
+                        vaultItemName={enableVaultItemName}
+                        onUnlink={() => {
+                          setEnableVaultItemId(undefined);
+                          setEnableVaultItemName('');
+                          setEnablePassword('');
+                        }}
+                        isLightMode={isLightMode}
+                        isEn={isEn}
+                      />
+                    ) : (
+                      <>
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={enablePassword}
+                          onChange={(e) => setEnablePassword(e.target.value)}
+                          placeholder="cisco"
+                          autoComplete="off"
+                          className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
+                            isLightMode
+                              ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
+                              : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
                           }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={saveEnableToVault}
-                            onChange={(e) => setSaveEnableToVault(e.target.checked)}
-                            className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
-                          />
-                          <BookmarkPlus className={`w-3 h-3 ${saveEnableToVault ? 'text-amber-500' : 'text-slate-400'}`} />
-                          <span>
-                            {isEn
-                              ? 'Save Enable Secret to Vault?'
-                              : 'ذخیره رمز Enable در والت شخصی؟'}
-                          </span>
-                        </label>
-                      </div>
+                          dir="ltr"
+                        />
+
+                        {/* Non-intrusive Save to Vault prompt when Enable Secret manually entered */}
+                        {enablePassword.trim().length > 0 && (
+                          <div className="pt-1.5">
+                            <label
+                              className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] cursor-pointer select-none transition-all ${
+                                saveEnableToVault
+                                  ? isLightMode
+                                    ? 'bg-amber-50/80 border-amber-300 text-amber-900 shadow-xs'
+                                    : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                                  : isLightMode
+                                  ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
+                                  : 'bg-slate-900/40 hover:bg-slate-800 border-slate-800 text-slate-400'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={saveEnableToVault}
+                                onChange={(e) => setSaveEnableToVault(e.target.checked)}
+                                className="rounded border-slate-600 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 cursor-pointer accent-amber-500"
+                              />
+                              <BookmarkPlus className={`w-3 h-3 ${saveEnableToVault ? 'text-amber-500' : 'text-slate-400'}`} />
+                              <span>
+                                {isEn
+                                  ? 'Save Enable Secret to Vault?'
+                                  : 'ذخیره رمز Enable در والت شخصی؟'}
+                              </span>
+                            </label>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 ) : (
@@ -3113,6 +3156,20 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             }
           } else if (vaultPickerTarget === 'enable') {
             setEnablePassword(password);
+          }
+        }}
+        onSelectSecret={(secret) => {
+          if (vaultPickerTarget === 'password') {
+            setSshVaultItemId(secret.id || undefined);
+            setSshVaultItemName(secret.name || '');
+            if (secret.password) setSshPassword(secret.password);
+            if (secret.username && (!sshUsername || sshUsername === 'admin')) {
+              setSshUsername(secret.username);
+            }
+          } else if (vaultPickerTarget === 'enable') {
+            setEnableVaultItemId(secret.id || undefined);
+            setEnableVaultItemName(secret.name || '');
+            if (secret.password) setEnablePassword(secret.password);
           }
         }}
       />

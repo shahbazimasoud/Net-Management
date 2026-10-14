@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.335.0';
+export const APP_VERSION = '1.336.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.336.0',
+    releaseDate: '2026-10-13',
+    type: 'minor',
+    title: 'ارتقای رابط کاربری مودال‌های تجهیزات و سرورها و پیوند پویا با ولت کلمات عبور (فاز ۳)',
+    title_en: 'Universal Modal UI/UX Dynamic Password Vault Binding & Cascade Integration (Phase 3)',
+    changes: [
+      'طراحی کامپوننت اختصاصی VaultLinkedPasswordBadge جهت نمایش وضعیت هوشمند و قفل‌شده «🔗 متصل به ولت: [عنوان آیتم]» همراه با نشانگر رمز پویا (Dynamic Secret).',
+      'تجهیز مودال‌های ثبت و ویرایش تجهیزات شبکه (AddDeviceModal و EditDeviceModal) به انتخابگر ولت، اتصال بدون درز شناسه‌های ssh_vault_item_id و enable_vault_item_id و دکمه Unlink جهت قطع اتصال و ورود دستی.',
+      'ارتقای مودال سرورهای ریموت لینوکس و ویندوز (AddEditServerModal) برای فیلدهای رمز عبور SSH لینوکس، رمز RDP ویندوز و پایگاه‌داده‌های PostgreSQL و MySQL با پیوند پویا به ولت.',
+      'پیاده‌سازی سازوکار بازیابی خودکار عنوان آیتم‌های ولت هنگام باز شدن فرم ویرایش تجهیزات یا سرورهای قبلاً متصل‌شده.',
+      'پشتیبانی ۱۰۰٪ از تم تیره و روشن (Dark/Light)، رعایت کامل قوانین دوزبانه بدون نمایش متن فارسی در حالت انگلیسی و انطباق با استاندارد ۵ گانه مودال‌ها.'
+    ],
+    changes_en: [
+      'Engineered dedicated VaultLinkedPasswordBadge component rendering smart locked indicator "🔗 Linked to Vault: [Item Name]" with Dynamic Secret security badge.',
+      'Upgraded AddDeviceModal and EditDeviceModal with dynamic vault credential binding for ssh_vault_item_id and enable_vault_item_id along with Unlink action for seamless manual override.',
+      'Enhanced AddEditServerModal for Linux SSH, Windows RDP, and PostgreSQL / MySQL database password fields with dynamic vault linking and instant decoupling.',
+      'Implemented automatic friendly title resolution from personal vault when editing previously bound network devices or remote servers.',
+      'Ensured 100% theme compatibility (Dark/Light), strict zero Persian text leakage in English mode, and adherence to universal modal design standards.'
+    ]
+  },
   {
     version: '1.335.0',
     releaseDate: '2026-10-13',

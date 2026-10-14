@@ -40,6 +40,8 @@ import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
+import { VaultLinkedPasswordBadge } from './vault/VaultLinkedPasswordBadge';
+import { fetchVaultItems } from '../services/api';
 
 export interface EditDeviceModalProps {
   isOpen: boolean;
@@ -122,6 +124,10 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
   const [vaultPickerTarget, setVaultPickerTarget] = useState<'password' | 'enable'>('password');
+  const [sshVaultItemId, setSshVaultItemId] = useState<string | undefined>((device as any)?.ssh_vault_item_id);
+  const [sshVaultItemName, setSshVaultItemName] = useState<string>('');
+  const [enableVaultItemId, setEnableVaultItemId] = useState<string | undefined>((device as any)?.enable_vault_item_id);
+  const [enableVaultItemName, setEnableVaultItemName] = useState<string>('');
 
   // States
   const [discoveredPorts, setDiscoveredPorts] = useState<SwitchPort[]>([]);
@@ -187,6 +193,31 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
     setSshUsername(device.ssh_username || 'admin');
     setSshPassword(device.ssh_password || '');
     setEnablePassword(device.enable_password || '');
+
+    const initSshVault = (device as any).ssh_vault_item_id || undefined;
+    const initEnableVault = (device as any).enable_vault_item_id || undefined;
+    setSshVaultItemId(initSshVault);
+    setEnableVaultItemId(initEnableVault);
+    setSshVaultItemName('');
+    setEnableVaultItemName('');
+
+    if (initSshVault || initEnableVault) {
+      fetchVaultItems()
+        .then((vRes) => {
+          if (vRes && Array.isArray(vRes.items)) {
+            if (initSshVault) {
+              const matchedSsh = vRes.items.find((it: any) => it.id === initSshVault);
+              if (matchedSsh) setSshVaultItemName(matchedSsh.name);
+            }
+            if (initEnableVault) {
+              const matchedEn = vRes.items.find((it: any) => it.id === initEnableVault);
+              if (matchedEn) setEnableVaultItemName(matchedEn.name);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     setWebConfigs(Array.isArray(device.web_configs) ? device.web_configs.map((w) => ({ ...w })) : []);
 
     setSshTestResult(null);
@@ -396,6 +427,8 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
         ssh_username: sshUsername.trim() || 'admin',
         ssh_password: sshPassword,
         enable_password: enablePassword,
+        ssh_vault_item_id: sshVaultItemId ? sshVaultItemId.trim() : null,
+        enable_vault_item_id: enableVaultItemId ? enableVaultItemId.trim() : null,
         ssh_status: sshTestResult?.success ? 'authenticated' : (device.ssh_status || 'configured'),
         ports: discoveredPorts.length > 0 ? discoveredPorts : undefined,
         web_configs: webConfigs
@@ -1321,19 +1354,33 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                       </button>
                     </div>
                   </div>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={sshPassword}
-                    onChange={(e) => setSshPassword(e.target.value)}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
-                      isLightMode
-                        ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                        : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
-                    }`}
-                    dir="ltr"
-                  />
+                  {sshVaultItemId ? (
+                    <VaultLinkedPasswordBadge
+                      vaultItemId={sshVaultItemId}
+                      vaultItemName={sshVaultItemName}
+                      onUnlink={() => {
+                        setSshVaultItemId(undefined);
+                        setSshVaultItemName('');
+                        setSshPassword('');
+                      }}
+                      isLightMode={isLightMode}
+                      isEn={isEn}
+                    />
+                  ) : (
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={sshPassword}
+                      onChange={(e) => setSshPassword(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
+                        isLightMode
+                          ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
+                          : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
+                      }`}
+                      dir="ltr"
+                    />
+                  )}
                 </div>
 
                 {platform === 'mikrotik_routeros' || (model && model.toLowerCase().includes('mikrotik')) ? (
@@ -1402,19 +1449,33 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                         <span>{isEn ? 'From Vault' : 'از ولت'}</span>
                       </button>
                     </div>
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={enablePassword}
-                      onChange={(e) => setEnablePassword(e.target.value)}
-                      placeholder="cisco"
-                      autoComplete="off"
-                      className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
-                        isLightMode
-                          ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                          : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
-                      }`}
-                      dir="ltr"
-                    />
+                    {enableVaultItemId ? (
+                      <VaultLinkedPasswordBadge
+                        vaultItemId={enableVaultItemId}
+                        vaultItemName={enableVaultItemName}
+                        onUnlink={() => {
+                          setEnableVaultItemId(undefined);
+                          setEnableVaultItemName('');
+                          setEnablePassword('');
+                        }}
+                        isLightMode={isLightMode}
+                        isEn={isEn}
+                      />
+                    ) : (
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={enablePassword}
+                        onChange={(e) => setEnablePassword(e.target.value)}
+                        placeholder="cisco"
+                        autoComplete="off"
+                        className={`w-full px-3 py-1.5 rounded-lg border text-xs focus:outline-none font-mono text-left transition ${
+                          isLightMode
+                            ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
+                            : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
+                        }`}
+                        dir="ltr"
+                      />
+                    )}
                   </div>
                 ) : (
                   <div className="sm:col-span-4 flex items-center">
@@ -1979,6 +2040,20 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
             }
           } else if (vaultPickerTarget === 'enable') {
             setEnablePassword(password);
+          }
+        }}
+        onSelectSecret={(secret) => {
+          if (vaultPickerTarget === 'password') {
+            setSshVaultItemId(secret.id || undefined);
+            setSshVaultItemName(secret.name || '');
+            if (secret.password) setSshPassword(secret.password);
+            if (secret.username && (!sshUsername || sshUsername === 'admin')) {
+              setSshUsername(secret.username);
+            }
+          } else if (vaultPickerTarget === 'enable') {
+            setEnableVaultItemId(secret.id || undefined);
+            setEnableVaultItemName(secret.name || '');
+            if (secret.password) setEnablePassword(secret.password);
           }
         }}
       />
