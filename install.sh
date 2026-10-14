@@ -458,6 +458,26 @@ fi
 SYS_ARCH=$(uname -m)
 BUILD_OK=false
 
+# Pre-Build Module Integrity & Corrupted Package Auto-Repair
+repair_corrupt_build_modules() {
+  echo -e "${YELLOW}در حال ترمیم و پاکسازی پکیج‌های آسیب‌دیده (tinyglobby, vite, @rollup, esbuild)...${NC}"
+  rm -rf "$APP_DIR/node_modules/tinyglobby" "$APP_DIR/node_modules/vite" "$APP_DIR/node_modules/@rollup" "$APP_DIR/node_modules/esbuild" "$APP_DIR/node_modules/.vite" 2>/dev/null || true
+  npm cache clean --force 2>/dev/null || true
+  npm install tinyglobby@latest vite@latest --prefer-online --no-audit 2>/dev/null || \
+  npm install tinyglobby@latest vite@latest --force --no-audit 2>/dev/null || true
+  if [ "$SYS_ARCH" = "x86_64" ]; then
+    npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
+  elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
+    npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+  fi
+  npm rebuild 2>/dev/null || true
+}
+
+if ! node -e "import('tinyglobby'); import('vite');" 2>/dev/null; then
+  echo -e "${YELLOW}وابستگی‌های آسیب‌دیده ESM تشخیص داده شد (SyntaxError / null bytes). آغاز ترمیم خودکار...${NC}"
+  repair_corrupt_build_modules
+fi
+
 # Tier 1: Standard npm run build
 if [ -n "$SUDO_USER" ]; then
   if su - "$SUDO_USER" -c "cd '$APP_DIR' && export TMPDIR='$APP_DIR/.tmp' && export NODE_OPTIONS='--max-old-space-size=${NODE_HEAP_MB}' && npm run build"; then
@@ -471,15 +491,20 @@ fi
 
 # Tier 2: Staged compilation with native binding repair
 if [ "$BUILD_OK" = false ]; then
-  echo -e "${YELLOW}کامپایل استاندارد با محدودیت مواجه شد. در حال بهینه‌سازی باینری‌ها و اجرای بیلد دومرحله‌ای...${NC}"
+  echo -e "${YELLOW}کامپایل اولیه با خطا مواجه شد. در حال بررسی سلامت ماژول‌ها و اجرای بیلد دومرحله‌ای...${NC}"
   rm -rf "$APP_DIR/dist" "$APP_DIR/node_modules/.vite" /tmp/esbuild* "$APP_DIR/.tmp"/* 2>/dev/null || true
   
-  if [ "$SYS_ARCH" = "x86_64" ]; then
-    npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
-  elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
-    npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+  if ! node -e "import('tinyglobby'); import('vite');" 2>/dev/null; then
+    echo -e "${YELLOW}خطای ماژول ESM (tinyglobby/vite SyntaxError) شناسایی شد. ترمیم فوری پکیج‌ها...${NC}"
+    repair_corrupt_build_modules
+  else
+    if [ "$SYS_ARCH" = "x86_64" ]; then
+      npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
+    elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
+      npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+    fi
+    npm rebuild 2>/dev/null || true
   fi
-  npm rebuild 2>/dev/null || true
 
   if npx vite build --emptyOutDir && npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs; then
     BUILD_OK=true

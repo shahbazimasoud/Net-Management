@@ -30,7 +30,7 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PANEL_VERSION="1.62.1"
+PANEL_VERSION="1.337.1"
 
 # ==============================================================================
 # Enterprise Package Manager & DPKG Lock Guard
@@ -662,6 +662,31 @@ fi
 # Detect architecture for native Rollup / esbuild packages
 SYS_ARCH=$(uname -m)
 
+# ------------------------------------------------------------------------------
+# Pre-Build Module Integrity & Corrupted Package Auto-Repair
+# Verifies that critical ESM modules (tinyglobby, vite, rollup, esbuild) are
+# syntactically valid and not truncated, zeroed out, or corrupted by interrupted downloads.
+# ------------------------------------------------------------------------------
+repair_corrupt_build_modules() {
+  log_warning "Repairing corrupted ESM build packages (tinyglobby, vite, @rollup, esbuild)..."
+  rm -rf node_modules/tinyglobby node_modules/vite node_modules/@rollup node_modules/esbuild node_modules/.vite 2>/dev/null || true
+  npm cache clean --force 2>/dev/null || true
+  npm install tinyglobby@latest vite@latest --prefer-online --no-audit 2>/dev/null || \
+  npm install tinyglobby@latest vite@latest --force --no-audit 2>/dev/null || true
+  if [ "$SYS_ARCH" = "x86_64" ]; then
+    npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
+  elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
+    npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+  fi
+  npm rebuild 2>/dev/null || true
+}
+
+log_info "Verifying Node.js build modules integrity (tinyglobby, Vite, Rollup, esbuild)..."
+if ! node -e "import('tinyglobby'); import('vite');" 2>/dev/null; then
+  log_warning "Corrupted or broken ESM build dependencies detected (SyntaxError / null bytes). Initiating auto-repair..."
+  repair_corrupt_build_modules
+fi
+
 log_step "Compiling NetTopology Production Build (Vite + TypeScript Backend)..."
 
 # Clear any broken or corrupt caches from prior interrupted builds
@@ -674,17 +699,23 @@ log_info "Attempt 1: Running primary production build..."
 if npm run build; then
   BUILD_SUCCESS=true
 else
-  log_warning "Primary build encountered a kernel or memory limit (Bus error/OOM). Executing Tier 2 recovery..."
+  log_warning "Primary build encountered an error or limit. Executing Tier 2 recovery..."
   rm -rf dist node_modules/.vite /tmp/esbuild* "$INSTALL_DIR/.tmp"/* 2>/dev/null || true
 
-  # Re-verify and repair native platform bindings for Rollup and esbuild
-  log_info "Repairing native compilation binaries for architecture ($SYS_ARCH)..."
-  if [ "$SYS_ARCH" = "x86_64" ]; then
-    npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
-  elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
-    npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+  # Check if failure was caused by corrupted ESM packages (e.g. tinyglobby/vite SyntaxError)
+  if ! node -e "import('tinyglobby'); import('vite');" 2>/dev/null; then
+    log_warning "Diagnosed corrupted build dependency (tinyglobby/vite SyntaxError). Executing clean package repair..."
+    repair_corrupt_build_modules
+  else
+    # Re-verify and repair native platform bindings for Rollup and esbuild
+    log_info "Repairing native compilation binaries for architecture ($SYS_ARCH)..."
+    if [ "$SYS_ARCH" = "x86_64" ]; then
+      npm install --no-save @rollup/rollup-linux-x64-gnu @esbuild/linux-x64 2>/dev/null || true
+    elif [ "$SYS_ARCH" = "aarch64" ] || [ "$SYS_ARCH" = "arm64" ]; then
+      npm install --no-save @rollup/rollup-linux-arm64-gnu @esbuild/linux-arm64 2>/dev/null || true
+    fi
+    npm rebuild 2>/dev/null || true
   fi
-  npm rebuild 2>/dev/null || true
 
   # Stage 2: Staged Frontend + Backend Compilation
   log_info "Attempt 2: Staged isolated compilation..."

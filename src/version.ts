@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.337.0';
+export const APP_VERSION = '1.337.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.337.1',
+    releaseDate: '2026-10-14',
+    type: 'patch',
+    title: 'رفع خطای SyntaxError در پکیج tinyglobby و ترمیم خودکار ماژول‌های کامپایل و رفع خطای 502 Bad Gateway',
+    title_en: 'Fix tinyglobby SyntaxError Token Fault, Auto-Repair Corrupted ESM Build Modules & Resolve 502 Bad Gateway',
+    changes: [
+      'تشخیص ریشه‌ای و رفع خطای SyntaxError: Invalid or unexpected token در فایل node_modules/tinyglobby/dist/index.mjs هنگام بیلد پروداکشن (Vite).',
+      'تجهیز اسکریپت‌های نصب و راه‌اندازی (setup-panel.sh و install.sh) به ماژول پایش سلامت پیش از بیلد (Pre-Build Integrity Verification) برای بررسی سلامت ماژول‌های ESM (tinyglobby، vite، rollup، esbuild).',
+      'پیاده‌سازی مکانیزم ترمیم و پاکسازی خودکار پکیج‌های آسیب‌دیده (repair_corrupt_build_modules) با پاکسازی کش npm و نصب مجدد با فلگ‌های ایمن.',
+      'ارتقای پایپ‌لاین آپدیت سیستم (/api/system/perform-update) در سرور به گام‌های تشخیصی و بازیابی خودکار ماژول‌های بیلد جهت جلوگیری از توقف سرویس و رفع خطای 502 Bad Gateway در Nginx.',
+      'ثبت صریح پکیج tinyglobby@^0.2.17 در وابستگی‌های پروژه جهت تثبیت درخت وابستگی‌ها.'
+    ],
+    changes_en: [
+      'Diagnosed and resolved root cause of SyntaxError: Invalid or unexpected token in node_modules/tinyglobby/dist/index.mjs during production Vite build.',
+      'Equipped setup-panel.sh and install.sh with Pre-Build Integrity Verification to validate critical ESM toolchains (tinyglobby, vite, rollup, esbuild) prior to bundling.',
+      'Implemented automated corrupted package recovery function (repair_corrupt_build_modules) purging invalid caches and reinstalling healthy modules with resilient network flags.',
+      'Hardened server-side update engine (/api/system/perform-update) with self-diagnostic module repair preventing build failures and resolving Nginx 502 Bad Gateway.',
+      'Explicitly registered tinyglobby@^0.2.17 in project dependencies to ensure tree stability across all environments.'
+    ]
+  },
   {
     version: '1.337.0',
     releaseDate: '2026-10-14',

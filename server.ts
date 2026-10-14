@@ -886,11 +886,38 @@ app.post('/api/system/perform-update', async (req: Request, res: Response) => {
 
     // Step 5: Production Assets & Server Bundle
     log('--- [Phase 5/6] Compiling Production Frontend & Backend Bundles ---');
+    // Pre-build module integrity verification
+    try {
+      await executeShell('node -e "import(\'tinyglobby\'); import(\'vite\');"', projectRoot, 5000);
+    } catch {
+      log('Detected corrupted ESM build packages (e.g. tinyglobby/vite). Purging and re-installing clean packages...');
+      await executeShell('rm -rf node_modules/tinyglobby node_modules/vite node_modules/.vite dist', projectRoot, 5000);
+      await executeShell('npm cache clean --force 2>/dev/null || true', projectRoot, 10000);
+      await executeShell('npm install tinyglobby@latest vite@latest --prefer-online --no-audit 2>/dev/null || true', projectRoot, 30000);
+    }
+
     try {
       await executeShell('NODE_OPTIONS="--max-old-space-size=2048" npm run build', projectRoot, 120000);
       log('Production bundle compiled successfully (dist/ and dist/server.cjs ready).');
     } catch (bErr: any) {
-      log(`Build warning: ${bErr.message}`);
+      log(`Primary build warning: ${bErr.message}. Executing automated recovery...`);
+      let repaired = false;
+      try {
+        await executeShell('node -e "import(\'tinyglobby\'); import(\'vite\');"', projectRoot, 5000);
+      } catch {
+        log('Diagnosed corrupted ESM modules (tinyglobby/vite). Re-fetching clean modules...');
+        await executeShell('rm -rf node_modules/tinyglobby node_modules/vite node_modules/.vite dist', projectRoot, 5000);
+        await executeShell('npm cache clean --force 2>/dev/null || true', projectRoot, 10000);
+        await executeShell('npm install tinyglobby@latest vite@latest --prefer-online --no-audit 2>/dev/null || true', projectRoot, 30000);
+        repaired = true;
+      }
+      try {
+        log('Attempting staged compilation recovery...');
+        await executeShell('NODE_OPTIONS="--max-old-space-size=2048" npx vite build --emptyOutDir && npx esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs', projectRoot, 120000);
+        log('Production bundle compiled successfully via recovery pipeline.');
+      } catch (rErr: any) {
+        log(`Recovery build notice: ${rErr.message}`);
+      }
     }
 
     // Final Post-Build Data Integrity Guard: Ensure devices database is intact before service reboot
