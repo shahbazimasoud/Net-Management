@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.342.0';
+export const APP_VERSION = '1.343.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.343.0',
+    releaseDate: '2026-10-19',
+    type: 'minor',
+    title: 'اتصال موتورهای رمزگشایی تجهیزات و ولت به جاکلیدی دیتابیس و خودترمیمی خودکار (فاز ۲)',
+    title_en: 'Unified Dynamic Multi-Key Decryption & Automatic Database Self-Healing Engine (Phase 2)',
+    changes: [
+      'حذف کامل متغیرهای ثابت و حل باگ Hoisting در ماژول vaultCrypto با خواندن پویا و بلادرنگ کلید فعال و کلیدهای قدیمی از جدول system_security_keys دیتابیس.',
+      'ارتقای موتور رمزگشایی اعتبارسنجی تجهیزات شبکه و سرورها (decryptServerSecretWithMeta) با قابلیت جستجوی هوشمند در تمامی کلیدهای کاندید و تاریخی دیتابیس.',
+      'پیاده‌سازی مکانیزم خودترمیمی بلادرنگ (Zero-Disruption Auto-Healing): ارتقا و بازرمزنگاری بلادرنگ پسوردهای SSH، Enable، Windows و دیتابیس با کلید مستر فعال پایگاه داده به محض بازگشایی.',
+      'تجهیز توابع resolveDeviceCredentials و resolveServerCredentials به سیستم ارتقای خودکار کلیدها و اعمال آن در جداول devices و remote_servers بدون نیاز به ورود دستی مجدد پسوردها.',
+      'اتصال کامل decryptVaultSecretWithMeta و Personal Password Vault به جاکلیدی مقتدر دیتابیس و اجرای آزمون‌های تجربی test_phase2_autoheal.ts با استقلال ۱۰۰٪ از فایل .env.'
+    ],
+    changes_en: [
+      'Completely removed static master constants and eliminated hoisting constraints in vaultCrypto by dynamically querying active and historical keys from system_security_keys.',
+      'Upgraded network equipment and remote server decryption engine (decryptServerSecretWithMeta) with multi-key candidate traversal across database legacy keys.',
+      'Implemented real-time zero-disruption auto-healing: immediately re-encrypts SSH, Enable, Windows, and DB credentials with the active database master key upon successful decryption.',
+      'Enhanced resolveDeviceCredentials and resolveServerCredentials to automatically persist healed credentials back to devices and remote_servers tables without requiring manual password re-entry.',
+      'Unified decryptVaultSecretWithMeta and Personal Password Vault with the authoritative database keychain, verified via test_phase2_autoheal.ts with 100% independence from .env.'
+    ]
+  },
   {
     version: '1.342.0',
     releaseDate: '2026-10-19',

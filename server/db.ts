@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
-import { encryptServerSecret, decryptServerSecret, decryptVaultSecret, decryptVaultSecretWithMeta } from './vaultCrypto';
+import { encryptServerSecret, decryptServerSecret, decryptServerSecretWithMeta, decryptVaultSecret, decryptVaultSecretWithMeta } from './vaultCrypto';
 
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
@@ -7101,6 +7101,12 @@ export async function initOrLoadSystemSecurityKeys(client?: PoolClient): Promise
   return cachedSecurityKeychain;
 }
 
+/**
+ * Authoritative alias functions matching the Database Keychain specification
+ */
+export const loadSecurityKeysFromDb = getDatabaseSecurityKeys;
+export const syncSecurityKeyToDb = initOrLoadSystemSecurityKeys;
+
 // =============================================================================
 // USER PASSWORD VAULT CRUD (PER-USER ISOLATED)
 // =============================================================================
@@ -7476,15 +7482,27 @@ export async function resolveDeviceCredentials(device: any): Promise<{
         username = vaultItem.username;
       }
       try {
-        const decrypted = decryptVaultSecret(
+        const decResult = decryptVaultSecretWithMeta(
           vaultItem.encrypted_password,
           vaultItem.iv,
           vaultItem.tag,
           vaultItem.user_id
         );
-        if (decrypted) {
-          password = decrypted;
+        if (decResult.plainText) {
+          password = decResult.plainText;
           isPasswordFromVault = true;
+          if (decResult.isLegacyKey && decResult.newPayload) {
+            console.log(`[Device Vault Auto-Heal] Upgrading legacy SSH vault credential for "${vaultItem.name}" to active database master key.`);
+            saveUserVaultItem({
+              ...vaultItem,
+              encrypted_password: decResult.newPayload.ciphertext,
+              iv: decResult.newPayload.iv,
+              tag: decResult.newPayload.tag,
+              password_hash: decResult.newPayload.hash,
+              password_salt: decResult.newPayload.salt,
+              updated_at: new Date().toISOString(),
+            }).catch((healErr: any) => console.warn(`[Vault Auto-Heal Notice] Could not persist re-encrypted vault item:`, healErr.message));
+          }
         }
       } catch (err: any) {
         console.warn(`[resolveDeviceCredentials] Error resolving vault secret for device ${device?.id}:`, err.message);
@@ -7496,7 +7514,18 @@ export async function resolveDeviceCredentials(device: any): Promise<{
   if (!password) {
     const raw = device?.ssh_password || device?.connection?.password || '';
     if (raw) {
-      password = decryptServerSecret(raw);
+      const res = decryptServerSecretWithMeta(raw);
+      password = res.plainText;
+      if (res.isLegacyKey && res.newEncryptedString && device?.id) {
+        console.log(`[Device Auto-Heal] Upgrading legacy SSH credential for device "${device.name || device.id}" to active database master key.`);
+        updateDevice(device.id, {
+          ssh_password: res.newEncryptedString,
+          connection: {
+            ...(device.connection || {}),
+            password: res.newEncryptedString,
+          },
+        }).catch((err: any) => console.warn(`[Device Auto-Heal Notice] Device SSH re-encryption notice:`, err.message));
+      }
     }
   }
 
@@ -7506,15 +7535,27 @@ export async function resolveDeviceCredentials(device: any): Promise<{
     if (enableItem) {
       enableVaultItemName = enableItem.name;
       try {
-        const decrypted = decryptVaultSecret(
+        const decResult = decryptVaultSecretWithMeta(
           enableItem.encrypted_password,
           enableItem.iv,
           enableItem.tag,
           enableItem.user_id
         );
-        if (decrypted) {
-          enablePassword = decrypted;
+        if (decResult.plainText) {
+          enablePassword = decResult.plainText;
           isEnableFromVault = true;
+          if (decResult.isLegacyKey && decResult.newPayload) {
+            console.log(`[Device Vault Auto-Heal] Upgrading legacy enable vault credential for "${enableItem.name}" to active database master key.`);
+            saveUserVaultItem({
+              ...enableItem,
+              encrypted_password: decResult.newPayload.ciphertext,
+              iv: decResult.newPayload.iv,
+              tag: decResult.newPayload.tag,
+              password_hash: decResult.newPayload.hash,
+              password_salt: decResult.newPayload.salt,
+              updated_at: new Date().toISOString(),
+            }).catch((healErr: any) => console.warn(`[Vault Auto-Heal Notice] Could not persist re-encrypted vault item:`, healErr.message));
+          }
         }
       } catch (err: any) {
         console.warn(`[resolveDeviceCredentials] Error resolving enable vault secret for device ${device?.id}:`, err.message);
@@ -7526,7 +7567,14 @@ export async function resolveDeviceCredentials(device: any): Promise<{
   if (!enablePassword) {
     const raw = device?.enable_password || '';
     if (raw) {
-      enablePassword = decryptServerSecret(raw);
+      const res = decryptServerSecretWithMeta(raw);
+      enablePassword = res.plainText;
+      if (res.isLegacyKey && res.newEncryptedString && device?.id) {
+        console.log(`[Device Auto-Heal] Upgrading legacy enable credential for device "${device.name || device.id}" to active database master key.`);
+        updateDevice(device.id, {
+          enable_password: res.newEncryptedString,
+        }).catch((err: any) => console.warn(`[Device Auto-Heal Notice] Device enable re-encryption notice:`, err.message));
+      }
     }
   }
 
@@ -7569,15 +7617,27 @@ export async function resolveServerCredentials(
           username = vaultItem.username;
         }
         try {
-          const decrypted = decryptVaultSecret(
+          const decResult = decryptVaultSecretWithMeta(
             vaultItem.encrypted_password,
             vaultItem.iv,
             vaultItem.tag,
             vaultItem.user_id
           );
-          if (decrypted) {
-            password = decrypted;
+          if (decResult.plainText) {
+            password = decResult.plainText;
             isFromVault = true;
+            if (decResult.isLegacyKey && decResult.newPayload) {
+              console.log(`[Server Vault Auto-Heal] Upgrading legacy server SSH vault credential for "${vaultItem.name}" to active database master key.`);
+              saveUserVaultItem({
+                ...vaultItem,
+                encrypted_password: decResult.newPayload.ciphertext,
+                iv: decResult.newPayload.iv,
+                tag: decResult.newPayload.tag,
+                password_hash: decResult.newPayload.hash,
+                password_salt: decResult.newPayload.salt,
+                updated_at: new Date().toISOString(),
+              }).catch((healErr: any) => console.warn(`[Vault Auto-Heal Notice] Could not persist re-encrypted vault item:`, healErr.message));
+            }
           }
         } catch (err: any) {
           console.warn(`[resolveServerCredentials:ssh] Vault decryption error for server ${server?.id}:`, err.message);
@@ -7585,7 +7645,14 @@ export async function resolveServerCredentials(
       }
     }
     if (!password && server?.ssh_password) {
-      password = decryptServerSecret(server.ssh_password);
+      const res = decryptServerSecretWithMeta(server.ssh_password);
+      password = res.plainText;
+      if (res.isLegacyKey && res.newEncryptedString && server?.id) {
+        console.log(`[Server Auto-Heal] Upgrading legacy SSH credential for server "${server.name || server.id}" to active database master key.`);
+        updateRemoteServer(server.id, {
+          ssh_password: res.newEncryptedString,
+        }).catch((err: any) => console.warn(`[Server Auto-Heal Notice] Server SSH re-encryption notice:`, err.message));
+      }
     }
   } else if (authType === 'win') {
     username = server?.win_username || 'Administrator';
@@ -7597,15 +7664,27 @@ export async function resolveServerCredentials(
           username = vaultItem.username;
         }
         try {
-          const decrypted = decryptVaultSecret(
+          const decResult = decryptVaultSecretWithMeta(
             vaultItem.encrypted_password,
             vaultItem.iv,
             vaultItem.tag,
             vaultItem.user_id
           );
-          if (decrypted) {
-            password = decrypted;
+          if (decResult.plainText) {
+            password = decResult.plainText;
             isFromVault = true;
+            if (decResult.isLegacyKey && decResult.newPayload) {
+              console.log(`[Server Vault Auto-Heal] Upgrading legacy server Windows vault credential for "${vaultItem.name}" to active database master key.`);
+              saveUserVaultItem({
+                ...vaultItem,
+                encrypted_password: decResult.newPayload.ciphertext,
+                iv: decResult.newPayload.iv,
+                tag: decResult.newPayload.tag,
+                password_hash: decResult.newPayload.hash,
+                password_salt: decResult.newPayload.salt,
+                updated_at: new Date().toISOString(),
+              }).catch((healErr: any) => console.warn(`[Vault Auto-Heal Notice] Could not persist re-encrypted vault item:`, healErr.message));
+            }
           }
         } catch (err: any) {
           console.warn(`[resolveServerCredentials:win] Vault decryption error for server ${server?.id}:`, err.message);
@@ -7613,7 +7692,14 @@ export async function resolveServerCredentials(
       }
     }
     if (!password && server?.win_password) {
-      password = decryptServerSecret(server.win_password);
+      const res = decryptServerSecretWithMeta(server.win_password);
+      password = res.plainText;
+      if (res.isLegacyKey && res.newEncryptedString && server?.id) {
+        console.log(`[Server Auto-Heal] Upgrading legacy Windows credential for server "${server.name || server.id}" to active database master key.`);
+        updateRemoteServer(server.id, {
+          win_password: res.newEncryptedString,
+        }).catch((err: any) => console.warn(`[Server Auto-Heal Notice] Server Windows re-encryption notice:`, err.message));
+      }
     }
   } else if (authType === 'db') {
     username = server?.postgres_user || server?.mysql_user || 'postgres';
@@ -7622,15 +7708,27 @@ export async function resolveServerCredentials(
       if (vaultItem) {
         vaultItemName = vaultItem.name;
         try {
-          const decrypted = decryptVaultSecret(
+          const decResult = decryptVaultSecretWithMeta(
             vaultItem.encrypted_password,
             vaultItem.iv,
             vaultItem.tag,
             vaultItem.user_id
           );
-          if (decrypted) {
-            password = decrypted;
+          if (decResult.plainText) {
+            password = decResult.plainText;
             isFromVault = true;
+            if (decResult.isLegacyKey && decResult.newPayload) {
+              console.log(`[Server Vault Auto-Heal] Upgrading legacy server DB vault credential for "${vaultItem.name}" to active database master key.`);
+              saveUserVaultItem({
+                ...vaultItem,
+                encrypted_password: decResult.newPayload.ciphertext,
+                iv: decResult.newPayload.iv,
+                tag: decResult.newPayload.tag,
+                password_hash: decResult.newPayload.hash,
+                password_salt: decResult.newPayload.salt,
+                updated_at: new Date().toISOString(),
+              }).catch((healErr: any) => console.warn(`[Vault Auto-Heal Notice] Could not persist re-encrypted vault item:`, healErr.message));
+            }
           }
         } catch (err: any) {
           console.warn(`[resolveServerCredentials:db] Vault decryption error for server ${server?.id}:`, err.message);
@@ -7640,7 +7738,17 @@ export async function resolveServerCredentials(
     if (!password) {
       const raw = server?.postgres_password || server?.mysql_password || '';
       if (raw) {
-        password = decryptServerSecret(raw);
+        const res = decryptServerSecretWithMeta(raw);
+        password = res.plainText;
+        if (res.isLegacyKey && res.newEncryptedString && server?.id) {
+          console.log(`[Server Auto-Heal] Upgrading legacy database credential for server "${server.name || server.id}" to active database master key.`);
+          const updates: any = {};
+          if (server.postgres_password) updates.postgres_password = res.newEncryptedString;
+          if (server.mysql_password) updates.mysql_password = res.newEncryptedString;
+          updateRemoteServer(server.id, updates).catch((err: any) =>
+            console.warn(`[Server Auto-Heal Notice] Server DB re-encryption notice:`, err.message)
+          );
+        }
       }
     }
   }
