@@ -158,6 +158,11 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
 
   // Delete confirm
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeletingItem, setIsDeletingItem] = useState(false);
+
+  const deleteConfirmItem = useMemo(() => {
+    return deleteConfirmId ? items.find((i) => i.id === deleteConfirmId) || null : null;
+  }, [deleteConfirmId, items]);
 
   // Auth headers helper
   const getAuthHeaders = useCallback(() => {
@@ -455,6 +460,7 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
   // Delete item handler
   const handleDeleteItem = async (id: string) => {
     try {
+      setIsDeletingItem(true);
       const res = await fetch(`/api/vault/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
@@ -474,6 +480,8 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
       }
     } catch (err) {
       console.error('Delete error:', err);
+    } finally {
+      setIsDeletingItem(false);
     }
   };
 
@@ -867,7 +875,6 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
                 const isRevealed = Boolean(revealedPasswords[item.id]);
                 const isRevealing = Boolean(revealingIds[item.id]);
                 const isCopied = copiedId === item.id;
-                const isConfirmingDelete = deleteConfirmId === item.id;
 
                 const catObj = CATEGORIES.find((c) => c.id === item.category) || CATEGORIES[CATEGORIES.length - 1];
                 const CatIcon = catObj.icon;
@@ -876,7 +883,7 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
                   <div
                     key={item.id}
                     id={`vault-item-card-${item.id}`}
-                    className={`flex flex-col justify-between p-4 rounded-2xl border transition-all duration-200 group ${
+                    className={`relative flex flex-col justify-between p-4 rounded-2xl border transition-all duration-200 group ${
                       isLightMode
                         ? 'bg-white border-slate-200 hover:border-cyan-300 hover:shadow-md hover:shadow-slate-200'
                         : 'bg-slate-900/70 border-slate-800/80 hover:border-cyan-500/50 hover:bg-slate-900 hover:shadow-lg hover:shadow-cyan-950/20'
@@ -1141,43 +1148,6 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
                         )}
                       </div>
                     </div>
-
-                    {/* Delete Confirmation Overlay */}
-                    {isConfirmingDelete && (
-                      <div
-                        className={`absolute inset-0 p-4 rounded-2xl flex flex-col items-center justify-center text-center backdrop-blur-md z-10 ${
-                          isLightMode ? 'bg-white/95 text-slate-900' : 'bg-slate-950/95 text-white'
-                        }`}
-                      >
-                        <Trash2 className="w-8 h-8 text-rose-500 mb-2 animate-bounce" />
-                        <h5 className="text-xs font-bold mb-1">
-                          {isEn ? 'Delete this password?' : 'آیا از حذف این گذرواژه اطمینان دارید؟'}
-                        </h5>
-                        <p className="text-[11px] text-slate-400 mb-3 max-w-[200px]">
-                          {isEn
-                            ? 'This action cannot be undone.'
-                            : 'این عملیات غیرقابل بازگشت است و رمز برای همیشه حذف می‌شود.'}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setDeleteConfirmId(null)}
-                            className={`px-3 py-1 rounded-xl text-xs font-medium border ${
-                              isLightMode ? 'border-slate-300 hover:bg-slate-100' : 'border-slate-700 hover:bg-slate-800'
-                            }`}
-                          >
-                            {isEn ? 'Cancel' : 'انصراف'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteItem(item.id)}
-                            className="px-3 py-1 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm"
-                          >
-                            {isEn ? 'Yes, Delete' : 'بله، حذف کن'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -1861,6 +1831,169 @@ export const PasswordVaultModal: React.FC<PasswordVaultModalProps> = ({
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* =====================================================================
+            DEDICATED DELETE CONFIRMATION MODAL (MATCHES DELETE DEVICE MODAL)
+            ===================================================================== */}
+        {deleteConfirmItem && (
+          <div
+            id="vault-delete-confirm-overlay"
+            className="fixed top-0 left-0 right-0 bottom-8 z-[999995] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !isDeletingItem) setDeleteConfirmId(null);
+            }}
+          >
+            <div
+              id="vault-delete-confirm-modal"
+              className={`relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-scale-up border transition-all ${
+                isLightMode
+                  ? 'bg-white border-slate-200 text-slate-900 shadow-slate-400/30'
+                  : 'bg-slate-900 border-slate-700/80 text-white shadow-rose-950/20'
+              }`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div
+                className={`flex items-center justify-between px-5 py-4 border-b ${
+                  isLightMode
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/60 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl border bg-rose-500/15 border-rose-500/30 text-rose-400">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold">
+                      {isEn
+                        ? `Delete Password (${deleteConfirmItem.name})`
+                        : `حذف گذرواژه («${deleteConfirmItem.name}»)`}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {deleteConfirmItem.targetHost
+                        ? isEn
+                          ? `Host: ${deleteConfirmItem.targetHost} • User: ${deleteConfirmItem.username || 'N/A'}`
+                          : `میزبان: ${deleteConfirmItem.targetHost} • کاربر: ${deleteConfirmItem.username || '-'}`
+                        : isEn
+                        ? `Category: ${CATEGORIES.find((c) => c.id === deleteConfirmItem.category)?.labelEn || 'General'} • User: ${deleteConfirmItem.username || 'N/A'}`
+                        : `دسته‌بندی: ${CATEGORIES.find((c) => c.id === deleteConfirmItem.category)?.labelFa || 'عمومی'} • کاربر: ${deleteConfirmItem.username || '-'}`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => !isDeletingItem && setDeleteConfirmId(null)}
+                  disabled={isDeletingItem}
+                  className={`p-1.5 rounded-lg transition-colors ${
+                    isLightMode
+                      ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Content Body */}
+              <div className="p-5 space-y-3">
+                <div
+                  className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                    isLightMode
+                      ? 'bg-rose-50 border-rose-200 text-rose-900'
+                      : 'bg-rose-950/20 border-rose-500/30 text-rose-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-bold text-rose-400">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>
+                      {isEn
+                        ? 'Confirm Password Deletion'
+                        : 'تأیید حذف گذرواژه از ولت امن'}
+                    </span>
+                  </div>
+                  <p className="leading-relaxed">
+                    {isEn
+                      ? `Are you sure you want to delete password "${deleteConfirmItem.name}"?`
+                      : `آیا از حذف گذرواژه «${deleteConfirmItem.name}» از ولت اطمینان دارید؟`}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-slate-600 dark:text-slate-300 pt-1">
+                    {deleteConfirmItem.username && (
+                      <span>
+                        {isEn ? 'User:' : 'کاربر:'}{' '}
+                        <strong className="text-slate-900 dark:text-white font-semibold">{deleteConfirmItem.username}</strong>
+                      </span>
+                    )}
+                    {deleteConfirmItem.targetHost && (
+                      <span>
+                        {isEn ? 'Host/IP:' : 'آدرس:'}{' '}
+                        <strong className="text-slate-900 dark:text-white font-semibold">{deleteConfirmItem.targetHost}</strong>
+                      </span>
+                    )}
+                    <span>
+                      {isEn ? 'Category:' : 'دسته‌بندی:'}{' '}
+                      <strong className="text-slate-900 dark:text-white font-semibold">
+                        {isEn
+                          ? CATEGORIES.find((c) => c.id === deleteConfirmItem.category)?.labelEn || 'General'
+                          : CATEGORIES.find((c) => c.id === deleteConfirmItem.category)?.labelFa || 'عمومی'}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {isEn
+                    ? 'This action cannot be undone. This password will be permanently removed from your personal password vault and any linked device bindings.'
+                    : 'توجه: این عملیات غیرقابل بازگشت است و این گذرواژه برای همیشه از ولت امن شما و هرگونه اتصال داینامیک به تجهیزات حذف خواهد شد.'}
+                </p>
+              </div>
+
+              {/* Footer Actions */}
+              <div
+                className={`flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 px-5 py-4 border-t ${
+                  isLightMode
+                    ? 'border-slate-200 bg-slate-50'
+                    : 'border-slate-800 bg-slate-950/70'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmId(null)}
+                  disabled={isDeletingItem}
+                  className={`px-4 py-2 rounded-xl text-xs font-medium border transition active:scale-95 cursor-pointer ${
+                    isLightMode
+                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-white/10'
+                  }`}
+                >
+                  {isEn ? 'Cancel' : 'انصراف'}
+                </button>
+                <button
+                  type="button"
+                  id="confirm-delete-vault-password-btn"
+                  onClick={() => handleDeleteItem(deleteConfirmItem.id)}
+                  disabled={isDeletingItem}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold border border-rose-500/50 shadow-lg shadow-rose-900/30 transition active:scale-95 cursor-pointer disabled:opacity-50"
+                >
+                  {isDeletingItem ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  <span>
+                    {isDeletingItem
+                      ? isEn
+                        ? 'Deleting...'
+                        : 'در حال حذف...'
+                      : isEn
+                      ? 'Delete Password'
+                      : 'حذف گذرواژه'}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         )}

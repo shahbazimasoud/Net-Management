@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.341.1';
+export const APP_VERSION = '1.341.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.341.2',
+    releaseDate: '2026-10-19',
+    type: 'patch',
+    title: 'استانداردسازی و بازطراحی مودال تأیید حذف گذرواژه در کیف امن گذرواژه‌ها منطبق با مودال Delete Device',
+    title_en: 'Standardize & Redesign Password Deletion Confirmation Modal in Vault Matching Delete Device Architecture',
+    changes: [
+      'اصلاح باگ گسترش تمام‌صفحه و ناهماهنگی ظاهری کادر تأیید حذف در مودال کیف امن گذرواژه‌ها (PasswordVaultModal).',
+      'طراحی مودال اختصاصی تأیید حذف گذرواژه با ساختار ارگونومیک، انیمیشن‌های fade-in و scale-up و هماهنگی کامل با دیالوگ استاندارد Delete Device.',
+      'نمایش اطلاعات تفصیلی کارت شامل نام گذرواژه، کاربر، هاست/آی‌پی هدف و دسته‌بندی با بج‌های هشدار دهنده اختصاصی.',
+      'پشتیبانی کامل از تم روشن و تم تیره، دو زبانگی ۱۰۰٪ (فارسی و انگلیسی) و مهار کامل لایه z-index و حریم فوتر صفحه.'
+    ],
+    changes_en: [
+      'Resolved full-screen overlay expansion bug and UI inconsistency during password deletion in Personal Password Vault modal.',
+      'Engineered dedicated password deletion confirmation dialog adhering to the standard Delete Device modal architecture with fade-in/scale-up transitions.',
+      'Detailed metadata display including credential name, username, target host/IP, and category with warning indicators.',
+      'Full dual-theme compatibility (Light & Dark), strict bilingual localization (EN/FA), and proper z-index and footer boundary clamping.'
+    ]
+  },
   {
     version: '1.341.1',
     releaseDate: '2026-10-19',
