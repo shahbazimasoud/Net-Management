@@ -1291,6 +1291,33 @@ export async function fetchCiscoSystemResources(
   return res.json();
 }
 
+/**
+ * Polls real-time Cisco MIB telemetry directly via SNMP endpoint
+ * GET/POST /api/devices/:id/snmp-telemetry
+ */
+export async function fetchDeviceSnmpTelemetry(
+  deviceId: string,
+  overrides?: Partial<SnmpTestParams>
+): Promise<CiscoSystemResourcesResponse> {
+  const url = `${API_BASE}/devices/${encodeURIComponent(deviceId)}/snmp-telemetry`;
+  const options: RequestInit = overrides && Object.keys(overrides).length > 0
+    ? {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(overrides),
+      }
+    : {
+        method: 'GET',
+      };
+
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to fetch SNMP telemetry' }));
+    throw new Error(err.error || err.warning || err.message || 'Failed to fetch SNMP telemetry');
+  }
+  return res.json();
+}
+
 export interface MikroTikSystemResourcesResponse {
   device_id: string;
   is_live: boolean;

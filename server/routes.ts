@@ -3262,6 +3262,64 @@ apiRouter.post('/devices/:id/cisco-resources', handleCiscoResourcesRequest);
 apiRouter.get('/devices/:id/system-resources', handleCiscoResourcesRequest);
 apiRouter.post('/devices/:id/system-resources', handleCiscoResourcesRequest);
 
+/**
+ * Dedicated Real-Time SNMP Telemetry Endpoint
+ * GET /api/devices/:id/snmp-telemetry
+ * POST /api/devices/:id/snmp-telemetry (with optional live parameter overrides)
+ * Polls authentic Cisco MIBs directly (CPU, Memory, System Uptime, Chassis Environment, Hardware)
+ * Strictly adheres to Rule 8 (Zero fake data) and Rule 14 (In-flight decryption, zero credential leak)
+ */
+const handleDeviceSnmpTelemetryRequest = async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en') || req.query.lang === 'en' || req.body?.is_en === true;
+  const devId = req.params.id;
+
+  try {
+    const check = await assertDeviceScopeAccess(req, devId, 'read');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({
+        success: false,
+        is_live: false,
+        connected: false,
+        error: check.error,
+        errorFa: check.errorFa,
+      });
+    }
+
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        is_live: false,
+        connected: false,
+        error: isEn ? 'Device not found' : 'دستگاه یافت نشد',
+        errorFa: 'دستگاه یافت نشد',
+      });
+    }
+
+    // Merge in-flight overrides from req.body (useful for test queries without persisting)
+    const targetDevice = req.method === 'POST' && req.body && Object.keys(req.body).length > 0
+      ? { ...device, ...req.body }
+      : device;
+
+    const ports = Array.isArray(targetDevice.ports) ? targetDevice.ports : [];
+    const snmpResult = await fetchCiscoSnmpSystemResources(targetDevice, ports);
+    return res.json(snmpResult);
+  } catch (err: any) {
+    console.error(`[Device SNMP Telemetry Exception for ${devId}]`, err);
+    return res.status(500).json({
+      success: false,
+      is_live: false,
+      connected: false,
+      error: err.message || 'SNMP telemetry query failed',
+      errorFa: isEn ? err.message : `خطا در دریافت تلمتری زنده SNMP: ${err.message || 'خطای نامشخص'}`,
+    });
+  }
+};
+
+apiRouter.get('/devices/:id/snmp-telemetry', handleDeviceSnmpTelemetryRequest);
+apiRouter.post('/devices/:id/snmp-telemetry', handleDeviceSnmpTelemetryRequest);
+
 // -------------------------------------------------------------
 // Granular Port-Level RBAC Enforcement (Cisco & MikroTik)
 // -------------------------------------------------------------

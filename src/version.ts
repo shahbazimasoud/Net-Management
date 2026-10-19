@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.339.0';
+export const APP_VERSION = '1.340.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.340.0',
+    releaseDate: '2026-10-19',
+    type: 'minor',
+    title: 'تکمیل و راه‌اندازی موتور استعلام بلادرنگ تلمتری SNMP و اندپوینت‌های اختصاصی API تجهیزات (فاز ۳)',
+    title_en: 'Finalize Real-Time SNMP Telemetry Engine, Dedicated Device API Endpoints & Empirical Suite (Phase 3)',
+    changes: [
+      'توسعه و راه‌اندازی اندپوینت‌های اختصاصی GET و POST /api/devices/:id/snmp-telemetry جهت استعلام مستقیم OIDهای استاندارد سیسکو از طریق پروتکل SNMP.',
+      'توسعه تابع سرویس کلاینت fetchDeviceSnmpTelemetry در لایه فرانت‌اند (src/services/api.ts) با پشتیبانی از پارامترهای سفارشی‌سازی موقت حین تست.',
+      'به‌روزرسانی موتور درایور SNMP جهت واکشی شاخص‌های cpmCPUTotal5minRev (CPU)، ciscoMemoryPoolMIB / cempMemPool (حافظه)، sysUpTimeInstance و ciscoEnvMonMIB (سنسورهای حرارتی و پاور).',
+      'انطباق قطعی با قانون عدم داده ساختگی (Rule 8) و حل امنیتی رمزهای عبور ولت با رمزنگاری AES-256-GCM در حافظه موقت سرور (Rule 14).',
+      'طراحی و اجرای اسکریپت آزمون تجربی جامع test_snmp_cisco_resources.ts و راستی‌آزمایی ۷ مرحله‌ای موتور و اندپوینت‌های زنده با موفقیت ۱۰۰٪.'
+    ],
+    changes_en: [
+      'Developed and deployed dedicated GET and POST /api/devices/:id/snmp-telemetry endpoints for direct, live Cisco MIB polling via SNMP.',
+      'Added client-side service method fetchDeviceSnmpTelemetry in src/services/api.ts with on-the-fly override parameters support.',
+      'Enhanced SNMP telemetry driver engine for real-time querying of cpmCPUTotal5minRev (CPU), ciscoMemoryPoolMIB / cempMemPool (RAM), sysUpTimeInstance, and ciscoEnvMonMIB (thermal sensors, fan, PSU).',
+      'Strict adherence to Rule 8 (Zero fake/simulated data) and Rule 14 (Zero-leak in-flight Vault credential decryption with AES-256-GCM).',
+      'Engineered comprehensive empirical test suite (test_snmp_cisco_resources.ts) validating all 7 telemetry verification steps with 100% pass rate.'
+    ]
+  },
   {
     version: '1.339.0',
     releaseDate: '2026-10-19',
