@@ -32,7 +32,7 @@ import {
   Trash2,
   BookmarkPlus,
 } from 'lucide-react';
-import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig, isMikroTikDevice, AccessPolicy } from '../types';
+import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, ConfigTemplate, DeviceWebConfig, isMikroTikDevice, AccessPolicy, SnmpVersion, SnmpV3SecurityLevel, SnmpV3AuthProtocol, SnmpV3PrivProtocol } from '../types';
 import { fetchTemplates, testDeviceConnection, pingHost, fetchDevices, saveSecretToVault } from '../services/api';
 import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
@@ -41,6 +41,7 @@ import { MikroTikTerminalModal } from './MikroTikTerminalModal';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
 import { VaultLinkedPasswordBadge } from './vault/VaultLinkedPasswordBadge';
+import { DeviceSnmpConfigSection } from './common/DeviceSnmpConfigSection';
 import { useAuth } from '../context/AuthContext';
 import { isTemplateApplyPermitted, isUserSuperAdmin } from '../utils/rbac';
 
@@ -103,7 +104,27 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
   const [isOnline, setIsOnline] = useState(true);
   const [cdpEnabled, setCdpEnabled] = useState(true);
   const [lldpEnabled, setLldpEnabled] = useState(true);
+
+  // SNMP Configuration Suite
+  const [snmpEnabled, setSnmpEnabled] = useState(true);
+  const [snmpVersion, setSnmpVersion] = useState<SnmpVersion>('v2c');
+  const [snmpPort, setSnmpPort] = useState(161);
   const [snmpCommunity, setSnmpCommunity] = useState('public');
+  const [snmpCommunityVaultItemId, setSnmpCommunityVaultItemId] = useState<string | undefined>(undefined);
+  const [snmpCommunityVaultItemName, setSnmpCommunityVaultItemName] = useState('');
+  const [snmpV3User, setSnmpV3User] = useState('admin');
+  const [snmpV3SecurityLevel, setSnmpV3SecurityLevel] = useState<SnmpV3SecurityLevel>('authPriv');
+  const [snmpV3AuthProtocol, setSnmpV3AuthProtocol] = useState<SnmpV3AuthProtocol>('SHA-256');
+  const [snmpV3AuthPassword, setSnmpV3AuthPassword] = useState('');
+  const [snmpV3AuthVaultItemId, setSnmpV3AuthVaultItemId] = useState<string | undefined>(undefined);
+  const [snmpV3AuthVaultItemName, setSnmpV3AuthVaultItemName] = useState('');
+  const [snmpV3PrivProtocol, setSnmpV3PrivProtocol] = useState<SnmpV3PrivProtocol>('AES-128');
+  const [snmpV3PrivPassword, setSnmpV3PrivPassword] = useState('');
+  const [snmpV3PrivVaultItemId, setSnmpV3PrivVaultItemId] = useState<string | undefined>(undefined);
+  const [snmpV3PrivVaultItemName, setSnmpV3PrivVaultItemName] = useState('');
+  const [snmpV3Context, setSnmpV3Context] = useState('');
+  const [snmpTimeout, setSnmpTimeout] = useState(5000);
+  const [snmpRetries, setSnmpRetries] = useState(1);
 
   // SSH / Telnet Credentials
   const [connectionProtocol, setConnectionProtocol] = useState<'ssh' | 'telnet'>('ssh');
@@ -773,7 +794,22 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
         is_online: isOnline,
         cdp_enabled: cdpEnabled,
         lldp_enabled: lldpEnabled,
-        snmp_community: snmpCommunity.trim(),
+        snmp_enabled: snmpEnabled,
+        snmp_version: snmpVersion,
+        snmp_port: Number(snmpPort) || 161,
+        snmp_community: snmpCommunity.trim() || undefined,
+        snmp_community_vault_item_id: snmpCommunityVaultItemId || undefined,
+        snmp_v3_user: snmpV3User.trim() || undefined,
+        snmp_v3_security_level: snmpV3SecurityLevel,
+        snmp_v3_auth_protocol: snmpV3AuthProtocol,
+        snmp_v3_auth_password: snmpV3AuthPassword || undefined,
+        snmp_v3_auth_vault_item_id: snmpV3AuthVaultItemId || undefined,
+        snmp_v3_priv_protocol: snmpV3PrivProtocol,
+        snmp_v3_priv_password: snmpV3PrivPassword || undefined,
+        snmp_v3_priv_vault_item_id: snmpV3PrivVaultItemId || undefined,
+        snmp_v3_context: snmpV3Context.trim() || undefined,
+        snmp_timeout: Number(snmpTimeout) || 5000,
+        snmp_retries: Number(snmpRetries) || 1,
         ssh_port: Number(sshPort) || 22,
         winbox_port: Number(winboxPort) || 8291,
         ssh_username: sshUsername.trim() || 'admin',
@@ -2678,13 +2714,13 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
               </div>
             </div>
 
-            {/* Discovery Protocols & SNMP */}
+            {/* Discovery Protocols (CDP & LLDP) */}
             <div className={`p-3.5 rounded-xl border space-y-2.5 transition ${
               isLightMode ? 'bg-slate-50/90 border-slate-200' : 'bg-slate-800/80 border-slate-700'
             }`}>
               <div className="flex items-center justify-between">
                 <span className={`text-xs font-bold ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
-                  {isEn ? 'Discovery Protocols & SNMP Management:' : 'پروتکل‌های کشف همسایگی و مدیریت SNMP:'}
+                  {isEn ? 'Hardware Discovery Protocols (CDP & LLDP):' : 'پروتکل‌های کشف همسایگی سخت‌افزاری (CDP و LLDP):'}
                 </span>
               </div>
 
@@ -2712,26 +2748,53 @@ export const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
                   />
                   <span>LLDP (IEEE 802.1AB)</span>
                 </label>
-
-                <div className="flex items-center gap-2 ml-auto">
-                  <span className={`text-[11px] font-mono ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
-                    SNMP Community:
-                  </span>
-                  <input
-                    type="text"
-                    value={snmpCommunity}
-                    onChange={(e) => setSnmpCommunity(e.target.value)}
-                    placeholder="public"
-                    className={`w-28 px-2 py-1 rounded border text-xs font-mono text-left transition ${
-                      isLightMode
-                        ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                        : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
-                    }`}
-                    dir="ltr"
-                  />
-                </div>
               </div>
             </div>
+
+            {/* Comprehensive SNMP Monitoring & Telemetry Configuration Suite */}
+            <DeviceSnmpConfigSection
+              targetHost={sshHost.trim() || ip.trim()}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              snmpEnabled={snmpEnabled}
+              setSnmpEnabled={setSnmpEnabled}
+              snmpVersion={snmpVersion}
+              setSnmpVersion={setSnmpVersion}
+              snmpPort={snmpPort}
+              setSnmpPort={setSnmpPort}
+              snmpTimeout={snmpTimeout}
+              setSnmpTimeout={setSnmpTimeout}
+              snmpRetries={snmpRetries}
+              setSnmpRetries={setSnmpRetries}
+              snmpCommunity={snmpCommunity}
+              setSnmpCommunity={setSnmpCommunity}
+              snmpCommunityVaultItemId={snmpCommunityVaultItemId}
+              setSnmpCommunityVaultItemId={setSnmpCommunityVaultItemId}
+              snmpCommunityVaultItemName={snmpCommunityVaultItemName}
+              setSnmpCommunityVaultItemName={setSnmpCommunityVaultItemName}
+              snmpV3User={snmpV3User}
+              setSnmpV3User={setSnmpV3User}
+              snmpV3SecurityLevel={snmpV3SecurityLevel}
+              setSnmpV3SecurityLevel={setSnmpV3SecurityLevel}
+              snmpV3AuthProtocol={snmpV3AuthProtocol}
+              setSnmpV3AuthProtocol={setSnmpV3AuthProtocol}
+              snmpV3AuthPassword={snmpV3AuthPassword}
+              setSnmpV3AuthPassword={setSnmpV3AuthPassword}
+              snmpV3AuthVaultItemId={snmpV3AuthVaultItemId}
+              setSnmpV3AuthVaultItemId={setSnmpV3AuthVaultItemId}
+              snmpV3AuthVaultItemName={snmpV3AuthVaultItemName}
+              setSnmpV3AuthVaultItemName={setSnmpV3AuthVaultItemName}
+              snmpV3PrivProtocol={snmpV3PrivProtocol}
+              setSnmpV3PrivProtocol={setSnmpV3PrivProtocol}
+              snmpV3PrivPassword={snmpV3PrivPassword}
+              setSnmpV3PrivPassword={setSnmpV3PrivPassword}
+              snmpV3PrivVaultItemId={snmpV3PrivVaultItemId}
+              setSnmpV3PrivVaultItemId={setSnmpV3PrivVaultItemId}
+              snmpV3PrivVaultItemName={snmpV3PrivVaultItemName}
+              setSnmpV3PrivVaultItemName={setSnmpV3PrivVaultItemName}
+              snmpV3Context={snmpV3Context}
+              setSnmpV3Context={setSnmpV3Context}
+            />
 
             {/* Web Management & Console URLs (Web Config, iLO, ESXi, RouterOS WebFig, etc.) */}
             <div className={`p-3.5 rounded-xl border space-y-2.5 transition ${

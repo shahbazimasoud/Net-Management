@@ -34,14 +34,14 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, DeviceWebConfig } from '../types';
-import { testDeviceConnection, pingDevice, fetchDevicePorts } from '../services/api';
+import { Device, DeviceType, DevicePlatform, ConnectionMode, SwitchPort, DeviceWebConfig, SnmpVersion, SnmpV3SecurityLevel, SnmpV3AuthProtocol, SnmpV3PrivProtocol } from '../types';
+import { testDeviceConnection, pingDevice, fetchDevicePorts, fetchVaultItems } from '../services/api';
 import { useLanguage } from '../i18n';
 import { getDevicePortComment } from '../data/portSpecs';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
 import { VaultLinkedPasswordBadge } from './vault/VaultLinkedPasswordBadge';
-import { fetchVaultItems } from '../services/api';
+import { DeviceSnmpConfigSection } from './common/DeviceSnmpConfigSection';
 
 export interface EditDeviceModalProps {
   isOpen: boolean;
@@ -84,7 +84,30 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
   const [isOnline, setIsOnline] = useState(true);
   const [cdpEnabled, setCdpEnabled] = useState(true);
   const [lldpEnabled, setLldpEnabled] = useState(true);
-  const [snmpCommunity, setSnmpCommunity] = useState('public');
+
+  // SNMP Configuration Suite
+  const [snmpEnabled, setSnmpEnabled] = useState(true);
+  const [snmpVersion, setSnmpVersion] = useState<SnmpVersion>('v2c');
+  const [snmpPort, setSnmpPort] = useState(161);
+  const [snmpCommunity, setSnmpCommunity] = useState('');
+  const [snmpCommunitySet, setSnmpCommunitySet] = useState(false);
+  const [snmpCommunityVaultItemId, setSnmpCommunityVaultItemId] = useState<string | undefined>(undefined);
+  const [snmpCommunityVaultItemName, setSnmpCommunityVaultItemName] = useState('');
+  const [snmpV3User, setSnmpV3User] = useState('admin');
+  const [snmpV3SecurityLevel, setSnmpV3SecurityLevel] = useState<SnmpV3SecurityLevel>('authPriv');
+  const [snmpV3AuthProtocol, setSnmpV3AuthProtocol] = useState<SnmpV3AuthProtocol>('SHA-256');
+  const [snmpV3AuthPassword, setSnmpV3AuthPassword] = useState('');
+  const [snmpV3AuthPasswordSet, setSnmpV3AuthPasswordSet] = useState(false);
+  const [snmpV3AuthVaultItemId, setSnmpV3AuthVaultItemId] = useState<string | undefined>(undefined);
+  const [snmpV3AuthVaultItemName, setSnmpV3AuthVaultItemName] = useState('');
+  const [snmpV3PrivProtocol, setSnmpV3PrivProtocol] = useState<SnmpV3PrivProtocol>('AES-128');
+  const [snmpV3PrivPassword, setSnmpV3PrivPassword] = useState('');
+  const [snmpV3PrivPasswordSet, setSnmpV3PrivPasswordSet] = useState(false);
+  const [snmpV3PrivVaultItemId, setSnmpV3PrivVaultItemId] = useState<string | undefined>(undefined);
+  const [snmpV3PrivVaultItemName, setSnmpV3PrivVaultItemName] = useState('');
+  const [snmpV3Context, setSnmpV3Context] = useState('');
+  const [snmpTimeout, setSnmpTimeout] = useState(5000);
+  const [snmpRetries, setSnmpRetries] = useState(1);
 
   // Web Config URLs (e.g. iLO, ESXi, RouterOS WebFig, Web GUI)
   const [webConfigs, setWebConfigs] = useState<DeviceWebConfig[]>([]);
@@ -182,7 +205,36 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
     setIsOnline(Boolean(device.is_online));
     setCdpEnabled(device.cdp_enabled ?? true);
     setLldpEnabled(device.lldp_enabled ?? true);
-    setSnmpCommunity(device.snmp_community || 'public');
+
+    // Initialize SNMP Profile
+    setSnmpEnabled(device.snmp_enabled !== undefined ? Boolean(device.snmp_enabled) : true);
+    setSnmpVersion(device.snmp_version || 'v2c');
+    setSnmpPort(Number(device.snmp_port) || 161);
+    setSnmpCommunity(device.snmp_community || '');
+    setSnmpCommunitySet(Boolean(device.snmp_community_set || device.snmp_community));
+    const initSnmpCommVault = device.snmp_community_vault_item_id || undefined;
+    setSnmpCommunityVaultItemId(initSnmpCommVault);
+    setSnmpCommunityVaultItemName('');
+
+    setSnmpV3User(device.snmp_v3_user || 'admin');
+    setSnmpV3SecurityLevel(device.snmp_v3_security_level || 'authPriv');
+    setSnmpV3AuthProtocol(device.snmp_v3_auth_protocol || 'SHA-256');
+    setSnmpV3AuthPassword(device.snmp_v3_auth_password || '');
+    setSnmpV3AuthPasswordSet(Boolean(device.snmp_v3_auth_password_set || device.snmp_v3_auth_password));
+    const initSnmpAuthVault = device.snmp_v3_auth_vault_item_id || undefined;
+    setSnmpV3AuthVaultItemId(initSnmpAuthVault);
+    setSnmpV3AuthVaultItemName('');
+
+    setSnmpV3PrivProtocol(device.snmp_v3_priv_protocol || 'AES-128');
+    setSnmpV3PrivPassword(device.snmp_v3_priv_password || '');
+    setSnmpV3PrivPasswordSet(Boolean(device.snmp_v3_priv_password_set || device.snmp_v3_priv_password));
+    const initSnmpPrivVault = device.snmp_v3_priv_vault_item_id || undefined;
+    setSnmpV3PrivVaultItemId(initSnmpPrivVault);
+    setSnmpV3PrivVaultItemName('');
+
+    setSnmpV3Context(device.snmp_v3_context || '');
+    setSnmpTimeout(Number(device.snmp_timeout) || 5000);
+    setSnmpRetries(Number(device.snmp_retries) || 1);
 
     const devProto = (device.connection_protocol || device.connection?.protocol || 'ssh').toLowerCase() as 'ssh' | 'telnet';
     setConnectionProtocol(devProto);
@@ -201,7 +253,7 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
     setSshVaultItemName('');
     setEnableVaultItemName('');
 
-    if (initSshVault || initEnableVault) {
+    if (initSshVault || initEnableVault || initSnmpCommVault || initSnmpAuthVault || initSnmpPrivVault) {
       fetchVaultItems()
         .then((vRes) => {
           if (vRes && Array.isArray(vRes.items)) {
@@ -212,6 +264,18 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
             if (initEnableVault) {
               const matchedEn = vRes.items.find((it: any) => it.id === initEnableVault);
               if (matchedEn) setEnableVaultItemName(matchedEn.name);
+            }
+            if (initSnmpCommVault) {
+              const matchedComm = vRes.items.find((it: any) => it.id === initSnmpCommVault);
+              if (matchedComm) setSnmpCommunityVaultItemName(matchedComm.name);
+            }
+            if (initSnmpAuthVault) {
+              const matchedAuth = vRes.items.find((it: any) => it.id === initSnmpAuthVault);
+              if (matchedAuth) setSnmpV3AuthVaultItemName(matchedAuth.name);
+            }
+            if (initSnmpPrivVault) {
+              const matchedPriv = vRes.items.find((it: any) => it.id === initSnmpPrivVault);
+              if (matchedPriv) setSnmpV3PrivVaultItemName(matchedPriv.name);
             }
           }
         })
@@ -421,7 +485,22 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
         is_online: isOnline,
         cdp_enabled: cdpEnabled,
         lldp_enabled: lldpEnabled,
-        snmp_community: snmpCommunity.trim(),
+        snmp_enabled: snmpEnabled,
+        snmp_version: snmpVersion,
+        snmp_port: Number(snmpPort) || 161,
+        snmp_community: snmpCommunity.trim() || undefined,
+        snmp_community_vault_item_id: snmpCommunityVaultItemId ? snmpCommunityVaultItemId.trim() : null,
+        snmp_v3_user: snmpV3User.trim() || undefined,
+        snmp_v3_security_level: snmpV3SecurityLevel,
+        snmp_v3_auth_protocol: snmpV3AuthProtocol,
+        snmp_v3_auth_password: snmpV3AuthPassword || undefined,
+        snmp_v3_auth_vault_item_id: snmpV3AuthVaultItemId ? snmpV3AuthVaultItemId.trim() : null,
+        snmp_v3_priv_protocol: snmpV3PrivProtocol,
+        snmp_v3_priv_password: snmpV3PrivPassword || undefined,
+        snmp_v3_priv_vault_item_id: snmpV3PrivVaultItemId ? snmpV3PrivVaultItemId.trim() : null,
+        snmp_v3_context: snmpV3Context.trim() || undefined,
+        snmp_timeout: Number(snmpTimeout) || 5000,
+        snmp_retries: Number(snmpRetries) || 1,
         ssh_port: Number(sshPort) || 22,
         winbox_port: Number(winboxPort) || 8291,
         ssh_username: sshUsername.trim() || 'admin',
@@ -1924,13 +2003,13 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
               )}
             </div>
 
-            {/* Discovery Protocols & SNMP */}
+            {/* Discovery Protocols (CDP & LLDP) */}
             <div className={`p-3.5 rounded-xl border space-y-2.5 transition ${
               isLightMode ? 'bg-slate-50/90 border-slate-200' : 'bg-slate-800/80 border-slate-700'
             }`}>
               <div className="flex items-center justify-between">
                 <span className={`text-xs font-bold ${isLightMode ? 'text-slate-800' : 'text-slate-200'}`}>
-                  {isEn ? 'Discovery Protocols & SNMP Management:' : 'پروتکل‌های کشف همسایگی و مدیریت SNMP:'}
+                  {isEn ? 'Hardware Discovery Protocols (CDP & LLDP):' : 'پروتکل‌های کشف همسایگی سخت‌افزاری (CDP و LLDP):'}
                 </span>
               </div>
 
@@ -1958,26 +2037,56 @@ export const EditDeviceModal: React.FC<EditDeviceModalProps> = ({
                   />
                   <span>LLDP (IEEE 802.1AB)</span>
                 </label>
-
-                <div className="flex items-center gap-2 ml-auto">
-                  <span className={`text-[11px] font-mono ${isLightMode ? 'text-slate-600' : 'text-slate-400'}`}>
-                    SNMP Community:
-                  </span>
-                  <input
-                    type="text"
-                    value={snmpCommunity}
-                    onChange={(e) => setSnmpCommunity(e.target.value)}
-                    placeholder="public"
-                    className={`w-28 px-2 py-1 rounded border text-xs font-mono text-left transition ${
-                      isLightMode
-                        ? 'bg-white border-slate-300 text-slate-900 focus:border-indigo-600 shadow-xs'
-                        : 'bg-slate-900 border-slate-700 text-white focus:border-indigo-500'
-                    }`}
-                    dir="ltr"
-                  />
-                </div>
               </div>
             </div>
+
+            {/* Comprehensive SNMP Monitoring & Telemetry Configuration Suite */}
+            <DeviceSnmpConfigSection
+              targetHost={sshHost.trim() || ip.trim()}
+              isLightMode={isLightMode}
+              isEn={isEn}
+              snmpEnabled={snmpEnabled}
+              setSnmpEnabled={setSnmpEnabled}
+              snmpVersion={snmpVersion}
+              setSnmpVersion={setSnmpVersion}
+              snmpPort={snmpPort}
+              setSnmpPort={setSnmpPort}
+              snmpTimeout={snmpTimeout}
+              setSnmpTimeout={setSnmpTimeout}
+              snmpRetries={snmpRetries}
+              setSnmpRetries={setSnmpRetries}
+              snmpCommunity={snmpCommunity}
+              setSnmpCommunity={setSnmpCommunity}
+              snmpCommunitySet={snmpCommunitySet}
+              snmpCommunityVaultItemId={snmpCommunityVaultItemId}
+              setSnmpCommunityVaultItemId={setSnmpCommunityVaultItemId}
+              snmpCommunityVaultItemName={snmpCommunityVaultItemName}
+              setSnmpCommunityVaultItemName={setSnmpCommunityVaultItemName}
+              snmpV3User={snmpV3User}
+              setSnmpV3User={setSnmpV3User}
+              snmpV3SecurityLevel={snmpV3SecurityLevel}
+              setSnmpV3SecurityLevel={setSnmpV3SecurityLevel}
+              snmpV3AuthProtocol={snmpV3AuthProtocol}
+              setSnmpV3AuthProtocol={setSnmpV3AuthProtocol}
+              snmpV3AuthPassword={snmpV3AuthPassword}
+              setSnmpV3AuthPassword={setSnmpV3AuthPassword}
+              snmpV3AuthPasswordSet={snmpV3AuthPasswordSet}
+              snmpV3AuthVaultItemId={snmpV3AuthVaultItemId}
+              setSnmpV3AuthVaultItemId={setSnmpV3AuthVaultItemId}
+              snmpV3AuthVaultItemName={snmpV3AuthVaultItemName}
+              setSnmpV3AuthVaultItemName={setSnmpV3AuthVaultItemName}
+              snmpV3PrivProtocol={snmpV3PrivProtocol}
+              setSnmpV3PrivProtocol={setSnmpV3PrivProtocol}
+              snmpV3PrivPassword={snmpV3PrivPassword}
+              setSnmpV3PrivPassword={setSnmpV3PrivPassword}
+              snmpV3PrivPasswordSet={snmpV3PrivPasswordSet}
+              snmpV3PrivVaultItemId={snmpV3PrivVaultItemId}
+              setSnmpV3PrivVaultItemId={setSnmpV3PrivVaultItemId}
+              snmpV3PrivVaultItemName={snmpV3PrivVaultItemName}
+              setSnmpV3PrivVaultItemName={setSnmpV3PrivVaultItemName}
+              snmpV3Context={snmpV3Context}
+              setSnmpV3Context={setSnmpV3Context}
+            />
           </div>
 
           {/* Form Actions Footer */}

@@ -72,6 +72,30 @@ export function isGenericLinuxDevice(device?: Partial<Device> | null): boolean {
   return device.platform === 'generic_linux';
 }
 
+export type SnmpVersion = 'v1' | 'v2c' | 'v3';
+export type SnmpV3SecurityLevel = 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
+export type SnmpV3AuthProtocol = 'MD5' | 'SHA-1' | 'SHA-224' | 'SHA-256' | 'SHA-384' | 'SHA-512';
+export type SnmpV3PrivProtocol = 'DES' | 'AES-128' | 'AES-192' | 'AES-256' | '3DES';
+
+export interface SnmpConfig {
+  enabled: boolean;
+  version: SnmpVersion;
+  port: number;
+  community?: string;
+  community_vault_item_id?: string;
+  v3_user?: string;
+  v3_security_level?: SnmpV3SecurityLevel;
+  v3_auth_protocol?: SnmpV3AuthProtocol;
+  v3_auth_password?: string;
+  v3_auth_vault_item_id?: string;
+  v3_priv_protocol?: SnmpV3PrivProtocol;
+  v3_priv_password?: string;
+  v3_priv_vault_item_id?: string;
+  v3_context?: string;
+  timeout?: number;
+  retries?: number;
+}
+
 export interface Device {
   id: string;
   name: string;
@@ -94,7 +118,25 @@ export interface Device {
   uptime?: string;
   cdp_enabled: boolean;
   lldp_enabled: boolean;
+  snmp_enabled?: boolean;
+  snmp_version?: SnmpVersion;
+  snmp_port?: number;
   snmp_community?: string;
+  snmp_community_vault_item_id?: string;
+  snmp_v3_user?: string;
+  snmp_v3_security_level?: SnmpV3SecurityLevel;
+  snmp_v3_auth_protocol?: SnmpV3AuthProtocol;
+  snmp_v3_auth_password?: string;
+  snmp_v3_auth_vault_item_id?: string;
+  snmp_v3_priv_protocol?: SnmpV3PrivProtocol;
+  snmp_v3_priv_password?: string;
+  snmp_v3_priv_vault_item_id?: string;
+  snmp_v3_context?: string;
+  snmp_timeout?: number;
+  snmp_retries?: number;
+  snmp_community_set?: boolean;
+  snmp_v3_auth_password_set?: boolean;
+  snmp_v3_priv_password_set?: boolean;
   firmware?: string;
   last_seen?: string;
   total_ports: number;

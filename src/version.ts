@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.337.1';
+export const APP_VERSION = '1.338.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.338.0',
+    releaseDate: '2026-10-19',
+    type: 'minor',
+    title: 'افزودن ماژول جامع پیکربندی پروتکل SNMP برای ثبت و ویرایش تجهیزات (فاز ۱)',
+    title_en: 'Add Comprehensive Multi-Version SNMP Configuration Suite for Device Registration & Properties (Phase 1)',
+    changes: [
+      'پیاده‌سازی ماژول جامع و تفکیک‌شده پیکربندی SNMP (DeviceSnmpConfigSection) با پشتیبانی کامل از نسخه‌های v1، v2c و v3 در مودال‌های ثبت تجهیز جدید (AddDeviceModal) و ویرایش مشخصات تجهیز (EditDeviceModal).',
+      'پشتیبانی تخصصی از مدل امنیتی کاربرمحور (USM) در SNMPv3 شامل سطوح noAuthNoPriv، authNoPriv و authPriv به همراه الگوریتم‌های احراز هویت (SHA-256، SHA-512، SHA-384، SHA-224، SHA-1، MD5) و رمزنگاری محتوا (AES-128، AES-192، AES-256، 3DES، DES).',
+      'پیوند مستقیم و هوشمند با والت اختصاصی گذرواژه‌ها (Vault Password Integration) برای رشته Community و گذرواژه‌های Auth و Privacy با بج وضعیت پیوند زنده و دکمه Unlink.',
+      'افزودن دکمه و ابزار تست زنده ارتباط سنجی SNMP (Test SNMP Reachability) با واکشی شاخص‌های MIB-2 (sysDescr، sysObjectID، sysUpTime، sysName) و نمایش بلادرنگ لتنسی پکت‌های UDP.',
+      'ذخیره‌سازی رمزنگاری‌شده در سطح سرور با AES-256-GCM، انطباق کامل با تم‌های تیره و روشن، تولتیپ‌های سه‌بخشی راهنما (FieldInfoTooltip) با مهار چهارطرفه حاشیه و پشتیبانی دو زبانه بدون متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Implemented comprehensive multi-version SNMP Configuration Suite (DeviceSnmpConfigSection) supporting v1, v2c, and v3 across Register New Device and Edit Device Properties modals.',
+      'Full support for SNMPv3 User-Based Security Model (USM) supporting noAuthNoPriv, authNoPriv, and authPriv with authentication hashing (SHA-256, SHA-512, SHA-384, SHA-224, SHA-1, MD5) and privacy encryption (AES-128, AES-192, AES-256, 3DES, DES).',
+      'Seamless integration with Password Vault for Community string and v3 Auth/Privacy passwords with live link badges and instant unbinding.',
+      'Added authentic live SNMP Reachability Testing querying MIB-2 system metrics (sysDescr, sysObjectID, sysUpTime, sysName) with round-trip UDP packet latency indicators.',
+      'Server-side encryption at rest using AES-256-GCM, dark/light theme fidelity, boundary-safe 3-part FieldInfoTooltips, and strict bilingual localization with zero Persian text in English mode.'
+    ]
+  },
   {
     version: '1.337.1',
     releaseDate: '2026-10-14',

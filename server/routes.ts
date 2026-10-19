@@ -515,6 +515,7 @@ import {
   getDiscoveryScanStatus,
   DiscoveryValidationError,
 } from './discoveryEngine';
+import { testSnmpConnection } from './snmpService';
 
 export const apiRouter = Router();
 
@@ -2459,6 +2460,12 @@ apiRouter.get('/devices', async (req: Request, res: Response) => {
       d.connection = conn;
       delete d.ssh_password;
       delete d.enable_password;
+      d.snmp_community_set = Boolean(d.snmp_community || d.snmp_community_vault_item_id);
+      d.snmp_v3_auth_password_set = Boolean(d.snmp_v3_auth_password || d.snmp_v3_auth_vault_item_id);
+      d.snmp_v3_priv_password_set = Boolean(d.snmp_v3_priv_password || d.snmp_v3_priv_vault_item_id);
+      delete d.snmp_community;
+      delete d.snmp_v3_auth_password;
+      delete d.snmp_v3_priv_password;
       return d;
     });
 
@@ -2923,6 +2930,12 @@ apiRouter.get('/devices/:id', async (req: Request, res: Response) => {
     const d = { ...check.device };
     delete d.ssh_password;
     delete d.enable_password;
+    d.snmp_community_set = Boolean(d.snmp_community || d.snmp_community_vault_item_id);
+    d.snmp_v3_auth_password_set = Boolean(d.snmp_v3_auth_password || d.snmp_v3_auth_vault_item_id);
+    d.snmp_v3_priv_password_set = Boolean(d.snmp_v3_priv_password || d.snmp_v3_priv_vault_item_id);
+    delete d.snmp_community;
+    delete d.snmp_v3_auth_password;
+    delete d.snmp_v3_priv_password;
     return res.json({ device: d });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -4777,6 +4790,30 @@ apiRouter.post(['/devices/test-connection'], async (req: Request, res: Response)
       message_en: msgEn,
       message_fa: msgFa,
       message: isEn ? msgEn : msgFa,
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// Live Device SNMP Reachability & System Discovery Endpoint
+// -------------------------------------------------------------
+apiRouter.post('/devices/test-snmp', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en') || req.body?.is_en === true;
+  try {
+    const host = req.body?.host || req.body?.ip || req.body?.ssh_host || '';
+    const result = await testSnmpConnection({
+      ...req.body,
+      host,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    const errorEn = `SNMP connection test failed: ${err.message || 'Unknown error'}`;
+    const errorFa = `خطا در تست ارتباط SNMP: ${err.message || 'خطای نامشخص'}`;
+    return res.status(500).json({
+      success: false,
+      error: isEn ? errorEn : errorFa,
+      errorFa,
+      message: isEn ? errorEn : errorFa,
     });
   }
 });

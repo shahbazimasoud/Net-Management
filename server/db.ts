@@ -2045,6 +2045,25 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_vault_item_id VARCHAR(64)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_devices_ssh_vault ON devices(ssh_vault_item_id)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_devices_enable_vault ON devices(enable_vault_item_id)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_enabled BOOLEAN DEFAULT FALSE");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_version VARCHAR(16) DEFAULT 'v2c'");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_port INT DEFAULT 161");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_community VARCHAR(255)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_community_vault_item_id VARCHAR(64)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_user VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_security_level VARCHAR(32) DEFAULT 'authPriv'");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_auth_protocol VARCHAR(32) DEFAULT 'SHA-256'");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_auth_password VARCHAR(255)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_auth_vault_item_id VARCHAR(64)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_priv_protocol VARCHAR(32) DEFAULT 'AES-128'");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_priv_password VARCHAR(255)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_priv_vault_item_id VARCHAR(64)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_context VARCHAR(128)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_timeout INT DEFAULT 5000");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_retries INT DEFAULT 1");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_devices_snmp_comm_vault ON devices(snmp_community_vault_item_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_devices_snmp_auth_vault ON devices(snmp_v3_auth_vault_item_id)");
+      await client.query("CREATE INDEX IF NOT EXISTS idx_devices_snmp_priv_vault ON devices(snmp_v3_priv_vault_item_id)");
       await client.query(`
         CREATE TABLE IF NOT EXISTS device_placements (
           id VARCHAR(64) PRIMARY KEY,
@@ -4158,6 +4177,22 @@ export async function getAllDevices(): Promise<any[]> {
             hierarchy_id: r.hierarchy_id || '',
             ssh_vault_item_id: r.ssh_vault_item_id || undefined,
             enable_vault_item_id: r.enable_vault_item_id || undefined,
+            snmp_enabled: Boolean(r.snmp_enabled),
+            snmp_version: r.snmp_version || 'v2c',
+            snmp_port: Number(r.snmp_port) || 161,
+            snmp_community: r.snmp_community ? decryptServerSecret(r.snmp_community) : undefined,
+            snmp_community_vault_item_id: r.snmp_community_vault_item_id || undefined,
+            snmp_v3_user: r.snmp_v3_user || '',
+            snmp_v3_security_level: r.snmp_v3_security_level || 'authPriv',
+            snmp_v3_auth_protocol: r.snmp_v3_auth_protocol || 'SHA-256',
+            snmp_v3_auth_password: r.snmp_v3_auth_password ? decryptServerSecret(r.snmp_v3_auth_password) : undefined,
+            snmp_v3_auth_vault_item_id: r.snmp_v3_auth_vault_item_id || undefined,
+            snmp_v3_priv_protocol: r.snmp_v3_priv_protocol || 'AES-128',
+            snmp_v3_priv_password: r.snmp_v3_priv_password ? decryptServerSecret(r.snmp_v3_priv_password) : undefined,
+            snmp_v3_priv_vault_item_id: r.snmp_v3_priv_vault_item_id || undefined,
+            snmp_v3_context: r.snmp_v3_context || '',
+            snmp_timeout: Number(r.snmp_timeout) || 5000,
+            snmp_retries: Number(r.snmp_retries) || 1,
             ports,
           };
         });
@@ -4169,9 +4204,19 @@ export async function getAllDevices(): Promise<any[]> {
 
   const store = loadFallbackStore();
   if (Array.isArray(store.devices) && store.devices.length > 0) {
-    return store.devices;
+    return store.devices.map((d: any) => ({
+      ...d,
+      snmp_community: d.snmp_community ? decryptServerSecret(d.snmp_community) : undefined,
+      snmp_v3_auth_password: d.snmp_v3_auth_password ? decryptServerSecret(d.snmp_v3_auth_password) : undefined,
+      snmp_v3_priv_password: d.snmp_v3_priv_password ? decryptServerSecret(d.snmp_v3_priv_password) : undefined,
+    }));
   }
-  return loadInitialDevices();
+  return loadInitialDevices().map((d: any) => ({
+    ...d,
+    snmp_community: d.snmp_community ? decryptServerSecret(d.snmp_community) : undefined,
+    snmp_v3_auth_password: d.snmp_v3_auth_password ? decryptServerSecret(d.snmp_v3_auth_password) : undefined,
+    snmp_v3_priv_password: d.snmp_v3_priv_password ? decryptServerSecret(d.snmp_v3_priv_password) : undefined,
+  }));
 }
 
 export async function getDeviceById(id: string): Promise<any | null> {
@@ -4213,6 +4258,22 @@ export async function createDevice(deviceData: any): Promise<any> {
     hierarchy_id: (deviceData.hierarchy_id || deviceData.hierarchyId || '').trim(),
     ssh_vault_item_id: (deviceData.ssh_vault_item_id || '').trim() || undefined,
     enable_vault_item_id: (deviceData.enable_vault_item_id || '').trim() || undefined,
+    snmp_enabled: Boolean(deviceData.snmp_enabled),
+    snmp_version: deviceData.snmp_version || 'v2c',
+    snmp_port: Number(deviceData.snmp_port) || 161,
+    snmp_community: deviceData.snmp_community ? encryptServerSecret(deviceData.snmp_community) : undefined,
+    snmp_community_vault_item_id: (deviceData.snmp_community_vault_item_id || '').trim() || undefined,
+    snmp_v3_user: (deviceData.snmp_v3_user || '').trim(),
+    snmp_v3_security_level: deviceData.snmp_v3_security_level || 'authPriv',
+    snmp_v3_auth_protocol: deviceData.snmp_v3_auth_protocol || 'SHA-256',
+    snmp_v3_auth_password: deviceData.snmp_v3_auth_password ? encryptServerSecret(deviceData.snmp_v3_auth_password) : undefined,
+    snmp_v3_auth_vault_item_id: (deviceData.snmp_v3_auth_vault_item_id || '').trim() || undefined,
+    snmp_v3_priv_protocol: deviceData.snmp_v3_priv_protocol || 'AES-128',
+    snmp_v3_priv_password: deviceData.snmp_v3_priv_password ? encryptServerSecret(deviceData.snmp_v3_priv_password) : undefined,
+    snmp_v3_priv_vault_item_id: (deviceData.snmp_v3_priv_vault_item_id || '').trim() || undefined,
+    snmp_v3_context: (deviceData.snmp_v3_context || '').trim(),
+    snmp_timeout: Number(deviceData.snmp_timeout) || 5000,
+    snmp_retries: Number(deviceData.snmp_retries) || 1,
   };
 
   const existingIdx = store.devices.findIndex((d: any) => d.id === id);
@@ -4273,8 +4334,14 @@ export async function createDevice(deviceData: any): Promise<any> {
         `INSERT INTO devices (
           id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username,
           is_online, latency_ms, mac_address, uptime_str, ports, ssh_version, building, floor, unit, rack, section, location, hierarchy_id,
-          ssh_vault_item_id, enable_vault_item_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+          ssh_vault_item_id, enable_vault_item_id,
+          snmp_enabled, snmp_version, snmp_port, snmp_community, snmp_community_vault_item_id,
+          snmp_v3_user, snmp_v3_security_level, snmp_v3_auth_protocol, snmp_v3_auth_password, snmp_v3_auth_vault_item_id,
+          snmp_v3_priv_protocol, snmp_v3_priv_password, snmp_v3_priv_vault_item_id, snmp_v3_context, snmp_timeout, snmp_retries
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+          $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42
+        )
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
           ip = EXCLUDED.ip,
@@ -4300,7 +4367,23 @@ export async function createDevice(deviceData: any): Promise<any> {
           location = EXCLUDED.location,
           hierarchy_id = EXCLUDED.hierarchy_id,
           ssh_vault_item_id = EXCLUDED.ssh_vault_item_id,
-          enable_vault_item_id = EXCLUDED.enable_vault_item_id`,
+          enable_vault_item_id = EXCLUDED.enable_vault_item_id,
+          snmp_enabled = EXCLUDED.snmp_enabled,
+          snmp_version = EXCLUDED.snmp_version,
+          snmp_port = EXCLUDED.snmp_port,
+          snmp_community = EXCLUDED.snmp_community,
+          snmp_community_vault_item_id = EXCLUDED.snmp_community_vault_item_id,
+          snmp_v3_user = EXCLUDED.snmp_v3_user,
+          snmp_v3_security_level = EXCLUDED.snmp_v3_security_level,
+          snmp_v3_auth_protocol = EXCLUDED.snmp_v3_auth_protocol,
+          snmp_v3_auth_password = EXCLUDED.snmp_v3_auth_password,
+          snmp_v3_auth_vault_item_id = EXCLUDED.snmp_v3_auth_vault_item_id,
+          snmp_v3_priv_protocol = EXCLUDED.snmp_v3_priv_protocol,
+          snmp_v3_priv_password = EXCLUDED.snmp_v3_priv_password,
+          snmp_v3_priv_vault_item_id = EXCLUDED.snmp_v3_priv_vault_item_id,
+          snmp_v3_context = EXCLUDED.snmp_v3_context,
+          snmp_timeout = EXCLUDED.snmp_timeout,
+          snmp_retries = EXCLUDED.snmp_retries`,
         [
           newDevice.id,
           newDevice.name,
@@ -4328,6 +4411,22 @@ export async function createDevice(deviceData: any): Promise<any> {
           newDevice.hierarchy_id,
           newDevice.ssh_vault_item_id || null,
           newDevice.enable_vault_item_id || null,
+          newDevice.snmp_enabled,
+          newDevice.snmp_version,
+          newDevice.snmp_port,
+          newDevice.snmp_community || null,
+          newDevice.snmp_community_vault_item_id || null,
+          newDevice.snmp_v3_user || '',
+          newDevice.snmp_v3_security_level,
+          newDevice.snmp_v3_auth_protocol,
+          newDevice.snmp_v3_auth_password || null,
+          newDevice.snmp_v3_auth_vault_item_id || null,
+          newDevice.snmp_v3_priv_protocol,
+          newDevice.snmp_v3_priv_password || null,
+          newDevice.snmp_v3_priv_vault_item_id || null,
+          newDevice.snmp_v3_context || '',
+          newDevice.snmp_timeout,
+          newDevice.snmp_retries,
         ]
       );
 
@@ -4388,6 +4487,22 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
     hierarchy_id: updates.hierarchy_id !== undefined ? updates.hierarchy_id : (existing.hierarchy_id || ''),
     ssh_vault_item_id: updates.ssh_vault_item_id !== undefined ? (updates.ssh_vault_item_id ? updates.ssh_vault_item_id.trim() : null) : existing.ssh_vault_item_id,
     enable_vault_item_id: updates.enable_vault_item_id !== undefined ? (updates.enable_vault_item_id ? updates.enable_vault_item_id.trim() : null) : existing.enable_vault_item_id,
+    snmp_enabled: updates.snmp_enabled !== undefined ? Boolean(updates.snmp_enabled) : (existing.snmp_enabled !== undefined ? Boolean(existing.snmp_enabled) : false),
+    snmp_version: updates.snmp_version !== undefined ? updates.snmp_version : (existing.snmp_version || 'v2c'),
+    snmp_port: updates.snmp_port !== undefined ? Number(updates.snmp_port) : (Number(existing.snmp_port) || 161),
+    snmp_community: updates.snmp_community !== undefined ? (updates.snmp_community ? encryptServerSecret(updates.snmp_community) : undefined) : existing.snmp_community,
+    snmp_community_vault_item_id: updates.snmp_community_vault_item_id !== undefined ? (updates.snmp_community_vault_item_id ? updates.snmp_community_vault_item_id.trim() : null) : existing.snmp_community_vault_item_id,
+    snmp_v3_user: updates.snmp_v3_user !== undefined ? updates.snmp_v3_user.trim() : (existing.snmp_v3_user || ''),
+    snmp_v3_security_level: updates.snmp_v3_security_level !== undefined ? updates.snmp_v3_security_level : (existing.snmp_v3_security_level || 'authPriv'),
+    snmp_v3_auth_protocol: updates.snmp_v3_auth_protocol !== undefined ? updates.snmp_v3_auth_protocol : (existing.snmp_v3_auth_protocol || 'SHA-256'),
+    snmp_v3_auth_password: updates.snmp_v3_auth_password !== undefined ? (updates.snmp_v3_auth_password ? encryptServerSecret(updates.snmp_v3_auth_password) : undefined) : existing.snmp_v3_auth_password,
+    snmp_v3_auth_vault_item_id: updates.snmp_v3_auth_vault_item_id !== undefined ? (updates.snmp_v3_auth_vault_item_id ? updates.snmp_v3_auth_vault_item_id.trim() : null) : existing.snmp_v3_auth_vault_item_id,
+    snmp_v3_priv_protocol: updates.snmp_v3_priv_protocol !== undefined ? updates.snmp_v3_priv_protocol : (existing.snmp_v3_priv_protocol || 'AES-128'),
+    snmp_v3_priv_password: updates.snmp_v3_priv_password !== undefined ? (updates.snmp_v3_priv_password ? encryptServerSecret(updates.snmp_v3_priv_password) : undefined) : existing.snmp_v3_priv_password,
+    snmp_v3_priv_vault_item_id: updates.snmp_v3_priv_vault_item_id !== undefined ? (updates.snmp_v3_priv_vault_item_id ? updates.snmp_v3_priv_vault_item_id.trim() : null) : existing.snmp_v3_priv_vault_item_id,
+    snmp_v3_context: updates.snmp_v3_context !== undefined ? updates.snmp_v3_context.trim() : (existing.snmp_v3_context || ''),
+    snmp_timeout: updates.snmp_timeout !== undefined ? Number(updates.snmp_timeout) : (Number(existing.snmp_timeout) || 5000),
+    snmp_retries: updates.snmp_retries !== undefined ? Number(updates.snmp_retries) : (Number(existing.snmp_retries) || 1),
   };
 
   const store = loadFallbackStore();
@@ -4456,6 +4571,11 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           ssh_version = $16, building = $17, floor = $18, unit = $19, rack = $20,
           section = $21, location = $22, hierarchy_id = $23,
           ssh_vault_item_id = $24, enable_vault_item_id = $25,
+          snmp_enabled = $26, snmp_version = $27, snmp_port = $28, snmp_community = $29,
+          snmp_community_vault_item_id = $30, snmp_v3_user = $31, snmp_v3_security_level = $32,
+          snmp_v3_auth_protocol = $33, snmp_v3_auth_password = $34, snmp_v3_auth_vault_item_id = $35,
+          snmp_v3_priv_protocol = $36, snmp_v3_priv_password = $37, snmp_v3_priv_vault_item_id = $38,
+          snmp_v3_context = $39, snmp_timeout = $40, snmp_retries = $41,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1`,
         [
@@ -4484,6 +4604,22 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           updated.hierarchy_id || '',
           updated.ssh_vault_item_id || null,
           updated.enable_vault_item_id || null,
+          updated.snmp_enabled,
+          updated.snmp_version,
+          updated.snmp_port,
+          updated.snmp_community || null,
+          updated.snmp_community_vault_item_id || null,
+          updated.snmp_v3_user || '',
+          updated.snmp_v3_security_level,
+          updated.snmp_v3_auth_protocol,
+          updated.snmp_v3_auth_password || null,
+          updated.snmp_v3_auth_vault_item_id || null,
+          updated.snmp_v3_priv_protocol,
+          updated.snmp_v3_priv_password || null,
+          updated.snmp_v3_priv_vault_item_id || null,
+          updated.snmp_v3_context || '',
+          updated.snmp_timeout,
+          updated.snmp_retries,
         ]
       );
 
@@ -6887,6 +7023,27 @@ export async function deleteUserVaultItem(id: string, userId: string): Promise<b
   );
 
   const deletedInFallback = store.user_password_vault.length < initialLen;
+
+  // Safely nullify references in fallback store devices
+  if (Array.isArray(store.devices)) {
+    for (const d of store.devices) {
+      if (d.ssh_vault_item_id === id) d.ssh_vault_item_id = undefined;
+      if (d.enable_vault_item_id === id) d.enable_vault_item_id = undefined;
+      if (d.snmp_community_vault_item_id === id) d.snmp_community_vault_item_id = undefined;
+      if (d.snmp_v3_auth_vault_item_id === id) d.snmp_v3_auth_vault_item_id = undefined;
+      if (d.snmp_v3_priv_vault_item_id === id) d.snmp_v3_priv_vault_item_id = undefined;
+    }
+  }
+
+  // Safely nullify references in fallback store remote_servers
+  if (Array.isArray(store.remote_servers)) {
+    for (const s of store.remote_servers) {
+      if (s.ssh_vault_item_id === id) s.ssh_vault_item_id = undefined;
+      if (s.win_vault_item_id === id) s.win_vault_item_id = undefined;
+      if (s.db_vault_item_id === id) s.db_vault_item_id = undefined;
+    }
+  }
+
   if (deletedInFallback) {
     saveFallbackStore(store);
   }
@@ -6894,6 +7051,25 @@ export async function deleteUserVaultItem(id: string, userId: string): Promise<b
   await ensurePostgresConnection();
   if (isPostgresReady && pool) {
     try {
+      await pool.query(
+        `UPDATE devices SET
+          ssh_vault_item_id = CASE WHEN ssh_vault_item_id = $1 THEN NULL ELSE ssh_vault_item_id END,
+          enable_vault_item_id = CASE WHEN enable_vault_item_id = $1 THEN NULL ELSE enable_vault_item_id END,
+          snmp_community_vault_item_id = CASE WHEN snmp_community_vault_item_id = $1 THEN NULL ELSE snmp_community_vault_item_id END,
+          snmp_v3_auth_vault_item_id = CASE WHEN snmp_v3_auth_vault_item_id = $1 THEN NULL ELSE snmp_v3_auth_vault_item_id END,
+          snmp_v3_priv_vault_item_id = CASE WHEN snmp_v3_priv_vault_item_id = $1 THEN NULL ELSE snmp_v3_priv_vault_item_id END
+        WHERE ssh_vault_item_id = $1 OR enable_vault_item_id = $1 OR snmp_community_vault_item_id = $1 OR snmp_v3_auth_vault_item_id = $1 OR snmp_v3_priv_vault_item_id = $1`,
+        [id]
+      );
+      await pool.query(
+        `UPDATE remote_servers SET
+          ssh_vault_item_id = CASE WHEN ssh_vault_item_id = $1 THEN NULL ELSE ssh_vault_item_id END,
+          win_vault_item_id = CASE WHEN win_vault_item_id = $1 THEN NULL ELSE win_vault_item_id END,
+          db_vault_item_id = CASE WHEN db_vault_item_id = $1 THEN NULL ELSE db_vault_item_id END
+        WHERE ssh_vault_item_id = $1 OR win_vault_item_id = $1 OR db_vault_item_id = $1`,
+        [id]
+      );
+
       const res = await pool.query(
         'DELETE FROM user_password_vault WHERE id = $1 AND user_id = $2',
         [id, userId]

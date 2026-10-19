@@ -533,6 +533,52 @@ export async function testDeviceConnection(data: {
   return res.json();
 }
 
+export interface SnmpTestParams {
+  host: string;
+  ip?: string;
+  port?: number;
+  version?: 'v1' | 'v2c' | 'v3';
+  community?: string;
+  community_vault_item_id?: string;
+  v3_user?: string;
+  v3_security_level?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
+  v3_auth_protocol?: 'MD5' | 'SHA-1' | 'SHA-224' | 'SHA-256' | 'SHA-384' | 'SHA-512';
+  v3_auth_password?: string;
+  v3_auth_vault_item_id?: string;
+  v3_priv_protocol?: 'DES' | 'AES-128' | 'AES-192' | 'AES-256' | '3DES';
+  v3_priv_password?: string;
+  v3_priv_vault_item_id?: string;
+  v3_context?: string;
+  timeout?: number;
+  retries?: number;
+  is_en?: boolean;
+}
+
+export interface SnmpTestResult {
+  success: boolean;
+  version: 'v1' | 'v2c' | 'v3';
+  port: number;
+  target: string;
+  latency_ms?: number;
+  sysName?: string;
+  sysDescr?: string;
+  sysObjectID?: string;
+  sysUpTime?: string;
+  error?: string;
+  errorFa?: string;
+  message?: string;
+}
+
+export async function testSnmpConnection(params: SnmpTestParams): Promise<SnmpTestResult> {
+  const res = await fetch(`${API_BASE}/devices/test-snmp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return res.json();
+}
+
+
 export function getTerminalWebSocketUrl(
   deviceId: string,
   protocol?: 'ssh' | 'telnet',

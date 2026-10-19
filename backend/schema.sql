@@ -83,6 +83,22 @@ CREATE TABLE IF NOT EXISTS devices (
     enable_password VARCHAR(128),
     ssh_vault_item_id VARCHAR(64),
     enable_vault_item_id VARCHAR(64),
+    snmp_enabled BOOLEAN DEFAULT FALSE,
+    snmp_version VARCHAR(16) DEFAULT 'v2c',
+    snmp_port INT DEFAULT 161,
+    snmp_community VARCHAR(255),
+    snmp_community_vault_item_id VARCHAR(64),
+    snmp_v3_user VARCHAR(128),
+    snmp_v3_security_level VARCHAR(32) DEFAULT 'authPriv',
+    snmp_v3_auth_protocol VARCHAR(32) DEFAULT 'SHA-256',
+    snmp_v3_auth_password VARCHAR(255),
+    snmp_v3_auth_vault_item_id VARCHAR(64),
+    snmp_v3_priv_protocol VARCHAR(32) DEFAULT 'AES-128',
+    snmp_v3_priv_password VARCHAR(255),
+    snmp_v3_priv_vault_item_id VARCHAR(64),
+    snmp_v3_context VARCHAR(128),
+    snmp_timeout INT DEFAULT 5000,
+    snmp_retries INT DEFAULT 1,
     connection_data JSONB DEFAULT '{}'::jsonb,
     ports JSONB DEFAULT '[]'::jsonb,
     building VARCHAR(128),
@@ -110,6 +126,9 @@ CREATE INDEX IF NOT EXISTS idx_devices_floor ON devices(floor);
 CREATE INDEX IF NOT EXISTS idx_devices_rack ON devices(rack);
 CREATE INDEX IF NOT EXISTS idx_devices_ssh_vault ON devices(ssh_vault_item_id);
 CREATE INDEX IF NOT EXISTS idx_devices_enable_vault ON devices(enable_vault_item_id);
+CREATE INDEX IF NOT EXISTS idx_devices_snmp_comm_vault ON devices(snmp_community_vault_item_id);
+CREATE INDEX IF NOT EXISTS idx_devices_snmp_auth_vault ON devices(snmp_v3_auth_vault_item_id);
+CREATE INDEX IF NOT EXISTS idx_devices_snmp_priv_vault ON devices(snmp_v3_priv_vault_item_id);
 
 -- Safe migration for existing devices table columns
 DO $$ BEGIN
@@ -123,6 +142,22 @@ DO $$ BEGIN
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_version VARCHAR(32) DEFAULT 'legacy';
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64);
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_vault_item_id VARCHAR(64);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_enabled BOOLEAN DEFAULT FALSE;
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_version VARCHAR(16) DEFAULT 'v2c';
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_port INT DEFAULT 161;
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_community VARCHAR(255);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_community_vault_item_id VARCHAR(64);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_user VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_security_level VARCHAR(32) DEFAULT 'authPriv';
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_auth_protocol VARCHAR(32) DEFAULT 'SHA-256';
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_auth_password VARCHAR(255);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_auth_vault_item_id VARCHAR(64);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_priv_protocol VARCHAR(32) DEFAULT 'AES-128';
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_priv_password VARCHAR(255);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_priv_vault_item_id VARCHAR(64);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_v3_context VARCHAR(128);
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_timeout INT DEFAULT 5000;
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS snmp_retries INT DEFAULT 1;
 EXCEPTION WHEN OTHERS THEN
     NULL;
 END $$;
