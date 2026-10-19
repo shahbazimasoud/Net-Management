@@ -96,6 +96,101 @@ export interface SnmpConfig {
   retries?: number;
 }
 
+export interface CiscoSnmpOidDetail {
+  oid: string;
+  name: string;
+  value: string | number;
+  description: string;
+}
+
+export interface CiscoSystemResourcesResponse {
+  success: boolean;
+  is_live: boolean;
+  connected?: boolean;
+  telemetry_source?: 'snmp' | 'ssh';
+  snmp_version?: 'v1' | 'v2c' | 'v3';
+  snmpOidsQueried?: CiscoSnmpOidDetail[];
+  device_id?: string;
+  host?: string;
+  timestamp?: string;
+  warning?: string;
+  error?: string;
+  errorFa?: string;
+  latency_ms?: number | null;
+  cpu: {
+    cpuLoad5s: number;
+    cpuLoad1m: number;
+    cpuLoad5m: number;
+    interrupts: number;
+    cpuArch: string;
+    topProcesses: Array<{
+      pid: number;
+      name: string;
+      cpu5s: number;
+      cpu1m: number;
+      cpu5m: number;
+    }>;
+  };
+  ram: {
+    totalRamMB: number;
+    usedRamMB: number;
+    freeRamMB: number;
+    ramPercent: number;
+    ioBuffersMB: number;
+  };
+  storage: {
+    totalFlashMB: number;
+    usedFlashMB: number;
+    freeFlashMB: number;
+    flashPercent: number;
+    nvramKB: number;
+    usedNvramKB: number;
+  };
+  thermal: {
+    currentTemp: number;
+    tempThreshold: number;
+    tempState: string;
+    inletTemp: number;
+    exhaustTemp: number;
+  };
+  poe: {
+    maxPoeWatts: number;
+    totalPoeWatts: number;
+    remainingPoeWatts: number;
+    poePercent: number;
+    poeDeliveringPortsCount: number;
+  };
+  cooling: {
+    fansCount: number;
+    fanSpeeds: string;
+    fanStatus: string;
+    airflow: string;
+    psuStatus: string;
+  };
+  hardware: {
+    hostname: string;
+    model: string;
+    iosVersion: string;
+    uptime: string;
+    processorBoardId: string;
+    lastReloadReason: string;
+    systemImageFile: string;
+    totalPortsCount: number;
+    upPortsCount: number;
+    macTableCount: number;
+    vlanCapacity: number;
+    asicForwardingMpps: number;
+    bandwidthGbps: number;
+  };
+  cliOutputs: {
+    cpu: { cmd: string; output: string };
+    memory: { cmd: string; output: string };
+    env: { cmd: string; output: string };
+    power: { cmd: string; output: string };
+    version: { cmd: string; output: string };
+  };
+}
+
 export interface Device {
   id: string;
   name: string;

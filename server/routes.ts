@@ -515,7 +515,7 @@ import {
   getDiscoveryScanStatus,
   DiscoveryValidationError,
 } from './discoveryEngine';
-import { testSnmpConnection } from './snmpService';
+import { testSnmpConnection, fetchCiscoSnmpSystemResources } from './snmpService';
 
 export const apiRouter = Router();
 
@@ -3114,6 +3114,153 @@ apiRouter.post('/devices/:id/write-memory', async (req: Request, res: Response) 
     return res.status(500).json({ success: false, error: err.message, message: err.message });
   }
 });
+
+// -------------------------------------------------------------
+// GET & POST /devices/:id/cisco-resources
+// Live Cisco System Resources & Telemetry (SNMP & SSH Hybrid Engine)
+// -------------------------------------------------------------
+const handleCiscoResourcesRequest = async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+
+  try {
+    const check = await assertDeviceScopeAccess(req, devId, 'read');
+    if (!check.allowed) {
+      return res.status(check.status || 403).json({
+        success: false,
+        error: check.error,
+        errorFa: check.errorFa,
+      });
+    }
+
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        error: 'Device not found',
+        message: isEn ? 'Device not found' : 'دستگاه یافت نشد',
+      });
+    }
+
+    const requestedProtocol = String(req.query.protocol || req.body?.protocol || 'auto').toLowerCase();
+    const ports = Array.isArray(device.ports) ? device.ports : [];
+
+    let snmpResult: any = null;
+    let snmpAttempted = false;
+
+    // SNMP Evaluation:
+    // When protocol is 'snmp', or 'auto' (with snmp_enabled !== false and host IP present)
+    if (requestedProtocol === 'snmp' || (requestedProtocol === 'auto' && device.snmp_enabled !== false)) {
+      snmpAttempted = true;
+      try {
+        console.log(`[Cisco Resources] Polling live SNMP telemetry for device ${devId} (${device.ip || device.ssh_host})`);
+        snmpResult = await fetchCiscoSnmpSystemResources(device, ports);
+      } catch (snmpErr: any) {
+        console.warn(`[Cisco Resources SNMP Error] ${snmpErr.message}`);
+        snmpResult = {
+          success: false,
+          is_live: false,
+          connected: false,
+          telemetry_source: 'snmp',
+          device_id: device.id,
+          error: snmpErr.message || 'SNMP query exception',
+          errorFa: `خطا در اجرای استعلام SNMP: ${snmpErr.message || 'خطای نامشخص'}`,
+          warning: snmpErr.message,
+        };
+      }
+    }
+
+    if (snmpResult && snmpResult.success && snmpResult.is_live) {
+      return res.json(snmpResult);
+    }
+
+    // If requestedProtocol was strictly 'snmp' and failed, return authentic SNMP error without fake simulation
+    if (requestedProtocol === 'snmp') {
+      return res.json(snmpResult || {
+        success: false,
+        is_live: false,
+        connected: false,
+        telemetry_source: 'snmp',
+        device_id: device.id,
+        error: 'SNMP query failed or device offline',
+        errorFa: 'عدم دریافت پاسخ از طریق پروتکل SNMP (تجهیز آفلاین یا پورت UDP مسدود است)',
+        warning: 'SNMP query failed',
+      });
+    }
+
+    // SSH Fallback or Primary Execution
+    const sshHost = (device.ip || device.ssh_host || '').trim();
+    if (!sshHost) {
+      return res.json(snmpResult || {
+        success: false,
+        is_live: false,
+        connected: false,
+        device_id: device.id,
+        error: isEn ? 'No IP address or SSH host configured' : 'آدرس IP یا هاست SSH تجهیز تعریف نشده است',
+        warning: isEn ? 'Device connection details missing' : 'مشخصات اتصال تجهیز یافت نشد',
+      });
+    }
+
+    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+    const backend = resolveSshBackend(sshVersion);
+    console.log(`[Cisco Resources SSH Resolver] Querying hardware telemetry for device ${devId} via ${backend.version.toUpperCase()} backend`);
+
+    let sshResult: any = null;
+    try {
+      sshResult = await executeSshBridgeAction('port-action', {
+        device,
+        action: 'cisco-resources',
+        operation: 'cisco-resources',
+      }, backend.version, 25000);
+    } catch (sshErr: any) {
+      console.warn(`[Cisco Resources SSH Error] ${sshErr.message}`);
+      sshResult = {
+        success: false,
+        is_live: false,
+        connected: false,
+        error: sshErr.message,
+      };
+    }
+
+    if (sshResult && sshResult.success && sshResult.is_live) {
+      sshResult.telemetry_source = 'ssh';
+      return res.json(sshResult);
+    }
+
+    // Both methods failed: return genuine, non-fabricated error transparency
+    const finalError = sshResult?.error || snmpResult?.error || 'Could not establish connection to device';
+    const finalErrorFa = snmpResult?.errorFa || (isEn ? finalError : 'ارتباط با تجهیز از طریق SNMP یا SSH میسر نشد (بررسی وضعیت شبکه و دسترسی تجهیز)');
+
+    return res.json({
+      success: false,
+      is_live: false,
+      connected: false,
+      telemetry_source: snmpAttempted ? 'snmp' : 'ssh',
+      device_id: device.id,
+      error: finalError,
+      errorFa: finalErrorFa,
+      warning: finalError,
+      snmp_attempted: snmpAttempted,
+      ssh_attempted: true,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error(`[Cisco Resources Exception]`, err);
+    return res.status(500).json({
+      success: false,
+      is_live: false,
+      connected: false,
+      error: err.message,
+      message: err.message,
+    });
+  }
+};
+
+apiRouter.get('/devices/:id/cisco-resources', handleCiscoResourcesRequest);
+apiRouter.post('/devices/:id/cisco-resources', handleCiscoResourcesRequest);
+apiRouter.get('/devices/:id/system-resources', handleCiscoResourcesRequest);
+apiRouter.post('/devices/:id/system-resources', handleCiscoResourcesRequest);
 
 // -------------------------------------------------------------
 // Granular Port-Level RBAC Enforcement (Cisco & MikroTik)

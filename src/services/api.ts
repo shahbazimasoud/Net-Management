@@ -1172,15 +1172,26 @@ export async function deleteMikroTikVPN(
   return data;
 }
 
+export interface CiscoSnmpOidDetail {
+  oid: string;
+  name: string;
+  value: string | number;
+  description: string;
+}
+
 export interface CiscoSystemResourcesResponse {
   success: boolean;
   is_live: boolean;
   connected?: boolean;
+  telemetry_source?: 'snmp' | 'ssh';
+  snmp_version?: 'v1' | 'v2c' | 'v3';
+  snmpOidsQueried?: CiscoSnmpOidDetail[];
   device_id?: string;
   host?: string;
   timestamp?: string;
   warning?: string;
   error?: string;
+  errorFa?: string;
   latency_ms?: number | null;
   cpu: {
     cpuLoad5s: number;
@@ -1258,8 +1269,10 @@ export interface CiscoSystemResourcesResponse {
 
 export async function fetchCiscoSystemResources(
   deviceId: string,
-  credentials?: { host?: string; username?: string; password?: string }
+  credentials?: { host?: string; username?: string; password?: string; protocol?: 'auto' | 'snmp' | 'ssh' }
 ): Promise<CiscoSystemResourcesResponse> {
+  const protocol = credentials?.protocol || 'auto';
+  const queryParam = protocol !== 'auto' ? `?protocol=${encodeURIComponent(protocol)}` : '';
   const options: RequestInit = credentials
     ? {
         method: 'POST',
@@ -1270,7 +1283,7 @@ export async function fetchCiscoSystemResources(
         method: 'GET',
       };
 
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/cisco-resources`, options);
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/cisco-resources${queryParam}`, options);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Failed to fetch Cisco system resources' }));
     throw new Error(err.error || err.warning || err.message || 'Failed to fetch Cisco system resources');

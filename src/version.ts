@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.338.0';
+export const APP_VERSION = '1.339.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.339.0',
+    releaseDate: '2026-10-19',
+    type: 'minor',
+    title: 'پیاده‌سازی مانیتورینگ منابع زنده و تله‌متری سخت‌افزار سیسکو از طریق پروتکل SNMP به همراه کاوشگر OIDها (فاز ۲)',
+    title_en: 'Implement Live Cisco System Resources & Telemetry Monitoring via SNMP Suite with Live OID Explorer (Phase 2)',
+    changes: [
+      'پیاده‌سازی موتور استعلام و مانیتورینگ بلادرنگ سخت‌افزار تجهیزات سیسکو (Cisco System Resources) بر بستر پروتکل SNMP (v1, v2c, v3 USM) به همراه اندپوینت‌های اختصاصی /api/devices/:id/cisco-resources و /api/devices/:id/system-resources.',
+      'استعلام مقادیر واقعی پردازنده (CISCO-PROCESS-MIB)، حافظه رم پویا (CISCO-ENHANCED-MEMPOOL-MIB)، سنسورهای حرارتی و سلامت منبع تغذیه و فن‌ها (CISCO-ENVMON-MIB) و مشخصات شاسی سخت‌افزاری (ENTITY-MIB) بدون تولید هرگونه داده شبیه‌سازی‌شده (انطباق قطعی با قانون ۸).',
+      'طراحی و تعبیه سلکتور چندحالته پروتکل (Auto، SNMP، SSH) در نوار هدر تب منابع سیستم سیسکو به همراه بج‌های تله‌متری زنده تفکیک‌شده (LIVE SNMP با لتنسی UDP و LIVE SSH) و حفظ شفافیت قطعی در وضعیت قطعی و خطاهای اتصال.',
+      'افزودن کاوشگر زنده OIDها و دیکشنری MIB سیسکو (SNMP MIBs & Live OID Explorer) به همراه قابلیت فیلتر و جستجوی آنی شاخص‌ها و دکمه کپی سریع OIDها و فرامین تشخیصی.',
+      'ادغام موتور هیبرید SNMP و پل اختصاصی پایتون SSH (ssh_bridge.py) در سرور با پشتیبانی کامل از دو زبانه (فارسی و انگلیسی بدون تداخل) و کنتراست ارگونومیک تم تیره و روشن.'
+    ],
+    changes_en: [
+      'Implemented real-time Cisco hardware system resources and telemetry monitoring engine over SNMP (v1, v2c, v3 USM) with dedicated /api/devices/:id/cisco-resources and /api/devices/:id/system-resources endpoints.',
+      'Authentic live polling of CPU utilization (CISCO-PROCESS-MIB), dynamic memory pool (CISCO-ENHANCED-MEMPOOL-MIB), chassis thermal sensors and fan/PSU health (CISCO-ENVMON-MIB), and physical entity specs (ENTITY-MIB) with zero simulated data (strict Rule 8 enforcement).',
+      'Integrated multi-mode protocol selector (Auto, SNMP, SSH) into Cisco System Resources header with distinct telemetry source badges (LIVE SNMP with UDP latency & LIVE SSH) and failure transparency.',
+      'Added interactive SNMP MIBs & Live OID Explorer featuring instant search filtering, MIB variable name decoding, live polled values, and one-click numeric OID copying.',
+      'Engineered server-side SNMP/SSH hybrid resolution in ssh_bridge.py with strict bilingual localization and ergonomic dark/light theme contrast.'
+    ]
+  },
   {
     version: '1.338.0',
     releaseDate: '2026-10-19',

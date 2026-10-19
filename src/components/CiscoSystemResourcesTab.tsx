@@ -20,9 +20,13 @@ import {
   Wifi,
   WifiOff,
   Radio,
-  ExternalLink
+  ExternalLink,
+  Search,
+  Database,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
-import { Device, SwitchPort } from '../types';
+import { Device, SwitchPort, CiscoSnmpOidDetail } from '../types';
 import { fetchCiscoSystemResources, CiscoSystemResourcesResponse } from '../services/api';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 
@@ -43,11 +47,15 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [protocolMode, setProtocolMode] = useState<'auto' | 'snmp' | 'ssh'>('auto');
   const [selectedCliCommand, setSelectedCliCommand] = useState<'cpu' | 'memory' | 'env' | 'power' | 'version'>('cpu');
   const [copiedCli, setCopiedCli] = useState<boolean>(false);
+  const [showOidExplorer, setShowOidExplorer] = useState<boolean>(false);
+  const [oidSearchTerm, setOidSearchTerm] = useState<string>('');
+  const [copiedOid, setCopiedOid] = useState<string | null>(null);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
 
-  const loadResources = useCallback(async (isManualRefresh: boolean = false) => {
+  const loadResources = useCallback(async (isManualRefresh: boolean = false, overrideProtocol?: 'auto' | 'snmp' | 'ssh') => {
     if (isManualRefresh) {
       setIsRefreshing(true);
     } else {
@@ -55,21 +63,23 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
     }
     setFetchError(null);
 
+    const proto = overrideProtocol || protocolMode;
+
     try {
-      const data = await fetchCiscoSystemResources(device.id);
+      const data = await fetchCiscoSystemResources(device.id, { protocol: proto });
       setResources(data);
       setLastFetched(new Date());
-      if (!data.is_live && data.warning) {
-        setFetchError(data.warning);
+      if (!data.is_live && (data.error || data.warning)) {
+        setFetchError(isEn ? (data.error || data.warning || 'Device unreachable') : (data.errorFa || data.warning || 'عدم دسترسی به تجهیز'));
       }
     } catch (err: any) {
       console.warn('Failed to load Cisco system resources:', err);
-      setFetchError(err.message || (isEn ? 'Could not reach device SSH service' : 'عدم دسترسی به سرویس SSH تجهیز'));
+      setFetchError(err.message || (isEn ? 'Could not reach device telemetry service' : 'عدم دسترسی به سرویس تله‌متری تجهیز'));
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [device.id, isEn]);
+  }, [device.id, isEn, protocolMode]);
 
   useEffect(() => {
     loadResources(false);
@@ -87,6 +97,31 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
     setCopiedCli(true);
     setTimeout(() => setCopiedCli(false), 2000);
   };
+
+  const handleProtocolChange = (newProto: 'auto' | 'snmp' | 'ssh') => {
+    if (isLoading || isRefreshing || newProto === protocolMode) return;
+    setProtocolMode(newProto);
+    loadResources(true, newProto);
+  };
+
+  const handleCopyOid = (oid: string) => {
+    if (!oid) return;
+    navigator.clipboard.writeText(oid);
+    setCopiedOid(oid);
+    setTimeout(() => setCopiedOid(null), 2000);
+  };
+
+  const snmpOids: CiscoSnmpOidDetail[] = resources?.snmpOidsQueried || [];
+  const filteredOids = snmpOids.filter((item) => {
+    if (!oidSearchTerm.trim()) return true;
+    const term = oidSearchTerm.toLowerCase();
+    return (
+      item.oid.toLowerCase().includes(term) ||
+      item.name.toLowerCase().includes(term) ||
+      item.description.toLowerCase().includes(term) ||
+      String(item.value).toLowerCase().includes(term)
+    );
+  });
 
   // Safe fallback calculation based on device if resources are not yet loaded
   const modelUpper = (device.model || '').toUpperCase();
@@ -204,23 +239,39 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
             <Activity className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-bold text-white font-mono">
                 {device.name} • {isEn ? 'Live Hardware Telemetry' : 'منابع زنده و تله‌متری سخت‌افزار'}
               </h3>
 
               {isLive ? (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>{isEn ? 'LIVE SSH' : 'ارتباط زنده SSH'}</span>
-                  {resources?.latency_ms ? (
-                    <span className="text-[9px] text-emerald-400/80">({resources.latency_ms}ms)</span>
-                  ) : null}
-                </span>
+                resources?.telemetry_source === 'snmp' ? (
+                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1.5 shadow-xs">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                    <Zap className="w-3 h-3 text-cyan-300" />
+                    <span>
+                      {isEn
+                        ? `LIVE SNMP (${resources.snmp_version || device.snmp_version || 'v2c'})`
+                        : `ارتباط زنده SNMP (${resources.snmp_version || device.snmp_version || 'v2c'})`}
+                    </span>
+                    {resources?.latency_ms ? (
+                      <span className="text-[9px] text-cyan-300/80 font-mono">({resources.latency_ms}ms)</span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <Terminal className="w-3 h-3 text-emerald-300" />
+                    <span>{isEn ? 'LIVE SSH' : 'ارتباط زنده SSH'}</span>
+                    {resources?.latency_ms ? (
+                      <span className="text-[9px] text-emerald-400/80 font-mono">({resources.latency_ms}ms)</span>
+                    ) : null}
+                  </span>
+                )
               ) : (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
+                <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  <span>{isEn ? 'SSH OFFLINE / STANDBY' : 'آفلاین / بدون پاسخ'}</span>
+                  <span>{isEn ? 'OFFLINE / NO RESPONSE' : 'آفلاین / بدون پاسخ'}</span>
                 </span>
               )}
             </div>
@@ -228,7 +279,8 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
             <p className="text-[11px] text-slate-400 mt-0.5 font-mono flex flex-wrap items-center gap-2">
               <span>Model: <span className="text-cyan-300 font-bold">{hw.model || device.model || 'Cisco Switch'}</span></span>
               <span>• IP: <span className="text-slate-200">{device.ip || '192.168.1.1'}</span></span>
-              <span>• Port: <span className="text-slate-300 font-mono">{device.ssh_port || 22}</span></span>
+              <span>• SNMP: <span className="text-cyan-300 font-mono">{device.snmp_port || 161}</span></span>
+              <span>• SSH: <span className="text-slate-300 font-mono">{device.ssh_port || 22}</span></span>
               {hw.uptime && (
                 <span>• Uptime: <span className="text-slate-300">{hw.uptime}</span></span>
               )}
@@ -241,7 +293,61 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Protocol Switcher */}
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-950/80 border border-slate-800">
+            <span className="text-[10px] text-slate-400 font-mono px-1.5 hidden sm:inline">
+              {isEn ? 'Mode:' : 'حالت:'}
+            </span>
+            {(['auto', 'snmp', 'ssh'] as const).map((proto) => {
+              const isActive = protocolMode === proto;
+              const labels = {
+                auto: { en: 'Auto', fa: 'خودکار' },
+                snmp: { en: 'SNMP', fa: 'SNMP' },
+                ssh: { en: 'SSH', fa: 'SSH' },
+              };
+              return (
+                <button
+                  key={proto}
+                  type="button"
+                  onClick={() => handleProtocolChange(proto)}
+                  disabled={isBusy}
+                  className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition cursor-pointer disabled:opacity-50 ${
+                    isActive
+                      ? proto === 'snmp'
+                        ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                        : proto === 'ssh'
+                        ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                        : 'bg-indigo-500/25 text-indigo-300 border border-indigo-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                  title={
+                    proto === 'auto'
+                      ? (isEn ? 'Auto: Prioritize lightweight SNMP with SSH fallback' : 'خودکار: اولویت استعلام سبک SNMP با فالبک به SSH')
+                      : proto === 'snmp'
+                      ? (isEn ? 'SNMP: Poll device directly via UDP MIB OIDs' : 'استعلام مستقیم تله‌متری از طریق پورت UDP پروتکل SNMP')
+                      : (isEn ? 'SSH: Execute CLI diagnostic commands via SSH terminal session' : 'استعلام از طریق فرامین CLI در سشن SSH')
+                  }
+                >
+                  {isEn ? labels[proto].en : labels[proto].fa}
+                </button>
+              );
+            })}
+            <FieldInfoTooltip
+              isEn={isEn}
+              title={isEn ? 'Telemetry Collection Protocol' : 'پروتکل جمع‌آوری تله‌متری سخت‌افزار'}
+              whatIsIt={isEn
+                ? 'Allows toggling between lightweight UDP SNMP MIB polling (low CPU footprint) and SSH CLI diagnostic commands.'
+                : 'امکان انتخاب روش دریافت تله‌متری میان پروتکل سبک UDP SNMP (بار پردازشی بسیار ناچیز) و اجرای فرامین تشخیصی CLI از طریق SSH.'}
+              whyNeeded={isEn
+                ? 'SNMP is the standard networking protocol for non-intrusive monitoring. SSH is useful when SNMP daemon is unconfigured or blocked by firewall.'
+                : 'پروتکل SNMP استاندارد طلایی مانیتورینگ غیرمخرب تجهیزات است. SSH زمانی کاربرد دارد که سرویس SNMP روی دستگاه هنوز فعال نشده باشد.'}
+              example={isEn
+                ? 'Recommended: "Auto" selects SNMP if enabled on the device, seamlessly falling back to SSH if needed.'
+                : 'پیشنهادی: حالت "Auto" به شکل هوشمند از SNMP استفاده کرده و در صورت نیاز به SSH سوئیچ می‌کند.'}
+            />
+          </div>
+
           <button
             type="button"
             onClick={handleRefresh}
@@ -265,15 +371,15 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
           <div className="space-y-1.5 max-w-md mx-auto">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span>{isEn ? 'DEVICE OFFLINE / UNREACHABLE' : 'تجهیز آفلاین / عدم دسترسی به SSH'}</span>
+              <span>{isEn ? 'DEVICE OFFLINE / UNREACHABLE' : 'تجهیز آفلاین / عدم برقراری ارتباط'}</span>
             </div>
             <h4 className="text-sm font-bold text-white font-mono">
               {isEn ? 'Real-Time Hardware Telemetry Unavailable' : 'اطلاعات منابع سخت‌افزاری در دسترس نیست'}
             </h4>
             <p className="text-xs text-slate-400 leading-relaxed">
               {isEn
-                ? `System resource metrics cannot be displayed because an active SSH connection could not be established with ${device.name || 'this Cisco switch'}. Metric data is hidden to prevent displaying unverified or simulated values.`
-                : `امکان نمایش اطلاعات مصرف منابع وجود ندارد زیرا ارتباط زنده SSH با ${device.name || 'این سوئیچ سیسکو'} برقرار نشد. جهت اطمینان از صحت اطلاعات، از نمایش مقادیر شبیه‌سازی‌شده یا پیش‌فرض خودداری شده است.`}
+                ? `System resource metrics cannot be displayed because neither SNMP nor SSH responded from ${device.name || 'this Cisco switch'}. Metric data is hidden to prevent displaying unverified or simulated values.`
+                : `امکان نمایش اطلاعات مصرف منابع وجود ندارد زیرا ارتباط با ${device.name || 'این سوئیچ سیسکو'} از طریق SNMP یا SSH برقرار نشد. جهت اطمینان از صحت اطلاعات، از نمایش مقادیر شبیه‌سازی‌شده یا پیش‌فرض خودداری شده است.`}
             </p>
           </div>
 
@@ -283,25 +389,45 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
               <span className="font-bold text-cyan-400">{device.ip || '192.168.1.1'}</span>
             </div>
             <div className="flex items-center justify-between text-[11px] pb-1.5 border-b border-slate-800/80">
-              <span className="text-slate-400">{isEn ? 'SSH Port:' : 'پورت SSH:'}</span>
-              <span className="text-slate-300">{device.ssh_port || 22}</span>
+              <span className="text-slate-400">{isEn ? 'Active Query Mode:' : 'حالت استعلام فعال:'}</span>
+              <span className="text-slate-300 uppercase font-bold">{protocolMode}</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] pb-1.5 border-b border-slate-800/80">
+              <span className="text-slate-400">{isEn ? 'Ports Configured:' : 'پورت‌های پیکربندی‌شده:'}</span>
+              <span className="text-slate-300">SNMP UDP {device.snmp_port || 161} • SSH TCP {device.ssh_port || 22}</span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-slate-400">{isEn ? 'Probe Status:' : 'وضعیت اتصال:'}</span>
               <span className="text-amber-400 text-[11px] truncate max-w-[240px]">
-                {fetchError || (isEn ? 'Connection refused or timed out' : 'تجهیز به درخواست SSH پاسخ نداد')}
+                {fetchError || (isEn ? 'Connection refused or timed out' : 'پاسخی از تجهیز دریافت نشد')}
               </span>
             </div>
           </div>
 
-          <div className="pt-1">
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
-              onClick={handleRefresh}
+              onClick={() => handleProtocolChange('auto')}
               className="px-4 py-2 rounded-xl text-xs font-bold font-mono bg-cyan-600 hover:bg-cyan-500 text-white transition-all inline-flex items-center gap-2 shadow-xs cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>{isEn ? 'Retry Telemetry Probe' : 'استعلام مجدد تله‌متری'}</span>
+              <span>{isEn ? 'Retry Auto (SNMP/SSH)' : 'تلاش مجدد خودکار (SNMP/SSH)'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleProtocolChange('snmp')}
+              className="px-4 py-2 rounded-xl text-xs font-bold font-mono bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 transition-all inline-flex items-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Retry SNMP Only' : 'تلاش با SNMP'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleProtocolChange('ssh')}
+              className="px-4 py-2 rounded-xl text-xs font-bold font-mono bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition-all inline-flex items-center gap-2 shadow-xs cursor-pointer"
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>{isEn ? 'Retry SSH Only' : 'تلاش با SSH'}</span>
             </button>
           </div>
         </div>
@@ -744,17 +870,118 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
         </div>
       </div>
 
-      {/* Cisco CLI Hardware Diagnostics Console */}
+      {/* SNMP MIBs & Live OID Explorer (Only when SNMP OIDs are collected or in SNMP mode) */}
+      {snmpOids.length > 0 && (
+        <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/80 shadow-md">
+          <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                <Database className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white font-mono">
+                    {isEn ? 'SNMP MIBs & Live OID Explorer' : 'کاوشگر زنده OIDها و دیکشنری MIB سیسکو'}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                    {snmpOids.length} {isEn ? 'OIDs' : 'شاخص'}
+                  </span>
+                  <span className="text-[10px] font-mono text-cyan-400/80 px-1.5 py-0.2 rounded bg-cyan-500/10 border border-cyan-500/20">
+                    UDP {device.snmp_port || 161}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {isEn
+                    ? 'Authentic live MIB-2 and Cisco private enterprise OIDs queried from physical agent'
+                    : 'مقادیر واقعی OIDهای استاندارد MIB-2 و MIBهای اختصاصی سیسکو دریافت شده از سخت‌افزار'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={oidSearchTerm}
+                  onChange={(e) => setOidSearchTerm(e.target.value)}
+                  placeholder={isEn ? 'Filter OIDs or MIB name...' : 'جستجو بر اساس OID یا نام MIB...'}
+                  className="pl-8 pr-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 font-mono w-40 sm:w-56"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowOidExplorer(!showOidExplorer)}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono font-bold border border-slate-700 transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>{showOidExplorer ? (isEn ? 'Hide Table' : 'بستن جدول') : (isEn ? 'View Table' : 'مشاهده جدول')}</span>
+                {showOidExplorer ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+
+          {showOidExplorer && (
+            <div className="p-3 bg-black/60 overflow-x-auto max-h-72 overflow-y-auto">
+              <table className="w-full text-left font-mono text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase">
+                    <th className="py-2 px-3">{isEn ? 'MIB Variable' : 'متغیر MIB'}</th>
+                    <th className="py-2 px-3">{isEn ? 'Numeric OID' : 'شناسه OID رقمی'}</th>
+                    <th className="py-2 px-3">{isEn ? 'Live Value' : 'مقدار واکشی‌شده'}</th>
+                    <th className="py-2 px-3">{isEn ? 'Description' : 'توضیحات و کاربرد'}</th>
+                    <th className="py-2 px-3 text-right">{isEn ? 'Copy' : 'کپی'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredOids.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-900/50 transition">
+                      <td className="py-2 px-3 font-bold text-cyan-300">{item.name}</td>
+                      <td className="py-2 px-3 text-slate-400 text-[11px]">{item.oid}</td>
+                      <td className="py-2 px-3 text-emerald-400 font-bold max-w-[260px] truncate" title={String(item.value)}>
+                        {String(item.value)}
+                      </td>
+                      <td className="py-2 px-3 text-slate-400 text-[11px]">{item.description}</td>
+                      <td className="py-2 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyOid(item.oid)}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-mono border border-slate-700 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          {copiedOid === item.oid ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedOid === item.oid ? (isEn ? 'Copied' : 'کپی شد') : (isEn ? 'Copy' : 'کپی')}</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cisco CLI & SNMP Hardware Diagnostics Console */}
       <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950 shadow-md">
         <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5 text-xs">
           <div className="flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-emerald-400" />
+            {resources?.telemetry_source === 'snmp' ? (
+              <Zap className="w-4 h-4 text-cyan-400" />
+            ) : (
+              <Terminal className="w-4 h-4 text-emerald-400" />
+            )}
             <span className="font-bold text-white font-mono">
-              {isEn ? 'Cisco IOS Diagnostics CLI Telemetry' : 'خروجی فرامین تشخیصی سیسکو IOS'}
+              {resources?.telemetry_source === 'snmp'
+                ? (isEn ? 'SNMP MIB Diagnostic Queries & Decoded Raw Telemetry' : 'استعلام‌های تشخیصی SNMP و تله‌متری دیکدشده')
+                : (isEn ? 'Cisco IOS Diagnostics CLI Telemetry' : 'خروجی فرامین تشخیصی سیسکو IOS')}
             </span>
             {isLive && (
-              <span className="text-[10px] font-mono text-emerald-400/80 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20">
-                {isEn ? 'LIVE OUTPUT' : 'خروجی واقعی زنده'}
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${
+                resources?.telemetry_source === 'snmp'
+                  ? 'text-cyan-400/80 bg-cyan-500/10 border-cyan-500/20'
+                  : 'text-emerald-400/80 bg-emerald-500/10 border-emerald-500/20'
+              }`}>
+                {isEn ? (resources?.telemetry_source === 'snmp' ? 'LIVE SNMP MIB' : 'LIVE CLI OUTPUT') : (resources?.telemetry_source === 'snmp' ? 'استعلام زنده MIB' : 'خروجی واقعی زنده')}
               </span>
             )}
           </div>

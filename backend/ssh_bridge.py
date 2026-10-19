@@ -606,6 +606,47 @@ def handle_port_action(args):
             channel.send(f"{password}\r\n")
             time.sleep(0.4)
 
+        if action in ("cisco-resources", "system-resources"):
+            raw_outputs = {}
+            cmd_defs = [
+                {"key": "cpu", "cmd": "show processes cpu sorted"},
+                {"key": "memory", "cmd": "show memory statistics"},
+                {"key": "env", "cmd": "show env all"},
+                {"key": "power", "cmd": "show power inline"},
+                {"key": "version", "cmd": "show version"},
+            ]
+            for item in cmd_defs:
+                k = item["key"]
+                c = item["cmd"]
+                channel.send(f"{c}\n")
+                time.sleep(0.3)
+                buf = ""
+                dl = time.time() + 3.0
+                while time.time() < dl:
+                    if channel.recv_ready():
+                        chunk = channel.recv(4096).decode("utf-8", errors="ignore")
+                        buf += chunk
+                        if len(chunk) < 4096 and any(prompt_char in chunk for prompt_char in ["#", ">", "switch#"]):
+                            break
+                    else:
+                        time.sleep(0.08)
+                raw_outputs[k] = buf
+
+            p_client.close()
+
+            from backend.drivers import get_driver
+            driver = get_driver(platform, device.get("connection_mode", "ssh"))
+            parsed = driver.parse_system_resources(raw_outputs, device, device.get("ports", []))
+            parsed["success"] = True
+            parsed["is_live"] = True
+            parsed["connected"] = True
+            parsed["telemetry_source"] = "ssh"
+            parsed["paramiko_version"] = getattr(paramiko, "__version__", "unknown")
+            parsed["ssh_version"] = ssh_version
+            parsed["is_real"] = True
+            print(json.dumps(parsed))
+            return
+
         # Send command lines
         full_output = ""
         lines = [l.strip() for l in cli_command.split("\n") if l.strip()]
