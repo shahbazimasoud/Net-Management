@@ -1,6 +1,7 @@
 import { Pool, PoolConfig, PoolClient } from 'pg';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
@@ -211,6 +212,20 @@ export interface FallbackStore {
   audit_report_schedule?: any;
   audit_email_reports?: any[];
   config_templates?: any[];
+  system_security_keys?: SystemSecurityKeysRecord[];
+}
+
+export interface SystemSecurityKeysRecord {
+  key_name: string;
+  master_key: string;
+  legacy_keys: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SecurityKeychain {
+  masterKey: string;
+  legacyKeys: string[];
 }
 
 export interface ScheduledBackupJob {
@@ -1145,6 +1160,10 @@ export function loadFallbackStore(): FallbackStore {
     if (!Array.isArray(store.config_templates)) {
       store.config_templates = [];
     }
+  }
+
+  if (!Array.isArray(store.system_security_keys)) {
+    store.system_security_keys = [];
   }
 
   return store;
@@ -2161,11 +2180,25 @@ export async function initDatabase(): Promise<void> {
       `);
       await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_token ON two_factor_challenges(token)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_two_factor_expires ON two_factor_challenges(expires_at)");
+
+      // 19. Persistent System Security Keychain & Master Encryption Keys
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS system_security_keys (
+          key_name VARCHAR(64) PRIMARY KEY,
+          master_key TEXT NOT NULL,
+          legacy_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
     } catch {}
 
     // Synchronize all fallback records into PostgreSQL
     await syncFallbackToPostgres(client, initialData);
     console.log('[Database] Fallback store synchronization to PostgreSQL completed successfully.');
+
+    // Initialize or load authoritative security keychain from PostgreSQL
+    await initOrLoadSystemSecurityKeys(client);
 
     client.release();
     isPostgresReady = true;
@@ -2174,6 +2207,7 @@ export async function initDatabase(): Promise<void> {
     isPostgresReady = false;
     lastError = err.message || 'PostgreSQL not available';
     console.warn(`[Database Notice] PostgreSQL is not reachable (${lastError}). Using robust file-backed store for persistence.`);
+    await initOrLoadSystemSecurityKeys();
   }
 }
 
@@ -6836,6 +6870,235 @@ export async function deleteServerCategory(
   }
 
   return { success: true, reassignedCount, targetCategory: targetCatName };
+}
+
+// =============================================================================
+// SYSTEM SECURITY KEYCHAIN DATABASE MANAGEMENT (PERSISTENT CIPHER MASTER KEYS)
+// =============================================================================
+
+// In-memory cache for ultra-fast crypto resolution across high-throughput connections
+let cachedSecurityKeychain: SecurityKeychain | null = null;
+
+export function getCachedSecurityKeychain(): SecurityKeychain | null {
+  return cachedSecurityKeychain;
+}
+
+export async function getDatabaseSecurityKeys(keyName: string = 'vault_master'): Promise<SecurityKeychain> {
+  // If cached and valid, return cache
+  if (cachedSecurityKeychain && cachedSecurityKeychain.masterKey) {
+    return cachedSecurityKeychain;
+  }
+
+  await ensurePostgresConnection();
+
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query(
+        'SELECT key_name, master_key, legacy_keys, created_at, updated_at FROM system_security_keys WHERE key_name = $1 LIMIT 1',
+        [keyName]
+      );
+      if (res && res.rows.length > 0) {
+        const row = res.rows[0];
+        let legacy: string[] = [];
+        if (Array.isArray(row.legacy_keys)) {
+          legacy = row.legacy_keys;
+        } else if (typeof row.legacy_keys === 'string') {
+          try { legacy = JSON.parse(row.legacy_keys); } catch {}
+        }
+        cachedSecurityKeychain = {
+          masterKey: row.master_key,
+          legacyKeys: Array.isArray(legacy) ? legacy : [],
+        };
+        return cachedSecurityKeychain;
+      }
+    } catch (err: any) {
+      console.warn('[Security Keychain DB Warning]', err.message);
+    }
+  }
+
+  // Fallback file-backed store
+  const store = loadFallbackStore();
+  const list = Array.isArray(store.system_security_keys) ? store.system_security_keys : [];
+  const found = list.find((k) => k.key_name === keyName);
+  if (found) {
+    cachedSecurityKeychain = {
+      masterKey: found.master_key,
+      legacyKeys: Array.isArray(found.legacy_keys) ? found.legacy_keys : [],
+    };
+    return cachedSecurityKeychain;
+  }
+
+  return {
+    masterKey: '',
+    legacyKeys: [],
+  };
+}
+
+export async function saveDatabaseSecurityKeys(
+  keyName: string = 'vault_master',
+  masterKey: string,
+  legacyKeys: string[] = []
+): Promise<SecurityKeychain> {
+  const cleanLegacies = Array.from(new Set(legacyKeys.filter(Boolean)));
+  cachedSecurityKeychain = {
+    masterKey,
+    legacyKeys: cleanLegacies,
+  };
+
+  await ensurePostgresConnection();
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO system_security_keys (key_name, master_key, legacy_keys, updated_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (key_name) DO UPDATE SET
+           master_key = EXCLUDED.master_key,
+           legacy_keys = EXCLUDED.legacy_keys,
+           updated_at = CURRENT_TIMESTAMP`,
+        [keyName, masterKey, JSON.stringify(cleanLegacies)]
+      );
+    } catch (err: any) {
+      console.warn('[Save Security Keychain DB Warning]', err.message);
+    }
+  }
+
+  // Persist to fallback store as well
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.system_security_keys)) {
+    store.system_security_keys = [];
+  }
+  const idx = store.system_security_keys.findIndex((k) => k.key_name === keyName);
+  const nowIso = new Date().toISOString();
+  if (idx >= 0) {
+    store.system_security_keys[idx].master_key = masterKey;
+    store.system_security_keys[idx].legacy_keys = cleanLegacies;
+    store.system_security_keys[idx].updated_at = nowIso;
+  } else {
+    store.system_security_keys.push({
+      key_name: keyName,
+      master_key: masterKey,
+      legacy_keys: cleanLegacies,
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+  }
+  saveFallbackStore(store);
+
+  return cachedSecurityKeychain;
+}
+
+/**
+ * Initializes and synchronizes the authoritative security keychain in the database.
+ * If no master key exists in PostgreSQL, it creates one seeded from .env (or random bytes),
+ * and permanently anchors it in the database so that future panel updates never lose credentials.
+ * Also captures any environment secrets into the database legacy keychain.
+ */
+export async function initOrLoadSystemSecurityKeys(client?: PoolClient): Promise<SecurityKeychain> {
+  const keyName = 'vault_master';
+  let existingMaster = '';
+  let existingLegacies: string[] = [];
+
+  // Check PostgreSQL first
+  if (client) {
+    try {
+      const res = await client.query(
+        'SELECT key_name, master_key, legacy_keys FROM system_security_keys WHERE key_name = $1 LIMIT 1',
+        [keyName]
+      );
+      if (res && res.rows.length > 0) {
+        existingMaster = res.rows[0].master_key;
+        const rawLeg = res.rows[0].legacy_keys;
+        existingLegacies = Array.isArray(rawLeg) ? rawLeg : typeof rawLeg === 'string' ? JSON.parse(rawLeg) : [];
+      }
+    } catch (err: any) {
+      console.warn('[initOrLoadSystemSecurityKeys DB Error]', err.message);
+    }
+  }
+
+  // If not found in PG, check fallback store
+  if (!existingMaster) {
+    const store = loadFallbackStore();
+    const list = Array.isArray(store.system_security_keys) ? store.system_security_keys : [];
+    const found = list.find((k) => k.key_name === keyName);
+    if (found) {
+      existingMaster = found.master_key;
+      existingLegacies = Array.isArray(found.legacy_keys) ? found.legacy_keys : [];
+    }
+  }
+
+  // Candidate legacy keys from known hardcoded defaults and environment
+  const envCandidates = [
+    process.env.VAULT_SECRET,
+    process.env.JWT_SECRET,
+    process.env.SESSION_SECRET,
+    'nettopology_vault_master_key_2026_aes256gcm_safe',
+    'nettopology_super_secret_jwt_key_2026_cisco_ops',
+  ].filter((k): k is string => Boolean(k && typeof k === 'string' && k.trim().length > 0));
+
+  let finalMaster = existingMaster;
+  if (!finalMaster) {
+    // First-time initialization: Pick best candidate from env, or generate a cryptographically secure 32-byte master key
+    finalMaster =
+      process.env.VAULT_SECRET ||
+      process.env.JWT_SECRET ||
+      crypto.randomBytes(32).toString('hex');
+  }
+
+  // Merge all candidates into legacy_keys list (excluding finalMaster)
+  const mergedLegacies = Array.from(
+    new Set([
+      ...existingLegacies,
+      ...envCandidates,
+    ].filter((k) => Boolean(k) && k !== finalMaster))
+  );
+
+  // Anchor authoritatively in PostgreSQL
+  if (client) {
+    try {
+      await client.query(
+        `INSERT INTO system_security_keys (key_name, master_key, legacy_keys, updated_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (key_name) DO UPDATE SET
+           master_key = EXCLUDED.master_key,
+           legacy_keys = EXCLUDED.legacy_keys,
+           updated_at = CURRENT_TIMESTAMP`,
+        [keyName, finalMaster, JSON.stringify(mergedLegacies)]
+      );
+    } catch (err: any) {
+      console.warn('[initOrLoadSystemSecurityKeys Anchor Error]', err.message);
+    }
+  }
+
+  // Also persist to fallback store
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.system_security_keys)) {
+    store.system_security_keys = [];
+  }
+  const idx = store.system_security_keys.findIndex((k) => k.key_name === keyName);
+  const nowIso = new Date().toISOString();
+  if (idx >= 0) {
+    store.system_security_keys[idx].master_key = finalMaster;
+    store.system_security_keys[idx].legacy_keys = mergedLegacies;
+    store.system_security_keys[idx].updated_at = nowIso;
+  } else {
+    store.system_security_keys.push({
+      key_name: keyName,
+      master_key: finalMaster,
+      legacy_keys: mergedLegacies,
+      created_at: nowIso,
+      updated_at: nowIso,
+    });
+  }
+  saveFallbackStore(store);
+
+  cachedSecurityKeychain = {
+    masterKey: finalMaster,
+    legacyKeys: mergedLegacies,
+  };
+
+  console.log(`[Security Keychain] Authoritative database keychain initialized (Master Key anchored, ${mergedLegacies.length} legacy keys retained).`);
+  return cachedSecurityKeychain;
 }
 
 // =============================================================================

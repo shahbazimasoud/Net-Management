@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.341.2';
+export const APP_VERSION = '1.342.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.342.0',
+    releaseDate: '2026-10-19',
+    type: 'minor',
+    title: 'طراحی و استقرار جاکلیدی مقتدر امنیتی در دیتابیس و پایدارسازی کلیدهای رمزنگاری سیستم (فاز ۱)',
+    title_en: 'Architect & Deploy Database-Authoritative Security Keychain & Master Key Persistence (Phase 1)',
+    changes: [
+      'طراحی و ایجاد جدول دائمی system_security_keys در پایگاه داده PostgreSQL و اسکیما جهت ذخیره‌سازی مقتدر کلیدهای مستر و کلیدهای گذشته.',
+      'استقلال کامل کلیدهای رمزنگاری از متغیرهای متغیر و شکننده فایل .env جهت جلوگیری قطعی از ابطال پسوردهای تجهیزات شبکه و ولت در آپدیت‌های سرور.',
+      'پیاده‌سازی توابع مدیریت جاکلیدی (getDatabaseSecurityKeys، saveDatabaseSecurityKeys و initOrLoadSystemSecurityKeys) با کش پرسرعت درون‌حافظه‌ای.',
+      'همگام‌سازی خودکار و ثبت تجمیعی کلیدهای کاندید و تاریخی در آرایه legacy_keys دیتابیس بدون بازنویسی یا پاک‌شدن مقادیر قبلی.',
+      'طراحی و اجرای اسکریپت آزمون تجربی test_phase1_database_keychain.ts و راستی‌آزمایی ۵ مرحله‌ای پایداری و تغییرناپذیری کلیدها با موفقیت ۱۰۰٪.'
+    ],
+    changes_en: [
+      'Engineered and deployed persistent system_security_keys table in PostgreSQL schemas for authoritative master encryption key storage.',
+      'Decoupled encryption master key lifecycle from fragile .env environment files, eliminating credential invalidation across server updates.',
+      'Implemented core security keychain management services (getDatabaseSecurityKeys, saveDatabaseSecurityKeys, initOrLoadSystemSecurityKeys) with in-memory caching.',
+      'Automatic synchronization and aggregation of historical legacy keys into database legacy_keys array without destructively overwriting previous secrets.',
+      'Developed and executed empirical verification suite (test_phase1_database_keychain.ts) verifying all 5 steps of key persistence and idempotency with 100% success.'
+    ]
+  },
   {
     version: '1.341.2',
     releaseDate: '2026-10-19',

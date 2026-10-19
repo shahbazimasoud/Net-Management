@@ -520,4 +520,11 @@ CREATE TABLE IF NOT EXISTS config_templates (
 CREATE INDEX IF NOT EXISTS idx_config_templates_vendor ON config_templates(vendor);
 CREATE INDEX IF NOT EXISTS idx_config_templates_target_type ON config_templates(target_type);
 
-
+-- 19. Persistent System Security Keychain & Master Encryption Keys
+CREATE TABLE IF NOT EXISTS system_security_keys (
+    key_name VARCHAR(64) PRIMARY KEY,
+    master_key TEXT NOT NULL,
+    legacy_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
