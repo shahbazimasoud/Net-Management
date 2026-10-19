@@ -259,14 +259,25 @@ export const CiscoSystemResourcesTab: React.FC<CiscoSystemResourcesTabProps> = (
                     ) : null}
                   </span>
                 ) : (
-                  <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <Terminal className="w-3 h-3 text-emerald-300" />
-                    <span>{isEn ? 'LIVE SSH' : 'ارتباط زنده SSH'}</span>
-                    {resources?.latency_ms ? (
-                      <span className="text-[9px] text-emerald-400/80 font-mono">({resources.latency_ms}ms)</span>
-                    ) : null}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 shadow-xs">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <Terminal className="w-3 h-3 text-emerald-300" />
+                      <span>{isEn ? 'LIVE SSH' : 'ارتباط زنده SSH'}</span>
+                      {resources?.latency_ms ? (
+                        <span className="text-[9px] text-emerald-400/80 font-mono">({resources.latency_ms}ms)</span>
+                      ) : null}
+                    </span>
+                    {resources?.snmp_attempted && (
+                      <span
+                        className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/35 flex items-center gap-1"
+                        title={isEn ? 'Smart fallback: SNMP timed out or unconfigured, live data polled via SSH CLI.' : 'سوئیچ هوشمند: به دلیل عدم پاسخ SNMP، اطلاعات زنده از طریق SSH واکشی شد.'}
+                      >
+                        <AlertTriangle className="w-3 h-3 text-amber-400" />
+                        <span>{isEn ? 'Fallback from SNMP' : 'سوئیچ خودکار از SNMP'}</span>
+                      </span>
+                    )}
+                  </div>
                 )
               ) : (
                 <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">

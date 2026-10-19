@@ -3202,12 +3202,11 @@ const handleCiscoResourcesRequest = async (req: Request, res: Response) => {
       });
     }
 
-    const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
-    const backend = resolveSshBackend(sshVersion);
-    console.log(`[Cisco Resources SSH Resolver] Querying hardware telemetry for device ${devId} via ${backend.version.toUpperCase()} backend`);
-
     let sshResult: any = null;
     try {
+      const sshVersion = device.ssh_version || device.sshVersion || (device.platform?.includes('modern') ? 'modern' : 'legacy');
+      const backend = resolveSshBackend(sshVersion);
+      console.log(`[Cisco Resources SSH Resolver] Querying hardware telemetry for device ${devId} via ${backend.version.toUpperCase()} backend`);
       sshResult = await executeSshBridgeAction('port-action', {
         device,
         action: 'cisco-resources',

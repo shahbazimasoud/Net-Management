@@ -1186,6 +1186,8 @@ export interface CiscoSystemResourcesResponse {
   telemetry_source?: 'snmp' | 'ssh';
   snmp_version?: 'v1' | 'v2c' | 'v3';
   snmpOidsQueried?: CiscoSnmpOidDetail[];
+  snmp_attempted?: boolean;
+  ssh_attempted?: boolean;
   device_id?: string;
   host?: string;
   timestamp?: string;

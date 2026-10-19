@@ -1096,7 +1096,17 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             >
               <Activity className="w-4 h-4 text-cyan-400" />
               <span>{isEn ? 'System Resources' : 'منابع سیستم (System Resources)'}</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              {device?.snmp_enabled !== false ? (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span>SNMP</span>
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>SSH</span>
+                </span>
+              )}
             </button>
           </div>
 

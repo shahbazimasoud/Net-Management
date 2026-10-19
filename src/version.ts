@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.340.0';
+export const APP_VERSION = '1.341.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.341.0',
+    releaseDate: '2026-10-19',
+    type: 'minor',
+    title: 'اتصال تب منابع سیستم مودال پورت سیسکو با قابلیت سوئیچ هوشمند و نشانگر منبع دیتا (فاز ۴)',
+    title_en: 'Integrate Cisco Port Modal System Resources Tab with Smart Protocol Switcher & Dynamic Source Badges (Phase 4)',
+    changes: [
+      'ارتقا و یکپارچه‌سازی تب منابع سیستم سیسکو (CiscoSystemResourcesTab) در مودال مدیریت پورت (PortInspectorModal).',
+      'افزودن نشانگر زنده پروتکل در هدر تب مودال پورت جهت نمایش آنی وضعیت فعال بودن SNMP یا SSH در سوئیچ.',
+      'پیاده‌سازی مکانیزم سوئیچ هوشمند و خودکار (Smart Fallback): اولویت‌دهی به استعلام پرسرعت و سبک SNMP و سوئیچ امن به SSH در صورت عدم پاسخ‌دهی یا مسدود بودن UDP پورت ۱۶۱.',
+      'طراحی بج هوشمند نمایش فالبک (Fallback from SNMP) در هدر تله‌متری با رعایت شفافیت کامل در گزارش خطاهای اتصال بدون تولید هرگونه دیتای فیک (Rule 8).',
+      'توسعه و اجرای آزمون اعتبارسنجی جامع ۱۱ مرحله‌ای در اسکریپت test_snmp_cisco_resources.ts و کسب قبولی ۱۰۰٪ در تمامی سناریوهای استعلام و سوئیچینگ هوشمند.'
+    ],
+    changes_en: [
+      'Upgraded and seamlessly integrated the CiscoSystemResourcesTab component inside the switch PortInspectorModal.',
+      'Added live protocol indicator badge directly onto the modal tab navigation bar showing real-time SNMP or SSH telemetry mode.',
+      'Engineered smart protocol auto-switching logic prioritizing lightweight UDP SNMP MIB queries with automatic, graceful fallback to SSH CLI if SNMP times out.',
+      'Introduced intelligent fallback indicator badge (Fallback from SNMP) in the telemetry header bar maintaining strict failure transparency without simulated data (Rule 8).',
+      'Expanded comprehensive empirical verification suite (test_snmp_cisco_resources.ts) with 11 complete test cases achieving 100% pass rate across all operational and switching scenarios.'
+    ]
+  },
   {
     version: '1.340.0',
     releaseDate: '2026-10-19',

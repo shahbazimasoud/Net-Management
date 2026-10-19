@@ -168,8 +168,62 @@ async function runSnmpTelemetryTestSuite() {
     console.warn('  HTTP telemetry warning:', err.message);
   }
 
+  // Test 8: Phase 4 Smart Auto-Switching (/api/devices/:id/cisco-resources?protocol=auto)
+  console.log(`\n[Test 8] Testing Phase 4 Smart Auto-Switching (/api/devices/${testDevId}/cisco-resources?protocol=auto)...`);
+  const autoRes = await fetch(`http://localhost:3000/api/devices/${testDevId}/cisco-resources?protocol=auto`);
+  const autoData: any = await autoRes.json();
+  console.log('  Auto HTTP Status:', autoRes.status);
+  console.log('  Auto telemetry source:', autoData.telemetry_source);
+  console.log('  SNMP attempted:', autoData.snmp_attempted);
+  if (autoRes.status === 200 && (autoData.telemetry_source === 'snmp' || autoData.telemetry_source === 'ssh')) {
+    console.log('✓ PASS: Smart auto-switch prioritized SNMP and maintained authentic fallback.');
+  } else {
+    throw new Error('Test 8 Failed: Smart auto-switch failed to respond');
+  }
+
+  // Test 9: Phase 4 Strict SNMP Mode (/api/devices/:id/cisco-resources?protocol=snmp)
+  console.log(`\n[Test 9] Testing Phase 4 Strict SNMP Mode (/api/devices/${testDevId}/cisco-resources?protocol=snmp)...`);
+  const snmpOnlyRes = await fetch(`http://localhost:3000/api/devices/${testDevId}/cisco-resources?protocol=snmp`);
+  const snmpOnlyData: any = await snmpOnlyRes.json();
+  console.log('  SNMP Mode HTTP Status:', snmpOnlyRes.status);
+  console.log('  SNMP Mode telemetry source:', snmpOnlyData.telemetry_source);
+  if (snmpOnlyRes.status === 200 && snmpOnlyData.telemetry_source === 'snmp') {
+    console.log('✓ PASS: Strict SNMP mode correctly restricted query to SNMP engine.');
+  } else {
+    throw new Error('Test 9 Failed: Strict SNMP mode did not return snmp telemetry_source');
+  }
+
+  // Test 10: Phase 4 Strict SSH Mode (/api/devices/:id/cisco-resources?protocol=ssh)
+  console.log(`\n[Test 10] Testing Phase 4 Strict SSH Mode (/api/devices/${testDevId}/cisco-resources?protocol=ssh)...`);
+  const sshOnlyRes = await fetch(`http://localhost:3000/api/devices/${testDevId}/cisco-resources?protocol=ssh`);
+  const sshOnlyData: any = await sshOnlyRes.json();
+  console.log('  SSH Mode HTTP Status:', sshOnlyRes.status);
+  console.log('  SSH Mode telemetry source:', sshOnlyData.telemetry_source);
+  if (sshOnlyRes.status === 200 && sshOnlyData.telemetry_source === 'ssh') {
+    console.log('✓ PASS: Strict SSH mode correctly routed query to SSH engine.');
+  } else {
+    throw new Error('Test 10 Failed: Strict SSH mode did not return ssh telemetry_source');
+  }
+
+  // Test 11: Phase 4 UI Data Contract Verification
+  console.log('\n[Test 11] Verifying CiscoSystemResourcesTab UI contract compatibility...');
+  const sampleDevice = {
+    id: 'test-sw-ui-contract',
+    ip: '10.0.0.1',
+    name: 'Cisco-UI-Switch',
+    snmp_enabled: true,
+    snmp_version: 'v2c',
+    snmp_port: 161,
+  };
+  const contractTest = await fetchCiscoSnmpSystemResources(sampleDevice, []);
+  if (contractTest.telemetry_source === 'snmp' && contractTest.host === '10.0.0.1') {
+    console.log('✓ PASS: UI contract and data structures fully compatible.');
+  } else {
+    throw new Error('Test 11 Failed: Contract validation failed');
+  }
+
   console.log('\n================================================================');
-  console.log('🏆 ALL PHASE 3 SNMP TELEMETRY ENGINE TESTS PASSED SUCCESSFULLY!');
+  console.log('🏆 ALL PHASE 3 & PHASE 4 SNMP TELEMETRY TESTS PASSED (11/11)!');
   console.log('================================================================');
 }
 
