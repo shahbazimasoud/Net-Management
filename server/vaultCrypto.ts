@@ -10,9 +10,10 @@ const VAULT_MASTER_SECRET =
  * Derives a deterministic 32-byte cryptographic key unique to each user.
  * Even if the database ciphertext is exposed, one user's key cannot decrypt another user's vault.
  */
-function deriveUserKey(userId: string): Buffer {
+export function deriveUserKey(userId: string, masterSecret?: string): Buffer {
+  const secret = masterSecret || VAULT_MASTER_SECRET;
   const safeSalt = `vault_user_salt_${userId || 'anonymous'}`;
-  return crypto.scryptSync(VAULT_MASTER_SECRET, safeSalt, 32);
+  return crypto.scryptSync(secret, safeSalt, 32);
 }
 
 export interface EncryptedPayload {
@@ -80,8 +81,120 @@ export function encryptVaultSecret(plainText: string, userId: string): Encrypted
   };
 }
 
+export interface DecryptVaultSecretResult {
+  plainText: string;
+  isLegacyKey: boolean;
+  newPayload?: EncryptedPayload;
+}
+
+/**
+ * Decrypts an AES-256-GCM encrypted password with Adaptive Multi-Key Fallback & Auto-Healing.
+ * 1. Tries active primary master secret and user ID.
+ * 2. If authentication tag fails (e.g. key changed during panel upgrade), attempts candidate legacy master keys
+ *    and candidate user salts (user-admin, admin, anonymous).
+ * 3. When a legacy candidate succeeds, returns plainText, flags isLegacyKey = true, and generates a newPayload
+ *    encrypted with the current active master secret so callers can seamlessly heal/re-encrypt the stored record.
+ */
+export function decryptVaultSecretWithMeta(
+  ciphertext: string,
+  ivHex: string,
+  tagHex: string,
+  userId: string
+): DecryptVaultSecretResult {
+  if (!ciphertext || !ivHex || !tagHex) {
+    throw new Error('Invalid vault payload: ciphertext, iv, and tag are required');
+  }
+
+  const iv = Buffer.from(ivHex, 'hex');
+  const tag = Buffer.from(tagHex, 'hex');
+
+  // 1. Try active primary key first
+  try {
+    const primaryKey = deriveUserKey(userId, VAULT_MASTER_SECRET);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', primaryKey, iv);
+    decipher.setAuthTag(tag);
+    let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return {
+      plainText: decrypted,
+      isLegacyKey: false,
+    };
+  } catch {
+    // Continue to fallback candidates
+  }
+
+  // 2. Candidate Master Secrets (in order of likelihood)
+  const candidateMasterSecrets: string[] = [
+    process.env.VAULT_SECRET,
+    process.env.JWT_SECRET,
+    process.env.SESSION_SECRET,
+    'nettopology_vault_master_key_2026_aes256gcm_safe',
+    'nettopology_super_secret_jwt_key_2026_cisco_ops',
+  ].filter((s, idx, arr): s is string => Boolean(s) && s !== VAULT_MASTER_SECRET && arr.indexOf(s) === idx);
+
+  // 3. Candidate User ID Salts (in case user identifier varied between updates)
+  const candidateUserIds: string[] = [
+    userId,
+    'user-admin',
+    'admin',
+    'anonymous',
+  ].filter((u, idx, arr): u is string => Boolean(u) && arr.indexOf(u) === idx);
+
+  // Try legacy secrets across candidate salts
+  for (const secret of candidateMasterSecrets) {
+    for (const candUser of candidateUserIds) {
+      try {
+        const candidateKey = deriveUserKey(candUser, secret);
+        const decipher = crypto.createDecipheriv('aes-256-gcm', candidateKey, iv);
+        decipher.setAuthTag(tag);
+        let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+
+        if (decrypted !== undefined) {
+          console.log(`[Vault Crypto] Successfully decrypted legacy secret using fallback master secret & salt "${candUser}"`);
+          const newPayload = encryptVaultSecret(decrypted, userId);
+          return {
+            plainText: decrypted,
+            isLegacyKey: true,
+            newPayload,
+          };
+        }
+      } catch {
+        // Try next candidate
+      }
+    }
+  }
+
+  // Also try active master secret with alternate user salt candidates (e.g. user-admin vs admin)
+  for (const candUser of candidateUserIds) {
+    if (candUser === userId) continue;
+    try {
+      const candidateKey = deriveUserKey(candUser, VAULT_MASTER_SECRET);
+      const decipher = crypto.createDecipheriv('aes-256-gcm', candidateKey, iv);
+      decipher.setAuthTag(tag);
+      let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+
+      if (decrypted !== undefined) {
+        console.log(`[Vault Crypto] Successfully decrypted secret using alternate user salt "${candUser}"`);
+        const newPayload = encryptVaultSecret(decrypted, userId);
+        return {
+          plainText: decrypted,
+          isLegacyKey: true,
+          newPayload,
+        };
+      }
+    } catch {
+      // Try next
+    }
+  }
+
+  throw new Error('Failed to decrypt credentials: Unsupported state or unable to authenticate data');
+}
+
 /**
  * Decrypts an AES-256-GCM encrypted password for the authorized owner user.
+ * Seamlessly leverages multi-key fallback.
  */
 export function decryptVaultSecret(
   ciphertext: string,
@@ -89,20 +202,7 @@ export function decryptVaultSecret(
   tagHex: string,
   userId: string
 ): string {
-  try {
-    const key = deriveUserKey(userId);
-    const iv = Buffer.from(ivHex, 'hex');
-    const tag = Buffer.from(tagHex, 'hex');
-
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(tag);
-
-    let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (err: any) {
-    throw new Error(`Failed to decrypt credentials: ${err.message || 'Authentication tag mismatch'}`);
-  }
+  return decryptVaultSecretWithMeta(ciphertext, ivHex, tagHex, userId).plainText;
 }
 
 /**

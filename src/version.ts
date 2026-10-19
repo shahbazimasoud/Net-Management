@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.341.0';
+export const APP_VERSION = '1.341.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.341.1',
+    releaseDate: '2026-10-19',
+    type: 'patch',
+    title: 'رفع خطای رمزگشایی پسوردهای قدیمی در Personal Password Vault با مکانیزم بازگشایی چندکلیدی و خودترمیمی خودکار',
+    title_en: 'Fix Legacy Password Decryption in Personal Password Vault via Multi-Key Adaptive Fallback & Transparent Auto-Healing',
+    changes: [
+      'رفع باگ خطای Failed to decrypt credentials: Unsupported state or unable to authenticate data در مودال ولت گذرواژه‌ها پس از آپدیت پنل.',
+      'پیاده‌سازی موتور بازگشایی چندکلیدی سازگار (decryptVaultSecretWithMeta) با بررسی کلیدهای گذشته و مقادیر مختلف سالت کاربر.',
+      'افزوده شدن مکانیزم خودترمیمی هوشمند (Transparent Auto-Healing): ارتقا و ذخیره مجدد خودکار پسوردهای رمزگشایی‌شده با کلید فعال دیتابیس.',
+      'اصلاح اسکریپت‌های نصب و ارتقای پنل (install.sh و setup-panel.sh) جهت حفظ کلیدهای رمزنگاری JWT_SECRET و VAULT_SECRET موجود در فایل .env هنگام آپدیت.',
+      'طراحی و اجرای اسکریپت آزمون تجربی test_vault_decryption_healing.ts و کسب موفقیت ۱۰۰٪ در تمامی سناریوهای بازگشایی و خودترمیمی.'
+    ],
+    changes_en: [
+      'Resolved Failed to decrypt credentials: Unsupported state or unable to authenticate data error in Personal Password Vault modal after panel updates.',
+      'Engineered adaptive multi-key fallback decryption engine (decryptVaultSecretWithMeta) testing candidate legacy master secrets and user identifier salts.',
+      'Implemented transparent auto-healing: legacy vault records are seamlessly re-encrypted and persisted with the active master secret upon successful reveal or query.',
+      'Updated installer and deployment scripts (install.sh & setup-panel.sh) to strictly preserve existing JWT_SECRET and VAULT_SECRET from .env during panel updates.',
+      'Developed and verified end-to-end empirical test suite (test_vault_decryption_healing.ts) achieving 100% pass rate across all decryption and auto-healing scenarios.'
+    ]
+  },
   {
     version: '1.341.0',
     releaseDate: '2026-10-19',

@@ -132,7 +132,7 @@ import {
   saveConfigTemplatesBulk,
   ConfigTemplateRecord,
 } from './db';
-import { encryptVaultSecret, decryptVaultSecret } from './vaultCrypto';
+import { encryptVaultSecret, decryptVaultSecret, decryptVaultSecretWithMeta } from './vaultCrypto';
 import {
   testMysqlConnection,
   getMysqlOverview,
@@ -16480,7 +16480,25 @@ apiRouter.post('/vault/:id/reveal', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Vault item not found or unauthorized' });
     }
 
-    const plainPassword = decryptVaultSecret(item.encrypted_password, item.iv, item.tag, user.userId);
+    const decryptResult = decryptVaultSecretWithMeta(item.encrypted_password, item.iv, item.tag, user.userId);
+    const plainPassword = decryptResult.plainText;
+
+    // Auto-Healing: If decrypted using a legacy fallback key, seamlessly upgrade record to active master secret
+    if (decryptResult.isLegacyKey && decryptResult.newPayload) {
+      saveUserVaultItem({
+        ...item,
+        encrypted_password: decryptResult.newPayload.ciphertext,
+        iv: decryptResult.newPayload.iv,
+        tag: decryptResult.newPayload.tag,
+        password_hash: decryptResult.newPayload.hash,
+        password_salt: decryptResult.newPayload.salt,
+        updated_at: new Date().toISOString(),
+      }).then(() => {
+        console.log(`[Vault Auto-Heal] Upgraded legacy vault secret "${item.name}" (ID: ${item.id}) to active master secret.`);
+      }).catch((healErr: any) => {
+        console.warn(`[Vault Auto-Heal Notice] Could not persist re-encrypted item ${item.id}:`, healErr.message);
+      });
+    }
 
     // Audit the reveal action for security compliance
     await addAuditLog({

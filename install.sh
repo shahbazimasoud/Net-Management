@@ -265,7 +265,26 @@ echo -e "  • پورت بک‌اند (API & Engine): پورت اختصاصی $I
 echo -e "  • پایگاه داده PostgreSQL: دیتابیس '$DB_NAME' با کاربر '$DB_USER' روی پورت $DB_PORT"
 echo -e "  • جداسازی داخلی: سرویس‌های Node.js و Python به لوپ‌بک محلی (127.0.0.1) محدود شدند.\n"
 
-# ذخیره تنظیمات در فایل .env
+# ذخیره تنظیمات در فایل .env با حفظ کلیدهای رمزنگاری قبلی جهت عدم اختلال در ولت گذرواژه‌ها
+EXISTING_JWT_SECRET=""
+EXISTING_VAULT_SECRET=""
+if [ -f "$APP_DIR/.env" ]; then
+  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "$APP_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_VAULT_SECRET=$(grep -E '^VAULT_SECRET=' "$APP_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+fi
+
+if [ -n "$EXISTING_JWT_SECRET" ]; then
+  JWT_SECRET="$EXISTING_JWT_SECRET"
+else
+  JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_secret_fallback_$(date +%s)")
+fi
+
+if [ -n "$EXISTING_VAULT_SECRET" ]; then
+  VAULT_SECRET="$EXISTING_VAULT_SECRET"
+else
+  VAULT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_vault_master_key_$(date +%s)")
+fi
+
 cat << EOF > "$APP_DIR/.env"
 NODE_ENV=production
 HOST=127.0.0.1
@@ -282,7 +301,8 @@ DB_NAME=$DB_NAME
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 ADMIN_INITIAL_PASSWORD=$ADMIN_INITIAL_PASSWORD
-JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_secret_fallback_$(date +%s)")
+JWT_SECRET=$JWT_SECRET
+VAULT_SECRET=$VAULT_SECRET
 EOF
 
 # ------------------------------------------------------------------------------

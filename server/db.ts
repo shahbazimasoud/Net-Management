@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { hashPassword } from './auth';
-import { encryptServerSecret, decryptServerSecret, decryptVaultSecret } from './vaultCrypto';
+import { encryptServerSecret, decryptServerSecret, decryptVaultSecret, decryptVaultSecretWithMeta } from './vaultCrypto';
 
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
@@ -7164,8 +7164,19 @@ export async function resolveDynamicVaultPassword(
     if (!item || !item.encrypted_password || !item.iv || !item.tag) {
       return null;
     }
-    const plain = decryptVaultSecret(item.encrypted_password, item.iv, item.tag, item.user_id);
-    return plain || null;
+    const decryptResult = decryptVaultSecretWithMeta(item.encrypted_password, item.iv, item.tag, item.user_id);
+    if (decryptResult.isLegacyKey && decryptResult.newPayload) {
+      saveUserVaultItem({
+        ...item,
+        encrypted_password: decryptResult.newPayload.ciphertext,
+        iv: decryptResult.newPayload.iv,
+        tag: decryptResult.newPayload.tag,
+        password_hash: decryptResult.newPayload.hash,
+        password_salt: decryptResult.newPayload.salt,
+        updated_at: new Date().toISOString(),
+      }).catch(() => {});
+    }
+    return decryptResult.plainText || null;
   } catch (err: any) {
     console.warn(`[resolveDynamicVaultPassword] Decryption failure for vault item "${cleanId}":`, err.message);
     return null;

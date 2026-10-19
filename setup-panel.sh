@@ -789,8 +789,27 @@ else
   log_warning "Warning: backend/schema.sql was not found in $INSTALL_DIR."
 fi
 
-# Generate random JWT secret if not present
-JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_jwt_secret_$(date +%s)")
+# Preserve existing secrets from .env if already configured (prevents credential decryption breakage on upgrade)
+EXISTING_JWT_SECRET=""
+EXISTING_VAULT_SECRET=""
+if [ -f "$INSTALL_DIR/.env" ]; then
+  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "$INSTALL_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_VAULT_SECRET=$(grep -E '^VAULT_SECRET=' "$INSTALL_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+fi
+
+if [ -n "$EXISTING_JWT_SECRET" ]; then
+  JWT_SECRET="$EXISTING_JWT_SECRET"
+  log_info "Preserved existing JWT_SECRET from .env configuration."
+else
+  JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_jwt_secret_$(date +%s)")
+fi
+
+if [ -n "$EXISTING_VAULT_SECRET" ]; then
+  VAULT_SECRET="$EXISTING_VAULT_SECRET"
+  log_info "Preserved existing VAULT_SECRET from .env configuration."
+else
+  VAULT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_vault_master_key_$(date +%s)")
+fi
 
 # ------------------------------------------------------------------------------
 # 6. Environment Configuration (.env) & Systemd Service Deployment
@@ -813,6 +832,7 @@ DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 ADMIN_INITIAL_PASSWORD=$ADMIN_INITIAL_PASSWORD
 JWT_SECRET=$JWT_SECRET
+VAULT_SECRET=$VAULT_SECRET
 EOF
 
 log_step "Stopping any conflicting or stale server processes..."
