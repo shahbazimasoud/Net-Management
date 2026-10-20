@@ -268,9 +268,19 @@ echo -e "  • جداسازی داخلی: سرویس‌های Node.js و Python 
 # ذخیره تنظیمات در فایل .env با حفظ کلیدهای رمزنگاری قبلی جهت عدم اختلال در ولت گذرواژه‌ها
 EXISTING_JWT_SECRET=""
 EXISTING_VAULT_SECRET=""
+EXISTING_NETTOP_KEY=""
+ENV_CANDIDATE=""
+
 if [ -f "$APP_DIR/.env" ]; then
-  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "$APP_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
-  EXISTING_VAULT_SECRET=$(grep -E '^VAULT_SECRET=' "$APP_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  ENV_CANDIDATE="$APP_DIR/.env"
+elif [ -f "/etc/nettopology-backup/.env" ]; then
+  ENV_CANDIDATE="/etc/nettopology-backup/.env"
+fi
+
+if [ -n "$ENV_CANDIDATE" ]; then
+  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_VAULT_SECRET=$(grep -E '^VAULT_SECRET=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_NETTOP_KEY=$(grep -E '^NETTOP_ENCRYPTION_KEY=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
 fi
 
 if [ -n "$EXISTING_JWT_SECRET" ]; then
@@ -283,6 +293,16 @@ if [ -n "$EXISTING_VAULT_SECRET" ]; then
   VAULT_SECRET="$EXISTING_VAULT_SECRET"
 else
   VAULT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_vault_master_key_$(date +%s)")
+fi
+
+if [ -n "$EXISTING_NETTOP_KEY" ]; then
+  NETTOP_ENCRYPTION_KEY="$EXISTING_NETTOP_KEY"
+elif [ -f "$APP_DIR/backend/security/.secret.key" ]; then
+  NETTOP_ENCRYPTION_KEY=$(cat "$APP_DIR/backend/security/.secret.key" 2>/dev/null | tr -d '\r\n ')
+elif [ -f "/etc/nettopology-backup/.secret.key" ]; then
+  NETTOP_ENCRYPTION_KEY=$(cat "/etc/nettopology-backup/.secret.key" 2>/dev/null | tr -d '\r\n ')
+else
+  NETTOP_ENCRYPTION_KEY=$(python3 -c "import hashlib, base64; print(base64.urlsafe_b64encode(hashlib.sha256('$VAULT_SECRET'.encode()).digest()).decode())" 2>/dev/null || echo "")
 fi
 
 cat << EOF > "$APP_DIR/.env"
@@ -303,7 +323,13 @@ DB_PASSWORD=$DB_PASSWORD
 ADMIN_INITIAL_PASSWORD=$ADMIN_INITIAL_PASSWORD
 JWT_SECRET=$JWT_SECRET
 VAULT_SECRET=$VAULT_SECRET
+NETTOP_ENCRYPTION_KEY=$NETTOP_ENCRYPTION_KEY
 EOF
+
+# Backup persistent secrets to /etc/nettopology-backup
+mkdir -p /etc/nettopology-backup 2>/dev/null || true
+cp -f "$APP_DIR/.env" /etc/nettopology-backup/.env 2>/dev/null || true
+[ -f "$APP_DIR/backend/security/.secret.key" ] && cp -f "$APP_DIR/backend/security/.secret.key" /etc/nettopology-backup/.secret.key 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # 2. Package Manager & System Dependencies & PostgreSQL

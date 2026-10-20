@@ -12,6 +12,7 @@ import {
   addAuditLog,
   getDbStatus,
 } from './db';
+import { encryptServerSecret } from './vaultCrypto';
 import { APP_VERSION } from '../src/version';
 
 export type ServerBackupScope =
@@ -694,6 +695,26 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
     auditEmailReports: rawData.audit_email_reports || rawData.auditEmailReports || [],
   };
 
+  // Encrypt cleartext device passwords with AES-256-GCM before writing to PostgreSQL & fallback store
+  for (const d of normalizedData.devices) {
+    if (d) {
+      const sp = d.ssh_password || (d.connection && d.connection.password) || (d.connection_data && d.connection_data.password);
+      if (sp && typeof sp === 'string' && sp.trim().length > 0 && !sp.startsWith('enc:v1:') && !sp.startsWith('enc:fernet:')) {
+        try {
+          d.ssh_password = encryptServerSecret(sp.trim());
+          if (d.connection) d.connection.password = d.ssh_password;
+          if (d.connection_data) d.connection_data.password = d.ssh_password;
+        } catch {}
+      }
+      const ep = d.enable_password;
+      if (ep && typeof ep === 'string' && ep.trim().length > 0 && !ep.startsWith('enc:v1:') && !ep.startsWith('enc:fernet:')) {
+        try {
+          d.enable_password = encryptServerSecret(ep.trim());
+        } catch {}
+      }
+    }
+  }
+
   // 2. Create Pre-Restore Safety Snapshot (Atomic Rollback Guarantee)
   const snapshot = await createPreRestoreSafetySnapshot(`Auto Snapshot prior to ${mode} restore`);
 
@@ -896,6 +917,20 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
       // Network Devices
       for (const d of normalizedData.devices) {
         if (!d.id || !d.name || !d.ip) continue;
+        let sshPass = d.ssh_password || (d.connection && d.connection.password) || (d.connection_data && d.connection_data.password) || null;
+        let enablePass = d.enable_password || null;
+
+        if (sshPass && typeof sshPass === 'string' && sshPass.trim().length > 0 && !sshPass.startsWith('enc:v1:') && !sshPass.startsWith('enc:fernet:')) {
+          try {
+            sshPass = encryptServerSecret(sshPass.trim());
+          } catch {}
+        }
+        if (enablePass && typeof enablePass === 'string' && enablePass.trim().length > 0 && !enablePass.startsWith('enc:v1:') && !enablePass.startsWith('enc:fernet:')) {
+          try {
+            enablePass = encryptServerSecret(enablePass.trim());
+          } catch {}
+        }
+
         await client.query(
           `INSERT INTO devices (
              id, name, ip, type, model, platform, role, connection_mode, connection_protocol,
@@ -954,8 +989,8 @@ export async function restoreDatabaseBackup(options: BackupRestoreOptions): Prom
             d.ssh_port || 22,
             d.winbox_port || 8291,
             d.ssh_username || 'admin',
-            d.ssh_password || null,
-            d.enable_password || null,
+            sshPass || null,
+            enablePass || null,
             JSON.stringify(d.connection_data || {}),
             JSON.stringify(d.ports || []),
             d.building || '',

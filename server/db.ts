@@ -1474,11 +1474,19 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
         ? initialData.devices
         : loadInitialDevices();
       for (const d of devicesToSeed) {
+        const seedSshPass = d.ssh_password
+          ? (d.ssh_password.startsWith('enc:v1:') ? d.ssh_password : encryptServerSecret(d.ssh_password))
+          : (d.connection && d.connection.password ? (d.connection.password.startsWith('enc:v1:') ? d.connection.password : encryptServerSecret(d.connection.password)) : null);
+        const seedEnablePass = d.enable_password
+          ? (d.enable_password.startsWith('enc:v1:') ? d.enable_password : encryptServerSecret(d.enable_password))
+          : null;
+
         await client.query(
           `INSERT INTO devices (
             id, name, ip, type, model, platform, role, connection_mode, ssh_host, ssh_port, ssh_username,
-            is_online, latency_ms, mac_address, uptime_str, ports, building, floor, unit, rack, section, location, hierarchy_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+            is_online, latency_ms, mac_address, uptime_str, ports, building, floor, unit, rack, section, location, hierarchy_id,
+            ssh_password, enable_password
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
           ON CONFLICT (id) DO UPDATE SET
             building = EXCLUDED.building,
             floor = EXCLUDED.floor,
@@ -1486,7 +1494,9 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             rack = EXCLUDED.rack,
             section = EXCLUDED.section,
             location = EXCLUDED.location,
-            hierarchy_id = EXCLUDED.hierarchy_id`,
+            hierarchy_id = EXCLUDED.hierarchy_id,
+            ssh_password = CASE WHEN EXCLUDED.ssh_password IS NOT NULL AND EXCLUDED.ssh_password <> '' THEN EXCLUDED.ssh_password ELSE devices.ssh_password END,
+            enable_password = CASE WHEN EXCLUDED.enable_password IS NOT NULL AND EXCLUDED.enable_password <> '' THEN EXCLUDED.enable_password ELSE devices.enable_password END`,
           [
             d.id,
             d.name,
@@ -1511,6 +1521,8 @@ async function syncFallbackToPostgres(client: PoolClient, initialData: FallbackS
             d.section || '',
             d.location || '',
             d.hierarchy_id || '',
+            seedSshPass,
+            seedEnablePass,
           ]
         );
 
@@ -2204,6 +2216,9 @@ export async function initDatabase(): Promise<void> {
     // Initialize or load authoritative security keychain from PostgreSQL
     await initOrLoadSystemSecurityKeys(client);
 
+    // Auto-migrate legacy device credentials to PostgreSQL AES-256-GCM storage
+    await migrateLegacyDeviceCredentialsToPostgres(client);
+
     client.release();
     isPostgresReady = true;
     lastError = null;
@@ -2212,7 +2227,231 @@ export async function initDatabase(): Promise<void> {
     lastError = err.message || 'PostgreSQL not available';
     console.warn(`[Database Notice] PostgreSQL is not reachable (${lastError}). Using robust file-backed store for persistence.`);
     await initOrLoadSystemSecurityKeys();
+    await migrateLegacyDeviceCredentialsToPostgres();
   }
+}
+
+/**
+ * Decrypts legacy Fernet tokens (enc:fernet:...) using candidate keys
+ */
+export function decryptFernetToken(encrypted: string): string {
+  if (!encrypted || typeof encrypted !== 'string' || !encrypted.startsWith('enc:fernet:')) {
+    return encrypted;
+  }
+  const tokenStr = encrypted.replace(/^enc:fernet:/, '');
+  try {
+    const raw = Buffer.from(tokenStr.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    if (raw.length < 57) return encrypted;
+
+    const candidateKeys: Buffer[] = [];
+
+    const envKey = process.env.NETTOP_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY;
+    if (envKey) {
+      try {
+        const b = Buffer.from(envKey.trim().replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        if (b.length === 32) candidateKeys.push(b);
+      } catch {}
+    }
+
+    const keyPath = path.resolve(process.cwd(), 'backend', 'security', '.secret.key');
+    if (fs.existsSync(keyPath)) {
+      try {
+        const rawKey = fs.readFileSync(keyPath, 'utf-8').trim();
+        const b = Buffer.from(rawKey.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        if (b.length === 32) candidateKeys.push(b);
+      } catch {}
+    }
+
+    const keychain = getCachedSecurityKeychain?.();
+    const secrets = [
+      keychain?.masterKey,
+      process.env.VAULT_SECRET,
+      process.env.JWT_SECRET,
+      'nettopology_vault_master_key_2026_aes256gcm_safe',
+    ];
+    for (const s of secrets) {
+      if (s && typeof s === 'string') {
+        try {
+          candidateKeys.push(crypto.createHash('sha256').update(s).digest());
+        } catch {}
+      }
+    }
+
+    const iv = raw.subarray(9, 25);
+    const ciphertext = raw.subarray(25, raw.length - 32);
+
+    for (const keyBuffer of candidateKeys) {
+      try {
+        const encKey = keyBuffer.subarray(16, 32);
+        const decipher = crypto.createDecipheriv('aes-128-cbc', encKey, iv);
+        decipher.setAutoPadding(true);
+        let decrypted = decipher.update(ciphertext, undefined, 'utf-8');
+        decrypted += decipher.final('utf-8');
+        if (decrypted && decrypted.length > 0) {
+          return decrypted;
+        }
+      } catch {}
+    }
+  } catch {}
+  return encrypted;
+}
+
+/**
+ * Automatically migrates and self-heals all legacy device credentials (from Fernet, cleartext,
+ * network_data.json, and fallback stores) directly into PostgreSQL using AES-256-GCM.
+ */
+export async function migrateLegacyDeviceCredentialsToPostgres(client?: PoolClient): Promise<{ migrated: number; total: number }> {
+  let migrated = 0;
+  let total = 0;
+
+  try {
+    const jsonDeviceMap = new Map<string, { sshPass?: string; enablePass?: string }>();
+
+    const checkFile = (filePath: string) => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          const list = Array.isArray(content.devices) ? content.devices : [];
+          for (const d of list) {
+            if (d && d.id) {
+              const ssh = d.ssh_password || (d.connection && d.connection.password);
+              const enable = d.enable_password;
+              if (ssh || enable) {
+                jsonDeviceMap.set(d.id, { sshPass: ssh, enablePass: enable });
+              }
+            }
+          }
+        }
+      } catch {}
+    };
+
+    checkFile(path.join(process.cwd(), 'backend', 'network_data.json'));
+    checkFile(path.join(process.cwd(), 'backend', 'database_store.json'));
+
+    const helperResolvePlain = (pass: string): string => {
+      if (!pass || typeof pass !== 'string') return '';
+      if (pass.startsWith('enc:v1:')) {
+        const meta = decryptServerSecretWithMeta(pass);
+        return meta.plainText || '';
+      }
+      if (pass.startsWith('enc:fernet:')) {
+        const dec = decryptFernetToken(pass);
+        if (dec && !dec.startsWith('enc:fernet:')) return dec;
+      }
+      return pass; // cleartext
+    };
+
+    const processRecord = (rowId: string, currentSsh: string, currentEnable: string): { newSsh: string; newEnable: string; changed: boolean } => {
+      let workingSsh = currentSsh || '';
+      let workingEnable = currentEnable || '';
+      let changed = false;
+
+      if (!workingSsh && jsonDeviceMap.has(rowId)) {
+        const jsonRec = jsonDeviceMap.get(rowId);
+        if (jsonRec?.sshPass) workingSsh = jsonRec.sshPass;
+      }
+      if (!workingEnable && jsonDeviceMap.has(rowId)) {
+        const jsonRec = jsonDeviceMap.get(rowId);
+        if (jsonRec?.enablePass) workingEnable = jsonRec.enablePass;
+      }
+
+      let finalSsh = workingSsh;
+      if (workingSsh) {
+        if (!workingSsh.startsWith('enc:v1:')) {
+          const plain = helperResolvePlain(workingSsh);
+          if (plain) {
+            finalSsh = encryptServerSecret(plain);
+            changed = true;
+          }
+        } else {
+          // Check if encrypted with legacy key, auto-heal to active key
+          const meta = decryptServerSecretWithMeta(workingSsh);
+          if (meta.isLegacyKey && meta.newEncryptedString) {
+            finalSsh = meta.newEncryptedString;
+            changed = true;
+          }
+        }
+      }
+
+      let finalEnable = workingEnable;
+      if (workingEnable) {
+        if (!workingEnable.startsWith('enc:v1:')) {
+          const plain = helperResolvePlain(workingEnable);
+          if (plain) {
+            finalEnable = encryptServerSecret(plain);
+            changed = true;
+          }
+        } else {
+          const meta = decryptServerSecretWithMeta(workingEnable);
+          if (meta.isLegacyKey && meta.newEncryptedString) {
+            finalEnable = meta.newEncryptedString;
+            changed = true;
+          }
+        }
+      }
+
+      return { newSsh: finalSsh, newEnable: finalEnable, changed };
+    };
+
+    // 1. Process PostgreSQL records if available
+    const runPgMigration = async (c: PoolClient) => {
+      const res = await c.query('SELECT id, name, ssh_password, enable_password FROM devices');
+      total = res.rows.length;
+
+      for (const row of res.rows) {
+        const result = processRecord(row.id, row.ssh_password || '', row.enable_password || '');
+        if (result.changed) {
+          await c.query(
+            'UPDATE devices SET ssh_password = $1, enable_password = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+            [result.newSsh || null, result.newEnable || null, row.id]
+          );
+          migrated++;
+        }
+      }
+    };
+
+    if (client) {
+      await runPgMigration(client);
+    } else {
+      await ensurePostgresConnection();
+      if (isPostgresReady && pool) {
+        const c = await pool.connect();
+        try {
+          await runPgMigration(c);
+        } finally {
+          c.release();
+        }
+      }
+    }
+
+    // 2. Also migrate fallback store records for robust offline operation
+    const store = loadFallbackStore();
+    if (Array.isArray(store.devices)) {
+      let fallbackChanged = false;
+      for (const dev of store.devices) {
+        const res = processRecord(dev.id, dev.ssh_password || (dev.connection && dev.connection.password) || '', dev.enable_password || '');
+        if (res.changed) {
+          dev.ssh_password = res.newSsh;
+          dev.enable_password = res.newEnable;
+          if (dev.connection) {
+            dev.connection.password = res.newSsh;
+          }
+          fallbackChanged = true;
+        }
+      }
+      if (fallbackChanged) {
+        saveFallbackStore(store);
+      }
+    }
+
+    if (migrated > 0) {
+      console.log(`[Auto-Migration] Successfully migrated ${migrated}/${total} network devices to PostgreSQL-authoritative AES-256-GCM storage.`);
+    }
+  } catch (err: any) {
+    console.warn('[Auto-Migration Notice] Device credential migration notice:', err.message);
+  }
+
+  return { migrated, total };
 }
 
 /**
@@ -6117,6 +6356,9 @@ export async function getRemoteServerById(id: string): Promise<RemoteServer | nu
   );
   return defaultFound ? { ...defaultFound } : null;
 }
+
+export const getServerById = getRemoteServerById;
+export const getAllServers = getAllRemoteServers;
 
 export async function createRemoteServer(data: Partial<RemoteServer>): Promise<RemoteServer> {
   const newServer: RemoteServer = {

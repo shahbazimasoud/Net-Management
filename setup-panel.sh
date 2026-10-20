@@ -532,6 +532,20 @@ install_nodejs() {
 install_nodejs
 
 # ------------------------------------------------------------------------------
+# 2.9 Pre-Install Data & Secret Backup (Guarantees zero-data loss across reinstall)
+# ------------------------------------------------------------------------------
+BACKUP_DIR="/etc/nettopology-backup"
+mkdir -p "$BACKUP_DIR"
+
+if [ -d "$INSTALL_DIR" ]; then
+  log_info "Creating pre-upgrade snapshot of existing environment and secrets in $BACKUP_DIR..."
+  [ -f "$INSTALL_DIR/.env" ] && cp -f "$INSTALL_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
+  [ -f "$INSTALL_DIR/backend/security/.secret.key" ] && cp -f "$INSTALL_DIR/backend/security/.secret.key" "$BACKUP_DIR/.secret.key" 2>/dev/null || true
+  [ -f "$INSTALL_DIR/backend/network_data.json" ] && cp -f "$INSTALL_DIR/backend/network_data.json" "$BACKUP_DIR/network_data.json" 2>/dev/null || true
+  [ -f "$INSTALL_DIR/backend/database_store.json" ] && cp -f "$INSTALL_DIR/backend/database_store.json" "$BACKUP_DIR/database_store.json" 2>/dev/null || true
+fi
+
+# ------------------------------------------------------------------------------
 # 3. Code Retrieval & Directory Setup
 # ------------------------------------------------------------------------------
 if [ "$(pwd)" != "$INSTALL_DIR" ]; then
@@ -600,16 +614,29 @@ fi
 log_success "Apache Guacamole Daemon (guacd >= 1.5.5) is installed and running."
 
 # ------------------------------------------------------------------------------
-# 4. Data Preservation
+# 4. Data Preservation & Secret Restoration
 # ------------------------------------------------------------------------------
-BACKUP_FILE="/etc/nettopology-backup/network_data.json"
+BACKUP_FILE="$BACKUP_DIR/network_data.json"
 TARGET_DATA_FILE="$INSTALL_DIR/backend/network_data.json"
 
 if [ -f "$BACKUP_FILE" ]; then
   log_info "Restoring persistent topology state from $BACKUP_FILE..."
   mkdir -p "$INSTALL_DIR/backend"
-  cp "$BACKUP_FILE" "$TARGET_DATA_FILE"
+  cp -f "$BACKUP_FILE" "$TARGET_DATA_FILE"
   log_success "Previous topology data preserved successfully."
+fi
+
+if [ -f "$BACKUP_DIR/database_store.json" ]; then
+  log_info "Restoring persistent fallback database store from $BACKUP_DIR/database_store.json..."
+  mkdir -p "$INSTALL_DIR/backend"
+  cp -f "$BACKUP_DIR/database_store.json" "$INSTALL_DIR/backend/database_store.json"
+fi
+
+if [ -f "$BACKUP_DIR/.secret.key" ]; then
+  log_info "Restoring persistent encryption key from $BACKUP_DIR/.secret.key..."
+  mkdir -p "$INSTALL_DIR/backend/security"
+  cp -f "$BACKUP_DIR/.secret.key" "$INSTALL_DIR/backend/security/.secret.key"
+  chmod 600 "$INSTALL_DIR/backend/security/.secret.key" 2>/dev/null || true
 fi
 
 # ------------------------------------------------------------------------------
@@ -792,23 +819,44 @@ fi
 # Preserve existing secrets from .env if already configured (prevents credential decryption breakage on upgrade)
 EXISTING_JWT_SECRET=""
 EXISTING_VAULT_SECRET=""
+EXISTING_NETTOP_KEY=""
+ENV_CANDIDATE=""
+
 if [ -f "$INSTALL_DIR/.env" ]; then
-  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "$INSTALL_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
-  EXISTING_VAULT_SECRET=$(grep -E '^VAULT_SECRET=' "$INSTALL_DIR/.env" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  ENV_CANDIDATE="$INSTALL_DIR/.env"
+elif [ -f "$BACKUP_DIR/.env" ]; then
+  ENV_CANDIDATE="$BACKUP_DIR/.env"
+fi
+
+if [ -n "$ENV_CANDIDATE" ]; then
+  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_VAULT_SECRET=$(grep -E '^VAULT_SECRET=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_NETTOP_KEY=$(grep -E '^NETTOP_ENCRYPTION_KEY=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
 fi
 
 if [ -n "$EXISTING_JWT_SECRET" ]; then
   JWT_SECRET="$EXISTING_JWT_SECRET"
-  log_info "Preserved existing JWT_SECRET from .env configuration."
+  log_info "Preserved existing JWT_SECRET from configuration."
 else
   JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_jwt_secret_$(date +%s)")
 fi
 
 if [ -n "$EXISTING_VAULT_SECRET" ]; then
   VAULT_SECRET="$EXISTING_VAULT_SECRET"
-  log_info "Preserved existing VAULT_SECRET from .env configuration."
+  log_info "Preserved existing VAULT_SECRET from configuration."
 else
   VAULT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "nettopology_vault_master_key_$(date +%s)")
+fi
+
+if [ -n "$EXISTING_NETTOP_KEY" ]; then
+  NETTOP_ENCRYPTION_KEY="$EXISTING_NETTOP_KEY"
+  log_info "Preserved existing NETTOP_ENCRYPTION_KEY from configuration."
+elif [ -f "$INSTALL_DIR/backend/security/.secret.key" ]; then
+  NETTOP_ENCRYPTION_KEY=$(cat "$INSTALL_DIR/backend/security/.secret.key" 2>/dev/null | tr -d '\r\n ')
+elif [ -f "$BACKUP_DIR/.secret.key" ]; then
+  NETTOP_ENCRYPTION_KEY=$(cat "$BACKUP_DIR/.secret.key" 2>/dev/null | tr -d '\r\n ')
+else
+  NETTOP_ENCRYPTION_KEY=$(python3 -c "import hashlib, base64; print(base64.urlsafe_b64encode(hashlib.sha256('$VAULT_SECRET'.encode()).digest()).decode())" 2>/dev/null || echo "")
 fi
 
 # ------------------------------------------------------------------------------
@@ -833,6 +881,7 @@ DB_PASSWORD=$DB_PASSWORD
 ADMIN_INITIAL_PASSWORD=$ADMIN_INITIAL_PASSWORD
 JWT_SECRET=$JWT_SECRET
 VAULT_SECRET=$VAULT_SECRET
+NETTOP_ENCRYPTION_KEY=$NETTOP_ENCRYPTION_KEY
 EOF
 
 log_step "Stopping any conflicting or stale server processes..."

@@ -48,12 +48,26 @@ def get_or_create_encryption_key() -> bytes:
         except Exception as e:
             print(f"[Crypto] Warning reading {_KEY_FILE}: {e}")
 
-    # Generate new persistent key
-    if HAS_CRYPTOGRAPHY:
-        new_key = Fernet.generate_key()
-    else:
-        # Fallback 32-byte urlsafe base64 key if cryptography is missing
-        new_key = base64.urlsafe_b64encode(os.urandom(32))
+    # Seed persistent key deterministically if missing (prevents secret loss on reinstall)
+    candidate_secret = os.environ.get("VAULT_SECRET") or os.environ.get("JWT_SECRET")
+    if not candidate_secret:
+        try:
+            store_file = os.path.join(os.path.dirname(_SECURITY_DIR), "database_store.json")
+            if os.path.exists(store_file):
+                with open(store_file, "r", encoding="utf-8") as sf:
+                    sdata = json.load(sf)
+                    sec_keys = sdata.get("system_security_keys", [])
+                    if sec_keys and isinstance(sec_keys, list) and "master_key" in sec_keys[0]:
+                        candidate_secret = sec_keys[0]["master_key"]
+        except Exception:
+            pass
+
+    if not candidate_secret:
+        candidate_secret = "nettopology_vault_master_key_2026_aes256gcm_safe"
+
+    import hashlib
+    seed_hash = hashlib.sha256(candidate_secret.encode("utf-8")).digest()
+    new_key = base64.urlsafe_b64encode(seed_hash)
 
     try:
         os.makedirs(_SECURITY_DIR, exist_ok=True)
@@ -61,7 +75,7 @@ def get_or_create_encryption_key() -> bytes:
         fd = os.open(_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "wb") as f:
             f.write(new_key)
-        print(f"[Crypto] Generated new persistent encryption key in {_KEY_FILE}")
+        print(f"[Crypto] Seeded persistent encryption key in {_KEY_FILE}")
     except Exception as e:
         print(f"[Crypto] Warning saving encryption key to {_KEY_FILE}: {e}")
 
@@ -87,7 +101,7 @@ def is_encrypted(val: Optional[str]) -> bool:
     """Checks if a credential string is already encrypted."""
     if not val or not isinstance(val, str):
         return False
-    return val.startswith(_PREFIX) or val.startswith("gAAAAA")
+    return val.startswith(_PREFIX) or val.startswith("gAAAAA") or val.startswith("enc:v1:")
 
 def encrypt_credential(plain_text: Optional[str]) -> str:
     """
@@ -115,31 +129,76 @@ def encrypt_credential(plain_text: Optional[str]) -> str:
 def decrypt_credential(cipher_text: Optional[str]) -> str:
     """
     Decrypts an encrypted credential back to cleartext.
-    Supports 'enc:fernet:<token>' and raw tokens.
-    If cleartext or decryption fails, safely returns the input value.
+    Supports 'enc:v1:<iv>:<tag>:<ciphertext>' (AES-256-GCM), 'enc:fernet:<token>', and raw tokens.
+    Leverages multi-key fallback if key was re-created or changed across updates.
     """
     if not cipher_text or not isinstance(cipher_text, str):
         return ""
     if not is_encrypted(cipher_text):
         return cipher_text
 
-    f = get_fernet()
-    if not f:
-        return cipher_text
+    # Support AES-256-GCM enc:v1:
+    if cipher_text.startswith("enc:v1:"):
+        parts = cipher_text.split(":")
+        if len(parts) == 5:
+            try:
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+                from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+                iv = bytes.fromhex(parts[2])
+                tag = bytes.fromhex(parts[3])
+                ct = bytes.fromhex(parts[4])
+                master = os.environ.get("VAULT_SECRET") or os.environ.get("JWT_SECRET") or "nettopology_vault_master_key_2026_aes256gcm_safe"
+                kdf = Scrypt(salt=b"server_credential_system_salt", length=32, n=16384, r=8, p=1)
+                derived_key = kdf.derive(master.encode("utf-8"))
+                aesgcm = AESGCM(derived_key)
+                plain = aesgcm.decrypt(iv, ct + tag, None).decode("utf-8")
+                return plain
+            except Exception as e:
+                print(f"[Crypto] AES-256-GCM decryption notice: {e}")
 
     token_str = cipher_text
     if cipher_text.startswith(_PREFIX):
         token_str = cipher_text[len(_PREFIX):]
 
-    try:
-        decrypted = f.decrypt(token_str.encode("utf-8")).decode("utf-8")
-        return decrypted
-    except InvalidToken:
-        print("[Crypto] Warning: Invalid token or mismatched encryption key.")
-        return cipher_text
-    except Exception as e:
-        print(f"[Crypto] Decryption error: {e}")
-        return cipher_text
+    # 1. Try active Fernet engine first
+    f = get_fernet()
+    if f:
+        try:
+            return f.decrypt(token_str.encode("utf-8")).decode("utf-8")
+        except InvalidToken:
+            pass
+        except Exception as e:
+            print(f"[Crypto] Decryption error: {e}")
+
+    # 2. Adaptive multi-key candidate fallback across historical & seeded secrets
+    if HAS_CRYPTOGRAPHY:
+        candidate_seeds = [
+            os.environ.get("NETTOP_ENCRYPTION_KEY"),
+            os.environ.get("ENCRYPTION_KEY"),
+            os.environ.get("VAULT_SECRET"),
+            os.environ.get("JWT_SECRET"),
+            "nettopology_vault_master_key_2026_aes256gcm_safe",
+            "nettopology_super_secret_jwt_key_2026_cisco_ops",
+        ]
+        import hashlib
+        for seed in candidate_seeds:
+            if not seed:
+                continue
+            try:
+                k_bytes = seed.strip().encode("utf-8")
+                if len(k_bytes) == 44:
+                    cf = Fernet(k_bytes)
+                    return cf.decrypt(token_str.encode("utf-8")).decode("utf-8")
+            except Exception:
+                pass
+            try:
+                derived = base64.urlsafe_b64encode(hashlib.sha256(seed.strip().encode("utf-8")).digest())
+                cf = Fernet(derived)
+                return cf.decrypt(token_str.encode("utf-8")).decode("utf-8")
+            except Exception:
+                pass
+
+    return cipher_text
 
 def mask_credential(val: Optional[str]) -> str:
     """Returns masked stars for safe presentation in UI."""

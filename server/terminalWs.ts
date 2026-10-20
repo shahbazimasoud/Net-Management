@@ -19,30 +19,53 @@ function decryptFernetCredential(encrypted: string, projectRoot: string): string
     const raw = Buffer.from(tokenStr.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
     if (raw.length < 57) return encrypted;
 
-    // Resolve 32-byte encryption key
-    let keyBuffer: Buffer | null = null;
+    // Collect candidate 32-byte encryption keys
+    const candidateKeys: Buffer[] = [];
     const envKey = process.env.NETTOP_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY;
     if (envKey) {
-      keyBuffer = Buffer.from(envKey.trim().replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-    } else {
-      const keyPath = path.resolve(projectRoot, 'backend', 'security', '.secret.key');
-      if (fs.existsSync(keyPath)) {
+      try {
+        const b = Buffer.from(envKey.trim().replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        if (b.length === 32) candidateKeys.push(b);
+      } catch {}
+    }
+
+    const keyPath = path.resolve(projectRoot, 'backend', 'security', '.secret.key');
+    if (fs.existsSync(keyPath)) {
+      try {
         const rawKey = fs.readFileSync(keyPath, 'utf-8').trim();
-        keyBuffer = Buffer.from(rawKey.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        const b = Buffer.from(rawKey.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        if (b.length === 32) candidateKeys.push(b);
+      } catch {}
+    }
+
+    const seedSecrets = [
+      process.env.VAULT_SECRET,
+      process.env.JWT_SECRET,
+      'nettopology_vault_master_key_2026_aes256gcm_safe',
+      'nettopology_super_secret_jwt_key_2026_cisco_ops',
+    ];
+    for (const s of seedSecrets) {
+      if (s) {
+        candidateKeys.push(crypto.createHash('sha256').update(s).digest());
       }
     }
 
-    if (!keyBuffer || keyBuffer.length !== 32) return encrypted;
-
-    const encKey = keyBuffer.subarray(16, 32);
     const iv = raw.subarray(9, 25);
     const ciphertext = raw.subarray(25, raw.length - 32);
 
-    const decipher = crypto.createDecipheriv('aes-128-cbc', encKey, iv);
-    decipher.setAutoPadding(true);
-    let decrypted = decipher.update(ciphertext, undefined, 'utf-8');
-    decrypted += decipher.final('utf-8');
-    return decrypted;
+    for (const keyBuffer of candidateKeys) {
+      try {
+        const encKey = keyBuffer.subarray(16, 32);
+        const decipher = crypto.createDecipheriv('aes-128-cbc', encKey, iv);
+        decipher.setAutoPadding(true);
+        let decrypted = decipher.update(ciphertext, undefined, 'utf-8');
+        decrypted += decipher.final('utf-8');
+        if (decrypted && decrypted.length > 0) {
+          return decrypted;
+        }
+      } catch {}
+    }
+    return encrypted;
   } catch {
     return encrypted;
   }
@@ -112,167 +135,214 @@ export function setupTerminalWebSocket(
     const rawLang = parsedUrl.searchParams.get('lang') || parsedUrl.searchParams.get('language') || 'fa';
     const isEn = rawLang.toLowerCase() === 'en';
 
-    // Authoritative lookup in database_store.json and network_data.json
+    // Authoritative lookup: First directly from PostgreSQL, then fallback to JSON stores
     try {
-      const storePaths = [
-        path.resolve(projectRoot, 'backend', 'database_store.json'),
-        path.resolve(projectRoot, 'backend', 'network_data.json'),
-      ];
+      let srv: any = null;
+      let dev: any = null;
 
-      for (const storePath of storePaths) {
-        if (!fs.existsSync(storePath)) continue;
-        const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+      // 1. Authoritative lookup in PostgreSQL database
+      try {
+        const { getDeviceById, getRemoteServerById, getAllDevices, getAllRemoteServers } = await import('./db');
+        if (deviceId) {
+          dev = await getDeviceById(deviceId);
+          if (!dev) {
+            srv = await getRemoteServerById(deviceId);
+          }
+        }
+        if (!dev && !srv && host) {
+          const allDevs = await getAllDevices();
+          dev = allDevs.find(
+            (d: any) =>
+              (deviceId && (d.id === deviceId || d.name === deviceId)) ||
+              (host && (d.ip === host || d.ssh_host === host || d.connection?.host === host))
+          );
+          if (!dev) {
+            const allSrvs = await getAllRemoteServers();
+            srv = allSrvs.find(
+              (s: any) =>
+                (deviceId && (s.id === deviceId || s.name === deviceId || s.hostname === deviceId)) ||
+                (host && (s.ip === host || s.hostname === host))
+            );
+          }
+        }
+      } catch (pgErr: any) {
+        console.warn('[TerminalWs] PostgreSQL authoritative lookup notice:', pgErr.message);
+      }
 
-        // Check remote Linux/Windows servers
-        const srv = (store.remote_servers || []).find(
-          (s: any) =>
-            (deviceId && (s.id === deviceId || s.name === deviceId || s.hostname === deviceId)) ||
-            (host && (s.ip === host || s.hostname === host))
-        );
+      // 2. Fallback to file stores if not found in PostgreSQL
+      if (!srv && !dev) {
+        const storePaths = [
+          path.resolve(projectRoot, 'backend', 'database_store.json'),
+          path.resolve(projectRoot, 'backend', 'network_data.json'),
+        ];
 
-        if (srv) {
-          if (!host) host = srv.ip || srv.hostname || '';
-          if (!port || port === 22) port = srv.ssh_port || 22;
-          if (!username) username = srv.ssh_username || 'root';
-          if (!password && !srv.prompt_password_on_connect) {
-            // Dynamic Credential Resolver: Live Vault binding first
-            if (srv.ssh_vault_item_id) {
-              try {
-                const { resolveDynamicVaultPassword } = await import('./db');
-                const vaultPass = await resolveDynamicVaultPassword(srv.ssh_vault_item_id);
-                if (vaultPass) password = vaultPass;
-              } catch (vaultErr: any) {
-                console.warn('[TerminalWs] Dynamic vault resolution notice for server:', vaultErr.message);
-              }
-            }
-            if (!password) {
-              password = srv.ssh_password || '';
+        for (const storePath of storePaths) {
+          if (!fs.existsSync(storePath)) continue;
+          const store = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+
+          if (!srv) {
+            srv = (store.remote_servers || []).find(
+              (s: any) =>
+                (deviceId && (s.id === deviceId || s.name === deviceId || s.hostname === deviceId)) ||
+                (host && (s.ip === host || s.hostname === host))
+            );
+          }
+
+          if (!dev) {
+            dev = (store.devices || []).find(
+              (d: any) =>
+                (deviceId && (d.id === deviceId || d.name === deviceId)) ||
+                (host && (d.ip === host || d.ssh_host === host || d.connection?.host === host))
+            );
+          }
+
+          if (srv || dev) break;
+        }
+      }
+
+      // 3. Process Remote Server if resolved
+      if (srv) {
+        if (!host) host = srv.ip || srv.hostname || '';
+        if (!port || port === 22) port = srv.ssh_port || 22;
+        if (!username) username = srv.ssh_username || 'root';
+        if (!password && !srv.prompt_password_on_connect) {
+          // Dynamic Credential Resolver: Live Vault binding first
+          if (srv.ssh_vault_item_id) {
+            try {
+              const { resolveDynamicVaultPassword } = await import('./db');
+              const vaultPass = await resolveDynamicVaultPassword(srv.ssh_vault_item_id);
+              if (vaultPass) password = vaultPass;
+            } catch (vaultErr: any) {
+              console.warn('[TerminalWs] Dynamic vault resolution notice for server:', vaultErr.message);
             }
           }
-          if (!devPlatform) devPlatform = 'generic_linux';
+          if (!password) {
+            password = srv.ssh_password || '';
+          }
+        }
+        if (!devPlatform) devPlatform = 'generic_linux';
 
-          // Authoritative server scope check in PostgreSQL
-          const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
-          if (token) {
-            try {
-              const { verifyToken } = await import('./auth');
-              const payload = verifyToken(token);
-              if (payload) {
-                const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
-                const eff = await getEffectivePolicyForUser(payload);
-                const cleanU = (payload.username || '').toLowerCase();
-                const cleanR = (payload.role || '').toLowerCase();
-                const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
-                if (!isSuper && eff) {
-                  if (Array.isArray(eff.allowedServerIds)) {
-                    const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
-                    if (!allowedSet.has((srv.id || '').toLowerCase()) && !allowedSet.has((srv.name || '').toLowerCase())) {
-                      clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this server based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n' }));
-                      clientWs.close(4003, 'Forbidden');
-                      return;
-                    }
-                  }
-                  if (!isServerActionPermitted(eff, srv.id, 'terminal')) {
-                    clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: Terminal and remote shell access to this server is prohibited by your RBAC access policy.\x1b[0m\r\n' }));
+        // Authoritative server scope check in PostgreSQL
+        const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+        if (token) {
+          try {
+            const { verifyToken } = await import('./auth');
+            const payload = verifyToken(token);
+            if (payload) {
+              const { getEffectivePolicyForUser, isServerActionPermitted } = await import('./db');
+              const eff = await getEffectivePolicyForUser(payload);
+              const cleanU = (payload.username || '').toLowerCase();
+              const cleanR = (payload.role || '').toLowerCase();
+              const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
+              if (!isSuper && eff) {
+                if (Array.isArray(eff.allowedServerIds)) {
+                  const allowedSet = new Set(eff.allowedServerIds.map((id: string) => (id || '').trim().toLowerCase()));
+                  if (!allowedSet.has((srv.id || '').toLowerCase()) && !allowedSet.has((srv.name || '').toLowerCase())) {
+                    clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this server based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n' }));
                     clientWs.close(4003, 'Forbidden');
                     return;
                   }
                 }
+                if (!isServerActionPermitted(eff, srv.id, 'terminal')) {
+                  clientWs.send(JSON.stringify({ type: 'output', data: '\r\n\x1b[31m[Access Denied]: Terminal and remote shell access to this server is prohibited by your RBAC access policy.\x1b[0m\r\n' }));
+                  clientWs.close(4003, 'Forbidden');
+                  return;
+                }
               }
-            } catch (authErr: any) {
-              console.warn('[TerminalWs] Scope verification notice:', authErr.message);
+            }
+          } catch (authErr: any) {
+            console.warn('[TerminalWs] Scope verification notice:', authErr.message);
+          }
+        }
+      } else if (dev) {
+        // 4. Process Network Device (Cisco, MikroTik, switches, routers)
+        if (!host) host = dev.ssh_host || dev.connection?.host || dev.ip || '';
+        if (!port || port === 22) port = dev.connection?.port || dev.ssh_port || 22;
+        if (!username) username = dev.connection?.username || dev.ssh_username || 'admin';
+        if (!password) {
+          // Dynamic Credential Resolver: Live Vault binding first
+          if (dev.ssh_vault_item_id) {
+            try {
+              const { resolveDynamicVaultPassword } = await import('./db');
+              const vaultPass = await resolveDynamicVaultPassword(dev.ssh_vault_item_id);
+              if (vaultPass) password = vaultPass;
+            } catch (vaultErr: any) {
+              console.warn('[TerminalWs] Dynamic vault resolution notice for device:', vaultErr.message);
             }
           }
-          break;
+          if (!password) {
+            password = dev.ssh_password || dev.connection?.password || '';
+          }
+        }
+        if (!devPlatform) {
+          devPlatform = dev.platform || dev.device_type || '';
+        }
+        if (!devSshVersion) {
+          devSshVersion = dev.ssh_version || dev.sshVersion || (dev.platform?.includes('modern') ? 'modern' : 'legacy');
         }
 
-        // Check network devices (Cisco, MikroTik, switches, routers)
-        const dev = (store.devices || []).find(
-          (d: any) =>
-            (deviceId && (d.id === deviceId || d.name === deviceId)) ||
-            (host && (d.ip === host || d.ssh_host === host || d.connection?.host === host))
-        );
-
-        if (dev) {
-          if (!host) host = dev.ssh_host || dev.connection?.host || dev.ip || '';
-          if (!port || port === 22) port = dev.connection?.port || dev.ssh_port || 22;
-          if (!username) username = dev.connection?.username || dev.ssh_username || 'admin';
-          if (!password) {
-            // Dynamic Credential Resolver: Live Vault binding first
-            if (dev.ssh_vault_item_id) {
-              try {
-                const { resolveDynamicVaultPassword } = await import('./db');
-                const vaultPass = await resolveDynamicVaultPassword(dev.ssh_vault_item_id);
-                if (vaultPass) password = vaultPass;
-              } catch (vaultErr: any) {
-                console.warn('[TerminalWs] Dynamic vault resolution notice for device:', vaultErr.message);
-              }
-            }
-            if (!password) {
-              password = dev.connection?.password || dev.ssh_password || '';
-            }
-          }
-          if (!devPlatform) {
-            devPlatform = dev.platform || dev.device_type || '';
-          }
-          if (!devSshVersion) {
-            devSshVersion = dev.ssh_version || dev.sshVersion || (dev.platform?.includes('modern') ? 'modern' : 'legacy');
-          }
-
-          // Authoritative network equipment scope & terminal permission check in PostgreSQL
-          const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
-          if (token) {
-            try {
-              const { verifyToken } = await import('./auth');
-              const payload = verifyToken(token);
-              if (payload) {
-                const { getEffectivePolicyForUser, isDeviceActionPermitted } = await import('./db');
-                const eff = await getEffectivePolicyForUser(payload);
-                const cleanU = (payload.username || '').toLowerCase();
-                const cleanR = (payload.role || '').toLowerCase();
-                const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
-                if (!isSuper && eff) {
-                  if (Array.isArray(eff.allowedDeviceIds)) {
-                    const allowedSet = new Set(eff.allowedDeviceIds.map((id: string) => (id || '').trim().toLowerCase()));
-                    if (!allowedSet.has((dev.id || '').toLowerCase()) && !allowedSet.has((dev.name || '').toLowerCase())) {
-                      clientWs.send(JSON.stringify({
-                        type: 'output',
-                        data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this network device based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n'
-                      }));
-                      clientWs.close(4003, 'Forbidden');
-                      return;
-                    }
-                  }
-                  if (!isDeviceActionPermitted(eff, dev.id, 'terminal')) {
+        // Authoritative network equipment scope & terminal permission check in PostgreSQL
+        const token = parsedUrl.searchParams.get('token') || parsedUrl.searchParams.get('auth') || '';
+        if (token) {
+          try {
+            const { verifyToken } = await import('./auth');
+            const payload = verifyToken(token);
+            if (payload) {
+              const { getEffectivePolicyForUser, isDeviceActionPermitted } = await import('./db');
+              const eff = await getEffectivePolicyForUser(payload);
+              const cleanU = (payload.username || '').toLowerCase();
+              const cleanR = (payload.role || '').toLowerCase();
+              const isSuper = cleanU === 'admin' || cleanR.includes('super admin') || cleanR.includes('administrator');
+              if (!isSuper && eff) {
+                if (Array.isArray(eff.allowedDeviceIds)) {
+                  const allowedSet = new Set(eff.allowedDeviceIds.map((id: string) => (id || '').trim().toLowerCase()));
+                  if (!allowedSet.has((dev.id || '').toLowerCase()) && !allowedSet.has((dev.name || '').toLowerCase())) {
                     clientWs.send(JSON.stringify({
                       type: 'output',
-                      data: '\r\n\x1b[31m[Access Denied]: Terminal and interactive CLI access to this network device is prohibited by your RBAC access policy in PostgreSQL.\x1b[0m\r\n'
+                      data: '\r\n\x1b[31m[Access Denied]: You do not have permission to access this network device based on your assigned Device Groups in PostgreSQL.\x1b[0m\r\n'
                     }));
                     clientWs.close(4003, 'Forbidden');
                     return;
                   }
                 }
+                if (!isDeviceActionPermitted(eff, dev.id, 'terminal')) {
+                  clientWs.send(JSON.stringify({
+                    type: 'output',
+                    data: '\r\n\x1b[31m[Access Denied]: Terminal and interactive CLI access to this network device is prohibited by your RBAC access policy in PostgreSQL.\x1b[0m\r\n'
+                  }));
+                  clientWs.close(4003, 'Forbidden');
+                  return;
+                }
               }
-            } catch (authErr: any) {
-              console.warn('[TerminalWs] Device scope verification notice:', authErr.message);
             }
+          } catch (authErr: any) {
+            console.warn('[TerminalWs] Device scope verification notice:', authErr.message);
           }
-          break;
         }
       }
     } catch (err) {
       console.warn('[TerminalWs] Database store lookup warning:', err);
     }
 
-    // Decrypt credentials if stored encrypted (Fernet or AES-256-GCM enc:v1:)
-    if (password && password.startsWith('enc:fernet:')) {
-      password = decryptFernetCredential(password, projectRoot);
-    } else if (password && password.startsWith('enc:v1:')) {
+    // Decrypt credentials if stored encrypted (AES-256-GCM enc:v1: or legacy Fernet enc:fernet:)
+    if (password && password.startsWith('enc:v1:')) {
       try {
         const { decryptServerSecret } = await import('./vaultCrypto');
         password = decryptServerSecret(password);
       } catch (decErr: any) {
         console.warn('[TerminalWs] AES-256-GCM secret decryption notice:', decErr.message);
+      }
+    } else if (password && password.startsWith('enc:fernet:')) {
+      try {
+        const { decryptFernetToken } = await import('./db');
+        const dec = decryptFernetToken(password);
+        if (dec && !dec.startsWith('enc:fernet:')) {
+          password = dec;
+        } else {
+          password = decryptFernetCredential(password, projectRoot);
+        }
+      } catch {
+        password = decryptFernetCredential(password, projectRoot);
       }
     }
 

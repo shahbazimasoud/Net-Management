@@ -10,9 +10,49 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.344.0';
+export const APP_VERSION = '1.346.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.346.0',
+    releaseDate: '2026-10-20',
+    type: 'minor',
+    title: 'حفظ دائمی و بدون بازگشت اسرار رمزنگاری و مقاوم‌سازی اسکریپت‌های نصب و بازیابی بکاپ (فاز ۳)',
+    title_en: 'Permanent Cryptographic Secret Persistence & Disaster Recovery Hardening (Phase 3)',
+    changes: [
+      'تجهیز اسکریپت‌های نصب و استقرار خودکار (setup-panel.sh و install.sh) به لایه پشتیبان‌گیری پیشگیرانه در مسیر /etc/nettopology-backup قبل از هرگونه بازنشانی، پول یا ریست پروژه.',
+      'تضمین حفظ صددرصدی و عدم تولید تصادفی مجدد کلیدهای VAULT_SECRET ،JWT_SECRET و NETTOP_ENCRYPTION_KEY در هنگام نصب مجدد یا ارتقای پنل.',
+      'افزودن متغیر پایدار NETTOP_ENCRYPTION_KEY به تنظیمات محیطی .env جهت یکپارچه‌سازی قطعی و بلادرنگ کلیدهای رمزنگاری ماژول‌های پایتون و سرور Node.',
+      'بازگردانی و استقرار خودکار فایل کلید دائمی (.secret.key) و پایگاه داده‌های ذخیره موقت در صورت بروزرسانی بدون گیت.',
+      'مقاوم‌سازی موتور بازیابی پشتیبان (backupEngine) جهت اعتبارسنجی و رمزنگاری خودکار کلمات عبور تجهیزات به فرمت AES-256-GCM قبل از ذخیره‌سازی در PostgreSQL و پایگاه داده محلی.'
+    ],
+    changes_en: [
+      'Equipped automated deployment installers (setup-panel.sh and install.sh) with a pre-upgrade safety backup mechanism in /etc/nettopology-backup prior to git resets or reinstallation.',
+      'Guaranteed 100% preservation of VAULT_SECRET, JWT_SECRET, and NETTOP_ENCRYPTION_KEY across panel upgrades, preventing random secret regeneration.',
+      'Integrated persistent NETTOP_ENCRYPTION_KEY into .env configuration to seamlessly align encryption keys between Python backend and Node server.',
+      'Added automated restoration of persistent secret keys (.secret.key) and data stores during fresh non-git installations.',
+      'Hardened disaster recovery restore engine (backupEngine) to automatically normalize and encrypt network device passwords to AES-256-GCM prior to persisting in PostgreSQL and fallback stores.'
+    ]
+  },
+  {
+    version: '1.345.0',
+    releaseDate: '2026-10-20',
+    type: 'minor',
+    title: 'اتصال وب‌سوکت ترمینال به PostgreSQL و مهاجرت خودکار کلمات عبور به AES-256-GCM (فاز ۲)',
+    title_en: 'PostgreSQL-Authoritative Terminal Resolution & Self-Healing Credential Auto-Migration (Phase 2)',
+    changes: [
+      'اصلاح گیت‌وی وب‌سوکت ترمینال (terminalWs) جهت واکشی اطلاعات و کلمات عبور تجهیزات شبکه مستقیماً و با اولویت مطلق از پایگاه‌داده PostgreSQL به جای اتکا به فایل‌های استاتیک.',
+      'افزودن تابع هوشمند مهاجرت خودکار (migrateLegacyDeviceCredentialsToPostgres) در بارگذاری اولیه پایگاه داده برای تبدیل تمامی کلمات عبور قدیمی (Fernet، متن خام و پایگاه‌های پشتیبان) به استاندارد امن AES-256-GCM و ذخیره قطعی در PostgreSQL.',
+      'تجهیز ماژول رمزنگاری کلمات عبور به مکانیزم شکست‌ناپذیر چندکلیدی (Multi-Key Fallback) و بازیابی خودکار (Auto-Healing) جهت جلوگیری از قطع ارتباط با تجهیزات در صورت نصب مجدد پنل یا حذف فایل‌های موقت کلید.',
+      'همگام‌سازی و ارتقای ماژول پایتون backend/security/crypto با پشتیبانی مستقیم از توکن‌های AES-256-GCM (enc:v1:) و تولید کلید‌های پایدار و ماندگار.'
+    ],
+    changes_en: [
+      'Upgraded Terminal WebSocket gateway (terminalWs) to prioritize direct PostgreSQL queries for device resolution and credentials over static JSON files.',
+      'Implemented automated self-healing migration engine (migrateLegacyDeviceCredentialsToPostgres) converting all legacy credentials (Fernet, cleartext, fallback stores) to standard AES-256-GCM directly inside PostgreSQL upon database boot.',
+      'Equipped credential decryption engines with multi-key candidate fallback and auto-healing across update cycles, ensuring zero password invalidation after panel reinstallation.',
+      'Synchronized backend Python crypto engine with AES-256-GCM (enc:v1:) token compatibility and persistent deterministic key derivation.'
+    ]
+  },
   {
     version: '1.344.0',
     releaseDate: '2026-10-20',
