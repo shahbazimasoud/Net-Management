@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.343.1';
+export const APP_VERSION = '1.344.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.344.0',
+    releaseDate: '2026-10-20',
+    type: 'minor',
+    title: 'اتصال کامل ستون‌های پسورد تجهیزات شبکه به دیتابیس PostgreSQL با رمزنگاری AES-256-GCM (فاز ۱)',
+    title_en: 'Direct PostgreSQL-Authoritative Persistence for Network Device Credentials with AES-256-GCM (Phase 1)',
+    changes: [
+      'اصلاح کوئری‌های INSERT و UPDATE در جدول devices پایگاه‌داده PostgreSQL جهت ذخیره قطعی و پایدار کلمات عبور SSH و Enable با الگوریتم استاندارد AES-256-GCM.',
+      'افزودن دستورات مهاجرت خودکار اسکیما در تابع initDatabase جهت ارتقای نوع ستون‌های ssh_password و enable_password به TEXT بدون محدودیت طول.',
+      'اصلاح تابع createDevice برای رمزنگاری امن سمت سرور (encryptServerSecret) و ثبت مستقیم در پایگاه داده PostgreSQL و دیتابیس پشتیبان.',
+      'تجهیز تابع updateDevice به مکانیزم حفظ پسورد قبلی در صورت عدم ارسال پسورد جدید در درخواست‌های ویرایش و جلوگیری از پاک شدن ناخواسته کلمات عبور.',
+      'واکشی ستون‌های رمز در getAllDevices و getDeviceById از جدول devices و محاسبه امن فیلدهای ssh_password_set و enable_password_set در پاسخ‌های API با رعایت اصل عدم افشای پسورد خام (Zero-Leak Security).'
+    ],
+    changes_en: [
+      'Updated INSERT and UPDATE queries for PostgreSQL devices table to authoritatively persist SSH and Enable passwords using standard AES-256-GCM encryption.',
+      'Added automated schema migration statements in initDatabase to upgrade devices ssh_password and enable_password column types to TEXT.',
+      'Enhanced createDevice with secure server-side encryption (encryptServerSecret) and direct storage into PostgreSQL and fallback store.',
+      'Equipped updateDevice with intelligent existing-password preservation when incoming edit payloads omit new password values, preventing accidental secret clearing.',
+      'Retrieved device password columns in getAllDevices and getDeviceById while safely computing ssh_password_set and enable_password_set flags in API routes adhering to zero-leak credential confidentiality.'
+    ]
+  },
   {
     version: '1.343.1',
     releaseDate: '2026-10-20',

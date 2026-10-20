@@ -2060,6 +2060,10 @@ export async function initDatabase(): Promise<void> {
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS section VARCHAR(128)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS location VARCHAR(128)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS hierarchy_id VARCHAR(64)");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_password TEXT");
+      await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_password TEXT");
+      await client.query("ALTER TABLE devices ALTER COLUMN ssh_password TYPE TEXT");
+      await client.query("ALTER TABLE devices ALTER COLUMN enable_password TYPE TEXT");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS ssh_vault_item_id VARCHAR(64)");
       await client.query("ALTER TABLE devices ADD COLUMN IF NOT EXISTS enable_vault_item_id VARCHAR(64)");
       await client.query("CREATE INDEX IF NOT EXISTS idx_devices_ssh_vault ON devices(ssh_vault_item_id)");
@@ -4211,6 +4215,17 @@ export async function getAllDevices(): Promise<any[]> {
             hierarchy_id: r.hierarchy_id || '',
             ssh_vault_item_id: r.ssh_vault_item_id || undefined,
             enable_vault_item_id: r.enable_vault_item_id || undefined,
+            ssh_password: r.ssh_password || (r.connection_data && r.connection_data.password) || '',
+            ssh_password_set: Boolean(
+              (r.ssh_password && String(r.ssh_password).trim().length > 0) ||
+              r.ssh_vault_item_id ||
+              (r.connection_data && r.connection_data.password && String(r.connection_data.password).trim().length > 0)
+            ),
+            enable_password: r.enable_password || '',
+            enable_password_set: Boolean(
+              (r.enable_password && String(r.enable_password).trim().length > 0) ||
+              r.enable_vault_item_id
+            ),
             snmp_enabled: Boolean(r.snmp_enabled),
             snmp_version: r.snmp_version || 'v2c',
             snmp_port: Number(r.snmp_port) || 161,
@@ -4240,6 +4255,17 @@ export async function getAllDevices(): Promise<any[]> {
   if (Array.isArray(store.devices) && store.devices.length > 0) {
     return store.devices.map((d: any) => ({
       ...d,
+      ssh_password: d.ssh_password || (d.connection && d.connection.password) || '',
+      ssh_password_set: Boolean(
+        (d.ssh_password && String(d.ssh_password).trim().length > 0) ||
+        d.ssh_vault_item_id ||
+        (d.connection && d.connection.password && String(d.connection.password).trim().length > 0)
+      ),
+      enable_password: d.enable_password || '',
+      enable_password_set: Boolean(
+        (d.enable_password && String(d.enable_password).trim().length > 0) ||
+        d.enable_vault_item_id
+      ),
       snmp_community: d.snmp_community ? decryptServerSecret(d.snmp_community) : undefined,
       snmp_v3_auth_password: d.snmp_v3_auth_password ? decryptServerSecret(d.snmp_v3_auth_password) : undefined,
       snmp_v3_priv_password: d.snmp_v3_priv_password ? decryptServerSecret(d.snmp_v3_priv_password) : undefined,
@@ -4247,6 +4273,17 @@ export async function getAllDevices(): Promise<any[]> {
   }
   return loadInitialDevices().map((d: any) => ({
     ...d,
+    ssh_password: d.ssh_password || (d.connection && d.connection.password) || '',
+    ssh_password_set: Boolean(
+      (d.ssh_password && String(d.ssh_password).trim().length > 0) ||
+      d.ssh_vault_item_id ||
+      (d.connection && d.connection.password && String(d.connection.password).trim().length > 0)
+    ),
+    enable_password: d.enable_password || '',
+    enable_password_set: Boolean(
+      (d.enable_password && String(d.enable_password).trim().length > 0) ||
+      d.enable_vault_item_id
+    ),
     snmp_community: d.snmp_community ? decryptServerSecret(d.snmp_community) : undefined,
     snmp_v3_auth_password: d.snmp_v3_auth_password ? decryptServerSecret(d.snmp_v3_auth_password) : undefined,
     snmp_v3_priv_password: d.snmp_v3_priv_password ? decryptServerSecret(d.snmp_v3_priv_password) : undefined,
@@ -4264,6 +4301,11 @@ export async function createDevice(deviceData: any): Promise<any> {
     store.devices = loadInitialDevices();
   }
   const id = (deviceData.id || `dev-${Date.now()}`).trim();
+  const rawSshPassword = (deviceData.ssh_password || deviceData.ssh_pass || deviceData.password || (deviceData.connection && deviceData.connection.password) || '').trim();
+  const rawEnablePassword = (deviceData.enable_password || deviceData.enable_pass || '').trim();
+  const encSshPassword = rawSshPassword ? encryptServerSecret(rawSshPassword) : '';
+  const encEnablePassword = rawEnablePassword ? encryptServerSecret(rawEnablePassword) : '';
+
   const newDevice = {
     ...deviceData,
     id,
@@ -4277,6 +4319,10 @@ export async function createDevice(deviceData: any): Promise<any> {
     ssh_host: deviceData.ssh_host || deviceData.ip || '127.0.0.1',
     ssh_port: Number(deviceData.ssh_port) || 22,
     ssh_username: deviceData.ssh_username || 'admin',
+    ssh_password: encSshPassword,
+    ssh_password_set: Boolean(encSshPassword || deviceData.ssh_vault_item_id),
+    enable_password: encEnablePassword,
+    enable_password_set: Boolean(encEnablePassword || deviceData.enable_vault_item_id),
     is_online: deviceData.is_online !== undefined ? Boolean(deviceData.is_online) : true,
     latency_ms: Number(deviceData.latency_ms) || 1.5,
     mac_address: deviceData.mac_address || deviceData.mac || '',
@@ -4371,10 +4417,12 @@ export async function createDevice(deviceData: any): Promise<any> {
           ssh_vault_item_id, enable_vault_item_id,
           snmp_enabled, snmp_version, snmp_port, snmp_community, snmp_community_vault_item_id,
           snmp_v3_user, snmp_v3_security_level, snmp_v3_auth_protocol, snmp_v3_auth_password, snmp_v3_auth_vault_item_id,
-          snmp_v3_priv_protocol, snmp_v3_priv_password, snmp_v3_priv_vault_item_id, snmp_v3_context, snmp_timeout, snmp_retries
+          snmp_v3_priv_protocol, snmp_v3_priv_password, snmp_v3_priv_vault_item_id, snmp_v3_context, snmp_timeout, snmp_retries,
+          ssh_password, enable_password
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-          $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42
+          $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42,
+          $43, $44
         )
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name,
@@ -4417,7 +4465,9 @@ export async function createDevice(deviceData: any): Promise<any> {
           snmp_v3_priv_vault_item_id = EXCLUDED.snmp_v3_priv_vault_item_id,
           snmp_v3_context = EXCLUDED.snmp_v3_context,
           snmp_timeout = EXCLUDED.snmp_timeout,
-          snmp_retries = EXCLUDED.snmp_retries`,
+          snmp_retries = EXCLUDED.snmp_retries,
+          ssh_password = CASE WHEN EXCLUDED.ssh_password IS NOT NULL AND EXCLUDED.ssh_password <> '' THEN EXCLUDED.ssh_password ELSE devices.ssh_password END,
+          enable_password = CASE WHEN EXCLUDED.enable_password IS NOT NULL AND EXCLUDED.enable_password <> '' THEN EXCLUDED.enable_password ELSE devices.enable_password END`,
         [
           newDevice.id,
           newDevice.name,
@@ -4461,6 +4511,8 @@ export async function createDevice(deviceData: any): Promise<any> {
           newDevice.snmp_v3_context || '',
           newDevice.snmp_timeout,
           newDevice.snmp_retries,
+          encSshPassword || null,
+          encEnablePassword || null,
         ]
       );
 
@@ -4501,6 +4553,28 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
   const existing = await getDeviceById(cleanId);
   if (!existing) return null;
 
+  const incomingSshPass = updates.ssh_password !== undefined
+    ? updates.ssh_password
+    : (updates.ssh_pass !== undefined
+      ? updates.ssh_pass
+      : (updates.password !== undefined
+        ? updates.password
+        : (updates.connection && updates.connection.password)));
+
+  const incomingEnablePass = updates.enable_password !== undefined
+    ? updates.enable_password
+    : updates.enable_pass;
+
+  let finalSshPassword = existing.ssh_password || '';
+  if (incomingSshPass !== undefined && incomingSshPass !== null && String(incomingSshPass).trim().length > 0) {
+    finalSshPassword = encryptServerSecret(String(incomingSshPass).trim());
+  }
+
+  let finalEnablePassword = existing.enable_password || '';
+  if (incomingEnablePass !== undefined && incomingEnablePass !== null && String(incomingEnablePass).trim().length > 0) {
+    finalEnablePassword = encryptServerSecret(String(incomingEnablePass).trim());
+  }
+
   const updated = {
     ...existing,
     ...updates,
@@ -4512,6 +4586,10 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
     platform: updates.platform !== undefined ? updates.platform : existing.platform,
     role: updates.role !== undefined ? updates.role.trim() : existing.role,
     ssh_version: updates.ssh_version !== undefined ? updates.ssh_version : (existing.ssh_version || 'legacy'),
+    ssh_password: finalSshPassword,
+    ssh_password_set: Boolean(finalSshPassword || (updates.ssh_vault_item_id !== undefined ? updates.ssh_vault_item_id : existing.ssh_vault_item_id)),
+    enable_password: finalEnablePassword,
+    enable_password_set: Boolean(finalEnablePassword || (updates.enable_vault_item_id !== undefined ? updates.enable_vault_item_id : existing.enable_vault_item_id)),
     building: updates.building !== undefined ? updates.building.trim() : (existing.building || ''),
     floor: updates.floor !== undefined ? updates.floor.trim() : (existing.floor || ''),
     unit: updates.unit !== undefined ? updates.unit.trim() : (existing.unit || ''),
@@ -4610,6 +4688,7 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           snmp_v3_auth_protocol = $33, snmp_v3_auth_password = $34, snmp_v3_auth_vault_item_id = $35,
           snmp_v3_priv_protocol = $36, snmp_v3_priv_password = $37, snmp_v3_priv_vault_item_id = $38,
           snmp_v3_context = $39, snmp_timeout = $40, snmp_retries = $41,
+          ssh_password = $42, enable_password = $43,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1`,
         [
@@ -4654,6 +4733,8 @@ export async function updateDevice(id: string, updates: any): Promise<any> {
           updated.snmp_v3_context || '',
           updated.snmp_timeout,
           updated.snmp_retries,
+          finalSshPassword || null,
+          finalEnablePassword || null,
         ]
       );
 

@@ -2458,6 +2458,8 @@ apiRouter.get('/devices', async (req: Request, res: Response) => {
       delete conn.password;
       delete conn.private_key;
       d.connection = conn;
+      d.ssh_password_set = Boolean(dev.ssh_password_set || dev.ssh_vault_item_id || (dev.ssh_password && String(dev.ssh_password).trim().length > 0));
+      d.enable_password_set = Boolean(dev.enable_password_set || dev.enable_vault_item_id || (dev.enable_password && String(dev.enable_password).trim().length > 0));
       delete d.ssh_password;
       delete d.enable_password;
       d.snmp_community_set = Boolean(d.snmp_community || d.snmp_community_vault_item_id);
@@ -2928,6 +2930,8 @@ apiRouter.get('/devices/:id', async (req: Request, res: Response) => {
     }
 
     const d = { ...check.device };
+    d.ssh_password_set = Boolean(check.device.ssh_password_set || check.device.ssh_vault_item_id || (check.device.ssh_password && String(check.device.ssh_password).trim().length > 0));
+    d.enable_password_set = Boolean(check.device.enable_password_set || check.device.enable_vault_item_id || (check.device.enable_password && String(check.device.enable_password).trim().length > 0));
     delete d.ssh_password;
     delete d.enable_password;
     d.snmp_community_set = Boolean(d.snmp_community || d.snmp_community_vault_item_id);

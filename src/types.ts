@@ -251,7 +251,9 @@ export interface Device {
   ssh_port?: number;
   ssh_username?: string;
   ssh_password?: string;
+  ssh_password_set?: boolean;
   enable_password?: string;
+  enable_password_set?: boolean;
   ssh_vault_item_id?: string;
   enable_vault_item_id?: string;
   ssh_status?: 'connected' | 'authenticated' | 'disconnected' | 'failed';
