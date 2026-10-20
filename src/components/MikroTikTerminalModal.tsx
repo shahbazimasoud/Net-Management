@@ -1101,6 +1101,8 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
               theme={{
                 background: currentBg,
                 foreground: screenTextColor,
+                cursor: screenTextColor,
+                cursorAccent: currentBg,
               }}
               className="flex-1 w-full h-full"
               autoFocus={true}

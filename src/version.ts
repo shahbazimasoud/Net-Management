@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.343.0';
+export const APP_VERSION = '1.343.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.343.1',
+    releaseDate: '2026-10-20',
+    type: 'patch',
+    title: 'اعمال بلادرنگ و بدون تاخیر تنظیمات رنگ و تم کنسول ترمینال سیسکو در تمامی تم‌ها',
+    title_en: 'Real-time dynamic terminal appearance updates and light theme text styling fix in Cisco terminal',
+    changes: [
+      'رفع کامل مشکل عدم تغییر رنگ متون و پس‌زمینه لایو SSH در تم لایت با حذف تداخل استایل‌های سراسری CSS روی کاراکترها و ویوپورت xterm.',
+      'افزودن هوک واکنشی پویا در XtermTerminal جهت اعمال بلادرنگ و فوری تغییرات پالت رنگ (رنگ قلم، پس‌زمینه و نشانگر) بدون نیاز به بستن و بازگشایی مجدد مودال.',
+      'بهینه‌سازی خودکار کنتراست رنگ‌های ANSI، نشانگر (Cursor) و رنگ متون پیش‌فرض متناسب با پس‌زمینه‌های روشن و تیره انتخابی.',
+      'تضمین انتقال استیت isLightMode در سناریوهای تک ترمینالی و چند ترمینالی MultiTerminalWorkspace به مودال ترمینال سیسکو.'
+    ],
+    changes_en: [
+      'Fixed live SSH terminal text and background color update failure in light theme by isolating xterm character spans and viewport from global CSS contrast overrides.',
+      'Implemented dynamic reactive options listener in XtermTerminal to apply appearance theme changes (text color, background, and cursor) instantly without requiring modal restart.',
+      'Automatically balanced ANSI palette, cursor accent, and default foreground colors across light and dark terminal backgrounds for optimal contrast.',
+      'Ensured consistent isLightMode propagation across both single-pane and split MultiTerminalWorkspace instances to CiscoTerminalModal.'
+    ]
+  },
   {
     version: '1.343.0',
     releaseDate: '2026-10-19',

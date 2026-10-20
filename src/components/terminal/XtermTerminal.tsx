@@ -73,6 +73,58 @@ const DEFAULT_DARK_THEME: ITheme = {
   brightWhite: '#ffffff',
 };
 
+function isLightHexColor(color?: string): boolean {
+  if (!color) return false;
+  const c = color.trim().toLowerCase();
+  if (c === '#fff' || c === '#ffffff' || c === '#f8fafc' || c === '#f1f5f9' || c === '#fafaf9' || c === '#ecfeff' || c === '#fffbeb') {
+    return true;
+  }
+  if (c.startsWith('#') && c.length === 7) {
+    const r = parseInt(c.slice(1, 3), 16);
+    const g = parseInt(c.slice(3, 5), 16);
+    const b = parseInt(c.slice(5, 7), 16);
+    if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+      return luma > 180;
+    }
+  }
+  return false;
+}
+
+function buildMergedTheme(theme?: ITheme): ITheme {
+  const isLightBg = isLightHexColor(theme?.background);
+  const baseTheme: ITheme = isLightBg
+    ? {
+        background: '#ffffff',
+        foreground: '#0f172a',
+        cursor: '#0f172a',
+        cursorAccent: '#ffffff',
+        selectionBackground: 'rgba(56, 189, 248, 0.35)',
+        black: '#0f172a',
+        red: '#dc2626',
+        green: '#16a34a',
+        yellow: '#ca8a04',
+        blue: '#2563eb',
+        magenta: '#9333ea',
+        cyan: '#0891b2',
+        white: '#334155',
+        brightBlack: '#64748b',
+        brightRed: '#ef4444',
+        brightGreen: '#22c55e',
+        brightYellow: '#eab308',
+        brightBlue: '#3b82f6',
+        brightMagenta: '#a855f7',
+        brightCyan: '#06b6d4',
+        brightWhite: '#0f172a',
+      }
+    : DEFAULT_DARK_THEME;
+
+  return {
+    ...baseTheme,
+    ...theme,
+  };
+}
+
 export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>(
   (
     {
@@ -187,6 +239,51 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
       }
     }, [onWriteRef]);
 
+    // Dynamically apply theme changes to the active terminal instance immediately without remounting
+    useEffect(() => {
+      const term = terminalRef.current;
+      if (!term) return;
+
+      const mergedTheme = buildMergedTheme(theme);
+      term.options.theme = mergedTheme;
+
+      if (containerRef.current) {
+        if (mergedTheme.background) {
+          containerRef.current.style.backgroundColor = mergedTheme.background;
+        }
+        if (mergedTheme.foreground) {
+          containerRef.current.style.color = mergedTheme.foreground;
+        }
+
+        const xtermEl = containerRef.current.querySelector('.xterm') as HTMLElement | null;
+        if (xtermEl && mergedTheme.background) {
+          xtermEl.style.backgroundColor = mergedTheme.background;
+        }
+        const viewportEl = containerRef.current.querySelector('.xterm-viewport') as HTMLElement | null;
+        if (viewportEl && mergedTheme.background) {
+          viewportEl.style.backgroundColor = mergedTheme.background;
+        }
+        const screenEl = containerRef.current.querySelector('.xterm-screen') as HTMLElement | null;
+        if (screenEl && mergedTheme.background) {
+          screenEl.style.backgroundColor = mergedTheme.background;
+        }
+      }
+
+      // Force xterm to immediately repaint visible buffer rows with the updated palette
+      try {
+        term.refresh(0, Math.max(0, term.rows - 1));
+      } catch {}
+    }, [theme]);
+
+    // Dynamically apply font size and family changes immediately
+    useEffect(() => {
+      const term = terminalRef.current;
+      if (!term) return;
+      term.options.fontSize = fontSize;
+      term.options.fontFamily = fontFamily;
+      performFit();
+    }, [fontSize, fontFamily]);
+
     useEffect(() => {
       const container = containerRef.current;
       if (!container) return;
@@ -198,10 +295,7 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
         fontFamily,
         fontSize,
         convertEol: false,
-        theme: {
-          ...DEFAULT_DARK_THEME,
-          ...theme,
-        },
+        theme: buildMergedTheme(theme),
         allowTransparency: false,
       };
 

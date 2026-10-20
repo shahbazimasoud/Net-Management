@@ -2125,6 +2125,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
               theme={{
                 background: terminalBgColor,
                 foreground: terminalTextColor,
+                cursor: terminalTextColor === '#ffffff' ? '#38bdf8' : terminalTextColor,
+                cursorAccent: terminalBgColor,
               }}
               className="flex-1 w-full h-full"
               autoFocus={true}

@@ -153,6 +153,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
         onDeviceUpdated={onDeviceUpdated}
         onSplitScreen={handleSplitScreen}
         allDevices={allDevices}
+        isLightMode={isLightMode}
       />
     );
   }

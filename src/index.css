@@ -915,20 +915,20 @@
     #f1f5f9 !important;
 }
 
-/* Light Theme Text Contrast Fixes */
+/* Light Theme Text Contrast Fixes (excluding live terminal consoles & xterm to preserve custom appearance themes) */
 .theme-light h1,
 .theme-light h2,
 .theme-light h3,
 .theme-light h4,
 .theme-light h5,
 .theme-light h6,
-.theme-light .text-white,
-.theme-light .text-slate-100 {
+.theme-light .text-white:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *),
+.theme-light .text-slate-100:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *) {
   color: #0f172a !important;
 }
 
-.theme-light p,
-.theme-light span,
+.theme-light p:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *),
+.theme-light span:not(.xterm *):not(.cisco-terminal-screen *):not(.xterm-terminal-container *),
 .theme-light label {
   color: #334155 !important;
 }
@@ -1283,12 +1283,27 @@
   -webkit-backdrop-filter: blur(8px) !important;
 }
 
-/* Cisco Terminal Screen - Always high-contrast dark console with vivid terminal text */
+/* Cisco Terminal Screen - High-contrast console with dynamic appearance theme support */
 .cisco-terminal-screen,
 .theme-light .cisco-terminal-screen {
   background-color: var(--cisco-terminal-bg, #020617) !important;
-  color: #f8fafc !important;
+  color: var(--cisco-terminal-color, #f8fafc) !important;
   border-color: #1e293b !important;
+}
+
+/* Ensure xterm terminal viewport and screens inherit live background colors without being trapped by xterm.css default black */
+.xterm,
+.theme-light .xterm,
+.xterm-terminal-container,
+.theme-light .xterm-terminal-container {
+  background-color: inherit;
+}
+
+.xterm .xterm-viewport,
+.theme-light .xterm .xterm-viewport,
+.xterm .xterm-screen,
+.theme-light .xterm .xterm-screen {
+  background-color: inherit !important;
 }
 
 .cisco-terminal-screen .text-slate-200,
