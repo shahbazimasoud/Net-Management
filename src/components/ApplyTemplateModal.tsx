@@ -32,6 +32,7 @@ import {
   Eye,
   EyeOff,
   Lock,
+  Unlock,
   Columns,
   Sliders,
   CheckSquare,
@@ -309,12 +310,44 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   const { t, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
 
-  const isLightMode = propIsLightMode ?? (typeof document !== 'undefined' && (
-    document.querySelector('.theme-light') !== null ||
-    document.documentElement.classList.contains('light') ||
-    localStorage.getItem('panel_theme') === 'light' ||
-    localStorage.getItem('theme_mode') === 'light'
-  ));
+  const isLightMode = propIsLightMode ?? (() => {
+    try {
+      if (typeof document === 'undefined') return false;
+      return (
+        document.querySelector('.theme-light') !== null ||
+        document.documentElement.classList.contains('light') ||
+        localStorage.getItem('panel_theme') === 'light' ||
+        localStorage.getItem('theme_mode') === 'light'
+      );
+    } catch {
+      return false;
+    }
+  })();
+
+  // Backdrop dismiss safety locks for Chromium event dispatching
+  const mouseDownOnBackdropRef = useRef<boolean>(false);
+  const [preventBackdropClose, setPreventBackdropClose] = useState<boolean>(true);
+
+  const handleBackdropMouseDown = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      mouseDownOnBackdropRef.current = true;
+    } else {
+      mouseDownOnBackdropRef.current = false;
+    }
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (
+      e.target === e.currentTarget &&
+      mouseDownOnBackdropRef.current &&
+      !preventBackdropClose &&
+      !isApplying &&
+      !isBackingUp
+    ) {
+      handleClose();
+    }
+    mouseDownOnBackdropRef.current = false;
+  };
 
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(
     initialTargetDevice || (allDevices.length > 0 ? allDevices[0] : null)
@@ -1246,13 +1279,13 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       } modal-backdrop-blur animate-fadeIn overflow-y-auto`}
       data-modal-backdrop="true"
       dir={isEn ? 'ltr' : 'rtl'}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isApplying && !isBackingUp) {
-          handleClose();
-        }
-      }}
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
     >
-      <div className={`w-full ${
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        className={`w-full ${
         isMaximized
           ? 'h-full max-h-full max-w-none rounded-none border-none my-0'
           : 'max-w-5xl max-h-[calc(100vh-4rem)] my-auto rounded-2xl border'
@@ -1312,6 +1345,26 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {/* Backdrop Dismiss Lock Toggle */}
+            <button
+              type="button"
+              onClick={() => setPreventBackdropClose((prev) => !prev)}
+              className={`p-1.5 rounded-xl transition cursor-pointer ${
+                isLightMode ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-200' : 'text-slate-400 hover:text-white hover:bg-white/10'
+              }`}
+              title={
+                preventBackdropClose
+                  ? (isEn ? 'Backdrop dismiss is locked (Click to allow closing on outside click)' : 'بستن با کلیک روی بک‌دراپ قفل است (جهت فعال‌سازی کلیک کنید)')
+                  : (isEn ? 'Backdrop dismiss is enabled (Click to lock and prevent accidental closing)' : 'بستن با کلیک روی بک‌دراپ فعال است (جهت قفل کردن کلیک کنید)')
+              }
+              aria-label={preventBackdropClose ? 'Unlock backdrop close' : 'Lock backdrop close'}
+            >
+              {preventBackdropClose ? (
+                <Lock className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Unlock className="w-4 h-4 text-slate-400" />
+              )}
+            </button>
             <button
               type="button"
               onClick={() => setIsMaximized((prev) => !prev)}

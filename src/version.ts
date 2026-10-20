@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.346.1';
+export const APP_VERSION = '1.346.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.346.2',
+    releaseDate: '2026-10-20',
+    type: 'patch',
+    title: 'رفع مشکل باز نشدن مودال اعمال تمپلیت کانفیگ (Apply to Device) در کروم، اج و اپرا و اصلاح ترنزیشن سه‌بعدی کارت‌ها',
+    title_en: 'Fix "Apply to Device" Modal Opening in Chrome, Edge & Opera by Resolving 3D Matrix Hit-Testing and Backdrop Dismissal',
+    changes: [
+      'برطرف‌سازی ریشه‌ای مشکل عدم پاسخ‌گویی دکمه «Apply to Device...» در مرورگرهای مبتنی بر کرومیوم (Chrome, Edge, Opera) ناشی از تداخل محاسبات مختصات سه‌بعدی در کارت‌های تمپلیت (spatial-depth-card).',
+      'تغییر پویانمایی هاور کارت‌ها از ترنزیشن سه‌بعدی (preserve-3d و translateZ) به شتاب‌دهنده سخت‌افزاری استاندارد دو‌بعدی (translateY) جهت تضمین رسیدن بی‌وقفه رویدادهای ماوس به دکمه‌ها.',
+      'افزودن مهار رویدادهای pointerdown و stopPropagation روی دکمه اعمال در کارت‌ها و کانتینر داخلی دیالوگ ApplyTemplateModal جهت جلوگیری از نشت رویداد به بک‌دراپ.',
+      'ایمن‌سازی بک‌دراپ مودال با ثبت دو مرحله‌ای mousedown/click و تعبیه دکمه قفل بسته‌شدن با کلیک بیرونی (Lock/Unlock) جهت پیشگیری از بسته شدن آنی مودال در کروم.',
+      'انتقال ایمن ویژگی تم روشن (isLightMode) به همراه محافظت دسترسی به حافظه محلی مرورگر با بلوک try/catch جهت پایداری کامل در تمام حالت‌های مرورگر.'
+    ],
+    changes_en: [
+      'Resolved the root cause of the "Apply to Device..." button failing to open the deployment modal in Chromium-based browsers (Chrome, Edge, Opera) caused by 3D hit-testing matrix occlusion on spatial-depth cards.',
+      'Replaced 3D hover matrix transformations (preserve-3d and translateZ) with hardware-accelerated 2D translateY transitions to guarantee immediate pointer event delivery across all layout engines.',
+      'Enforced pointerdown and click stopPropagation on both template card action buttons and the inner ApplyTemplateModal dialog container to prevent event leakage.',
+      'Protected modal backdrop against immediate dismissal in Chromium using dual-phase mousedown/click verification with a header Lock/Unlock backdrop dismiss toggle.',
+      'Propagated isLightMode with resilient try/catch storage inspection to ensure robust cross-browser rendering.'
+    ]
+  },
   {
     version: '1.346.1',
     releaseDate: '2026-10-20',

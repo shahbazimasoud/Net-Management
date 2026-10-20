@@ -43,6 +43,7 @@ interface TemplateManagementViewProps {
   effectivePolicy?: AccessPolicy | null;
   onDeviceUpdated?: (device: Device) => void;
   onOpenTerminal?: (device: Device) => void;
+  isLightMode?: boolean;
 }
 
 export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
@@ -50,6 +51,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
   effectivePolicy,
   onDeviceUpdated,
   onOpenTerminal,
+  isLightMode,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
@@ -810,7 +812,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                 </div>
 
                 {/* Card Footer Actions */}
-                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
+                <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between relative z-20">
                   <span className="text-[11px] text-slate-400 font-mono">
                     {commandLines.length} {isEn ? 'CLI lines' : 'خط دستور CLI'}
                   </span>
@@ -867,8 +869,13 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                         return (
                           <button
                             type="button"
-                            onClick={() => handleOpenApply(tmpl.id)}
-                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleOpenApply(tmpl.id);
+                            }}
+                            className="relative z-20 flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-white text-xs font-bold transition active:scale-95 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] cursor-pointer pointer-events-auto"
                             title={isEn ? 'Apply configuration template to target device' : 'اعمال این الگوی پیکربندی بر روی تجهیز شبکه'}
                           >
                             <Play className="w-3.5 h-3.5 fill-white" />
@@ -880,10 +887,13 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
                       return (
                         <button
                           type="button"
-                          onClick={() => {
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
                             showToast(disabledReason);
                           }}
-                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition bg-slate-800/80 border border-amber-500/30 text-slate-400 opacity-60 cursor-not-allowed hover:bg-slate-800"
+                          className="relative z-20 flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition bg-slate-800/80 border border-amber-500/30 text-slate-400 opacity-60 cursor-not-allowed hover:bg-slate-800 pointer-events-auto"
                           title={disabledReason}
                         >
                           <Lock className="w-3.5 h-3.5 text-amber-400" />
@@ -935,6 +945,7 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
         effectivePolicy={effectivePolicy}
         templates={templates}
         preselectedTemplateId={applyTargetTemplateId}
+        isLightMode={isLightMode}
         onBackupCreated={(newTmpl) => {
           showToast(isEn ? `Pre-apply backup snapshot "${newTmpl.name}" saved and added to templates list.` : `نسخه پشتیبان زنده «${newTmpl.name}» قبل از اعمال، با موفقیت به لیست الگوهای کانفیگ افزوده شد.`);
           loadTemplates();
