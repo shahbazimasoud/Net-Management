@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.346.0';
+export const APP_VERSION = '1.346.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.346.1',
+    releaseDate: '2026-10-20',
+    type: 'patch',
+    title: 'رفع خطای توقف ناگهانی اسکریپت نصب (pipefail) در هنگام خواندن متغیرهای محیطی',
+    title_en: 'Fix Installer Premature Exit (pipefail) During Environment Variable Extraction',
+    changes: [
+      'رفع باگ توقف ناگهانی اسکریپت setup-panel.sh و install.sh بر اثر خطای pipefail و exit code دستور grep هنگام نبود متغیر NETTOP_ENCRYPTION_KEY در فایل‌های کانفیگ قدیمی.',
+      'ایمن‌سازی کامل خط لوله‌های متنی (pipeline) استخراج کلیدهای JWT_SECRET، VAULT_SECRET و NETTOP_ENCRYPTION_KEY با خطایاب خودکار زیرپوسته (subshell guard).',
+      'به‌روزرسانی شماره نسخه پیش‌فرض در متغیر PANEL_VERSION اسکریپت نصب به ۱.۳۴۶.۱.'
+    ],
+    changes_en: [
+      'Resolved premature termination of setup-panel.sh and install.sh caused by bash set -eo pipefail when grep returned exit code 1 for missing legacy NETTOP_ENCRYPTION_KEY entries.',
+      'Hardened extraction pipelines for JWT_SECRET, VAULT_SECRET, and NETTOP_ENCRYPTION_KEY using subshell guard isolation.',
+      'Synchronized installer script PANEL_VERSION constant to 1.346.1.'
+    ]
+  },
   {
     version: '1.346.0',
     releaseDate: '2026-10-20',

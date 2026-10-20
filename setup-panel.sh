@@ -30,7 +30,7 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-PANEL_VERSION="1.337.1"
+PANEL_VERSION="1.346.1"
 
 # ==============================================================================
 # Enterprise Package Manager & DPKG Lock Guard
@@ -829,9 +829,9 @@ elif [ -f "$BACKUP_DIR/.env" ]; then
 fi
 
 if [ -n "$ENV_CANDIDATE" ]; then
-  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
-  EXISTING_VAULT_SECRET=$(grep -E '^VAULT_SECRET=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
-  EXISTING_NETTOP_KEY=$(grep -E '^NETTOP_ENCRYPTION_KEY=' "$ENV_CANDIDATE" | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_JWT_SECRET=$( (grep -E '^JWT_SECRET=' "$ENV_CANDIDATE" 2>/dev/null || true) | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_VAULT_SECRET=$( (grep -E '^VAULT_SECRET=' "$ENV_CANDIDATE" 2>/dev/null || true) | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
+  EXISTING_NETTOP_KEY=$( (grep -E '^NETTOP_ENCRYPTION_KEY=' "$ENV_CANDIDATE" 2>/dev/null || true) | head -n 1 | cut -d '=' -f2- | tr -d '"\r\n')
 fi
 
 if [ -n "$EXISTING_JWT_SECRET" ]; then
@@ -852,11 +852,15 @@ if [ -n "$EXISTING_NETTOP_KEY" ]; then
   NETTOP_ENCRYPTION_KEY="$EXISTING_NETTOP_KEY"
   log_info "Preserved existing NETTOP_ENCRYPTION_KEY from configuration."
 elif [ -f "$INSTALL_DIR/backend/security/.secret.key" ]; then
-  NETTOP_ENCRYPTION_KEY=$(cat "$INSTALL_DIR/backend/security/.secret.key" 2>/dev/null | tr -d '\r\n ')
+  NETTOP_ENCRYPTION_KEY=$( (cat "$INSTALL_DIR/backend/security/.secret.key" 2>/dev/null || true) | tr -d '\r\n ')
 elif [ -f "$BACKUP_DIR/.secret.key" ]; then
-  NETTOP_ENCRYPTION_KEY=$(cat "$BACKUP_DIR/.secret.key" 2>/dev/null | tr -d '\r\n ')
+  NETTOP_ENCRYPTION_KEY=$( (cat "$BACKUP_DIR/.secret.key" 2>/dev/null || true) | tr -d '\r\n ')
 else
-  NETTOP_ENCRYPTION_KEY=$(python3 -c "import hashlib, base64; print(base64.urlsafe_b64encode(hashlib.sha256('$VAULT_SECRET'.encode()).digest()).decode())" 2>/dev/null || echo "")
+  NETTOP_ENCRYPTION_KEY=$(python3 -c "import hashlib, base64, os; v=os.environ.get('VAULT_SECRET',''); print(base64.urlsafe_b64encode(hashlib.sha256(v.encode()).digest()).decode())" 2>/dev/null || openssl rand -base64 32 2>/dev/null || echo "")
+fi
+
+if [ -z "$NETTOP_ENCRYPTION_KEY" ]; then
+  NETTOP_ENCRYPTION_KEY=$(openssl rand -base64 32 2>/dev/null || echo "")
 fi
 
 # ------------------------------------------------------------------------------
