@@ -7329,7 +7329,7 @@ export interface PanelGeneralSettings {
   twoFactorEnabled?: boolean;
   allowedAuthMethods?: 'both' | 'local_only' | 'ad_only';
   loginVisualMode?: 'animation' | 'image';
-  loginAnimationType?: 'globe' | 'milky_way' | 'matrix' | 'tesseract' | 'miller_waves' | 'endurance_spin';
+  loginAnimationType?: 'globe' | 'milky_way' | 'matrix';
   loginImageMode?: 'selected' | 'random';
   loginSelectedImageId?: string;
   loginUploadedImages?: LoginUploadedImage[];

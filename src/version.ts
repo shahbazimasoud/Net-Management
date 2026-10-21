@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.349.0';
+export const APP_VERSION = '1.350.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.350.0',
+    releaseDate: '2026-10-21',
+    type: 'minor',
+    title: 'حذف کامل انیمیشن‌های آزمایشی اینتراستلار و بازگردانی گزینه‌های استاندارد صفحه لاگین به وضعیت پایدار',
+    title_en: 'Remove Interstellar Experimental Animations & Restore Standard Login Animation Suite',
+    changes: [
+      'حذف کامل کامپوننت‌های آزمایشی Tesseract5D، MillerWaves3D و EnduranceSpin3D از کدبیس پروژه.',
+      'پاک‌سازی گزینه‌ها و کارت‌های انتخاب انیمیشن از تنظیمات عمومی (GeneralSettingsView) و بازگردانی چیدمان استاندارد ۳ ستونه (کره شبکه، کهکشان راه شیری و باران کدهای ماتریس).',
+      'بازگردانی تایپ‌های TypeScript و قوانین اعتبارسنجی پایگاه داده سرور (server/db.ts و src/types.ts) به مقادیر معتبر پیش‌فرض.',
+      'اطمینان از پایداری کامل صفحه لاگین و عدم بروز خطا در رندرینگ بصری با تست بیلد و تایپ‌چک.'
+    ],
+    changes_en: [
+      'Completely removed experimental components Tesseract5D, MillerWaves3D, and EnduranceSpin3D from the codebase.',
+      'Cleaned up selection cards from GeneralSettingsView and restored the standard 3-column layout (Network Globe, Milky Way Galaxy, and Matrix Code Rain).',
+      'Reverted TypeScript types and server-side database validation schemas in server/db.ts and src/types.ts back to standard defaults.',
+      'Verified clean compilation and zero-defect runtime stability for the login visual showcase.'
+    ]
+  },
   {
     version: '1.349.0',
     releaseDate: '2026-10-21',

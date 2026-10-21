@@ -40,9 +40,6 @@ import {
   Shuffle,
   Trash2,
   Binary,
-  Waves,
-  Compass,
-  Box,
 } from 'lucide-react';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
@@ -2300,12 +2297,6 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                           ? (isEn ? '3D MATRIX DIGITAL RAIN & CORE' : 'ماتریس سه‌بعدی و جریان کدهای دیجیتال')
                           : formData.loginAnimationType === 'milky_way'
                           ? (isEn ? '3D MILKY WAY & SOLAR SYSTEM' : 'انیمیشن کهکشان راه شیری و منظومه شمسی')
-                          : formData.loginAnimationType === 'tesseract'
-                          ? (isEn ? '5D TESSERACT & GRAVITATIONAL TIMELINES' : 'تسراکت ۵ بعدی و خطوط زمانی گرانش')
-                          : formData.loginAnimationType === 'miller_waves'
-                          ? (isEn ? "MILLER'S WATER PLANET & TITAN WAVES" : 'سیاره میلر و امواج عظیم اقیانوسی')
-                          : formData.loginAnimationType === 'endurance_spin'
-                          ? (isEn ? 'ENDURANCE HIGH-SPEED SPIN DOCKING' : 'مانور چرخش پرسرعت ایندورنس')
                           : (isEn ? '3D GLOBE ANIMATION' : 'انیمیشن کره سه‌بعدی شبکه'))
                       : (formData.loginImageMode || 'selected') === 'random'
                       ? (isEn ? 'CUSTOM IMAGE (RANDOM)' : 'تصویر سفارشی (تصادفی)')
@@ -2364,12 +2355,6 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                               ? (isEn ? 'Active: 3D Matrix Digital Rain & Architecture' : 'فعال: جریان کدهای دیجیتال ماتریس و معماری هسته')
                               : formData.loginAnimationType === 'milky_way'
                               ? (isEn ? 'Active: Milky Way Galaxy & Solar System' : 'فعال: کهکشان راه شیری و منظومه شمسی')
-                              : formData.loginAnimationType === 'tesseract'
-                              ? (isEn ? 'Active: 5D Tesseract & Gravitational Timelines' : 'فعال: تسراکت ۵ بعدی و خطوط زمانی گرانش')
-                              : formData.loginAnimationType === 'miller_waves'
-                              ? (isEn ? "Active: Miller's Water Planet & Titan Waves" : 'فعال: سیاره میلر و امواج عظیم اقیانوسی')
-                              : formData.loginAnimationType === 'endurance_spin'
-                              ? (isEn ? 'Active: Endurance High-Speed Spin Docking' : 'فعال: مانور چرخش پرسرعت ایندورنس')
                               : (isEn ? 'Active: 3D Network Globe & Satellites' : 'فعال: کره سه‌بعدی شبکه جهانی و ماهواره‌ها')}
                           </span>
                         </div>
@@ -2459,7 +2444,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                     </label>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Animation 1: 3D Network Globe */}
                     <button
                       type="button"
@@ -2577,126 +2562,6 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                       </div>
                       {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'matrix' && (
                         <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-1" />
-                      )}
-                    </button>
-
-                    {/* Animation 4: 5D Tesseract & Gravitational Timelines */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next: PanelGeneralSettings = {
-                          ...formData,
-                          loginVisualMode: 'animation',
-                          loginAnimationType: 'tesseract',
-                        };
-                        setFormData(next);
-                        saveGeneralSettings(next);
-                      }}
-                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
-                        (formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'tesseract'
-                          ? 'bg-cyan-600/20 border-cyan-500 text-cyan-300 shadow-sm ring-1 ring-cyan-500/40'
-                          : isLightMode
-                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div className="p-2 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 mt-0.5 shrink-0">
-                          <Layers className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                            {isEn ? '5D Tesseract & Gravitational Timelines (Interstellar)' : 'تسراکت ۵ بعدی و خطوط زمانی گرانش (اینتراستلار)'}
-                          </div>
-                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                            {isEn
-                              ? 'Infinite 4D/5D hypercube lattice with quantum dust, Morse gravitational pulses (STAY) & timeline corridors.'
-                              : 'ماتریس شبکه‌ای تسراکت ۵ بعدی با غبار کوانتومی، پالس‌های نوری مورس گرانش و دالان‌های نامتناهی زمان.'}
-                          </p>
-                        </div>
-                      </div>
-                      {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'tesseract' && (
-                        <Check className="w-4 h-4 text-cyan-400 shrink-0 mt-1" />
-                      )}
-                    </button>
-
-                    {/* Animation 5: Miller's Water Planet & Titan Waves */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next: PanelGeneralSettings = {
-                          ...formData,
-                          loginVisualMode: 'animation',
-                          loginAnimationType: 'miller_waves',
-                        };
-                        setFormData(next);
-                        saveGeneralSettings(next);
-                      }}
-                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
-                        (formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'miller_waves'
-                          ? 'bg-blue-600/20 border-blue-500 text-blue-300 shadow-sm ring-1 ring-blue-500/40'
-                          : isLightMode
-                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-400 mt-0.5 shrink-0">
-                          <Waves className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                            {isEn ? "Miller's Water Planet & Titan Waves (Interstellar)" : 'سیاره اقیانوسی میلر و امواج تایتان (اینتراستلار)'}
-                          </div>
-                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                            {isEn
-                              ? 'Towering tidal waves on Miller planet orbiting Gargantua, sea spray physics & relativistic time dial (1h = 7y).'
-                              : 'امواج عظیم و سهمگین در مدار سیاه‌چاله گارگَنچوا، فیزیک قطرات آب، و ثانیه‌شمار نسبیتی زمان (۱ ساعت = ۷ سال).'}
-                          </p>
-                        </div>
-                      </div>
-                      {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'miller_waves' && (
-                        <Check className="w-4 h-4 text-blue-400 shrink-0 mt-1" />
-                      )}
-                    </button>
-
-                    {/* Animation 6: Endurance High-Speed Spin Docking */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next: PanelGeneralSettings = {
-                          ...formData,
-                          loginVisualMode: 'animation',
-                          loginAnimationType: 'endurance_spin',
-                        };
-                        setFormData(next);
-                        saveGeneralSettings(next);
-                      }}
-                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
-                        (formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'endurance_spin'
-                          ? 'bg-sky-600/20 border-sky-500 text-sky-300 shadow-sm ring-1 ring-sky-500/40'
-                          : isLightMode
-                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div className="p-2 rounded-lg bg-sky-500/20 border border-sky-500/30 text-sky-400 mt-0.5 shrink-0">
-                          <Compass className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                            {isEn ? 'Endurance High-Speed Spin Docking (Interstellar)' : 'مانور چرخش پرسرعت ایندورنس (اینتراستلار)'}
-                          </div>
-                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                            {isEn
-                              ? '12-module Endurance ring station in 68 RPM emergency spin stabilization, reactive RCS thruster bursts & flight HUD.'
-                              : 'ایستگاه حلقوی ۱۲ ماژوله ایندورنس با چرخش اضطراری ۶۸ دور بر دقیقه، رانشگرهای واکنشی RCS و سیستم HUD هدف‌گیری.'}
-                          </p>
-                        </div>
-                      </div>
-                      {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'endurance_spin' && (
-                        <Check className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
                       )}
                     </button>
                   </div>

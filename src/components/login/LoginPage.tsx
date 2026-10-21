@@ -4,9 +4,6 @@ import { useAuth, AuthUser } from '../../context/AuthContext';
 import { NetworkGlobe3D, GlobeThemeType } from './NetworkGlobe3D';
 import { MilkyWayGalaxy3D } from './MilkyWayGalaxy3D';
 import { MatrixRain3D } from './MatrixRain3D';
-import { Tesseract5D } from './Tesseract5D';
-import { MillerWaves3D } from './MillerWaves3D';
-import { EnduranceSpin3D } from './EnduranceSpin3D';
 import { APP_VERSION } from '../../version';
 import { loadGeneralSettings, syncGeneralSettingsFromDatabase, STORAGE_KEYS } from '../../services/settingsStorage';
 import { PanelGeneralSettings } from '../../types';
@@ -1228,12 +1225,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <MatrixRain3D theme={theme === 'light' ? 'obsidian' : theme} />
         ) : generalSettings?.loginAnimationType === 'milky_way' ? (
           <MilkyWayGalaxy3D theme={theme === 'light' ? 'obsidian' : theme} />
-        ) : generalSettings?.loginAnimationType === 'tesseract' ? (
-          <Tesseract5D theme={theme === 'light' ? 'obsidian' : theme} />
-        ) : generalSettings?.loginAnimationType === 'miller_waves' ? (
-          <MillerWaves3D theme={theme === 'light' ? 'obsidian' : theme} />
-        ) : generalSettings?.loginAnimationType === 'endurance_spin' ? (
-          <EnduranceSpin3D theme={theme === 'light' ? 'obsidian' : theme} />
         ) : (
           <NetworkGlobe3D theme={theme === 'light' ? 'obsidian' : theme} />
         )}
