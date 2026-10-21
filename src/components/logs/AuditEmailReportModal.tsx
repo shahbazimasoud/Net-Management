@@ -48,7 +48,8 @@ import {
   saveAuditReportConfigApi,
   saveAuditEmailReportApi,
   previewAuditReportApi,
-  sendAuditReportNowApi
+  sendAuditReportNowApi,
+  fetchEmailConfigApi
 } from '../../services/api';
 
 interface AuditEmailReportModalProps {
@@ -60,6 +61,13 @@ interface AuditEmailReportModalProps {
   reportToEdit?: AuditReportScheduleConfig | null;
   onReportSaved?: (savedReport: AuditReportScheduleConfig) => void;
   initialMode?: 'config' | 'preview';
+  initialSmtpStatus?: {
+    configured: boolean;
+    from: string;
+    host: string;
+    port: number;
+    secure?: string;
+  };
 }
 
 const ALL_PORTAL_CATEGORIES: { id: AuditLogCategory; labelEn: string; labelFa: string; color: string; descEn: string; descFa: string }[] = [
@@ -130,6 +138,7 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
   reportToEdit = null,
   onReportSaved,
   initialMode = 'config',
+  initialSmtpStatus,
 }) => {
   const { isEn, isRtl } = useLanguage();
   const { dockModal } = useModalDock();
@@ -164,10 +173,10 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
   });
 
   // SMTP Status state
-  const [smtpConfigured, setSmtpConfigured] = useState<boolean>(false);
-  const [smtpFrom, setSmtpFrom] = useState<string>('');
-  const [smtpHost, setSmtpHost] = useState<string>('');
-  const [smtpPort, setSmtpPort] = useState<number>(587);
+  const [smtpConfigured, setSmtpConfigured] = useState<boolean>(initialSmtpStatus?.configured ?? false);
+  const [smtpFrom, setSmtpFrom] = useState<string>(initialSmtpStatus?.from ?? '');
+  const [smtpHost, setSmtpHost] = useState<string>(initialSmtpStatus?.host ?? '');
+  const [smtpPort, setSmtpPort] = useState<number>(initialSmtpStatus?.port ?? 587);
 
   // UI state
   const [isLoading, setIsLoading] = useState(true);
@@ -233,11 +242,43 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
         });
       }
 
-      const res = await fetchAuditReportConfigApi();
-      setSmtpConfigured(Boolean(res.smtpConfigured));
-      setSmtpFrom(res.smtpFrom || '');
-      setSmtpHost(res.smtpHost || '');
-      setSmtpPort(res.smtpPort || 587);
+      // Load SMTP status and live credentials from backend with fallback support
+      try {
+        const res = await fetchAuditReportConfigApi();
+        if (res && res.smtpConfigured) {
+          setSmtpConfigured(true);
+          setSmtpFrom(res.smtpFrom || '');
+          setSmtpHost(res.smtpHost || '');
+          setSmtpPort(res.smtpPort || 587);
+        } else {
+          // If audit reports config reports false or missing, query /settings/email for saved SMTP credentials
+          const emailRes = await fetchEmailConfigApi();
+          if (emailRes?.config?.smtp_host && emailRes.config.smtp_host.trim().length > 0) {
+            setSmtpConfigured(true);
+            setSmtpHost(emailRes.config.smtp_host.trim());
+            setSmtpPort(emailRes.config.smtp_port || 587);
+            setSmtpFrom(emailRes.config.from_email || emailRes.config.smtp_user || '');
+          } else if (res) {
+            setSmtpConfigured(Boolean(res.smtpConfigured));
+            setSmtpFrom(res.smtpFrom || '');
+            setSmtpHost(res.smtpHost || '');
+            setSmtpPort(res.smtpPort || 587);
+          }
+        }
+      } catch (err: any) {
+        console.warn('Audit report config fetch warning, trying email settings:', err);
+        try {
+          const emailRes = await fetchEmailConfigApi();
+          if (emailRes?.config?.smtp_host && emailRes.config.smtp_host.trim().length > 0) {
+            setSmtpConfigured(true);
+            setSmtpHost(emailRes.config.smtp_host.trim());
+            setSmtpPort(emailRes.config.smtp_port || 587);
+            setSmtpFrom(emailRes.config.from_email || emailRes.config.smtp_user || '');
+          }
+        } catch (emailErr) {
+          console.warn('Email settings fallback check failed:', emailErr);
+        }
+      }
 
       if (initialMode === 'preview') {
         setActiveTab('preview');
@@ -256,9 +297,15 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      if (initialSmtpStatus?.configured) {
+        setSmtpConfigured(true);
+        if (initialSmtpStatus.from) setSmtpFrom(initialSmtpStatus.from);
+        if (initialSmtpStatus.host) setSmtpHost(initialSmtpStatus.host);
+        if (initialSmtpStatus.port) setSmtpPort(initialSmtpStatus.port);
+      }
       loadConfig();
     }
-  }, [isOpen, reportToEdit]);
+  }, [isOpen, reportToEdit, initialSmtpStatus?.configured, initialSmtpStatus?.host]);
 
   // Handle minimization to dock
   const handleMinimize = () => {
@@ -422,6 +469,13 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
             : `گزارش با موفقیت به ${res.recipients.length} گیرنده در ${res.latencyMs} میلی‌ثانیه ارسال شد! (${res.totalLogs} رویداد گنجانده شد)`,
           details: res.messageId ? `Message ID: ${res.messageId}` : undefined,
         });
+        if (config.id && onReportSaved) {
+          onReportSaved({
+            ...config,
+            lastSentAt: new Date().toISOString(),
+            lastSendStatus: 'success',
+          });
+        }
       } else {
         setStatusFeedback({
           type: 'error',

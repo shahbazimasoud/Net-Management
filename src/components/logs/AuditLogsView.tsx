@@ -2802,6 +2802,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
         isLightMode={isLightMode}
         reportToEdit={selectedReportForEdit}
         initialMode={modalInitialMode}
+        initialSmtpStatus={smtpStatus}
         onReportSaved={(_saved) => {
           loadReportsList();
         }}

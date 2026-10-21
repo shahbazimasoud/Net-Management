@@ -1949,9 +1949,63 @@ apiRouter.get('/audit-reports/list', async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/audit-reports/:id - Get specific report by ID
-apiRouter.get('/audit-reports/:id', async (req: Request, res: Response) => {
+// GET /api/audit-reports/config - Get audit report schedule config and live SMTP connection status
+apiRouter.get('/audit-reports/config', async (_req: Request, res: Response) => {
   try {
+    const config = await getAuditReportSchedule();
+    const smtpConfig = await getEmailConfig();
+    const smtpConfigured = Boolean(smtpConfig.smtp_host && smtpConfig.smtp_host.trim().length > 0);
+
+    res.json({
+      success: true,
+      config,
+      smtpConfigured,
+      smtpFrom: smtpConfig.from_email || smtpConfig.smtp_user || '',
+      smtpHost: smtpConfig.smtp_host || '',
+      smtpPort: smtpConfig.smtp_port || 587,
+      smtpSecure: smtpConfig.smtp_secure || 'tls',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/audit-reports/config - Update audit report schedule config
+apiRouter.post('/audit-reports/config', async (req: Request, res: Response) => {
+  try {
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+
+    const incomingConfig = req.body?.config || req.body || {};
+    const saved = await saveAuditReportSchedule(incomingConfig, updatedBy);
+
+    res.json({
+      success: true,
+      config: saved,
+      message: 'Audit report schedule configuration updated successfully.',
+      message_fa: 'پیکربندی زمان‌بندی و ارسال گزارشات ممیزی با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/audit-reports/:id - Get specific report by ID
+apiRouter.get('/audit-reports/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (
+      req.params.id === 'config' ||
+      req.params.id === 'list' ||
+      req.params.id === 'preview' ||
+      req.params.id === 'send-now'
+    ) {
+      return next();
+    }
     const report = await getAuditEmailReportById(req.params.id);
     if (!report) {
       return res.status(404).json({ success: false, error: 'Report not found' });
@@ -2070,51 +2124,6 @@ apiRouter.post('/audit-reports/:id/send-now', async (req: Request, res: Response
   }
 });
 
-// GET /api/audit-reports/config
-apiRouter.get('/audit-reports/config', async (_req: Request, res: Response) => {
-  try {
-    const config = await getAuditReportSchedule();
-    const smtpConfig = await getEmailConfig();
-    const smtpConfigured = Boolean(smtpConfig.smtp_host && smtpConfig.smtp_host.trim().length > 0);
-
-    res.json({
-      success: true,
-      config,
-      smtpConfigured,
-      smtpFrom: smtpConfig.from_email || smtpConfig.smtp_user || '',
-      smtpHost: smtpConfig.smtp_host || '',
-      smtpPort: smtpConfig.smtp_port || 587,
-      smtpSecure: smtpConfig.smtp_secure || 'tls',
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// POST /api/audit-reports/config
-apiRouter.post('/audit-reports/config', async (req: Request, res: Response) => {
-  try {
-    let updatedBy = 'admin';
-    const authHeader = req.headers.authorization || '';
-    if (authHeader) {
-      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-      const decoded = verifyToken(token);
-      if (decoded?.username) updatedBy = decoded.username;
-    }
-
-    const incomingConfig = req.body?.config || req.body || {};
-    const saved = await saveAuditReportSchedule(incomingConfig, updatedBy);
-
-    res.json({
-      success: true,
-      config: saved,
-      message: 'Audit report schedule configuration updated successfully.',
-      message_fa: 'پیکربندی زمان‌بندی و ارسال گزارشات ممیزی با موفقیت ذخیره شد.',
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 // POST /api/audit-reports/preview
 apiRouter.post('/audit-reports/preview', async (req: Request, res: Response) => {

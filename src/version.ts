@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.351.1';
+export const APP_VERSION = '1.351.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.351.2',
+    releaseDate: '2026-10-21',
+    type: 'patch',
+    title: 'رفع مشکل شناسایی درگاه SMTP و فعال‌سازی دکمه ارسال در مودال ویرایش گزارشات ایمیل',
+    title_en: 'Fix SMTP Gateway Parameter Resolution & Enable Send Report Now in Email Report Modal',
+    changes: [
+      'اصلاح تداخل و اولویت روت‌های اکسپرس در بک‌اند (/api/audit-reports/config) که پیش از این توسط روت متغیر /api/audit-reports/:id متوقف و با خطای ۴۰۴ مواجه می‌شد.',
+      'افزودن گارد امنیتی عدم تطبیق کلمات کلیدی (config، list، preview، send-now) در مسیرهای داینامیک شناسه‌های گزارشات.',
+      'تجهیز مودال AuditEmailReportModal به مکانیسم تشخیص بلادرنگ درگاه SMTP با دریافت وضعیت اولیه از کامپوننت والد (initialSmtpStatus) و فالبک دوگانه از تنظیمات ایمیل (/settings/email).',
+      'فعال‌سازی صحیح و بدون تاخیر دکمه ارسال آنی (Send Report Now) و نمایش بنر اتصال موفق به درگاه سازمانی SMTP داخل مودال ویرایش گزارش.'
+    ],
+    changes_en: [
+      'Resolved Express routing conflict where literal route /api/audit-reports/config was shadowed and intercepted by /api/audit-reports/:id returning 404.',
+      'Added route parameter guard preventing literal keywords (config, list, preview, send-now) from triggering single-report ID lookups.',
+      'Equipped AuditEmailReportModal with multi-layer SMTP gateway resolution using initialSmtpStatus prop from parent view and fallback query to /settings/email.',
+      'Enabled "Send Report Now" button and verified green corporate SMTP connected banner when editing audit email reports.'
+    ]
+  },
   {
     version: '1.351.1',
     releaseDate: '2026-10-21',
