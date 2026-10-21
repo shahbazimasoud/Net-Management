@@ -2659,6 +2659,46 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         <Check className="w-4 h-4 text-blue-400 shrink-0 mt-1" />
                       )}
                     </button>
+
+                    {/* Animation 6: Endurance High-Speed Spin Docking */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: PanelGeneralSettings = {
+                          ...formData,
+                          loginVisualMode: 'animation',
+                          loginAnimationType: 'endurance_spin',
+                        };
+                        setFormData(next);
+                        saveGeneralSettings(next);
+                      }}
+                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
+                        (formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'endurance_spin'
+                          ? 'bg-sky-600/20 border-sky-500 text-sky-300 shadow-sm ring-1 ring-sky-500/40'
+                          : isLightMode
+                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-2 rounded-lg bg-sky-500/20 border border-sky-500/30 text-sky-400 mt-0.5 shrink-0">
+                          <Compass className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? 'Endurance High-Speed Spin Docking (Interstellar)' : 'مانور چرخش پرسرعت ایندورنس (اینتراستلار)'}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                            {isEn
+                              ? '12-module Endurance ring station in 68 RPM emergency spin stabilization, reactive RCS thruster bursts & flight HUD.'
+                              : 'ایستگاه حلقوی ۱۲ ماژوله ایندورنس با چرخش اضطراری ۶۸ دور بر دقیقه، رانشگرهای واکنشی RCS و سیستم HUD هدف‌گیری.'}
+                          </p>
+                        </div>
+                      </div>
+                      {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'endurance_spin' && (
+                        <Check className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>

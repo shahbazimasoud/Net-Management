@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.348.0';
+export const APP_VERSION = '1.349.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.349.0',
+    releaseDate: '2026-10-21',
+    type: 'minor',
+    title: 'افزودن انیمیشن سه‌بعدی مانور چرخش پرسرعت و اتصال اضطراری ایستگاه ایندورنس به صفحه لاگین (اینتراستلار)',
+    title_en: 'Add 3D Interactive Endurance High-Speed Spin Docking Login Animation (Interstellar)',
+    changes: [
+      'طراحی و پیاده‌سازی کامپوننت سه‌بعدی شبیه‌ساز فضاپیمای ایندورنس (EnduranceSpin3D) بر پایه مدل هندسی حلقه ۱۲ ماژولی، خرپای مرکزی شش‌ضلعی و درگاه داکینگ رنجر.',
+      'شبیه‌سازی دینامیک پرواز و چرخش اضطراری ۶۸ دور بر دقیقه (68 RPM) با شلیک پالس‌های واکنشی پلاسما (RCS Thrusters) جهت تطبیق بردار دوران.',
+      'نمایش سیاره یخ‌زده مان در پس‌زمینه با افق اتمسفری درخشان و ردهای کشیده خطی ستاره‌ها بر اثر سرعت زاویه‌ای بالا.',
+      'تجهیز به سیستم هاد (HUD) ناوبری با رتیکل هدف‌گیری، دایره‌های قطب‌نما و وضعیت قفل تطبیق داکینگ (Matching 99.4% / Locked).',
+      'امکان کنترل تعاملی سرعت چرخش (۶۸ دور اضطراری / ۴ دور کروز / کنترل دستی)، شلیک دستی رانشگرها، چرخش ۳۶۰ درجه دوربین با درگ و زوم با اسکرول.',
+      'افزودن گزینه انتخاب انیمیشن Endurance به تنظیمات عمومی سیستم (GeneralSettingsView) و پشتیبانی از پالت تمام تم‌ها.'
+    ],
+    changes_en: [
+      'Engineered 3D procedural simulation component EnduranceSpin3D modeling the 12-module Endurance ring station, central hexagonal truss, and Ranger docking collar.',
+      'Simulated 68 RPM emergency spin stabilization dynamics with reactive RCS plasma thruster bursts to match rotation vectors.',
+      'Rendered Mann\'s frozen planet with glowing atmospheric limb and rotational star trails driven by angular velocity.',
+      'Integrated tactical flight navigation HUD with alignment crosshairs, gyroscopic RPM gauge, and docking lock latch telemetry (Matching 99.4% / Locked).',
+      'Provided interactive spin mode governor (68 RPM Emergency, 4 RPM Cruise, Manual RCS), manual thruster burst triggers, 360-degree orbital drag, and scroll zoom.',
+      'Integrated Endurance Spin Docking into GeneralSettingsView visual animation selectors with full panel theme adaptability.'
+    ]
+  },
   {
     version: '1.348.0',
     releaseDate: '2026-10-21',
