@@ -4295,6 +4295,17 @@ export function isServerActionPermitted(
     return false;
   }
 
+  // 1.1 Fleet-level Add Remote Server action
+  if (action === 'add_server') {
+    if (policy.defaultServerPermissions?.add_server !== undefined) {
+      return Boolean(policy.defaultServerPermissions.add_server);
+    }
+    if (policy.canAddServer !== undefined) {
+      return Boolean(policy.canAddServer);
+    }
+    return policy.canManageDevices !== false;
+  }
+
   // 2. If policy targets specific groups/servers, ensure target server is in allowed fleet scope
   if (Array.isArray(policy.allowedServerIds) && !policy.allowedServerIds.includes(serverId)) {
     return false;

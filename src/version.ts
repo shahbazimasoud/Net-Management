@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.351.0';
+export const APP_VERSION = '1.351.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.351.1',
+    releaseDate: '2026-10-21',
+    type: 'patch',
+    title: 'اصلاح ارزیابی دسترسی ثبت سرور جدید در بک‌اند و تفکیک مستقل از دسترسی تجهیزات شبکه',
+    title_en: 'Fix Server Creation Permission Check to Respect add_server Privilege Independently of Network Device Management',
+    changes: [
+      'رفع مشکل عدم دسترسی ثبت سرور جدید در بک‌اند (POST /api/remote-servers) هنگام داشتن دسترسی Add remote server به دلیل بررسی اشتباه شرط canManageDevices.',
+      'ارزیابی مستقل و اولویت‌دار اختیارات add_server و canAddServer در لایه‌های امنیتی سرور، دیسکاوری و افزودن گروهی سرورها.',
+      'تضمین ثبت و تخصیص خودکار سرور جدید افزوده شده به پالیسی خود کاربر جهت امکان مشاهده و مدیریت آن، بدون دسترسی به سایر سرورهای غیرمجاز موجود در ناوگان.',
+      'بهبود مهار خطاها و نمایش پیام‌های دو زبانه (انگلیسی/فارسی) در صورت بروز خطا در ذخیره سرور.'
+    ],
+    changes_en: [
+      'Fixed server creation rejection in backend (POST /api/remote-servers) when user has "Add remote server" permission by decoupling from canManageDevices network switch requirement.',
+      'Authoritatively prioritized add_server and canAddServer privileges in server registration, discovery scan, and bulk enrollment endpoints.',
+      'Guaranteed automatic addition of newly registered server nodes into the creator\'s policy target scope in PostgreSQL so they immediately view and manage their server while remaining restricted from other fleet servers.',
+      'Enhanced client-side error handling with clean bilingual notifications on server creation failure.'
+    ]
+  },
   {
     version: '1.351.0',
     releaseDate: '2026-10-21',

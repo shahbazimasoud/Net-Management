@@ -5826,10 +5826,26 @@ apiRouter.get('/remote-servers/:id', async (req: Request, res: Response) => {
 apiRouter.post('/remote-servers/discover', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
-    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+    let isPermitted = false;
+    if (isSuperAdmin) {
+      isPermitted = true;
+    } else if (effectivePolicy) {
+      if (effectivePolicy.defaultServerPermissions?.add_server !== undefined) {
+        isPermitted = Boolean(effectivePolicy.defaultServerPermissions.add_server);
+      } else if (effectivePolicy.canAddServer !== undefined) {
+        isPermitted = Boolean(effectivePolicy.canAddServer);
+      } else {
+        isPermitted = effectivePolicy.canManageDevices !== false;
+      }
+    } else {
+      isPermitted = true;
+    }
+
+    if (!isPermitted) {
       return res.status(403).json({
         success: false,
         error: 'Access denied: Your account policy prohibits running server discovery.',
+        errorFa: 'عدم دسترسی: پالیسی امنیتی حساب شما اجازه اسکن و شناسایی خودکار سرورها را نمی‌دهد.',
       });
     }
 
@@ -6022,10 +6038,26 @@ apiRouter.post('/remote-servers/discover/abort', (req: Request, res: Response) =
 apiRouter.post('/remote-servers/discover/bulk-add', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
-    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+    let isPermitted = false;
+    if (isSuperAdmin) {
+      isPermitted = true;
+    } else if (effectivePolicy) {
+      if (effectivePolicy.defaultServerPermissions?.add_server !== undefined) {
+        isPermitted = Boolean(effectivePolicy.defaultServerPermissions.add_server);
+      } else if (effectivePolicy.canAddServer !== undefined) {
+        isPermitted = Boolean(effectivePolicy.canAddServer);
+      } else {
+        isPermitted = effectivePolicy.canManageDevices !== false;
+      }
+    } else {
+      isPermitted = true;
+    }
+
+    if (!isPermitted) {
       return res.status(403).json({
         success: false,
         error: 'Access denied: Your account policy prohibits creating new remote servers.',
+        errorFa: 'عدم دسترسی: پالیسی امنیتی حساب شما اجازه ثبت و افزودن سرور جدید به ناوگان را نمی‌دهد.',
       });
     }
 
@@ -6065,6 +6097,31 @@ apiRouter.post('/remote-servers/discover/bulk-add', async (req: Request, res: Re
       addedServers.push(sanitizeRemoteServerForClient(created));
     }
 
+    // If creator has a restricted server scope, auto-append newly enrolled server IDs to their policy
+    if (
+      addedServers.length > 0 &&
+      effectivePolicy &&
+      (effectivePolicy.targetServerScope === 'specific' ||
+        (effectivePolicy.targetScope === 'specific' && effectivePolicy.targetServerScope !== 'all'))
+    ) {
+      try {
+        const policies = await getAccessPolicies();
+        const polIndex = policies.findIndex((p: any) => p.id === effectivePolicy.id);
+        if (polIndex !== -1) {
+          const currentTgt = Array.isArray(policies[polIndex].targetServerIds)
+            ? policies[polIndex].targetServerIds
+            : [];
+          const newIds = addedServers.map((s: any) => s.id).filter((id: string) => Boolean(id) && !currentTgt.includes(id));
+          if (newIds.length > 0) {
+            policies[polIndex].targetServerIds = [...currentTgt, ...newIds];
+            await saveAccessPolicies(policies);
+          }
+        }
+      } catch (scopeUpdateErr) {
+        console.warn('[Warning auto-adding servers to creator policy in bulk-add]', scopeUpdateErr);
+      }
+    }
+
     await addAuditLog({
       userName: (req.headers['x-user-name'] as string) || 'Admin',
       action: 'Bulk Add Discovered Servers',
@@ -6087,12 +6144,20 @@ apiRouter.post('/remote-servers/discover/bulk-add', async (req: Request, res: Re
 apiRouter.post('/remote-servers', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
-    const isPermitted =
-      isSuperAdmin ||
-      (effectivePolicy &&
-        effectivePolicy.defaultServerPermissions?.add_server !== false &&
-        effectivePolicy.canAddServer !== false &&
-        effectivePolicy.canManageDevices !== false);
+    let isPermitted = false;
+    if (isSuperAdmin) {
+      isPermitted = true;
+    } else if (effectivePolicy) {
+      if (effectivePolicy.defaultServerPermissions?.add_server !== undefined) {
+        isPermitted = Boolean(effectivePolicy.defaultServerPermissions.add_server);
+      } else if (effectivePolicy.canAddServer !== undefined) {
+        isPermitted = Boolean(effectivePolicy.canAddServer);
+      } else {
+        isPermitted = effectivePolicy.canManageDevices !== false;
+      }
+    } else {
+      isPermitted = true;
+    }
 
     if (!isPermitted) {
       return res.status(403).json({
@@ -6114,8 +6179,8 @@ apiRouter.post('/remote-servers', async (req: Request, res: Response) => {
       created &&
       created.id &&
       effectivePolicy &&
-      effectivePolicy.targetServerScope === 'specific' &&
-      Array.isArray(effectivePolicy.targetServerIds)
+      (effectivePolicy.targetServerScope === 'specific' ||
+        (effectivePolicy.targetScope === 'specific' && effectivePolicy.targetServerScope !== 'all'))
     ) {
       try {
         const policies = await getAccessPolicies();

@@ -774,35 +774,52 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   // Handle Save Server (create or update)
   const handleSaveServer = async (serverData: Partial<RemoteServer>) => {
-    if (serverToEdit) {
-      if (!isServerActionAllowed(serverToEdit, 'edit_properties', effectivePolicy)) {
-        return;
-      }
-      await updateRemoteServer(serverToEdit.id, { ...serverData, id: serverToEdit.id });
-    } else {
-      if (!canAddRemoteServer) {
-        alert(
-          isEn
-            ? 'Access denied: Your account policy prohibits registering new remote servers.'
-            : 'عدم دسترسی: پالیسی امنیتی حساب شما اجازه ثبت و افزودن سرور جدید به ناوگان را نمی‌دهد.'
-        );
-        return;
-      }
-      const createdRes = await createRemoteServer(serverData);
-      const createdServer = (createdRes as any)?.server || createdRes;
-      const createdId = createdServer?.id;
-      if (createdId) {
-        if (Array.isArray((effectivePolicy as any)?.allowedServerIds)) {
-          (effectivePolicy as any).allowedServerIds.push(createdId);
+    try {
+      if (serverToEdit) {
+        if (!isServerActionAllowed(serverToEdit, 'edit_properties', effectivePolicy)) {
+          alert(
+            isEn
+              ? 'Access denied: You do not have permission to edit server properties.'
+              : 'عدم دسترسی: شما مجوز ویرایش مشخصات این سرور را ندارید.'
+          );
+          return;
         }
-        if (Array.isArray((effectivePolicy as any)?.targetServerIds)) {
-          (effectivePolicy as any).targetServerIds.push(createdId);
+        await updateRemoteServer(serverToEdit.id, { ...serverData, id: serverToEdit.id });
+      } else {
+        if (!canAddRemoteServer) {
+          alert(
+            isEn
+              ? 'Access denied: Your account policy prohibits registering new remote servers.'
+              : 'عدم دسترسی: پالیسی امنیتی حساب شما اجازه ثبت و افزودن سرور جدید به ناوگان را نمی‌دهد.'
+          );
+          return;
+        }
+        const createdRes = await createRemoteServer(serverData);
+        const createdServer = (createdRes as any)?.server || createdRes;
+        const createdId = createdServer?.id;
+        if (createdId && effectivePolicy) {
+          if (Array.isArray((effectivePolicy as any).allowedServerIds)) {
+            if (!(effectivePolicy as any).allowedServerIds.includes(createdId)) {
+              (effectivePolicy as any).allowedServerIds.push(createdId);
+            }
+          } else if ((effectivePolicy as any).targetServerScope === 'specific') {
+            (effectivePolicy as any).allowedServerIds = [createdId];
+          }
+          if (Array.isArray((effectivePolicy as any).targetServerIds)) {
+            if (!(effectivePolicy as any).targetServerIds.includes(createdId)) {
+              (effectivePolicy as any).targetServerIds.push(createdId);
+            }
+          } else if ((effectivePolicy as any).targetServerScope === 'specific') {
+            (effectivePolicy as any).targetServerIds = [createdId];
+          }
         }
       }
+      await loadFleet();
+      setIsAddEditModalOpen(false);
+      undockModal('add_edit_remote_server');
+    } catch (err: any) {
+      alert(err.message || (isEn ? 'Failed to save server.' : 'خطا در ثبت سرور.'));
     }
-    await loadFleet();
-    setIsAddEditModalOpen(false);
-    undockModal('add_edit_remote_server');
   };
 
   // Handle Delete Server with safety confirmation
