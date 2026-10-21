@@ -754,7 +754,8 @@ export type ServerActionKey =
   | 'edit_properties'     // Edit Server Properties (Host, IP, Credentials, Port, Tags)
   | 'delete_server'       // Delete Server from Fleet
   | 'export_servers'      // Export Server & Fleet Inventory Data (JSON / CSV)
-  | 'import_servers';     // Import Server & Fleet Inventory Data (JSON / CSV)
+  | 'import_servers'      // Import Server & Fleet Inventory Data (JSON / CSV)
+  | 'add_server';         // Add Remote Server & Deploy Compute Nodes
 
 export interface ServerActionPermissions {
   terminal?: boolean;
@@ -767,6 +768,7 @@ export interface ServerActionPermissions {
   delete_server?: boolean;
   export_servers?: boolean;
   import_servers?: boolean;
+  add_server?: boolean;
 }
 
 export type NetworkDeviceActionKey =
@@ -830,6 +832,7 @@ export interface AccessPolicy {
   subjectName: string;
   // Target: Which devices does this cover?
   targetScope: 'all' | 'groups' | 'specific';
+  targetServerScope?: 'all' | 'specific';
   targetGroupIds: string[];
   targetDeviceIds: string[];
   targetServerIds?: string[];
@@ -844,6 +847,7 @@ export interface AccessPolicy {
   canViewTemplates: boolean;
   canViewSettings: boolean;
   canViewServers?: boolean;
+  canAddServer?: boolean;
   canViewLogs?: boolean;
   canViewNetworkTools?: boolean;
   canViewPhysicalPlacement?: boolean;

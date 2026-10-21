@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.350.0';
+export const APP_VERSION = '1.351.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.351.0',
+    releaseDate: '2026-10-21',
+    type: 'minor',
+    title: 'افزودن دسترسی ثبت سرور (Add Remote Server) و تفکیک محدوده سرورهای مجاز در پالیسی‌های دسترسی (RBAC)',
+    title_en: 'Add Remote Server Privilege & Target Server Scope in Access Policies (RBAC)',
+    changes: [
+      'افزودن آیتم دسترسی «ثبت و افزودن سرور به ناوگان (Add Remote Server)» به بخش اختیارات پیش‌فرض ناوگان سرورها و لینوکس (Default Server Fleet Actions & Linux Privileges) در مودال تعریف و ویرایش پالیسی دسترسی.',
+      'کنترل و مشروط‌سازی دکمه و منوی ثبت سرور (Add Remote Server) در صفحه Remote Servers & Automation Fleet بر مبنای مجوز کاربر و جلوگیری از ثبت غیرمجاز در فرانت‌اند و بک‌اند.',
+      'افزودن بخش تخصیص سرورهای مجاز ناوگان (Authorized Server Fleet Scope) با سوییچ دسترسی به کلیه سرورها یا سرورهای انتخاب شده، مجهز به جستجو، انتخاب/لغو همه و کادر اطلاعات استاندارد ۳ بخشی.',
+      'اعمال محدودیت سرورهای مجاز (allowedServerIds و targetServerIds) در سطح پایگاه داده PostgreSQL و فیلترینگ امنیتی لیست سرورها در صفحه ناوگان.',
+      'امکان استقرار و مشاهده خودکار سرور جدید ثبت‌شده برای پنل خود کاربر در صورت داشتن مجوز ایجاد سرور.'
+    ],
+    changes_en: [
+      'Added "Add Remote Server & Deploy Compute Nodes" permission to Default Server Fleet Actions & Linux Privileges in Create/Edit Access Policy modal.',
+      'Protected the "Add Remote Server" button and registration endpoints in Remote Servers & Automation Fleet according to authoritative user policy.',
+      'Introduced Authorized Server Fleet Scope selection allowing administrators to grant access to All Servers or Specific Selected Servers with real-time search and counter.',
+      'Enforced PostgreSQL-authoritative and client-side scope filtering so users only view and interact with permitted server nodes in the fleet.',
+      'Enabled automatic server assignment to the creator\'s active fleet scope when authorized users add new compute nodes.'
+    ]
+  },
   {
     version: '1.350.0',
     releaseDate: '2026-10-21',

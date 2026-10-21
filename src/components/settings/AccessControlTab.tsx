@@ -359,6 +359,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canExportBackup: false,
       canImportBackup: false,
       // Server Fleet & 3-Dots Action Permissions
+      targetServerScope: 'all',
+      targetServerIds: [],
+      canAddServer: false,
       defaultServerPermissions: {
         terminal: false,
         file_explorer: true,
@@ -368,6 +371,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         power_control: false,
         edit_properties: false,
         delete_server: false,
+        export_servers: false,
+        import_servers: false,
+        add_server: false,
       },
       perServerPermissions: {},
       // Network Equipment & 3-Dots Action Permissions
@@ -401,6 +407,9 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
     refreshDatabaseData();
     setEditingPolicy({
       ...policy,
+      targetServerScope: policy.targetServerScope || (Array.isArray(policy.targetServerIds) && policy.targetServerIds.length > 0 ? 'specific' : 'all'),
+      targetServerIds: policy.targetServerIds || [],
+      canAddServer: policy.canAddServer ?? Boolean(policy.defaultServerPermissions?.add_server),
       defaultServerPermissions: policy.defaultServerPermissions || (
         policy.id === 'policy-super-admin'
           ? { ...FULL_SERVER_PERMISSIONS }

@@ -2257,33 +2257,70 @@ async function resolveRequestContextPolicy(req: Request): Promise<{
     const policies = await getAccessPolicies();
     const simP = policies.find((p: any) => p.id === simulatedHeader);
     if (simP) {
-      if (simP.id === 'policy-super-admin' || simP.targetScope === 'all') {
-        effectivePolicy = { ...simP, allowedDeviceIds: null, allowedServerIds: null };
-      } else if (simP.targetScope === 'groups') {
-        const allDeviceGroups = await getDeviceGroups();
-        const targetGroupSet = new Set((simP.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase()));
-        const devSet = new Set<string>();
-        const srvSet = new Set<string>();
-        for (const g of allDeviceGroups) {
-          const gid = (g.id || '').trim().toLowerCase();
-          const gname = (g.name || '').trim().toLowerCase();
-          if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
-            const dIds: string[] = Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []);
-            const sIds: string[] = Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []);
-            dIds.forEach((d) => devSet.add(d));
-            sIds.forEach((s) => srvSet.add(s));
-          }
-        }
-        effectivePolicy = { ...simP, allowedDeviceIds: Array.from(devSet), allowedServerIds: Array.from(srvSet) };
-      } else if (simP.targetScope === 'specific') {
-        effectivePolicy = {
-          ...simP,
-          allowedDeviceIds: Array.isArray(simP.targetDeviceIds) ? simP.targetDeviceIds : [],
-          allowedServerIds: Array.isArray(simP.targetServerIds) ? simP.targetServerIds : [],
-        };
+      let simAllowedDevs: string[] | null = null;
+      let simAllowedSrvs: string[] | null = null;
+
+      if (simP.id === 'policy-super-admin') {
+        simAllowedDevs = null;
+        simAllowedSrvs = null;
       } else {
-        effectivePolicy = { ...simP, allowedDeviceIds: [], allowedServerIds: [] };
+        // Device scope
+        if (simP.targetScope === 'all') {
+          simAllowedDevs = null;
+        } else if (simP.targetScope === 'groups') {
+          const allDeviceGroups = await getDeviceGroups();
+          const targetGroupSet = new Set((simP.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase()));
+          const devSet = new Set<string>();
+          for (const g of allDeviceGroups) {
+            const gid = (g.id || '').trim().toLowerCase();
+            const gname = (g.name || '').trim().toLowerCase();
+            if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+              const dIds: string[] = Array.isArray(g.deviceIds) ? g.deviceIds : (Array.isArray(g.device_ids) ? g.device_ids : []);
+              dIds.forEach((d) => devSet.add(d));
+            }
+          }
+          simAllowedDevs = Array.from(devSet);
+        } else if (simP.targetScope === 'specific') {
+          simAllowedDevs = Array.isArray(simP.targetDeviceIds) ? simP.targetDeviceIds : [];
+        } else {
+          simAllowedDevs = [];
+        }
+
+        // Server fleet scope: check explicit targetServerScope and targetServerIds
+        if (
+          simP.targetServerScope === 'specific' ||
+          (Array.isArray(simP.targetServerIds) && simP.targetServerIds.length > 0 && simP.targetServerScope !== 'all')
+        ) {
+          simAllowedSrvs = Array.isArray(simP.targetServerIds) ? simP.targetServerIds : [];
+        } else if (simP.targetServerScope === 'all') {
+          simAllowedSrvs = null;
+        } else if (simP.targetScope === 'all') {
+          simAllowedSrvs = null;
+        } else if (simP.targetScope === 'groups') {
+          const allDeviceGroups = await getDeviceGroups();
+          const targetGroupSet = new Set((simP.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase()));
+          const srvSet = new Set<string>();
+          for (const g of allDeviceGroups) {
+            const gid = (g.id || '').trim().toLowerCase();
+            const gname = (g.name || '').trim().toLowerCase();
+            if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+              const sIds: string[] = Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray(g.server_ids) ? g.server_ids : []);
+              sIds.forEach((s) => srvSet.add(s));
+            }
+          }
+          simAllowedSrvs = Array.from(srvSet);
+        } else if (simP.targetScope === 'specific') {
+          simAllowedSrvs = Array.isArray(simP.targetServerIds) ? simP.targetServerIds : [];
+        } else {
+          simAllowedSrvs = [];
+        }
       }
+
+      effectivePolicy = {
+        ...simP,
+        allowedDeviceIds: simAllowedDevs,
+        allowedServerIds: simAllowedSrvs,
+      };
       return {
         user: userRecord || payload,
         effectivePolicy,
@@ -6050,10 +6087,18 @@ apiRouter.post('/remote-servers/discover/bulk-add', async (req: Request, res: Re
 apiRouter.post('/remote-servers', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
-    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+    const isPermitted =
+      isSuperAdmin ||
+      (effectivePolicy &&
+        effectivePolicy.defaultServerPermissions?.add_server !== false &&
+        effectivePolicy.canAddServer !== false &&
+        effectivePolicy.canManageDevices !== false);
+
+    if (!isPermitted) {
       return res.status(403).json({
         success: false,
         error: 'Access denied: Your account policy prohibits creating new remote servers.',
+        errorFa: 'عدم دسترسی: پالیسی امنیتی حساب شما اجازه ثبت و افزودن سرور جدید به ناوگان را نمی‌دهد.',
       });
     }
 
@@ -6063,6 +6108,31 @@ apiRouter.post('/remote-servers', async (req: Request, res: Response) => {
     }
 
     const created = await createRemoteServer(req.body);
+
+    // If the creator has a restricted server fleet scope, append the newly created server ID to their policy in PostgreSQL
+    if (
+      created &&
+      created.id &&
+      effectivePolicy &&
+      effectivePolicy.targetServerScope === 'specific' &&
+      Array.isArray(effectivePolicy.targetServerIds)
+    ) {
+      try {
+        const policies = await getAccessPolicies();
+        const polIndex = policies.findIndex((p: any) => p.id === effectivePolicy.id);
+        if (polIndex !== -1) {
+          const currentTgt = Array.isArray(policies[polIndex].targetServerIds)
+            ? policies[polIndex].targetServerIds
+            : [];
+          if (!currentTgt.includes(created.id)) {
+            policies[polIndex].targetServerIds = [...currentTgt, created.id];
+            await saveAccessPolicies(policies);
+          }
+        }
+      } catch (scopeUpdateErr) {
+        console.warn('[Warning auto-adding server to creator policy]', scopeUpdateErr);
+      }
+    }
 
     // Audit log
     await addAuditLog({

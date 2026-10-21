@@ -4038,47 +4038,76 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
     let allowedDeviceIds: string[] | null = null;
     let allowedServerIds: string[] | null = null;
 
-    if (isSuperAdmin || pol.id === 'policy-super-admin' || pol.targetScope === 'all') {
+    if (isSuperAdmin || pol.id === 'policy-super-admin') {
       allowedDeviceIds = null;
       allowedServerIds = null;
-    } else if (pol.targetScope === 'groups') {
-      const allDeviceGroups = await getDeviceGroups();
-      const targetGroupSet = new Set(
-        (pol.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase())
-      );
-      const devSet = new Set<string>();
-      const srvSet = new Set<string>();
-
-      for (const g of allDeviceGroups) {
-        const gid = (g.id || '').trim().toLowerCase();
-        const gname = (g.name || '').trim().toLowerCase();
-        if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
-          const dIds: string[] = Array.isArray(g.deviceIds)
-            ? g.deviceIds
-            : Array.isArray(g.device_ids)
-            ? g.device_ids
-            : [];
-          const sIds: string[] = Array.isArray(g.serverIds)
-            ? g.serverIds
-            : Array.isArray(g.server_ids)
-            ? g.server_ids
-            : [];
-          dIds.forEach((d) => devSet.add(d));
-          sIds.forEach((s) => srvSet.add(s));
-        }
-      }
-      allowedDeviceIds = Array.from(devSet);
-      allowedServerIds = Array.from(srvSet);
-    } else if (pol.targetScope === 'specific') {
-      allowedDeviceIds = Array.isArray(pol.targetDeviceIds) && pol.targetDeviceIds.length > 0
-        ? pol.targetDeviceIds
-        : (Array.isArray(pol.allowedDeviceIds) ? pol.allowedDeviceIds : []);
-      allowedServerIds = Array.isArray(pol.targetServerIds) && pol.targetServerIds.length > 0
-        ? pol.targetServerIds
-        : (Array.isArray(pol.allowedServerIds) ? pol.allowedServerIds : []);
     } else {
-      allowedDeviceIds = [];
-      allowedServerIds = [];
+      // 1. Device Scope
+      if (pol.targetScope === 'all') {
+        allowedDeviceIds = null;
+      } else if (pol.targetScope === 'groups') {
+        const allDeviceGroups = await getDeviceGroups();
+        const targetGroupSet = new Set(
+          (pol.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase())
+        );
+        const devSet = new Set<string>();
+        for (const g of allDeviceGroups) {
+          const gid = (g.id || '').trim().toLowerCase();
+          const gname = (g.name || '').trim().toLowerCase();
+          if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+            const dIds: string[] = Array.isArray(g.deviceIds)
+              ? g.deviceIds
+              : Array.isArray(g.device_ids)
+              ? g.device_ids
+              : [];
+            dIds.forEach((d) => devSet.add(d));
+          }
+        }
+        allowedDeviceIds = Array.from(devSet);
+      } else if (pol.targetScope === 'specific') {
+        allowedDeviceIds = Array.isArray(pol.targetDeviceIds) && pol.targetDeviceIds.length > 0
+          ? pol.targetDeviceIds
+          : (Array.isArray(pol.allowedDeviceIds) ? pol.allowedDeviceIds : []);
+      } else {
+        allowedDeviceIds = [];
+      }
+
+      // 2. Server Fleet Scope
+      if (
+        pol.targetServerScope === 'specific' ||
+        (Array.isArray(pol.targetServerIds) && pol.targetServerIds.length > 0 && pol.targetServerScope !== 'all')
+      ) {
+        allowedServerIds = Array.isArray(pol.targetServerIds) ? pol.targetServerIds : [];
+      } else if (pol.targetServerScope === 'all') {
+        allowedServerIds = null;
+      } else if (pol.targetScope === 'all') {
+        allowedServerIds = null;
+      } else if (pol.targetScope === 'groups') {
+        const allDeviceGroups = await getDeviceGroups();
+        const targetGroupSet = new Set(
+          (pol.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase())
+        );
+        const srvSet = new Set<string>();
+        for (const g of allDeviceGroups) {
+          const gid = (g.id || '').trim().toLowerCase();
+          const gname = (g.name || '').trim().toLowerCase();
+          if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+            const sIds: string[] = Array.isArray(g.serverIds)
+              ? g.serverIds
+              : Array.isArray(g.server_ids)
+              ? g.server_ids
+              : [];
+            sIds.forEach((s) => srvSet.add(s));
+          }
+        }
+        allowedServerIds = Array.from(srvSet);
+      } else if (pol.targetScope === 'specific') {
+        allowedServerIds = Array.isArray(pol.targetServerIds) && pol.targetServerIds.length > 0
+          ? pol.targetServerIds
+          : (Array.isArray(pol.allowedServerIds) ? pol.allowedServerIds : []);
+      } else {
+        allowedServerIds = [];
+      }
     }
 
     return {
@@ -4107,8 +4136,10 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       subjectId: 'admin',
       subjectName: 'Super Admin',
       targetScope: 'all',
+      targetServerScope: 'all',
       targetGroupIds: [],
       targetDeviceIds: [],
+      targetServerIds: [],
       canViewDashboard: true,
       canViewTopology: true,
       canViewDevices: true,
@@ -4117,6 +4148,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewTemplates: true,
       canViewSettings: true,
       canViewServers: true,
+      canAddServer: true,
       canViewLogs: true,
       canCheckUpdate: true,
       canPerformUpdate: true,
@@ -4140,6 +4172,9 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
         power_control: true,
         edit_properties: true,
         delete_server: true,
+        export_servers: true,
+        import_servers: true,
+        add_server: true,
       },
       perServerPermissions: {},
       defaultDevicePermissions: {

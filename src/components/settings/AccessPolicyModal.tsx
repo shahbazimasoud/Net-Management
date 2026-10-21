@@ -151,6 +151,41 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const [matrixDeviceFilter, setMatrixDeviceFilter] = useState<'all' | 'custom_only' | 'default_only'>('all');
   const [matrixServerFilter, setMatrixServerFilter] = useState<'all' | 'custom_only' | 'default_only'>('all');
 
+  // Tab 5 (Server Fleet Actions & Scope) States
+  const [serverScopeSearch, setServerScopeSearch] = useState('');
+  const [fetchedServers, setFetchedServers] = useState<RemoteServer[]>([]);
+
+  // Auto-fetch remote servers if not provided in props
+  useEffect(() => {
+    if (isOpen && liveServers.length === 0) {
+      fetch('/api/remote-servers')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && Array.isArray(data.servers)) {
+            setFetchedServers(data.servers);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, liveServers.length]);
+
+  const allAvailableServers = useMemo(() => {
+    return liveServers.length > 0 ? liveServers : fetchedServers;
+  }, [liveServers, fetchedServers]);
+
+  const filteredServersForScope = useMemo(() => {
+    if (!serverScopeSearch.trim()) return allAvailableServers;
+    const q = serverScopeSearch.toLowerCase().trim();
+    return allAvailableServers.filter(
+      (s) =>
+        s.name?.toLowerCase().includes(q) ||
+        s.ip?.toLowerCase().includes(q) ||
+        s.hostname?.toLowerCase().includes(q) ||
+        s.os_distro?.toLowerCase().includes(q) ||
+        (Array.isArray(s.tags) && s.tags.some((t) => t.toLowerCase().includes(q)))
+    );
+  }, [allAvailableServers, serverScopeSearch]);
+
   // Sync draft policy whenever initialPolicy changes or modal opens
   useEffect(() => {
     if (isOpen && initialPolicy) {
@@ -158,6 +193,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         ...initialPolicy,
         targetGroupIds: initialPolicy.targetGroupIds || [],
         targetDeviceIds: initialPolicy.targetDeviceIds || [],
+        targetServerScope:
+          initialPolicy.targetServerScope ||
+          (Array.isArray(initialPolicy.targetServerIds) && initialPolicy.targetServerIds.length > 0
+            ? 'specific'
+            : 'all'),
+        targetServerIds: initialPolicy.targetServerIds || [],
+        canAddServer:
+          initialPolicy.canAddServer ??
+          Boolean(initialPolicy.defaultServerPermissions?.add_server),
         defaultServerPermissions: initialPolicy.defaultServerPermissions || {
           terminal: false,
           file_explorer: true,
@@ -167,6 +211,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           power_control: false,
           edit_properties: false,
           delete_server: false,
+          export_servers: false,
+          import_servers: false,
+          add_server: false,
         },
         perServerPermissions: initialPolicy.perServerPermissions || {},
         defaultDevicePermissions: initialPolicy.defaultDevicePermissions || {
@@ -434,6 +481,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
   const setAllServerDefaultPermissions = (enabled: boolean) => {
     setDraftPolicy({
       ...draftPolicy,
+      canAddServer: enabled,
       defaultServerPermissions: {
         terminal: enabled,
         file_explorer: enabled,
@@ -443,6 +491,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         power_control: enabled,
         edit_properties: enabled,
         delete_server: enabled,
+        export_servers: enabled,
+        import_servers: enabled,
+        add_server: enabled,
       },
     });
   };
@@ -2330,19 +2381,21 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                           <input
                             type="checkbox"
                             checked={isChecked}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              const isAdd = action.key === 'add_server';
                               setDraftPolicy({
                                 ...draftPolicy,
+                                canAddServer: isAdd ? e.target.checked : draftPolicy.canAddServer,
                                 defaultServerPermissions: {
                                   ...draftPolicy.defaultServerPermissions,
                                   [action.key]: e.target.checked,
                                 },
-                              })
-                            }
-                            className="w-4 h-4 mt-0.5 accent-amber-500 rounded"
+                              });
+                            }}
+                            className="w-4 h-4 mt-0.5 accent-amber-500 rounded cursor-pointer"
                           />
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-1">
                               <span
                                 className={`font-bold text-xs ${
                                   isLightMode ? 'text-slate-900' : 'text-white'
@@ -2350,11 +2403,31 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                               >
                                 {isEn ? action.labelEn : action.labelFa}
                               </span>
-                              {action.danger && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono font-bold">
-                                  {isEn ? 'HIGH RISK' : 'حساس'}
-                                </span>
-                              )}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {action.danger && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono font-bold">
+                                    {isEn ? 'HIGH RISK' : 'حساس'}
+                                  </span>
+                                )}
+                                <FieldInfoTooltip
+                                  title={isEn ? action.labelEn : action.labelFa}
+                                  whatIsIt={
+                                    isEn
+                                      ? action.tooltipWhatEn || action.descriptionEn
+                                      : action.tooltipWhatFa || action.descriptionFa
+                                  }
+                                  whyNeeded={
+                                    isEn
+                                      ? action.tooltipWhyEn || 'Defines operational authority for server actions across the fleet.'
+                                      : action.tooltipWhyFa || 'تعیین سطح اختیارات اجرایی بر روی ناوگان سرورهای متصل.'
+                                  }
+                                  practicalExample={
+                                    isEn
+                                      ? action.tooltipExampleEn || 'Configured according to administrator role and responsibility.'
+                                      : action.tooltipExampleFa || 'تنظیم بر مبنای مسئولیت‌های تخصصی تیم‌های عملیات و پشتیبانی.'
+                                  }
+                                />
+                              </div>
                             </div>
                             <div
                               className={`text-[10px] mt-0.5 ${
@@ -2368,6 +2441,242 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                       );
                     })}
                   </div>
+                </div>
+
+                {/* ========================================================================= */}
+                {/* Permitted Target Servers Fleet Scope & Selection */}
+                {/* ========================================================================= */}
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Boxes className="w-4 h-4 text-cyan-400" />
+                      <h4
+                        className={`text-xs font-bold ${
+                          isLightMode ? 'text-slate-900' : 'text-white'
+                        }`}
+                      >
+                        {isEn
+                          ? 'Authorized Server Fleet Scope & Permitted Servers'
+                          : 'محدوده سرورهای مجاز ناوگان و انتخاب سرورهای هدف'}
+                      </h4>
+                      <FieldInfoTooltip
+                        title={isEn ? 'Authorized Server Scope' : 'محدوده سرورهای مجاز'}
+                        whatIsIt={
+                          isEn
+                            ? 'Specifies whether users under this policy can access all servers in the fleet or only specific selected server nodes in Remote Servers & Automation Fleet.'
+                            : 'مشخص می‌کند آیا کاربران دارای این پالیسی به تمام سرورهای ناوگان دسترسی دارند یا فقط سرورهای مشخص انتخاب شده را در صفحه ناوگان سرورها مشاهده و مدیریت می‌کنند.'
+                        }
+                        whyNeeded={
+                          isEn
+                            ? 'Prevents unauthorized viewing or management of sensitive compute nodes, ensuring strict multi-tenant isolation and least-privilege boundaries.'
+                            : 'جلوگیری از مشاهده یا مدیریت غیرمجاز نودهای پردازشی حساس و تضمین حریم امنیتی حداقل اختیارات (Least Privilege).'
+                        }
+                        practicalExample={
+                          isEn
+                            ? 'Select "Specific Selected Servers" and check only database servers for DBA teams, or web nodes for frontend developers.'
+                            : 'انتخاب «سرورهای انتخاب شده» و تیک زدن فقط سرورهای پایگاه داده برای تیم DBA یا وب‌سرورها برای توسعه‌دهندگان وب.'
+                        }
+                      />
+                    </div>
+
+                    {/* Scope Toggle: All vs Specific */}
+                    <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/40 border border-white/10">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraftPolicy({
+                            ...draftPolicy,
+                            targetServerScope: 'all',
+                            targetServerIds: [],
+                          })
+                        }
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          (draftPolicy.targetServerScope || 'all') === 'all'
+                            ? 'bg-cyan-500 text-white shadow-xs'
+                            : isLightMode
+                            ? 'text-slate-600 hover:text-slate-900'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {isEn ? 'All Fleet Servers' : 'کلیه سرورهای ناوگان'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraftPolicy({
+                            ...draftPolicy,
+                            targetServerScope: 'specific',
+                            targetServerIds: draftPolicy.targetServerIds || [],
+                          })
+                        }
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          draftPolicy.targetServerScope === 'specific'
+                            ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                            : isLightMode
+                            ? 'text-slate-600 hover:text-slate-900'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {isEn ? 'Specific Selected Servers' : 'سرورهای انتخاب شده'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <p
+                    className={`text-[11px] mb-3 ${
+                      isLightMode ? 'text-slate-500' : 'text-slate-400'
+                    }`}
+                  >
+                    {(draftPolicy.targetServerScope || 'all') === 'all'
+                      ? isEn
+                        ? 'Unrestricted Scope: Users assigned this policy can view, inspect, and manage all current and future servers in the Remote Servers & Automation Fleet.'
+                        : 'محدوده عمومی و کامل: کاربران این پالیسی به تمامی سرورهای فعلی و آینده در صفحه Remote Servers & Automation Fleet دسترسی داشته و آن‌ها را در لیست ناوگان می‌بینند.'
+                      : isEn
+                        ? 'Restricted Scope: Users will ONLY see, inspect, and execute allowed actions on the servers explicitly selected below in the Remote Servers & Automation Fleet list.'
+                        : 'محدوده اختصاصی و محدودشده: کاربران منحصراً سرورهایی را که در فهرست زیر انتخاب شده‌اند در لیست Remote Servers & Automation Fleet مشاهده نموده و روی آن‌ها دسترسی خواهند داشت.'}
+                  </p>
+
+                  {/* If Specific is selected, render search, bulk actions, and server cards */}
+                  {draftPolicy.targetServerScope === 'specific' && (
+                    <div className="space-y-3 pt-3 border-t border-white/10">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-amber-400">
+                            {isEn ? 'Permitted Server Selection:' : 'انتخاب سرورهای مجاز ناوگان:'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            {isEn
+                              ? `${(draftPolicy.targetServerIds || []).length} of ${allAvailableServers.length} Selected`
+                              : `${(draftPolicy.targetServerIds || []).length} از ${allAvailableServers.length} سرور انتخاب شده`}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 absolute right-2.5 top-2 text-slate-400 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={serverScopeSearch}
+                              onChange={(e) => setServerScopeSearch(e.target.value)}
+                              placeholder={isEn ? 'Filter by name, IP, OS...' : 'جستجوی نام، IP، توزیع...'}
+                              className={`w-44 sm:w-56 pl-3 pr-8 py-1 rounded-lg text-xs border outline-none transition ${
+                                isLightMode
+                                  ? 'bg-slate-50 border-slate-300 text-slate-800 focus:border-amber-500'
+                                  : 'bg-slate-900 border-white/15 text-white focus:border-amber-400'
+                              }`}
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftPolicy({
+                                ...draftPolicy,
+                                targetServerIds: allAvailableServers.map((s) => s.id),
+                              })
+                            }
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition cursor-pointer whitespace-nowrap"
+                          >
+                            {isEn ? 'Select All' : 'انتخاب همه'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftPolicy({
+                                ...draftPolicy,
+                                targetServerIds: [],
+                              })
+                            }
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white transition cursor-pointer whitespace-nowrap"
+                          >
+                            {isEn ? 'Deselect All' : 'لغو همه'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {filteredServersForScope.length === 0 ? (
+                        <div className="p-4 text-center rounded-xl bg-white/5 border border-white/10 text-xs text-slate-400">
+                          {isEn ? 'No remote servers match the search criteria.' : 'هیچ سروری مطابق با فیلتر جستجو یافت نشد.'}
+                        </div>
+                      ) : (
+                        <div className="max-h-64 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 p-1 pr-2">
+                          {filteredServersForScope.map((server) => {
+                            const isSelected = (draftPolicy.targetServerIds || []).includes(server.id);
+                            return (
+                              <label
+                                key={server.id}
+                                className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer select-none transition ${
+                                  isSelected
+                                    ? isLightMode
+                                      ? 'bg-amber-50 border-amber-400 text-amber-950 shadow-xs'
+                                      : 'bg-amber-500/15 border-amber-500/50 text-amber-100 shadow-xs shadow-amber-500/10'
+                                    : isLightMode
+                                    ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                                    : 'bg-slate-900/60 border-white/10 text-slate-300 hover:bg-slate-900'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    const current = draftPolicy.targetServerIds || [];
+                                    const next = e.target.checked
+                                      ? [...current, server.id]
+                                      : current.filter((id) => id !== server.id);
+                                    setDraftPolicy({
+                                      ...draftPolicy,
+                                      targetServerIds: next,
+                                    });
+                                  }}
+                                  className="w-4 h-4 mt-0.5 accent-amber-500 rounded cursor-pointer"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="font-bold text-xs truncate">
+                                      {server.name}
+                                    </span>
+                                    <span
+                                      className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold uppercase ${
+                                        server.os_type === 'windows'
+                                          ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      }`}
+                                    >
+                                      {server.os_distro || server.os_type}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mt-1">
+                                    <span>{server.ip}</span>
+                                    <span className="truncate max-w-[100px] text-slate-500">
+                                      {server.hostname || server.environment || 'production'}
+                                    </span>
+                                  </div>
+                                  {Array.isArray(server.tags) && server.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                      {server.tags.slice(0, 3).map((tag) => (
+                                        <span
+                                          key={tag}
+                                          className="text-[8px] px-1 py-0.2 rounded bg-white/5 border border-white/10 text-slate-400"
+                                        >
+                                          #{tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

@@ -10,10 +10,18 @@ export interface ServerActionDescriptor {
   key: ServerActionKey;
   labelEn: string;
   labelFa: string;
+  shortLabelEn?: string;
+  shortLabelFa?: string;
   descriptionEn: string;
   descriptionFa: string;
   category: 'remote' | 'management' | 'power' | 'config';
   danger?: boolean;
+  tooltipWhatEn?: string;
+  tooltipWhatFa?: string;
+  tooltipWhyEn?: string;
+  tooltipWhyFa?: string;
+  tooltipExampleEn?: string;
+  tooltipExampleFa?: string;
 }
 
 export interface NetworkDeviceActionDescriptor {
@@ -581,10 +589,35 @@ export const SERVER_ACTIONS_CATALOG: ServerActionDescriptor[] = [
     key: 'import_servers',
     labelEn: 'Import Server & Fleet Data (JSON / CSV)',
     labelFa: 'ورود اطلاعات و بارگذاری سرورها (Import)',
+    shortLabelEn: 'Import',
+    shortLabelFa: 'ورود سرورها',
     descriptionEn: 'Import single or bulk servers from JSON or CSV files into the fleet with conflict validation.',
     descriptionFa: 'بارگذاری و ورود تکی یا دسته‌ای مشخصات سرورها از طریق فایل‌های JSON و CSV به سیستم.',
     category: 'management',
     danger: true,
+    tooltipWhatEn: 'Permits uploading server inventory packages in JSON or CSV format.',
+    tooltipWhatFa: 'مجوز بارگذاری بسته‌های اطلاعات سرور با فرمت JSON یا CSV.',
+    tooltipWhyEn: 'Batch importing creates new infrastructure records and credentials in the database.',
+    tooltipWhyFa: 'ورود دسته‌ای رکوردها و اطلاعات اتصال سرورهای متعدد در دیتابیس را به همراه دارد.',
+    tooltipExampleEn: 'Granted during mass data migrations by Infrastructure Architects.',
+    tooltipExampleFa: 'مجاز هنگام مهاجرت داده و ایجاد اولیه سیستم توسط معماران زیرساخت.',
+  },
+  {
+    key: 'add_server',
+    labelEn: 'Add Remote Server & Deploy Compute Nodes',
+    labelFa: 'ثبت و افزودن سرور به ناوگان (Add Remote Server)',
+    shortLabelEn: 'Add Server',
+    shortLabelFa: 'افزودن سرور',
+    descriptionEn: 'Permit adding and registering new Linux, Windows, cloud instances, and standalone service nodes into the fleet.',
+    descriptionFa: 'مجوز ثبت، اضافه کردن و استقرار سرورهای جدید لینوکس، ویندوز، ماشین‌های مجازی و سرویس‌های مستقل در ناوگان.',
+    category: 'config',
+    danger: false,
+    tooltipWhatEn: 'Permits adding and registering new remote servers (Linux SSH, Windows RDP/VNC) or service nodes into the automation fleet.',
+    tooltipWhatFa: 'مجوز ثبت سرورهای ریموت جدید (لینوکس، ویندوز، نودهای رایانشی) یا سرویس‌های مستقل در ناوگان اتوماسیون.',
+    tooltipWhyEn: 'Governs who can expand the infrastructure fleet and deploy new monitored nodes into the management panel.',
+    tooltipWhyFa: 'تعیین‌کننده اختیار کاربر در گسترش زیرساخت، ثبت هاست‌های جدید و اتصال سرورها به پنل مانیتورینگ.',
+    tooltipExampleEn: 'Enabled for Infrastructure Administrators and DevOps leads; disabled for read-only NOC operators.',
+    tooltipExampleFa: 'فعال برای مدیران زیرساخت و دواپس؛ غیرفعال برای اپراتورهای مانیتورینگ NOC و کلاینت‌ها.',
   },
 ];
 
@@ -599,6 +632,7 @@ export const FULL_SERVER_PERMISSIONS: ServerActionPermissions = {
   delete_server: true,
   export_servers: true,
   import_servers: true,
+  add_server: true,
 };
 
 export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
@@ -612,6 +646,7 @@ export const RESTRICTED_SERVER_PERMISSIONS: ServerActionPermissions = {
   delete_server: false,
   export_servers: false,
   import_servers: false,
+  add_server: false,
 };
 
 /**
@@ -631,8 +666,19 @@ export function isServerActionPermitted(
     return false;
   }
 
+  // 1.1 Fleet-level Add Remote Server action
+  if (action === 'add_server') {
+    if (policy.defaultServerPermissions?.add_server !== undefined) {
+      return Boolean(policy.defaultServerPermissions.add_server);
+    }
+    if (policy.canAddServer !== undefined) {
+      return Boolean(policy.canAddServer);
+    }
+    return policy.canManageDevices !== false;
+  }
+
   // 2. If policy targets specific groups/servers, ensure target server is in allowed fleet scope
-  if (Array.isArray(policy.allowedServerIds) && !policy.allowedServerIds.includes(serverId)) {
+  if (Array.isArray(policy.allowedServerIds) && serverId && !policy.allowedServerIds.includes(serverId)) {
     return false;
   }
 

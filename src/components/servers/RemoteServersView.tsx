@@ -633,11 +633,47 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
 
   useEffect(() => {
     loadFleet(true);
-  }, [effectivePolicy?.id, effectivePolicy?.targetScope, (effectivePolicy as any)?.allowedServerIds]);
+  }, [
+    effectivePolicy?.id,
+    effectivePolicy?.targetScope,
+    effectivePolicy?.targetServerScope,
+    (effectivePolicy as any)?.allowedServerIds,
+    (effectivePolicy as any)?.targetServerIds,
+  ]);
+
+  // Evaluates whether current user has authorization to add new remote servers
+  const canAddRemoteServer = useMemo(() => {
+    if (!effectivePolicy) return true;
+    if (effectivePolicy.defaultServerPermissions?.add_server !== undefined) {
+      return Boolean(effectivePolicy.defaultServerPermissions.add_server);
+    }
+    if (effectivePolicy.canAddServer !== undefined) {
+      return Boolean(effectivePolicy.canAddServer);
+    }
+    return effectivePolicy.canManageDevices !== false;
+  }, [effectivePolicy]);
 
   // Filtered servers calculation
   const filteredServers = useMemo(() => {
     return servers.filter((server) => {
+      // Server Fleet Scope / Permitted Server IDs Filter
+      const targetIds =
+        (effectivePolicy as any)?.allowedServerIds ??
+        (effectivePolicy?.targetServerScope === 'specific'
+          ? (effectivePolicy as any)?.targetServerIds
+          : null);
+      if (Array.isArray(targetIds)) {
+        const allowedSet = new Set(
+          targetIds.map((id: string) => (id || '').trim().toLowerCase())
+        );
+        const sid = (server.id || '').trim().toLowerCase();
+        const sname = (server.name || '').trim().toLowerCase();
+        const shost = (server.hostname || '').trim().toLowerCase();
+        if (!allowedSet.has(sid) && !allowedSet.has(sname) && !allowedSet.has(shost)) {
+          return false;
+        }
+      }
+
       // OS / Tab Filter
       if (activeTabFilter === 'linux' && server.os_type !== 'linux') return false;
       if (activeTabFilter === 'windows' && server.os_type !== 'windows') return false;
@@ -710,6 +746,14 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const handleOpenAdd = (
     serviceMode: 'standard' | 'linux' | 'windows' | 'nginx' | 'apache' | 'postgresql' | 'mysql' = 'standard'
   ) => {
+    if (!canAddRemoteServer) {
+      alert(
+        isEn
+          ? 'Access denied: Your account policy prohibits registering new remote servers.'
+          : 'عدم دسترسی: پالیسی امنیتی حساب شما اجازه ثبت و افزودن سرور جدید به ناوگان را نمی‌دهد.'
+      );
+      return;
+    }
     setServerToEdit(null);
     setAddServiceMode(serviceMode);
     setIsAddEditModalOpen(true);
@@ -736,7 +780,25 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
       }
       await updateRemoteServer(serverToEdit.id, { ...serverData, id: serverToEdit.id });
     } else {
-      await createRemoteServer(serverData);
+      if (!canAddRemoteServer) {
+        alert(
+          isEn
+            ? 'Access denied: Your account policy prohibits registering new remote servers.'
+            : 'عدم دسترسی: پالیسی امنیتی حساب شما اجازه ثبت و افزودن سرور جدید به ناوگان را نمی‌دهد.'
+        );
+        return;
+      }
+      const createdRes = await createRemoteServer(serverData);
+      const createdServer = (createdRes as any)?.server || createdRes;
+      const createdId = createdServer?.id;
+      if (createdId) {
+        if (Array.isArray((effectivePolicy as any)?.allowedServerIds)) {
+          (effectivePolicy as any).allowedServerIds.push(createdId);
+        }
+        if (Array.isArray((effectivePolicy as any)?.targetServerIds)) {
+          (effectivePolicy as any).targetServerIds.push(createdId);
+        }
+      }
     }
     await loadFleet();
     setIsAddEditModalOpen(false);
@@ -1538,7 +1600,7 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             )}
 
             {/* Add Server & Standalone Services Dropdown Button */}
-            {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
+            {canAddRemoteServer && (
               <div className="relative">
                 <button
                   ref={addBtnRef}
