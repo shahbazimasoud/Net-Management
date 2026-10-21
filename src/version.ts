@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.346.2';
+export const APP_VERSION = '1.347.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.347.0',
+    releaseDate: '2026-10-21',
+    type: 'minor',
+    title: 'افزودن انیمیشن سه‌بعدی و تعاملی تسراکت ۵ بعدی و خطوط زمانی گرانش به صفحه لاگین (الهام‌گرفته از فیلم اینتراستلار)',
+    title_en: 'Add 3D Interactive 5D Tesseract & Gravitational Timelines Login Animation (Interstellar)',
+    changes: [
+      'طراحی و پیاده‌سازی کامپوننت سه‌بعدی تعاملی Tesseract5D بر پایه ماتریس دوران ۴ و ۵ بعدی هایپرکیوب (۱۶ راس و ۳۲ یال فضا-زمان).',
+      'شبیه‌سازی دالان‌های نامتناهی کتابخانه زمان با امواج نوری عمقی، غبارهای معلق فوتونی و پالس‌های متحرک کد مورس (پیام STAY و تله‌متری داده).',
+      'امکان تعامل کامل کاربر با درگ ماوس برای چرخش زاویه دید در فضای ۵ بعدی، اسکرول جهت زوم به دالان‌های زمان، کنترل سرعت وارپ، و تغییر پالت با تم‌های رنگی پنل.',
+      'تعبیه HUD سایبرنتیک نمایش مختصات ابعادی، تنش گرانشی و فرکانس زمانی مطابق شبیه‌سازی فیزیک نسبیتی کیپ تورن.',
+      'افزودن گزینه انتخاب انیمیشن تسراکت ۵ بعدی در بخش GeneralSettingsView و اعتبارسنجی پایگاه داده در سرور (server/db.ts).'
+    ],
+    changes_en: [
+      'Engineered interactive 3D Tesseract5D component utilizing 4D/5D hypercube rotation matrices (16 vertices, 32 space-time edges).',
+      'Simulated infinite timeline bookshelf corridors featuring depth light filaments, floating quantum dust motes, and dynamic Morse gravitational pulses (STAY signal).',
+      'Enabled rich user interactions including 3D mouse drag rotation, mouse wheel corridor zoom, warp time speed controls, and seamless panel theme adaptability.',
+      'Integrated cybernetic quantum telemetry HUD displaying dimensional coordinates, gravitational stress, and timeline frequency inspired by Kip Thorne relativistic physics.',
+      'Added 5D Tesseract selection option in GeneralSettingsView with full server-side database persistence schema validation in server/db.ts.'
+    ]
+  },
   {
     version: '1.346.2',
     releaseDate: '2026-10-20',
