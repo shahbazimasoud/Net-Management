@@ -398,7 +398,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           onClick={() => onChangeTheme(opt.id)}
                           className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs transition cursor-pointer text-left ${
                             isSelected
-                              ? 'bg-indigo-600/30 text-white font-bold border border-indigo-500/40 shadow-[0_0_10px_rgba(99,102,241,0.2)]'
+                              ? 'bg-indigo-600/25 text-white font-bold border border-indigo-500/35'
                               : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
                           }`}
                         >

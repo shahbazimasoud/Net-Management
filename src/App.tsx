@@ -1012,7 +1012,7 @@ export default function App() {
         <NetworkSocketLoader
           isEn={isEn}
           message={isEn ? 'Loading Page...' : 'در حال بارگذاری صفحه...'}
-          subMessage={isEn ? 'Please wait, checking session and loading workspace' : 'لطفاً شکیبا باشید، در حال بررسی نشست و بارگذاری سامانه'}
+          subMessage={isEn ? 'Please wait, loading system data and workspace...' : 'لطفاً شکیبا باشید، در حال آماده‌سازی و دریافت اطلاعات سامانه...'}
         />
       </div>
     );

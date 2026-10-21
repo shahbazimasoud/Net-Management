@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.351.2';
+export const APP_VERSION = '1.351.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.351.3',
+    releaseDate: '2026-10-21',
+    type: 'patch',
+    title: 'یکپارچه‌سازی پویانمایی لودینگ سوکت شبکه و حذف سایه‌های نامطلوب منوهای انتخابی',
+    title_en: 'Synchronize RJ45 Network Socket Loader Animation & Clean Selected Menu Shadows',
+    changes: [
+      'یکسان‌سازی ۱۰۰٪ ساختار DOM، ابعاد و انیمیشن‌های کامپوننت لودر NetworkSocketLoader با لودر اولیه index.html جهت رفع کامل پرش و تغییر ناگهانی استایل هنگام سوئیچ از لودر اولیه به ری‌اکت.',
+      'حذف سایه نئونی اضافی از دکمه‌های فعال سایدبار و نوبار و پاک‌سازی سلکتور تهاجمی سایه در index.css جهت جلوگیری از تیرگی و سایه‌های نامطلوب روی منوها.',
+      'بهینه‌سازی ترتیب پلاگین‌های Vite برای Tailwind CSS نسخه ۴.'
+    ],
+    changes_en: [
+      'Synchronized NetworkSocketLoader component DOM structure, dimensions (140x120), and CSS styling 100% with index.html initial loader, eliminating visual jump/switch upon React mount.',
+      'Removed redundant neon box-shadows from active sidebar and navbar items, and eliminated aggressive shadow selector in index.css preventing dark bleeding across menus.',
+      'Optimized Vite plugin configuration order for Tailwind CSS v4.'
+    ]
+  },
   {
     version: '1.351.2',
     releaseDate: '2026-10-21',

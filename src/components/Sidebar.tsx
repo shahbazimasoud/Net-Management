@@ -354,7 +354,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           isCollapsed ? 'justify-center px-2' : isRtl ? 'justify-between pr-3 pl-2.5 text-right' : 'justify-between pl-3 pr-2.5 text-left'
         } py-2 rounded-xl text-xs transition-all duration-200 group relative shrink-0 cursor-pointer ${
           isActive
-            ? 'active bg-indigo-600/30 text-white font-semibold border border-indigo-500/40 shadow-[0_0_15px_rgba(99,102,241,0.25)]'
+            ? 'active bg-indigo-600/25 text-white font-semibold border border-indigo-500/40'
             : 'text-slate-300 hover:bg-white/5 hover:text-white border border-transparent'
         }`}
       >
@@ -449,7 +449,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`rounded-2xl transition-all duration-200 ${
                 isCollapsed
                   ? 'space-y-1'
-                  : 'border border-white/10 bg-white/[0.02] p-1 shadow-xs'
+                  : 'border border-white/10 bg-white/[0.02] p-1'
               }`}
             >
               {/* Accordion Parent Header Button */}
@@ -458,7 +458,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => handleParentClick(group.id)}
                   className={`w-full flex items-center justify-between p-2 rounded-xl text-xs font-semibold transition-all cursor-pointer select-none ${
                     isExpanded
-                      ? 'bg-white/10 text-white shadow-xs border border-white/10'
+                      ? 'bg-white/10 text-white border border-white/10'
                       : hasActiveChild
                       ? 'bg-indigo-600/15 text-slate-200 hover:bg-white/10'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
