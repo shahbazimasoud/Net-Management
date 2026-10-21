@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity } from 'lucide-react';
+import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { NetworkPortSvg } from './NetworkPortSvg';
@@ -2215,6 +2215,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                       <tr
                         key={pId}
                         onClick={(e) => handlePortClick(e, port)}
+                        onContextMenu={(e) => handlePortContextMenu(e, port)}
                         className={`cursor-pointer transition ${
                           isSelected ? 'bg-indigo-500/20 text-white font-medium' : 'hover:bg-white/5 text-slate-300'
                         }`}
@@ -2303,15 +2304,29 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                           {port.poe_power ? `${port.poe_power}W` : 'Off'}
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startEdit(port);
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-indigo-300 hover:text-white border border-white/10 text-[11px] font-sans transition cursor-pointer"
-                          >
-                            {isEn ? 'Edit' : 'ویرایش'}
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startEdit(port);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-indigo-300 hover:text-white border border-white/10 text-[11px] font-sans transition cursor-pointer"
+                            >
+                              {isEn ? 'Edit' : 'ویرایش'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePortContextMenu(e, port);
+                              }}
+                              className="p-1 rounded-lg bg-white/5 hover:bg-indigo-600/30 text-slate-400 hover:text-indigo-200 border border-white/10 transition cursor-pointer"
+                              title={isEn ? 'Port Actions (Right-Click Menu)' : 'منوی عملیات پورت (راست‌کلیک)'}
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

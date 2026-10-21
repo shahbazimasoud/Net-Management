@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.351.4';
+export const APP_VERSION = '1.352.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.352.0',
+    releaseDate: '2026-10-21',
+    type: 'minor',
+    title: 'کنترل تفکیکی دسترسی به عملیات راست‌کلیک پورت‌های سیسکو و میکروتیک در پالیسی‌های RBAC و منوهای سه‌نقطه',
+    title_en: 'Granular Cisco & MikroTik Port Right-Click & 3-Dots Actions RBAC Policy Matrix',
+    changes: [
+      'افزودن تفکیک و کنترل هوشمند دسترسی‌های راست‌کلیک پورت‌ها (شامل قطع/وصل پورت، مد Access/Trunk، تغییر VLAN، امنیت پورت، سرعت، اتصال بریج و تست کابل) متناسب با نوع پلتفرم (سیسکو یا میکروتیک) در تب Network Device & Granular matrix مودال‌های ایجاد و ویرایش پالیسی دسترسی.',
+      'افزودن دکمه‌های کنترلی دسته‌ای [مجاز کردن همه پورت‌ها] و [مسدود کردن همه پورت‌ها] به تفکیک هر تجهیز شبکه جهت تسهیل اعمال سریع دسترسی‌ها.',
+      'هماهنگ‌سازی و اعمال دقیق مجوزهای پورت در تمامی بخش‌های برنامه اعم از راست‌کلیک روی ردیف پورت‌ها، منوی سه‌نقطه عملیاتی در بازرس پورت (PortInspectorModal)، مدیریت میکروتیک (MikroTikDeviceManageModal) و نمای جامع مدیریت پورت‌ها (PortManagementView).',
+      'رعایت کامل استانداردهای چندزبانگی i18n و عدم نمایش هرگونه متن فارسی در حالت زبان انگلیسی.'
+    ],
+    changes_en: [
+      'Added platform-aware granular access control for port right-click actions (power/shutdown, mode access/trunk, VLAN assignment, port security, speed, bridge assignment, cable test) tailored specifically for Cisco and MikroTik equipment in the Network Device & Granular Matrix tab of Access Policy modals.',
+      'Introduced quick batch toggle buttons ([Allow All Ports] and [Deny All Ports]) per network equipment to streamline bulk port permission assignments.',
+      'Universal enforcement of port permissions across all contexts: right-click on port rows, dedicated 3-dots action menus in PortInspectorModal, MikroTikDeviceManageModal port lists, and PortManagementView.',
+      'Strict bilingual localization compliance across all new UI badges, matrix sections, and action triggers with zero Persian text leakage in English mode.'
+    ]
+  },
   {
     version: '1.351.4',
     releaseDate: '2026-10-21',

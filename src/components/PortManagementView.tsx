@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, CheckCircle2, AlertCircle, AlertTriangle, Layers } from 'lucide-react';
+import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, CheckCircle2, AlertCircle, AlertTriangle, Layers, MoreVertical } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
@@ -1506,6 +1506,14 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
                   <tr
                     key={pId}
                     onClick={(e) => handlePortClick(e, port)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        port,
+                      });
+                    }}
                     className={`cursor-pointer transition ${
                       isSelected
                         ? 'bg-indigo-600/20 text-white border-l-2 border-indigo-400'
@@ -1583,17 +1591,34 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
                   <td className="p-3.5 text-slate-300">{port.speed}</td>
                   <td className="p-3.5 text-slate-300">{port.poe_power ? `${port.poe_power}W` : 'Off'}</td>
                   <td className="p-3.5 text-center">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startEdit(port);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-200 hover:text-white text-xs font-sans transition border border-indigo-500/30 cursor-pointer flex items-center gap-1 mx-auto"
-                      title={isEn ? 'Edit port and scroll to editor' : 'ویرایش پورت و اسکرول به بخش تنظیمات'}
-                    >
-                      <Edit3 className="w-3 h-3" />
-                      <span>{t('ports_btn_edit')}</span>
-                    </button>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEdit(port);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-200 hover:text-white text-xs font-sans transition border border-indigo-500/30 cursor-pointer flex items-center gap-1"
+                        title={isEn ? 'Edit port and scroll to editor' : 'ویرایش پورت و اسکرول به بخش تنظیمات'}
+                      >
+                        <Edit3 className="w-3 h-3" />
+                        <span>{t('ports_btn_edit')}</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setContextMenu({
+                            x: Math.min(window.innerWidth - 240, rect.right + 4),
+                            y: Math.min(window.innerHeight - 300, rect.top),
+                            port,
+                          });
+                        }}
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-400 border border-slate-700 hover:border-cyan-500/40 transition cursor-pointer"
+                        title={isEn ? 'Port Actions & Context Menu' : 'عملیات و منوی پورت'}
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

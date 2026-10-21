@@ -26,7 +26,8 @@ import {
   Search,
   Filter,
   Shield,
-  Lock
+  Lock,
+  MoreVertical,
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
 import { fetchDevicePorts, updateSwitchPort, batchUpdateSwitchPorts } from '../services/api';
@@ -1168,6 +1169,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                         <th className="p-2.5">{isEn ? 'PVID' : 'شناسه PVID'}</th>
                         <th className="p-2.5">{isEn ? 'HW Offload' : 'سخت‌افزاری'}</th>
                         <th className="p-2.5">{isEn ? 'Status' : 'وضعیت'}</th>
+                        <th className="p-2.5 text-center">{isEn ? 'Actions' : 'عملیات'}</th>
                       </tr>
                     </thead>
                     <tbody
@@ -1178,7 +1180,15 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                       {ports.map((p) => (
                         <tr
                           key={p.port_id}
-                          className={`transition-colors ${
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              port: p,
+                            });
+                          }}
+                          className={`transition-colors cursor-pointer ${
                             isLightMode ? 'hover:bg-slate-50' : 'hover:bg-slate-800/40'
                           }`}
                         >
@@ -1204,6 +1214,28 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                             >
                               {(p.status || 'down').toUpperCase()}
                             </span>
+                          </td>
+                          <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                setContextMenu({
+                                  x: isEn ? rect.right : rect.left,
+                                  y: rect.bottom,
+                                  port: p,
+                                });
+                              }}
+                              className={`p-1 rounded-lg transition cursor-pointer border ${
+                                isLightMode
+                                  ? 'hover:bg-slate-200 text-slate-600 border-slate-300'
+                                  : 'hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 border-white/10'
+                              }`}
+                              title={isEn ? 'Interface Actions Menu' : 'منوی عملیات اینترفیس'}
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
                           </td>
                         </tr>
                       ))}
