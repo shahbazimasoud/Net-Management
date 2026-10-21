@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.347.0';
+export const APP_VERSION = '1.348.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.348.0',
+    releaseDate: '2026-10-21',
+    type: 'minor',
+    title: 'افزودن انیمیشن سه‌بعدی سیاره اقیانوسی میلر و امواج تایتان در مدار سیاه‌چاله گارگَنچوا به صفحه لاگین (اینتراستلار)',
+    title_en: "Add 3D Interactive Miller's Water Planet & Titan Waves Login Animation (Interstellar)",
+    changes: [
+      'طراحی و پیاده‌سازی کامپوننت سه‌بعدی شبیه‌ساز امواج غول‌آسای اقیانوسی سیاره میلر (MillerWaves3D) بر پایه امواج غیرخطی گرستنر (Gerstner Waves) و فیزیک سیالات.',
+      'شبیه‌سازی افق کیهانی سیاه‌چاله گارگَنچوا با لنز گرانشی دوگانه نسبیتی، قرص برافزایشی با درخشش داپلر و افق رویداد فوتونی.',
+      'محاسبه ذره‌ای قطرات و مه‌غلیظ برخاسته از تاج امواج تایتانیکی (Crest Sea Spray) به همراه تپش‌سنج نسبیتی گذر زمان (۱ ساعت = ۷ سال زمین).',
+      'پشتیبانی از تعامل پانینگ افق با درگ ماوس، زوم زاویه دید با چرخ اسکرول، انتخاب مقیاس ارتفاع امواج (معمولی، تایتان ۵۰۰ متری، فاجعه‌بار ۱۲۰۰ متری) و سرعت اتساع زمان.',
+      'افزودن دکمه انتخاب انیمیشن سیاره میلر به تنظیمات عمومی سیستم (GeneralSettingsView) و همگام‌سازی اعتبارسنجی در بک‌اند.'
+    ],
+    changes_en: [
+      'Engineered procedural 3D ocean simulation component MillerWaves3D utilizing Gerstner waves mathematics and fluid dynamics on Miller\'s planet.',
+      'Simulated the ominous sky presence of Gargantua black hole with relativistic double gravitational lensing, Doppler-beamed accretion disk, and photon sphere.',
+      'Implemented real-time crest sea spray particle physics, atmospheric ground mist, and relativistic ticker clock (1 local hour = 7 Earth years).',
+      'Enabled interactive mouse horizon pan, scroll wheel camera zoom, wave height intensity toggle (Swell, Titan 500m, Cataclysmic 1200m), and time dilation rates.',
+      'Integrated Miller\'s Water Planet into GeneralSettingsView visual animation selectors and server database schema validation.'
+    ]
+  },
   {
     version: '1.347.0',
     releaseDate: '2026-10-21',

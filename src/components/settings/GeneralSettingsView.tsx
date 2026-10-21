@@ -2619,6 +2619,46 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
                         <Check className="w-4 h-4 text-cyan-400 shrink-0 mt-1" />
                       )}
                     </button>
+
+                    {/* Animation 5: Miller's Water Planet & Titan Waves */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next: PanelGeneralSettings = {
+                          ...formData,
+                          loginVisualMode: 'animation',
+                          loginAnimationType: 'miller_waves',
+                        };
+                        setFormData(next);
+                        saveGeneralSettings(next);
+                      }}
+                      className={`p-3.5 rounded-xl border text-left rtl:text-right transition cursor-pointer flex items-start justify-between gap-3 ${
+                        (formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'miller_waves'
+                          ? 'bg-blue-600/20 border-blue-500 text-blue-300 shadow-sm ring-1 ring-blue-500/40'
+                          : isLightMode
+                          ? 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                          : 'bg-slate-950/80 border-white/10 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30 text-blue-400 mt-0.5 shrink-0">
+                          <Waves className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-bold ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                            {isEn ? "Miller's Water Planet & Titan Waves (Interstellar)" : 'سیاره اقیانوسی میلر و امواج تایتان (اینتراستلار)'}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                            {isEn
+                              ? 'Towering tidal waves on Miller planet orbiting Gargantua, sea spray physics & relativistic time dial (1h = 7y).'
+                              : 'امواج عظیم و سهمگین در مدار سیاه‌چاله گارگَنچوا، فیزیک قطرات آب، و ثانیه‌شمار نسبیتی زمان (۱ ساعت = ۷ سال).'}
+                          </p>
+                        </div>
+                      </div>
+                      {(formData.loginVisualMode || 'animation') === 'animation' && formData.loginAnimationType === 'miller_waves' && (
+                        <Check className="w-4 h-4 text-blue-400 shrink-0 mt-1" />
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>
