@@ -152,26 +152,28 @@ export const MikroTikPortContextMenu: React.FC<MikroTikPortContextMenuProps> = (
     action: Parameters<MikroTikPortContextMenuProps['onExecuteAction']>[0],
     extra?: any
   ) => {
-    const actionPermMap: Record<string, string> = {
-      enable: 'port_power',
-      disable: 'port_power',
-      bridge_add: 'port_bridge',
-      bridge_remove: 'port_bridge',
-      change_vlan: 'port_vlan',
-      set_speed: 'port_speed',
-      edit_comment: 'port_description',
-      cable_test: 'port_cable_test',
+    const actionPermMap: Record<string, string[]> = {
+      enable: ['port_power', 'mikrotik_toggle_interface'],
+      disable: ['port_power', 'mikrotik_toggle_interface'],
+      bridge_add: ['port_bridge', 'mikrotik_bridge_vlan'],
+      bridge_remove: ['port_bridge', 'mikrotik_bridge_vlan'],
+      change_vlan: ['port_vlan', 'mikrotik_bridge_vlan'],
+      set_speed: ['port_speed'],
+      edit_comment: ['port_description', 'mikrotik_comment'],
+      cable_test: ['port_cable_test'],
     };
 
-    const reqPerm = actionPermMap[action];
-    if (reqPerm && !isDeviceActionPermitted(effectivePolicy, targetDeviceId, reqPerm as any)) {
-      alert(
-        isEn
-          ? `Access Denied: You do not have permission to execute '${reqPerm}' on this device.`
-          : `عدم دسترسی: شما طبق پالیسی دسترسی مجوز انجام عملیات «${reqPerm}» روی این تجهیز را ندارید.`
-      );
-      onClose();
-      return;
+    const reqPerms = actionPermMap[action] || [];
+    for (const perm of reqPerms) {
+      if (!isDeviceActionPermitted(effectivePolicy, targetDeviceId, perm as any)) {
+        alert(
+          isEn
+            ? `Access Denied: You do not have permission to execute '${perm}' on this device.`
+            : `عدم دسترسی: شما طبق پالیسی دسترسی مجوز انجام عملیات «${perm}» روی این تجهیز را ندارید.`
+        );
+        onClose();
+        return;
+      }
     }
 
     onExecuteAction(action, extra);

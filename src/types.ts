@@ -793,7 +793,16 @@ export type NetworkDeviceActionKey =
   | 'port_description' // Port Description & RouterOS Comment
   | 'port_bridge'      // MikroTik Bridge Membership (Add / Remove)
   | 'port_speed'       // MikroTik Speed, Duplex & Auto-Negotiation
-  | 'port_cable_test'; // MikroTik TDR Cable Diagnostic Test
+  | 'port_cable_test'  // MikroTik TDR Cable Diagnostic Test
+  // MikroTik RouterOS Granular Capabilities & Core Services
+  | 'mikrotik_safe_mode'        // RouterOS Safe Mode Protection (<CTRL+X>)
+  | 'mikrotik_firewall'         // Firewall Filter & NAT Rules (/ip/firewall)
+  | 'mikrotik_backup'           // System Backup & Export (.rsc) (/system/backup & /export)
+  | 'mikrotik_bridge_vlan'      // Bridge VLAN Filtering & Ports (/interface/bridge/vlan)
+  | 'mikrotik_toggle_interface' // Enable / Disable Interfaces (/interface/set disabled=yes/no)
+  | 'mikrotik_vpn'              // MikroTik VPN Suite (WireGuard, L2TP, SSTP, OpenVPN, PPTP)
+  | 'mikrotik_comment'          // Modify Interface Comments (/interface/set comment=...)
+  | 'mikrotik_ip_pool';         // Manage IP Pools & DHCP Ranges (/ip/pool & /ip/dhcp-server)
 
 export interface NetworkDeviceActionPermissions {
   web_configs?: boolean;
@@ -818,6 +827,15 @@ export interface NetworkDeviceActionPermissions {
   port_bridge?: boolean;
   port_speed?: boolean;
   port_cable_test?: boolean;
+  // MikroTik RouterOS Granular Capabilities
+  mikrotik_safe_mode?: boolean;
+  mikrotik_firewall?: boolean;
+  mikrotik_backup?: boolean;
+  mikrotik_bridge_vlan?: boolean;
+  mikrotik_toggle_interface?: boolean;
+  mikrotik_vpn?: boolean;
+  mikrotik_comment?: boolean;
+  mikrotik_ip_pool?: boolean;
 }
 
 export interface AccessPolicy {
@@ -871,6 +889,7 @@ export interface AccessPolicy {
   canMikrotikFirewall?: boolean;         // /ip/firewall filter/nat
   canMikrotikBackup?: boolean;           // /system/backup & /export
   canMikrotikSafeMode?: boolean;         // RouterOS Safe Mode Protection
+  canMikrotikVpn?: boolean;              // MikroTik VPN Suite (WireGuard, L2TP, SSTP, OpenVPN, PPTP)
 
   // 3. Generic & Linux Network Appliances
   genericTerminalAccess?: 'none' | 'view_only' | 'full';

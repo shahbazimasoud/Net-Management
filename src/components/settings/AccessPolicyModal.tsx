@@ -474,6 +474,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canMikrotikBackup: enabled,
       canMikrotikBridgeVlan: enabled,
       canMikrotikToggleInterface: enabled,
+      canMikrotikVpn: enabled,
       canMikrotikComment: enabled,
       canMikrotikIpPool: enabled,
     });
@@ -574,7 +575,12 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     },
   ];
 
-  const generalEquipmentActions = DEVICE_ACTIONS_CATALOG.filter((a) => a.category !== 'port');
+  const universalGeneralActions = DEVICE_ACTIONS_CATALOG.filter(
+    (a) => a.category !== 'port' && (!a.platform || a.platform === 'all')
+  );
+  const mikrotikCoreActions = DEVICE_ACTIONS_CATALOG.filter(
+    (a) => a.platform === 'mikrotik' && a.category !== 'port'
+  );
   const portEquipmentActions = DEVICE_ACTIONS_CATALOG.filter((a) => a.category === 'port');
 
   return createPortal(
@@ -1986,6 +1992,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         why: 'Enables safe documentation of interface connections',
                       },
                       {
+                        key: 'canMikrotikVpn',
+                        labelEn: 'MikroTik VPN Suite & Tunnels',
+                        labelFa: 'مدیریت سرویس و تونل‌های VPN میکروتیک',
+                        descEn: 'Configure WireGuard, L2TP/IPsec, SSTP, OVPN',
+                        descFa: 'ساخت و مدیریت سرورها و کلاینت‌های VPN',
+                        what: 'Permissions to configure WireGuard, L2TP, SSTP, OpenVPN, and PPTP',
+                        why: 'Controls remote access security and cryptographic tunnel endpoints',
+                      },
+                      {
                         key: 'canMikrotikIpPool',
                         labelEn: 'Manage IP Pools & DHCP Ranges',
                         labelFa: 'مدیریت استخر آی‌پی (IP Pool & DHCP)',
@@ -3103,18 +3118,67 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Section 1: General Device & CLI Operations */}
+                                {/* Section 1: General Device & Management Capabilities */}
                                 <div className="space-y-1.5">
-                                  <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                                    <Sliders className="w-3 h-3 text-cyan-400" />
-                                    <span>
-                                      {isEn
-                                        ? 'General Device & Management Capabilities'
-                                        : 'عملیات و دسترسی‌های عمومی تجهیز'}
-                                    </span>
+                                  <div className="flex items-center justify-between flex-wrap gap-1">
+                                    <div className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                                      <Sliders className="w-3 h-3 text-cyan-400" />
+                                      <span>
+                                        {isEn
+                                          ? 'General Device & Management Capabilities'
+                                          : 'عملیات و دسترسی‌های عمومی تجهیز'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                            ...(draftPolicy.defaultDevicePermissions || {}),
+                                          };
+                                          const updated = { ...current };
+                                          universalGeneralActions.forEach((a) => {
+                                            updated[a.key as NetworkDeviceActionKey] = true;
+                                          });
+                                          setDraftPolicy({
+                                            ...draftPolicy,
+                                            perDevicePermissions: {
+                                              ...(draftPolicy.perDevicePermissions || {}),
+                                              [dev.id]: updated,
+                                            },
+                                          });
+                                        }}
+                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 cursor-pointer"
+                                      >
+                                        {isEn ? 'Allow All' : 'اجازه همه'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                            ...(draftPolicy.defaultDevicePermissions || {}),
+                                          };
+                                          const updated = { ...current };
+                                          universalGeneralActions.forEach((a) => {
+                                            updated[a.key as NetworkDeviceActionKey] = false;
+                                          });
+                                          setDraftPolicy({
+                                            ...draftPolicy,
+                                            perDevicePermissions: {
+                                              ...(draftPolicy.perDevicePermissions || {}),
+                                              [dev.id]: updated,
+                                            },
+                                          });
+                                        }}
+                                        className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 cursor-pointer"
+                                      >
+                                        {isEn ? 'Deny All' : 'مسدودسازی'}
+                                      </button>
+                                    </div>
                                   </div>
+
                                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
-                                    {generalEquipmentActions.map((action) => {
+                                    {universalGeneralActions.map((action) => {
                                       const isCustom = typeof devPerms[action.key as NetworkDeviceActionKey] === 'boolean';
                                       const isAllowed = isCustom
                                         ? devPerms[action.key as NetworkDeviceActionKey] === true
@@ -3167,7 +3231,122 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Section 2: Port Right-Click & Port Modal Actions (Cisco vs MikroTik) */}
+                                {/* Section 2 (MikroTik Only): RouterOS Core Services & Governance */}
+                                {isMikrotik && mikrotikCoreActions.length > 0 && (
+                                  <div className="space-y-1.5 pt-1.5 border-t border-white/5">
+                                    <div className="flex items-center justify-between flex-wrap gap-1">
+                                      <div className="text-[10px] font-bold text-emerald-300 flex items-center gap-1.5">
+                                        <RouterIcon className="w-3 h-3 text-emerald-400" />
+                                        <span>
+                                          {isEn
+                                            ? 'MikroTik RouterOS Core Services & Governance'
+                                            : 'سرویس‌ها و اختیارات اختصاصی روتروس میکروتیک'}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                              ...(draftPolicy.defaultDevicePermissions || {}),
+                                            };
+                                            const updated = { ...current };
+                                            mikrotikCoreActions.forEach((a) => {
+                                              updated[a.key as NetworkDeviceActionKey] = true;
+                                            });
+                                            setDraftPolicy({
+                                              ...draftPolicy,
+                                              perDevicePermissions: {
+                                                ...(draftPolicy.perDevicePermissions || {}),
+                                                [dev.id]: updated,
+                                              },
+                                            });
+                                          }}
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 cursor-pointer"
+                                        >
+                                          {isEn ? 'Allow All RouterOS' : 'اجازه همه روتروس'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                              ...(draftPolicy.defaultDevicePermissions || {}),
+                                            };
+                                            const updated = { ...current };
+                                            mikrotikCoreActions.forEach((a) => {
+                                              updated[a.key as NetworkDeviceActionKey] = false;
+                                            });
+                                            setDraftPolicy({
+                                              ...draftPolicy,
+                                              perDevicePermissions: {
+                                                ...(draftPolicy.perDevicePermissions || {}),
+                                                [dev.id]: updated,
+                                              },
+                                            });
+                                          }}
+                                          className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 cursor-pointer"
+                                        >
+                                          {isEn ? 'Deny All RouterOS' : 'مسدودسازی روتروس'}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+                                      {mikrotikCoreActions.map((action) => {
+                                        const isCustom = typeof devPerms[action.key as NetworkDeviceActionKey] === 'boolean';
+                                        const isAllowed = isCustom
+                                          ? devPerms[action.key as NetworkDeviceActionKey] === true
+                                          : isDeviceActionPermitted(
+                                              { ...draftPolicy, perDevicePermissions: undefined },
+                                              dev.id,
+                                              action.key as NetworkDeviceActionKey
+                                            );
+
+                                        return (
+                                          <button
+                                            key={action.key}
+                                            type="button"
+                                            title={isEn ? (action.descriptionEn || action.labelEn) : (action.descriptionFa || action.labelFa)}
+                                            onClick={() => {
+                                              const current = draftPolicy.perDevicePermissions?.[dev.id] || {
+                                                ...(draftPolicy.defaultDevicePermissions || {}),
+                                              };
+                                              const nextVal = !isAllowed;
+                                              setDraftPolicy({
+                                                ...draftPolicy,
+                                                perDevicePermissions: {
+                                                  ...(draftPolicy.perDevicePermissions || {}),
+                                                  [dev.id]: {
+                                                    ...current,
+                                                    [action.key]: nextVal,
+                                                  },
+                                                },
+                                              });
+                                            }}
+                                            className={`flex items-center justify-between p-1.5 rounded-lg border text-[11px] font-medium transition cursor-pointer select-none ${
+                                              isAllowed
+                                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300 opacity-80'
+                                            }`}
+                                          >
+                                            <span className="truncate">
+                                              {isEn
+                                                ? (action.shortLabelEn || action.key)
+                                                : (action.shortLabelFa || action.key)}
+                                            </span>
+                                            {isAllowed ? (
+                                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                                            ) : (
+                                              <X className="w-3 h-3 text-rose-400 shrink-0" />
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Section 3 (or Section 2 for Cisco): Port Right-Click & Interface Actions */}
                                 {applicablePortActions.length > 0 && (
                                   <div className="space-y-1.5 pt-1.5 border-t border-white/5">
                                     <div className="flex items-center justify-between flex-wrap gap-1">

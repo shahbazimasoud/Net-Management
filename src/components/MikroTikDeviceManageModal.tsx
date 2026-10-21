@@ -76,14 +76,38 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     isDeviceActionPermitted(effectivePolicy, device.id, 'terminal')
   );
 
-  // Granular Port RBAC Permissions for this specific MikroTik Router/Switch
-  const canPortPower = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_power'));
-  const canPortBridge = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_bridge'));
-  const canPortVlan = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_vlan'));
+  // Granular Port & Interface RBAC Permissions for this specific MikroTik Router/Switch
+  const canPortPower = Boolean(
+    device &&
+    (isDeviceActionPermitted(effectivePolicy, device.id, 'port_power') ||
+     isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_toggle_interface'))
+  );
+  const canPortBridge = Boolean(
+    device &&
+    (isDeviceActionPermitted(effectivePolicy, device.id, 'port_bridge') ||
+     isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_bridge_vlan'))
+  );
+  const canPortVlan = Boolean(
+    device &&
+    (isDeviceActionPermitted(effectivePolicy, device.id, 'port_vlan') ||
+     isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_bridge_vlan'))
+  );
   const canPortSpeed = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_speed'));
-  const canPortDescription = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_description'));
+  const canPortDescription = Boolean(
+    device &&
+    (isDeviceActionPermitted(effectivePolicy, device.id, 'port_description') ||
+     isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_comment'))
+  );
   const canPortCableTest = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'port_cable_test'));
   const canAnyPortEdit = canPortPower || canPortBridge || canPortVlan || canPortSpeed || canPortDescription;
+
+  // Granular RouterOS Core RBAC Capabilities for this specific MikroTik device
+  const canMikrotikSafeMode = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_safe_mode'));
+  const canMikrotikFirewall = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_firewall'));
+  const canMikrotikBackup = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_backup'));
+  const canMikrotikBridgeVlan = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_bridge_vlan'));
+  const canMikrotikVpn = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_vpn'));
+  const canMikrotikIpPool = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_ip_pool'));
 
   const [activeTab, setActiveTab] = useState<'ports' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
   const [ports, setPorts] = useState<SwitchPort[]>([]);
@@ -1141,6 +1165,22 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
 
           {activeTab === 'bridge' && (
             <div className="space-y-4">
+              {!canMikrotikBridgeVlan && (
+                <div
+                  className={`p-3 rounded-xl border flex items-center gap-2 text-xs font-semibold ${
+                    isLightMode
+                      ? 'bg-amber-50 border-amber-300 text-amber-900 shadow-xs'
+                      : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                  }`}
+                >
+                  <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span>
+                    {isEn
+                      ? 'Access Restricted: Bridge VLAN Filtering & Ports modification is restricted on this device under your RBAC policy (Read-Only).'
+                      : 'دسترسی محدود: تغییرات و پیکربندی Bridge VLAN Filtering و پورت‌های بریج طبق پالیسی دسترسی برای این تجهیز قفل است (فقط مشاهده).'}
+                  </span>
+                </div>
+              )}
               <div
                 className={`p-4 rounded-xl border ${
                   isLightMode ? 'border-slate-200 bg-white shadow-xs' : 'border-slate-800 bg-slate-900/60'
@@ -1247,13 +1287,35 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
           )}
 
           {activeTab === 'vpn' && device && (
-            <MikroTikVPNSuite
-              device={device}
-              userRole={userRole}
-              onMinimize={onMinimize}
-              isLightMode={isLightMode}
-              isEn={isEn}
-            />
+            !canMikrotikVpn ? (
+              <div
+                className={`p-8 rounded-xl border text-center space-y-3 ${
+                  isLightMode
+                    ? 'bg-white border-slate-200 text-slate-800 shadow-xs'
+                    : 'bg-slate-900/60 border-slate-800 text-slate-200'
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold">
+                  {isEn ? 'MikroTik VPN Suite Access Denied' : 'عدم دسترسی به مدیریت سرویس‌های VPN میکروتیک'}
+                </h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  {isEn
+                    ? 'Your active Access Policy does not grant permission to view or manage VPN tunnels, WireGuard, or IPsec configurations on this device.'
+                    : 'پالیسی امنیتی فعال شما مجوز مشاهده یا پیکربندی تونل‌های VPN، WireGuard یا IPsec را روی این تجهیز به شما نمی‌دهد.'}
+                </p>
+              </div>
+            ) : (
+              <MikroTikVPNSuite
+                device={device}
+                userRole={userRole}
+                onMinimize={onMinimize}
+                isLightMode={isLightMode}
+                isEn={isEn}
+              />
+            )
           )}
 
           {activeTab === 'resources' && (
@@ -1268,48 +1330,69 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
 
           {activeTab === 'export' && (
             <div className="space-y-4">
-              <div
-                className={`p-4 rounded-xl border space-y-3 ${
-                  isLightMode ? 'border-slate-200 bg-white shadow-xs' : 'border-slate-800 bg-slate-900/60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`text-xs font-bold font-mono ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
-                    /export hide-sensitive
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const text = `# Generated by NetTopology for ${device.name}\n/interface ethernet\n${ports
-                        .map(
-                          (p) =>
-                            `set [ find default-name=${p.port_id} ] comment="${p.description || ''}" disabled=${
-                              p.admin_status === 'disabled' ? 'yes' : 'no'
-                            }`
-                        )
-                        .join('\n')}\n/interface bridge\nadd name=bridge1\n/interface bridge port\n${ports
-                        .map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1}`)
-                        .join('\n')}`;
-                      navigator.clipboard.writeText(text);
-                      alert(isEn ? 'RouterOS .rsc script copied to clipboard!' : 'اسکریپت .rsc در کلیپ‌بورد کپی شد!');
-                    }}
-                    className={`px-3 py-1 rounded text-xs flex items-center gap-1.5 cursor-pointer border ${
-                      isLightMode
-                        ? 'bg-slate-100 hover:bg-slate-200 text-cyan-800 border-slate-300'
-                        : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-slate-700'
-                    }`}
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>{isEn ? 'Copy .rsc' : 'کپی اسکریپت'}</span>
-                  </button>
-                </div>
-                <pre
-                  className={`p-3 rounded-lg text-xs font-mono leading-relaxed max-h-60 overflow-x-auto ${
+              {!canMikrotikBackup ? (
+                <div
+                  className={`p-8 rounded-xl border text-center space-y-3 ${
                     isLightMode
-                      ? 'bg-slate-900 text-cyan-300 border border-slate-800'
-                      : 'bg-black/80 text-cyan-300'
+                      ? 'bg-white border-slate-200 text-slate-800 shadow-xs'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-200'
                   }`}
                 >
+                  <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                    <Lock className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold">
+                    {isEn ? 'System Backup & Export (.rsc) Restricted' : 'پشتیبان‌گیری سیستم و خروجی .rsc قفل است'}
+                  </h4>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    {isEn
+                      ? 'Your active Access Policy prohibits extracting RouterOS configuration scripts or generating system backups from this router.'
+                      : 'طبق پالیسی امنیتی دسترسی شما، استخراج اسکریپت کانفیگ و تهیه نسخه پشتیبان از این تجهیز روتروس مسدود است.'}
+                  </p>
+                </div>
+              ) : (
+                <div
+                  className={`p-4 rounded-xl border space-y-3 ${
+                    isLightMode ? 'border-slate-200 bg-white shadow-xs' : 'border-slate-800 bg-slate-900/60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-xs font-bold font-mono ${isLightMode ? 'text-slate-900' : 'text-white'}`}>
+                      /export hide-sensitive
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = `# Generated by NetTopology for ${device.name}\n/interface ethernet\n${ports
+                          .map(
+                            (p) =>
+                              `set [ find default-name=${p.port_id} ] comment="${p.description || ''}" disabled=${
+                                p.admin_status === 'disabled' ? 'yes' : 'no'
+                              }`
+                          )
+                          .join('\n')}\n/interface bridge\nadd name=bridge1\n/interface bridge port\n${ports
+                          .map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1}`)
+                          .join('\n')}`;
+                        navigator.clipboard.writeText(text);
+                        alert(isEn ? 'RouterOS .rsc script copied to clipboard!' : 'اسکریپت .rsc در کلیپ‌بورد کپی شد!');
+                      }}
+                      className={`px-3 py-1 rounded text-xs flex items-center gap-1.5 cursor-pointer border ${
+                        isLightMode
+                          ? 'bg-slate-100 hover:bg-slate-200 text-cyan-800 border-slate-300'
+                          : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-slate-700'
+                      }`}
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>{isEn ? 'Copy .rsc' : 'کپی اسکریپت'}</span>
+                    </button>
+                  </div>
+                  <pre
+                    className={`p-3 rounded-lg text-xs font-mono leading-relaxed max-h-60 overflow-x-auto ${
+                      isLightMode
+                        ? 'bg-slate-900 text-cyan-300 border border-slate-800'
+                        : 'bg-black/80 text-cyan-300'
+                    }`}
+                  >
 {`# RouterOS v7.14 Configuration Export
 # Device: ${device.name || 'MikroTik'} (${device.ip || '192.168.88.1'})
 # Software ID: 4KL9-WQ21
@@ -1323,8 +1406,9 @@ add name=bridge1 vlan-filtering=yes
 /interface bridge port
 ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1}`).join('\n')}
 `}
-                </pre>
-              </div>
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>

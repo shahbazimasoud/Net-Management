@@ -4454,6 +4454,32 @@ export function isDeviceActionPermitted(
     return policy.canGenericDiagnostics !== false;
   }
 
+  // Fallback mappings for MikroTik RouterOS capabilities & core services:
+  if (action === 'mikrotik_safe_mode') {
+    return policy.canMikrotikSafeMode !== false;
+  }
+  if (action === 'mikrotik_firewall') {
+    return policy.canMikrotikFirewall !== false;
+  }
+  if (action === 'mikrotik_backup') {
+    return policy.canMikrotikBackup !== false;
+  }
+  if (action === 'mikrotik_bridge_vlan') {
+    return policy.canMikrotikBridgeVlan !== false;
+  }
+  if (action === 'mikrotik_toggle_interface') {
+    return policy.canMikrotikToggleInterface !== false && policy.canToggleAdminStatus !== false;
+  }
+  if (action === 'mikrotik_vpn') {
+    return policy.canManageDevices !== false;
+  }
+  if (action === 'mikrotik_comment') {
+    return policy.canMikrotikComment !== false && policy.canEditDescription !== false;
+  }
+  if (action === 'mikrotik_ip_pool') {
+    return policy.canMikrotikIpPool !== false;
+  }
+
   // Non-destructive actions (web_configs, ping_keepalive, inspect_ports, device_note)
   return true;
 }

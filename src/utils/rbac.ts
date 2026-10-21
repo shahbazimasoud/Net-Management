@@ -390,7 +390,177 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     tooltipExampleEn: 'Safe to grant to all Helpdesk staff to verify patch cable integrity.',
     tooltipExampleFa: 'اعطای دسترسی به تمامی نیروهای پشتیبانی جهت اطمینان از سلامت پچ‌کورد پیش از تعویض سوئیچ.',
   },
+
+  // -------------------------------------------------------------
+  // MikroTik RouterOS Granular Capabilities & Core Services
+  // -------------------------------------------------------------
+  {
+    key: 'mikrotik_safe_mode',
+    labelEn: 'RouterOS Safe Mode Protection',
+    labelFa: 'محافظت حالت امن روتروس (Safe Mode)',
+    shortLabelEn: 'Safe Mode',
+    shortLabelFa: 'سیف مد',
+    descriptionEn: 'Permits or enforces RouterOS Safe Mode protection (<CTRL+X>) during live configuration edits.',
+    descriptionFa: 'فعال‌سازی یا الزام استفاده از حالت امن Safe Mode میکروتیک برای بازگردانی خودکار تغییرات در صورت قطعی ارتباط.',
+    category: 'config',
+    platform: 'mikrotik',
+    danger: true,
+    tooltipWhatEn: 'Enforces or permits toggling RouterOS Safe Mode protection (<CTRL+X>) during live session configuration.',
+    tooltipWhatFa: 'فعال‌سازی یا الزام استفاده از حالت امن Safe Mode میکروتیک برای بازگردانی خودکار تنظیمات در صورت قطعی ارتباط.',
+    tooltipWhyEn: 'Prevents permanent remote lockouts when applying experimental firewall rules, routing modifications, or IP address changes.',
+    tooltipWhyFa: 'جلوگیری از قفل شدن یا قطع دائمی دسترسی به روتر در صورت اشتباه در تنظیمات فایروال، روتینگ یا آدرس‌های IP.',
+    tooltipExampleEn: 'Mandatory for junior network engineers; optional for core system administrators.',
+    tooltipExampleFa: 'الزامی برای تکنسین‌های تازه‌کار جهت پیشگیری از خطای انسانی؛ اختیاری برای مدیران ارشد.',
+  },
+  {
+    key: 'mikrotik_firewall',
+    labelEn: 'Firewall Filter & NAT Rules',
+    labelFa: 'مدیریت فایروال و رول‌های NAT میکروتیک',
+    shortLabelEn: 'Firewall & NAT',
+    shortLabelFa: 'فایروال و NAT',
+    descriptionEn: 'Inspect, modify, create, and reorder RouterOS /ip/firewall filter, nat, raw, and mangle rules.',
+    descriptionFa: 'مشاهده، ویرایش، افزودن و جابجایی رول‌های فیلتر پکت، جدول NAT و رول‌های منگل در فایروال میکروتیک.',
+    category: 'config',
+    platform: 'mikrotik',
+    danger: true,
+    tooltipWhatEn: 'Inspect, modify, create, and reorder RouterOS /ip/firewall filter, nat, raw, and mangle rules.',
+    tooltipWhatFa: 'مشاهده، ویرایش، افزودن و جابجایی رول‌های فیلتر پکت، جدول NAT و رول‌های منگل در فایروال میکروتیک.',
+    tooltipWhyEn: 'Perimeter security and destination port-forwarding control; flawed rules can expose LAN or block management traffic.',
+    tooltipWhyFa: 'کنترل کامل ترافیک ورودی/خروجی و پورت‌فورواردینگ؛ تنظیم اشتباه می‌تواند باعث نفوذ امنیتی یا مسدودسازی دسترسی شود.',
+    tooltipExampleEn: 'Restricted to Cybersecurity Engineers and Senior Network Administrators.',
+    tooltipExampleFa: 'منحصراً برای کارشناسان امنیت شبکه و مدیران ارشد زیرساخت.',
+  },
+  {
+    key: 'mikrotik_backup',
+    labelEn: 'System Backup & Export (.rsc)',
+    labelFa: 'پشتیبان‌گیری سیستم و خروجی اسکریپت (.rsc)',
+    shortLabelEn: 'Backup & Export',
+    shortLabelFa: 'بکاپ و اکسپورت',
+    descriptionEn: 'Generate binary system backups (/system/backup save) and export plain-text configuration scripts (/export).',
+    descriptionFa: 'تولید فایل‌های پشتیبان باینری سیستم (/system/backup) و استخراج اسکریپت‌های متنی تنظیمات (/export).',
+    category: 'management',
+    platform: 'mikrotik',
+    danger: true,
+    tooltipWhatEn: 'Generate binary system backups (/system/backup save) and export plain-text configuration scripts (/export).',
+    tooltipWhatFa: 'تولید فایل‌های پشتیبان باینری سیستم (/system/backup) و استخراج اسکریپت‌های متنی تنظیمات (/export).',
+    tooltipWhyEn: 'Protects proprietary routing logic and encrypted secrets from unauthorized exfiltration while enabling disaster recovery.',
+    tooltipWhyFa: 'محافظت از تنظیمات و پسوردهای ذخیره‌شده روتر در برابر نشت اطلاعات و امکان بازیابی سریع پس از خرابی سخت‌افزاری.',
+    tooltipExampleEn: 'Granted to System Administrators for automated scheduled configuration snapshots.',
+    tooltipExampleFa: 'اعطا به مدیران شبکه جهت ایجاد پشتیبان‌های دوره‌ای از تنظیمات روترهای مرزی.',
+  },
+  {
+    key: 'mikrotik_bridge_vlan',
+    labelEn: 'Bridge VLAN Filtering & Ports',
+    labelFa: 'فیلترینگ Bridge VLAN و مدیریت پورت‌ها',
+    shortLabelEn: 'Bridge & VLAN',
+    shortLabelFa: 'بریج و VLAN',
+    descriptionEn: 'Configure RouterOS software bridges, hardware-offloaded bridge VLAN filtering, and trunk/access PVIDs.',
+    descriptionFa: 'پیکربندی بریج‌های نرم‌افزاری روتروس، فعال‌سازی فیلترینگ VLAN با شتاب سخت‌افزاری و تنظیم PVID پورت‌ها.',
+    category: 'config',
+    platform: 'mikrotik',
+    danger: true,
+    tooltipWhatEn: 'Configure RouterOS software bridges, hardware-offloaded bridge VLAN filtering, and trunk/access PVIDs.',
+    tooltipWhatFa: 'پیکربندی بریج‌های نرم‌افزاری روتروس، فعال‌سازی فیلترینگ VLAN با شتاب سخت‌افزاری و تنظیم PVID پورت‌ها.',
+    tooltipWhyEn: 'Controls Layer 2 switching boundaries and tagged traffic separation on MikroTik CRS/CCR switches.',
+    tooltipWhyFa: 'تفکیک لایه ۲ ترافیک دپارتمان‌ها و اعمال ایزولاسیون VLANها روی پورت‌های سوییچ‌های میکروتیک.',
+    tooltipExampleEn: 'Granted to Network Provisioning Engineers for VLAN trunking and access port allocations.',
+    tooltipExampleFa: 'اعطا به کارشناسان راه‌اندازی شبکه جهت ترانک کردن VLANها به سمت اکسس‌پوینت‌ها و سرورها.',
+  },
+  {
+    key: 'mikrotik_toggle_interface',
+    labelEn: 'Enable / Disable Interfaces',
+    labelFa: 'فعال یا غیرفعال‌سازی اینترفیس‌ها',
+    shortLabelEn: 'Interface Power',
+    shortLabelFa: 'قطع/وصل پورت',
+    descriptionEn: 'Administratively enable or disable RouterOS physical ethernet, SFP, bonding, and virtual tunnel interfaces.',
+    descriptionFa: 'روشن یا خاموش کردن اداری اینترفیس‌های اترنت فیزیکی، ماژول‌های فیبر SFP و اینترفیس‌های تانل در میکروتیک.',
+    category: 'port',
+    platform: 'mikrotik',
+    danger: true,
+    tooltipWhatEn: 'Administratively enable or disable RouterOS physical ethernet, SFP, bonding, and virtual tunnel interfaces.',
+    tooltipWhatFa: 'روشن یا خاموش کردن اداری اینترفیس‌های اترنت فیزیکی، ماژول‌های فیبر SFP و اینترفیس‌های تانل در میکروتیک.',
+    tooltipWhyEn: 'Disabling a port instantly disconnects all downstream traffic, hosts, or uplink connections.',
+    tooltipWhyFa: 'خاموش کردن یک اینترفیس مستقیماً موجب قطع اتصال تمام سیستم‌ها یا لینک ارتباطی آن اینترفیس می‌شود.',
+    tooltipExampleEn: 'Permit on end-user edge interfaces; strictly protect on WAN and trunk uplinks.',
+    tooltipExampleFa: 'مجاز برای ایزوله کردن کلاینت‌های آلوده؛ مسدود برای لینک‌های آپ‌لینک و اینترنت اصلی.',
+  },
+  {
+    key: 'mikrotik_vpn',
+    labelEn: 'MikroTik VPN Suite & Tunnels',
+    labelFa: 'مدیریت تونل‌ها و سرویس‌های VPN میکروتیک',
+    shortLabelEn: 'VPN Suite',
+    shortLabelFa: 'سرویس VPN',
+    descriptionEn: 'Create, inspect, configure, and delete WireGuard, L2TP/IPsec, SSTP, OpenVPN, and PPTP servers/clients.',
+    descriptionFa: 'ایجاد، مشاهده، پیکربندی و حذف سرورها و کلاینت‌های WireGuard، L2TP/IPsec، SSTP، OpenVPN و PPTP در میکروتیک.',
+    category: 'config',
+    platform: 'mikrotik',
+    danger: true,
+    tooltipWhatEn: 'Create, inspect, configure, and delete WireGuard, L2TP/IPsec, SSTP, OpenVPN, and PPTP servers/clients.',
+    tooltipWhatFa: 'ایجاد، مشاهده، پیکربندی و حذف سرورها و کلاینت‌های WireGuard، L2TP/IPsec، SSTP، OpenVPN و PPTP در میکروتیک.',
+    tooltipWhyEn: 'VPN configurations govern secure remote access, cryptographic keys, tunnel routes, and WAN boundary access.',
+    tooltipWhyFa: 'مدیریت دسترسی‌های ریموت امن کارکنان، کلیدهای رمزنگاری و تونل‌های بین دفاتر سازمان.',
+    tooltipExampleEn: 'Granted to Remote Access Administrators to provision WireGuard profiles for teleworkers.',
+    tooltipExampleFa: 'اعطا به مدیران دسترسی راه دور جهت ساخت پروفایل WireGuard برای دورکاران شرکت.',
+  },
+  {
+    key: 'mikrotik_comment',
+    labelEn: 'Modify Interface Comments',
+    labelFa: 'ثبت و ویرایش کامنت و برچسب اینترفیس‌ها',
+    shortLabelEn: 'Comments',
+    shortLabelFa: 'کامنت پورت',
+    descriptionEn: 'Attach or update descriptive operational comments and circuit notes on RouterOS interfaces.',
+    descriptionFa: 'ثبت و ویرایش یادداشت‌ها، نام مشتری، شماره پورت و توضیحات فنی روی اینترفیس‌های میکروتیک.',
+    category: 'management',
+    platform: 'mikrotik',
+    danger: false,
+    tooltipWhatEn: 'Attach or update descriptive operational comments and circuit notes on RouterOS interfaces.',
+    tooltipWhatFa: 'ثبت و ویرایش یادداشت‌ها، نام مشتری، شماره پورت و توضیحات فنی روی اینترفیس‌های میکروتیک.',
+    tooltipWhyEn: 'Maintains live operational documentation without any risk of packet drop or link flapping.',
+    tooltipWhyFa: 'مستندسازی و ثبت اطلاعات خطوط بدون کوچک‌ترین ریسک قطعی، ریبوت یا افت پکت در شبکه.',
+    tooltipExampleEn: 'Safe and recommended to grant to Helpdesk operators and field technicians.',
+    tooltipExampleFa: 'ایمن و مناسب جهت اعطا به نیروهای پشتیبانی و تکنسین‌های پسیو شبکه.',
+  },
+  {
+    key: 'mikrotik_ip_pool',
+    labelEn: 'Manage IP Pools & DHCP Ranges',
+    labelFa: 'مدیریت استخرهای IP و رنج‌های DHCP',
+    shortLabelEn: 'IP Pools & DHCP',
+    shortLabelFa: 'استخر IP و DHCP',
+    descriptionEn: 'Create and update /ip/pool dynamic address ranges, static leases, and DHCP server scope parameters.',
+    descriptionFa: 'تعریف و ویرایش رنج‌های آدرس‌دهی داینامیک (/ip/pool)، رزروهای استاتیک و تنظیمات سرور DHCP میکروتیک.',
+    category: 'config',
+    platform: 'mikrotik',
+    danger: true,
+    tooltipWhatEn: 'Create and update /ip/pool dynamic address ranges, static leases, and DHCP server scope parameters.',
+    tooltipWhatFa: 'تعریف و ویرایش رنج‌های آدرس‌دهی داینامیک (/ip/pool)، رزروهای استاتیک و تنظیمات سرور DHCP میکروتیک.',
+    tooltipWhyEn: 'Misconfigured pools cause IP exhaustion, network address collisions, or gateway lease failure.',
+    tooltipWhyFa: 'پیکربندی اشتباه استخر آی‌پی موجب تداخل آدرس‌ها، پر شدن ظرفیت ساب‌نت یا عدم دریافت گیت‌وی توسط کاربران می‌شود.',
+    tooltipExampleEn: 'Granted to Network Engineers when expanding office subnets or assigning static leases.',
+    tooltipExampleFa: 'اعطا به مهندسان شبکه هنگام توسعه ساب‌نت‌های اداری یا افزودن رزرو IP سرورها.',
+  },
 ];
+
+export const FULL_MIKROTIK_PERMISSIONS: Partial<NetworkDeviceActionPermissions> = {
+  mikrotik_safe_mode: true,
+  mikrotik_firewall: true,
+  mikrotik_backup: true,
+  mikrotik_bridge_vlan: true,
+  mikrotik_toggle_interface: true,
+  mikrotik_vpn: true,
+  mikrotik_comment: true,
+  mikrotik_ip_pool: true,
+};
+
+export const EMPTY_MIKROTIK_PERMISSIONS: Partial<NetworkDeviceActionPermissions> = {
+  mikrotik_safe_mode: false,
+  mikrotik_firewall: false,
+  mikrotik_backup: false,
+  mikrotik_bridge_vlan: false,
+  mikrotik_toggle_interface: false,
+  mikrotik_vpn: false,
+  mikrotik_comment: false,
+  mikrotik_ip_pool: false,
+};
 
 export const FULL_PORT_PERMISSIONS: Partial<NetworkDeviceActionPermissions> = {
   port_power: true,
@@ -462,6 +632,14 @@ export const FULL_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   port_bridge: true,
   port_speed: true,
   port_cable_test: true,
+  mikrotik_safe_mode: true,
+  mikrotik_firewall: true,
+  mikrotik_backup: true,
+  mikrotik_bridge_vlan: true,
+  mikrotik_toggle_interface: true,
+  mikrotik_vpn: true,
+  mikrotik_comment: true,
+  mikrotik_ip_pool: true,
 };
 
 export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
@@ -847,6 +1025,32 @@ export function isDeviceActionPermitted(
   }
   if (action === 'port_cable_test') {
     return policy.canGenericDiagnostics !== false;
+  }
+
+  // Fallback mappings for MikroTik RouterOS capabilities & core services:
+  if (action === 'mikrotik_safe_mode') {
+    return policy.canMikrotikSafeMode !== false;
+  }
+  if (action === 'mikrotik_firewall') {
+    return policy.canMikrotikFirewall !== false;
+  }
+  if (action === 'mikrotik_backup') {
+    return policy.canMikrotikBackup !== false;
+  }
+  if (action === 'mikrotik_bridge_vlan') {
+    return policy.canMikrotikBridgeVlan !== false;
+  }
+  if (action === 'mikrotik_toggle_interface') {
+    return policy.canMikrotikToggleInterface !== false && policy.canToggleAdminStatus !== false;
+  }
+  if (action === 'mikrotik_vpn') {
+    return policy.canManageDevices !== false;
+  }
+  if (action === 'mikrotik_comment') {
+    return policy.canMikrotikComment !== false && policy.canEditDescription !== false;
+  }
+  if (action === 'mikrotik_ip_pool') {
+    return policy.canMikrotikIpPool !== false;
   }
 
   // Operational telemetry and memos are enabled by default for authorized equipment

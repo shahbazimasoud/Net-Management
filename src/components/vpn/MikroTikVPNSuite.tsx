@@ -51,6 +51,8 @@ import { VPNProtocolForms } from './VPNProtocolForms';
 import { VPNInspectModal } from './VPNInspectModal';
 import { FieldInfoTooltip } from './FieldInfoTooltip';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { isDeviceActionPermitted } from '../../utils/rbac';
 
 interface MikroTikVPNSuiteProps {
   device: Device;
@@ -74,6 +76,8 @@ export const MikroTikVPNSuite: React.FC<MikroTikVPNSuiteProps> = ({
 }) => {
   const { isEn: contextIsEn } = useLanguage();
   const isEn = propIsEn !== undefined ? propIsEn : contextIsEn;
+  const { effectivePolicy } = useAuth();
+  const canManageVpn = Boolean(device && isDeviceActionPermitted(effectivePolicy, device.id, 'mikrotik_vpn'));
 
   // Navigation & View Mode
   const [viewMode, setViewMode] = useState<'list' | 'wizard'>('list');
@@ -369,6 +373,14 @@ export const MikroTikVPNSuite: React.FC<MikroTikVPNSuiteProps> = ({
   };
 
   const startWizard = (targetScenario: WizardScenario, initialProto?: VPNType) => {
+    if (!canManageVpn) {
+      alert(
+        isEn
+          ? 'Access Denied: You do not have permission to configure or deploy VPNs on this router (mikrotik_vpn).'
+          : 'عدم دسترسی: شما طبق پالیسی امنیتی مجوز ایجاد یا پیکربندی VPN روی این تجهیز (mikrotik_vpn) را ندارید.'
+      );
+      return;
+    }
     setScenario(targetScenario);
     if (initialProto) {
       setSelectedVpnType(initialProto);
@@ -415,6 +427,15 @@ export const MikroTikVPNSuite: React.FC<MikroTikVPNSuiteProps> = ({
   };
 
   const handleExecuteApply = async () => {
+    if (!canManageVpn) {
+      setApplyResult({
+        success: false,
+        error: isEn
+          ? 'Access Denied: You do not have permission to apply VPN changes on this router (mikrotik_vpn).'
+          : 'عدم دسترسی: شما طبق پالیسی امنیتی مجوز اعمال تغییرات VPN روی این تجهیز (mikrotik_vpn) را ندارید.',
+      });
+      return;
+    }
     setIsApplying(true);
     setApplyResult(null);
     const cfg = buildCurrentConfig();
@@ -471,6 +492,14 @@ export const MikroTikVPNSuite: React.FC<MikroTikVPNSuiteProps> = ({
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
+    if (!canManageVpn) {
+      setDeleteLog(
+        isEn
+          ? 'Error: Access Denied: Deleting VPN profiles is prohibited under your active RBAC policy.'
+          : 'خطا: عدم دسترسی: حذف پروفایل‌های VPN طبق پالیسی دسترسی شما مسدود است.'
+      );
+      return;
+    }
     setIsDeleting(true);
     setDeleteLog(null);
     try {

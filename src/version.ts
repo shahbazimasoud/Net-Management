@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.352.0';
+export const APP_VERSION = '1.353.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.353.0',
+    releaseDate: '2026-10-21',
+    type: 'minor',
+    title: 'کنترل تفکیکی دسترسی به سرویس‌های روتروس میکروتیک و عملیات پورت‌ها در ماتریس استثنائات تجهیزات (RBAC)',
+    title_en: 'Granular MikroTik RouterOS Core Services & Port Governance in Device Override Matrix',
+    changes: [
+      'افزودن تفکیک دسترسی‌های تخصصی روتروس میکروتیک به ماتریس استثنائات هر تجهیز (Granular Per-Device Override Matrix) در مودال‌های ایجاد و ویرایش پالیسی دسترسی شامل: محافظت حالت امن (Safe Mode Protection)، فایروال و رول‌های NAT، بکاپ‌گیری و استخراج فایل کانفیگ (.rsc)، فیلترینگ Bridge VLAN و پورت‌ها، قطع/وصل اینترفیس‌ها، سوئیت و تونل‌های VPN، ویرایش کامنت اینترفیس‌ها، و مدیریت IP Pools و رنج‌های DHCP.',
+      'افزودن دکمه‌های اعمال دسته‌ای هوشمند [اجازه همه روتروس] / [مسدودسازی روتروس] به همراه [اجازه همه پورت‌ها] و [اجازه همه عمومی] به ازای هر دستگاه میکروتیک.',
+      'اعمال و انطباق واقعی، صددرصدی و بدون شبیه‌سازی این دسترسی‌ها در فرانت‌اند و بک‌اند سیستم اعم از برقراری نشست‌های RouterOS، سوئیت مدیریت VPN، ایجاد بکاپ‌های سیستمی و اکسپورت RSC، فیلترینگ VLAN و محافظت از پورت‌ها.',
+      'رعایت کامل استانداردهای چندزبانگی i18n و عدم نشت متن فارسی در حالت انگلیسی به همراه سازگاری کامل با تم تیره و روشن.'
+    ],
+    changes_en: [
+      'Added granular MikroTik RouterOS specialized capabilities to the Granular Per-Device Override Matrix within both Create and Edit Access Policy modals, covering: RouterOS Safe Mode Protection, Firewall Filter & NAT Rules, System Backup & Export (.rsc), Bridge VLAN Filtering & Ports, Interface Enable/Disable, VPN Suite & Tunnels, Interface Comments, and IP Pools & DHCP Ranges.',
+      'Introduced smart batch toggle controls ([Allow All RouterOS] / [Deny All RouterOS], [Allow All Ports] / [Deny All Ports], and [Allow All] / [Deny All] general) per individual MikroTik hardware.',
+      'Real and authentic enforcement across both backend and frontend execution paths with zero simulated data (strict Rule 8 compliance) across RouterOS live management, VPN suite wizards, system backup & RSC export locks, and interface operations.',
+      'Full compliance with strict i18n localization guidelines with zero Persian text leakage in English mode and seamless dark/light theme contrast.'
+    ]
+  },
   {
     version: '1.352.0',
     releaseDate: '2026-10-21',
