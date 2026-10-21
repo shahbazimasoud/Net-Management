@@ -566,8 +566,8 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
     },
     {
       id: 'matrix',
-      labelEn: 'Granular Matrix',
-      labelFa: 'ماتریس تفکیکی',
+      labelEn: 'Network Device & Granular matrix',
+      labelFa: 'تجهیزات شبکه و ماتریس تفکیکی',
       icon: Sliders,
       color: 'text-rose-400',
     },
@@ -1388,255 +1388,6 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                           ))}
                         </div>
                       )}
-                    </div>
-                  )}
-                </div>
-
-                {/* 1C: Target Equipment Scope (All, Groups, Specific) */}
-                <div
-                  className={`p-4 rounded-xl border ${
-                    isLightMode
-                      ? 'bg-white border-slate-200 shadow-xs'
-                      : 'bg-slate-950/60 border-white/10'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Network className="w-4 h-4 text-amber-400" />
-                      <h4
-                        className={`text-xs font-bold ${
-                          isLightMode ? 'text-slate-900' : 'text-white'
-                        }`}
-                      >
-                        {isEn
-                          ? 'Target Equipment Scope & Device Grouping'
-                          : 'محدوده تجهیزات هدف و گروه‌بندی دستگاه‌ها'}
-                      </h4>
-                    </div>
-                    <FieldInfoTooltip
-                      title={isEn ? 'Equipment Scope' : 'محدوده تجهیزات'}
-                      whatIsIt={
-                        isEn
-                          ? 'Defines which specific physical switches, routers, and servers this policy governs.'
-                          : 'مشخص می‌کند اختیارات این پالیسی روی کدام سوییچ‌ها، روترها و سرورها اعمال می‌شود.'
-                      }
-                      whyNeeded={
-                        isEn
-                          ? 'Isolates critical core infrastructure while granting access only to designated branch hardware.'
-                          : 'جداسازی و ایزولاسیون روترها و سوییچ‌های کر و حساس از تجهیزات شعب یا لایه دسترسی.'
-                      }
-                      practicalExample={
-                        isEn
-                          ? 'Groups: "Branch Office Switches" or "DMZ Edge Routers"'
-                          : 'گروه‌ها: "سوییچ‌های طبقه ۳" یا "روترهای شعب اصفهان"'
-                      }
-                      isEn={isEn}
-                      isLightMode={isLightMode}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-                    {[
-                      {
-                        scope: 'all',
-                        labelEn: 'All Network Devices & Servers',
-                        labelFa: 'تمام تجهیزات و سرورها',
-                        descEn: 'Global scope across all managed hardware',
-                        descFa: 'دسترسی سراسری به کلیه سوییچ‌ها و سرورها',
-                      },
-                      {
-                        scope: 'groups',
-                        labelEn: 'Specific Device Groups',
-                        labelFa: 'گروه‌های مشخص از تجهیزات',
-                        descEn: 'Authorized device groups from database',
-                        descFa: 'محدودسازی به گروه‌های تعریف‌شده در دیتابیس',
-                      },
-                      {
-                        scope: 'specific',
-                        labelEn: 'Individual Specific Devices',
-                        labelFa: 'دیوایس‌های تک‌به‌تک و تفکیکی',
-                        descEn: 'Explicitly checked individual equipment',
-                        descFa: 'انتخاب تکی دستگاه‌ها بر اساس نام یا IP',
-                      },
-                    ].map((item) => {
-                      const isSelected = draftPolicy.targetScope === item.scope;
-                      return (
-                        <button
-                          key={item.scope}
-                          type="button"
-                          onClick={() => {
-                            setDraftPolicy({
-                              ...draftPolicy,
-                              targetScope: item.scope as any,
-                            });
-                          }}
-                          className={`flex flex-col p-3 rounded-xl border text-xs font-semibold transition cursor-pointer select-none text-start ${
-                            isSelected
-                              ? isLightMode
-                                ? 'bg-amber-50 border-amber-400 text-amber-950 shadow-xs'
-                                : 'bg-amber-500/20 border-amber-500/50 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
-                              : isLightMode
-                              ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                              : 'bg-slate-900/60 border-white/10 text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          <div className="font-bold flex items-center justify-between">
-                            <span>{isEn ? item.labelEn : item.labelFa}</span>
-                            {isSelected && (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
-                            )}
-                          </div>
-                          <div className="text-[10px] mt-1 text-slate-400 font-normal">
-                            {isEn ? item.descEn : item.descFa}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Group checkboxes when targetScope === 'groups' */}
-                  {draftPolicy.targetScope === 'groups' && (
-                    <div
-                      className={`p-3 rounded-xl border space-y-2 ${
-                        isLightMode
-                          ? 'bg-slate-50 border-slate-200'
-                          : 'bg-slate-900/80 border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-amber-400">
-                          {isEn ? 'Authorized Device Groups:' : 'گروه‌های تجهیزات مجاز:'}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDraftPolicy({
-                                ...draftPolicy,
-                                targetGroupIds: liveDeviceGroups.map((g) => g.id),
-                              })
-                            }
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 cursor-pointer"
-                          >
-                            {isEn ? 'Select All' : 'انتخاب همه'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDraftPolicy({
-                                ...draftPolicy,
-                                targetGroupIds: [],
-                              })
-                            }
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white cursor-pointer"
-                          >
-                            {isEn ? 'Deselect All' : 'لغو انتخاب'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {liveDeviceGroups.length === 0 ? (
-                        <div className="text-xs text-amber-400/90 p-2 text-center">
-                          {isEn
-                            ? 'No device groups defined in database yet.'
-                            : 'هنوز هیچ گروه دستگاهی در دیتابیس ثبت نشده است.'}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                          {liveDeviceGroups.map((g) => {
-                            const isChecked = (draftPolicy.targetGroupIds || []).includes(g.id);
-                            return (
-                              <label
-                                key={g.id}
-                                className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition ${
-                                  isChecked
-                                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-200 font-semibold'
-                                    : 'bg-white/5 border-white/10 text-slate-300'
-                                }`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    const current = draftPolicy.targetGroupIds || [];
-                                    const next = e.target.checked
-                                      ? [...current, g.id]
-                                      : current.filter((id) => id !== g.id);
-                                    setDraftPolicy({
-                                      ...draftPolicy,
-                                      targetGroupIds: next,
-                                    });
-                                  }}
-                                  className="accent-amber-500"
-                                />
-                                <span className="truncate">{g.name}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Individual devices when targetScope === 'specific' */}
-                  {draftPolicy.targetScope === 'specific' && (
-                    <div
-                      className={`p-3 rounded-xl border space-y-2 ${
-                        isLightMode
-                          ? 'bg-slate-50 border-slate-200'
-                          : 'bg-slate-900/80 border-white/10'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-amber-400">
-                          {isEn ? 'Select Individual Devices:' : 'انتخاب دستگاه‌های خاص:'}
-                        </span>
-                        <input
-                          type="text"
-                          value={deviceSearchQuery}
-                          onChange={(e) => setDeviceSearchQuery(e.target.value)}
-                          placeholder={isEn ? 'Filter devices...' : 'فیلتر بر اساس نام یا IP...'}
-                          className="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-white/15 text-white"
-                        />
-                      </div>
-
-                      <div className="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-1">
-                        {filteredDevicesForSpecificScope.map((d) => {
-                          const isChecked = (draftPolicy.targetDeviceIds || []).includes(d.id);
-                          return (
-                            <label
-                              key={d.id}
-                              className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer select-none transition ${
-                                isChecked
-                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-200 font-semibold'
-                                  : 'bg-white/5 border-white/10 text-slate-300'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    const current = draftPolicy.targetDeviceIds || [];
-                                    const next = e.target.checked
-                                      ? [...current, d.id]
-                                      : current.filter((id) => id !== d.id);
-                                    setDraftPolicy({
-                                      ...draftPolicy,
-                                      targetDeviceIds: next,
-                                    });
-                                  }}
-                                  className="accent-amber-500"
-                                />
-                                <span className="truncate">{d.name}</span>
-                              </div>
-                              <span className="text-[10px] font-mono text-slate-400">
-                                {d.ip}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
                     </div>
                   )}
                 </div>
@@ -2903,10 +2654,259 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
             )}
 
             {/* ========================================================================= */}
-            {/* TAB 7: Granular Overrides Matrix (Phase 3 Full Implementation) */}
+            {/* TAB 7: Network Device & Granular matrix */}
             {/* ========================================================================= */}
             {activeTab === 'matrix' && (
               <div className="space-y-4 animate-fadeIn">
+                {/* Target Equipment Scope & Device Grouping (All, Groups, Specific) */}
+                <div
+                  className={`p-4 rounded-xl border ${
+                    isLightMode
+                      ? 'bg-white border-slate-200 shadow-xs'
+                      : 'bg-slate-950/60 border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Network className="w-4 h-4 text-amber-400" />
+                      <h4
+                        className={`text-xs font-bold ${
+                          isLightMode ? 'text-slate-900' : 'text-white'
+                        }`}
+                      >
+                        {isEn
+                          ? 'Target Equipment Scope & Device Grouping'
+                          : 'محدوده تجهیزات هدف و گروه‌بندی دستگاه‌ها'}
+                      </h4>
+                    </div>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Equipment Scope' : 'محدوده تجهیزات'}
+                      whatIsIt={
+                        isEn
+                          ? 'Defines which specific physical switches, routers, and servers this policy governs.'
+                          : 'مشخص می‌کند اختیارات این پالیسی روی کدام سوییچ‌ها، روترها و سرورها اعمال می‌شود.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Isolates critical core infrastructure while granting access only to designated branch hardware.'
+                          : 'جداسازی و ایزولاسیون روترها و سوییچ‌های کر و حساس از تجهیزات شعب یا لایه دسترسی.'
+                      }
+                      practicalExample={
+                        isEn
+                          ? 'Groups: "Branch Office Switches" or "DMZ Edge Routers"'
+                          : 'گروه‌ها: "سوییچ‌های طبقه ۳" یا "روترهای شعب اصفهان"'
+                      }
+                      isEn={isEn}
+                      isLightMode={isLightMode}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
+                    {[
+                      {
+                        scope: 'all',
+                        labelEn: 'All Network Devices & Servers',
+                        labelFa: 'تمام تجهیزات و سرورها',
+                        descEn: 'Global scope across all managed hardware',
+                        descFa: 'دسترسی سراسری به کلیه سوییچ‌ها و سرورها',
+                      },
+                      {
+                        scope: 'groups',
+                        labelEn: 'Specific Device Groups',
+                        labelFa: 'گروه‌های مشخص از تجهیزات',
+                        descEn: 'Authorized device groups from database',
+                        descFa: 'محدودسازی به گروه‌های تعریف‌شده در دیتابیس',
+                      },
+                      {
+                        scope: 'specific',
+                        labelEn: 'Individual Specific Devices',
+                        labelFa: 'دیوایس‌های تک‌به‌تک و تفکیکی',
+                        descEn: 'Explicitly checked individual equipment',
+                        descFa: 'انتخاب تکی دستگاه‌ها بر اساس نام یا IP',
+                      },
+                    ].map((item) => {
+                      const isSelected = draftPolicy.targetScope === item.scope;
+                      return (
+                        <button
+                          key={item.scope}
+                          type="button"
+                          onClick={() => {
+                            setDraftPolicy({
+                              ...draftPolicy,
+                              targetScope: item.scope as any,
+                            });
+                          }}
+                          className={`flex flex-col p-3 rounded-xl border text-xs font-semibold transition cursor-pointer select-none text-start ${
+                            isSelected
+                              ? isLightMode
+                                ? 'bg-amber-50 border-amber-400 text-amber-950 shadow-xs'
+                                : 'bg-amber-500/20 border-amber-500/50 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                              : isLightMode
+                              ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                              : 'bg-slate-900/60 border-white/10 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <div className="font-bold flex items-center justify-between">
+                            <span>{isEn ? item.labelEn : item.labelFa}</span>
+                            {isSelected && (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
+                            )}
+                          </div>
+                          <div className="text-[10px] mt-1 text-slate-400 font-normal">
+                            {isEn ? item.descEn : item.descFa}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Group checkboxes when targetScope === 'groups' */}
+                  {draftPolicy.targetScope === 'groups' && (
+                    <div
+                      className={`p-3 rounded-xl border space-y-2 ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-200'
+                          : 'bg-slate-900/80 border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-amber-400">
+                          {isEn ? 'Authorized Device Groups:' : 'گروه‌های تجهیزات مجاز:'}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftPolicy({
+                                ...draftPolicy,
+                                targetGroupIds: liveDeviceGroups.map((g) => g.id),
+                              })
+                            }
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 cursor-pointer"
+                          >
+                            {isEn ? 'Select All' : 'انتخاب همه'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraftPolicy({
+                                ...draftPolicy,
+                                targetGroupIds: [],
+                              })
+                            }
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white/5 text-slate-400 border border-white/10 hover:text-white cursor-pointer"
+                          >
+                            {isEn ? 'Deselect All' : 'لغو انتخاب'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {liveDeviceGroups.length === 0 ? (
+                        <div className="text-xs text-amber-400/90 p-2 text-center">
+                          {isEn
+                            ? 'No device groups defined in database yet.'
+                            : 'هنوز هیچ گروه دستگاهی در دیتابیس ثبت نشده است.'}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                          {liveDeviceGroups.map((g) => {
+                            const isChecked = (draftPolicy.targetGroupIds || []).includes(g.id);
+                            return (
+                              <label
+                                key={g.id}
+                                className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition ${
+                                  isChecked
+                                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-200 font-semibold'
+                                    : 'bg-white/5 border-white/10 text-slate-300'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const current = draftPolicy.targetGroupIds || [];
+                                    const next = e.target.checked
+                                      ? [...current, g.id]
+                                      : current.filter((id) => id !== g.id);
+                                    setDraftPolicy({
+                                      ...draftPolicy,
+                                      targetGroupIds: next,
+                                    });
+                                  }}
+                                  className="accent-amber-500"
+                                />
+                                <span className="truncate">{g.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Individual devices when targetScope === 'specific' */}
+                  {draftPolicy.targetScope === 'specific' && (
+                    <div
+                      className={`p-3 rounded-xl border space-y-2 ${
+                        isLightMode
+                          ? 'bg-slate-50 border-slate-200'
+                          : 'bg-slate-900/80 border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-amber-400">
+                          {isEn ? 'Select Individual Devices:' : 'انتخاب دستگاه‌های خاص:'}
+                        </span>
+                        <input
+                          type="text"
+                          value={deviceSearchQuery}
+                          onChange={(e) => setDeviceSearchQuery(e.target.value)}
+                          placeholder={isEn ? 'Filter devices...' : 'فیلتر بر اساس نام یا IP...'}
+                          className="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-white/15 text-white"
+                        />
+                      </div>
+
+                      <div className="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-1">
+                        {filteredDevicesForSpecificScope.map((d) => {
+                          const isChecked = (draftPolicy.targetDeviceIds || []).includes(d.id);
+                          return (
+                            <label
+                              key={d.id}
+                              className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer select-none transition ${
+                                isChecked
+                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-200 font-semibold'
+                                  : 'bg-white/5 border-white/10 text-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const current = draftPolicy.targetDeviceIds || [];
+                                    const next = e.target.checked
+                                      ? [...current, d.id]
+                                      : current.filter((id) => id !== d.id);
+                                    setDraftPolicy({
+                                      ...draftPolicy,
+                                      targetDeviceIds: next,
+                                    });
+                                  }}
+                                  className="accent-amber-500"
+                                />
+                                <span className="truncate">{d.name}</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-400">
+                                {d.ip}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div
                   className={`p-4 rounded-xl border ${
                     isLightMode
@@ -3318,7 +3318,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                 {isEn ? 'Active Tab:' : 'بخش فعال:'}
               </span>
               <span className="font-semibold text-indigo-400">
-                {tabsConfig.find((t) => t.id === activeTab)?.labelEn}
+                {isEn
+                  ? tabsConfig.find((t) => t.id === activeTab)?.labelEn
+                  : tabsConfig.find((t) => t.id === activeTab)?.labelFa}
               </span>
             </div>
 

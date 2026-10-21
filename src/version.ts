@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.351.3';
+export const APP_VERSION = '1.351.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.351.4',
+    releaseDate: '2026-10-21',
+    type: 'patch',
+    title: 'انتقال محدوده تجهیزات هدف و گروه‌بندی دستگاه‌ها به تب Network Device & Granular matrix در مودال پالیسی‌های دسترسی',
+    title_en: 'Relocate Target Equipment Scope & Device Grouping into Network Device & Granular Matrix Tab in Access Policy Modal',
+    changes: [
+      'انتقال بخش «محدوده تجهیزات هدف و گروه‌بندی دستگاه‌ها» (Target Equipment Scope & Device Grouping) از تب هویت و دامنه (Identity & Scope) به تب ماتریس تفکیکی در هر دو حالت تعریف پالیسی جدید (Create) و ویرایش پالیسی (Edit).',
+      'تغییر نام تب Granular Matrix به «Network Device & Granular matrix» (تجهیزات شبکه و ماتریس تفکیکی).',
+      'رعایت استانداردهای کامل چندزبانگی i18n و پشتیبانی دوزبانه در نمایش برچسب تب فعال در فوتر مودال.'
+    ],
+    changes_en: [
+      'Relocated the "Target Equipment Scope & Device Grouping" configuration section from the Identity & Scope tab to the Granular Matrix tab for both Create and Edit Access Policy modal modes.',
+      'Renamed the "Granular Matrix" tab to "Network Device & Granular matrix" with strict bilingual localization.',
+      'Enforced strict i18n bilingual compliance for the active tab indicator in the modal footer.'
+    ]
+  },
   {
     version: '1.351.3',
     releaseDate: '2026-10-21',
