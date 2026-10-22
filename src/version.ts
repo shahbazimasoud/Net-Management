@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.361.0';
+export const APP_VERSION = '1.362.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.362.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۶: اعتبارسنجی نهایی، پاکسازی کامل ماک و تثبیت سامانه ممیزی سرورها (Final Fleet Audit Verification & Release)',
+    title_en: 'Phase 6: Final Verification, Mock Purge & Production Fleet Audit Hardening',
+    changes: [
+      'تکمیل موفقیت‌آمیز نقشه راه ۶‌گانه ثبت لاگ‌های ممیزی سرورها، نشست‌های SSH و ریموت دسکتاپ گرافیکی و اکشن‌های منوی سه‌نقطه.',
+      'پاکسازی ریشه‌ای و کامل هرگونه داده فرضی، ساختگی یا ماک (Zero Fake Data) در لایه سرور، وب‌سوکت، پایگاه‌داده و رابط کاربری.',
+      'تست یکپارچگی اندپوینت‌های REST و وب‌سوکت لینوکس و ویندوز و بازگشت پایدار داده‌های زنده و معتبر از PostgreSQL.',
+      'اعتبارسنجی کامل بیلد و تایپ‌اسکریپت با دستورات tsc --noEmit و compile_applet بدون هیچ‌گونه خطا یا اخطار.',
+      'همگام‌سازی کامل چندزبانگی (Strict Bilingual i18n Rule 4) در تمامی ماژول‌ها و عدم نمایش متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Successful completion of the 6-phase roadmap for server fleet telemetry, SSH shell command buffer logging, and graphical RDP/VNC session auditing.',
+      'Comprehensive zero-mock-data verification across backend PostgreSQL schemas, WebSocket gateways, and React client layers.',
+      'Integration testing of REST endpoints and WebSocket channels for authentic live device telemetry with zero simulated fallbacks.',
+      'Full TypeScript compilation and static type verification with zero warnings via tsc --noEmit and compile_applet.',
+      'Strict bilingual localization compliance (Rule 4) enforced across all server logging views with zero Persian text leaking in English mode.'
+    ]
+  },
   {
     version: '1.361.0',
     releaseDate: '2026-10-22',
