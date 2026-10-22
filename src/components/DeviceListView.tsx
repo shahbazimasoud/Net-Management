@@ -100,7 +100,19 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
   isLightMode = false,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
-  const { effectivePolicy } = useAuth();
+  const { user, effectivePolicy } = useAuth();
+  const isSuperAdmin = Boolean(
+    user &&
+    ((user.username || '').toLowerCase() === 'admin' ||
+      (user.role || '').toLowerCase().includes('super admin'))
+  );
+  const canIntroduceDevice = isSuperAdmin || !effectivePolicy || (
+    effectivePolicy.canAddDevice !== undefined
+      ? Boolean(effectivePolicy.canAddDevice)
+      : effectivePolicy.defaultDevicePermissions?.add_device !== undefined
+      ? Boolean(effectivePolicy.defaultDevicePermissions.add_device)
+      : effectivePolicy.canManageDevices !== false
+  );
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | DeviceType>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline' | 'unsaved'>('all');
@@ -634,7 +646,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
               </button>
             )}
 
-            {(!effectivePolicy || effectivePolicy.canManageDevices !== false) && (
+            {canIntroduceDevice && (
               <button
                 id="btn-sticky-register-device"
                 onClick={onOpenAddModal}

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   X,
   Minus,
+  Plus,
   Maximize2,
   Minimize2,
   ShieldCheck,
@@ -203,6 +204,9 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
         canAddServer:
           initialPolicy.canAddServer ??
           Boolean(initialPolicy.defaultServerPermissions?.add_server),
+        canAddDevice:
+          initialPolicy.canAddDevice ??
+          Boolean(initialPolicy.defaultDevicePermissions?.add_device ?? initialPolicy.canManageDevices),
         defaultServerPermissions: initialPolicy.defaultServerPermissions || {
           terminal: false,
           file_explorer: true,
@@ -229,6 +233,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
           delete_device: false,
           export_devices: false,
           import_devices: false,
+          add_device: false,
         },
         perDevicePermissions: initialPolicy.perDevicePermissions || {},
       });
@@ -507,6 +512,7 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
       canExportTemplates: enabled,
       canImportTemplates: enabled,
       canManageDevices: enabled,
+      canAddDevice: enabled,
       canExportBackup: enabled,
       canImportBackup: enabled,
       canExportDevices: enabled,
@@ -2544,6 +2550,15 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                         why: 'Restricts registering unvetted hardware or deleting live production nodes',
                       },
                       {
+                        key: 'canAddDevice',
+                        labelEn: 'Introduce New Device (Inventory Registration)',
+                        labelFa: 'معرفی و ثبت تجهیز جدید در انبار تجهیزات',
+                        descEn: 'Display and authorize the "Introduce New Device" button',
+                        descFa: 'فعال‌سازی دکمه معرفی تجهیز جدید جهت ثبت مستقل تجهیزات',
+                        what: 'Permissions to click "Introduce New Device" and onboard new equipment',
+                        why: 'Enables users to add and manage their own hardware within their inventory',
+                      },
+                      {
                         key: 'canExportBackup',
                         labelEn: 'Export Disaster Recovery Backup',
                         labelFa: 'خروجی بکاپ جامع دیتابیس و شبکه',
@@ -2977,6 +2992,118 @@ export const AccessPolicyModal: React.FC<AccessPolicyModalProps> = ({
                   {/* Sub-tab A: Network Equipment Matrix */}
                   {matrixSubTab === 'devices' && (
                     <div className="space-y-3">
+                      {/* Introduce New Device Permission Card */}
+                      <div
+                        className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 transition ${
+                          draftPolicy.canAddDevice
+                            ? isLightMode
+                              ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                              : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                            : isLightMode
+                            ? 'bg-slate-100 border-slate-200 text-slate-700'
+                            : 'bg-slate-900/60 border-white/10 text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div
+                            className={`p-2 rounded-lg shrink-0 ${
+                              draftPolicy.canAddDevice
+                                ? isLightMode
+                                  ? 'bg-emerald-200 text-emerald-800'
+                                  : 'bg-emerald-500/30 text-emerald-300'
+                                : isLightMode
+                                ? 'bg-slate-200 text-slate-600'
+                                : 'bg-white/5 text-slate-400'
+                            }`}
+                          >
+                            <Plus className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className={`font-bold text-xs ${
+                                  isLightMode ? 'text-slate-900' : 'text-white'
+                                }`}
+                              >
+                                {isEn
+                                  ? 'Introduce New Device Authority (Inventory Registration)'
+                                  : 'مجوز دسترسی دکمه معرفی تجهیز جدید (Introduce New Device)'}
+                              </span>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.2 rounded font-semibold border ${
+                                  draftPolicy.canAddDevice
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-bold'
+                                    : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+                                }`}
+                              >
+                                {draftPolicy.canAddDevice
+                                  ? isEn
+                                    ? 'PERMITTED'
+                                    : 'مجاز'
+                                  : isEn
+                                  ? 'RESTRICTED'
+                                  : 'مسدود'}
+                              </span>
+                            </div>
+                            <p
+                              className={`text-[11px] mt-0.5 leading-relaxed ${
+                                isLightMode ? 'text-slate-600' : 'text-slate-300'
+                              }`}
+                            >
+                              {isEn
+                                ? 'Permits the subject to use the "Introduce New Device" button in Dashboard and Network Equipment Inventory to register and manage their own hardware.'
+                                : 'به این کاربر اجازه می‌دهد علاوه بر تجهیزات از قبل تخصیص‌یافته، بتواند با دکمه «معرفی تجهیز جدید» دیوایس‌های مدنظر خود را ثبت و مدیریت کند.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <FieldInfoTooltip
+                            title={
+                              isEn
+                                ? 'Introduce New Device Authority'
+                                : 'اختیار معرفی تجهیز جدید'
+                            }
+                            whatIsIt={
+                              isEn
+                                ? 'Controls visibility and authorization for the "Introduce New Device" button in Dashboard and Network Equipment Inventory.'
+                                : 'کنترل‌کننده فعال بودن دکمه معرفی تجهیز جدید در داشبورد و فهرست تجهیزات شبکه.'
+                            }
+                            whyNeeded={
+                              isEn
+                                ? 'Allows delegated network operators to onboard new hardware into their authorized inventory without granting full global admin rights.'
+                                : 'امکان اضافه کردن تجهیزات شبکه توسط کاربر برای خود بدون نیاز به دسترسی‌های سطح بالای مدیریتی.'
+                            }
+                            practicalExample={
+                              isEn
+                                ? 'Enabled for Site Engineers adding branch switches; disabled for read-only NOC operators.'
+                                : 'فعال برای مهندسین شعب جهت افزودن سوییچ‌های جدید؛ غیرفعال برای ناظران مانیتورینگ.'
+                            }
+                            isEn={isEn}
+                            isLightMode={isLightMode}
+                          />
+                          <label className="relative inline-flex items-center cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(draftPolicy.canAddDevice)}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setDraftPolicy({
+                                  ...draftPolicy,
+                                  canAddDevice: checked,
+                                  defaultDevicePermissions: {
+                                    ...(draftPolicy.defaultDevicePermissions || {}),
+                                    add_device: checked,
+                                  },
+                                });
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                          </label>
+                        </div>
+                      </div>
+
                       <div className="flex items-center justify-between gap-3 flex-wrap">
                         <div className="relative flex-1 min-w-[200px]">
                           <Search className="w-3.5 h-3.5 absolute left-3 rtl:left-auto rtl:right-3 top-1/2 -translate-y-1/2 text-slate-400" />

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Device, TopologyData } from '../types';
 import { useLanguage } from '../i18n';
+import { useAuth } from '../context/AuthContext';
 
 interface DashboardViewProps {
   devices: Device[];
@@ -43,6 +44,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isRefreshing,
 }) => {
   const { t, isRtl, isEn } = useLanguage();
+  const { user, effectivePolicy } = useAuth();
+  const isSuperAdmin = Boolean(
+    user &&
+    ((user.username || '').toLowerCase() === 'admin' ||
+      (user.role || '').toLowerCase().includes('super admin'))
+  );
+  const canIntroduceDevice = isSuperAdmin || !effectivePolicy || (
+    effectivePolicy.canAddDevice !== undefined
+      ? Boolean(effectivePolicy.canAddDevice)
+      : effectivePolicy.defaultDevicePermissions?.add_device !== undefined
+      ? Boolean(effectivePolicy.defaultDevicePermissions.add_device)
+      : effectivePolicy.canManageDevices !== false
+  );
   const onlineDevices = devices.filter((d) => d.is_online);
   const offlineDevices = devices.filter((d) => !d.is_online);
   const switches = devices.filter((d) => d.type === 'switch');
@@ -72,13 +86,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="flex items-center flex-wrap gap-2.5 relative z-10">
-          <button
-            onClick={onOpenAddModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-xs shadow-[0_0_20px_rgba(99,102,241,0.35)] transition border border-white/15 active:scale-95 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t('dashboard_btn_add_device')}</span>
-          </button>
+          {canIntroduceDevice && (
+            <button
+              onClick={onOpenAddModal}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-medium text-xs shadow-[0_0_20px_rgba(99,102,241,0.35)] transition border border-white/15 active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{t('dashboard_btn_add_device')}</span>
+            </button>
+          )}
 
           <button
             onClick={() => onNavigate('schematic')}

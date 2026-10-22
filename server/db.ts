@@ -4149,6 +4149,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
       canViewSettings: true,
       canViewServers: true,
       canAddServer: true,
+      canAddDevice: true,
       canViewLogs: true,
       canCheckUpdate: true,
       canPerformUpdate: true,
@@ -4187,6 +4188,7 @@ export async function getEffectivePolicyForUser(userOrId: any): Promise<any> {
         inspect_ports: true,
         write_memory: true,
         delete_device: true,
+        add_device: true,
         port_power: true,
         port_mode: true,
         port_vlan: true,
@@ -4374,6 +4376,17 @@ export function isDeviceActionPermitted(
   // 1. If user has no permission to view/manage devices at all
   if (policy.canViewDevices === false) {
     return false;
+  }
+
+  // 1.1 Inventory-level Add Network Device (Introduce New Device) action
+  if (action === 'add_device') {
+    if (policy.canAddDevice !== undefined) {
+      return Boolean(policy.canAddDevice);
+    }
+    if (policy.defaultDevicePermissions?.add_device !== undefined) {
+      return Boolean(policy.defaultDevicePermissions.add_device);
+    }
+    return policy.canManageDevices !== false && Boolean(policy.canManageDevices);
   }
 
   // 2. If policy targets specific groups or devices, ensure target device is in allowed scope

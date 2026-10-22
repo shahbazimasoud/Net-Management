@@ -2915,11 +2915,17 @@ apiRouter.post(['/devices/import', '/network-equipment/import'], async (req: Req
 apiRouter.post('/devices', async (req: Request, res: Response) => {
   try {
     const { effectivePolicy, isSuperAdmin, user } = await resolveRequestContextPolicy(req);
-    if (!isSuperAdmin && effectivePolicy && effectivePolicy.canManageDevices === false) {
+    const canAdd = isSuperAdmin || (effectivePolicy ? (
+      effectivePolicy.canAddDevice !== undefined ? Boolean(effectivePolicy.canAddDevice) :
+      effectivePolicy.defaultDevicePermissions?.add_device !== undefined ? Boolean(effectivePolicy.defaultDevicePermissions.add_device) :
+      (effectivePolicy.canManageDevices !== false)
+    ) : true);
+
+    if (!canAdd) {
       return res.status(403).json({
         success: false,
-        error: 'Access denied: You do not have permission to register or add new network devices under your RBAC policy.',
-        errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز افزودن یا ثبت تجهیز جدید را ندارید.',
+        error: 'Access denied: You do not have permission to register or introduce new network devices under your RBAC policy.',
+        errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز معرفی و افزودن تجهیز جدید (Introduce New Device) را ندارید.',
       });
     }
 
@@ -2952,6 +2958,33 @@ apiRouter.post('/devices', async (req: Request, res: Response) => {
     }
 
     const newDevice = await createDevice(req.body);
+
+    // If user's active policy has specific targetScope, auto-grant access to this newly introduced device
+    if (effectivePolicy && effectivePolicy.targetScope === 'specific' && effectivePolicy.id && newDevice?.id) {
+      try {
+        const policies = await getAccessPolicies();
+        let updated = false;
+        const newPolicies = policies.map((pol: any) => {
+          if (pol.id === effectivePolicy.id) {
+            const currentTargetIds: string[] = Array.isArray(pol.targetDeviceIds) ? pol.targetDeviceIds : [];
+            if (!currentTargetIds.includes(newDevice.id)) {
+              updated = true;
+              return {
+                ...pol,
+                targetDeviceIds: [...currentTargetIds, newDevice.id],
+              };
+            }
+          }
+          return pol;
+        });
+        if (updated) {
+          await saveAccessPolicies(newPolicies);
+        }
+      } catch (polErr) {
+        console.warn('[Auto-add created device to user policy targetDeviceIds error]', polErr);
+      }
+    }
+
     return res.status(201).json({
       success: true,
       device: newDevice,

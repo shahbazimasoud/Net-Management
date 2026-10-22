@@ -242,6 +242,24 @@ export const DEVICE_ACTIONS_CATALOG: NetworkDeviceActionDescriptor[] = [
     tooltipExampleEn: 'Granted to Network Engineers and Inventory Provisioners; strictly restricted for viewer and operator roles.',
     tooltipExampleFa: 'اعطا به مهندسین شبکه و مسئولین تامین تجهیزات؛ مسدود برای کاربران اپراتور عادی یا ناظر.',
   },
+  {
+    key: 'add_device',
+    labelEn: 'Introduce New Device (Inventory Registration)',
+    labelFa: 'معرفی و ثبت تجهیز جدید در انبار تجهیزات',
+    shortLabelEn: 'Add Device',
+    shortLabelFa: 'معرفی تجهیز',
+    descriptionEn: 'Permits subject to click "Introduce New Device" to register and onboard network switches and routers into their inventory.',
+    descriptionFa: 'مجوز کلیک روی دکمه «معرفی تجهیز جدید» جهت ثبت مستقل سوییچ‌ها و روترهای شبکه در پنل مدیریت تجهیزات.',
+    category: 'management',
+    platform: 'all',
+    danger: false,
+    tooltipWhatEn: 'Authority to use the "Introduce New Device" modal button to add and register new network equipment.',
+    tooltipWhatFa: 'اختیار کلیک بر روی دکمه معرفی تجهیز جدید جهت ثبت و آنبوردینگ تجهیزات شبکه.',
+    tooltipWhyEn: 'Allows delegated engineers to add new hardware for themselves without exposing global administrative settings.',
+    tooltipWhyFa: 'امکان اضافه کردن تجهیزات شبکه توسط کاربر برای خود بدون نیاز به دسترسی‌های سطح بالای مدیریتی.',
+    tooltipExampleEn: 'Granted to Site Provisioning Technicians and Network Engineers.',
+    tooltipExampleFa: 'اعطا به تکنسین‌های راه‌اندازی و مهندسان شبکه جهت ثبت تجهیزات شعب.',
+  },
 
   // -------------------------------------------------------------
   // Granular Port & Interface Operations (Cisco & MikroTik)
@@ -624,6 +642,7 @@ export const FULL_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   delete_device: true,
   export_devices: true,
   import_devices: true,
+  add_device: true,
   port_power: true,
   port_mode: true,
   port_vlan: true,
@@ -654,6 +673,7 @@ export const RESTRICTED_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   delete_device: false,
   export_devices: false,
   import_devices: false,
+  add_device: false,
   port_power: false,
   port_mode: false,
   port_vlan: false,
@@ -676,6 +696,7 @@ export const EMPTY_DEVICE_PERMISSIONS: NetworkDeviceActionPermissions = {
   delete_device: false,
   export_devices: false,
   import_devices: false,
+  add_device: false,
   port_power: false,
   port_mode: false,
   port_vlan: false,
@@ -939,6 +960,17 @@ export function isDeviceActionPermitted(
   // 1. If user has no permission to view/manage devices at all
   if (policy.canViewDevices === false) {
     return false;
+  }
+
+  // 1.1 Inventory-level Add Network Device (Introduce New Device) action
+  if (action === 'add_device') {
+    if (policy.canAddDevice !== undefined) {
+      return Boolean(policy.canAddDevice);
+    }
+    if (policy.defaultDevicePermissions?.add_device !== undefined) {
+      return Boolean(policy.defaultDevicePermissions.add_device);
+    }
+    return policy.canManageDevices !== false && Boolean(policy.canManageDevices);
   }
 
   // 2. If policy targets specific groups or devices, ensure target device is in allowed scope

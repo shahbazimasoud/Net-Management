@@ -679,6 +679,29 @@ export default function App() {
 
   // Safe Modal Opening Handlers with Attention Trigger when modal already exists (Issue 5)
   const handleOpenAddModal = useCallback(() => {
+    const isSuperAdmin = Boolean(
+      user &&
+      ((user.username || '').toLowerCase() === 'admin' ||
+        (user.role || '').toLowerCase().includes('super admin'))
+    );
+
+    const canIntroduce = isSuperAdmin || !effectivePolicy || (
+      effectivePolicy.canAddDevice !== undefined
+        ? Boolean(effectivePolicy.canAddDevice)
+        : effectivePolicy.defaultDevicePermissions?.add_device !== undefined
+        ? Boolean(effectivePolicy.defaultDevicePermissions.add_device)
+        : effectivePolicy.canManageDevices !== false
+    );
+
+    if (!canIntroduce) {
+      showToast(
+        isEn
+          ? 'Access Denied: You do not have permission to introduce new network devices.'
+          : 'عدم دسترسی: شما مجوز معرفی و ثبت تجهیز جدید در شبکه را ندارید.'
+      );
+      return;
+    }
+
     if (isModalMinimized('add_device')) {
       triggerDockAttention(
         'add_device',
@@ -688,7 +711,7 @@ export default function App() {
       return;
     }
     setIsAddModalOpen(true);
-  }, [isModalMinimized, triggerDockAttention]);
+  }, [user, effectivePolicy, isEn, isModalMinimized, triggerDockAttention, showToast]);
 
   const handleOpenEditDevice = useCallback((dev: Device) => {
     if (isModalMinimized('edit_device')) {
@@ -925,6 +948,15 @@ export default function App() {
     await loadData();
     if (res.device) {
       logDeviceAddition(res.device);
+      if (effectivePolicy && effectivePolicy.targetScope === 'specific') {
+        if (!effectivePolicy.targetDeviceIds) effectivePolicy.targetDeviceIds = [];
+        if (!effectivePolicy.targetDeviceIds.includes(res.device.id)) {
+          effectivePolicy.targetDeviceIds.push(res.device.id);
+        }
+        if (effectivePolicy.allowedDeviceIds && !effectivePolicy.allowedDeviceIds.includes(res.device.id)) {
+          effectivePolicy.allowedDeviceIds.push(res.device.id);
+        }
+      }
     }
     showToast(t('toast_device_added', { name: newDev.name || '' }));
     return res.device;

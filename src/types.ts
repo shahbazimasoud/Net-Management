@@ -785,6 +785,7 @@ export type NetworkDeviceActionKey =
   | 'delete_device'    // Delete Device from System
   | 'export_devices'   // Export Device & Inventory Data (JSON / CSV)
   | 'import_devices'   // Import Network Equipment & Inventory Data (JSON / CSV / Single / Batch)
+  | 'add_device'       // Introduce New Device (Inventory Registration)
   // Granular Port & Interface Operations (Cisco & MikroTik)
   | 'port_power'       // Administrative Status (Shutdown / No-Shutdown / Enable / Disable)
   | 'port_mode'        // Cisco Switchport Mode (Trunk / Access)
@@ -818,6 +819,7 @@ export interface NetworkDeviceActionPermissions {
   delete_device?: boolean;
   export_devices?: boolean;
   import_devices?: boolean;
+  add_device?: boolean;
   // Granular Port & Interface Operations
   port_power?: boolean;
   port_mode?: boolean;
@@ -866,6 +868,7 @@ export interface AccessPolicy {
   canViewSettings: boolean;
   canViewServers?: boolean;
   canAddServer?: boolean;
+  canAddDevice?: boolean;
   canViewLogs?: boolean;
   canViewNetworkTools?: boolean;
   canViewPhysicalPlacement?: boolean;

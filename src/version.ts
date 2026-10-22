@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.353.0';
+export const APP_VERSION = '1.354.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.354.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'کنترل تفکیکی دسترسی به دکمه معرفی تجهیز جدید (Introduce New Device) در ماتریس دسترسی و مدیریت انبار شبکه',
+    title_en: 'Granular "Introduce New Device" Permission Control in Device Override Matrix & Network Inventory',
+    changes: [
+      'افزودن امکان تعیین و کنترل دسترسی دکمه «معرفی تجهیز جدید» (Introduce New Device Authority / canAddDevice) در تب Granular Per-Device Override Matrix در هر دو مودال ساخت و ویرایش پالیسی دسترسی (Access Policy).',
+      'امکان اعطای مجوز به کاربر جهت ثبت و معرفی تجهیزات جدید برای خودش در شبکه، حتی در صورتی که دسترسی او به تجهیزات خاص (Specific Devices Scope) محدود شده باشد، به طوری که تجهیز جدید پس از ثبت بلافاصله به لیست تجهیزات مجاز او الحاق می‌گردد.',
+      'اعمال کنترل امنیتی در فرانت‌اند و بک‌اند با اعتبارسنجی سطح دسترسی در مسیرهای API (POST /devices) و مخفی‌سازی / محافظت دکمه معرفی تجهیز در نوار ابزار لیست تجهیزات (DeviceListView)، داشبورد اصلی (DashboardView) و هندلرهای بازکننده مودال با نمایش پیام هشدار عدم دسترسی.',
+      'رعایت کامل قانون عدم شبیه‌سازی داده‌ها (Zero Fake Data) با ذخیره‌سازی مقتدرانه در پایگاه داده PostgreSQL، همگام‌سازی کامل چندزبانگی i18n و عدم نشت متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Added granular permission governance for the "Introduce New Device" button (canAddDevice / add_device) directly inside the Granular Per-Device Override Matrix tab in both Create and Edit Access Policy modals.',
+      'Empowered restricted users to independently register new network equipment for themselves even when restricted to specific device scopes, automatically appending newly registered hardware to their authoritative allowed devices list.',
+      'End-to-end security enforcement across frontend and backend API endpoints (POST /devices), guarding the Add Device button in Network Equipment Inventory (DeviceListView), Dashboard overview (DashboardView), and modal handlers with bilingual access-denied feedback.',
+      'Strict adherence to zero fake/simulated data rules with PostgreSQL-authoritative state persistence, boundary-safe 3-part tooltips, and complete bilingual i18n localization.'
+    ]
+  },
   {
     version: '1.353.0',
     releaseDate: '2026-10-21',

@@ -353,6 +353,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       canGenericConfigBackup: false,
       // Global capabilities
       canManageDevices: false,
+      canAddDevice: false,
       canApplyTemplates: false,
       canBatchOperate: false,
       // Backup & Disaster Recovery
@@ -389,6 +390,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
         delete_device: false,
         export_devices: false,
         import_devices: false,
+        add_device: false,
       },
       perDevicePermissions: {},
     };
@@ -410,6 +412,7 @@ export const AccessControlTab: React.FC<AccessControlTabProps> = ({
       targetServerScope: policy.targetServerScope || (Array.isArray(policy.targetServerIds) && policy.targetServerIds.length > 0 ? 'specific' : 'all'),
       targetServerIds: policy.targetServerIds || [],
       canAddServer: policy.canAddServer ?? Boolean(policy.defaultServerPermissions?.add_server),
+      canAddDevice: policy.canAddDevice ?? Boolean(policy.defaultDevicePermissions?.add_device ?? policy.canManageDevices),
       defaultServerPermissions: policy.defaultServerPermissions || (
         policy.id === 'policy-super-admin'
           ? { ...FULL_SERVER_PERMISSIONS }
