@@ -461,6 +461,217 @@ export function generateAuditReportHtml(options: {
     `;
   }
 
+  // Build Server Fleet section if included and events exist
+  let serverFleetSectionHtml = '';
+  let serverFleetKpiDashboardHtml = '';
+  if (config.includeServerCommands !== false && serverCommandLogs.length > 0) {
+    const displayServerCommands = serverCommandLogs.slice(0, 40);
+    const serverRowsHtml = displayServerCommands.map((sc) => {
+      const rLevel = String(sc.riskLevel || sc.risk_level || 'low').toLowerCase();
+      const riskColor =
+        rLevel === 'critical' ? '#ef4444' :
+        rLevel === 'high' ? '#f59e0b' :
+        rLevel === 'medium' ? '#38bdf8' : '#64748b';
+
+      const st = String(sc.status || 'SUCCESS').toUpperCase();
+      const statusBadge =
+        st === 'SUCCESS'
+          ? '<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700;">PASS</span>'
+          : st === 'FAILED'
+          ? '<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700;">FAIL</span>'
+          : '<span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700;">BLOCKED</span>';
+
+      const os = String(sc.osType || sc.os_type || 'linux').toLowerCase();
+      const osBadge = os === 'windows'
+        ? '<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700;">🪟 WIN</span>'
+        : '<span style="background: rgba(20, 184, 166, 0.15); color: #2dd4bf; border: 1px solid rgba(20, 184, 166, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700;">🐧 LINUX</span>';
+
+      const ch = String(sc.channel || 'SSH_SHELL');
+      const channelBadge =
+        ch === 'SSH_SHELL'
+          ? `<span style="background: rgba(6, 182, 212, 0.15); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">💻 ${isEn ? 'SSH Shell' : 'شل SSH'}</span>`
+          : ch === 'REMOTE_DESKTOP_RDP'
+          ? `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">🖥️ ${isEn ? 'RDP Desktop' : 'دسکتاپ RDP'}</span>`
+          : ch === 'REMOTE_DESKTOP_VNC'
+          ? `<span style="background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">🖥️ ${isEn ? 'VNC Desktop' : 'دسکتاپ VNC'}</span>`
+          : ch === '3DOTS_ACTION'
+          ? `<span style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">⚡ ${isEn ? '3-Dots Action' : 'اقدام ۳‌نقطه'}</span>`
+          : `<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">🔌 ${isEn ? 'API Dispatch' : 'فراخوانی API'}</span>`;
+
+      const mod = String(sc.actionModule || sc.action_module || 'GENERAL_FLEET_ACTION');
+      const modLabel =
+        mod === 'SYSTEM_SERVICES' ? (isEn ? 'Services' : 'سرویس‌ها') :
+        mod === 'CRON_MANAGER' ? (isEn ? 'Cron Jobs' : 'کرون‌جاب') :
+        mod === 'FIREWALL_UFW' ? (isEn ? 'UFW Firewall' : 'فایروال') :
+        mod === 'STORAGE_LVM' ? (isEn ? 'Storage & LVM' : 'دیسک و LVM') :
+        mod === 'FILE_EXPLORER' ? (isEn ? 'File Explorer' : 'فایل منیجر') :
+        mod === 'NGINX_MANAGEMENT' ? (isEn ? 'Nginx Web' : 'وب‌سرور Nginx') :
+        mod === 'APACHE_MANAGEMENT' ? (isEn ? 'Apache Web' : 'وب‌سرور Apache') :
+        mod === 'POSTGRESQL_MANAGEMENT' ? (isEn ? 'PostgreSQL' : 'دیتابیس پستگرس') :
+        mod === 'MYSQL_MANAGEMENT' ? (isEn ? 'MySQL' : 'دیتابیس MySQL') :
+        mod === 'REMOTE_DESKTOP' ? (isEn ? 'Remote GUI' : 'دسکتاپ ریموت') :
+        (isEn ? 'Fleet Action' : 'عملیات سرور');
+
+      const timeFormatted = new Date(sc.timestamp).toISOString().replace('T', ' ').substring(0, 19);
+      const serverName = sc.serverName || sc.server_name || 'Server';
+      const serverIp = sc.serverIp || sc.server_ip || '';
+      const userName = sc.actor?.username || sc.userName || sc.user_name || 'admin';
+      const clientIp = sc.actor?.ipAddress || sc.clientIp || sc.client_ip || '';
+      const commandText = sc.command || sc.actionNameEn || sc.actionName || '-';
+
+      return `
+        <tr style="border-bottom: 1px solid #1e293b;">
+          <td style="padding: 10px 10px; color: #94a3b8; font-size: 11px; white-space: nowrap; font-family: monospace;">
+            ${timeFormatted}
+          </td>
+          <td style="padding: 10px 10px; text-align: center;">
+            ${osBadge}
+          </td>
+          <td style="padding: 10px 10px; color: #f1f5f9; font-size: 12px;">
+            <div style="font-weight: 600;">${serverName}</div>
+            ${serverIp ? `<div style="color: #64748b; font-size: 11px; font-family: monospace;">${serverIp}</div>` : ''}
+          </td>
+          <td style="padding: 10px 10px; color: #e2e8f0; font-size: 12px;">
+            <div style="font-weight: 500;">${userName}</div>
+            ${clientIp ? `<div style="color: #64748b; font-size: 10px; font-family: monospace;">${clientIp}</div>` : ''}
+          </td>
+          <td style="padding: 10px 10px;">
+            ${channelBadge}
+          </td>
+          <td style="padding: 10px 10px; color: #cbd5e1; font-size: 11px; font-weight: 500;">
+            ${modLabel}
+          </td>
+          <td style="padding: 10px 10px;">
+            <code style="background: #0f172a; padding: 4px 8px; border-radius: 4px; border: 1px solid #334155; font-family: monospace; font-size: 11px; color: #38bdf8; display: inline-block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${commandText}</code>
+          </td>
+          <td style="padding: 10px 10px; text-align: center;">
+            <span style="color: ${riskColor}; font-size: 11px; font-weight: 700; text-transform: uppercase;">
+              ${rLevel}
+            </span>
+          </td>
+          <td style="padding: 10px 10px; text-align: center;">
+            ${statusBadge}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    serverFleetSectionHtml = `
+      <div style="margin-top: 32px;">
+        <h3 style="color: #f1f5f9; font-size: 16px; margin: 0 0 12px 0; display: flex; align-items: center;">
+          <span style="display: inline-block; width: 4px; height: 18px; background: #2dd4bf; margin-right: 8px; border-radius: 2px;"></span>
+          ${isEn ? 'Server Fleet Command & Management Activity Trail' : 'ثبت تفصیلی فعالیت‌ها و دستورات ناوگان سرورها'}
+          <span style="font-size: 12px; font-weight: normal; color: #94a3b8; margin-left: 8px;">(${displayServerCommands.length} ${isEn ? 'of' : 'از'} ${serverCommandLogs.length} ${isEn ? 'Events' : 'رویداد'})</span>
+        </h3>
+        <table style="width: 100%; border-collapse: collapse; background: #0b1120; border: 1px solid #1e293b; border-radius: 8px; overflow: hidden;">
+          <thead>
+            <tr style="background: #111827; border-bottom: 2px solid #1e293b; text-align: left;">
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase;">${isEn ? 'Time (UTC)' : 'زمان'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase; text-align: center;">${isEn ? 'OS' : 'سیستم‌عامل'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase;">${isEn ? 'Target Server' : 'سرور مقصد'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase;">${isEn ? 'Operator' : 'کاربر'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase;">${isEn ? 'Channel' : 'کانال'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase;">${isEn ? 'Module' : 'ماژول'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase;">${isEn ? 'Command / Action' : 'دستور / اقدام'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase; text-align: center;">${isEn ? 'Risk' : 'سطح ریسک'}</th>
+              <th style="padding: 10px 10px; color: #94a3b8; font-size: 11px; text-transform: uppercase; text-align: center;">${isEn ? 'Status' : 'وضعیت'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${serverRowsHtml}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    const topActorsPills = summary.topServerActors.map(a =>
+      `<span style="display: inline-block; background: #0b151f; border: 1px solid rgba(20, 184, 166, 0.3); color: #5eead4; padding: 2px 8px; border-radius: 9999px; font-size: 11px; margin: 2px 4px;"><strong>${a.username}</strong>: ${a.count}</span>`
+    ).join('') || `<span style="color: #64748b; font-size: 11px;">${isEn ? 'None' : 'موردی ثبت نشده'}</span>`;
+
+    const topServersPills = summary.topTargetServers.map(s =>
+      `<span style="display: inline-block; background: #0b151f; border: 1px solid rgba(56, 189, 248, 0.3); color: #7dd3fc; padding: 2px 8px; border-radius: 9999px; font-size: 11px; margin: 2px 4px;"><strong>${s.serverName}</strong>: ${s.count}</span>`
+    ).join('') || `<span style="color: #64748b; font-size: 11px;">${isEn ? 'None' : 'موردی ثبت نشده'}</span>`;
+
+    serverFleetKpiDashboardHtml = `
+    <!-- Server Fleet Intelligence & KPI Section -->
+    <div style="background: linear-gradient(135deg, #091e28 0%, #0c1a24 100%); border: 1px solid rgba(20, 184, 166, 0.4); border-radius: 12px; padding: 20px; margin-bottom: 24px; box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px solid rgba(20, 184, 166, 0.2); padding-bottom: 12px;">
+        <div>
+          <h3 style="color: #2dd4bf; font-size: 16px; margin: 0; font-weight: 700;">
+            🖥️ ${isEn ? 'Server Fleet & Remote Sessions KPI Summary' : 'شاخص‌های کلیدی ممیزی ناوگان سرورها و نشست‌های ریموت'}
+          </h3>
+          <p style="color: #94a3b8; font-size: 12px; margin: 4px 0 0 0;">
+            ${isEn ? 'Aggregated telemetry across Linux & Windows fleet instances, interactive shells, and desktop sessions' : 'آمار تجمیعی سرورهای لینوکس و ویندوز، شل‌های تعاملی و نشست‌های ریموت دسکتاپ'}
+          </p>
+        </div>
+        <span style="background: rgba(20, 184, 166, 0.15); color: #2dd4bf; border: 1px solid rgba(20, 184, 166, 0.35); padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700;">
+          ${serverCommandLogs.length} ${isEn ? 'Fleet Operations' : 'عملیات ناوگان'}
+        </span>
+      </div>
+
+      <!-- 6 Fleet Sub-Cards Grid -->
+      <table style="width: 100%; border-collapse: separate; border-spacing: 10px 0; margin-bottom: 16px;">
+        <tr>
+          <!-- SSH Sessions -->
+          <td style="background: #0b151f; border: 1px solid rgba(6, 182, 212, 0.3); border-radius: 8px; padding: 12px; text-align: center; width: 16.6%;">
+            <div style="color: #22d3ee; font-size: 10px; text-transform: uppercase; font-weight: 700;">💻 ${isEn ? 'SSH Shell' : 'شل SSH'}</div>
+            <div style="color: #e0f2fe; font-size: 22px; font-weight: 800; margin: 4px 0 2px 0;">${summary.serverSshSessionsCount}</div>
+            <div style="color: #67e8f9; font-size: 10px;">${isEn ? 'Interactive' : 'تعاملی'}</div>
+          </td>
+          <!-- RDP/VNC Desktops -->
+          <td style="background: #0b151f; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 12px; text-align: center; width: 16.6%;">
+            <div style="color: #60a5fa; font-size: 10px; text-transform: uppercase; font-weight: 700;">🖥️ ${isEn ? 'RDP / VNC' : 'ریموت گرافیکی'}</div>
+            <div style="color: #dbeafe; font-size: 22px; font-weight: 800; margin: 4px 0 2px 0;">${summary.serverRdpVncSessionsCount}</div>
+            <div style="color: #93c5fd; font-size: 10px;">${isEn ? 'GUI Desktops' : 'دسکتاپ'}</div>
+          </td>
+          <!-- 3-Dots Quick Actions -->
+          <td style="background: #0b151f; border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px; text-align: center; width: 16.6%;">
+            <div style="color: #fbbf24; font-size: 10px; text-transform: uppercase; font-weight: 700;">⚡ ${isEn ? '3-Dots Action' : 'اقدام ۳‌نقطه'}</div>
+            <div style="color: #fef3c7; font-size: 22px; font-weight: 800; margin: 4px 0 2px 0;">${summary.server3DotsActionsCount}</div>
+            <div style="color: #fde68a; font-size: 10px;">${isEn ? 'Quick Ops' : 'مدیریتی'}</div>
+          </td>
+          <!-- High/Critical Risk -->
+          <td style="background: #0b151f; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px; text-align: center; width: 16.6%;">
+            <div style="color: #f87171; font-size: 10px; text-transform: uppercase; font-weight: 700;">⚠️ ${isEn ? 'Suspicious / Risk' : 'ریسک امنیتی'}</div>
+            <div style="color: #fee2e2; font-size: 22px; font-weight: 800; margin: 4px 0 2px 0;">${summary.serverSuspiciousCommandsCount}</div>
+            <div style="color: #fca5a5; font-size: 10px;">${isEn ? 'High Priority' : 'اولویت بالا'}</div>
+          </td>
+          <!-- Blocked / Denied -->
+          <td style="background: #0b151f; border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 12px; text-align: center; width: 16.6%;">
+            <div style="color: #c084fc; font-size: 10px; text-transform: uppercase; font-weight: 700;">🛡️ ${isEn ? 'Blocked / Denied' : 'بلاک / خطا'}</div>
+            <div style="color: #f3e8ff; font-size: 22px; font-weight: 800; margin: 4px 0 2px 0;">${summary.serverBlockedActionsCount}</div>
+            <div style="color: #e9d5ff; font-size: 10px;">${isEn ? 'Denied / Failed' : 'منع شده'}</div>
+          </td>
+          <!-- Unique Operators -->
+          <td style="background: #0b151f; border: 1px solid rgba(20, 184, 166, 0.3); border-radius: 8px; padding: 12px; text-align: center; width: 16.6%;">
+            <div style="color: #2dd4bf; font-size: 10px; text-transform: uppercase; font-weight: 700;">👥 ${isEn ? 'Active Actors' : 'کاربران فعال'}</div>
+            <div style="color: #ccfbf1; font-size: 22px; font-weight: 800; margin: 4px 0 2px 0;">${summary.topServerActors.length}</div>
+            <div style="color: #5eead4; font-size: 10px;">${isEn ? 'Operators' : 'اپراتور'}</div>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Top Actors & Top Servers pills -->
+      <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px;">
+        <tr>
+          <td style="width: 50%; padding: 6px 8px; vertical-align: top;">
+            <div style="color: #94a3b8; font-size: 11px; margin-bottom: 4px; font-weight: 600;">
+              👤 ${isEn ? 'Top Active Server Operators:' : 'فعال‌ترین کاربران ناوگان سرورها:'}
+            </div>
+            <div>${topActorsPills}</div>
+          </td>
+          <td style="width: 50%; padding: 6px 8px; vertical-align: top;">
+            <div style="color: #94a3b8; font-size: 11px; margin-bottom: 4px; font-weight: 600;">
+              🖥️ ${isEn ? 'Most Managed Target Servers:' : 'پرترددترین سرورهای تحت مدیریت:'}
+            </div>
+            <div>${topServersPills}</div>
+          </td>
+        </tr>
+      </table>
+    </div>
+    `;
+  }
+
   // High risk callout banner if critical events exist
   let alertBannerHtml = '';
   if (summary.criticalCount > 0 || summary.warningCount > 0) {
@@ -563,6 +774,8 @@ export function generateAuditReportHtml(options: {
       </table>
     </div>
 
+    ${serverFleetKpiDashboardHtml}
+
     <!-- Category Distribution Breakdown -->
     <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;">
       <h3 style="color: #f1f5f9; font-size: 15px; margin: 0 0 14px 0; font-weight: 600;">
@@ -611,6 +824,9 @@ export function generateAuditReportHtml(options: {
     <!-- Commands Section (if enabled) -->
     ${commandSectionHtml}
 
+    <!-- Server Fleet Section (if enabled) -->
+    ${serverFleetSectionHtml}
+
     <!-- Enterprise Confidentiality Footer -->
     <div style="border-top: 1px solid #1e293b; padding-top: 20px; margin-top: 36px; text-align: center;">
       <p style="color: #64748b; font-size: 12px; margin: 0 0 6px 0;">
@@ -619,7 +835,7 @@ export function generateAuditReportHtml(options: {
           : 'ارسال خودکار از طریق درگاه SMTP نت‌توپولوژی. این گزارش یک سند محرمانه امنیتی بوده و صرفاً جهت استفاده مدیران مجاز سامانه است.'}
       </p>
       <p style="color: #475569; font-size: 11px; margin: 0;">
-        NetTopology Management Suite • System Architecture v1.301.0 • Host: ${smtpSenderEmail || 'Core Gateway'}
+        NetTopology Management Suite • System Architecture v1.364.0 • Host: ${smtpSenderEmail || 'Core Gateway'}
       </p>
     </div>
 
@@ -685,6 +901,36 @@ export function generateAuditReportCsv(
       `"${(sc.channel || sc.actionNameEn || sc.actionName || '').replace(/"/g, '""')}"`,
       `"${(sc.command || sc.outputSummaryEn || sc.outputSummary || '').replace(/"/g, '""')}"`,
       `"${sc.status || ''}"`,
+    ];
+    lines.push(row.join(','));
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Creates dedicated CSV export string of server fleet command & activity logs for attachment
+ */
+export function generateServerFleetAuditCsv(serverCommandLogs: any[] = []): string {
+  const lines: string[] = [];
+  lines.push('ID,Timestamp,OS_Type,Server_ID,Server_Name,Server_IP,Actor_Username,Client_IP,Channel,Action_Module,Command_Or_Action,Risk_Level,Status');
+
+  const rawServerLogs = Array.isArray(serverCommandLogs) ? serverCommandLogs : [];
+  for (const sc of rawServerLogs) {
+    const row = [
+      `"${sc.id || ''}"`,
+      `"${sc.timestamp || ''}"`,
+      `"${sc.osType || sc.os_type || 'linux'}"`,
+      `"${sc.serverId || sc.server_id || ''}"`,
+      `"${(sc.serverName || sc.server_name || '').replace(/"/g, '""')}"`,
+      `"${sc.serverIp || sc.server_ip || ''}"`,
+      `"${(sc.actor?.username || sc.userName || sc.user_name || '').replace(/"/g, '""')}"`,
+      `"${sc.actor?.ipAddress || sc.clientIp || sc.client_ip || ''}"`,
+      `"${(sc.channel || '').replace(/"/g, '""')}"`,
+      `"${(sc.actionModule || sc.action_module || '').replace(/"/g, '""')}"`,
+      `"${(sc.command || sc.actionNameEn || sc.actionName || '').replace(/"/g, '""')}"`,
+      `"${sc.riskLevel || sc.risk_level || 'low'}"`,
+      `"${sc.status || 'SUCCESS'}"`,
     ];
     lines.push(row.join(','));
   }
@@ -786,13 +1032,22 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
 
   const attachments: any[] = [];
   if (effectiveConfig.attachCsv) {
-    const csvContent = generateAuditReportCsv(filteredPortal, filteredCommands, filteredServerCommands);
     const dateStr = new Date().toISOString().substring(0, 10);
+    const csvContent = generateAuditReportCsv(filteredPortal, filteredCommands, filteredServerCommands);
     attachments.push({
       filename: `nettopology_audit_report_${dateStr}.csv`,
       content: csvContent,
       contentType: 'text/csv',
     });
+
+    if (filteredServerCommands.length > 0) {
+      const serverFleetCsv = generateServerFleetAuditCsv(filteredServerCommands);
+      attachments.push({
+        filename: `server_fleet_audit_${dateStr}.csv`,
+        content: serverFleetCsv,
+        contentType: 'text/csv',
+      });
+    }
   }
 
   // 6. Send Email via Mail Transport

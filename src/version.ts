@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.363.0';
+export const APP_VERSION = '1.364.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.364.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۲: طراحی قالب واکنش‌گرای ایمیل، کارت‌های شاخص ناوگان و پیوست اختصاصی CSV (Server Fleet Audit HTML Email & CSV Attachments)',
+    title_en: 'Phase 2: Server Fleet Audit Responsive HTML Email Template, Security KPI Dashboard & Dedicated CSV Attachments',
+    changes: [
+      'کارت‌های شاخص امنیت ناوگان (Fleet Security KPI Cards): اضافه شدن بلوک جامع و واکنش‌گرای آمار برای نشست‌های شل SSH، ریموت دسکتاپ‌های گرافیکی (RDP/VNC)، اقدامات سریع منوی سه‌نقطه، دستورات پرخطر امنیتی و اقدامات بلاک‌شده همراه با تفکیک فعال‌ترین اپراتورها و پرترددترین سرورها.',
+      'طراحی جدول تفکیکی وقایع ناوگان سرورها در ایمیل: طراحی جدول با سازگاری کامل در کلاینت‌های مطرح ایمیل (Gmail, Outlook, Apple Mail) شامل ستون‌های زمان، بج سیستم‌عامل (لینوکس و ویندوز)، سرور مقصد، کاربر مجری، کانال ارتباطی، ماژول، دستور با استایل کدباکس، سطح ریسک و وضعیت موفقیت/شکست.',
+      'پیوست خودکار فایل استاندارد server_fleet_audit.csv: امکان تولید و ضمیمه کردن خودکار فایل CSV تفکیکی ناوگان سرورها شامل تمامی پارامترها و شناسه‌های رخداد در کنار فایل گزارش ممیزی کلی.',
+      'انطباق صددرصدی با قانون عدم نشت زبان (Strict Bilingual Rule 4): تضمین تولید خروجی کاملاً انگلیسی بدون حتی یک کاراکتر فارسی در حالت انگلیسی و ترجمه روان فارسی در حالت زبان فارسی.'
+    ],
+    changes_en: [
+      'Fleet Security KPI Cards: comprehensive responsive metrics block featuring SSH shell sessions, graphical remote desktops (RDP/VNC), 3-dots actions, high-risk security commands, blocked operations, top active operators, and most accessed servers.',
+      'Server Fleet Audit Events Table: beautifully styled email table with cross-client support (Gmail, Outlook, Apple Mail) displaying timestamps, OS badges (Linux & Windows), target servers, operators, channels, modules, monospace command boxes, risk badges, and pass/fail statuses.',
+      'Dedicated server_fleet_audit.csv attachment: automated generation and attachment of dedicated fleet CSV containing full command logs and metadata alongside primary audit files.',
+      'Strict bilingual compliance (Rule 4): guaranteed 100% pure English HTML rendering with zero Persian character leakage in English mode, and fluent Persian localization in Persian mode.'
+    ]
+  },
   {
     version: '1.363.0',
     releaseDate: '2026-10-22',
