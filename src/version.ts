@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.354.0';
+export const APP_VERSION = '1.355.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.355.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'افزودن دکمه همگام‌سازی زنده پورت‌ها (Sync Ports) و لودینگ اختصاصی سوکت شبکه در مودال‌های پورت تجهیزات',
+    title_en: 'Live Device Port Synchronization with Network Socket Loader & Translucent Overlay in Port Modals',
+    changes: [
+      'افزودن دکمه «سینک پورت‌ها» (Sync Ports) در هدر مودال‌های بررسی و مدیریت پورت تجهیزات شبکه (شامل مودال پورت‌های سیسکو PortInspectorModal و مودال روتروس میکروتیک MikroTikDeviceManageModal).',
+      'همگام‌سازی بلادرنگ آخرین وضعیت و تغییرات پورت‌ها مستقیماً از طریق ارتباط واقعی SSH با تجهیز سخت‌افزاری و دریافت تلمتری بدون هیچ‌گونه داده شبیه‌سازی‌شده (مطابق با اصل Zero Fake Data).',
+      'نمایش لایه پوشش نیمه‌شفاف (Translucent Overlay) با بلور ملایم بر روی مودال در طول مدت زمان اجرای عملیات سینک به طوری که المان‌ها و وضعیت پورت‌های زیر مودال همچنان قابل رویت باشند.',
+      'به‌کارگیری انیمیشن لودر استاندارد صفحه (NetworkSocketLoader با شبیه‌سازی سوکت RJ-45، ال‌ای‌دی‌های فعال LNK/ACT و پیام‌های راهنما) بر روی لایه پوشش مودال.',
+      'رعایت کامل استانداردهای دوزبانه i18n، عدم نمایش هرگونه متن فارسی در حالت انگلیسی و انطباق کامل با تم‌های تیره و روشن.'
+    ],
+    changes_en: [
+      'Added dedicated "Sync Ports" action button in the header of device port management modals (both Cisco PortInspectorModal and MikroTik RouterOS MikroTikDeviceManageModal).',
+      'Real-time synchronization of live interface states and configuration changes directly with physical/virtual hardware via SSH bridge backend with zero fake/simulated data.',
+      'Translucent backdrop overlay with subtle blur restricted strictly to the port modal during synchronization, keeping underlying modal elements and ports visible while preventing duplicate actions.',
+      'Integrated authentic NetworkSocketLoader animation (RJ-45 10G socket with blinking LNK/ACT LEDs and live status telemetry) inside the modal overlay matching the system page loader.',
+      'Full compliance with strict bilingual i18n localization guidelines (zero Persian text in English mode) and seamless dark/light theme contrast.'
+    ]
+  },
   {
     version: '1.354.0',
     releaseDate: '2026-10-22',

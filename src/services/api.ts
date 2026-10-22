@@ -383,7 +383,10 @@ export async function fetchDevicePorts(deviceId: string): Promise<{
   error?: string;
   message?: string;
 }> {
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports`);
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports`, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || err.error || 'Failed to fetch ports');
@@ -394,22 +397,32 @@ export async function fetchDevicePorts(deviceId: string): Promise<{
 export async function syncDevicePorts(deviceId: string): Promise<{
   device: Device;
   ports: SwitchPort[];
-  active_count: number;
-  inactive_count: number;
-  admin_disabled_count: number;
+  active_count?: number;
+  inactive_count?: number;
+  admin_disabled_count?: number;
   is_live: boolean;
-  sync_source: string;
+  sync_source?: string;
   error?: string;
   message?: string;
 }> {
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) {
-    return fetchDevicePorts(deviceId) as any;
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  try {
+    const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/sync`, {
+      method: 'POST',
+      headers,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.ports)) {
+        return data;
+      }
+    }
+  } catch (e) {
+    console.warn('[syncDevicePorts] SSH sync attempt failed, fallback to live query:', e);
   }
-  return res.json();
+  return fetchDevicePorts(deviceId) as any;
 }
 
 export async function updateSwitchPort(

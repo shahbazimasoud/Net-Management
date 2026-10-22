@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical } from 'lucide-react';
+import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
-import { fetchDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
+import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
+import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 import { NetworkPortSvg } from './NetworkPortSvg';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
@@ -54,6 +55,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
 
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [activeTab, setActiveTab] = useState<'ports' | 'resources'>('ports');
@@ -551,6 +553,63 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     }
   };
 
+  const handleSyncPorts = async () => {
+    if (!device) return;
+    try {
+      setIsSyncing(true);
+      setError(null);
+      // Synchronize live ports directly with physical / virtual device via SSH backend
+      const res = await syncDevicePorts(device.id);
+      const rawPorts = res.ports || [];
+      const normalizedPorts = rawPorts.map((p: any, idx: number) => {
+        const rawStat = String(p.status || '').toLowerCase().trim();
+        const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
+        const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
+        const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+        return {
+          ...p,
+          port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+          status: isConn ? 'up' : 'down',
+          admin_status: isDis ? 'disabled' : 'enabled',
+          mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+        };
+      });
+
+      setPorts(normalizedPorts);
+
+      if (normalizedPorts.length > 0) {
+        setSelectedPort((prev) => {
+          if (!prev) return normalizedPorts[0];
+          const prevId = prev.port_id || (prev as any).port || prev.name;
+          const matched = normalizedPorts.find(
+            (p) => (p.port_id || (p as any).port || p.name) === prevId
+          );
+          return matched || normalizedPorts[0];
+        });
+        setSelectedPortIds((prev) => {
+          if (!prev || prev.length === 0) return [normalizedPorts[0].port_id];
+          const validIds = prev.filter((id) =>
+            normalizedPorts.some((p) => (p.port_id || (p as any).port || p.name) === id)
+          );
+          return validIds.length > 0 ? validIds : [normalizedPorts[0].port_id];
+        });
+      }
+
+      if (onPortUpdated) {
+        onPortUpdated();
+      }
+    } catch (err: any) {
+      console.error('[PortInspectorModal] Failed to synchronize device ports:', err);
+      setError(
+        isEn
+          ? `Port synchronization failed: ${err.message || 'Connection failure'}`
+          : `خطا در همگام‌سازی وضعیت پورت‌ها: ${err.message || 'خطا در ارتباط با تجهیز'}`
+      );
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handlePortClick = (e: React.MouseEvent, port: SwitchPort) => {
     setBatchSuccessMessage(null);
     const pId = port.port_id || (port as any).port || port.name;
@@ -960,7 +1019,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     >
       <div 
         dir={isEn ? 'ltr' : 'rtl'}
-        className={`port-inspector-modal spatial-glass border border-white/15 shadow-2xl overflow-hidden flex flex-col transition-all duration-200 text-slate-100 ${
+        className={`port-inspector-modal relative spatial-glass border border-white/15 shadow-2xl overflow-hidden flex flex-col transition-all duration-200 text-slate-100 ${
           isEn ? 'text-left' : 'text-right'
         } ${
           isMaximized
@@ -968,6 +1027,24 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             : 'w-full max-w-5xl rounded-2xl my-auto max-h-[92vh] sm:max-h-[88vh]'
         }`}
       >
+        {/* Live Port Synchronization Overlay with NetworkSocketLoader */}
+        {isSyncing && (
+          <div
+            id="port-modal-sync-overlay"
+            className="absolute inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center select-none transition-all duration-300 pointer-events-auto"
+          >
+            <NetworkSocketLoader
+              isEn={isEn}
+              message={isEn ? 'Synchronizing Port Telemetry...' : 'در حال همگام‌سازی وضعیت پورت‌ها...'}
+              subMessage={
+                isEn
+                  ? `Fetching latest interface states and live changes directly from ${device.name || device.ip}...`
+                  : `در حال دریافت آخرین وضعیت اینترفیس‌ها و تغییرات رخ‌داده مستقیماً از ${device.name || device.ip}...`
+              }
+            />
+          </div>
+        )}
+
         {/* Header */}
         <div className="px-5 py-3 border-b border-white/10 bg-slate-900/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -1025,6 +1102,27 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                 <span className="font-sans font-bold">{isEn ? 'Cisco Terminal' : 'ترمینال سیسکو'}</span>
               </button>
             )}
+
+            {/* Sync Device Ports Live from Hardware */}
+            <button
+              type="button"
+              id="cisco-ports-sync-header-btn"
+              onClick={handleSyncPorts}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
+              title={
+                isEn
+                  ? 'Synchronize latest port statuses and changes directly with device hardware'
+                  : 'همگام‌سازی آخرین وضعیت و تغییرات پورت‌ها مستقیماً با سخت‌افزار دستگاه'
+              }
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="font-sans font-medium">
+                {isSyncing
+                  ? (isEn ? 'Syncing...' : 'در حال سینک...')
+                  : (isEn ? 'Sync Ports' : 'سینک پورت‌ها')}
+              </span>
+            </button>
 
             {/* Fullscreen / Exit Fullscreen Toggle */}
             <button

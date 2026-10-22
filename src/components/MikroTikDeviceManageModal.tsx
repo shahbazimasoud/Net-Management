@@ -28,9 +28,11 @@ import {
   Shield,
   Lock,
   MoreVertical,
+  RefreshCw,
 } from 'lucide-react';
 import { Device, SwitchPort } from '../types';
-import { fetchDevicePorts, updateSwitchPort, batchUpdateSwitchPorts } from '../services/api';
+import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, batchUpdateSwitchPorts } from '../services/api';
+import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 import { MikroTikPortSvg } from './MikroTikPortSvg';
 import { MikroTikPortContextMenu } from './MikroTikPortContextMenu';
 import {
@@ -112,6 +114,7 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
   const [activeTab, setActiveTab] = useState<'ports' | 'bridge' | 'vpn' | 'resources' | 'export'>('ports');
   const [ports, setPorts] = useState<SwitchPort[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [selectedPort, setSelectedPort] = useState<SwitchPort | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'running' | 'disabled' | 'sfp'>('all');
@@ -259,6 +262,39 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
     setEditSpeed(selectedPort.speed || 'auto');
   }, [selectedPort]);
 
+  const handleSyncPorts = async () => {
+    if (!device) return;
+    try {
+      setIsSyncing(true);
+      const data = await syncDevicePorts(device.id);
+      if (data && data.ports && data.ports.length > 0) {
+        const rawPorts = data.ports || [];
+        const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
+          ...p,
+          port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+          status: p.status === 'up' || p.status === 'connected' ? 'up' : 'down',
+          admin_status: p.admin_status === 'disabled' || p.disabled ? 'disabled' : 'enabled',
+          vlan: Number(p.vlan) || (p.pvid ? Number(p.pvid) : 1),
+          speed: p.speed || 'auto',
+          description: p.description || p.comment || '',
+        }));
+        setPorts(normalizedPorts);
+        if (normalizedPorts.length > 0) {
+          setSelectedPort((prev) => {
+            if (!prev) return normalizedPorts[0];
+            return normalizedPorts.find((p) => p.port_id === prev.port_id) || normalizedPorts[0];
+          });
+        }
+      }
+      if (onPortUpdated) onPortUpdated();
+      if (onDeviceUpdated) onDeviceUpdated();
+    } catch (err: any) {
+      console.error('[MikroTik PortSync] Error syncing ports:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   if (!isOpen || !device) return null;
 
   // Execute confirmed RouterOS updates
@@ -369,6 +405,26 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
             : 'bg-slate-950 border-cyan-500/30 shadow-cyan-950/60 text-slate-100'
         }`}
       >
+        {/* Live Port Synchronization Overlay with NetworkSocketLoader */}
+        {isSyncing && (
+          <div
+            id="mikrotik-port-modal-sync-overlay"
+            className={`absolute inset-0 z-50 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center select-none transition-all duration-300 pointer-events-auto ${
+              isLightMode ? 'bg-slate-900/50' : 'bg-slate-950/70'
+            }`}
+          >
+            <NetworkSocketLoader
+              isEn={isEn}
+              message={isEn ? 'Synchronizing Port Telemetry...' : 'در حال همگام‌سازی وضعیت پورت‌ها...'}
+              subMessage={
+                isEn
+                  ? `Fetching latest interface states and live changes directly from ${device.name || device.ip}...`
+                  : `در حال دریافت آخرین وضعیت اینترفیس‌ها و تغییرات رخ‌داده مستقیماً از ${device.name || device.ip}...`
+              }
+            />
+          </div>
+        )}
+
         {/* Top Header */}
         <div
           className={`flex items-center justify-between px-6 py-4 border-b ${
@@ -484,6 +540,31 @@ export const MikroTikDeviceManageModal: React.FC<MikroTikDeviceManageModalProps>
                 <span>{isEn ? 'CLI Terminal' : 'کنسول ترمینال'}</span>
               </button>
             )}
+
+            {/* Sync Device Ports Live from RouterOS */}
+            <button
+              type="button"
+              id="mikrotik-port-modal-sync-btn"
+              onClick={handleSyncPorts}
+              disabled={isSyncing}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50 ${
+                isLightMode
+                  ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-300'
+                  : 'bg-cyan-950/80 hover:bg-cyan-900 border-cyan-500/50 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.15)]'
+              }`}
+              title={
+                isEn
+                  ? 'Synchronize latest port statuses and changes directly with RouterOS hardware'
+                  : 'همگام‌سازی آخرین وضعیت و تغییرات پورت‌ها مستقیماً با روتر میکروتیک'
+              }
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="font-sans font-medium">
+                {isSyncing
+                  ? (isEn ? 'Syncing...' : 'در حال سینک...')
+                  : (isEn ? 'Sync Ports' : 'سینک پورت‌ها')}
+              </span>
+            </button>
 
             {/* Fullscreen / Exit Fullscreen Toggle */}
             <button
