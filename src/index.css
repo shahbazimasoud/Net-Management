@@ -2488,7 +2488,15 @@
 .theme-light .switch-faceplate-chassis [data-badge="vlan-tag"],
 .theme-dark .switch-faceplate-chassis .bg-purple-600,
 .theme-dark .switch-faceplate-chassis .bg-purple-500,
-.theme-dark .switch-faceplate-chassis [data-badge="vlan-tag"] {
+.theme-dark .switch-faceplate-chassis [data-badge="vlan-tag"],
+[data-badge="vlan-tag"],
+.theme-light [data-badge="vlan-tag"],
+.theme-dark [data-badge="vlan-tag"],
+.theme-light [data-badge="vlan-tag"] *,
+.theme-dark [data-badge="vlan-tag"] *,
+.port-inspector-modal [data-badge="vlan-tag"],
+.theme-light .port-inspector-modal [data-badge="vlan-tag"],
+.theme-dark .port-inspector-modal [data-badge="vlan-tag"] {
   color: #ffffff !important;
   font-weight: 700 !important;
 }

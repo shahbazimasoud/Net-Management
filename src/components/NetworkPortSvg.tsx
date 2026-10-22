@@ -218,9 +218,9 @@ export const NetworkPortSvg: React.FC<NetworkPortSvgProps> = ({
               ? 'bg-purple-600 text-white font-bold border border-purple-400'
               : vlanDisplay === 1
               ? 'bg-slate-800 text-cyan-300 border border-cyan-500/40'
-              : 'bg-indigo-900/90 text-amber-300 border border-amber-500/40'
+              : 'bg-indigo-900/90 text-white border border-amber-500/40'
           }`}
-          style={isTrunk ? { color: '#ffffff', fontWeight: 700 } : undefined}
+          style={{ color: '#ffffff', fontWeight: 700 }}
           title={`VLAN ${vlanDisplay}`}
         >
           v{vlanDisplay}

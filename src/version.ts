@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.355.0';
+export const APP_VERSION = '1.355.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.355.1',
+    releaseDate: '2026-10-22',
+    type: 'patch',
+    title: 'اصلاح و تثبیت رنگ سفید فونت تگ VLAN در فیس‌پلیت پورت‌ها و تم روشن',
+    title_en: 'Fix and Enforce Pure White Font Color for VLAN Badges in Port Faceplate & Light Theme',
+    changes: [
+      'اصلاح رنگ فونت تگ نشان‌دهنده VLAN (مانند v13 یا تگ‌های اکسس) بر روی پورت‌های فیس‌پلیت تجهیزات شبکه در مودال پورت‌ها (PortInspectorModal و NetworkPortSvg) به رنگ سفید خالص (Pure White) با وزن قلم بولد.',
+      'تثبیت استایل اختصاصی برای المنت‌های با شناسه data-badge="vlan-tag" در هر دو تم تیره و روشن (Light/Dark Theme) جهت جلوگیری از تیره شدن یا تبدیل به رنگ‌های تیره در تم روشن و تضمین بالاترین کنتراست ارگونومیک.',
+      'رعایت کامل استانداردهای چندزبانگی i18n و عدم نشت متن فارسی در حالت انگلیسی.'
+    ],
+    changes_en: [
+      'Fixed and standardized font color of VLAN ID badges (such as v13 or access port tags) on network switch faceplates in Port Inspector modals (PortInspectorModal & NetworkPortSvg) to pure white with bold font weight.',
+      'Enforced comprehensive CSS rules for elements with data-badge="vlan-tag" across both light and dark themes to eliminate unintended theme tinting or amber darkening in light mode.',
+      'Full compliance with strict bilingual i18n localization guidelines.'
+    ]
+  },
   {
     version: '1.355.0',
     releaseDate: '2026-10-22',
