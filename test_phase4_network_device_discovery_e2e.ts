@@ -41,7 +41,7 @@ async function runPhase4E2ETests() {
   const modalContent = fs.readFileSync(modalPath, 'utf8');
 
   const requiredArchitecturalTokens = [
-    'fixed top-0 left-0 right-0 bottom-8 z-[9999]', // strict footer clearance
+    'fixed top-0 left-0 right-0 bottom-8 z-[999990]', // strict footer clearance & tools modal priority
     'ModalHeaderControls',                          // 3-button controls
     'FieldInfoTooltip',                             // 3-part tooltip
     'useModalDock',                                 // ToolsDock integration

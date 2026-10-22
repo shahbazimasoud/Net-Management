@@ -24,6 +24,8 @@ import {
   Terminal,
   ExternalLink,
   ChevronDown,
+  ChevronUp,
+  ArrowDown,
   Hash,
   ArrowUpDown,
   Lock,
@@ -171,6 +173,9 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
   const [selectedIps, setSelectedIps] = useState<Set<string>>(new Set());
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
+  const modalBodyRef = useRef<HTMLDivElement | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
 
   // SSE EventSource reference & timer
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -775,18 +780,20 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
 
   return createPortal(
     <div
-      className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col items-center justify-center transition-all duration-200 ${
+      id="device-discovery-modal-overlay"
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[999990] flex flex-col items-center justify-center transition-all duration-200 ${
         isMaximized
           ? 'p-0'
-          : 'p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md'
+          : 'p-2 sm:p-4 bg-black/80 backdrop-blur-md'
       }`}
       dir={isEn ? 'ltr' : 'rtl'}
     >
       <div
+        id="device-discovery-modal-window"
         className={`flex flex-col transition-all duration-200 overflow-hidden shadow-2xl ${
           isMaximized
             ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
-            : 'w-full max-w-6xl h-[92vh] max-h-[92vh] rounded-2xl border'
+            : 'w-full max-w-6xl h-[calc(100vh-5rem)] max-h-[880px] rounded-2xl border'
         } ${
           isLightMode
             ? 'bg-slate-50 border-slate-300 text-slate-800'
@@ -888,8 +895,8 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
           </div>
         )}
 
-        {/* Body Content */}
-        <div className="flex-1 overflow-y-auto flex flex-col p-3 sm:p-5 gap-4">
+        {/* Body Content - Single authoritative smooth scroll container */}
+        <div ref={modalBodyRef} className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 custom-scrollbar">
           {/* Top Scan Configuration Panel */}
           <div
             className={`p-4 rounded-xl border transition-all ${
@@ -898,54 +905,121 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
                 : 'bg-slate-900/60 border-slate-800'
             }`}
           >
-            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-              {/* Subnet / IP Input */}
-              <div className="flex-1 w-full">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="flex items-center gap-1.5 text-xs font-bold">
-                    <span>{isEn ? 'Target IP / Subnet Range' : 'محدوده IP یا سابنت هدف'}</span>
-                    <FieldInfoTooltip
-                      title={isEn ? 'Target Subnet Range' : 'محدوده سابنت هدف'}
-                      whatIsIt={
-                        isEn
-                          ? 'CIDR notation or single IP address to scan (e.g. 192.168.1.0/24 or 10.0.0.1).'
-                          : 'نماد CIDR یا آدرس آی‌پی تکی جهت پویش پورت‌ها (مانند 192.168.1.0/24 یا 10.0.0.1).'
-                      }
-                      whyNeeded={
-                        isEn
-                          ? 'Defines the network segment containing network switches, routers, firewalls, and APs.'
-                          : 'تعیین‌کننده بخش شبکه سازمانی شامل سوییچ‌ها، روترها، فایروال‌ها و اکسس‌پوینت‌ها.'
-                      }
-                      example={isEn ? '192.168.1.0/24, 10.0.0.0/24' : '192.168.1.0/24 یا 10.0.0.0/24'}
-                      isLightMode={isLightMode}
-                      isEn={isEn}
-                    />
-                  </label>
-
-                  {/* Subnet Presets Dropdown */}
-                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                    <span className="hidden sm:inline">{isEn ? 'Presets:' : 'آماده:'}</span>
-                    <div className="flex flex-wrap gap-1">
-                      {COMMON_SUBNET_PRESETS.slice(0, 3).map((preset) => (
-                        <button
-                          key={preset.value}
-                          type="button"
-                          disabled={isScanning}
-                          onClick={() => setIpRangeInput(preset.value)}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
-                            ipRangeInput === preset.value
-                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                              : isLightMode
-                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                              : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          {preset.value}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+            {isConfigCollapsed ? (
+              /* Compact Summary View when Collapsed */
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="font-bold flex items-center gap-1.5 text-cyan-400">
+                    <Globe className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="font-mono text-sm">{ipRangeInput || '192.168.1.0/24'}</span>
+                  </span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-slate-400 font-mono text-[11px]">
+                    {allProbePorts.length} {isEn ? 'ports' : 'پورت'} [{allProbePorts.slice(0, 6).join(', ')}{allProbePorts.length > 6 ? '...' : ''}]
+                  </span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-slate-400 font-mono text-[11px]">
+                    {concurrency} socket / {timeoutMs}ms
+                  </span>
                 </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {!isScanning ? (
+                    <button
+                      type="button"
+                      onClick={handleStartScan}
+                      className="px-3.5 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-white shadow-sm active:scale-95 transition-all"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>{isEn ? 'Start Discovery' : 'شروع پویش'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleAbortScan}
+                      className="px-3.5 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-sm active:scale-95 transition-all animate-pulse"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-current" />
+                      <span>{isEn ? 'Abort Scan' : 'توقف پویش'}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsConfigCollapsed(false)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer border transition-colors ${
+                      isLightMode
+                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                    }`}
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                    <span>{isEn ? 'Edit Parameters' : 'تنظیمات پویش'}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                  {/* Subnet / IP Input */}
+                  <div className="flex-1 w-full">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="flex items-center gap-1.5 text-xs font-bold">
+                        <span>{isEn ? 'Target IP / Subnet Range' : 'محدوده IP یا سابنت هدف'}</span>
+                        <FieldInfoTooltip
+                          title={isEn ? 'Target Subnet Range' : 'محدوده سابنت هدف'}
+                          whatIsIt={
+                            isEn
+                              ? 'CIDR notation or single IP address to scan (e.g. 192.168.1.0/24 or 10.0.0.1).'
+                              : 'نماد CIDR یا آدرس آی‌پی تکی جهت پویش پورت‌ها (مانند 192.168.1.0/24 یا 10.0.0.1).'
+                          }
+                          whyNeeded={
+                            isEn
+                              ? 'Defines the network segment containing network switches, routers, firewalls, and APs.'
+                              : 'تعیین‌کننده بخش شبکه سازمانی شامل سوییچ‌ها، روترها، فایروال‌ها و اکسس‌پوینت‌ها.'
+                          }
+                          example={isEn ? '192.168.1.0/24, 10.0.0.0/24' : '192.168.1.0/24 یا 10.0.0.0/24'}
+                          isLightMode={isLightMode}
+                          isEn={isEn}
+                        />
+                      </label>
+
+                      {/* Subnet Presets Dropdown & Collapse Button */}
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span className="hidden sm:inline">{isEn ? 'Presets:' : 'آماده:'}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {COMMON_SUBNET_PRESETS.slice(0, 3).map((preset) => (
+                            <button
+                              key={preset.value}
+                              type="button"
+                              disabled={isScanning}
+                              onClick={() => setIpRangeInput(preset.value)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+                                ipRangeInput === preset.value
+                                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                  : isLightMode
+                                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              {preset.value}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsConfigCollapsed(true)}
+                          className={`ml-1 px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 cursor-pointer transition-colors border ${
+                            isLightMode
+                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                              : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                          title={isEn ? 'Collapse settings to focus on results' : 'جمع‌کردن کادر تنظیمات'}
+                        >
+                          <ChevronUp className="w-3 h-3" />
+                          <span>{isEn ? 'Collapse' : 'جمع‌کردن'}</span>
+                        </button>
+                      </div>
+                    </div>
 
                 <div className="relative">
                   <input
@@ -1180,6 +1254,8 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
                 </div>
               </div>
             </div>
+            </div>
+            )}
           </div>
 
           {/* Live Telemetry & Progress Dashboard */}
@@ -1276,11 +1352,31 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Quick Jump Action when Devices Discovered */}
+              {discoveredDevices.length > 0 && (
+                <div className="mt-2.5 pt-2 border-t border-slate-800/40 flex items-center justify-between text-xs">
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    {isEn
+                      ? `✓ ${discoveredDevices.length} network targets detected in live sweep`
+                      : `✓ ${discoveredDevices.length} تجهیز شبکه در پویش زنده شناسایی شد`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-all cursor-pointer shadow-sm active:scale-95"
+                    title={isEn ? 'Scroll down to discovered equipment list' : 'اسکرول به لیست تجهیزات کشف‌شده'}
+                  >
+                    <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
+                    <span>{isEn ? `Jump to Discovered List (${discoveredDevices.length})` : `مشاهده لیست تجهیزات (${discoveredDevices.length})`}</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           {/* Search, Filter Toolbar & Results Section */}
-          <div className="flex-1 flex flex-col gap-3 min-h-0">
+          <div ref={resultsRef} className="space-y-3">
             <div className="flex flex-col sm:flex-row gap-2 items-center justify-between">
               {/* Search Bar */}
               <div className="relative w-full sm:w-72">
@@ -1464,7 +1560,7 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
 
             {/* Cards View Mode */}
             {viewMode === 'cards' && filteredDevices.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pr-1">
                 {filteredDevices.map((dev) => {
                   const isSelected = selectedIps.has(dev.ip);
                   return (
@@ -1593,7 +1689,7 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
 
             {/* Table View Mode */}
             {viewMode === 'table' && filteredDevices.length > 0 && (
-              <div className="flex-1 overflow-x-auto rounded-xl border border-slate-800">
+              <div className="overflow-x-auto rounded-xl border border-slate-800 custom-scrollbar">
                 <table className="w-full text-left text-xs border-collapse" dir={isEn ? 'ltr' : 'rtl'}>
                   <thead className={isLightMode ? 'bg-slate-100 text-slate-700' : 'bg-slate-900 text-slate-300'}>
                     <tr className="border-b border-slate-800">
@@ -1755,11 +1851,11 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
       {/* ========================================================================= */}
       {enrollModalOpen && (
         <div
-          className="fixed inset-0 z-[999995] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md"
+          className="fixed top-0 left-0 right-0 bottom-8 z-[999995] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md"
           dir={isEn ? 'ltr' : 'rtl'}
         >
           <div
-            className={`w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden transition-all ${
+            className={`w-full max-w-2xl max-h-[calc(100vh-6rem)] flex flex-col rounded-2xl border shadow-2xl overflow-hidden transition-all ${
               isLightMode
                 ? 'bg-white border-slate-300 text-slate-800'
                 : 'bg-slate-950 border-cyan-500/30 text-slate-100'
@@ -1810,7 +1906,7 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
             )}
 
             {/* Enrollment Body */}
-            <div className="p-4 overflow-y-auto space-y-4 text-xs">
+            <div className="p-4 overflow-y-auto space-y-4 text-xs custom-scrollbar">
               {/* Target Summary Chips */}
               <div
                 className={`p-3 rounded-xl border flex flex-col gap-1.5 ${

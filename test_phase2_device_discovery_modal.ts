@@ -19,7 +19,7 @@ async function runPhase2Tests() {
     'ModalHeaderControls',
     'FieldInfoTooltip',
     'useModalDock',
-    'fixed top-0 left-0 right-0 bottom-8 z-[9999]',
+    'fixed top-0 left-0 right-0 bottom-8 z-[999990]',
     'createPortal',
     'isMaximized',
     'isLightMode',

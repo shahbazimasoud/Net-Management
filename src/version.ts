@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.370.0';
+export const APP_VERSION = '1.370.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.370.1',
+    releaseDate: '2026-10-22',
+    type: 'patch',
+    title: 'رفع باگ پیمایش و اسکرول در مودال کشف تجهیزات شبکه (Network Equipment Discovery UI Scroll Fix)',
+    title_en: 'Bugfix: Network Equipment Discovery Modal UI Scrolling, Unconstrained Container & Collapsible Panel',
+    changes: [
+      'اصلاح معماری اسکرول کانتینر مودال: تبدیل بدنه مودال به اسکرول‌بار واحد یکپارچه (custom-scrollbar) و حذف تداخل محدودیت‌های ارتفاعی flex-1 min-h-0 که مانع پیمایش عمودی به سمت پایین در نتایج کشف می‌شد.',
+      'حذف تله اسکرول در نمایش کارتی و جدولی: برطرف کردن خصوصیت overflow-y-auto از گرید کارت‌ها و unconstrain کردن کانتینر جدول جهت گردش نرم و روان موس و ترک‌پد روی لیست تجهیزات کشف‌شده.',
+      'افزودن قابلیت جمع‌کردن کادر تنظیمات (Collapsible Scan Parameters): امکان جمع‌شدن نوار تنظیمات پویش به حالت فشرده (Compact Summary) با یک کلیک جهت باز شدن حداکثر فضای مانیتور برای لیست تجهیزات.',
+      'دکمه پرش سریع به لیست نتایج (Jump to Discovered List): تعبیه دکمه جهت‌دار در بخش تلمتری زنده برای پیمایش خودکار و آنی به بخش تجهیزات کشف‌شده.',
+      'تنظیم استاندارد لایه‌ای z-[999990] و ارتفاع بهینه: تضمین رعایت حریم فوتر و باز شدن بالاتر از پنجره‌های دیگر طبق استاندارد مودال‌ها.'
+    ],
+    changes_en: [
+      'Unified Smooth Scroll Container: resolved height-trapping bug where flex-1 and min-h-0 prevented vertical scrolling down to discovered devices.',
+      'Removed Scroll Chaining Traps: eliminated conflicting overflow-y-auto on cards grid and unconstrained table wrapper for natural mousewheel/touchpad scrolling.',
+      'Collapsible Scan Parameters Panel: added toggleable compact summary bar saving over 350px of vertical space for maximum results visibility.',
+      'Quick Jump to Discovered Devices: added animated jump button in live telemetry dashboard for instant auto-scroll to detected equipment.',
+      'Layering & Boundary Compliance: set z-[999990] and calc(100vh-5rem) boundary clearance respecting footer navigation.'
+    ]
+  },
   {
     version: '1.370.0',
     releaseDate: '2026-10-22',
