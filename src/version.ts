@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.367.0';
+export const APP_VERSION = '1.368.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.368.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۲: طراحی مودال پیشرفته کشف تجهیزات سیسکو و شبکه (Network Equipment Discovery Modal UI)',
+    title_en: 'Phase 2: Network Equipment Discovery Modal UI with Live Telemetry, Multi-Port Filter & Universal Modal Compliance',
+    changes: [
+      'طراحی مودال اختصاصی DeviceDiscoveryModal: ساخت رابط کاربری مدرن و تعاملی کشف خودکار تجهیزات شبکه با استریم زنده Server-Sent Events (SSE) متصل به /api/devices/discover/stream.',
+      'پنل پارامترهای پویش (Scan Configuration Panel): ورودی منعطف سابنت/CIDR با پریست‌های پرکاربرد شرکتی، چک‌باکس‌های پورت‌های استاندارد (SSH 22، Telnet 23، SNMP 161، HTTPS 443) و امکان افزودن پورت‌های دلخواه سفارشی، همراه با اسلایدرهای تایم‌اوت پاسخ و سرعت همروندی (Concurrency).',
+      'داشبورد بصری تلمتری و پروگرس بار زنده: نمایش نوار درصد پیشرفت انیمیشنی، شمارنده نرخ پویش در ثانیه، کل هاست‌ها، زمان سپری‌شده و دکمه‌های کنترل شروع (Start) و توقف اضطراری (Abort).',
+      'کارت‌ها و جدول پیشرفته نتایج تجهیزات: نمایش اطلاعات هاست، مک‌آدرس معکوس، تاخیر پینگ، بج پلتفرم سیسکو/میکروتیک، پورت‌های باز با بج‌های تفکیک‌شده و نشان تمایز وضعیت «موجود در لیست تجهیزات» یا «تجهیز جدید قابل ثبت».',
+      'فیلتر، جستجو و گزینش دسته‌ای: قابلیت جستجوی آنی بر اساس IP، پورت، هاست‌نیم و فیلترهای چندگانه پلتفرم، نوع تجهیز و وضعیت ثبت، همراه با چک‌باکس انتخاب چندتایی و دکمه افزودن.',
+      'انطباق کامل با استانداردهای پنج‌گانه Universal Modal: تجهیز به دکمه‌های سه‌گانه کنترلی (بستن، مینیمایز به ToolsDock، تمام‌صفحه)، مهار دقیق تا لبه بالایی فوتر (bottom-8)، سازگاری ۱۰۰٪ با دو تم تیره و روشن، عدم نشت زبان در حالت انگلیسی (Rule 4) و مجهز به تولتیپ‌های سه‌بخشی FieldInfoTooltip با جلوگیری از خروج از کادر (Boundary Clamping).',
+      'یکپارچه‌سازی در نوار ابزار موجودی تجهیزات (DeviceListView): قرار دادن دکمه براق Discovery در کنار دکمه‌های Import و Add Device جهت بازگشایی آنی پنجره کشف تجهیزات.'
+    ],
+    changes_en: [
+      'Dedicated DeviceDiscoveryModal Component: designed high-performance interactive modal interface for automated network equipment discovery streaming live SSE events from /api/devices/discover/stream.',
+      'Adaptive Scan Configuration: flexible CIDR/subnet input with corporate presets, standard network protocol selectors (SSH 22, Telnet 23, SNMP 161, HTTPS 443), dynamic custom port tags, response timeout slider, and concurrency speed controls.',
+      'Live Telemetry & Visual Progress Dashboard: real-time animated progress bar, scan rate per second, total host counters, elapsed time stopwatch, and instant Start / Abort scan buttons.',
+      'Rich Discovered Device Cards & Table View: host telemetry cards featuring IP, reverse PTR hostname, ping latency badge, Cisco IOS/XE & MikroTik badges, open port chips with banner tooltips, and inventory status differentiation.',
+      'Search, Multi-Filter & Batch Selection: instant query filtering by IP, port, or hostname, multi-platform filters, status filters, Select All New devices, and batch action toolbar.',
+      'Strict Universal 5-Pillar Modal Compliance: equipped with triad header controls (Close, Minimize to ToolsDock, Fullscreen), strict footer clearance (bottom-8), 100% dark/light theme ergonomics, zero Persian text leakage in English mode (Rule 4), and boundary-safe 3-part FieldInfoTooltip components.',
+      'Header Toolbar Integration in DeviceListView: added dedicated glowing Discovery action button alongside Import and Add Device buttons with immediate live refresh.'
+    ]
+  },
   {
     version: '1.367.0',
     releaseDate: '2026-10-22',

@@ -31,6 +31,7 @@ import {
   Columns3,
   Download,
   Upload,
+  Radar,
 } from 'lucide-react';
 import { Device, DeviceType, CustomTopologyStickyNote } from '../types';
 import { useLanguage } from '../i18n';
@@ -42,6 +43,7 @@ import { DeviceStickyNoteModal } from './DeviceStickyNoteModal';
 import { CiscoWriteConfirmModal } from './CiscoWriteConfirmModal';
 import { DeviceExportModal } from './DeviceExportModal';
 import { DeviceImportModal } from './DeviceImportModal';
+import { DeviceDiscoveryModal } from './DeviceDiscoveryModal';
 import { useAuth } from '../context/AuthContext';
 import {
   isDeviceActionPermitted,
@@ -174,6 +176,9 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
 
   // Device Import Modal State (Single & Batch with RBAC)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  // Network Equipment Discovery Modal State (Multi-port Cisco & Network scan)
+  const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
 
   const updateColumnPickerPosition = useCallback(() => {
     if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
@@ -642,6 +647,28 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                 <Upload className="w-3.5 h-3.5 text-emerald-400" />
                 <span>
                   {isEn ? 'Import' : 'ورود (Import)'}
+                </span>
+              </button>
+            )}
+
+            {canIntroduceDevice && (
+              <button
+                id="btn-network-device-discovery"
+                onClick={() => setIsDiscoveryModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer active:scale-95 ${
+                  isLightMode
+                    ? 'bg-cyan-50/80 hover:bg-cyan-100 text-cyan-800 border-cyan-300 shadow-sm'
+                    : 'bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 border-cyan-500/40 hover:border-cyan-400'
+                }`}
+                title={
+                  isEn
+                    ? 'Discover & scan Cisco switches, routers & network equipment via multi-port probing'
+                    : 'کشف خودکار و پویش سوییچ‌ها، روترها و تجهیزات سیسکو در شبکه'
+                }
+              >
+                <Radar className="w-3.5 h-3.5 text-cyan-400" />
+                <span>
+                  {isEn ? 'Discovery' : 'شناسایی و کشف'}
                 </span>
               </button>
             )}
@@ -2071,6 +2098,17 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
         }}
         existingDevices={devices}
         effectivePolicy={effectivePolicy}
+        isLightMode={isLightMode}
+        isEn={isEn}
+      />
+
+      {/* Network Equipment Discovery Modal */}
+      <DeviceDiscoveryModal
+        isOpen={isDiscoveryModalOpen}
+        onClose={() => setIsDiscoveryModalOpen(false)}
+        onDeviceAdded={() => {
+          if (onRefreshAll) onRefreshAll();
+        }}
         isLightMode={isLightMode}
         isEn={isEn}
       />

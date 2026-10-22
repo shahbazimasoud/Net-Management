@@ -40,6 +40,7 @@ export type StandardModalId =
   | 'apply_template'
   | 'release_notes'
   | 'topology_discovery'
+  | 'device_discovery'
   | 'bulk_device_config'
   | 'password_vault';
 
@@ -93,6 +94,7 @@ const STANDARD_MODAL_ICONS: Record<StandardModalId, React.ComponentType<{ classN
   apply_template: FileSpreadsheet,
   release_notes: History,
   topology_discovery: Radar,
+  device_discovery: Radar,
   bulk_device_config: Sliders,
   password_vault: Lock,
 };

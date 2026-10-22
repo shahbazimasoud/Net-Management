@@ -1,0 +1,1554 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  Radar,
+  Play,
+  Square,
+  Search,
+  Filter,
+  Layers,
+  Copy,
+  Check,
+  Plus,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Zap,
+  Sliders,
+  Server,
+  Router as RouterIcon,
+  Shield,
+  Radio,
+  Globe,
+  Terminal,
+  ExternalLink,
+  ChevronDown,
+  Hash,
+  ArrowUpDown,
+  Lock,
+  CheckSquare,
+  SquareDashed,
+  Cpu,
+  Activity,
+  HardDrive,
+  Eye,
+} from 'lucide-react';
+import { ModalHeaderControls } from './common/ModalHeaderControls';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
+import { useModalDock } from '../context/ModalDockContext';
+import {
+  DiscoveredNetworkDevice,
+  DiscoveredNetworkPortDetail,
+  DeviceType,
+  DevicePlatform,
+} from '../types';
+
+export interface DeviceDiscoveryModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onMinimize?: () => void;
+  onDeviceAdded?: () => void;
+  onAddDevice?: (discovered: DiscoveredNetworkDevice) => void;
+  isLightMode?: boolean;
+  isEn?: boolean;
+}
+
+const COMMON_SUBNET_PRESETS = [
+  { label: '192.168.1.0/24 (LAN 1)', value: '192.168.1.0/24' },
+  { label: '192.168.10.0/24 (Management)', value: '192.168.10.0/24' },
+  { label: '10.0.0.0/24 (Core VLAN)', value: '10.0.0.0/24' },
+  { label: '172.16.0.0/24 (Distribution)', value: '172.16.0.0/24' },
+  { label: '127.0.0.1 (Localhost)', value: '127.0.0.1' },
+];
+
+interface StandardPortOption {
+  port: number;
+  name: string;
+  descEn: string;
+  descFa: string;
+  color: string;
+}
+
+const STANDARD_PORTS: StandardPortOption[] = [
+  {
+    port: 22,
+    name: 'SSH',
+    descEn: 'Secure Shell (Standard for modern Cisco, MikroTik & Linux)',
+    descFa: 'پوسته امن (استاندارد تجهیزات مدرن سیسکو، میکروتیک و سرورها)',
+    color: 'emerald',
+  },
+  {
+    port: 23,
+    name: 'Telnet',
+    descEn: 'Legacy management (Common on older Cisco switches/routers)',
+    descFa: 'مدیریت ریموت لگسی (رایج در سوییچ‌ها و روترهای نسل قدیم سیسکو)',
+    color: 'amber',
+  },
+  {
+    port: 161,
+    name: 'SNMP',
+    descEn: 'Simple Network Management Protocol (Telemetry & MIBs)',
+    descFa: 'پروتکل مدیریت شبکه (مانیتورینگ، تلمتری و خواندن اینترفیس‌ها)',
+    color: 'purple',
+  },
+  {
+    port: 80,
+    name: 'HTTP',
+    descEn: 'Web Management (Cisco CNA, MikroTik WebFig, Device GUI)',
+    descFa: 'رابط وب مدیریت (Cisco CNA، میکروتیک وب‌فیگ و پنل تحت وب)',
+    color: 'sky',
+  },
+  {
+    port: 443,
+    name: 'HTTPS',
+    descEn: 'Secure Web GUI (Cisco SD-WAN, Device Manager, RouterOS SSL)',
+    descFa: 'رابط وب امن SSL (مدیریت تحت وب رمزنگاری‌شده و سیسکو)',
+    color: 'cyan',
+  },
+];
+
+export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
+  isOpen,
+  onClose,
+  onMinimize,
+  onDeviceAdded,
+  onAddDevice,
+  isLightMode = false,
+  isEn = true,
+}) => {
+  // Modal window states
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  // Scan input states
+  const [ipRangeInput, setIpRangeInput] = useState('192.168.1.0/24');
+  const [selectedStandardPorts, setSelectedStandardPorts] = useState<number[]>([22, 23, 161, 443]);
+  const [customPorts, setCustomPorts] = useState<number[]>([]);
+  const [customPortInput, setCustomPortInput] = useState('');
+  const [timeoutMs, setTimeoutMs] = useState(800);
+  const [concurrency, setConcurrency] = useState(300);
+
+  // Execution states
+  const [isScanning, setIsScanning] = useState(false);
+  const [activeScanId, setActiveScanId] = useState<string | null>(null);
+  const [progressRequested, setProgressRequested] = useState(0);
+  const [progressTotal, setProgressTotal] = useState(0);
+  const [progressScanned, setProgressScanned] = useState(0);
+  const [scanStartTime, setScanStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredNetworkDevice[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [validationBanner, setValidationBanner] = useState<{
+    en: string;
+    fa: string;
+    requested?: number;
+    limit?: number;
+  } | null>(null);
+
+  // Filtering & Selection states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterPlatform, setFilterPlatform] = useState<'all' | 'cisco' | 'mikrotik' | 'other'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'switch' | 'router' | 'firewall' | 'access_point'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'new_only' | 'in_inventory'>('all');
+  const [selectedIps, setSelectedIps] = useState<Set<string>>(new Set());
+  const [copiedIp, setCopiedIp] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+
+  // SSE EventSource reference & timer
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ToolsDock context
+  const { dockModal, undockModal } = useModalDock();
+
+  // Combined probe ports
+  const allProbePorts = useMemo(() => {
+    const set = new Set<number>([...selectedStandardPorts, ...customPorts]);
+    return Array.from(set).sort((a, b) => a - b);
+  }, [selectedStandardPorts, customPorts]);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Timer effect for elapsed scan time
+  useEffect(() => {
+    if (isScanning) {
+      const start = Date.now();
+      setScanStartTime(start);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [isScanning]);
+
+  // Handle minimize to ToolsDock
+  const handleMinimize = () => {
+    dockModal({
+      id: 'device_discovery',
+      labelEn: 'Device Discovery',
+      labelFa: 'کشف تجهیزات شبکه',
+      category: 'device',
+      badge: isScanning ? 'SCAN' : `${discoveredDevices.length}`,
+      onRestore: () => {
+        undockModal('device_discovery');
+      },
+      onClose: () => {
+        handleAbortScan();
+        undockModal('device_discovery');
+        onClose();
+      },
+    });
+    if (onMinimize) onMinimize();
+  };
+
+  // Toggle standard port
+  const toggleStandardPort = (port: number) => {
+    setSelectedStandardPorts((prev) =>
+      prev.includes(port) ? prev.filter((p) => p !== port) : [...prev, port]
+    );
+  };
+
+  // Add custom port
+  const handleAddCustomPort = () => {
+    const p = parseInt(customPortInput.trim(), 10);
+    if (!isNaN(p) && p > 0 && p <= 65535) {
+      if (!customPorts.includes(p) && !selectedStandardPorts.includes(p)) {
+        setCustomPorts((prev) => [...prev, p].sort((a, b) => a - b));
+      }
+      setCustomPortInput('');
+    }
+  };
+
+  // Remove custom port
+  const handleRemoveCustomPort = (port: number) => {
+    setCustomPorts((prev) => prev.filter((p) => p !== port));
+  };
+
+  // Start Discovery Scan via SSE
+  const handleStartScan = () => {
+    const cleanRange = ipRangeInput.trim();
+    if (!cleanRange) {
+      setScanError(isEn ? 'Please specify an IP address or CIDR range.' : 'لطفاً یک آدرس IP یا رنج CIDR مشخص کنید.');
+      return;
+    }
+
+    if (allProbePorts.length === 0) {
+      setScanError(isEn ? 'Please select at least one probe port.' : 'لطفاً حداقل یک پورت پویش انتخاب کنید.');
+      return;
+    }
+
+    // Reset scan telemetry
+    setScanError(null);
+    setValidationBanner(null);
+    setProgressScanned(0);
+    setProgressTotal(0);
+    setProgressRequested(0);
+    setElapsedSeconds(0);
+    setDiscoveredDevices([]);
+    setSelectedIps(new Set());
+    setIsScanning(true);
+
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
+    const queryParams = new URLSearchParams({
+      ipRange: cleanRange,
+      ports: allProbePorts.join(','),
+      timeoutMs: String(timeoutMs),
+      concurrency: String(concurrency),
+    });
+
+    const sseUrl = `/api/devices/discover/stream?${queryParams.toString()}`;
+    const es = new EventSource(sseUrl);
+    eventSourceRef.current = es;
+
+    es.addEventListener('start', (e: any) => {
+      try {
+        const data = JSON.parse(e.data);
+        setActiveScanId(data.scanId);
+        setProgressRequested(data.requested || 0);
+        setProgressTotal(data.total || 0);
+      } catch {
+        // ignore
+      }
+    });
+
+    es.addEventListener('progress', (e: any) => {
+      try {
+        const data = JSON.parse(e.data);
+        setProgressScanned(data.scanned || 0);
+        if (data.total) setProgressTotal(data.total);
+      } catch {
+        // ignore
+      }
+    });
+
+    es.addEventListener('host', (e: any) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data && data.device) {
+          const newDevice: DiscoveredNetworkDevice = data.device;
+          setDiscoveredDevices((prev) => {
+            const exists = prev.some((d) => d.ip === newDevice.ip);
+            if (exists) return prev.map((d) => (d.ip === newDevice.ip ? newDevice : d));
+            return [newDevice, ...prev];
+          });
+        }
+      } catch {
+        // ignore
+      }
+    });
+
+    es.addEventListener('complete', (e: any) => {
+      try {
+        const data = JSON.parse(e.data);
+        setProgressScanned(data.scanned || data.total || 0);
+        if (data.results && Array.isArray(data.results)) {
+          setDiscoveredDevices(data.results);
+        }
+      } catch {
+        // ignore
+      }
+      es.close();
+      eventSourceRef.current = null;
+      setIsScanning(false);
+    });
+
+    es.addEventListener('error', (e: any) => {
+      try {
+        if (e.data) {
+          const errData = JSON.parse(e.data);
+          const msgEn = errData.error || 'Discovery scan failed';
+          const msgFa = errData.errorFa || errData.error || 'خطا در اجرای پویش کشف تجهیزات';
+          setScanError(isEn ? msgEn : msgFa);
+          if (errData.requested || errData.limit) {
+            setValidationBanner({
+              en: msgEn,
+              fa: msgFa,
+              requested: errData.requested,
+              limit: errData.limit,
+            });
+          }
+        } else {
+          setScanError(
+            isEn ? 'Connection to discovery stream was closed.' : 'اتصال به استریم پویش دیسکاوری قطع شد.'
+          );
+        }
+      } catch {
+        setScanError(
+          isEn ? 'Stream error during network equipment discovery.' : 'خطای استریم در حین پویش تجهیزات شبکه.'
+        );
+      }
+      es.close();
+      eventSourceRef.current = null;
+      setIsScanning(false);
+    });
+
+    es.onerror = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      setIsScanning(false);
+    };
+  };
+
+  // Abort Discovery Scan
+  const handleAbortScan = async () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
+    if (activeScanId) {
+      try {
+        await fetch('/api/devices/discover/abort', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scanId: activeScanId }),
+        });
+      } catch {
+        // ignore
+      }
+    }
+    setIsScanning(false);
+  };
+
+  // Copy IP to clipboard
+  const handleCopyIp = (ip: string) => {
+    navigator.clipboard.writeText(ip);
+    setCopiedIp(ip);
+    setTimeout(() => setCopiedIp(null), 2000);
+  };
+
+  // Toggle selection
+  const handleToggleSelect = (ip: string) => {
+    setSelectedIps((prev) => {
+      const next = new Set(prev);
+      if (next.has(ip)) next.delete(ip);
+      else next.add(ip);
+      return next;
+    });
+  };
+
+  // Select all or deselect all new devices
+  const handleSelectAllNew = () => {
+    const newDevices = discoveredDevices.filter((d) => !d.alreadyInInventory);
+    if (selectedIps.size === newDevices.length && newDevices.length > 0) {
+      setSelectedIps(new Set());
+    } else {
+      setSelectedIps(new Set(newDevices.map((d) => d.ip)));
+    }
+  };
+
+  // Filtered devices list
+  const filteredDevices = useMemo(() => {
+    return discoveredDevices.filter((dev) => {
+      // Search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchIp = dev.ip.toLowerCase().includes(q);
+        const matchHost = (dev.hostname || '').toLowerCase().includes(q);
+        const matchModel = (dev.suggestedModel || '').toLowerCase().includes(q);
+        const matchRole = (dev.suggestedRole || '').toLowerCase().includes(q);
+        const matchPlatform = (dev.platform || '').toLowerCase().includes(q);
+        const matchPorts = dev.openPorts.some((p) => String(p).includes(q));
+        if (!matchIp && !matchHost && !matchModel && !matchRole && !matchPlatform && !matchPorts) {
+          return false;
+        }
+      }
+
+      // Filter Platform
+      if (filterPlatform === 'cisco') {
+        if (!dev.platform.startsWith('cisco')) return false;
+      } else if (filterPlatform === 'mikrotik') {
+        if (dev.platform !== 'mikrotik_routeros') return false;
+      } else if (filterPlatform === 'other') {
+        if (dev.platform.startsWith('cisco') || dev.platform === 'mikrotik_routeros') return false;
+      }
+
+      // Filter Device Type
+      if (filterType !== 'all') {
+        if (dev.deviceType !== filterType) return false;
+      }
+
+      // Filter Status
+      if (filterStatus === 'new_only' && dev.alreadyInInventory) return false;
+      if (filterStatus === 'in_inventory' && !dev.alreadyInInventory) return false;
+
+      return true;
+    });
+  }, [discoveredDevices, searchQuery, filterPlatform, filterType, filterStatus]);
+
+  // Statistics calculation
+  const stats = useMemo(() => {
+    const percent = progressTotal > 0 ? Math.min(100, Math.round((progressScanned / progressTotal) * 100)) : 0;
+    const newCount = discoveredDevices.filter((d) => !d.alreadyInInventory).length;
+    const inventoryCount = discoveredDevices.filter((d) => d.alreadyInInventory).length;
+    const ciscoCount = discoveredDevices.filter((d) => d.platform.startsWith('cisco')).length;
+    const mikrotikCount = discoveredDevices.filter((d) => d.platform === 'mikrotik_routeros').length;
+    const ratePerSec = elapsedSeconds > 0 ? Math.round(progressScanned / elapsedSeconds) : 0;
+    return { percent, newCount, inventoryCount, ciscoCount, mikrotikCount, ratePerSec };
+  }, [progressScanned, progressTotal, discoveredDevices, elapsedSeconds]);
+
+  // Device type icon helper
+  const getDeviceIcon = (type: DeviceType) => {
+    switch (type) {
+      case 'router':
+        return <RouterIcon className="w-4 h-4 text-amber-400" />;
+      case 'firewall':
+        return <Shield className="w-4 h-4 text-rose-400" />;
+      case 'access_point':
+        return <Radio className="w-4 h-4 text-purple-400" />;
+      case 'switch':
+      default:
+        return <Server className="w-4 h-4 text-cyan-400" />;
+    }
+  };
+
+  // Platform badge helper
+  const getPlatformBadge = (platform: DevicePlatform) => {
+    if (platform === 'cisco_ios_xe') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-md bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+          <Cpu className="w-3 h-3" /> Cisco IOS-XE
+        </span>
+      );
+    }
+    if (platform === 'cisco_ios') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-md bg-blue-500/15 text-blue-400 border border-blue-500/30">
+          <Cpu className="w-3 h-3" /> Cisco IOS
+        </span>
+      );
+    }
+    if (platform === 'mikrotik_routeros') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+          <Activity className="w-3 h-3" /> MikroTik RouterOS
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md bg-slate-500/15 text-slate-300 border border-slate-500/30">
+        <Server className="w-3 h-3" /> Generic Network
+      </span>
+    );
+  };
+
+  // Latency badge helper
+  const getLatencyBadge = (latencyMs: number) => {
+    let colorClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    if (latencyMs > 100) {
+      colorClass = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+    } else if (latencyMs > 30) {
+      colorClass = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    }
+    return (
+      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono rounded border ${colorClass}`}>
+        <Zap className="w-2.5 h-2.5" />
+        {latencyMs}ms
+      </span>
+    );
+  };
+
+  // Port detail badge helper
+  const getPortBadge = (detail: DiscoveredNetworkPortDetail) => {
+    let style = 'bg-slate-800 text-slate-300 border-slate-700';
+    if (detail.port === 22) {
+      style = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+    } else if (detail.port === 23) {
+      style = 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+    } else if (detail.port === 161) {
+      style = 'bg-purple-500/15 text-purple-300 border-purple-500/30';
+    } else if (detail.port === 80 || detail.port === 443) {
+      style = 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30';
+    }
+
+    return (
+      <span
+        key={detail.port}
+        title={detail.banner ? `${detail.service} (Port ${detail.port}): ${detail.banner}` : `${detail.service} (Port ${detail.port})`}
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-mono rounded border ${style}`}
+      >
+        <span className="font-semibold">{detail.service}</span>
+        <span className="opacity-75">:{detail.port}</span>
+      </span>
+    );
+  };
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div
+      className={`fixed top-0 left-0 right-0 bottom-8 z-[9999] flex flex-col items-center justify-center transition-all duration-200 ${
+        isMaximized
+          ? 'p-0'
+          : 'p-2 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md'
+      }`}
+      dir={isEn ? 'ltr' : 'rtl'}
+    >
+      <div
+        className={`flex flex-col transition-all duration-200 overflow-hidden shadow-2xl ${
+          isMaximized
+            ? 'w-full h-full max-w-none max-h-full rounded-none border-none'
+            : 'w-full max-w-6xl h-[92vh] max-h-[92vh] rounded-2xl border'
+        } ${
+          isLightMode
+            ? 'bg-slate-50 border-slate-300 text-slate-800'
+            : 'bg-slate-950 border-slate-800 text-slate-100'
+        }`}
+      >
+        {/* Header */}
+        <div
+          className={`flex items-center justify-between px-4 py-3 border-b select-none shrink-0 ${
+            isLightMode
+              ? 'bg-white border-slate-200'
+              : 'bg-slate-900/90 border-slate-800/80'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`p-2 rounded-xl flex items-center justify-center ${
+                isScanning
+                  ? 'bg-cyan-500/20 text-cyan-400 animate-pulse border border-cyan-500/40'
+                  : isLightMode
+                  ? 'bg-cyan-50 text-cyan-600 border border-cyan-200'
+                  : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+              }`}
+            >
+              <Radar className={`w-5 h-5 ${isScanning ? 'animate-spin' : ''}`} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold tracking-tight">
+                  {isEn ? 'Network Equipment Discovery' : 'کشف خودکار تجهیزات شبکه و سیسکو'}
+                </h2>
+                <span
+                  className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                    isScanning
+                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                      : isLightMode
+                      ? 'bg-slate-200 text-slate-700'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {isScanning
+                    ? (isEn ? 'SCANNING ACTIVE' : 'در حال پویش')
+                    : (isEn ? 'ADAPTIVE MULTI-PORT' : 'پویش تطبیقی چندپورت')}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">
+                {isEn
+                  ? 'High-speed CIDR scanner for Cisco switches, routers & network hardware with live telemetry'
+                  : 'پویشگر سریع سابنت برای سوییچ‌ها، روترها و تجهیزات سیسکو همراه با تلمتری و تشخیص هویت'}
+              </p>
+            </div>
+          </div>
+
+          {/* Universal Header Controls */}
+          <ModalHeaderControls
+            onClose={onClose}
+            onMinimize={handleMinimize}
+            onMaximizeToggle={() => setIsMaximized(!isMaximized)}
+            isMaximized={isMaximized}
+            isLightMode={isLightMode}
+            isEn={isEn}
+          />
+        </div>
+
+        {/* Validation Banner (if any) */}
+        {validationBanner && (
+          <div className="px-4 py-2.5 bg-rose-500/15 border-b border-rose-500/30 flex items-center justify-between text-xs text-rose-300 shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{isEn ? validationBanner.en : validationBanner.fa}</span>
+              {validationBanner.limit && (
+                <span className="font-mono font-bold">
+                  ({isEn ? 'Max limit' : 'سقف مجاز'}: {validationBanner.limit.toLocaleString()})
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setValidationBanner(null)}
+              className="hover:text-white px-2 py-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Scan Error Message */}
+        {scanError && !validationBanner && (
+          <div className="px-4 py-2 bg-rose-500/15 border-b border-rose-500/30 flex items-center justify-between text-xs text-rose-300 shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{scanError}</span>
+            </div>
+            <button
+              onClick={() => setScanError(null)}
+              className="hover:text-white px-2 py-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Body Content */}
+        <div className="flex-1 overflow-y-auto flex flex-col p-3 sm:p-5 gap-4">
+          {/* Top Scan Configuration Panel */}
+          <div
+            className={`p-4 rounded-xl border transition-all ${
+              isLightMode
+                ? 'bg-white border-slate-200 shadow-sm'
+                : 'bg-slate-900/60 border-slate-800'
+            }`}
+          >
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+              {/* Subnet / IP Input */}
+              <div className="flex-1 w-full">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="flex items-center gap-1.5 text-xs font-bold">
+                    <span>{isEn ? 'Target IP / Subnet Range' : 'محدوده IP یا سابنت هدف'}</span>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Target Subnet Range' : 'محدوده سابنت هدف'}
+                      whatIsIt={
+                        isEn
+                          ? 'CIDR notation or single IP address to scan (e.g. 192.168.1.0/24 or 10.0.0.1).'
+                          : 'نماد CIDR یا آدرس آی‌پی تکی جهت پویش پورت‌ها (مانند 192.168.1.0/24 یا 10.0.0.1).'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Defines the network segment containing network switches, routers, firewalls, and APs.'
+                          : 'تعیین‌کننده بخش شبکه سازمانی شامل سوییچ‌ها، روترها، فایروال‌ها و اکسس‌پوینت‌ها.'
+                      }
+                      example={isEn ? '192.168.1.0/24, 10.0.0.0/24' : '192.168.1.0/24 یا 10.0.0.0/24'}
+                      isLightMode={isLightMode}
+                      isEn={isEn}
+                    />
+                  </label>
+
+                  {/* Subnet Presets Dropdown */}
+                  <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                    <span className="hidden sm:inline">{isEn ? 'Presets:' : 'آماده:'}</span>
+                    <div className="flex flex-wrap gap-1">
+                      {COMMON_SUBNET_PRESETS.slice(0, 3).map((preset) => (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          disabled={isScanning}
+                          onClick={() => setIpRangeInput(preset.value)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+                            ipRangeInput === preset.value
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                              : isLightMode
+                              ? 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {preset.value}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    disabled={isScanning}
+                    value={ipRangeInput}
+                    onChange={(e) => setIpRangeInput(e.target.value)}
+                    placeholder={isEn ? 'e.g. 192.168.1.0/24' : 'مثال: 192.168.1.0/24'}
+                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-mono tracking-wide border transition-all ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white focus:border-cyan-500'
+                        : 'bg-slate-950/80 border-slate-700/80 text-cyan-300 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500/30'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  />
+                  <div className={`absolute ${isEn ? 'right-3' : 'left-3'} top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-xs text-slate-500`}>
+                    <Globe className="w-4 h-4 opacity-70" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons: Start / Abort */}
+              <div className="flex items-center gap-2 w-full lg:w-auto shrink-0 pt-2 lg:pt-5">
+                {!isScanning ? (
+                  <button
+                    type="button"
+                    onClick={handleStartScan}
+                    className="w-full lg:w-auto px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 shadow-lg bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-white shadow-cyan-500/20 hover:shadow-cyan-500/40 active:scale-[0.98]"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>{isEn ? 'Start Discovery' : 'شروع پویش شبکه'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleAbortScan}
+                    className="w-full lg:w-auto px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 shadow-lg bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-600/30 active:scale-[0.98] animate-pulse"
+                  >
+                    <Square className="w-4 h-4 fill-current" />
+                    <span>{isEn ? 'Abort Scan' : 'توقف پویش'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Target Ports Selection Section */}
+            <div className="mt-4 pt-3.5 border-t border-slate-800/60">
+              <div className="flex items-center justify-between mb-2">
+                <label className="flex items-center gap-1.5 text-xs font-bold">
+                  <span>{isEn ? 'Target Network Protocols & Ports' : 'پروتکل‌ها و پورت‌های هدف شبکه'}</span>
+                  <FieldInfoTooltip
+                    title={isEn ? 'Network Probe Ports' : 'پورت‌های پویش شبکه'}
+                    whatIsIt={
+                      isEn
+                        ? 'TCP/UDP ports commonly used for Cisco and network device management.'
+                        : 'پورت‌های TCP و UDP که برای ارتباط و مدیریت تجهیزات سیسکو و شبکه استفاده می‌شوند.'
+                    }
+                    whyNeeded={
+                      isEn
+                        ? 'Multi-port probing allows identifying Cisco switches, routers, and RouterOS devices with fallback detection.'
+                        : 'پویش همزمان چندپورت امکان شناسایی دقیق سوییچ‌ها، روترها و دستگاه‌های میکروتیک را فراهم می‌کند.'
+                    }
+                    example={isEn ? 'SSH (22), Telnet (23), SNMP (161), HTTPS (443)' : 'SSH (22)، تلنت (23)، SNMP (161)، وب (443)'}
+                    isLightMode={isLightMode}
+                    isEn={isEn}
+                  />
+                </label>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {isEn ? 'Active ports:' : 'پورت‌های فعال:'} [{allProbePorts.join(', ')}]
+                </span>
+              </div>
+
+              {/* Standard Ports Checkboxes */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                {STANDARD_PORTS.map((sp) => {
+                  const isChecked = selectedStandardPorts.includes(sp.port);
+                  return (
+                    <label
+                      key={sp.port}
+                      className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer select-none transition-all ${
+                        isChecked
+                          ? isLightMode
+                            ? 'bg-cyan-50/80 border-cyan-300 text-cyan-900 shadow-sm'
+                            : 'bg-cyan-500/10 border-cyan-500/40 text-cyan-200'
+                          : isLightMode
+                          ? 'bg-white border-slate-200 hover:bg-slate-50 text-slate-600'
+                          : 'bg-slate-900/60 border-slate-800 hover:bg-slate-800/60 text-slate-400'
+                      } ${isScanning ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={isScanning}
+                        checked={isChecked}
+                        onChange={() => toggleStandardPort(sp.port)}
+                        className="rounded border-slate-700 text-cyan-500 focus:ring-cyan-500/30 cursor-pointer"
+                      />
+                      <div className="flex flex-col">
+                        <span className="font-bold flex items-center gap-1">
+                          {sp.name}
+                          <span className="font-mono text-[10px] opacity-75">:{sp.port}</span>
+                        </span>
+                        <span className="text-[9px] text-slate-400 truncate max-w-[130px]">
+                          {isEn ? sp.descEn.split('(')[0] : sp.descFa.split('(')[0]}
+                        </span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Custom Ports Tag Input */}
+              <div className="flex flex-wrap items-center gap-2 mt-3 text-xs">
+                <span className="text-slate-400 font-medium">
+                  {isEn ? 'Custom Ports:' : 'پورت‌های سفارشی:'}
+                </span>
+
+                {/* Tags for added custom ports */}
+                {customPorts.map((cp) => (
+                  <span
+                    key={cp}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                  >
+                    <span>:{cp}</span>
+                    {!isScanning && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCustomPort(cp)}
+                        className="hover:text-white px-0.5 cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </span>
+                ))}
+
+                {/* Custom Port Add Input */}
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    disabled={isScanning}
+                    min={1}
+                    max={65535}
+                    placeholder={isEn ? 'e.g. 8080' : 'پورت دلخواه'}
+                    value={customPortInput}
+                    onChange={(e) => setCustomPortInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomPort();
+                      }
+                    }}
+                    className={`w-24 px-2 py-1 text-xs font-mono rounded-lg border ${
+                      isLightMode
+                        ? 'bg-slate-50 border-slate-300 text-slate-800'
+                        : 'bg-slate-950 border-slate-700 text-slate-200'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    disabled={isScanning || !customPortInput.trim()}
+                    onClick={handleAddCustomPort}
+                    className="px-2 py-1 text-xs rounded-lg font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer disabled:opacity-40"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Advanced Sliders: Timeout & Concurrency */}
+                <div className="flex items-center gap-4 ml-auto">
+                  {/* Timeout */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 text-[11px]">{isEn ? 'Timeout:' : 'تایم‌اوت:'}</span>
+                    <input
+                      type="range"
+                      disabled={isScanning}
+                      min={300}
+                      max={3000}
+                      step={100}
+                      value={timeoutMs}
+                      onChange={(e) => setTimeoutMs(Number(e.target.value))}
+                      className="w-16 accent-cyan-400 cursor-pointer"
+                    />
+                    <span className="font-mono text-[11px] text-cyan-400 w-11">{timeoutMs}ms</span>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Probe Timeout' : 'زمان تایم‌اوت پاسخ'}
+                      whatIsIt={
+                        isEn
+                          ? 'Maximum duration to wait for a port connection response before moving to next target.'
+                          : 'حداکثر مدت زمان انتظار برای دریافت پاسخ اتصال از هر پورت پیش از رفتن به هدف بعدی.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Balance between scan speed and reliability across high-latency WAN links.'
+                          : 'ایجاد تعادل میان سرعت پویش و دقت شناسایی در شبکه‌های پرتاخیر یا WAN.'
+                      }
+                      example={isEn ? '800ms (balanced default)' : '800ms (مقدار استاندارد)'}
+                      isLightMode={isLightMode}
+                      isEn={isEn}
+                    />
+                  </div>
+
+                  {/* Concurrency */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 text-[11px]">{isEn ? 'Speed:' : 'سرعت:'}</span>
+                    <input
+                      type="range"
+                      disabled={isScanning}
+                      min={50}
+                      max={500}
+                      step={25}
+                      value={concurrency}
+                      onChange={(e) => setConcurrency(Number(e.target.value))}
+                      className="w-16 accent-cyan-400 cursor-pointer"
+                    />
+                    <span className="font-mono text-[11px] text-cyan-400 w-12">{concurrency} p</span>
+                    <FieldInfoTooltip
+                      title={isEn ? 'Scan Concurrency' : 'تعداد سوکت‌های همزمان'}
+                      whatIsIt={
+                        isEn
+                          ? 'Number of simultaneous non-blocking TCP sockets opened in parallel.'
+                          : 'تعداد سوکت‌های همزمان موازی باز شده در موتور پویشگر بک‌اند.'
+                      }
+                      whyNeeded={
+                        isEn
+                          ? 'Higher concurrency scans entire /24 subnets in 10-15 seconds.'
+                          : 'مقادیر بالاتر باعث اتمام اسکن یک سابنت ۲۴/ ظرف ۱۰ تا ۱۵ ثانیه می‌شود.'
+                      }
+                      example={isEn ? '300 (recommended)' : '300 (پیشنهادی)'}
+                      isLightMode={isLightMode}
+                      isEn={isEn}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Live Telemetry & Progress Dashboard */}
+          {(isScanning || progressTotal > 0) && (
+            <div
+              className={`p-3.5 rounded-xl border transition-all ${
+                isLightMode
+                  ? 'bg-white border-slate-200'
+                  : 'bg-slate-900/50 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between text-xs font-mono mb-2">
+                <div className="flex items-center gap-3">
+                  <span className="font-bold flex items-center gap-1.5 text-cyan-400">
+                    <Activity className={`w-4 h-4 ${isScanning ? 'animate-pulse' : ''}`} />
+                    {isScanning
+                      ? (isEn ? 'SCANNING SUBNET...' : 'در حال پویش سابنت...')
+                      : (isEn ? 'SCAN COMPLETED' : 'پویش به پایان رسید')}
+                  </span>
+                  <span className="text-slate-400">
+                    {progressScanned} / {progressTotal} {isEn ? 'IPs Scanned' : 'آی‌پی بررسی شد'}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-4 text-slate-400">
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-slate-500" />
+                    <span>{elapsedSeconds}s</span>
+                  </span>
+                  {stats.ratePerSec > 0 && (
+                    <span className="hidden sm:inline text-slate-500">
+                      ({stats.ratePerSec} ips/sec)
+                    </span>
+                  )}
+                  <span className="font-bold text-cyan-400">{stats.percent}%</span>
+                </div>
+              </div>
+
+              {/* Animated Progress Bar */}
+              <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden relative">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400 transition-all duration-300 rounded-full"
+                  style={{ width: `${stats.percent}%` }}
+                />
+              </div>
+
+              {/* Quick Stat Counter Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-2 border-t border-slate-800/40 text-xs">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">
+                      {isEn ? 'Discovered Devices' : 'دستگاه‌های پاسخ‌داده'}
+                    </span>
+                    <span className="font-bold font-mono text-emerald-400">
+                      {discoveredDevices.length}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-cyan-400" />
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">
+                      {isEn ? 'New to Onboard' : 'جدید قابل ثبت'}
+                    </span>
+                    <span className="font-bold font-mono text-cyan-400">
+                      {stats.newCount}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-blue-400" />
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">
+                      {isEn ? 'Cisco IOS / XE' : 'تجهیزات سیسکو'}
+                    </span>
+                    <span className="font-bold font-mono text-blue-400">
+                      {stats.ciscoCount}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-purple-400" />
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">
+                      {isEn ? 'Already in Inventory' : 'موجود در سیستم'}
+                    </span>
+                    <span className="font-bold font-mono text-purple-400">
+                      {stats.inventoryCount}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Search, Filter Toolbar & Results Section */}
+          <div className="flex-1 flex flex-col gap-3 min-h-0">
+            <div className="flex flex-col sm:flex-row gap-2 items-center justify-between">
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-72">
+                <Search className={`w-4 h-4 absolute ${isEn ? 'left-3' : 'right-3'} top-1/2 -translate-y-1/2 text-slate-500`} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={isEn ? 'Search IP, Hostname, Port...' : 'جستجو بر اساس IP، پورت، برند...'}
+                  className={`w-full ${isEn ? 'pl-9 pr-3' : 'pr-9 pl-3'} py-1.5 text-xs rounded-xl border transition-all ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-800 focus:border-cyan-500'
+                      : 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-400'
+                  }`}
+                />
+              </div>
+
+              {/* Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto text-xs">
+                {/* Platform Filter */}
+                <select
+                  value={filterPlatform}
+                  onChange={(e: any) => setFilterPlatform(e.target.value)}
+                  className={`px-2 py-1 text-xs rounded-lg border cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <option value="all">{isEn ? 'All Platforms' : 'همه پلتفرم‌ها'}</option>
+                  <option value="cisco">{isEn ? 'Cisco IOS / XE' : 'فقط سیسکو'}</option>
+                  <option value="mikrotik">{isEn ? 'MikroTik RouterOS' : 'فقط میکروتیک'}</option>
+                  <option value="other">{isEn ? 'Other Network' : 'سایر تجهیزات'}</option>
+                </select>
+
+                {/* Device Type Filter */}
+                <select
+                  value={filterType}
+                  onChange={(e: any) => setFilterType(e.target.value)}
+                  className={`px-2 py-1 text-xs rounded-lg border cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <option value="all">{isEn ? 'All Types' : 'همه انواع'}</option>
+                  <option value="switch">{isEn ? 'Switches' : 'سوییچ‌ها'}</option>
+                  <option value="router">{isEn ? 'Routers' : 'روترها'}</option>
+                  <option value="firewall">{isEn ? 'Firewalls' : 'فایروال‌ها'}</option>
+                  <option value="access_point">{isEn ? 'Access Points' : 'اکسس‌پوینت‌ها'}</option>
+                </select>
+
+                {/* Status Filter */}
+                <select
+                  value={filterStatus}
+                  onChange={(e: any) => setFilterStatus(e.target.value)}
+                  className={`px-2 py-1 text-xs rounded-lg border cursor-pointer ${
+                    isLightMode
+                      ? 'bg-white border-slate-300 text-slate-700'
+                      : 'bg-slate-900 border-slate-800 text-slate-300'
+                  }`}
+                >
+                  <option value="all">{isEn ? 'All Status' : 'همه وضعیت‌ها'}</option>
+                  <option value="new_only">{isEn ? 'New Only' : 'فقط تجهیزات جدید'}</option>
+                  <option value="in_inventory">{isEn ? 'In Inventory' : 'موجود در سیستم'}</option>
+                </select>
+
+                {/* View Mode Toggle: Cards / Table */}
+                <div className="flex items-center rounded-lg border border-slate-800 overflow-hidden ml-1">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('cards')}
+                    title={isEn ? 'Card Grid View' : 'نمایش کارتی'}
+                    className={`p-1.5 text-xs transition-colors cursor-pointer ${
+                      viewMode === 'cards'
+                        ? 'bg-cyan-500/20 text-cyan-400'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('table')}
+                    title={isEn ? 'Compact Table View' : 'نمایش جدولی'}
+                    className={`p-1.5 text-xs transition-colors cursor-pointer ${
+                      viewMode === 'table'
+                        ? 'bg-cyan-500/20 text-cyan-400'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Server className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Selection & Batch Action Bar */}
+            {discoveredDevices.length > 0 && (
+              <div
+                className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs border ${
+                  isLightMode
+                    ? 'bg-slate-100 border-slate-200'
+                    : 'bg-slate-900/40 border-slate-800/80'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllNew}
+                    className="flex items-center gap-1.5 font-medium hover:text-cyan-400 cursor-pointer"
+                  >
+                    {selectedIps.size > 0 && selectedIps.size === stats.newCount ? (
+                      <CheckSquare className="w-4 h-4 text-cyan-400" />
+                    ) : (
+                      <SquareDashed className="w-4 h-4 text-slate-500" />
+                    )}
+                    <span>
+                      {selectedIps.size > 0
+                        ? (isEn ? `Selected (${selectedIps.size})` : `انتخاب‌شده (${selectedIps.size})`)
+                        : (isEn ? 'Select All New Devices' : 'انتخاب همه تجهیزات جدید')}
+                    </span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 text-[11px]">
+                    {isEn ? `${filteredDevices.length} items shown` : `${filteredDevices.length} مورد یافت شد`}
+                  </span>
+                  {selectedIps.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Bulk onboarding trigger placeholder for Phase 3/4
+                        if (onDeviceAdded) onDeviceAdded();
+                      }}
+                      className="px-3 py-1 rounded-lg font-bold text-xs bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{isEn ? `Enroll Selected (${selectedIps.size})` : `افزودن دسته‌ای (${selectedIps.size})`}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Empty State / Not Started */}
+            {discoveredDevices.length === 0 && !isScanning && (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-slate-800 rounded-2xl">
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 mb-3 text-cyan-400">
+                  <Radar className="w-8 h-8 opacity-60" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-300">
+                  {isEn ? 'No Discovery Scan Active' : 'هیچ پویشی اجرا نشده است'}
+                </h3>
+                <p className="text-xs text-slate-500 max-w-md mt-1 mb-4 leading-relaxed">
+                  {isEn
+                    ? 'Enter an IP range or CIDR subnet (e.g. 192.168.1.0/24), select the target management ports, and click "Start Discovery" to scan and identify network hardware.'
+                    : 'آدرس سابنت یا آی‌پی هدف را وارد کنید، پورت‌های مدیریتی مورد نظر را مشخص نمایید و بر روی دکمه "شروع پویش شبکه" کلیک کنید تا تجهیزات به صورت بلادرنگ شناسایی شوند.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleStartScan}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 transition-colors flex items-center gap-2 cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>{isEn ? 'Scan 192.168.1.0/24 Now' : 'پویش فوری سابنت 192.168.1.0/24'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Scanning Empty State */}
+            {discoveredDevices.length === 0 && isScanning && (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-slate-800 rounded-2xl">
+                <Radar className="w-10 h-10 text-cyan-400 animate-spin mb-3" />
+                <h3 className="text-sm font-bold text-slate-200">
+                  {isEn ? 'Probing Target Network Ports...' : 'در حال پویش پورت‌های تجهیزات در شبکه...'}
+                </h3>
+                <p className="text-xs text-slate-400 font-mono mt-1">
+                  {progressScanned} / {progressTotal} IPs [{allProbePorts.join(', ')}]
+                </p>
+              </div>
+            )}
+
+            {/* Cards View Mode */}
+            {viewMode === 'cards' && filteredDevices.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 overflow-y-auto pr-1">
+                {filteredDevices.map((dev) => {
+                  const isSelected = selectedIps.has(dev.ip);
+                  return (
+                    <div
+                      key={dev.ip}
+                      className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between ${
+                        isSelected
+                          ? isLightMode
+                            ? 'bg-cyan-50/60 border-cyan-400 shadow-sm'
+                            : 'bg-cyan-950/20 border-cyan-500/50 shadow-lg shadow-cyan-500/5'
+                          : isLightMode
+                          ? 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
+                          : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700/80'
+                      }`}
+                    >
+                      <div>
+                        {/* Top Card Row */}
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            {!dev.alreadyInInventory && (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelect(dev.ip)}
+                                className="rounded border-slate-700 text-cyan-500 focus:ring-cyan-500/30 cursor-pointer"
+                              />
+                            )}
+                            <div className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-center">
+                              {getDeviceIcon(dev.deviceType)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-bold text-sm text-cyan-300">
+                                  {dev.ip}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyIp(dev.ip)}
+                                  className="text-slate-500 hover:text-slate-300 p-0.5 rounded cursor-pointer transition-colors"
+                                  title={isEn ? 'Copy IP address' : 'کپی آدرس IP'}
+                                >
+                                  {copiedIp === dev.ip ? (
+                                    <Check className="w-3 h-3 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="w-3 h-3" />
+                                  )}
+                                </button>
+                              </div>
+                              {dev.hostname ? (
+                                <p className="text-[11px] text-slate-400 truncate max-w-[170px]" title={dev.hostname}>
+                                  {dev.hostname}
+                                </p>
+                              ) : (
+                                <p className="text-[10px] text-slate-500 font-mono italic">
+                                  {isEn ? 'No PTR record' : 'بدون رکورد DNS'}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-1">
+                            {dev.alreadyInInventory ? (
+                              <span
+                                className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                                title={dev.existingDeviceName || ''}
+                              >
+                                {isEn ? 'In Inventory' : 'موجود'}
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                {isEn ? 'New Device' : 'تجهیز جدید'}
+                              </span>
+                            )}
+                            {getLatencyBadge(dev.latencyMs)}
+                          </div>
+                        </div>
+
+                        {/* Platform & Role */}
+                        <div className="flex flex-wrap items-center gap-1.5 my-2.5">
+                          {getPlatformBadge(dev.platform)}
+                          <span className="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-slate-800 text-slate-300 border border-slate-700 capitalize">
+                            {dev.suggestedRole}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {dev.suggestedModel}
+                          </span>
+                        </div>
+
+                        {/* Open Ports Badges */}
+                        <div className="my-2">
+                          <span className="text-[10px] text-slate-500 block mb-1">
+                            {isEn ? 'Open Management Ports:' : 'پورت‌های باز کشف‌شده:'}
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {dev.portDetails.map((detail) => getPortBadge(detail))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Footer Actions */}
+                      <div className="pt-2.5 mt-2 border-t border-slate-800/60 flex items-center justify-between text-xs">
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {isEn ? `Preferred: ${dev.preferredProtocol.toUpperCase()}` : `پروتکل ارجح: ${dev.preferredProtocol.toUpperCase()}`}
+                        </span>
+
+                        {!dev.alreadyInInventory ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onAddDevice) onAddDevice(dev);
+                              else if (onDeviceAdded) onDeviceAdded();
+                            }}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>{isEn ? 'Add Device' : 'افزودن به تجهیزات'}</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 italic">
+                            {dev.existingDeviceName || (isEn ? 'Registered' : 'ثبت شده')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Table View Mode */}
+            {viewMode === 'table' && filteredDevices.length > 0 && (
+              <div className="flex-1 overflow-x-auto rounded-xl border border-slate-800">
+                <table className="w-full text-left text-xs border-collapse" dir={isEn ? 'ltr' : 'rtl'}>
+                  <thead className={isLightMode ? 'bg-slate-100 text-slate-700' : 'bg-slate-900 text-slate-300'}>
+                    <tr className="border-b border-slate-800">
+                      <th className="p-2.5 w-8">
+                        <input
+                          type="checkbox"
+                          checked={selectedIps.size > 0 && selectedIps.size === stats.newCount}
+                          onChange={handleSelectAllNew}
+                          className="rounded border-slate-700 text-cyan-500"
+                        />
+                      </th>
+                      <th className="p-2.5">{isEn ? 'Target IP' : 'آدرس آی‌پی'}</th>
+                      <th className="p-2.5">{isEn ? 'Hostname / PTR' : 'نام هاست'}</th>
+                      <th className="p-2.5">{isEn ? 'Platform' : 'پلتفرم'}</th>
+                      <th className="p-2.5">{isEn ? 'Type & Role' : 'نوع و نقش'}</th>
+                      <th className="p-2.5">{isEn ? 'Open Ports' : 'پورت‌های باز'}</th>
+                      <th className="p-2.5">{isEn ? 'Latency' : 'تاخیر'}</th>
+                      <th className="p-2.5">{isEn ? 'Status' : 'وضعیت'}</th>
+                      <th className="p-2.5 text-right">{isEn ? 'Action' : 'عملیات'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono">
+                    {filteredDevices.map((dev) => {
+                      const isSelected = selectedIps.has(dev.ip);
+                      return (
+                        <tr
+                          key={dev.ip}
+                          className={`hover:bg-cyan-500/5 transition-colors ${
+                            isSelected ? 'bg-cyan-500/10' : ''
+                          }`}
+                        >
+                          <td className="p-2.5">
+                            {!dev.alreadyInInventory && (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelect(dev.ip)}
+                                className="rounded border-slate-700 text-cyan-500 cursor-pointer"
+                              />
+                            )}
+                          </td>
+                          <td className="p-2.5 font-bold text-cyan-300 flex items-center gap-1.5">
+                            <span>{dev.ip}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyIp(dev.ip)}
+                              className="text-slate-500 hover:text-slate-300 p-0.5 cursor-pointer"
+                            >
+                              {copiedIp === dev.ip ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="p-2.5 text-slate-400 font-sans truncate max-w-[150px]">
+                            {dev.hostname || '-'}
+                          </td>
+                          <td className="p-2.5 font-sans">
+                            {getPlatformBadge(dev.platform)}
+                          </td>
+                          <td className="p-2.5 font-sans capitalize">
+                            <span className="flex items-center gap-1 text-slate-300">
+                              {getDeviceIcon(dev.deviceType)}
+                              <span>{dev.suggestedRole}</span>
+                            </span>
+                          </td>
+                          <td className="p-2.5">
+                            <div className="flex flex-wrap gap-1">
+                              {dev.portDetails.map((detail) => getPortBadge(detail))}
+                            </div>
+                          </td>
+                          <td className="p-2.5">
+                            {getLatencyBadge(dev.latencyMs)}
+                          </td>
+                          <td className="p-2.5 font-sans">
+                            {dev.alreadyInInventory ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                                {isEn ? 'In Inventory' : 'موجود'}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                {isEn ? 'New' : 'جدید'}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-right font-sans">
+                            {!dev.alreadyInInventory ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (onAddDevice) onAddDevice(dev);
+                                  else if (onDeviceAdded) onDeviceAdded();
+                                }}
+                                className="px-2 py-0.5 text-xs font-semibold rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 cursor-pointer"
+                              >
+                                {isEn ? 'Add' : 'افزودن'}
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500">
+                                {dev.existingDeviceName || '—'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer info bar */}
+        <div
+          className={`px-4 py-2.5 border-t flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 shrink-0 ${
+            isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-900/80 border-slate-800'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>{isEn ? 'SSH (22)' : 'اس‌اس‌اچ (۲۲)'}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span>{isEn ? 'Telnet (23)' : 'تلنت (۲۳)'}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+              <span>{isEn ? 'SNMP (161)' : 'اس‌ان‌ام‌پی (۱۶۱)'}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+              <span>{isEn ? 'Web GUI (80/443)' : 'وب (۸۰/۴۴۳)'}</span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 mt-1 sm:mt-0">
+            <button
+              type="button"
+              onClick={handleMinimize}
+              className="hover:text-cyan-400 cursor-pointer text-[11px]"
+            >
+              {isEn ? 'Minimize to dock' : 'کوچک‌سازی به نوار ابزار'}
+            </button>
+            <span>•</span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="hover:text-slate-200 cursor-pointer text-[11px]"
+            >
+              {isEn ? 'Close' : 'بستن'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
