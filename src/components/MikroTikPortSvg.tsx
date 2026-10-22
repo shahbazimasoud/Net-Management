@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { SwitchPort } from '../types';
 
 export interface MikroTikPortSvgProps {
@@ -35,6 +35,10 @@ export const MikroTikPortSvg: React.FC<MikroTikPortSvgProps> = ({
 
   // Extract short number (e.g. ether1 -> 1, sfp-sfpplus1 -> S1)
   const portNum = displayName.replace(/[^\d]/g, '') || displayName;
+  const portNumSeed = useMemo(() => {
+    const num = parseInt(portNum.replace(/\D/g, ''), 10);
+    return isNaN(num) ? 1 : num;
+  }, [portNum]);
 
   // RouterOS Status Flags: R (Running), X (Disabled)
   const isRunning = isUp && !isDisabled;
@@ -84,7 +88,9 @@ export const MikroTikPortSvg: React.FC<MikroTikPortSvgProps> = ({
         {/* Dual SMT Rectangular LEDs matching MikroTik CCR/CRS/RB faceplates */}
         <div className="flex items-center gap-1">
           <span
-            className="w-2 h-1 rounded-xs inline-block transition-colors"
+            className={`w-2 h-1 rounded-xs inline-block transition-colors ${
+              isRunning ? 'port-led-carrier' : 'port-led-down'
+            }`}
             style={{
               backgroundColor: linkLedColor,
               boxShadow: isRunning ? '0 0 5px #10b981' : 'none',
@@ -92,10 +98,13 @@ export const MikroTikPortSvg: React.FC<MikroTikPortSvgProps> = ({
             title="LINK / CARRIER"
           />
           <span
-            className="w-2 h-1 rounded-xs inline-block transition-colors"
+            className={`w-2 h-1 rounded-xs inline-block transition-colors ${
+              isRunning ? 'port-led-activity' : isDisabled ? 'port-led-disabled' : 'port-led-down'
+            }`}
             style={{
               backgroundColor: actLedColor,
               boxShadow: isRunning ? `0 0 5px ${actLedColor}` : 'none',
+              animationDelay: isRunning ? `${((portNumSeed * 187) % 1500) / 1000}s` : undefined,
             }}
             title="ACT / SPEED"
           />

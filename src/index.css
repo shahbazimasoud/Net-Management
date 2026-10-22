@@ -3014,3 +3014,94 @@ body.is-canvas-dragging .schematic-canvas * {
   font-family: monospace;
   color: #64748b;
 }
+
+/* =========================================================================
+   Realistic Network Hardware Port LED Activity & Pulse Animations
+   Simulates authentic physical switch/router Ethernet RJ-45 & SFP LED diodes
+   ========================================================================= */
+
+@keyframes portLedTrafficBlink {
+  0% {
+    opacity: 1;
+    filter: drop-shadow(0 0 3px #10b981) drop-shadow(0 0 6px #34d399);
+    transform: scale(1);
+  }
+  15% {
+    opacity: 0.22;
+    filter: drop-shadow(0 0 1px #059669);
+    transform: scale(0.92);
+  }
+  28% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px #10b981) drop-shadow(0 0 8px #34d399);
+    transform: scale(1.06);
+  }
+  42% {
+    opacity: 0.88;
+    filter: drop-shadow(0 0 2.5px #10b981);
+    transform: scale(1);
+  }
+  58% {
+    opacity: 0.28;
+    filter: drop-shadow(0 0 1px #059669);
+    transform: scale(0.94);
+  }
+  70% {
+    opacity: 1;
+    filter: drop-shadow(0 0 4px #10b981) drop-shadow(0 0 7px #34d399);
+    transform: scale(1.04);
+  }
+  85% {
+    opacity: 0.4;
+    filter: drop-shadow(0 0 1.5px #10b981);
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 3px #10b981) drop-shadow(0 0 6px #34d399);
+    transform: scale(1);
+  }
+}
+
+@keyframes portLedDisabledBeacon {
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 3px #f59e0b) drop-shadow(0 0 5px #fbbf24);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.28;
+    filter: drop-shadow(0 0 1px #d97706);
+    transform: scale(0.9);
+  }
+}
+
+@keyframes portLedCarrierSteady {
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 2.5px #10b981);
+  }
+  50% {
+    opacity: 0.82;
+    filter: drop-shadow(0 0 1px #10b981);
+  }
+}
+
+.port-led-activity {
+  animation: portLedTrafficBlink 1.4s infinite ease-in-out;
+  will-change: opacity, filter, transform;
+}
+
+.port-led-disabled {
+  animation: portLedDisabledBeacon 1.9s infinite ease-in-out;
+  will-change: opacity, filter, transform;
+}
+
+.port-led-carrier {
+  animation: portLedCarrierSteady 2.5s infinite ease-in-out;
+}
+
+.port-led-down {
+  opacity: 0.45;
+  filter: none !important;
+}

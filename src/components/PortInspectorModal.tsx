@@ -1239,15 +1239,15 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               {/* Legend & Multi-select Hint */}
               <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 port-led-activity"></span>
                   <span>{isEn ? 'Up' : 'فعال (Up)'}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-slate-600"></span>
+                  <span className="w-2 h-2 rounded-full bg-slate-600 port-led-down"></span>
                   <span>{isEn ? 'Down' : 'غیرفعال (Down)'}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span className="w-2 h-2 rounded-full bg-amber-500 port-led-disabled"></span>
                   <span>{isEn ? 'Disabled' : 'ادمین بسته (Disabled)'}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -2343,12 +2343,12 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                             }`}
                           >
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                                 port.admin_status === 'disabled'
-                                  ? 'bg-amber-400'
+                                  ? 'bg-amber-400 port-led-disabled'
                                   : port.status === 'up'
-                                  ? 'bg-emerald-400 animate-pulse'
-                                  : 'bg-slate-500'
+                                  ? 'bg-emerald-400 port-led-activity'
+                                  : 'bg-slate-500 port-led-down'
                               }`}
                             ></span>
                             {port.admin_status === 'disabled' ? 'Admin Down' : port.status === 'up' ? 'Up' : 'Down'}

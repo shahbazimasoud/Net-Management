@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { SwitchPort } from '../types';
 
 interface NetworkPortSvgProps {
@@ -61,9 +61,21 @@ export const NetworkPortSvg: React.FC<NetworkPortSvgProps> = ({
   const modeDisplay = isTrunk ? 'TRUNK' : 'ACCESS';
   const vlanDisplay = port.vlan ?? 1;
 
+  // Extract numerical index from port ID for organic hardware LED blinking variance
+  const portIndexSeed = useMemo(() => {
+    const num = parseInt(rawPortId.replace(/\D/g, ''), 10);
+    return isNaN(num) ? 1 : num;
+  }, [rawPortId]);
+
   // LED color and glow
   const ledColor = isDisabled ? '#f59e0b' : isUp ? '#10b981' : '#334155';
   const ledGlow = isUp ? 'drop-shadow(0 0 3px #34d399)' : isDisabled ? 'drop-shadow(0 0 2px #f59e0b)' : 'none';
+  const ledAnimationClass = isUp
+    ? 'port-led-activity'
+    : isDisabled
+    ? 'port-led-disabled'
+    : 'port-led-down';
+  const ledDelay = isUp ? `${((portIndexSeed * 173) % 1500) / 1000}s` : undefined;
 
   let statusClasses = 'bg-slate-900/60 border border-slate-700/60 hover:border-slate-500 hover:bg-slate-800/60 opacity-80 hover:opacity-100'; // Down
   let bezelStroke = '#475569'; // Down
@@ -99,7 +111,13 @@ export const NetworkPortSvg: React.FC<NetworkPortSvgProps> = ({
       {/* Interactive Hover Tooltip Popup with Speed and Specs */}
       <div className="opacity-0 pointer-events-none group-hover:opacity-100 transition-all duration-150 transform group-hover:-translate-y-0.5 absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 z-[100] px-2 py-1 bg-slate-950 text-slate-100 border border-slate-700 rounded-lg shadow-2xl whitespace-nowrap flex flex-col items-center gap-0.5 backdrop-blur-md text-[9.5px]">
         <div className="flex items-center gap-1.5 font-bold font-mono">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: ledColor, filter: ledGlow }} />
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${ledAnimationClass}`}
+            style={{
+              backgroundColor: ledColor,
+              animationDelay: ledDelay,
+            }}
+          />
           <span>{port.name || rawPortId}</span>
           <span className={`text-[8px] px-1 py-0.2 rounded font-semibold ${isUp ? 'bg-emerald-500/20 text-emerald-300' : isDisabled ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-700 text-slate-400'}`}>
             {statusDisplay}
@@ -120,11 +138,12 @@ export const NetworkPortSvg: React.FC<NetworkPortSvgProps> = ({
       {/* Top Header: Link Status LED & Mode Indicator */}
       <div className="flex items-center justify-between w-full px-1 mb-0.5">
         <span
-          className="w-1.5 h-1.5 rounded-full shrink-0"
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${ledAnimationClass}`}
           style={{
             backgroundColor: ledColor,
-            filter: ledGlow,
+            animationDelay: ledDelay,
           }}
+          title={isUp ? 'Link Active (Traffic Activity)' : isDisabled ? 'Admin Disabled' : 'Link Down'}
         />
         {isTrunk ? (
           <span

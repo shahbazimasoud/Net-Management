@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.355.1';
+export const APP_VERSION = '1.356.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.356.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'سیستم انیمیشن چراغ‌های LED پورت‌های شبکه منطبق با پورت‌های فیزیکی تجهیزات',
+    title_en: 'Realistic Hardware Port LED Blinking & Activity Pulse Visual Animation System',
+    changes: [
+      'طراحی و پیاده‌سازی سیستم انیمیشن چشمک‌زن واقعی LED پورت‌ها (port-led-activity) شبیه‌ساز انتقال داده‌های ترافیکی (Traffic Activity Burst) با فلیکر ارگانیک و درخشش نئونی متناسب با وضعیت فعال (Up).',
+      'ایجاد تاخیر زمانی پویا و شبه‌تصادفی (Organic Animation Delay) میان پورت‌های فیس‌پلیت بر اساس شماره پورت، به گونه‌ای که تمامی پورت‌ها در یک لحظه چشمک نمی‌زنند و نمایی زنده و جذاب مشابه سوئیچ‌ها و روترهای فیزیکی در رک ایجاد می‌کنند.',
+      'پیاده‌سازی انیمیشن پالس آرام چراغ برای پورت‌های غیرفعال شده توسط ادمین (port-led-disabled / Admin Down) و خاموش بودن مات پورت‌های قطع‌شده (port-led-down).',
+      'اعمال یکپارچه در تمامی فیس‌پلیت‌های سیسکو (NetworkPortSvg)، روتربورد میکروتیک (MikroTikPortSvg)، جداول پورت‌ها و لژاند وضعیت‌ها در هر دو تم تیره و روشن با رعایت کامل استانداردهای i18n.'
+    ],
+    changes_en: [
+      'Engineered realistic hardware Ethernet port LED blinking animation system (port-led-activity) simulating authentic high-speed traffic bursts and packet activity with glowing neon optical diodes.',
+      'Introduced dynamic organic animation phase offsets across faceplate ports based on port index seeds, preventing synchronous blinking and creating a vibrant, living physical switch rack look and feel.',
+      'Added distinct warning beacon pulse animation for administratively disabled ports (port-led-disabled) and unlit diode styling for inactive links (port-led-down).',
+      'Universally applied across Cisco switch faceplates (NetworkPortSvg), MikroTik RouterBOARD interfaces (MikroTikPortSvg), port inspector telemetry tables, and faceplate status legends with full dark/light theme contrast and zero Persian text in English mode.'
+    ]
+  },
   {
     version: '1.355.1',
     releaseDate: '2026-10-22',
