@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.358.0';
+export const APP_VERSION = '1.359.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.359.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۳: ثبت و بافرینگ نشست‌ها و دستورات ترمینال تعاملی SSH لینوکس و تجهیزات (SSH Session & Command Logging)',
+    title_en: 'Phase 3: Interactive SSH Session Lifecycle & Keystroke Command Buffer Audit Logging Engine',
+    changes: [
+      'رهگیری دقیق چرخه حیات نشست‌های SSH (Session Lifecycle): ثبت بلادرنگ زمان باز شدن، جزئیات اپراتور (نام کاربری، شناسه کاربری، آی‌پی کلاینت)، حساب سرور، پورت، ابعاد پنجره PTY و شناسه یکتای نشست (Session ID).',
+      'رهگیری و ثبت خاتمه یا شکست ارتباط نشست‌های SSH به همراه محاسبه دقیق طول مدت اتصال (Duration) و شمارش کل دستورات اجرا شده در نشست.',
+      'پیاده‌سازی ردیاب بافر دستورات تعاملی شل (Command Buffer Tracker): استخراج و تفکیک دقیق خطوط دستورات ارسال‌شده با زدن کلید Enter (از قبیل apt, systemctl, rm, sudo, docker, git و ...) بدون ایجاد وقفه یا تاخیر در استریم PTY.',
+      'پشتیبانی جامع از کلیدهای ویرایشی شل شامل Backspace، Ctrl+U (پاکسازی خط) و Ctrl+C و نادیده گرفتن کدهای کنترلی ANSI بدون ایجاد نویز در لاگ.',
+      'رعایت قطعی قانون امنیت و عدم نشت رمز عبور (Zero-Leak Rule 14): شناسایی خودکار اعلان‌های ورود رمز عبور (مانند [sudo] password یا Password prompt) و پاکسازی و امتناع مطلق از ذخیره کاراکترهای پسورد ورودی.',
+      'دسته‌بندی خودکار سطح ریسک دستورات (Critical, High, Medium, Low) بر اساس نوع عملیات تخریبی، امنیتی یا مانیتورینگ همراه با خلاصه‌های توصیفی دوزبانه.',
+      'ذخیره‌سازی مستقیم، غیرمسدودکننده و بلادرنگ در جدول PostgreSQL و Fallback Store به صورت کاملاً پایدار و بدون هیچ‌گونه دیتای ماک یا ساختگی.'
+    ],
+    changes_en: [
+      'Engineered SSH session lifecycle tracking: real-time capture of session start, operator identity (username, user ID, client IP), server account, port, PTY window dimensions, and unique session ID.',
+      'Auditing for SSH session closure and connection failures: precise connection duration calculation in milliseconds/seconds and total executed command count telemetry.',
+      'Interactive shell command buffer tracker: captures and separates whole command lines executed on Enter key press without introducing latency or disruption to the raw PTY stream.',
+      'Full keystroke handling support for terminal editing keys (Backspace, Ctrl+U line wipe, Ctrl+C interrupt) and ANSI sequence filtering.',
+      'Zero-Leak credential security compliance (Rule 14): automatic detection of password prompts (sudo, su, passwd) with immediate suppression and discarding of credentials so passwords are never stored in audit logs or memory.',
+      'Automated multi-tier command risk classification (Critical, High, Medium, Low) based on system impact with descriptive bilingual summaries.',
+      'Asynchronous, non-blocking persistence directly to PostgreSQL server_command_audit_logs and local fallback store with zero simulated or mock data.'
+    ]
+  },
   {
     version: '1.358.0',
     releaseDate: '2026-10-22',

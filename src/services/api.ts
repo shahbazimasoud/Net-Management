@@ -3464,6 +3464,8 @@ export function getRemoteServerWebSocketUrl(
     if (serverInfo.ssh_username) query.set('username', serverInfo.ssh_username);
     if (serverInfo.ssh_password) query.set('password', serverInfo.ssh_password);
   }
+  const token = getAuthToken();
+  if (token) query.set('token', token);
   return `${wsProto}//${loc.host}/ws/ssh/${encodeURIComponent(serverId)}?${query.toString()}`;
 }
 
