@@ -10,9 +10,36 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.357.0';
+export const APP_VERSION = '1.358.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.358.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۲: رهگیری و ثبت تمامی اقدامات منوی ۳-نقطه سرورها (Server 3-Dots Fleet Telemetry)',
+    title_en: 'Phase 2: Full Server 3-Dots Action Telemetry & Event Interceptors Engine',
+    changes: [
+      'رهگیری و ثبت کامل رویدادهای باز شدن ابزارهای منوی سه‌نقطه سرورها (مانیتور زنده لینوکس، فایل اکسپلورر، مدیریت وب‌سرورهای Nginx و Apache، و پایگاه‌داده‌های PostgreSQL و MySQL).',
+      'رهگیری و ثبت بلادرنگ اقدامات کاوشگر فایل لینوکس (LinuxFileExplorerModal) شامل ایجاد پوشه/فایل، حذف، تغییر نام، برش/چسباندن، آپلود/دانلود، فشرده‌سازی/استخراج و تغییر دسترسی‌ها (chmod/chown).',
+      'رهگیری رویدادهای مدیریت سرویس‌های وب Nginx و Apache شامل تغییر وضعیت وب‌سایت‌ها، حذف Virtual Host، کنترل سرویس (Start/Stop/Restart/Reload)، تست سینتکس کانفیگ (nginx -t) و اعمال خودکار تنظیمات امنیتی.',
+      'رهگیری رویدادهای پایگاه‌داده‌های PostgreSQL و MySQL شامل تست ارتباط، رفع موانع اتصال (Auto-Remediation)، تغییر و به‌روزرسانی رمز عبور، حذف سطر از جدول و خاتمه دادن به نخ/پروسس (KILL).',
+      'رهگیری و ثبت مانیتورینگ و سرویس‌های سیستم (LinuxServerMonitorModal) شامل کنترل وضعیت سرویس‌ها (systemctl) و آن‌مانت کردن پارتیشن‌ها (umount).',
+      'رهگیری اقدامات ذخیره‌سازی و دیسک (LinuxStorageManager) شامل فرمت و مانت پارتیشن‌ها، افزایش حجم منطقی (lvextend)، ایجاد حجم منطقی (lvcreate)، ساخت گروه حجمی (vgcreate) و الحاق دیسک به LVM.',
+      'رهگیری رویدادهای فایروال (LinuxFirewallTab و LinuxAddFirewallRuleModal) و زمان‌بند کران‌جاب (LinuxCronJobsTab و LinuxEditCronModal) شامل ثبت، ویرایش، حذف، فعال/غیرفعال‌سازی و اجرای آزمایشی.',
+      'ارسال خودکار و بلادرنگ وقایع با سطوح حساسیت دقیق (Low, Medium, High, Critical) به پایگاه‌داده PostgreSQL و ذخیره‌سازی ممیزی سرور.'
+    ],
+    changes_en: [
+      'Full interceptor coverage for opening server 3-dots actions (Linux Live Monitor, File Explorer, Nginx/Apache Management, PostgreSQL and MySQL Management).',
+      'Real-time telemetry logging for all Linux File Explorer actions: directory/file creation, deletion, rename, move/paste, upload/download, archive compression/extraction, and permission changes (chmod/chown).',
+      'Auditing for Nginx & Apache web server actions: site enabling/disabling, vhost deletion, service operations (start/stop/restart/reload), configuration syntax validation, and security hardening deployment.',
+      'Auditing for PostgreSQL and MySQL database events: connection tests, automated config remediation, credential updates, table row deletions, and thread/process termination (KILL).',
+      'Telemetry for Linux System Monitor: systemctl service state changes (start/stop/restart/enable/disable) and filesystem unmount operations.',
+      'Auditing for Storage and LVM management: partition formatting and mounting, LV extension (lvextend), LV creation (lvcreate), VG creation (vgcreate), and disk additions.',
+      'Auditing for Firewall rules (add, update, delete) and Cron jobs (create, update, delete, toggle enable/disable, and manual immediate execution).',
+      'Asynchronous, non-blocking telemetry dispatch with verified risk levels (low, medium, high, critical) to the PostgreSQL server audit log engine.'
+    ]
+  },
   {
     version: '1.357.0',
     releaseDate: '2026-10-22',

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { RemoteServer, LinuxCronJob, LinuxCronJobPayload, LinuxCronExecutionResult } from '../../types';
 import { saveLinuxCronJob, runLinuxCronJobNow } from '../../services/api';
+import { logServerCommandEvent } from '../../services/auditLogger';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 interface LinuxEditCronModalProps {
@@ -340,6 +341,7 @@ export const LinuxEditCronModal: React.FC<LinuxEditCronModalProps> = ({
 
     setSaving(true);
     setErrorMessage(null);
+    const startTime = Date.now();
 
     const payload: LinuxCronJobPayload = {
       id: initialJob?.id,
@@ -360,6 +362,24 @@ export const LinuxEditCronModal: React.FC<LinuxEditCronModalProps> = ({
       } else {
         setErrorMessage(res.error || res.message || (isEn ? 'Failed to save cron job' : 'ذخیره جاب ناموفق بود'));
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'CRON_MANAGER',
+        actionName: initialJob ? `ویرایش کرون‌جاب کاربر ${targetUser}` : `ایجاد کرون‌جاب جدید برای کاربر ${targetUser}`,
+        actionNameEn: initialJob ? `Edit Cron Job for user ${targetUser}` : `Create New Cron Job for user ${targetUser}`,
+        command: `crontab -u ${targetUser} (add/replace job: ${payload.schedule} ${payload.command})`,
+        parameters: { payload },
+        riskLevel: 'medium',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.success ? 'کرون‌جاب با موفقیت ذخیره شد' : res.error,
+        outputSummaryEn: res.success ? 'Cron job saved successfully' : res.error,
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setErrorMessage(err?.message || (isEn ? 'Error communicating with server' : 'خطای ارتباط با سرور'));
     } finally {

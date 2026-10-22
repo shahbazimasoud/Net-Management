@@ -64,6 +64,7 @@ import {
   remediateRemoteServerPostgresConnection,
   updateRemoteServerPostgresCredentials,
 } from '../../services/api';
+import { logServerCommandEvent } from '../../services/auditLogger';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { PostgresDatabaseBrowserTab } from './PostgresDatabaseBrowserTab';
 import { PostgresSqlEditorTab } from './PostgresSqlEditorTab';
@@ -177,6 +178,7 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
     if (!server?.id) return;
     setRemediating(true);
     setRemediationError(null);
+    const startTime = Date.now();
     try {
       const res = await remediateRemoteServerPostgresConnection(server.id, {
         panelIp: panelIp.trim() || undefined,
@@ -193,8 +195,42 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
       } else if (res.success) {
         handleTestConnection();
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'POSTGRESQL',
+        actionName: 'اجرای خودکار رفع موانع اتصال پایگاه‌داده PostgreSQL',
+        actionNameEn: 'Execute Automated PostgreSQL Connection Remediation',
+        command: `pg_hba.conf & postgresql.conf auto-remediation (port ${server.postgres_port || 5432})`,
+        parameters: { port: server.postgres_port || 5432, panelIp: panelIp.trim() || undefined },
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'اصلاح پیکربندی پستگرس با موفقیت انجام شد' : 'خطا در رفع موانع اتصال'),
+        outputSummaryEn: res.message || (res.success ? 'PostgreSQL auto-remediation completed successfully' : 'Auto-remediation failed'),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setRemediationError(err.message || (isEn ? 'Failed to execute auto-remediation' : 'خطا در اجرای خودکار رفع مشکل'));
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'POSTGRESQL',
+        actionName: 'اجرای خودکار رفع موانع اتصال پایگاه‌داده PostgreSQL',
+        actionNameEn: 'Execute Automated PostgreSQL Connection Remediation',
+        command: 'pg_hba.conf remediation',
+        riskLevel: 'high',
+        status: 'FAILED',
+        outputSummary: err.message || 'خطا در اجرای فرآیند اصلاح خودکار پستگرس',
+        outputSummaryEn: err.message || 'Auto-remediation execution error',
+        durationMs: Date.now() - startTime,
+      });
     } finally {
       setRemediating(false);
     }
@@ -228,6 +264,22 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
       } else {
         setPasswordSaveError(res.message || (isEn ? 'Failed to update credentials' : 'خطا در ذخیره رمز عبور'));
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'POSTGRESQL',
+        actionName: 'به‌روزرسانی رمز عبور احراز هویت PostgreSQL',
+        actionNameEn: 'Update PostgreSQL Authentication Password',
+        command: 'ALTER USER postgres WITH PASSWORD [ENCRYPTED]',
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'رمز عبور پستگرس ذخیره شد' : 'خطا در ذخیره رمز'),
+        outputSummaryEn: res.message || (res.success ? 'PostgreSQL credentials saved' : 'Failed to save credentials'),
+      });
     } catch (err: any) {
       setPasswordSaveError(err.message || (isEn ? 'Network error saving password' : 'خطای شبکه در ذخیره رمز'));
     } finally {
@@ -239,10 +291,30 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
   const handleTestConnection = useCallback(async () => {
     if (!server?.id) return;
     setTesting(true);
+    const startTime = Date.now();
     try {
       const res = await testRemoteServerPostgresConnection(server.id);
       setConnectionResult(res);
       setLastTestedAt(new Date().toLocaleTimeString());
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'POSTGRESQL',
+        actionName: 'تست ارتباط زنده با موتور PostgreSQL',
+        actionNameEn: 'Live PostgreSQL Connection Test',
+        command: `pg_isready -h ${server.ip} -p ${server.postgres_port || 5432}`,
+        parameters: { port: server.postgres_port || 5432, status: res.status },
+        riskLevel: 'low',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'ارتباط با پستگرس برقرار شد' : `وضعیت: ${res.status}`),
+        outputSummaryEn: res.message || (res.success ? 'Connected to PostgreSQL' : `Status: ${res.status}`),
+        durationMs: Date.now() - startTime,
+      });
+
       return res;
     } catch (err: any) {
       const failedRes: PostgresConnectionTestResult = {
@@ -258,6 +330,24 @@ export const PostgreSQLManagementModal: React.FC<PostgreSQLManagementModalProps>
       };
       setConnectionResult(failedRes);
       setLastTestedAt(new Date().toLocaleTimeString());
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'POSTGRESQL',
+        actionName: 'تست ارتباط زنده با موتور PostgreSQL',
+        actionNameEn: 'Live PostgreSQL Connection Test',
+        command: `pg_isready -h ${server.ip} -p ${server.postgres_port || 5432}`,
+        riskLevel: 'low',
+        status: 'FAILED',
+        outputSummary: err.message || 'خطا در اتصال به موتور پستگرس',
+        outputSummaryEn: err.message || 'PostgreSQL connection failure',
+        durationMs: Date.now() - startTime,
+      });
+
       return failedRes;
     } finally {
       setTesting(false);

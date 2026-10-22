@@ -138,6 +138,7 @@ import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ApacheSafeEditorModal } from './ApacheSafeEditorModal';
 import { ApachePerformanceTab } from './ApachePerformanceTab';
 import { ApacheRewriteTab } from './ApacheRewriteTab';
+import { logServerCommandEvent } from '../../services/auditLogger';
 
 export interface ApacheManagementModalProps {
   isOpen: boolean;
@@ -495,6 +496,23 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
         server.ssh_password
       );
       if (res && res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          osDistro: server.os_distro,
+          channel: '3DOTS_ACTION',
+          actionModule: 'APACHE_MANAGEMENT',
+          actionName: `${newStatus ? 'فعال‌سازی' : 'غیرفعال‌سازی'} هاست مجازی Apache: ${vhost.serverName} (${vhost.siteName})`,
+          actionNameEn: `${newStatus ? 'Enable' : 'Disable'} Apache VirtualHost: ${vhost.serverName} (${vhost.siteName})`,
+          command: newStatus ? `a2ensite "${vhost.siteName}" && systemctl reload apache2` : `a2dissite "${vhost.siteName}" && systemctl reload apache2`,
+          parameters: { siteName: vhost.siteName, serverName: vhost.serverName, newStatus },
+          riskLevel: 'high',
+          status: 'SUCCESS',
+          outputSummary: `هاست مجازی ${vhost.serverName} با موفقیت ${newStatus ? 'فعال' : 'غیرفعال'} شد`,
+          outputSummaryEn: `VirtualHost ${vhost.serverName} ${newStatus ? 'enabled' : 'disabled'} successfully`,
+        });
         setActionFeedback({
           type: 'success',
           message: res.message || (isEn ? 'VirtualHost updated successfully' : 'وضعیت هاست مجازی به‌روزرسانی شد'),
@@ -502,6 +520,21 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
         await fetchVHostsData();
         await fetchTopologyData();
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'APACHE_MANAGEMENT',
+          actionName: `خطا در تغییر وضعیت هاست مجازی Apache: ${vhost.serverName}`,
+          actionNameEn: `Failed to toggle Apache VirtualHost: ${vhost.serverName}`,
+          parameters: { siteName: vhost.siteName, newStatus },
+          riskLevel: 'high',
+          status: 'FAILED',
+          outputSummary: res?.error || 'خطا در تغییر وضعیت هاست مجازی',
+          outputSummaryEn: res?.error || 'Failed to toggle VirtualHost',
+        });
         setActionFeedback({
           type: 'error',
           message: isEn ? 'Failed to update VirtualHost status' : 'خطا در تغییر وضعیت هاست مجازی',
@@ -537,6 +570,23 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
         server.ssh_password
       );
       if (res && res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          osDistro: server.os_distro,
+          channel: '3DOTS_ACTION',
+          actionModule: 'APACHE_MANAGEMENT',
+          actionName: `حذف دائمی هاست مجازی Apache: ${vhost.serverName} (${vhost.siteName})`,
+          actionNameEn: `Delete Apache VirtualHost: ${vhost.serverName} (${vhost.siteName})`,
+          command: `a2dissite "${vhost.siteName}" && rm -f "${vhost.definedInFile}" && systemctl reload apache2`,
+          parameters: { siteName: vhost.siteName, serverName: vhost.serverName, file: vhost.definedInFile },
+          riskLevel: 'critical',
+          status: 'SUCCESS',
+          outputSummary: `هاست مجازی ${vhost.serverName} با موفقیت حذف گردید`,
+          outputSummaryEn: `VirtualHost ${vhost.serverName} permanently deleted`,
+        });
         setActionFeedback({
           type: 'success',
           message: res.message || (isEn ? 'VirtualHost deleted successfully' : 'هاست مجازی با موفقیت حذف شد'),
@@ -544,6 +594,21 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
         await fetchVHostsData();
         await fetchTopologyData();
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'APACHE_MANAGEMENT',
+          actionName: `خطا در حذف هاست مجازی Apache: ${vhost.serverName}`,
+          actionNameEn: `Failed to delete Apache VirtualHost: ${vhost.serverName}`,
+          parameters: { siteName: vhost.siteName },
+          riskLevel: 'critical',
+          status: 'FAILED',
+          outputSummary: res?.error || 'خطا در حذف هاست مجازی',
+          outputSummaryEn: res?.error || 'Failed to delete VirtualHost',
+        });
         setActionFeedback({
           type: 'error',
           message: isEn ? 'Failed to delete VirtualHost' : 'خطا در حذف هاست مجازی',
@@ -1342,6 +1407,23 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
     try {
       const res = await manageApacheService(server.id, action, server.ssh_password);
       setServiceActionResult(res);
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: 'linux',
+        osDistro: server.os_distro,
+        channel: '3DOTS_ACTION',
+        actionModule: 'APACHE_MANAGEMENT',
+        actionName: `اجرای دستور ${action} روی سرویس Apache`,
+        actionNameEn: `Execute ${action} on Apache Service`,
+        command: `systemctl ${action} ${discovery?.serviceName || 'apache2'}`,
+        parameters: { action, service: discovery?.serviceName || 'apache2' },
+        riskLevel: action === 'stop' ? 'high' : 'medium',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.output || (res.success ? `عملیات ${action} روی آپاچی با موفقیت انجام شد` : `خطا: ${res.error}`),
+        outputSummaryEn: res.output || (res.success ? `Apache service ${action} successful` : `Error: ${res.error}`),
+      });
       if (action === 'status') {
         setServiceStatusOutput(res.output);
         setShowServiceStatusModal(true);
@@ -1462,6 +1544,23 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
         setApplyHardeningResult(res);
 
         if (res.success) {
+          logServerCommandEvent({
+            serverId: server.id,
+            serverName: server.name,
+            serverIp: server.ip,
+            osType: 'linux',
+            osDistro: server.os_distro,
+            channel: '3DOTS_ACTION',
+            actionModule: 'APACHE_MANAGEMENT',
+            actionName: 'استقرار سخت‌سازی امنیتی Apache (Security Hardening)',
+            actionNameEn: 'Deploy Apache Security Hardening',
+            command: `deploy security hardening -> ${res.filePath} && apache2ctl -t && systemctl reload apache2`,
+            parameters: { filePath: res.filePath },
+            riskLevel: 'high',
+            status: 'SUCCESS',
+            outputSummary: 'سخت‌سازی امنیتی آپاچی با موفقیت اعتبارسنجی و اعمال گردید',
+            outputSummaryEn: 'Apache security hardening deployed and reloaded successfully',
+          });
           setActionFeedback({
             type: 'success',
             message: isEn
@@ -1474,6 +1573,20 @@ export const ApacheManagementModal: React.FC<ApacheManagementModalProps> = ({
           setIsHardeningDrawerOpen(false);
           fetchAuditData(selectedAuditConfPath);
         } else {
+          logServerCommandEvent({
+            serverId: server.id,
+            serverName: server.name,
+            serverIp: server.ip,
+            osType: 'linux',
+            channel: '3DOTS_ACTION',
+            actionModule: 'APACHE_MANAGEMENT',
+            actionName: 'خطا در استقرار سخت‌سازی امنیتی Apache (رول‌بک انجام شد)',
+            actionNameEn: 'Failed to deploy Apache security hardening (Rollback executed)',
+            riskLevel: 'high',
+            status: 'FAILED',
+            outputSummary: res.error || res.syntaxOutput || 'خطا در تست سینتکس',
+            outputSummaryEn: res.error || res.syntaxOutput || 'Syntax test failed',
+          });
           setActionFeedback({
             type: 'error',
             message: isEn ? 'Hardening failed - Atomic Rollback executed' : 'خطا در اعمال سخت‌سازی - رول‌بک اتمیک انجام شد',

@@ -28,6 +28,7 @@ import { RemoteServer } from '../../types';
 import { restartRemoteServer, executeBulkServerPower } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
+import { logServerCommandEvent } from '../../services/auditLogger';
 
 interface RestartServerModalProps {
   server?: RemoteServer | null;
@@ -286,6 +287,25 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
           const successCount = res.results.filter((r) => r.success).length;
           const failCount = res.results.length - successCount;
 
+          for (const item of res.results) {
+            logServerCommandEvent({
+              serverId: item.serverId,
+              serverName: item.serverName,
+              serverIp: item.ip,
+              osType: 'linux',
+              channel: '3DOTS_ACTION',
+              actionModule: actionType === 'restart' ? 'SYSTEM_RESTART' : 'SYSTEM_SHUTDOWN',
+              actionName: actionType === 'restart' ? `راه‌اندازی مجدد سرور (گروهی): ${item.serverName}` : `خاموش‌سازی سرور (گروهی): ${item.serverName}`,
+              actionNameEn: actionType === 'restart' ? `Bulk Restart Server: ${item.serverName}` : `Bulk Shutdown Server: ${item.serverName}`,
+              command: actionType === 'restart' ? (forceRestart ? 'reboot -f' : `shutdown -r +${delayMinutes}`) : (forceRestart ? 'poweroff -f' : `shutdown -h +${delayMinutes}`),
+              parameters: { actionType, delayMinutes, forceRestart, notifyUsers, broadcastMessage },
+              riskLevel: 'critical',
+              status: item.success ? 'SUCCESS' : 'FAILED',
+              outputSummary: item.success ? (item.output || 'دستور با موفقیت صادر شد') : (item.error || 'خطا در صدور دستور'),
+              outputSummaryEn: item.success ? (item.output || 'Command issued successfully') : (item.error || 'Command execution failed'),
+            });
+          }
+
           if (res.success || successCount > 0) {
             undockModal(`bulk-power-${actionType}`);
             onSuccess(
@@ -320,6 +340,27 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
           },
           password.trim() || undefined
         );
+
+        logServerCommandEvent({
+          serverId: singleServer.id,
+          serverName: singleServer.name,
+          serverIp: singleServer.ip,
+          osType: singleServer.os_type || 'linux',
+          osDistro: singleServer.os_distro,
+          serverEnvironment: singleServer.environment,
+          channel: '3DOTS_ACTION',
+          actionModule: actionType === 'restart' ? 'SYSTEM_RESTART' : 'SYSTEM_SHUTDOWN',
+          actionName: actionType === 'restart' ? `راه‌اندازی مجدد سرور (ری‌استارت): ${singleServer.name}` : `خاموش‌سازی سرور (Shutdown): ${singleServer.name}`,
+          actionNameEn: actionType === 'restart' ? `Restart Server: ${singleServer.name}` : `Shutdown / Power Off Server: ${singleServer.name}`,
+          command: singleServer.os_type === 'linux'
+            ? (actionType === 'restart' ? (forceRestart ? 'reboot -f' : `shutdown -r +${delayMinutes}`) : (forceRestart ? 'poweroff -f' : `shutdown -h +${delayMinutes}`))
+            : (actionType === 'restart' ? `shutdown /r /t ${delayMinutes * 60}` : `shutdown /s /t ${delayMinutes * 60}`),
+          parameters: { actionType, delayMinutes, forceRestart, notifyUsers, broadcastMessage },
+          riskLevel: 'critical',
+          status: res.success ? 'SUCCESS' : 'FAILED',
+          outputSummary: res.success ? (res.output || 'دستور ری‌استارت/خاموش‌سازی با موفقیت ارسال شد') : (res.error || 'خطا در ارسال دستور'),
+          outputSummaryEn: res.success ? (res.output || 'Power control command dispatched successfully') : (res.error || 'Power control dispatch failed'),
+        });
 
         if (res.success) {
           undockModal(`power-${singleServer.id}`);
@@ -373,6 +414,25 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
         if (res.results && res.results.length > 0) {
           setExecutionResults(res.results);
           const successCount = res.results.filter((r) => r.success).length;
+
+          for (const item of res.results) {
+            logServerCommandEvent({
+              serverId: item.serverId,
+              serverName: item.serverName,
+              serverIp: item.ip,
+              osType: 'linux',
+              channel: '3DOTS_ACTION',
+              actionModule: 'SYSTEM_RESTART',
+              actionName: `لغو زمان‌بندی ری‌استارت/خاموش‌سازی سرور: ${item.serverName}`,
+              actionNameEn: `Cancel Scheduled Power Action: ${item.serverName}`,
+              command: 'shutdown -c',
+              riskLevel: 'medium',
+              status: item.success ? 'SUCCESS' : 'FAILED',
+              outputSummary: item.success ? 'زمان‌بندی با موفقیت لغو شد' : (item.error || 'خطا در لغو'),
+              outputSummaryEn: item.success ? 'Scheduled action cancelled' : (item.error || 'Failed to cancel'),
+            });
+          }
+
           undockModal(`bulk-power-${actionType}`);
           onSuccess(
             isEn
@@ -391,6 +451,25 @@ export const RestartServerModal: React.FC<RestartServerModalProps> = ({
           },
           password.trim() || undefined
         );
+
+        logServerCommandEvent({
+          serverId: singleServer.id,
+          serverName: singleServer.name,
+          serverIp: singleServer.ip,
+          osType: singleServer.os_type || 'linux',
+          osDistro: singleServer.os_distro,
+          serverEnvironment: singleServer.environment,
+          channel: '3DOTS_ACTION',
+          actionModule: 'SYSTEM_RESTART',
+          actionName: `لغو زمان‌بندی ری‌استارت/خاموش‌سازی سرور «${singleServer.name}»`,
+          actionNameEn: `Cancel Scheduled Power Action for ${singleServer.name}`,
+          command: singleServer.os_type === 'linux' ? 'shutdown -c' : 'shutdown /a',
+          parameters: { actionType, cancelPending: true },
+          riskLevel: 'medium',
+          status: res.success ? 'SUCCESS' : 'FAILED',
+          outputSummary: res.success ? 'زمان‌بندی با موفقیت لغو شد' : (res.error || 'خطا در لغو'),
+          outputSummaryEn: res.success ? 'Scheduled action cancelled' : (res.error || 'Failed to cancel'),
+        });
 
         if (res.success) {
           undockModal(`power-${singleServer.id}`);

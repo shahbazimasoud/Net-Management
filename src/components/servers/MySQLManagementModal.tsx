@@ -110,6 +110,7 @@ import {
   setRemoteServerMysqlEventSchedulerStatus,
   alterRemoteServerMysqlEventStatus,
 } from '../../services/api';
+import { logServerCommandEvent } from '../../services/auditLogger';
 import { MysqlTableRowEditModal, MysqlRowModalColumn } from './MysqlTableRowEditModal';
 import {
   MysqlTableStructureModal,
@@ -359,6 +360,7 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
   const runTestConnection = useCallback(async () => {
     if (!server) return;
     setIsTesting(true);
+    const startTime = Date.now();
     try {
       const res = await testRemoteServerMysqlConnection(server.id);
       setTestResult(res);
@@ -375,6 +377,24 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
           return prev;
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'MYSQL',
+        actionName: 'تست ارتباط با پایگاه‌داده MySQL',
+        actionNameEn: 'Test MySQL Database Connection',
+        command: `mysqladmin ping -h ${server.ip} -P ${server.mysql_port || 3306} -u ${server.mysql_user || 'root'}`,
+        parameters: { port: server.mysql_port || 3306, user: server.mysql_user || 'root' },
+        riskLevel: 'low',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'ارتباط برقرار شد' : `وضعیت: ${res.status}`),
+        outputSummaryEn: res.message || (res.success ? 'Connected successfully' : `Status: ${res.status}`),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setTestResult({
         success: false,
@@ -395,6 +415,23 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
           return 'connection';
         }
         return prev;
+      });
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'MYSQL',
+        actionName: 'تست ارتباط با پایگاه‌داده MySQL',
+        actionNameEn: 'Test MySQL Database Connection',
+        command: `mysqladmin ping -h ${server.ip} -P ${server.mysql_port || 3306}`,
+        riskLevel: 'low',
+        status: 'FAILED',
+        outputSummary: err.message || 'خطا در ارتباط با موتور MySQL',
+        outputSummaryEn: err.message || 'MySQL connection error',
+        durationMs: Date.now() - startTime,
       });
     } finally {
       setIsTesting(false);
@@ -912,8 +949,43 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
           });
           loadTableData(dbName, tableName);
           loadTableStructure(dbName, tableName);
+
+          logServerCommandEvent({
+            serverId: server.id,
+            serverName: server.name,
+            serverIp: server.ip,
+            osType: server.os_type || 'linux',
+            channel: '3DOTS_ACTION',
+            actionModule: 'MYSQL',
+            actionName: `حذف سطر از جدول ${tableName}`,
+            actionNameEn: `Delete Row from Table ${tableName}`,
+            command: `DELETE FROM \`${dbName}\`.\`${tableName}\` WHERE ...`,
+            parameters: { database: dbName, table: tableName, primaryKeyValues },
+            riskLevel: 'high',
+            status: 'SUCCESS',
+            outputSummary: res.message || 'سطر با موفقیت حذف شد',
+            outputSummaryEn: res.message || 'Row deleted successfully',
+          });
+
           return { success: true };
         } else {
+          logServerCommandEvent({
+            serverId: server.id,
+            serverName: server.name,
+            serverIp: server.ip,
+            osType: server.os_type || 'linux',
+            channel: '3DOTS_ACTION',
+            actionModule: 'MYSQL',
+            actionName: `حذف سطر از جدول ${tableName}`,
+            actionNameEn: `Delete Row from Table ${tableName}`,
+            command: `DELETE FROM \`${dbName}\`.\`${tableName}\``,
+            parameters: { database: dbName, table: tableName },
+            riskLevel: 'high',
+            status: 'FAILED',
+            outputSummary: res.error || 'خطا در حذف سطر',
+            outputSummaryEn: res.error || 'Failed to delete row',
+          });
+
           return {
             success: false,
             error: isEn ? res.error || 'Failed to delete row' : res.errorFa || res.error || 'خطا در حذف سطر',
@@ -975,8 +1047,41 @@ export const MySQLManagementModal: React.FC<MySQLManagementModalProps> = ({
     setKillingId(processId);
     try {
       await killRemoteServerMysqlProcess(server.id, processId);
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'MYSQL',
+        actionName: `خاتمه دادن به نخ/پروسس دیتابیس MySQL (ID: ${processId})`,
+        actionNameEn: `Kill MySQL Thread / Process (ID: ${processId})`,
+        command: `KILL ${processId}`,
+        parameters: { processId },
+        riskLevel: 'high',
+        status: 'SUCCESS',
+        outputSummary: `دستور KILL ${processId} صادر شد`,
+        outputSummaryEn: `Command KILL ${processId} executed`,
+      });
       await loadProcesslist();
-    } catch {} finally {
+    } catch (err: any) {
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'MYSQL',
+        actionName: `خاتمه دادن به نخ/پروسس دیتابیس MySQL (ID: ${processId})`,
+        actionNameEn: `Kill MySQL Thread / Process (ID: ${processId})`,
+        command: `KILL ${processId}`,
+        parameters: { processId },
+        riskLevel: 'high',
+        status: 'FAILED',
+        outputSummary: err?.message || 'خطا در خاتمه پروسس',
+        outputSummaryEn: err?.message || 'Failed to kill process',
+      });
+    } finally {
       setKillingId(null);
     }
   };

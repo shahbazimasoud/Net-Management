@@ -29,6 +29,7 @@ import {
   LinuxFirewallInfo,
 } from '../../types';
 import { addLinuxFirewallRule, updateLinuxFirewallRule } from '../../services/api';
+import { logServerCommandEvent } from '../../services/auditLogger';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 
 interface LinuxAddFirewallRuleModalProps {
@@ -237,6 +238,7 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
     };
 
     setSaving(true);
+    const startTime = Date.now();
     try {
       let res;
       if (editMode) {
@@ -258,6 +260,28 @@ export const LinuxAddFirewallRuleModal: React.FC<LinuxAddFirewallRuleModalProps>
       } else {
         setError(res.error || (isEn ? 'Failed to apply firewall rule' : 'خطا در ثبت قانون فایروال'));
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'FIREWALL_UFW',
+        actionName: editMode
+          ? `ویرایش قانون فایروال (پورت: ${payload.port || 'Any'} / پروتکل: ${payload.protocol})`
+          : `افزودن قانون فایروال جدید (پورت: ${payload.port || 'Any'} / پروتکل: ${payload.protocol})`,
+        actionNameEn: editMode
+          ? `Update Firewall Rule (Port: ${payload.port || 'Any'} / Protocol: ${payload.protocol})`
+          : `Add New Firewall Rule (Port: ${payload.port || 'Any'} / Protocol: ${payload.protocol})`,
+        command: previewCommand,
+        parameters: { payload, backend, activeZone, editMode },
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.success ? 'قانون فایروال با موفقیت اعمال شد' : res.error,
+        outputSummaryEn: res.success ? 'Firewall rule applied successfully' : res.error,
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setError(err?.message || (isEn ? 'Network error' : 'خطای ارتباط با سرور'));
     } finally {

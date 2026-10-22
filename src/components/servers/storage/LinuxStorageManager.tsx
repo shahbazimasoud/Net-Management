@@ -40,6 +40,7 @@ import {
   createLinuxVolumeGroup,
   addDiskToLinuxVg,
 } from '../../../services/api';
+import { logServerCommandEvent } from '../../../services/auditLogger';
 import { LinuxDiskManageModal } from './LinuxDiskManageModal';
 import { LinuxExtendLvModal } from './LinuxExtendLvModal';
 import { LinuxCreateLvModal } from './LinuxCreateLvModal';
@@ -133,6 +134,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   const handleScanDisks = async () => {
     setScanning(true);
     setScanMessage(null);
+    const startTime = Date.now();
     try {
       const res = await rescanLinuxStorageDisks(server.id);
       if (res.success) {
@@ -148,6 +150,23 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'STORAGE_LVM',
+        actionName: 'اسکن مجدد باس ذخیره‌سازی و دیسک‌های سیستم (SCSI Rescan)',
+        actionNameEn: 'SCSI & Block Storage Bus Rescan',
+        command: 'rescan-scsi-bus.sh && echo 1 > /sys/class/block/...',
+        riskLevel: 'low',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'اسکن دیسک‌ها با موفقیت انجام شد' : res.error),
+        outputSummaryEn: res.message || (res.success ? 'Storage rescan completed' : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setScanMessage({
         text: err?.message || (isEn ? 'Scan request failed' : 'خطا در ارسال درخواست اسکن'),
@@ -162,6 +181,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   const handleFormatAndMount = async (payload: LinuxDiskFormatMountPayload) => {
     setIsOperationLoading(true);
     setActionMessage(null);
+    const startTime = Date.now();
     try {
       const res = await formatAndMountLinuxDisk(server.id, payload);
       if (res.success) {
@@ -178,6 +198,24 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'STORAGE_LVM',
+        actionName: `فرمت پارتیشن ${payload.diskPath} با ${payload.fsType} و مانت روی ${payload.mountPath}`,
+        actionNameEn: `Format Partition ${payload.diskPath} as ${payload.fsType} & Mount to ${payload.mountPath}`,
+        command: `mkfs.${payload.fsType} ${payload.diskPath} && mkdir -p ${payload.mountPath} && mount ${payload.diskPath} ${payload.mountPath}`,
+        parameters: { diskPath: payload.diskPath, fsType: payload.fsType, mountPath: payload.mountPath },
+        riskLevel: 'critical',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'پارتیشن فرمت و مانت شد' : res.error),
+        outputSummaryEn: res.message || (res.success ? 'Partition formatted and mounted' : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setActionMessage({
         text: err?.message || (isEn ? 'Failed to execute disk format.' : 'خطا در اجرای عملیات فرمت.'),
@@ -192,6 +230,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   const handleAddDiskToLvm = async (diskPath: string, targetVg: string) => {
     setIsOperationLoading(true);
     setActionMessage(null);
+    const startTime = Date.now();
     try {
       const res = await addDiskToLinuxVg(server.id, { diskPath, vgName: targetVg });
       if (res.success) {
@@ -208,6 +247,24 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'STORAGE_LVM',
+        actionName: `الحاق دیسک ${diskPath} به گروه حجمی LVM (${targetVg})`,
+        actionNameEn: `Add Disk ${diskPath} to LVM Volume Group (${targetVg})`,
+        command: `pvcreate ${diskPath} && vgextend ${targetVg} ${diskPath}`,
+        parameters: { diskPath, targetVg },
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'دیسک به گروه حجمی اضافه شد' : res.error),
+        outputSummaryEn: res.message || (res.success ? 'Disk added to Volume Group' : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setActionMessage({
         text: err?.message || (isEn ? 'Failed to execute LVM extension.' : 'خطا در الحاق دیسک به گروه حجمی.'),
@@ -227,6 +284,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   }) => {
     setIsOperationLoading(true);
     setActionMessage(null);
+    const startTime = Date.now();
     try {
       const res = await extendLinuxLvVolume(server.id, params);
       if (res.success) {
@@ -243,6 +301,24 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'STORAGE_LVM',
+        actionName: `افزایش حجم منطقی LVM (${params.lvPath}) به میزان ${params.addSize}`,
+        actionNameEn: `Extend Logical Volume (${params.lvPath}) by ${params.addSize}`,
+        command: `lvextend -L +${params.addSize} ${params.lvPath} -r`,
+        parameters: params,
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'حجم منطقی بزرگ‌سازی شد' : res.error),
+        outputSummaryEn: res.message || (res.success ? 'Logical Volume extended' : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setActionMessage({
         text: err?.message || (isEn ? 'Failed to execute LV extension.' : 'خطا در اجرای فرآیند توسعه حجم.'),
@@ -257,6 +333,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   const handleCreateLv = async (payload: LinuxLvmCreatePayload) => {
     setIsOperationLoading(true);
     setActionMessage(null);
+    const startTime = Date.now();
     try {
       const res = await createLinuxLvmVolume(server.id, payload);
       if (res.success) {
@@ -274,6 +351,24 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'STORAGE_LVM',
+        actionName: `ایجاد حجم منطقی جدید LVM (${payload.lvName}) در ${payload.vgName}`,
+        actionNameEn: `Create New Logical Volume (${payload.lvName}) in ${payload.vgName}`,
+        command: `lvcreate -n ${payload.lvName} -L ${payload.size} ${payload.vgName}`,
+        parameters: payload,
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'حجم منطقی جدید ایجاد شد' : res.error),
+        outputSummaryEn: res.message || (res.success ? 'Logical volume created' : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setActionMessage({
         text: err?.message || (isEn ? 'Failed to execute LV creation.' : 'خطا در اجرای فرآیند ساخت حجم.'),
@@ -288,6 +383,7 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
   const handleCreateVg = async (payload: LinuxLvmCreateVgPayload) => {
     setIsOperationLoading(true);
     setActionMessage(null);
+    const startTime = Date.now();
     try {
       const res = await createLinuxVolumeGroup(server.id, payload);
       if (res.success) {
@@ -311,6 +407,24 @@ export const LinuxStorageManager: React.FC<LinuxStorageManagerProps> = ({
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'STORAGE_LVM',
+        actionName: `ایجاد گروه حجمی جدید LVM (${payload.vgName})`,
+        actionNameEn: `Create New Volume Group (${payload.vgName})`,
+        command: `vgcreate ${payload.vgName} ${(payload.selectedDisks || []).join(' ')}`,
+        parameters: payload,
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'گروه حجمی جدید ایجاد شد' : res.error),
+        outputSummaryEn: res.message || (res.success ? 'Volume group created' : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setActionMessage({
         text: err?.message || (isEn ? 'Connection error' : 'خطای ارتباط با سرور'),

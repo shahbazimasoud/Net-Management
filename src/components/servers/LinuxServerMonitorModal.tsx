@@ -66,6 +66,7 @@ import {
   fetchLinuxNetworkStack,
   unmountLinuxFilesystem,
 } from '../../services/api';
+import { logServerCommandEvent } from '../../services/auditLogger';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { ProcessActionModals } from './ProcessActionModals';
 import { LinuxUsersTab } from './LinuxUsersTab';
@@ -360,6 +361,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
   const handleServiceAction = async (serviceName: string, action: 'start' | 'stop' | 'restart' | 'enable' | 'disable') => {
     if (!server) return;
     setServiceActionLoading((prev) => ({ ...prev, [serviceName]: action }));
+    const startTime = Date.now();
     try {
       const res = await controlLinuxServerService(server.id, serviceName, action, ephemeralPassword);
       if (res.success) {
@@ -374,6 +376,24 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'SYSTEM_SERVICES',
+        actionName: `اجرای عملیات ${action} بر روی سرویس سیستمی ${serviceName}`,
+        actionNameEn: `Execute ${action} on System Service ${serviceName}`,
+        command: `systemctl ${action} ${serviceName}`,
+        parameters: { serviceName, action },
+        riskLevel: action === 'stop' || action === 'disable' ? 'high' : action === 'restart' ? 'medium' : 'low',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? `دستور ${action} انجام شد` : res.error),
+        outputSummaryEn: res.message || (res.success ? `Service ${action} succeeded` : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setActionFeedback({
         message: err?.message || (isEn ? 'Network failure while executing service action' : 'خطای شبکه در اجرای دستور سرویس'),
@@ -409,6 +429,7 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
     if (!confirmed) return;
 
     setUnmountingMount(mountPath);
+    const startTime = Date.now();
     try {
       const res = await unmountLinuxFilesystem(server.id, mountPath, false, ephemeralPassword);
       if (res.success) {
@@ -423,6 +444,24 @@ export const LinuxServerMonitorModal: React.FC<LinuxServerMonitorModalProps> = (
           type: 'error',
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'STORAGE_LVM',
+        actionName: `آن‌مانت کردن دیسک یا فایل‌سیستم (${mountPath})`,
+        actionNameEn: `Unmount Filesystem (${mountPath})`,
+        command: `umount ${mountPath}`,
+        parameters: { mountPath },
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.message || (res.success ? 'مسیر با موفقیت آن‌مانت شد' : res.error),
+        outputSummaryEn: res.message || (res.success ? 'Unmounted successfully' : res.error),
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setActionFeedback({
         message: err?.message || (isEn ? 'Failed to unmount filesystem' : 'خطا در ارتباط جهت آن‌مانت'),

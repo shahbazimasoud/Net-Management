@@ -69,6 +69,7 @@ import { ServerExportModal } from './ServerExportModal';
 import { ServerImportModal } from './ServerImportModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
+import { logServerCommandEvent } from '../../services/auditLogger';
 
 export interface RemoteServersViewProps {
   initialFilter?: 'all' | 'linux' | 'windows' | 'tags';
@@ -440,9 +441,34 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   const [exportTargetIds, setExportTargetIds] = useState<Set<string>>(new Set());
 
   const handleOpenExportModal = (targetIds?: Set<string>) => {
-    setExportTargetIds(targetIds || selectedServerIds);
+    const targets = targetIds || selectedServerIds;
+    setExportTargetIds(targets);
     setIsExportModalOpen(true);
     undockModal('modal-server-export');
+
+    if (targets && targets.size === 1) {
+      const targetId = Array.from(targets)[0];
+      const s = servers.find((srv) => srv.id === targetId);
+      if (s) {
+        logServerCommandEvent({
+          serverId: s.id,
+          serverName: s.name,
+          serverIp: s.ip,
+          osType: s.os_type || 'linux',
+          osDistro: s.os_distro,
+          serverEnvironment: s.environment,
+          channel: '3DOTS_ACTION',
+          actionModule: 'GENERAL_FLEET_ACTION',
+          actionName: `دریافت فایل خروجی اطلاعات و تنظیمات سرور "${s.name}"`,
+          actionNameEn: `Export Server Metadata & Configuration: "${s.name}"`,
+          parameters: { serverId: s.id, format: 'json/csv' },
+          riskLevel: 'low',
+          status: 'SUCCESS',
+          outputSummary: `درخواست دریافت خروجی از سرور ${s.name} با موفقیت ثبت شد`,
+          outputSummaryEn: `Export request triggered for server ${s.name}`,
+        });
+      }
+    }
   };
 
   // Server Fleet Import Modal State (Single & Batch with Strict Granular RBAC)
@@ -785,6 +811,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           return;
         }
         await updateRemoteServer(serverToEdit.id, { ...serverData, id: serverToEdit.id });
+        logServerCommandEvent({
+          serverId: serverToEdit.id,
+          serverName: serverData.name || serverToEdit.name,
+          serverIp: serverData.ip || serverToEdit.ip,
+          osType: serverData.os_type || serverToEdit.os_type || 'linux',
+          osDistro: serverData.os_distro || serverToEdit.os_distro,
+          serverEnvironment: serverData.environment || serverToEdit.environment,
+          channel: '3DOTS_ACTION',
+          actionModule: 'GENERAL_FLEET_ACTION',
+          actionName: `ویرایش مشخصات سرور: ${serverData.name || serverToEdit.name}`,
+          actionNameEn: `Update Server Properties: ${serverData.name || serverToEdit.name}`,
+          parameters: { serverId: serverToEdit.id, name: serverData.name, ip: serverData.ip },
+          riskLevel: 'medium',
+          status: 'SUCCESS',
+          outputSummary: 'مشخصات و پارامترهای سرور با موفقیت به‌روزرسانی شد',
+          outputSummaryEn: 'Server parameters & network properties updated successfully',
+        });
       } else {
         if (!canAddRemoteServer) {
           alert(
@@ -813,6 +856,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
             (effectivePolicy as any).targetServerIds = [createdId];
           }
         }
+        logServerCommandEvent({
+          serverId: createdId || `srv-${Date.now()}`,
+          serverName: serverData.name || 'New Server',
+          serverIp: serverData.ip || '',
+          osType: serverData.os_type || 'linux',
+          osDistro: serverData.os_distro,
+          serverEnvironment: serverData.environment,
+          channel: '3DOTS_ACTION',
+          actionModule: 'GENERAL_FLEET_ACTION',
+          actionName: `ثبت و افزودن سرور جدید به ناوگان: ${serverData.name}`,
+          actionNameEn: `Register New Server in Fleet: ${serverData.name}`,
+          parameters: { name: serverData.name, ip: serverData.ip, osType: serverData.os_type },
+          riskLevel: 'medium',
+          status: 'SUCCESS',
+          outputSummary: 'سرور جدید با موفقیت در دیتابیس ناوگان ثبت گردید',
+          outputSummaryEn: 'New server successfully registered in fleet inventory',
+        });
       }
       await loadFleet();
       setIsAddEditModalOpen(false);
@@ -830,6 +890,24 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     }
     try {
       await deleteRemoteServer(serverToDelete.id);
+      logServerCommandEvent({
+        serverId: serverToDelete.id,
+        serverName: serverToDelete.name,
+        serverIp: serverToDelete.ip,
+        osType: serverToDelete.os_type || 'linux',
+        osDistro: serverToDelete.os_distro,
+        serverEnvironment: serverToDelete.environment,
+        channel: '3DOTS_ACTION',
+        actionModule: 'GENERAL_FLEET_ACTION',
+        actionName: `حذف دائمی سرور "${serverToDelete.name}" (${serverToDelete.ip}) از ناوگان شبکه`,
+        actionNameEn: `Delete Server "${serverToDelete.name}" (${serverToDelete.ip}) from Fleet`,
+        command: `delete server node id:${serverToDelete.id}`,
+        parameters: { serverId: serverToDelete.id, name: serverToDelete.name, ip: serverToDelete.ip },
+        riskLevel: 'critical',
+        status: 'SUCCESS',
+        outputSummary: `سرور ${serverToDelete.name} با موفقیت از ناوگان حذف شد`,
+        outputSummaryEn: `Server ${serverToDelete.name} removed from fleet inventory`,
+      });
       await loadFleet();
       setSelectedServerIds((prev) => {
         const next = new Set(prev);
@@ -868,6 +946,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (!isServerActionAllowed(server, 'server_management', effectivePolicy)) {
       return;
     }
+    logServerCommandEvent({
+      serverId: server.id,
+      serverName: server.name,
+      serverIp: server.ip,
+      osType: 'linux',
+      osDistro: server.os_distro,
+      serverEnvironment: server.environment,
+      channel: '3DOTS_ACTION',
+      actionModule: 'MONITORING_WATCHDOG',
+      actionName: 'مشاهده داشبورد مدیریت و مانیتورینگ زنده سرور',
+      actionNameEn: 'Open Server Management & Live Telemetry',
+      riskLevel: 'low',
+      status: 'SUCCESS',
+      outputSummary: 'دسترسی به داشبورد منابع، وضعیت سخت‌افزار، سنسورها و سرویس‌ها',
+      outputSummaryEn: 'Accessed hardware metrics, live sensors, services & telemetry overview',
+    });
     setMonitorServer(server);
     setIsMonitorModalOpen(true);
     undockModal(`linux_mon_${server.id}`);
@@ -879,6 +973,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (!isServerActionAllowed(server, 'file_explorer', effectivePolicy)) {
       return;
     }
+    logServerCommandEvent({
+      serverId: server.id,
+      serverName: server.name,
+      serverIp: server.ip,
+      osType: 'linux',
+      osDistro: server.os_distro,
+      serverEnvironment: server.environment,
+      channel: '3DOTS_ACTION',
+      actionModule: 'FILE_EXPLORER',
+      actionName: 'باز کردن کاوشگر فایل SFTP سرور',
+      actionNameEn: 'Open SFTP File Explorer',
+      riskLevel: 'low',
+      status: 'SUCCESS',
+      outputSummary: 'ورود به مدیریت فایل، درخت دایرکتوری و ناوبری سیستمی',
+      outputSummaryEn: 'Opened remote SFTP file manager and directory hierarchy',
+    });
     setFileExplorerServer(server);
     setIsFileExplorerModalOpen(true);
     undockModal(`linux_fs_${server.id}`);
@@ -890,6 +1000,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (!isServerActionAllowed(server, 'web_management', effectivePolicy)) {
       return;
     }
+    logServerCommandEvent({
+      serverId: server.id,
+      serverName: server.name,
+      serverIp: server.ip,
+      osType: 'linux',
+      osDistro: server.os_distro,
+      serverEnvironment: server.environment,
+      channel: '3DOTS_ACTION',
+      actionModule: 'NGINX_MANAGEMENT',
+      actionName: 'ورود به پنل مدیریت وب‌سرور Nginx',
+      actionNameEn: 'Open Nginx Web Server Management',
+      riskLevel: 'low',
+      status: 'SUCCESS',
+      outputSummary: 'مشاهده هاست‌های مجازی، پروکسی معکوس و وضعیت سرویس Nginx',
+      outputSummaryEn: 'Opened Nginx virtual hosts, reverse proxies and service overview',
+    });
     setNginxModalServer(server);
     setIsNginxModalOpen(true);
     undockModal(`nginx_mgmt_${server.id}`);
@@ -901,6 +1027,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (!isServerActionAllowed(server, 'web_management', effectivePolicy)) {
       return;
     }
+    logServerCommandEvent({
+      serverId: server.id,
+      serverName: server.name,
+      serverIp: server.ip,
+      osType: 'linux',
+      osDistro: server.os_distro,
+      serverEnvironment: server.environment,
+      channel: '3DOTS_ACTION',
+      actionModule: 'APACHE_MANAGEMENT',
+      actionName: 'ورود به پنل مدیریت وب‌سرور Apache',
+      actionNameEn: 'Open Apache Web Server Management',
+      riskLevel: 'low',
+      status: 'SUCCESS',
+      outputSummary: 'مشاهده هاست‌های مجازی، ماژول‌ها و وضعیت سرویس Apache',
+      outputSummaryEn: 'Opened Apache VirtualHosts, modules, and service topology',
+    });
     setApacheModalServer(server);
     setIsApacheModalOpen(true);
     undockModal(`apache_mgmt_${server.id}`);
@@ -912,6 +1054,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (!isServerActionAllowed(server, 'database_management', effectivePolicy)) {
       return;
     }
+    logServerCommandEvent({
+      serverId: server.id,
+      serverName: server.name,
+      serverIp: server.ip,
+      osType: server.os_type || 'linux',
+      osDistro: server.os_distro,
+      serverEnvironment: server.environment,
+      channel: '3DOTS_ACTION',
+      actionModule: 'POSTGRESQL_MANAGEMENT',
+      actionName: 'ورود به پنل مدیریت پایگاه داده PostgreSQL',
+      actionNameEn: 'Open PostgreSQL Management',
+      riskLevel: 'low',
+      status: 'SUCCESS',
+      outputSummary: 'مشاهده پایگاه‌های داده، سشن‌ها، لاگ‌ها و وضعیت انژین PostgreSQL',
+      outputSummaryEn: 'Opened PostgreSQL databases, sessions, logs and engine status',
+    });
     setPostgresModalServer(server);
     setIsPostgresModalOpen(true);
     undockModal(`postgres_mgmt_${server.id}`);
@@ -923,6 +1081,22 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
     if (!isServerActionAllowed(server, 'database_management', effectivePolicy)) {
       return;
     }
+    logServerCommandEvent({
+      serverId: server.id,
+      serverName: server.name,
+      serverIp: server.ip,
+      osType: server.os_type || 'linux',
+      osDistro: server.os_distro,
+      serverEnvironment: server.environment,
+      channel: '3DOTS_ACTION',
+      actionModule: 'MYSQL_MANAGEMENT',
+      actionName: 'ورود به پنل مدیریت پایگاه داده MySQL',
+      actionNameEn: 'Open MySQL Management',
+      riskLevel: 'low',
+      status: 'SUCCESS',
+      outputSummary: 'مشاهده پایگاه‌های داده، جداول و وضعیت انژین MySQL',
+      outputSummaryEn: 'Opened MySQL databases, tables and engine status',
+    });
     setMysqlModalServer(server);
     setIsMysqlModalOpen(true);
     undockModal(`mysql_mgmt_${server.id}`);
@@ -1043,7 +1217,34 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
         },
       }));
       syncServerKeepaliveMetrics(serverId, res);
-    } catch {
+
+      const targetServer = servers.find((s) => s.id === serverId);
+      if (targetServer) {
+        logServerCommandEvent({
+          serverId: targetServer.id,
+          serverName: targetServer.name,
+          serverIp: targetServer.ip,
+          osType: targetServer.os_type || 'linux',
+          osDistro: targetServer.os_distro,
+          serverEnvironment: targetServer.environment,
+          channel: '3DOTS_ACTION',
+          actionModule: 'MONITORING_WATCHDOG',
+          actionName: 'تست وضعیت پینگ و تاخیر سرور (ICMP / Port Check)',
+          actionNameEn: 'Server Reachability & Ping Check',
+          command: `ping -c 3 ${targetServer.ip}`,
+          parameters: { host: targetServer.ip, port: targetServer.ssh_port || targetServer.win_port || 22 },
+          riskLevel: 'low',
+          status: res.reachable ? 'SUCCESS' : 'FAILED',
+          outputSummary: res.reachable
+            ? `پینگ سرور با موفقیت برقرار شد (${res.latency_ms || 0}ms)`
+            : `پاسخی از سرور دریافت نشد: ${res.error || 'Timeout'}`,
+          outputSummaryEn: res.reachable
+            ? `Server reachable (Latency: ${res.latency_ms || 0}ms)`
+            : `Server unreachable: ${res.error || 'Connection timed out'}`,
+          durationMs: res.latency_ms || 0,
+        });
+      }
+    } catch (err: any) {
       setReachabilityCache((prev) => ({
         ...prev,
         [serverId]: {
@@ -1052,6 +1253,23 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
           testing: false,
         },
       }));
+      const targetServer = servers.find((s) => s.id === serverId);
+      if (targetServer) {
+        logServerCommandEvent({
+          serverId: targetServer.id,
+          serverName: targetServer.name,
+          serverIp: targetServer.ip,
+          osType: targetServer.os_type || 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'MONITORING_WATCHDOG',
+          actionName: 'تست وضعیت پینگ و تاخیر سرور (خطا)',
+          actionNameEn: 'Server Reachability & Ping Check (Error)',
+          riskLevel: 'low',
+          status: 'FAILED',
+          outputSummary: err?.message || 'خطای شبکه در تست پینگ',
+          outputSummaryEn: err?.message || 'Network error during ping test',
+        });
+      }
     }
   };
 

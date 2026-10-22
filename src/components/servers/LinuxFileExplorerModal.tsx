@@ -73,6 +73,7 @@ import {
   extractLinuxRemoteArchive,
 } from '../../services/api';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { logServerCommandEvent } from '../../services/auditLogger';
 
 function isArchiveItem(item?: LinuxFsItem | null): boolean {
   if (!item || item.type !== 'file') return false;
@@ -557,6 +558,27 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     }
 
     const destPath = uploadModal.targetPath || currentPath;
+    if (uploadedCount > 0) {
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'FILE_EXPLORER',
+        actionName: `آپلود ${uploadedCount} فایل در مسیر ${destPath}`,
+        actionNameEn: `Upload ${uploadedCount} file(s) to ${destPath}`,
+        parameters: {
+          destPath,
+          uploadedCount,
+          files: uploadModal.selectedFiles.slice(0, 10).map((f) => ({ name: f.name, size: f.size })),
+        },
+        riskLevel: 'medium',
+        status: 'SUCCESS',
+        outputSummary: `آپلود ${uploadedCount} فایل با موفقیت در مسیر ${destPath} انجام شد`,
+        outputSummaryEn: `Successfully uploaded ${uploadedCount} file(s) to ${destPath}`,
+      });
+    }
     setUploadModal({
       isOpen: false,
       targetPath: '',
@@ -777,12 +799,49 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
             data: res.properties!,
           }));
         }
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `تغییر دسترسی و مالکیت فایل: ${targetPath}`,
+          actionNameEn: `Update File Permissions & Ownership: ${targetPath}`,
+          command: `chmod ${permEdit.octal} "${targetPath}" && chown ${permEdit.owner || ''}:${permEdit.group || ''} "${targetPath}"`,
+          parameters: {
+            path: targetPath,
+            octal: permEdit.octal,
+            owner: permEdit.owner,
+            group: permEdit.group,
+            recursive: permEdit.recursive,
+          },
+          riskLevel: 'high',
+          status: 'SUCCESS',
+          outputSummary: `مجوز به ${permEdit.octal} و مالک به ${permEdit.owner || '-'}:${permEdit.group || '-'} تغییر یافت`,
+          outputSummaryEn: `Permissions set to ${permEdit.octal}, owner:group ${permEdit.owner || '-'}:${permEdit.group || '-'}`,
+        });
         // Refresh directory listing so the file list immediately reflects new permissions
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
         setAttributeSaveError(
           res.error || (isEn ? 'Failed to update attributes' : 'خطا در اعمال تغییرات دسترسی و مالکیت')
         );
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در تغییر دسترسی فایل: ${targetPath}`,
+          actionNameEn: `Failed to Update Permissions: ${targetPath}`,
+          parameters: { path: targetPath, octal: permEdit.octal },
+          riskLevel: 'high',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در اعمال مجوزها',
+          outputSummaryEn: res.error || 'Failed to update permissions',
+        });
       }
     } catch (err: any) {
       setAttributeSaveError(err?.message || (isEn ? 'Connection error' : 'خطای ارتباط با سرور'));
@@ -824,9 +883,39 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       if (!res.success) {
         setDownloadNotice(res.error || (isEn ? 'Download failed' : 'خطا در دانلود'));
         setTimeout(() => setDownloadNotice(null), 4000);
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در دانلود فایل: ${paths.slice(0, 3).join(', ')}`,
+          actionNameEn: `Failed to Download File(s)`,
+          parameters: { paths },
+          riskLevel: 'low',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در فرآیند دانلود',
+          outputSummaryEn: res.error || 'Download failed',
+        });
       } else {
         setDownloadNotice(isEn ? 'Download started' : 'دانلود با موفقیت آغاز شد');
         setTimeout(() => setDownloadNotice(null), 2500);
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `دانلود ${paths.length} فایل از سرور`,
+          actionNameEn: `Download ${paths.length} File(s) from Server`,
+          parameters: { paths, count: paths.length, forceArchive: forceArchive || paths.length > 1 },
+          riskLevel: 'low',
+          status: 'SUCCESS',
+          outputSummary: `دانلود فایل‌های ${paths.slice(0, 3).join(', ')} با موفقیت شروع شد`,
+          outputSummaryEn: `Download started for ${paths.slice(0, 3).join(', ')}`,
+        });
       }
     } catch (err: any) {
       setDownloadNotice(err?.message || (isEn ? 'Download error' : 'خطا در دانلود'));
@@ -1037,12 +1126,43 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
           message: res.error || (isEn ? 'Failed to paste items' : 'خطا در عملیات چسباندن آیتم‌ها'),
           type: 'error',
         });
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در ${op === 'cut' ? 'انتقال' : 'کپی'} فایل‌ها در ${targetDirectory}`,
+          actionNameEn: `Failed to ${op === 'cut' ? 'move' : 'copy'} files to ${targetDirectory}`,
+          parameters: { targetDirectory, operation: op, items: clipboard.items.map((i) => i.path) },
+          riskLevel: 'medium',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در عملیات پیست',
+          outputSummaryEn: res.error || 'Paste failed',
+        });
       } else {
         setFeedback({
           message: isEn
             ? `Successfully ${op === 'cut' ? 'moved' : 'copied'} ${res.processedCount || count} item(s) to ${targetDirectory}`
             : `${res.processedCount || count} مورد با موفقیت به ${targetDirectory} ${op === 'cut' ? 'منتقل شد' : 'کپی شد'}`,
           type: 'success',
+        });
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `${op === 'cut' ? 'انتقال (Move)' : 'کپی (Copy)'} ${res.processedCount || count} فایل به ${targetDirectory}`,
+          actionNameEn: `${op === 'cut' ? 'Move' : 'Copy'} ${res.processedCount || count} file(s) to ${targetDirectory}`,
+          command: op === 'cut' ? `mv [${count} items] "${targetDirectory}"` : `cp -r [${count} items] "${targetDirectory}"`,
+          parameters: { targetDirectory, operation: op, count: res.processedCount || count },
+          riskLevel: op === 'cut' ? 'high' : 'medium',
+          status: 'SUCCESS',
+          outputSummary: `${res.processedCount || count} آیتم با موفقیت به ${targetDirectory} ${op === 'cut' ? 'انتقال یافت' : 'کپی شد'}`,
+          outputSummaryEn: `Successfully ${op === 'cut' ? 'moved' : 'copied'} ${res.processedCount || count} item(s) to ${targetDirectory}`,
         });
         if (op === 'cut') {
           setClipboard(null);
@@ -1131,6 +1251,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     try {
       const res = await createLinuxRemoteDirectory(server.id, targetDir, ephemeralPassword);
       if (res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `ایجاد پوشه جدید: ${targetDir}`,
+          actionNameEn: `Create New Directory: ${targetDir}`,
+          command: `mkdir -p "${targetDir}"`,
+          parameters: { targetDir, name: newDirDialog.name.trim() },
+          riskLevel: 'low',
+          status: 'SUCCESS',
+          outputSummary: `پوشه ${targetDir} با موفقیت ایجاد شد`,
+          outputSummaryEn: `Directory created: ${targetDir}`,
+        });
         setNewDirDialog({ isOpen: false, name: '', loading: false, error: null });
         showToast(
           isEn ? `Directory created: ${newDirDialog.name.trim()}` : `پوشه جدید ایجاد شد: ${newDirDialog.name.trim()}`,
@@ -1138,6 +1274,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         );
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در ایجاد پوشه: ${targetDir}`,
+          actionNameEn: `Failed to Create Directory: ${targetDir}`,
+          command: `mkdir -p "${targetDir}"`,
+          parameters: { targetDir },
+          riskLevel: 'low',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در ایجاد پوشه',
+          outputSummaryEn: res.error || 'Failed to create directory',
+        });
         setNewDirDialog((prev) => ({ ...prev, loading: false, error: res.error || 'Failed to create directory' }));
       }
     } catch (err: any) {
@@ -1159,6 +1311,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     try {
       const res = await createLinuxRemoteEmptyFile(server.id, targetFile, ephemeralPassword);
       if (res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `ایجاد فایل خالی جدید: ${targetFile}`,
+          actionNameEn: `Create New File: ${targetFile}`,
+          command: `touch "${targetFile}"`,
+          parameters: { targetFile, name: newFileDialog.name.trim() },
+          riskLevel: 'low',
+          status: 'SUCCESS',
+          outputSummary: `فایل ${targetFile} با موفقیت ساخته شد`,
+          outputSummaryEn: `File created: ${targetFile}`,
+        });
         setNewFileDialog({ isOpen: false, name: '', loading: false, error: null });
         showToast(
           isEn ? `File created: ${newFileDialog.name.trim()}` : `فایل جدید ایجاد شد: ${newFileDialog.name.trim()}`,
@@ -1166,6 +1334,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         );
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در ایجاد فایل: ${targetFile}`,
+          actionNameEn: `Failed to Create File: ${targetFile}`,
+          command: `touch "${targetFile}"`,
+          parameters: { targetFile },
+          riskLevel: 'low',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در ایجاد فایل',
+          outputSummaryEn: res.error || 'Failed to create file',
+        });
         setNewFileDialog((prev) => ({ ...prev, loading: false, error: res.error || 'Failed to create file' }));
       }
     } catch (err: any) {
@@ -1186,6 +1370,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
     try {
       const res = await renameLinuxRemoteItem(server.id, oldPath, newPath, ephemeralPassword);
       if (res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `تغییر نام آیتم: ${oldPath} -> ${newPath}`,
+          actionNameEn: `Rename Item: ${oldPath} -> ${newPath}`,
+          command: `mv "${oldPath}" "${newPath}"`,
+          parameters: { oldPath, newPath },
+          riskLevel: 'medium',
+          status: 'SUCCESS',
+          outputSummary: `آیتم با موفقیت تغییر نام یافت به ${newPath}`,
+          outputSummaryEn: `Renamed to ${newPath}`,
+        });
         setRenameDialog({ isOpen: false, item: null, newName: '', loading: false, error: null });
         showToast(
           isEn ? `Renamed to ${renameDialog.newName.trim()}` : `با موفقیت تغییر نام یافت`,
@@ -1193,6 +1393,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         );
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در تغییر نام: ${oldPath} -> ${newPath}`,
+          actionNameEn: `Failed to Rename Item: ${oldPath} -> ${newPath}`,
+          command: `mv "${oldPath}" "${newPath}"`,
+          parameters: { oldPath, newPath },
+          riskLevel: 'medium',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در تغییر نام',
+          outputSummaryEn: res.error || 'Rename failed',
+        });
         setRenameDialog((prev) => ({ ...prev, loading: false, error: res.error || 'Failed to rename' }));
       }
     } catch (err: any) {
@@ -1223,6 +1439,24 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
             : isEn
             ? `Successfully deleted ${count} items`
             : `${count} مورد با موفقیت حذف شدند`;
+
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `حذف ${count} فایل/پوشه از سرور: ${pathsToDelete.slice(0, 3).join(', ')}${pathsToDelete.length > 3 ? '...' : ''}`,
+          actionNameEn: `Delete ${count} Item(s) from Server: ${pathsToDelete.slice(0, 3).join(', ')}`,
+          command: `rm ${deleteDialog.isRecursive ? '-rf' : '-f'} ${pathsToDelete.join(' ')}`,
+          parameters: { paths: pathsToDelete, recursive: deleteDialog.isRecursive, count },
+          riskLevel: 'critical',
+          status: 'SUCCESS',
+          outputSummary: `تعداد ${count} آیتم با موفقیت حذف شدند`,
+          outputSummaryEn: `Successfully deleted ${count} items`,
+        });
+
         setDeleteDialog({
           isOpen: false,
           items: [],
@@ -1235,6 +1469,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         showToast(msg, 'info');
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در حذف فایل/پوشه: ${pathsToDelete.slice(0, 3).join(', ')}`,
+          actionNameEn: `Failed to Delete Item(s)`,
+          command: `rm ${deleteDialog.isRecursive ? '-rf' : '-f'} ${pathsToDelete.join(' ')}`,
+          parameters: { paths: pathsToDelete, recursive: deleteDialog.isRecursive },
+          riskLevel: 'critical',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در حذف فایل‌ها',
+          outputSummaryEn: res.error || 'Failed to delete items',
+        });
         setDeleteDialog((prev) => ({
           ...prev,
           loading: false,
@@ -1302,6 +1552,26 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         const createdName = res.archivePath
           ? res.archivePath.split('/').pop()
           : `${compressModal.archiveName}.${compressModal.format}`;
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `فشرده‌سازی ${compressModal.items.length} آیتم در آرشیو ${createdName}`,
+          actionNameEn: `Compress ${compressModal.items.length} item(s) to ${createdName}`,
+          parameters: {
+            archiveName: createdName,
+            format: compressModal.format,
+            items: compressModal.items.map((it) => it.path),
+            destinationDir: compressModal.destinationDir,
+          },
+          riskLevel: 'medium',
+          status: 'SUCCESS',
+          outputSummary: `آرشیو ${createdName} با موفقیت ساخته شد (${res.sizeHuman || ''})`,
+          outputSummaryEn: `Archive ${createdName} created successfully (${res.sizeHuman || ''})`,
+        });
         setCompressModal(null);
         showToast(
           isEn
@@ -1311,6 +1581,21 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         );
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در فشرده‌سازی فایل‌ها`,
+          actionNameEn: `Failed to Compress Archive`,
+          parameters: { archiveName: compressModal.archiveName, format: compressModal.format },
+          riskLevel: 'medium',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در عملیات فشرده‌سازی',
+          outputSummaryEn: res.error || 'Failed to compress archive',
+        });
         setCompressModal((prev) => (prev ? { ...prev, loading: false, error: res.error || 'Failed to compress' } : null));
       }
     } catch (err: any) {
@@ -1355,6 +1640,21 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
       });
 
       if (res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `استخراج سریع آرشیو: ${item.name}`,
+          actionNameEn: `Quick Extract Archive: ${item.name}`,
+          parameters: { archivePath: item.path, destinationDir: currentPath },
+          riskLevel: 'medium',
+          status: 'SUCCESS',
+          outputSummary: `آرشیو ${item.name} در ${res.extractedTo || currentPath} استخراج شد`,
+          outputSummaryEn: `Extracted ${item.name} into ${res.extractedTo || currentPath}`,
+        });
         showToast(
           isEn
             ? `Extracted successfully into "${res.extractedTo || currentPath}"`
@@ -1363,6 +1663,21 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         );
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در استخراج آرشیو: ${item.name}`,
+          actionNameEn: `Failed to Extract Archive: ${item.name}`,
+          parameters: { archivePath: item.path },
+          riskLevel: 'medium',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در استخراج آرشیو',
+          outputSummaryEn: res.error || 'Failed to extract archive',
+        });
         showToast(res.error || (isEn ? 'Failed to extract archive' : 'خطا در استخراج فایل فشرده'), 'error');
       }
     } catch (err: any) {
@@ -1387,6 +1702,25 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
 
       if (res.success) {
         const dest = res.extractedTo || extractModal.destinationDir || currentPath;
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `استخراج آرشیو ${extractModal.item.name} در ${dest}`,
+          actionNameEn: `Extract Archive ${extractModal.item.name} into ${dest}`,
+          parameters: {
+            archive: extractModal.item.path,
+            destination: dest,
+            deleteArchive: extractModal.deleteArchiveAfterExtract,
+          },
+          riskLevel: 'medium',
+          status: 'SUCCESS',
+          outputSummary: `آرشیو با موفقیت در مسیر ${dest} استخراج شد`,
+          outputSummaryEn: `Extracted successfully into ${dest}`,
+        });
         setExtractModal(null);
         showToast(
           isEn
@@ -1396,7 +1730,22 @@ export const LinuxFileExplorerModal: React.FC<LinuxFileExplorerModalProps> = ({
         );
         loadDirectory(currentPath, ephemeralPassword, false);
       } else {
-        setExtractModal((prev) => (prev ? { ...prev, loading: false, error: res.error || 'Failed to extract' } : null));
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'FILE_EXPLORER',
+          actionName: `خطا در استخراج آرشیو ${extractModal.item.name}`,
+          actionNameEn: `Failed to Extract Archive ${extractModal.item.name}`,
+          parameters: { archive: extractModal.item.path },
+          riskLevel: 'medium',
+          status: 'FAILED',
+          outputSummary: res.error || 'خطا در استخراج',
+          outputSummaryEn: res.error || 'Extract failed',
+        });
+        setExtractModal((prev) => (prev ? { ...prev, loading: false, error: res.error || 'Failed to extract archive' } : null));
       }
     } catch (err: any) {
       setExtractModal((prev) => (prev ? { ...prev, loading: false, error: err?.message || 'Connection error' } : null));

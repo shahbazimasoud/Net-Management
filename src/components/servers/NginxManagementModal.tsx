@@ -104,6 +104,7 @@ import {
 import { NginxSiteWizardModal } from './NginxSiteWizardModal';
 import { NginxSafeEditorModal } from './NginxSafeEditorModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
+import { logServerCommandEvent } from '../../services/auditLogger';
 
 export interface NginxManagementModalProps {
   isOpen: boolean;
@@ -189,17 +190,50 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
   const handleToggleSite = async (site: NginxServerBlock) => {
     if (!server || !site.definedInFile) return;
     setTogglingSitePath(site.definedInFile);
+    const newStatus = !site.isEnabled;
     try {
       const res = await toggleNginxSite(
         server.id,
         site.definedInFile,
-        !site.isEnabled,
+        newStatus,
         sessionPassword || server.ssh_password
       );
       if (res && res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          osDistro: server.os_distro,
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: `${newStatus ? 'فعال‌سازی' : 'غیرفعال‌سازی'} سایت Nginx: ${site.primaryDomain}`,
+          actionNameEn: `${newStatus ? 'Enable' : 'Disable'} Nginx Virtual Host: ${site.primaryDomain}`,
+          command: newStatus ? `ln -sf "${site.definedInFile}" /etc/nginx/sites-enabled/ && nginx -s reload` : `rm -f /etc/nginx/sites-enabled/${site.definedInFile.split('/').pop()} && nginx -s reload`,
+          parameters: { file: site.definedInFile, enabled: newStatus, domain: site.primaryDomain },
+          riskLevel: 'high',
+          status: 'SUCCESS',
+          outputSummary: `هاست مجازی ${site.primaryDomain} با موفقیت ${newStatus ? 'فعال' : 'غیرفعال'} شد`,
+          outputSummaryEn: `Virtual host ${site.primaryDomain} ${newStatus ? 'enabled' : 'disabled'} successfully`,
+        });
         await fetchSites();
         await fetchConfigTree();
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: `خطا در تغییر وضعیت سایت Nginx: ${site.primaryDomain}`,
+          actionNameEn: `Failed to toggle Nginx site: ${site.primaryDomain}`,
+          parameters: { file: site.definedInFile, newStatus },
+          riskLevel: 'high',
+          status: 'FAILED',
+          outputSummary: res?.error || res?.message || 'خطا در تغییر وضعیت سایت',
+          outputSummaryEn: res?.error || res?.message || 'Failed to toggle site',
+        });
         alert(res?.error || res?.message || 'Failed to toggle site status');
       }
     } catch (err: any) {
@@ -224,12 +258,44 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
         sessionPassword || server.ssh_password
       );
       if (res && res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          osDistro: server.os_distro,
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: `حذف دائمی هاست مجازی Nginx: ${site.primaryDomain} (${site.definedInFile})`,
+          actionNameEn: `Delete Nginx Virtual Host: ${site.primaryDomain} (${site.definedInFile})`,
+          command: `rm -f "${site.definedInFile}" && nginx -s reload`,
+          parameters: { file: site.definedInFile, domain: site.primaryDomain },
+          riskLevel: 'critical',
+          status: 'SUCCESS',
+          outputSummary: `هاست مجازی ${site.primaryDomain} با موفقیت حذف گردید`,
+          outputSummaryEn: `Virtual host ${site.primaryDomain} deleted successfully`,
+        });
         if (selectedSite?.id === site.id) {
           setSelectedSite(null);
         }
         await fetchSites();
         await fetchConfigTree();
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: `خطا در حذف هاست مجازی Nginx: ${site.primaryDomain}`,
+          actionNameEn: `Failed to delete Nginx site: ${site.primaryDomain}`,
+          parameters: { file: site.definedInFile },
+          riskLevel: 'critical',
+          status: 'FAILED',
+          outputSummary: res?.error || res?.message || 'خطا در حذف هاست مجازی',
+          outputSummaryEn: res?.error || res?.message || 'Failed to delete site',
+        });
         alert(res?.error || res?.message || 'Failed to delete site configuration');
       }
     } catch (err: any) {
@@ -530,6 +596,23 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       );
 
       if (res && res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          osDistro: server.os_distro,
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: 'استقرار پیکربندی سخت‌سازی امنیتی Nginx (Security Hardening)',
+          actionNameEn: 'Deploy Nginx Security Hardening Configuration',
+          command: 'apply security-hardening.conf && nginx -t && systemctl reload nginx',
+          parameters: { targetPath: res.filePath, backupCreated: res.backupCreated },
+          riskLevel: 'high',
+          status: 'SUCCESS',
+          outputSummary: 'سخت‌سازی امنیتی با موفقیت مستقر و وب‌سرور ریلود شد',
+          outputSummaryEn: 'Security hardening deployed successfully and Nginx reloaded',
+        });
         setActionFeedback({
           type: 'success',
           message: isEn
@@ -543,6 +626,20 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
         await fetchConfigTree();
         await fetchDiscovery();
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: 'خطا در استقرار سخت‌سازی امنیتی Nginx (Rollback انجام شد)',
+          actionNameEn: 'Failed to deploy Nginx security hardening (Rollback executed)',
+          riskLevel: 'high',
+          status: 'FAILED',
+          outputSummary: res?.syntaxOutput || res?.error || 'خطا در تست سینتکس',
+          outputSummaryEn: res?.syntaxOutput || res?.error || 'Syntax verification failed',
+        });
         setActionFeedback({
           type: 'error',
           message: isEn
@@ -671,6 +768,23 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
       );
 
       if (res && res.success) {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          osDistro: server.os_distro,
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: `اجرای دستور ${action} روی سرویس Nginx (${svcName})`,
+          actionNameEn: `Execute ${action} on Nginx Service (${svcName})`,
+          command: `systemctl ${action} ${svcName}`,
+          parameters: { service: svcName, action },
+          riskLevel: action === 'stop' ? 'high' : 'medium',
+          status: 'SUCCESS',
+          outputSummary: res.message || `عملیات ${action} با موفقیت انجام شد`,
+          outputSummaryEn: res.message || `Service ${action} completed successfully`,
+        });
         setActionFeedback({
           type: 'success',
           message: isEn
@@ -682,6 +796,22 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
           fetchDiscovery();
         }, 1200);
       } else {
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: `خطا در اجرای دستور ${action} روی سرویس Nginx (${svcName})`,
+          actionNameEn: `Failed to ${action} Nginx Service (${svcName})`,
+          command: `systemctl ${action} ${svcName}`,
+          parameters: { service: svcName, action },
+          riskLevel: action === 'stop' ? 'high' : 'medium',
+          status: 'FAILED',
+          outputSummary: res?.error || res?.message || 'خطا در کنترل سرویس',
+          outputSummaryEn: res?.error || res?.message || 'Service control failed',
+        });
         setActionFeedback({
           type: 'error',
           message: isEn
@@ -723,6 +853,21 @@ export const NginxManagementModal: React.FC<NginxManagementModalProps> = ({
 
       if (res && res.output) {
         const isOk = res.output.includes('syntax is ok') && res.output.includes('test is successful');
+        logServerCommandEvent({
+          serverId: server.id,
+          serverName: server.name,
+          serverIp: server.ip,
+          osType: 'linux',
+          channel: '3DOTS_ACTION',
+          actionModule: 'NGINX_MANAGEMENT',
+          actionName: 'تست سینتکس و ارزیابی فایل‌های پیکربندی Nginx (nginx -t)',
+          actionNameEn: 'Test Nginx Syntax & Configuration Integrity (nginx -t)',
+          command: cmd,
+          riskLevel: 'low',
+          status: isOk ? 'SUCCESS' : 'FAILED',
+          outputSummary: isOk ? 'سینتکس کانفیگ معتبر است و آزمون موفق بود' : 'خطای سینتکس در فایل‌های کانفیگ Nginx',
+          outputSummaryEn: isOk ? 'Syntax is OK and test is successful' : 'Nginx syntax check failed',
+        });
         setDiscovery((prev) =>
           prev
             ? {

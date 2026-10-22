@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { RemoteServer, LinuxFirewallInfo, LinuxFirewallRule, LinuxFirewallRulePayload, LinuxListeningPortSummary } from '../../types';
 import { fetchLinuxFirewallInfo, deleteLinuxFirewallRule } from '../../services/api';
+import { logServerCommandEvent } from '../../services/auditLogger';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { LinuxAddFirewallRuleModal } from './LinuxAddFirewallRuleModal';
 
@@ -143,6 +144,7 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
     if (!ruleToDelete || !firewallInfo) return;
     setDeletingRule(true);
     setDeleteError(null);
+    const startTime = Date.now();
     try {
       const res = await deleteLinuxFirewallRule(
         server.id,
@@ -160,6 +162,24 @@ export const LinuxFirewallTab: React.FC<LinuxFirewallTabProps> = ({
       } else {
         setDeleteError(res.error || (isEn ? 'Failed to delete rule' : 'خطا در حذف قانون'));
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'FIREWALL_UFW',
+        actionName: `حذف رول فایروال (پورت: ${ruleToDelete.port || 'Any'} / پروتکل: ${ruleToDelete.protocol})`,
+        actionNameEn: `Delete Firewall Rule (Port: ${ruleToDelete.port || 'Any'} / Protocol: ${ruleToDelete.protocol})`,
+        command: `ufw/firewalld delete rule ${ruleToDelete.ruleNumber || ruleToDelete.id || ruleToDelete.port}`,
+        parameters: { rule: ruleToDelete, activeZone: firewallInfo.activeZone },
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.success ? 'قانون فایروال با موفقیت حذف شد' : res.error,
+        outputSummaryEn: res.success ? 'Firewall rule deleted successfully' : res.error,
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setDeleteError(err?.message || (isEn ? 'Network error' : 'خطای ارتباط با سرور'));
     } finally {

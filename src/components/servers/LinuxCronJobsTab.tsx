@@ -35,6 +35,7 @@ import {
   deleteLinuxCronJob,
   runLinuxCronJobNow,
 } from '../../services/api';
+import { logServerCommandEvent } from '../../services/auditLogger';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { LinuxEditCronModal } from './LinuxEditCronModal';
 import { LinuxCronRunOutputModal } from './LinuxCronRunOutputModal';
@@ -122,6 +123,7 @@ export const LinuxCronJobsTab: React.FC<LinuxCronJobsTabProps> = ({
     }
 
     setActionLoadingId(job.id);
+    const startTime = Date.now();
     try {
       const res = await toggleLinuxCronJob(
         server.id,
@@ -139,6 +141,24 @@ export const LinuxCronJobsTab: React.FC<LinuxCronJobsTabProps> = ({
       } else {
         alert(res.error || res.message);
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'CRON_MANAGER',
+        actionName: job.isEnabled ? `غیرفعال‌سازی کرون‌جاب (${job.command})` : `فعال‌سازی کرون‌جاب (${job.command})`,
+        actionNameEn: job.isEnabled ? `Disable Cron Job (${job.command})` : `Enable Cron Job (${job.command})`,
+        command: `crontab -u ${job.user} (${job.isEnabled ? 'comment' : 'uncomment'})`,
+        parameters: { user: job.user, schedule: job.schedule, command: job.command, newStatus: !job.isEnabled },
+        riskLevel: 'medium',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.success ? (job.isEnabled ? 'کرون‌جاب متوقف شد' : 'کرون‌جاب فعال شد') : res.error,
+        outputSummaryEn: res.success ? (job.isEnabled ? 'Cron job disabled' : 'Cron job enabled') : res.error,
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       alert(err?.message || (isEn ? 'Action failed' : 'عملیات ناموفق بود'));
     } finally {
@@ -152,6 +172,7 @@ export const LinuxCronJobsTab: React.FC<LinuxCronJobsTabProps> = ({
     setRunResult(null);
     setRunLoading(true);
     setIsRunModalOpen(true);
+    const startTime = Date.now();
 
     try {
       const res = await runLinuxCronJobNow(
@@ -172,6 +193,24 @@ export const LinuxCronJobsTab: React.FC<LinuxCronJobsTabProps> = ({
           success: false,
         });
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'CRON_MANAGER',
+        actionName: `اجرای فوری و مستقیم کرون‌جاب (${job.command})`,
+        actionNameEn: `Immediate Run of Cron Job (${job.command})`,
+        command: `su - ${job.user} -c "${job.command}"`,
+        parameters: { user: job.user, command: job.command },
+        riskLevel: 'medium',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.result ? `کد خروجی: ${res.result.exitCode}` : res.error,
+        outputSummaryEn: res.result ? `Exit code: ${res.result.exitCode}` : res.error,
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       setRunResult({
         command: job.command,
@@ -191,6 +230,7 @@ export const LinuxCronJobsTab: React.FC<LinuxCronJobsTabProps> = ({
     if (!deleteConfirmJob) return;
 
     setActionLoadingId(deleteConfirmJob.id);
+    const startTime = Date.now();
     try {
       const res = await deleteLinuxCronJob(
         server.id,
@@ -208,6 +248,24 @@ export const LinuxCronJobsTab: React.FC<LinuxCronJobsTabProps> = ({
       } else {
         alert(res.error || res.message);
       }
+
+      logServerCommandEvent({
+        serverId: server.id,
+        serverName: server.name,
+        serverIp: server.ip,
+        osType: server.os_type || 'linux',
+        channel: '3DOTS_ACTION',
+        actionModule: 'CRON_MANAGER',
+        actionName: `حذف دائم کرون‌جاب (${deleteConfirmJob.command})`,
+        actionNameEn: `Delete Cron Job (${deleteConfirmJob.command})`,
+        command: `crontab -u ${deleteConfirmJob.user} (remove job line)`,
+        parameters: { user: deleteConfirmJob.user, command: deleteConfirmJob.command, schedule: deleteConfirmJob.schedule },
+        riskLevel: 'high',
+        status: res.success ? 'SUCCESS' : 'FAILED',
+        outputSummary: res.success ? 'کرون‌جاب با موفقیت حذف شد' : res.error,
+        outputSummaryEn: res.success ? 'Cron job deleted successfully' : res.error,
+        durationMs: Date.now() - startTime,
+      });
     } catch (err: any) {
       alert(err?.message || (isEn ? 'Deletion failed' : 'حذف جاب ناموفق بود'));
     } finally {
