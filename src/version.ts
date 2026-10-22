@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.369.0';
+export const APP_VERSION = '1.370.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.370.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۴: یکپارچه‌سازی کامل در صفحه تجهیزات، داکینگ در نوار ابزار پایین و انتشار نهایی (E2E Integration & Release)',
+    title_en: 'Phase 4: Device List View Integration, E2E Verification, Native Docking & Production Release',
+    changes: [
+      'یکپارچه‌سازی دکمه اختصاصی کشف در هدر صفحه تجهیزات (DeviceListView): قرار گرفتن دکمه براق و متحرک Discovery در کنار دکمه‌های Import و Add Device مشروط به سطح دسترسی canIntroduceDevice.',
+      'مدیریت هوشمند داکینگ و بازیابی پنجره در نوار ابزار پایین (ToolsDock): پیاده‌سازی متد handleMinimizeDiscovery جهت ذخیره وضعیت فرم و استریم در ToolsDock با نشان Radar و بازگردانی سریع پنجره از نوار داک.',
+      'همگام‌سازی بلادرنگ داده‌های تجهیزات: اتصال رویداد موفقیت ثبت تجهیزات به onRefreshAll جهت بازخوانی آنی و بدون نیاز به رفرش مرورگر در فهرست موجودی تجهیزات شبکه.',
+      'تست‌های انتگرال سرتاسری و اعتبارسنجی عملی (Evidence-based Proof): توسعه و اجرای موفقیت‌آمیز سوئیت تست جامع test_phase4_network_device_discovery_e2e.ts بدون هیچ باگ رگرسیونی در فازهای ۱ تا ۴.',
+      'اعتبارسنجی بیلد و انتشار در گیت: پاس شدن کامل npm run lint (tsc --noEmit) و npm run build، و پوش موفقیت‌آمیز به برنچ master گیتهاب.'
+    ],
+    changes_en: [
+      'Header Toolbar Integration in DeviceListView: prominent glowing Discovery action button featuring pulse radar iconography and strict RBAC enforcement.',
+      'Seamless ToolsDock Minimization & Restoration: native minimization hook wiring with persistent scan state, Radar badge, and instantaneous window restore from bottom dock.',
+      'Instant Inventory Auto-Refresh: wired onDeviceAdded callbacks directly to onRefreshAll, guaranteeing immediate live reflection in the device inventory table without browser reloads.',
+      'Comprehensive E2E Integration Test Suite: engineered and verified test_phase4_network_device_discovery_e2e.ts proving end-to-end functionality across scanner, modal, onboarding, and inventory with zero regression.',
+      'Full TypeScript Verification & Production Release: flawless passing of npm run lint (tsc --noEmit), successful production compilation, and direct push to master.'
+    ]
+  },
   {
     version: '1.369.0',
     releaseDate: '2026-10-22',

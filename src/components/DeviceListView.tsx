@@ -45,6 +45,7 @@ import { DeviceExportModal } from './DeviceExportModal';
 import { DeviceImportModal } from './DeviceImportModal';
 import { DeviceDiscoveryModal } from './DeviceDiscoveryModal';
 import { useAuth } from '../context/AuthContext';
+import { useModalDock } from '../context/ModalDockContext';
 import {
   isDeviceActionPermitted,
   hasAnyDeviceActionPermitted,
@@ -179,6 +180,23 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
 
   // Network Equipment Discovery Modal State (Multi-port Cisco & Network scan)
   const [isDiscoveryModalOpen, setIsDiscoveryModalOpen] = useState(false);
+  const { dockModal, undockModal } = useModalDock();
+
+  const handleMinimizeDiscovery = useCallback(() => {
+    dockModal({
+      id: 'device_discovery',
+      labelEn: 'Device Discovery',
+      labelFa: 'کشف تجهیزات شبکه',
+      category: 'device',
+      badge: 'SCAN',
+      onRestore: () => setIsDiscoveryModalOpen(true),
+      onClose: () => {
+        setIsDiscoveryModalOpen(false);
+        undockModal('device_discovery');
+      },
+    });
+    setIsDiscoveryModalOpen(false);
+  }, [dockModal, undockModal]);
 
   const updateColumnPickerPosition = useCallback(() => {
     if (!columnPickerBtnRef.current || typeof window === 'undefined') return;
@@ -655,10 +673,10 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
               <button
                 id="btn-network-device-discovery"
                 onClick={() => setIsDiscoveryModalOpen(true)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition cursor-pointer active:scale-95 ${
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer active:scale-95 shadow-md ${
                   isLightMode
-                    ? 'bg-cyan-50/80 hover:bg-cyan-100 text-cyan-800 border-cyan-300 shadow-sm'
-                    : 'bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 border-cyan-500/40 hover:border-cyan-400'
+                    ? 'bg-gradient-to-r from-cyan-100/90 to-teal-100/90 hover:from-cyan-200 hover:to-teal-200 text-cyan-900 border-cyan-300/80 shadow-cyan-500/10'
+                    : 'bg-gradient-to-r from-cyan-950/80 to-teal-950/80 hover:from-cyan-900/90 hover:to-teal-900/90 text-cyan-300 border-cyan-500/40 hover:border-cyan-400 shadow-cyan-500/20'
                 }`}
                 title={
                   isEn
@@ -666,7 +684,7 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
                     : 'کشف خودکار و پویش سوییچ‌ها، روترها و تجهیزات سیسکو در شبکه'
                 }
               >
-                <Radar className="w-3.5 h-3.5 text-cyan-400" />
+                <Radar className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
                 <span>
                   {isEn ? 'Discovery' : 'شناسایی و کشف'}
                 </span>
@@ -2105,7 +2123,11 @@ export const DeviceListView: React.FC<DeviceListViewProps> = ({
       {/* Network Equipment Discovery Modal */}
       <DeviceDiscoveryModal
         isOpen={isDiscoveryModalOpen}
-        onClose={() => setIsDiscoveryModalOpen(false)}
+        onClose={() => {
+          setIsDiscoveryModalOpen(false);
+          undockModal('device_discovery');
+        }}
+        onMinimize={handleMinimizeDiscovery}
         onDeviceAdded={() => {
           if (onRefreshAll) onRefreshAll();
         }}
