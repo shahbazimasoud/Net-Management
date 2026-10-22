@@ -140,7 +140,7 @@ export function filterLogsForReport(
       }
 
       // 4. Server Modules filter
-      const actMod = sc.actionModule || sc.action_module || '';
+      const actMod = sc.actionModule || sc.action_module || sc.module || '';
       if (config.selectedServerModules && config.selectedServerModules.length > 0) {
         if (!config.selectedServerModules.includes(actMod)) {
           return false;

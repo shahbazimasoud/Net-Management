@@ -38,6 +38,7 @@ import {
   Database,
   RefreshCw,
   Download,
+  Mail,
 } from 'lucide-react';
 import { ServerCommandAuditLogEntry, CommandRiskLevel, ServerCommandChannel, ServerActionModule } from '../../types';
 
@@ -54,6 +55,7 @@ interface ServerCommandLogsSectionProps {
   isRefreshing: boolean;
   onExportCsv: () => void;
   onClearLogs: () => void;
+  onOpenEmailReport?: () => void;
 }
 
 type ServerGroupMode = 'server' | 'user' | 'timeline';
@@ -71,6 +73,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
   isRefreshing,
   onExportCsv,
   onClearLogs,
+  onOpenEmailReport,
 }) => {
   const [groupMode, setGroupMode] = useState<ServerGroupMode>('server');
   const [searchQuery, setSearchQuery] = useState('');
@@ -651,6 +654,17 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
               className="p-2 rounded-xl bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 border border-rose-500/30 transition cursor-pointer shrink-0"
             >
               <X className="w-4 h-4" />
+            </button>
+          )}
+
+          {onOpenEmailReport && (
+            <button
+              onClick={onOpenEmailReport}
+              className="px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600/30 via-indigo-500/25 to-cyan-500/25 hover:from-indigo-600/50 hover:to-cyan-500/50 active:scale-95 text-indigo-200 hover:text-white border border-indigo-400/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer shrink-0"
+              title={isEn ? 'Create server fleet audit email report schedule' : 'ایجاد گزارش زمان‌بندی ایمیلی ممیزی سرورها'}
+            >
+              <Mail className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">{isEn ? 'Email Report' : 'گزارش ایمیلی'}</span>
             </button>
           )}
         </div>

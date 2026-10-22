@@ -1715,6 +1715,11 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
           isRefreshing={isRefreshing}
           onExportCsv={exportServerCommandLogsAsCsv}
           onClearLogs={() => setIsConfirmPurgeOpen(true)}
+          onOpenEmailReport={() => {
+            setSelectedReportForEdit(null);
+            setModalInitialMode('config');
+            setIsEmailReportModalOpen(true);
+          }}
         />
       )}
 
@@ -2158,6 +2163,13 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
                         <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium flex items-center gap-1">
                           <Terminal className="w-3 h-3" />
                           <span>{isEn ? '+CLI Commands' : '+فرامین CLI'}</span>
+                        </span>
+                      )}
+
+                      {report.includeServerCommands && (
+                        <span className="px-2 py-0.5 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-medium flex items-center gap-1">
+                          <Server className="w-3 h-3 text-amber-400" />
+                          <span>{isEn ? '+Server Fleet' : '+ناوگان سرورها'}</span>
                         </span>
                       )}
 

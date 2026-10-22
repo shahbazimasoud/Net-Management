@@ -590,7 +590,7 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
     return fleetServers.filter((srv) => {
       const name = (srv.name || '').toLowerCase();
       const host = (srv.hostname || '').toLowerCase();
-      const ip = (srv.ip_address || srv.host || '').toLowerCase();
+      const ip = (srv.ip || (srv as any).ip_address || (srv as any).host || '').toLowerCase();
       const os = (srv.os_type || '').toLowerCase();
       return name.includes(term) || host.includes(term) || ip.includes(term) || os.includes(term);
     });
@@ -1646,7 +1646,7 @@ export const AuditEmailReportModal: React.FC<AuditEmailReportModalProps> = ({
                                         <div className="truncate">
                                           <div className="font-bold truncate">{srv.name || srv.hostname || srv.id}</div>
                                           <div className="text-[10px] text-slate-400 font-mono truncate">
-                                            {srv.ip_address || srv.host || 'N/A'}
+                                            {srv.ip || (srv as any).ip_address || (srv as any).host || 'N/A'}
                                           </div>
                                         </div>
                                       </div>

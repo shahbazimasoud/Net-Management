@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.365.0';
+export const APP_VERSION = '1.366.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.366.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۴: یکپارچه‌سازی نهایی ویوهای ممیزی، اتصال بلادرنگ لاگ‌ها و تست جامع گزارش‌گیری ایمیل ناوگان سرورها (E2E Integration & Release)',
+    title_en: 'Phase 4: Server Fleet Audit Email Report E2E View Integration, Live Logs Wiring & Comprehensive Test Suite',
+    changes: [
+      'یکپارچه‌سازی ویوی ممیزی با سیستم ایمیل (AuditLogsView Integration): اتصال کامل استیت زنده serverLogs به مودال گزارش‌گیری ایمیل و افزودن دکمه دسترسی سریع مستقیم از تب «لاگ دستورات و وقایع ناوگان سرورها».',
+      'افزودن نشان وضعیت ناوگان سرورها در کارت‌های گزارش (Server Fleet Badge): نمایش برچسب اختصاصی +Server Fleet در کارت‌های گزارش زمان‌بندی‌شده جهت تفکیک سریع گزارشات پوشش‌دهنده سرورها.',
+      'تست و اعتبارسنجی عملی و تجربی (Evidence-based Proof): طراحی و اجرای موفق اسکریپت تست انتگرال جامع test_phase4_server_fleet_email_report.ts برای صحت‌سنجی فیلتر چندبعدی لاگ‌های سرور، تجمیع دقیق شاخص‌های امنیتی (KPIs)، ساخت خروجی فایل ضمیمه CSV و تولید کامل قالب HTML.',
+      'تضمین قطعی قانون عدم نشت زبان (Rule 4 Zero-Leak Verification): اعتبارسنجی خودکار عدم وجود حتی یک کاراکتر فارسی در حالت خروجی انگلیسی و صحت متون فارسی در حالت فارسی.',
+      'بهبود پایداری دسترسی به آبجکت سرورها: تصحیح فیلدهای آدرس IP و نام هاست با سازگاری منعطف در کامپوننت مودال گزارش‌گیری و رفع هشدارهای تایپ‌اسکریپت.'
+    ],
+    changes_en: [
+      'Seamless View Integration (AuditLogsView & ServerCommandLogsSection): fully wired live serverLogs state to AuditEmailReportModal and introduced a direct quick-access action button in the Server Fleet Activity tab.',
+      'Dedicated Server Fleet Schedule Badges: added visual +Server Fleet indicators to configured report schedule cards for instant recognition of fleet-monitoring schedules.',
+      'Evidence-Based Comprehensive Verification: authored and executed test_phase4_server_fleet_email_report.ts proving end-to-end functionality across log filtering, KPI aggregation, CSV generation, and responsive HTML email rendering.',
+      'Strict Zero-Leak Bilingual Rule 4 Verification: programmatic regex assertion guaranteeing zero Persian characters in English reports, with fluent localized Persian in Persian mode.',
+      'Remote Server Type Safety & Robust Fallback: strengthened IP and hostname property resolution across modal search and fleet lists, ensuring flawless TypeScript builds.'
+    ]
+  },
   {
     version: '1.365.0',
     releaseDate: '2026-10-22',
