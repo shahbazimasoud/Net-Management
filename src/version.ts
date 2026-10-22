@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.364.0';
+export const APP_VERSION = '1.365.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.365.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۳: ارتقای رابط کاربری مودال ممیزی ناوگان سرورها، فیلترهای تخصصی و پیش‌نمایش زنده ایمیل (Server Fleet Audit Modal UI & Live Preview)',
+    title_en: 'Phase 3: Server Fleet Audit Email Report Modal UI, Specialized Fleet Filters & Live HTML Preview',
+    changes: [
+      'سازمان‌دهی تب‌های سه‌گانه پیکربندی (Configuration Sub-Tabs): تفکیک هوشمند تنظیمات به سه بخش «زمان‌بندی و گیرندگان»، «محدوده وقایع پرتال و شبکه» و «ناوگان سرورها و نشست‌های ریموت» برای تجربه کاربری روان.',
+      'افزودن کنترل‌های ممیزی ناوگان سرورها (Server Fleet Audit Scope): کلید سراسری گنجاندن/حذف سرورها و کارت‌های گزینش کانال‌های ارتباطی (ترمینال SSH، ریموت دسکتاپ گرافیکی ویندوز RDP، ریموت VNC، اقدامات منوی ۳ نقطه و فراخوانی‌های API).',
+      'سلکتور دامنه سرورهای ناوگان (Target Server Fleet Picker): انتخاب میان کل ناوگان یا سرورهای حساس با جستجوی چندبعدی نام، IP، و سیستم‌عامل همراه با نشان‌های تفکیک‌شده لینوکس و ویندوز.',
+      'فیلتر ماژول‌های سرور و سطح ریسک: انتخاب ۱۱ ماژول سیستمی (سرویس‌ها، فایروال، کرون‌جاب، دیتابیس، فایل اکسپلورر، پروسس‌ها، امنیت، کاربران، داکر، ریبوت) و فیلتر سطوح ریسک (عادی، پرخطر و بحرانی).',
+      'پیش‌نمایش زنده ایمیل با فریم دسکتاپ و موبایل (Live HTML Email Preview): رندرینگ بلادرنگ درون فریم استاندارد، نمایش عنوان ایمیل، نشان پیوست CSV و کارت‌های شاخص آماری زنده ناوگان.',
+      'انطباق با استانداردهای ۵ گانه مودال: دکمه‌های سه‌گانه کنترلی، مهار کامل بالای فوتر (bottom-8)، پشتیبانی از تم تیره و روشن، رعایت صددرصدی اصل عدم نشت زبان (Rule 4) و تولتیپ‌های سه‌بخشی FieldInfoTooltip با مهار ۴ جهته.'
+    ],
+    changes_en: [
+      'Structured 3-part configuration sub-tabs: organized navigation into Schedule & Recipients, Portal & Network Scope, and Server Fleet & Remote Sessions for streamlined administrative workflow.',
+      'Comprehensive Server Fleet Audit Scope: master switch with granular channel filters (SSH interactive terminal, Windows RDP remote desktop, VNC GUI desktop, 3-dots actions, backend API dispatches).',
+      'Target Server Fleet Picker: flexible scope toggling between entire infrastructure and specific target servers with instant multi-attribute search (name, IP, hostname, OS) and Linux/Windows badges.',
+      'Management Modules & Risk Sensitivity Filters: multi-selection chips covering 11 server subsystems (services, firewall, crontab, databases, file explorer, processes, security, users, docker, power) with tiered risk filtering.',
+      'Live HTML Email Preview with Desktop/Mobile simulation: real-time responsive rendering in iframe viewport, subject line preview, CSV attachment badge, and live KPI summary counters.',
+      'Universal 5-Modal Standards Compliance: triple header controls, bottom-8 strict footer clearance, full dark/light theme ergonomics, strict Rule 4 bilingual separation, and 4-way boundary-safe 3-part info tooltips.'
+    ]
+  },
   {
     version: '1.364.0',
     releaseDate: '2026-10-22',

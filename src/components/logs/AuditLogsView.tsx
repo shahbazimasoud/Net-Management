@@ -2850,6 +2850,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
         }}
         portalLogs={portalLogs}
         commandLogs={commandLogs}
+        serverLogs={serverLogs}
         isLightMode={isLightMode}
         reportToEdit={selectedReportForEdit}
         initialMode={modalInitialMode}
