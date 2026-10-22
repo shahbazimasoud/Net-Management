@@ -517,6 +517,10 @@ import {
   getDiscoveryScanStatus,
   DiscoveryValidationError,
 } from './discoveryEngine';
+import {
+  executeChunkedNetworkDeviceDiscoveryScan,
+  abortNetworkDeviceDiscoveryScan,
+} from './networkDeviceDiscoveryEngine';
 import { testSnmpConnection, fetchCiscoSnmpSystemResources } from './snmpService';
 
 export const apiRouter = Router();
@@ -6244,6 +6248,221 @@ apiRouter.post('/remote-servers/discover/bulk-add', async (req: Request, res: Re
   } catch (err: any) {
     console.error('[Bulk Add Discovered Servers Error]:', err);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// =============================================================
+// NETWORK EQUIPMENT DISCOVERY ENDPOINTS (PHASE 1)
+// =============================================================
+
+// GET /api/devices/discover/stream - Real-time SSE stream for Cisco & Network Equipment discovery
+apiRouter.get('/devices/discover/stream', async (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const scanId = `net-scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  try {
+    const ipRange = (req.query.ipRange as string || '').trim();
+    if (!ipRange) {
+      res.write(`event: error\ndata: ${JSON.stringify({
+        scanId,
+        error: 'Target IP range is required.',
+        errorFa: 'ورود محدوده آی‌پی الزامی است.',
+        requested: 0,
+        limit: MAX_SCAN_IPS,
+      })}\n\n`);
+      return res.end();
+    }
+
+    let parsedRange;
+    try {
+      parsedRange = parseAndValidateIpRange(ipRange, MAX_SCAN_IPS);
+    } catch (valErr: any) {
+      res.write(`event: error\ndata: ${JSON.stringify({
+        scanId,
+        error: valErr.message || 'Invalid IP range specification',
+        errorFa: valErr.errorFa || 'مشخصات رنج آی‌پی نامعتبر است',
+        requested: valErr.requested || 0,
+        limit: valErr.limit || MAX_SCAN_IPS,
+      })}\n\n`);
+      return res.end();
+    }
+
+    // Default network equipment probe ports: SSH (22), Telnet (23), HTTP (80), HTTPS (443)
+    const probePorts = req.query.ports
+      ? (req.query.ports as string)
+          .split(',')
+          .map((p) => parseInt(p, 10))
+          .filter((p) => !isNaN(p) && p > 0 && p <= 65535)
+      : [22, 23, 80, 443];
+
+    const timeout = Math.min(Math.max(Number(req.query.timeoutMs) || DEFAULT_TIMEOUT_MS, 300), 3000);
+    const concurrentLimit = Math.min(Math.max(Number(req.query.concurrency) || DEFAULT_CONCURRENCY, 50), 500);
+    const chunkLimit = Math.max(16, Math.min(Number(req.query.chunkSize) || DEFAULT_CHUNK_SIZE, 1024));
+
+    // Abort scan automatically if client disconnects
+    req.on('close', () => {
+      abortNetworkDeviceDiscoveryScan(scanId);
+    });
+
+    res.write(`event: start\ndata: ${JSON.stringify({
+      scanId,
+      requested: parsedRange.requested,
+      total: parsedRange.total,
+      chunkSize: chunkLimit,
+      concurrency: concurrentLimit,
+      timeoutMs: timeout,
+      ports: probePorts,
+    })}\n\n`);
+
+    const results = await executeChunkedNetworkDeviceDiscoveryScan(scanId, parsedRange, {
+      ports: probePorts.length > 0 ? probePorts : [22, 23, 80, 443],
+      timeoutMs: timeout,
+      concurrency: concurrentLimit,
+      chunkSize: chunkLimit,
+      onProgress: (evt) => {
+        if (!res.writableEnded) {
+          res.write(`event: progress\ndata: ${JSON.stringify(evt)}\n\n`);
+        }
+      },
+      onDeviceFound: (device) => {
+        if (!res.writableEnded) {
+          res.write(`event: host\ndata: ${JSON.stringify({ scanId, device })}\n\n`);
+        }
+      },
+    });
+
+    // Audit log
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || 'Admin',
+      action: 'Network Equipment Discovery (Stream)',
+      category: 'device',
+      target: ipRange.substring(0, 64),
+      status: 'success',
+      details: `Scanned ${parsedRange.total} IPs across ports [${probePorts.join(',')}], discovered ${results.length} network devices`,
+      ipAddress: getClientIp(req),
+      userAgent: (req.headers['user-agent'] as string) || 'WebUI',
+    }).catch(() => {});
+
+    if (!res.writableEnded) {
+      res.write(`event: complete\ndata: ${JSON.stringify({
+        scanId,
+        requested: parsedRange.requested,
+        total: parsedRange.total,
+        scanned: parsedRange.total,
+        foundCount: results.length,
+        results,
+      })}\n\n`);
+      res.end();
+    }
+  } catch (err: any) {
+    if (!res.writableEnded) {
+      res.write(`event: error\ndata: ${JSON.stringify({
+        scanId,
+        error: err.message || 'Network device discovery scan failed',
+        errorFa: 'خطا در اجرای پویش کشف تجهیزات شبکه',
+        requested: 0,
+        limit: MAX_SCAN_IPS,
+      })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+// POST /api/devices/discover/abort - Abort active network device discovery scan
+apiRouter.post('/devices/discover/abort', (req: Request, res: Response) => {
+  const { scanId } = req.body;
+  if (!scanId) {
+    return res.status(400).json({ success: false, error: 'scanId is required' });
+  }
+  const aborted = abortNetworkDeviceDiscoveryScan(scanId);
+  res.json({ success: true, aborted });
+});
+
+// POST /api/devices/discover/bulk-add - Bulk enroll discovered network equipment
+apiRouter.post('/devices/discover/bulk-add', async (req: Request, res: Response) => {
+  try {
+    const { effectivePolicy, isSuperAdmin } = await resolveRequestContextPolicy(req);
+    const canAdd = isSuperAdmin || (effectivePolicy ? (
+      effectivePolicy.canAddDevice !== undefined ? Boolean(effectivePolicy.canAddDevice) :
+      effectivePolicy.defaultDevicePermissions?.add_device !== undefined ? Boolean(effectivePolicy.defaultDevicePermissions.add_device) :
+      (effectivePolicy.canManageDevices !== false)
+    ) : true);
+
+    if (!canAdd) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: You do not have permission to register network devices under your RBAC policy.',
+        errorFa: 'عدم دسترسی: شما طبق پالیسی امنیتی خود مجوز معرفی و افزودن تجهیز جدید به شبکه را ندارید.',
+      });
+    }
+
+    const { devices } = req.body;
+    if (!Array.isArray(devices) || devices.length === 0) {
+      return res.status(400).json({ success: false, error: 'Devices array is required.' });
+    }
+
+    const addedDevices = [];
+    for (const devData of devices) {
+      if (!devData.ip) continue;
+      try {
+        const created = await createDevice({
+          ...devData,
+          connection_mode: devData.connection_mode || 'ssh',
+          connection_protocol: devData.connection_protocol || 'ssh',
+        });
+        if (created) {
+          addedDevices.push(created);
+        }
+      } catch (devErr) {
+        console.warn(`[Warning registering discovered device ${devData.ip}]:`, devErr);
+      }
+    }
+
+    // Auto-grant access to creator policy if targetScope is specific
+    if (
+      effectivePolicy &&
+      effectivePolicy.targetScope === 'specific' &&
+      effectivePolicy.id &&
+      addedDevices.length > 0
+    ) {
+      try {
+        const policies = await getAccessPolicies();
+        const polIndex = policies.findIndex((p: any) => p.id === effectivePolicy.id);
+        if (polIndex !== -1) {
+          const currentTgt: string[] = Array.isArray(policies[polIndex].targetDeviceIds)
+            ? policies[polIndex].targetDeviceIds
+            : [];
+          const newIds = addedDevices.map((d: any) => d.id).filter((id: string) => Boolean(id) && !currentTgt.includes(id));
+          if (newIds.length > 0) {
+            policies[polIndex].targetDeviceIds = [...currentTgt, ...newIds];
+            await saveAccessPolicies(policies);
+          }
+        }
+      } catch (scopeUpdateErr) {
+        console.warn('[Warning auto-adding devices to creator policy in bulk-add]', scopeUpdateErr);
+      }
+    }
+
+    await addAuditLog({
+      userName: (req.headers['x-user-name'] as string) || 'Admin',
+      action: 'Bulk Add Discovered Network Devices',
+      category: 'device',
+      target: `${addedDevices.length} devices`,
+      status: 'success',
+      details: `Enrolled ${addedDevices.length} network devices from discovery scan into inventory`,
+      ipAddress: getClientIp(req),
+      userAgent: (req.headers['user-agent'] as string) || 'WebUI',
+    });
+
+    res.json({ success: true, count: addedDevices.length, devices: addedDevices });
+  } catch (err: any) {
+    console.error('[Bulk Add Discovered Network Devices Error]:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to bulk enroll network devices' });
   }
 });
 

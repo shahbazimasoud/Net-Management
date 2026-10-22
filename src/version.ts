@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.366.2';
+export const APP_VERSION = '1.367.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.367.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۱: موتور پویش و کشف اختصاصی تجهیزات سیسکو و شبکه در بک‌اند و استریم لحظه‌ای (Network Device Discovery Engine & SSE)',
+    title_en: 'Phase 1: Cisco & Network Equipment Discovery Backend Engine, Fingerprinting & Real-Time SSE Stream',
+    changes: [
+      'طراحی موتور پویش چندپورته تجهیزات شبکه (Multi-Port Network Probing): پیاده‌سازی ماژول server/networkDeviceDiscoveryEngine.ts با پشتیبانی از پورت‌های استاندارد تجهیزات سیسکو و شبکه (SSH 22، Telnet 23، وب HTTP 80/443، SNMP 161) و پورت‌های سفارشی دلخواه.',
+      'تشخیص هویت و فینگرپرینتینگ خودکار تجهیزات (Banner Grabbing & Heuristics): استخراج بنرهای آغازین SSH و مذاکره Telnet جهت تشخیص خودکار برند و پلتفرم (Cisco IOS, Cisco IOS-XE Catalyst 9000, Cisco Nexus, MikroTik RouterOS) و تخصیص هوشمند نوع تجهیز (Switch, Router, Firewall) و نقش پیشنهادی.',
+      'استریم بلادرنگ رویدادهای کشف (Real-Time SSE Endpoint): ایجاد اندپوینت /api/devices/discover/stream جهت ارسال لحظه‌ای پیشرفت پویش، تعداد هاست‌های بررسی‌شده، تاخیر شبکه، پورت‌های باز و تشخیص وضعیت موجود بودن تجهیز در دیتابیس (alreadyInInventory).',
+      'کنترل و لغو آنی پویش (Abort Controller): پیاده‌سازی اندپوینت /api/devices/discover/abort جهت لغو فوری اسکن و انهدام امن تمامی سوکت‌های باز شبکه بدون نشت حافظه.',
+      'اندپوینت ثبت دسته‌ای تجهیزات (Bulk Enrollment): پیاده‌سازی /api/devices/discover/bulk-add جهت اضافه کردن دسته‌ای تجهیزات کشف‌شده به دیتابیس تجهیزات با کنترل سطوح دسترسی RBAC.'
+    ],
+    changes_en: [
+      'Dedicated Multi-Port Network Scanner: implemented server/networkDeviceDiscoveryEngine.ts supporting standard network device ports (SSH 22, Telnet 23, HTTP/HTTPS 80/443, SNMP 161) alongside custom user-defined ports.',
+      'Automated Hardware Fingerprinting: deep banner grabbing on SSH and Telnet IAC negotiations to detect device platforms (Cisco IOS, Cisco IOS-XE, Cisco Nexus, MikroTik) with intelligent device type and topology role inference.',
+      'Real-Time SSE Discovery Stream: created /api/devices/discover/stream transmitting live scan progress, host detection events, latency, open port details, and existing inventory correlation (alreadyInInventory).',
+      'Instant Scan Abort Controller: created /api/devices/discover/abort to immediately cancel active scans and clean up TCP sockets without memory or file descriptor leaks.',
+      'Bulk Device Enrollment Endpoint: added /api/devices/discover/bulk-add for single and batch onboarding of discovered network gear into PostgreSQL with strict RBAC enforcement.'
+    ]
+  },
   {
     version: '1.366.2',
     releaseDate: '2026-10-22',

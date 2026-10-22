@@ -193,6 +193,40 @@ export interface CiscoSystemResourcesResponse {
   };
 }
 
+export interface DiscoveredNetworkPortDetail {
+  port: number;
+  service: string;
+  banner?: string;
+  state: 'open' | 'closed' | 'filtered';
+  latencyMs?: number;
+}
+
+export interface DiscoveredNetworkDevice {
+  ip: string;
+  hostname: string | null;
+  deviceType: DeviceType;
+  platform: DevicePlatform;
+  suggestedRole: string;
+  suggestedModel: string;
+  openPorts: number[];
+  portDetails: DiscoveredNetworkPortDetail[];
+  preferredProtocol: 'ssh' | 'telnet';
+  latencyMs: number;
+  alreadyInInventory: boolean;
+  existingDeviceId?: string | null;
+  existingDeviceName?: string | null;
+  discoveredAt: string;
+  isRefusedOnly?: boolean;
+}
+
+export interface NetworkDeviceDiscoveryScanOptions {
+  ipRange: string;
+  ports?: number[];
+  timeoutMs?: number;
+  concurrency?: number;
+  chunkSize?: number;
+}
+
 export interface Device {
   id: string;
   name: string;
