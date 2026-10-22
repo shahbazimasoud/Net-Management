@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.366.0';
+export const APP_VERSION = '1.366.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.366.1',
+    releaseDate: '2026-10-22',
+    type: 'patch',
+    title: 'رفع مشکل ریسپانسیو و خروج فیلترها و دراپ‌داون‌ها از صفحه در تب لاگ دستورات سرورها (Toolbar Overflow Fix)',
+    title_en: 'Fix Responsive Toolbar & Dropdown Filter Overflow on Smaller Screens in Server Command Logs',
+    changes: [
+      'حل مشکل سرریز و خروج نوار ابزار جستجو و دراپ‌داون‌های فیلتر (کانال‌ها، سیستم‌عامل و سطح ریسک) در مانیتورها و نمایشگرهای کوچک با فعال‌سازی flex-wrap هوشمند، بازتعریف حداقل عرض‌ها و مهار کامل سرریز کانتینر.'
+    ],
+    changes_en: [
+      'Fixed horizontal overflow of search bar, dropdown filters (Channels, OS, Risk), and action buttons on smaller viewports and mobile screens by introducing adaptive flex-wrap, responsive min-widths, and overflow constraints.'
+    ]
+  },
   {
     version: '1.366.0',
     releaseDate: '2026-10-22',

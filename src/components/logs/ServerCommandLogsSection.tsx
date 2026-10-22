@@ -531,11 +531,11 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-full overflow-hidden">
       {/* Sub-toolbar: Grouping Mode Switcher & Filter Toolbar */}
-      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between p-3.5 rounded-2xl audit-glass-panel border border-white/10">
+      <div className="flex flex-col xl:flex-row gap-3 items-stretch xl:items-center justify-between p-3 sm:p-3.5 rounded-2xl audit-glass-panel border border-white/10 w-full max-w-full overflow-hidden">
         {/* Dual-Perspective Grouping mode buttons */}
-        <div className="flex items-center gap-1.5 p-1 bg-black/25 rounded-xl border border-white/5 overflow-x-auto shrink-0">
+        <div className="flex items-center gap-1.5 p-1 bg-black/25 rounded-xl border border-white/5 overflow-x-auto custom-scrollbar shrink-0 max-w-full">
           <button
             onClick={() => setGroupMode('server')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap ${
@@ -583,8 +583,8 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
         </div>
 
         {/* Search and Main Filters */}
-        <div className="flex items-center gap-2 flex-1 max-w-2xl">
-          <div className="relative flex-1">
+        <div className="flex items-center gap-2 flex-wrap flex-1 w-full max-w-full xl:justify-end">
+          <div className="relative flex-1 min-w-[160px] sm:min-w-[200px] max-w-full">
             <Search className="w-4 h-4 absolute top-1/2 -translate-y-1/2 text-slate-400 ltr:left-3 rtl:right-3" />
             <input
               type="text"
@@ -613,7 +613,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
           <select
             value={selectedChannel}
             onChange={(e) => setSelectedChannel(e.target.value)}
-            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0 max-w-full"
           >
             <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Channels' : 'همه کانال‌ها'}</option>
             <option value="SSH_SHELL" className="bg-slate-900 text-white">SSH Shell</option>
@@ -627,7 +627,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
           <select
             value={selectedOs}
             onChange={(e) => setSelectedOs(e.target.value)}
-            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0 max-w-full"
           >
             <option value="all" className="bg-slate-900 text-white">{isEn ? 'All OS' : 'همه سیستم‌عامل‌ها'}</option>
             <option value="linux" className="bg-slate-900 text-white">Linux</option>
@@ -638,7 +638,7 @@ export const ServerCommandLogsSection: React.FC<ServerCommandLogsSectionProps> =
           <select
             value={selectedRisk}
             onChange={(e) => setSelectedRisk(e.target.value)}
-            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+            className="text-xs py-2 px-2.5 rounded-xl bg-black/20 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0 max-w-full"
           >
             <option value="all" className="bg-slate-900 text-white">{isEn ? 'All Risks' : 'همه سطوح ریسک'}</option>
             <option value="critical" className="bg-slate-900 text-white">{isEn ? 'Critical' : 'بحرانی'}</option>
