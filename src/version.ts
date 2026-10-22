@@ -10,9 +10,22 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.366.1';
+export const APP_VERSION = '1.366.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.366.2',
+    releaseDate: '2026-10-22',
+    type: 'patch',
+    title: 'بهینه‌سازی چینش هدر صفحه ممیزی و انتقال دکمه‌های کنترلی به ردیف مجزا (Audit Header Layout Refinement)',
+    title_en: 'Refine Audit & Command Logs Header Layout & Relocate Action Buttons to Dedicated Sub-Row',
+    changes: [
+      'بازطراحی ساختار بنر بالای صفحه ممیزی لاگ‌ها (AuditLogsView) جهت اختصاص پهنای کامل به عنوان، بج SIEM Active و توضیحات جامع، و انتقال دکمه‌های عملیاتی (گزارش‌گیری ایمیل، بروزرسانی، خروجی CSV، فایل JSON و پاکسازی) به یک ردیف مجزا در زیر متن همراه با خط تفکیک‌کننده ظریف.'
+    ],
+    changes_en: [
+      'Redesigned the AuditLogsView top banner header to provide full-width presence for the title, SIEM Active badge, and subtitle description, positioning the global action buttons (Email Reports, Refresh, CSV Export, JSON, Clear) on a dedicated row below with a subtle border divider.'
+    ]
+  },
   {
     version: '1.366.1',
     releaseDate: '2026-10-22',

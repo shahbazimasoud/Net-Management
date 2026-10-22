@@ -778,12 +778,13 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
   return (
     <div className="p-3 sm:p-5 md:p-6 space-y-6 max-w-7xl mx-auto font-sans animate-fadeIn">
       {/* Dynamic Header Banner - Theme Harmonized with spatial-glass */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 p-5 rounded-2xl audit-glass-panel shadow-xl backdrop-blur-xl">
-        <div className="flex items-center gap-3.5">
+      <div className="flex flex-col gap-4 p-5 rounded-2xl audit-glass-panel shadow-xl backdrop-blur-xl">
+        {/* Top: Title, SIEM Badge and Subtitle */}
+        <div className="flex items-start sm:items-center gap-3.5">
           <div className="p-3 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 text-white shadow-lg shadow-indigo-500/30 border border-white/20 shrink-0">
             <ScrollText className="w-6 h-6" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg md:text-xl font-bold text-white tracking-tight flex items-center gap-2 font-mono">
                 <span>{isEn ? 'Audit & Command Logs' : 'مرکز ممیزی، لاگ‌ها و وقایع شبکه'}</span>
@@ -793,7 +794,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
                 <span>SIEM Active</span>
               </span>
             </div>
-            <p className="text-xs text-slate-300 mt-1 max-w-3xl leading-relaxed">
+            <p className="text-xs text-slate-300 mt-1 max-w-4xl leading-relaxed">
               {isEn
                 ? 'Dual-stream operational audit trail: administrative lifecycle events, user actions, and device command execution with Watch Log inspection.'
                 : 'ردیابی و ممیزی جامع وقایع پرتال، تغییرات تجهیزات و موجودی، و تفکیک فرامین اجرایی بر اساس دیوایس و اپراتور با قابلیت واچ لاگ.'}
@@ -801,8 +802,8 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
           </div>
         </div>
 
-        {/* Global Toolbar Buttons */}
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
+        {/* Bottom Line: Global Toolbar Buttons */}
+        <div className="pt-3 border-t border-white/10 flex items-center justify-start sm:justify-end gap-2 flex-wrap">
           <button
             onClick={() => {
               if (activeSection !== 'reports') {
