@@ -33,9 +33,18 @@ import {
   Activity,
   HardDrive,
   Eye,
+  EyeOff,
+  KeyRound,
+  Building2,
+  Tag,
+  MapPin,
+  HelpCircle,
+  Info,
+  CheckCircle,
 } from 'lucide-react';
 import { ModalHeaderControls } from './common/ModalHeaderControls';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
+import { VaultPasswordPickerModal } from './vault/VaultPasswordPickerModal';
 import { useModalDock } from '../context/ModalDockContext';
 import {
   DiscoveredNetworkDevice,
@@ -108,6 +117,15 @@ const STANDARD_PORTS: StandardPortOption[] = [
   },
 ];
 
+const NETWORK_ROLE_OPTIONS = [
+  { value: 'Access', labelEn: 'Access Switch', labelFa: 'سوییچ دسترسی (Access)' },
+  { value: 'Distribution', labelEn: 'Distribution Switch', labelFa: 'سوییچ توزیع (Distribution)' },
+  { value: 'Core', labelEn: 'Core Switch / Backbone', labelFa: 'سوییچ مرکزی (Core)' },
+  { value: 'Edge', labelEn: 'Edge Gateway / WAN', labelFa: 'گیت‌وی لبه شبکه (Edge WAN)' },
+  { value: 'Spine / Leaf', labelEn: 'DataCenter Spine/Leaf', labelFa: 'دیتاسنتر اسپاین و لیف' },
+  { value: 'Firewall', labelEn: 'Security Perimeter', labelFa: 'فایروال محیطی و امنیت' },
+];
+
 export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
   isOpen,
   onClose,
@@ -160,6 +178,35 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
 
   // ToolsDock context
   const { dockModal, undockModal } = useModalDock();
+
+  // =========================================================================
+  // Phase 3: Onboarding & Enrollment Modal States
+  // =========================================================================
+  const [enrollModalOpen, setEnrollModalOpen] = useState(false);
+  const [enrollTargets, setEnrollTargets] = useState<DiscoveredNetworkDevice[]>([]);
+  const [enrollName, setEnrollName] = useState('');
+  const [enrollType, setEnrollType] = useState<DeviceType>('switch');
+  const [enrollRole, setEnrollRole] = useState('Access');
+  const [enrollPlatform, setEnrollPlatform] = useState<DevicePlatform>('cisco_ios');
+  const [enrollProtocol, setEnrollProtocol] = useState<'ssh' | 'telnet'>('ssh');
+  const [enrollPort, setEnrollPort] = useState(22);
+  const [enrollSshVersion, setEnrollSshVersion] = useState<'auto' | 'modern' | 'legacy'>('legacy');
+  const [enrollUsername, setEnrollUsername] = useState('admin');
+  const [enrollPassword, setEnrollPassword] = useState('');
+  const [enrollShowPassword, setEnrollShowPassword] = useState(false);
+  const [enrollSshVaultItemId, setEnrollSshVaultItemId] = useState<string | null>(null);
+  const [enrollEnablePassword, setEnrollEnablePassword] = useState('');
+  const [enrollShowEnablePassword, setEnrollShowEnablePassword] = useState(false);
+  const [enrollEnableVaultItemId, setEnrollEnableVaultItemId] = useState<string | null>(null);
+  const [enrollBuilding, setEnrollBuilding] = useState('Central Building');
+  const [enrollFloor, setEnrollFloor] = useState('Server Room');
+  const [enrollUnit, setEnrollUnit] = useState('IT Department');
+  const [enrollRack, setEnrollRack] = useState('Rack-A1');
+  const [enrollTags, setEnrollTags] = useState('discovered, cisco');
+  const [isSubmittingEnroll, setIsSubmittingEnroll] = useState(false);
+  const [enrollSuccessToast, setEnrollSuccessToast] = useState<string | null>(null);
+  const [isVaultPickerOpen, setIsVaultPickerOpen] = useState(false);
+  const [vaultPickerTarget, setVaultPickerTarget] = useState<'ssh' | 'enable'>('ssh');
 
   // Combined probe ports
   const allProbePorts = useMemo(() => {
@@ -422,6 +469,169 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
       setSelectedIps(new Set());
     } else {
       setSelectedIps(new Set(newDevices.map((d) => d.ip)));
+    }
+  };
+
+  // =========================================================================
+  // Phase 3: Onboarding Dialog Handlers
+  // =========================================================================
+
+  // Open single target onboarding
+  const handleOpenSingleEnroll = (dev: DiscoveredNetworkDevice) => {
+    setEnrollTargets([dev]);
+    const inferredName = dev.hostname
+      ? dev.hostname.split('.')[0]
+      : dev.platform.startsWith('cisco')
+      ? `Cisco-${dev.ip.replace(/\./g, '-')}`
+      : dev.platform === 'mikrotik_routeros'
+      ? `MikroTik-${dev.ip.replace(/\./g, '-')}`
+      : `Device-${dev.ip.replace(/\./g, '-')}`;
+
+    setEnrollName(inferredName);
+    setEnrollType(dev.deviceType || 'switch');
+    setEnrollRole(dev.suggestedRole || 'Access');
+    setEnrollPlatform(dev.platform || 'cisco_ios');
+    const proto = dev.preferredProtocol === 'telnet' ? 'telnet' : 'ssh';
+    setEnrollProtocol(proto);
+    setEnrollPort(proto === 'telnet' ? 23 : 22);
+    setEnrollSshVersion(dev.platform === 'cisco_ios_xe' ? 'modern' : 'legacy');
+    setEnrollUsername('admin');
+    setEnrollPassword('');
+    setEnrollSshVaultItemId(null);
+    setEnrollEnablePassword('');
+    setEnrollEnableVaultItemId(null);
+    setEnrollTags('discovered, ' + (dev.platform.startsWith('cisco') ? 'cisco' : 'mikrotik'));
+    setEnrollModalOpen(true);
+  };
+
+  // Open bulk target onboarding
+  const handleOpenBulkEnroll = () => {
+    const targets = discoveredDevices.filter(
+      (d) => selectedIps.has(d.ip) && !d.alreadyInInventory
+    );
+    if (targets.length === 0) return;
+
+    setEnrollTargets(targets);
+    setEnrollName(isEn ? 'Discovered Network Batch' : 'دسته تجهیزات کشف‌شده');
+
+    // Default to most frequent type & platform
+    const isMajorityCisco = targets.filter((t) => t.platform.startsWith('cisco')).length >= targets.length / 2;
+    const isMajorityMikroTik = targets.filter((t) => t.platform === 'mikrotik_routeros').length >= targets.length / 2;
+    setEnrollPlatform(
+      isMajorityCisco ? 'cisco_ios' : isMajorityMikroTik ? 'mikrotik_routeros' : 'cisco_ios_xe'
+    );
+    setEnrollType(targets[0].deviceType || 'switch');
+    setEnrollRole(targets[0].suggestedRole || 'Access');
+    setEnrollProtocol('ssh');
+    setEnrollPort(22);
+    setEnrollSshVersion('legacy');
+    setEnrollUsername('admin');
+    setEnrollPassword('');
+    setEnrollSshVaultItemId(null);
+    setEnrollEnablePassword('');
+    setEnrollEnableVaultItemId(null);
+    setEnrollTags('discovered, batch');
+    setEnrollModalOpen(true);
+  };
+
+  // Handle Vault Password Picked
+  const handleVaultPasswordSelected = (password: string, username?: string, secret?: any) => {
+    if (vaultPickerTarget === 'ssh') {
+      setEnrollPassword(password);
+      if (username) setEnrollUsername(username);
+      if (secret && secret.id) setEnrollSshVaultItemId(secret.id);
+    } else if (vaultPickerTarget === 'enable') {
+      setEnrollEnablePassword(password);
+      if (secret && secret.id) setEnrollEnableVaultItemId(secret.id);
+    }
+    setIsVaultPickerOpen(false);
+  };
+
+  // Submit Single or Bulk Enrollment to /api/devices/discover/bulk-add
+  const handleConfirmEnroll = async () => {
+    if (enrollTargets.length === 0) return;
+
+    setIsSubmittingEnroll(true);
+    try {
+      const devicesToCreate = enrollTargets.map((target, idx) => {
+        let name = enrollTargets.length === 1
+          ? (enrollName.trim() || `Device-${target.ip}`)
+          : (target.hostname
+              ? target.hostname.split('.')[0]
+              : `${enrollName.trim().replace(/\s+/g, '-')}-${idx + 1}`);
+
+        return {
+          name,
+          ip: target.ip,
+          type: enrollType,
+          role: enrollRole,
+          model: target.suggestedModel || (enrollPlatform === 'cisco_ios_xe' ? 'Cisco Catalyst 9000 Series' : enrollPlatform === 'cisco_ios' ? 'Cisco Catalyst 2960 / 3850' : 'Network Hardware'),
+          platform: enrollPlatform,
+          connection_mode: 'ssh',
+          connection_protocol: enrollProtocol,
+          ssh_host: target.ip,
+          ssh_port: enrollPort,
+          ssh_username: enrollUsername.trim() || 'admin',
+          ssh_password: enrollPassword,
+          ssh_vault_item_id: enrollSshVaultItemId || undefined,
+          enable_password: enrollEnablePassword,
+          enable_vault_item_id: enrollEnableVaultItemId || undefined,
+          ssh_version: enrollSshVersion,
+          latency_ms: target.latencyMs || 2,
+          building: enrollBuilding.trim(),
+          floor: enrollFloor.trim(),
+          unit: enrollUnit.trim(),
+          rack: enrollRack.trim(),
+          tags: enrollTags.split(',').map((t) => t.trim()).filter(Boolean),
+        };
+      });
+
+      const response = await fetch('/api/devices/discover/bulk-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ devices: devicesToCreate }),
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.errorFa || result.error || 'Failed to enroll network equipment');
+      }
+
+      // Mark enrolled devices as already in inventory
+      const enrolledIps = new Set(enrollTargets.map((t) => t.ip));
+      setDiscoveredDevices((prev) =>
+        prev.map((dev) =>
+          enrolledIps.has(dev.ip)
+            ? { ...dev, alreadyInInventory: true, existingDeviceName: enrollTargets.length === 1 ? enrollName : 'Enrolled Device' }
+            : dev
+        )
+      );
+
+      // Deselect enrolled IPs
+      setSelectedIps((prev) => {
+        const next = new Set(prev);
+        enrolledIps.forEach((ip) => next.delete(ip));
+        return next;
+      });
+
+      // Show success notification
+      setEnrollSuccessToast(
+        isEn
+          ? `Successfully enrolled ${devicesToCreate.length} network device(s) into inventory!`
+          : `با موفقیت ${devicesToCreate.length} تجهیز جدید به لیست موجودی شبکه افزوده شد!`
+      );
+
+      // Trigger list refresh
+      if (onDeviceAdded) onDeviceAdded();
+
+      setTimeout(() => {
+        setEnrollSuccessToast(null);
+        setEnrollModalOpen(false);
+      }, 1500);
+    } catch (err: any) {
+      alert(err.message || 'Error onboarding network devices');
+    } finally {
+      setIsSubmittingEnroll(false);
     }
   };
 
@@ -1203,13 +1413,10 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
                   {selectedIps.size > 0 && (
                     <button
                       type="button"
-                      onClick={() => {
-                        // Bulk onboarding trigger placeholder for Phase 3/4
-                        if (onDeviceAdded) onDeviceAdded();
-                      }}
-                      className="px-3 py-1 rounded-lg font-bold text-xs bg-cyan-500 hover:bg-cyan-400 text-slate-950 flex items-center gap-1 cursor-pointer transition-colors"
+                      onClick={handleOpenBulkEnroll}
+                      className="px-3.5 py-1.5 rounded-lg font-bold text-xs bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 flex items-center gap-1.5 cursor-pointer transition-all shadow-md active:scale-95"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                       <span>{isEn ? `Enroll Selected (${selectedIps.size})` : `افزودن دسته‌ای (${selectedIps.size})`}</span>
                     </button>
                   )}
@@ -1366,11 +1573,8 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
                         {!dev.alreadyInInventory ? (
                           <button
                             type="button"
-                            onClick={() => {
-                              if (onAddDevice) onAddDevice(dev);
-                              else if (onDeviceAdded) onDeviceAdded();
-                            }}
-                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors flex items-center gap-1 cursor-pointer"
+                            onClick={() => handleOpenSingleEnroll(dev)}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 transition-colors flex items-center gap-1 cursor-pointer active:scale-95"
                           >
                             <Plus className="w-3.5 h-3.5" />
                             <span>{isEn ? 'Add Device' : 'افزودن به تجهیزات'}</span>
@@ -1480,11 +1684,8 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
                             {!dev.alreadyInInventory ? (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (onAddDevice) onAddDevice(dev);
-                                  else if (onDeviceAdded) onDeviceAdded();
-                                }}
-                                className="px-2 py-0.5 text-xs font-semibold rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 cursor-pointer"
+                                onClick={() => handleOpenSingleEnroll(dev)}
+                                className="px-2 py-0.5 text-xs font-semibold rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 cursor-pointer active:scale-95"
                               >
                                 {isEn ? 'Add' : 'افزودن'}
                               </button>
@@ -1548,6 +1749,497 @@ export const DeviceDiscoveryModal: React.FC<DeviceDiscoveryModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* Phase 3: Onboarding & Enrollment Sheet / Dialog (z-[999995])               */}
+      {/* ========================================================================= */}
+      {enrollModalOpen && (
+        <div
+          className="fixed inset-0 z-[999995] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md"
+          dir={isEn ? 'ltr' : 'rtl'}
+        >
+          <div
+            className={`w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden transition-all ${
+              isLightMode
+                ? 'bg-white border-slate-300 text-slate-800'
+                : 'bg-slate-950 border-cyan-500/30 text-slate-100'
+            }`}
+          >
+            {/* Enrollment Header */}
+            <div
+              className={`flex items-center justify-between px-4 py-3 border-b shrink-0 ${
+                isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-900 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">
+                    {enrollTargets.length === 1
+                      ? isEn
+                        ? 'Enroll Discovered Equipment'
+                        : 'افزودن تجهیز کشف‌شده به شبکه'
+                      : isEn
+                      ? `Bulk Enroll (${enrollTargets.length}) Network Devices`
+                      : `افزودن دسته‌ای (${enrollTargets.length}) تجهیز کشف‌شده`}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {isEn
+                      ? 'Configure credentials, platform role, and physical metadata'
+                      : 'پیکربندی اعتبارنامه، نقش توپولوژی و موقعیت فیزیکی'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEnrollModalOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Success Toast inside Dialog */}
+            {enrollSuccessToast && (
+              <div className="px-4 py-2.5 bg-emerald-500/20 border-b border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="font-semibold">{enrollSuccessToast}</span>
+              </div>
+            )}
+
+            {/* Enrollment Body */}
+            <div className="p-4 overflow-y-auto space-y-4 text-xs">
+              {/* Target Summary Chips */}
+              <div
+                className={`p-3 rounded-xl border flex flex-col gap-1.5 ${
+                  isLightMode ? 'bg-slate-50 border-slate-200' : 'bg-slate-900/60 border-slate-800'
+                }`}
+              >
+                <span className="text-[11px] font-bold text-slate-400">
+                  {isEn ? 'Target Network Equipment:' : 'تجهیزات هدف:'}
+                </span>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {enrollTargets.map((tgt) => (
+                    <span
+                      key={tgt.ip}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-mono text-[11px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30"
+                    >
+                      <span className="font-bold">{tgt.ip}</span>
+                      {tgt.suggestedModel && (
+                        <span className="opacity-70 text-[10px]">({tgt.suggestedModel.split(' ')[0]})</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section 1: Classification & Role */}
+              <div className="space-y-3">
+                <h4 className="font-bold text-slate-300 text-xs flex items-center gap-1.5 border-b border-slate-800 pb-1">
+                  <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{isEn ? '1. Equipment Identity & Role' : '۱. هویت و نقش تجهیز در شبکه'}</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Device Name */}
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'Device Name / Hostname' : 'نام تجهیز / هاست‌نیم'}
+                    </label>
+                    <input
+                      type="text"
+                      value={enrollName}
+                      onChange={(e) => setEnrollName(e.target.value)}
+                      placeholder={isEn ? 'e.g. Core-SW-01' : 'مثال: Core-SW-01'}
+                      className={`w-full px-3 py-1.5 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Device Type */}
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'Device Type' : 'نوع تجهیز'}
+                    </label>
+                    <select
+                      value={enrollType}
+                      onChange={(e: any) => setEnrollType(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border cursor-pointer ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    >
+                      <option value="switch">{isEn ? 'Switch (سوییچ)' : 'سوییچ (Switch)'}</option>
+                      <option value="router">{isEn ? 'Router (روتر)' : 'روتر (Router)'}</option>
+                      <option value="firewall">{isEn ? 'Firewall (فایروال)' : 'فایروال (Firewall)'}</option>
+                      <option value="access_point">{isEn ? 'Access Point (اکسس‌پوینت)' : 'اکسس‌پوینت (AP)'}</option>
+                    </select>
+                  </div>
+
+                  {/* Platform */}
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'Manufacturer Platform' : 'پلتفرم و سیستم‌عامل'}
+                    </label>
+                    <select
+                      value={enrollPlatform}
+                      onChange={(e: any) => setEnrollPlatform(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border cursor-pointer ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    >
+                      <option value="cisco_ios">Cisco IOS (Catalyst 2960 / 3850)</option>
+                      <option value="cisco_ios_xe">Cisco IOS-XE (Catalyst 9000 Series)</option>
+                      <option value="mikrotik_routeros">MikroTik RouterOS</option>
+                      <option value="generic_linux">Generic Network Equipment</option>
+                    </select>
+                  </div>
+
+                  {/* Role */}
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'Topology Role' : 'نقش در توپولوژی'}
+                    </label>
+                    <select
+                      value={enrollRole}
+                      onChange={(e) => setEnrollRole(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border cursor-pointer ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    >
+                      {NETWORK_ROLE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {isEn ? opt.labelEn : opt.labelFa}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Connection & Credentials */}
+              <div className="space-y-3 pt-1">
+                <h4 className="font-bold text-slate-300 text-xs flex items-center gap-1.5 border-b border-slate-800 pb-1">
+                  <Lock className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{isEn ? '2. Connection & Security Credentials' : '۲. ارتباط و اعتبارنامه‌های امنیتی'}</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Protocol */}
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'Protocol' : 'پروتکل ارتباطی'}
+                    </label>
+                    <select
+                      value={enrollProtocol}
+                      onChange={(e: any) => {
+                        const val = e.target.value;
+                        setEnrollProtocol(val);
+                        setEnrollPort(val === 'telnet' ? 23 : 22);
+                      }}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border cursor-pointer ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    >
+                      <option value="ssh">SSH (Encrypted)</option>
+                      <option value="telnet">Telnet (Legacy)</option>
+                    </select>
+                  </div>
+
+                  {/* Port */}
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'Management Port' : 'پورت مدیریت'}
+                    </label>
+                    <input
+                      type="number"
+                      value={enrollPort}
+                      onChange={(e) => setEnrollPort(Number(e.target.value))}
+                      className={`w-full px-3 py-1.5 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    />
+                  </div>
+
+                  {/* SSH Version Algorithm */}
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'SSH Cipher Suite' : 'نسخه و الگوریتم SSH'}
+                    </label>
+                    <select
+                      value={enrollSshVersion}
+                      onChange={(e: any) => setEnrollSshVersion(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border cursor-pointer ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    >
+                      <option value="legacy">Legacy (ssh-rsa, 3DES, DH-group1)</option>
+                      <option value="modern">Modern (Ed25519, AES-GCM)</option>
+                      <option value="auto">Adaptive Auto-Negotiate</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Username & Password */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">
+                      {isEn ? 'SSH / Telnet Username' : 'نام کاربری SSH / Telnet'}
+                    </label>
+                    <input
+                      type="text"
+                      value={enrollUsername}
+                      onChange={(e) => setEnrollUsername(e.target.value)}
+                      placeholder="admin / cisco"
+                      className={`w-full px-3 py-1.5 rounded-lg border font-mono ${
+                        isLightMode
+                          ? 'bg-slate-50 text-slate-900 border-slate-300'
+                          : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Password with Vault Picker */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-[11px]">
+                        {isEn ? 'SSH / Login Password' : 'کلمه عبور ورود (Password)'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVaultPickerTarget('ssh');
+                          setIsVaultPickerOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 hover:underline cursor-pointer"
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        <span>{isEn ? 'Pick from Vault' : 'انتخاب از والت'}</span>
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={enrollShowPassword ? 'text' : 'password'}
+                        value={enrollPassword}
+                        onChange={(e) => {
+                          setEnrollPassword(e.target.value);
+                          setEnrollSshVaultItemId(null);
+                        }}
+                        placeholder={isEn ? 'Enter device password...' : 'رمز عبور را وارد کنید...'}
+                        className={`w-full pl-3 pr-8 py-1.5 rounded-lg border font-mono ${
+                          isLightMode
+                            ? 'bg-slate-50 text-slate-900 border-slate-300'
+                            : 'bg-slate-900 text-slate-100 border-slate-700'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEnrollShowPassword((p) => !p)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        {enrollShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    {enrollSshVaultItemId && (
+                      <span className="text-[10px] text-emerald-400 mt-0.5 block flex items-center gap-1">
+                        <Check className="w-3 h-3" />
+                        {isEn ? 'Connected to Password Vault' : 'متصل به والت رمزها'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cisco Enable Secret with Vault Picker */}
+                {enrollPlatform.startsWith('cisco') && (
+                  <div className="p-2.5 rounded-xl border border-cyan-500/20 bg-cyan-950/10">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="flex items-center gap-1 font-semibold text-[11px] text-cyan-300">
+                        <Shield className="w-3.5 h-3.5" />
+                        <span>{isEn ? 'Cisco Enable Secret / Privilege Password' : 'رمز عبور سطح دسترسی (Enable Secret)'}</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVaultPickerTarget('enable');
+                          setIsVaultPickerOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 hover:underline cursor-pointer"
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        <span>{isEn ? 'Pick Enable Secret' : 'انتخاب رمز Enable از والت'}</span>
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={enrollShowEnablePassword ? 'text' : 'password'}
+                        value={enrollEnablePassword}
+                        onChange={(e) => {
+                          setEnrollEnablePassword(e.target.value);
+                          setEnrollEnableVaultItemId(null);
+                        }}
+                        placeholder={isEn ? 'Leave blank if not configured on switch...' : 'در صورت عدم وجود خالی بگذارید...'}
+                        className={`w-full pl-3 pr-8 py-1.5 rounded-lg border font-mono ${
+                          isLightMode
+                            ? 'bg-slate-50 text-slate-900 border-slate-300'
+                            : 'bg-slate-900 text-slate-100 border-slate-700'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEnrollShowEnablePassword((p) => !p)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        {enrollShowEnablePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 3: Physical Placement & Metadata */}
+              <div className="space-y-3 pt-1">
+                <h4 className="font-bold text-slate-300 text-xs flex items-center gap-1.5 border-b border-slate-800 pb-1">
+                  <Building2 className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{isEn ? '3. Physical Location & Tags' : '۳. موقعیت فیزیکی استقرار و برچسب‌ها'}</span>
+                </h4>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">{isEn ? 'Building' : 'ساختمان'}</label>
+                    <input
+                      type="text"
+                      value={enrollBuilding}
+                      onChange={(e) => setEnrollBuilding(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border ${
+                        isLightMode ? 'bg-slate-50 text-slate-900 border-slate-300' : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">{isEn ? 'Floor / Room' : 'طبقه / اتاق'}</label>
+                    <input
+                      type="text"
+                      value={enrollFloor}
+                      onChange={(e) => setEnrollFloor(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border ${
+                        isLightMode ? 'bg-slate-50 text-slate-900 border-slate-300' : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">{isEn ? 'Unit' : 'واحد'}</label>
+                    <input
+                      type="text"
+                      value={enrollUnit}
+                      onChange={(e) => setEnrollUnit(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border ${
+                        isLightMode ? 'bg-slate-50 text-slate-900 border-slate-300' : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1 text-[11px]">{isEn ? 'Rack' : 'رک'}</label>
+                    <input
+                      type="text"
+                      value={enrollRack}
+                      onChange={(e) => setEnrollRack(e.target.value)}
+                      className={`w-full px-2.5 py-1.5 rounded-lg border ${
+                        isLightMode ? 'bg-slate-50 text-slate-900 border-slate-300' : 'bg-slate-900 text-slate-100 border-slate-700'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1 text-[11px]">{isEn ? 'Tags (comma separated)' : 'برچسب‌ها (با کاما تفکیک کنید)'}</label>
+                  <input
+                    type="text"
+                    value={enrollTags}
+                    onChange={(e) => setEnrollTags(e.target.value)}
+                    placeholder="cisco, access, floor1"
+                    className={`w-full px-3 py-1.5 rounded-lg border ${
+                      isLightMode ? 'bg-slate-50 text-slate-900 border-slate-300' : 'bg-slate-900 text-slate-100 border-slate-700'
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Enrollment Footer Buttons */}
+            <div
+              className={`px-4 py-3 border-t flex items-center justify-between shrink-0 ${
+                isLightMode ? 'bg-slate-100 border-slate-200' : 'bg-slate-900 border-slate-800'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setEnrollModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white cursor-pointer"
+              >
+                {isEn ? 'Cancel' : 'انصراف'}
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmittingEnroll}
+                onClick={handleConfirmEnroll}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 flex items-center gap-2 cursor-pointer shadow-md transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isSubmittingEnroll ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{isEn ? 'Enrolling...' : 'در حال افزودن به موجودی...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 stroke-[2.5]" />
+                    <span>
+                      {enrollTargets.length === 1
+                        ? isEn
+                          ? 'Confirm & Add to Inventory'
+                          : 'تایید و افزودن به موجودی'
+                        : isEn
+                        ? `Add All (${enrollTargets.length}) Devices`
+                        : `افزودن همه (${enrollTargets.length}) تجهیز`}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* Vault Password Picker Modal (z-[999999])                                  */}
+      {/* ========================================================================= */}
+      {isVaultPickerOpen && (
+        <VaultPasswordPickerModal
+          isOpen={isVaultPickerOpen}
+          onClose={() => setIsVaultPickerOpen(false)}
+          onSelectPassword={handleVaultPasswordSelected}
+          targetHost={enrollTargets[0]?.ip || ''}
+          isLightMode={isLightMode}
+          isEn={isEn}
+          zIndex={999999}
+        />
+      )}
     </div>,
     document.body
   );

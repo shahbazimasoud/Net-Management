@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.368.0';
+export const APP_VERSION = '1.369.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.369.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۳: جریان افزودن تکی و دسته‌ای، اتصال به والت رمز و فیلدهای شبکه (Equipment Onboarding, Vault & Credentials)',
+    title_en: 'Phase 3: Single & Bulk Equipment Onboarding, Password Vault Connection & Cisco Credentials',
+    changes: [
+      'جریان افزودن تکی و دسته‌ای تجهیزات (Single & Bulk Onboarding Dialog): طراحی و پیاده‌سازی فرم مدال تکمیل اطلاعات و ثبت تجهیزات کشف‌شده به صورت تکی و گروهی با پیش‌نمایش برچسب‌های آی‌پی و مدل.',
+      'تخصیص اعتبارنامه و اتصال مستقیم به صندوق امن رمزها (Password Vault Integration): تعبیه دکمه انتخاب از والت با باز شدن کامپوننت VaultPasswordPickerModal جهت الصاق امن کلمه عبور SSH/Telnet بدون افشای کلید بر اساس استاندارد z-[999999].',
+      'فیلد اختصاصی کلمه عبور سطح دسترسی سیسکو (Cisco Enable Secret): تعبیه کلمه عبور Privilege همراه با قابلیت استخراج و پیوند امن به Password Vault.',
+      'دسته‌بندی‌های بومی تجهیزات شبکه (Network Equipment Categorization): انتخاب هوشمند نوع تجهیز (Switch, Router, Firewall, AP)، نقش در توپولوژی (Access, Distribution, Core, Edge WAN, Spine/Leaf) و پلتفرم سازنده (Cisco IOS, Cisco IOS-XE, MikroTik RouterOS, Generic Network).',
+      'متادیتا و مکان فیزیکی استقرار: نام‌گذاری خودکار بر اساس Hostname و ثبت موقعیت شامل ساختمان (Building)، طبقه/اتاق (Floor)، واحد (Unit)، رک (Rack) و برچسب‌های شبکه (Tags).',
+      'اتصال به اندپوینت ثبت دسته‌ای (/api/devices/discover/bulk-add): اعمال یکپارچه اعتبارنامه‌ها و متادیتا روی کلیه تجهیزات انتخاب‌شده، به‌روزرسانی آنی وضعیت «موجود در لیست تجهیزات» در کلاینت و رفرش خودکار فهرست موجودی.'
+    ],
+    changes_en: [
+      'Single & Bulk Onboarding Flow: engineered comprehensive enrollment modal sheet for single and batch registration of discovered network equipment with live chip previews.',
+      'Password Vault Integration: direct integration with VaultPasswordPickerModal for zero-leak secure binding of SSH/Telnet passwords layered safely at z-[999999].',
+      'Cisco Enable Secret Management: dedicated privilege-level password field with independent Password Vault picker binding.',
+      'Native Network Categorization: precise selection of DeviceType (Switch, Router, Firewall, Access Point), topology roles (Access, Distribution, Core, Edge, Spine/Leaf), and vendor platforms (Cisco IOS, Cisco IOS-XE, MikroTik RouterOS).',
+      'Physical Location & Asset Metadata: automated hostname-based nomenclature, physical placement fields (Building, Floor, Unit, Rack) and comma-separated tags.',
+      'Full Backend Bulk-Add Integration: wired to /api/devices/discover/bulk-add with instant alreadyInInventory UI state updates and automated inventory list refresh.'
+    ]
+  },
   {
     version: '1.368.0',
     releaseDate: '2026-10-22',
