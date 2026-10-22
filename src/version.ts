@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.359.0';
+export const APP_VERSION = '1.360.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.360.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۴: ثبت و ممیزی جامع نشست‌های ریموت دسکتاپ گرافیکی RDP و VNC (Remote Desktop Session Logging)',
+    title_en: 'Phase 4: Graphic Remote Desktop RDP & VNC Session Lifecycle & Gateway Telemetry Auditing',
+    changes: [
+      'رهگیری بلادرنگ شروع نشست‌های ریموت دسکتاپ (Session Start): ثبت لحظه‌ای برقراری موفق نشست‌های گرافیکی RDP و VNC همراه با نام کاربری، شناسه اپراتور، آی‌پی کلاینت، حساب ویندوز/لینوکس، رزولوشن تصویر و پورت اتصال.',
+      'رهگیری زمان پایان و طول مدت اتصال (Duration): محاسبه میلی‌ثانیه‌ای و دقیق طول عمر نشست‌های فعال گرافیکی به محض بسته شدن تب، قطع ارتباط یا بستن پنجره توسط کاربر.',
+      'ثبت و تفکیک علل قطع و خطاهای ارتباطی (Disconnect & Failure Telemetry): تفکیک خطاهای احراز هویت NLA/Windows، خطای گیت‌وی گوآکامولی (guacd)، بسته‌شدن اتصال از سمت سرور مقصد و قطع نشست به دلیل عدم فعالیت (Inactivity Timeout).',
+      'رهگیری قطع اجباری توسط مدیر (Admin Termination): ثبت رویدادهای خاتمه دستی و اجباری نشست‌های فعال توسط مدیر سیستم به همراه متادیتای نشست.',
+      'پایش خودکار نشست‌های بدون فعالیت (Idle Timeout): ثبت رویداد و ارسال هشدار خودکار پس از ۱۵ دقیقه عدم فعالیت کاربر در نشست گرافیکی.',
+      'ذخیره‌سازی مستقیم، غیرمسدودکننده و بلادرنگ در جدول PostgreSQL (server_command_audit_logs) و لاگ‌های ممیزی امنیتی (Audit Logs) بدون هرگونه دیتای ساختگی یا ماک.'
+    ],
+    changes_en: [
+      'Real-time graphic remote desktop session initiation tracking: instant capture of successful RDP and VNC connections with operator username, operator ID, client IP, target OS account, display resolution, and destination port.',
+      'Session duration and termination telemetry: precise millisecond connection lifetime calculation triggered upon browser tab closure, modal exit, or remote disconnect.',
+      'Detailed disconnect cause and error classification: comprehensive auditing for NLA/Windows authentication rejections, Guacamole gateway (guacd) errors, remote host connection resets, and inactivity timeouts.',
+      'Administrative session termination auditing: captures manual kill/terminate actions performed by administrators against active remote sessions with session metadata.',
+      'Automated idle timeout monitoring: automatic timeout logging and event dispatch after 15 minutes of user inactivity in graphic remote desktop sessions.',
+      'Direct, non-blocking real-time persistence into PostgreSQL server_command_audit_logs and security audit logs with zero fake or simulated data.'
+    ]
+  },
   {
     version: '1.359.0',
     releaseDate: '2026-10-22',

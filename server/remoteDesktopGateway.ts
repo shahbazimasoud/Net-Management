@@ -7,7 +7,7 @@ import { exec } from 'child_process';
 import { Express, Request, Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyToken } from './auth';
-import { addAuditLog, getRemoteServerById } from './db';
+import { addAuditLog, addServerCommandLog, getRemoteServerById } from './db';
 
 export type RdpSecurityType = 'any' | 'nla' | 'tls' | 'rdp';
 
@@ -67,6 +67,9 @@ interface RemoteSessionConfig {
   serverId: string;
   serverName: string;
   serverIp: string;
+  osType?: string;
+  osDistro?: string;
+  serverEnvironment?: string;
   protocol: 'rdp' | 'vnc';
   port: number;
   username: string;
@@ -77,8 +80,10 @@ interface RemoteSessionConfig {
   width: number;
   height: number;
   dpi: number;
+  userId?: string;
   userName: string;
   userRole: string;
+  clientIp?: string;
   createdAt: number;
   expiresAt: number;
 }
@@ -89,14 +94,21 @@ interface ActiveSessionRecord {
   serverId: string;
   serverName: string;
   serverIp: string;
+  osType?: string;
+  osDistro?: string;
+  serverEnvironment?: string;
   protocol: string;
+  userId?: string;
   userName: string;
+  userRole?: string;
   startTime: number;
   lastActivity: number;
   clientIp: string;
   guacdConnected: boolean;
   socket?: net.Socket;
   clientWs?: WebSocket;
+  sessionEstablished?: boolean;
+  hasLoggedClose?: boolean;
 }
 
 // In-memory token and session store
@@ -837,12 +849,16 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
     const sessionToken = crypto.randomBytes(32).toString('hex');
     const sessionId = `rdp-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
+    const clientIp = ((req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '127.0.0.1').split(',')[0].trim();
     const sessionConfig: RemoteSessionConfig = {
       id: sessionId,
       token: sessionToken,
       serverId: serverRecord.id,
       serverName: serverRecord.name,
       serverIp: serverRecord.ip,
+      osType: serverRecord.os_type || (chosenProtocol === 'rdp' ? 'windows' : 'linux'),
+      osDistro: serverRecord.os_distro || serverRecord.distro || '',
+      serverEnvironment: serverRecord.environment || serverRecord.server_environment || 'production',
       protocol: chosenProtocol,
       port: targetPort,
       username: targetUsername,
@@ -852,8 +868,10 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       width: Math.max(800, Math.min(width, 3840)),
       height: Math.max(600, Math.min(height, 2160)),
       dpi: Math.max(72, Math.min(dpi, 192)),
+      userId: user ? (user.userId || '') : '',
       userName: user ? user.username : 'admin',
       userRole,
+      clientIp,
       createdAt: Date.now(),
       expiresAt: Date.now() + TOKEN_TTL_MS,
     };
@@ -872,7 +890,7 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
         resolution: `${sessionConfig.width}x${sessionConfig.height}@${sessionConfig.dpi}dpi`,
         concurrentSessionsOnTarget: concurrentCount,
       },
-      ipAddress: req.ip || '127.0.0.1',
+      ipAddress: clientIp,
     }).catch(() => {});
 
     // Return token to client (notice: username and password are NOT returned!)
@@ -900,6 +918,10 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
       return res.status(404).json({ error: 'Session not found or already closed.' });
     }
 
+    session.hasLoggedClose = true;
+    const durationMs = Date.now() - session.startTime;
+    const durationSec = Math.round(durationMs / 1000);
+
     try {
       if (session.clientWs && session.clientWs.readyState === WebSocket.OPEN) {
         session.clientWs.send(
@@ -918,14 +940,46 @@ export function registerRemoteDesktopRoutes(app: Express, projectRoot: string) {
 
     activeSessions.delete(sessionId);
 
+    // Record server command audit log
+    await addServerCommandLog({
+      userId: session.userId || '',
+      userName: session.userName,
+      userRole: session.userRole || 'Operator',
+      clientIp: session.clientIp,
+      serverId: session.serverId,
+      serverName: session.serverName,
+      serverIp: session.serverIp,
+      osType: session.osType || (session.protocol === 'rdp' ? 'windows' : 'linux'),
+      osDistro: session.osDistro || '',
+      serverEnvironment: session.serverEnvironment || 'production',
+      channel: session.protocol === 'rdp' ? 'REMOTE_DESKTOP_RDP' : 'REMOTE_DESKTOP_VNC',
+      actionModule: 'REMOTE_DESKTOP_SESSION',
+      actionName: `قطع اجباری نشست ریموت دسکتاپ (${session.protocol.toUpperCase()})`,
+      actionNameEn: `Remote desktop session terminated by admin (${session.protocol.toUpperCase()})`,
+      command: `TERMINATE SESSION ${sessionId}`,
+      parameters: {
+        sessionId,
+        protocol: session.protocol,
+        durationSec,
+        event: 'SESSION_TERMINATED',
+      },
+      riskLevel: 'medium',
+      status: 'SUCCESS',
+      outputSummary: `نشست ریموت دسکتاپ کاربر ${session.userName} روی سرور ${session.serverName} توسط مدیر پنل قطع شد (مدت اتصال: ${durationSec} ثانیه).`,
+      outputSummaryEn: `Remote desktop session of user ${session.userName} on server ${session.serverName} was terminated by administrator (duration: ${durationSec}s).`,
+      durationMs,
+      metadata: { sessionId, serverId: session.serverId },
+      timestamp: new Date().toISOString(),
+    }).catch(() => {});
+
     await addAuditLog({
       userName: session.userName,
       action: 'REMOTE_DESKTOP_SESSION_TERMINATED',
       category: 'remote_access',
       target: `${session.serverName} (${session.serverIp})`,
       status: 'info',
-      details: { durationSec: Math.round((Date.now() - session.startTime) / 1000) },
-      ipAddress: req.ip || '127.0.0.1',
+      details: { durationSec },
+      ipAddress: session.clientIp,
     }).catch(() => {});
 
     res.json({ success: true, message: 'Session terminated.' });
@@ -948,13 +1002,48 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     for (const [id, session] of activeSessions.entries()) {
       if (now - session.lastActivity > IDLE_TIMEOUT_MS) {
         console.log(`[RemoteDesktop] Session ${id} timed out due to 15m inactivity.`);
+        session.hasLoggedClose = true;
+        const durationMs = now - session.startTime;
+        const durationSec = Math.round(durationMs / 1000);
+
+        addServerCommandLog({
+          userId: session.userId || '',
+          userName: session.userName,
+          userRole: session.userRole || 'Operator',
+          clientIp: session.clientIp,
+          serverId: session.serverId,
+          serverName: session.serverName,
+          serverIp: session.serverIp,
+          osType: session.osType || (session.protocol === 'rdp' ? 'windows' : 'linux'),
+          osDistro: session.osDistro || '',
+          serverEnvironment: session.serverEnvironment || 'production',
+          channel: session.protocol === 'rdp' ? 'REMOTE_DESKTOP_RDP' : 'REMOTE_DESKTOP_VNC',
+          actionModule: 'REMOTE_DESKTOP_SESSION',
+          actionName: `قطع نشست ریموت دسکتاپ به دلیل عدم فعالیت (${session.protocol.toUpperCase()})`,
+          actionNameEn: `Remote desktop session disconnected due to idle timeout (${session.protocol.toUpperCase()})`,
+          command: `IDLE TIMEOUT (15 minutes inactivity)`,
+          parameters: {
+            sessionId: id,
+            protocol: session.protocol,
+            durationSec,
+            event: 'IDLE_TIMEOUT',
+          },
+          riskLevel: 'low',
+          status: 'TIMEOUT',
+          outputSummary: `نشست ریموت دسکتاپ کاربر ${session.userName} روی سرور ${session.serverName} به دلیل ۱۵ دقیقه عدم فعالیت قطع شد (طول نشست: ${durationSec} ثانیه).`,
+          outputSummaryEn: `Remote desktop session of user ${session.userName} on server ${session.serverName} disconnected after 15 minutes of inactivity (session duration: ${durationSec}s).`,
+          durationMs,
+          metadata: { sessionId: id, serverId: session.serverId },
+          timestamp: new Date().toISOString(),
+        }).catch(() => {});
+
         addAuditLog({
           userName: session.userName,
           action: 'REMOTE_DESKTOP_IDLE_TIMEOUT',
           category: 'remote_access',
           target: `${session.serverName} (${session.serverIp})`,
           status: 'warning',
-          details: { durationSec: Math.round((now - session.startTime) / 1000), reason: 'Inactivity idle timeout' },
+          details: { durationSec, reason: 'Inactivity idle timeout' },
           ipAddress: session.clientIp,
         }).catch(() => {});
 
@@ -1025,23 +1114,230 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     // Immediately consume token so it cannot be replayed
     pendingTokens.delete(token);
 
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || config.clientIp || '127.0.0.1';
     const activeSession: ActiveSessionRecord = {
       id: config.id,
       sessionId: config.id,
       serverId: config.serverId,
       serverName: config.serverName,
       serverIp: config.serverIp,
+      osType: config.osType,
+      osDistro: config.osDistro,
+      serverEnvironment: config.serverEnvironment,
       protocol: config.protocol,
+      userId: config.userId,
       userName: config.userName,
+      userRole: config.userRole,
       startTime: Date.now(),
       lastActivity: Date.now(),
       clientIp,
       guacdConnected: false,
       clientWs,
+      sessionEstablished: false,
+      hasLoggedClose: false,
     };
 
     activeSessions.set(config.id, activeSession);
+
+    let sessionOpenedLogged = false;
+    let sessionFailedLogged = false;
+    let sessionClosedLogged = false;
+
+    const logSessionEstablished = async () => {
+      if (sessionOpenedLogged) return;
+      sessionOpenedLogged = true;
+      activeSession.sessionEstablished = true;
+
+      try {
+        await addServerCommandLog({
+          userId: config.userId || '',
+          userName: config.userName,
+          userRole: config.userRole || 'Operator',
+          clientIp,
+          serverId: config.serverId,
+          serverName: config.serverName,
+          serverIp: config.serverIp,
+          osType: config.osType || (config.protocol === 'rdp' ? 'windows' : 'linux'),
+          osDistro: config.osDistro || '',
+          serverEnvironment: config.serverEnvironment || 'production',
+          channel: config.protocol === 'rdp' ? 'REMOTE_DESKTOP_RDP' : 'REMOTE_DESKTOP_VNC',
+          actionModule: 'REMOTE_DESKTOP_SESSION',
+          actionName: `برقراری نشست ریموت دسکتاپ (${config.protocol.toUpperCase()}) با حساب ${config.username}`,
+          actionNameEn: `Remote desktop session established (${config.protocol.toUpperCase()}) with account ${config.username}`,
+          command: `CONNECT ${config.protocol.toUpperCase()}://${config.username}@${config.serverIp}:${config.port} (${config.width}x${config.height}@${config.dpi}dpi)`,
+          parameters: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            port: config.port,
+            resolution: `${config.width}x${config.height}@${config.dpi}dpi`,
+            security: config.security || 'any',
+            event: 'SESSION_CONNECTED',
+          },
+          riskLevel: 'low',
+          status: 'SUCCESS',
+          outputSummary: `نشست گرافیکی ریموت دسکتاپ (${config.protocol.toUpperCase()}) توسط کاربر ${config.userName} با سرور ${config.serverName} (${config.serverIp}) با موفقیت برقرار شد.`,
+          outputSummaryEn: `Graphic remote desktop (${config.protocol.toUpperCase()}) session successfully established by user ${config.userName} with server ${config.serverName} (${config.serverIp}).`,
+          durationMs: 0,
+          metadata: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            port: config.port,
+            clientIp,
+          },
+          timestamp: new Date().toISOString(),
+        });
+
+        await addAuditLog({
+          userName: config.userName,
+          action: 'REMOTE_DESKTOP_SESSION_CONNECTED',
+          category: 'remote_access',
+          target: `${config.serverName} (${config.serverIp}:${config.port})`,
+          status: 'success',
+          details: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            resolution: `${config.width}x${config.height}@${config.dpi}dpi`,
+          },
+          ipAddress: clientIp,
+        }).catch(() => {});
+      } catch (err: any) {
+        console.warn('[RemoteDesktop] Failed to log session established:', err?.message);
+      }
+    };
+
+    const logSessionFailed = async (errMsg: string, causeEn = 'Connection error or authentication failure') => {
+      if (sessionFailedLogged || sessionOpenedLogged) return;
+      sessionFailedLogged = true;
+      activeSession.hasLoggedClose = true;
+
+      try {
+        await addServerCommandLog({
+          userId: config.userId || '',
+          userName: config.userName,
+          userRole: config.userRole || 'Operator',
+          clientIp,
+          serverId: config.serverId,
+          serverName: config.serverName,
+          serverIp: config.serverIp,
+          osType: config.osType || (config.protocol === 'rdp' ? 'windows' : 'linux'),
+          osDistro: config.osDistro || '',
+          serverEnvironment: config.serverEnvironment || 'production',
+          channel: config.protocol === 'rdp' ? 'REMOTE_DESKTOP_RDP' : 'REMOTE_DESKTOP_VNC',
+          actionModule: 'REMOTE_DESKTOP_SESSION',
+          actionName: `شکست در برقراری نشست ریموت دسکتاپ (${config.protocol.toUpperCase()}) با حساب ${config.username}`,
+          actionNameEn: `Remote desktop connection failed (${config.protocol.toUpperCase()}) for account ${config.username}`,
+          command: `CONNECT ${config.protocol.toUpperCase()}://${config.username}@${config.serverIp}:${config.port}`,
+          parameters: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            port: config.port,
+            error: errMsg,
+            event: 'SESSION_FAILED',
+          },
+          riskLevel: 'medium',
+          status: 'FAILED',
+          outputSummary: `اتصال ریموت دسکتاپ ${config.protocol.toUpperCase()} به سرور ${config.serverName} ناموفق بود: ${errMsg}`,
+          outputSummaryEn: `Remote desktop ${config.protocol.toUpperCase()} connection to server ${config.serverName} failed: ${causeEn} (${errMsg})`,
+          durationMs: Date.now() - activeSession.startTime,
+          metadata: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            clientIp,
+            error: errMsg,
+          },
+          timestamp: new Date().toISOString(),
+        });
+
+        await addAuditLog({
+          userName: config.userName,
+          action: 'REMOTE_DESKTOP_SESSION_FAILED',
+          category: 'remote_access',
+          target: `${config.serverName} (${config.serverIp}:${config.port})`,
+          status: 'failure',
+          details: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            error: errMsg,
+          },
+          ipAddress: clientIp,
+        }).catch(() => {});
+      } catch (err: any) {
+        console.warn('[RemoteDesktop] Failed to log session failed:', err?.message);
+      }
+    };
+
+    const logSessionClosed = async (reason = 'USER_DISCONNECTED', reasonEn = 'User closed session or disconnected') => {
+      if (sessionClosedLogged || activeSession.hasLoggedClose) return;
+      if (!sessionOpenedLogged) {
+        await logSessionFailed('Connection closed before handshake ready', reasonEn);
+        return;
+      }
+      sessionClosedLogged = true;
+      activeSession.hasLoggedClose = true;
+      const durationMs = Date.now() - activeSession.startTime;
+      const durationSec = Math.round(durationMs / 1000);
+
+      try {
+        await addServerCommandLog({
+          userId: config.userId || '',
+          userName: config.userName,
+          userRole: config.userRole || 'Operator',
+          clientIp,
+          serverId: config.serverId,
+          serverName: config.serverName,
+          serverIp: config.serverIp,
+          osType: config.osType || (config.protocol === 'rdp' ? 'windows' : 'linux'),
+          osDistro: config.osDistro || '',
+          serverEnvironment: config.serverEnvironment || 'production',
+          channel: config.protocol === 'rdp' ? 'REMOTE_DESKTOP_RDP' : 'REMOTE_DESKTOP_VNC',
+          actionModule: 'REMOTE_DESKTOP_SESSION',
+          actionName: `خاتمه نشست ریموت دسکتاپ (${config.protocol.toUpperCase()}) با حساب ${config.username}`,
+          actionNameEn: `Remote desktop session closed (${config.protocol.toUpperCase()}) for account ${config.username}`,
+          command: `CLOSE ${config.protocol.toUpperCase()} SESSION (${durationSec}s)`,
+          parameters: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            port: config.port,
+            durationSec,
+            reason,
+            event: 'SESSION_CLOSED',
+          },
+          riskLevel: 'low',
+          status: 'SUCCESS',
+          outputSummary: `نشست ریموت دسکتاپ کاربر ${config.userName} با سرور ${config.serverName} پس از ${durationSec} ثانیه خاتمه یافت (${reason}).`,
+          outputSummaryEn: `Remote desktop session of user ${config.userName} with server ${config.serverName} closed after ${durationSec}s (${reasonEn}).`,
+          durationMs,
+          metadata: {
+            sessionId: config.id,
+            protocol: config.protocol,
+            account: config.username,
+            durationSec,
+            reason,
+            clientIp,
+          },
+          timestamp: new Date().toISOString(),
+        });
+
+        await addAuditLog({
+          userName: config.userName,
+          action: 'REMOTE_DESKTOP_SESSION_CLOSED',
+          category: 'remote_access',
+          target: `${config.serverName} (${config.serverIp})`,
+          status: 'info',
+          details: { durationSec, protocol: config.protocol, reason },
+          ipAddress: clientIp,
+        }).catch(() => {});
+      } catch (err: any) {
+        console.warn('[RemoteDesktop] Failed to log session closed:', err?.message);
+      }
+    };
 
     // Check if guacd daemon is running; if not, try to start it automatically!
     let isGuacdLive = await checkGuacdHealth(guacdHost, guacdPort);
@@ -1051,6 +1347,10 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     if (!isGuacdLive) {
       console.warn(`[RemoteDesktop] guacd daemon is offline on host ${guacdHost}:${guacdPort}`);
+      await logSessionFailed(
+        `Apache Guacamole daemon (guacd) is offline on host ${guacdHost}:${guacdPort}`,
+        'Guacamole daemon is offline'
+      );
       if (clientWs.readyState === WebSocket.OPEN) {
         const payload = {
           category: 'GUACD_SERVICE_OFFLINE',
@@ -1123,6 +1423,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
             `[RemoteDesktop] guacd raw error for session ${config.id} (state=${handshakeState}, target=${config.serverIp}:${config.port}, code=${rawErrCode}): ${rawErrMsg}`
           );
           errorSent = true;
+          logSessionFailed(rawErrMsg, `Guacamole server returned error: ${rawErrMsg} (code ${rawErrCode})`);
           if (clientWs.readyState === WebSocket.OPEN) {
             // Forward guacd's real error message directly to the UI
             clientWs.send(encodeGuacInstruction('error', rawErrMsg, rawErrCode));
@@ -1210,6 +1511,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
           if (opcode === 'ready') {
             const guacSessionUuid = parsed[1] || config.id;
             console.log(`[RemoteDesktop] guacd session ready: ${guacSessionUuid}`);
+            logSessionEstablished();
             // Send Guacamole internal tunnel initialization instruction to browser client (opcode "", param: session UUID)
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(encodeGuacInstruction('', guacSessionUuid));
@@ -1264,6 +1566,7 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
     guacdSocket.on('error', (err: Error) => {
       clearInterval(keepaliveInterval);
       console.warn(`[RemoteDesktop] guacd TCP socket error for session ${config.id}:`, err.message);
+      logSessionFailed(`Gateway TCP socket error with guacd: ${err.message}`, `guacd socket error: ${err.message}`);
       if (clientWs.readyState === WebSocket.OPEN && !errorSent) {
         const payload = {
           category: 'GATEWAY_SOCKET_ERROR',
@@ -1278,8 +1581,16 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     guacdSocket.on('close', () => {
       clearInterval(keepaliveInterval);
+      const isEstablished = handshakeState === 'READY';
+      if (isEstablished) {
+        logSessionClosed('SERVER_CLOSED', 'Target remote server closed the connection');
+      } else {
+        logSessionFailed(
+          `Failed to connect to ${config.serverName} (${config.serverIp}:${config.port || (config.protocol === 'rdp' ? 3389 : 5900)}). Connection closed by remote host.`,
+          'Connection closed by remote host before handshake ready'
+        );
+      }
       if (clientWs.readyState === WebSocket.OPEN && !errorSent) {
-        const isEstablished = handshakeState === 'READY';
         const payload = isEstablished
           ? {
               category: 'SESSION_CLOSED',
@@ -1308,21 +1619,12 @@ export function setupRemoteDesktopWebSocket(server: http.Server, projectRoot: st
 
     clientWs.on('close', () => {
       clearInterval(keepaliveInterval);
-      const durationSec = Math.round((Date.now() - activeSession.startTime) / 1000);
       try {
         if (guacdSocket.writable) {
           guacdSocket.end();
         }
       } catch {}
-      addAuditLog({
-        userName: config.userName,
-        action: 'REMOTE_DESKTOP_SESSION_CLOSED',
-        category: 'remote_access',
-        target: `${config.serverName} (${config.serverIp})`,
-        status: 'info',
-        details: { durationSec, protocol: config.protocol },
-        ipAddress: clientIp,
-      }).catch(() => {});
+      logSessionClosed('USER_DISCONNECTED', 'Client browser disconnected or closed modal');
       activeSessions.delete(config.id);
     });
   });
