@@ -91,6 +91,8 @@ import {
   updateDevicePlacement,
   getAuditLogs,
   addAuditLog,
+  getServerCommandLogs,
+  addServerCommandLog,
   getDeviceStickyNotes,
   saveDeviceStickyNote,
   deleteDeviceStickyNote,
@@ -2189,6 +2191,50 @@ apiRouter.post('/audit-reports/send-now', async (req: Request, res: Response) =>
       latencyMs: 0,
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+// -------------------------------------------------------------
+// Remote Servers & Automation Fleet Command & Activity Audit Endpoints
+// -------------------------------------------------------------
+
+// GET /api/server-audit-logs
+apiRouter.get('/server-audit-logs', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string || '1000', 10), 5000);
+    const offset = parseInt(req.query.offset as string || '0', 10);
+    const serverId = req.query.serverId as string | undefined;
+    const userName = req.query.userName as string | undefined;
+    const channel = req.query.channel as string | undefined;
+    const actionModule = req.query.actionModule as string | undefined;
+    const search = req.query.search as string | undefined;
+
+    const logs = await getServerCommandLogs({
+      limit,
+      offset,
+      serverId,
+      userName,
+      channel,
+      actionModule,
+      search,
+    });
+    res.json({ success: true, logs });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message, logs: [] });
+  }
+});
+
+// POST /api/server-audit-logs
+apiRouter.post('/server-audit-logs', async (req: Request, res: Response) => {
+  try {
+    const entry = req.body;
+    if (!entry || (!entry.serverId && !entry.server_id)) {
+      return res.status(400).json({ success: false, error: 'Target server is required' });
+    }
+    const saved = await addServerCommandLog(entry);
+    res.json({ success: true, log: saved });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -528,3 +528,39 @@ CREATE TABLE IF NOT EXISTS system_security_keys (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 20. Remote Servers & Automation Fleet Command and Audit Logs
+CREATE TABLE IF NOT EXISTS server_command_audit_logs (
+    id VARCHAR(128) PRIMARY KEY,
+    user_id VARCHAR(64),
+    user_name VARCHAR(128) NOT NULL,
+    user_role VARCHAR(128) DEFAULT 'Super Administrator',
+    client_ip VARCHAR(64) DEFAULT '127.0.0.1',
+    server_id VARCHAR(128) NOT NULL,
+    server_name VARCHAR(255) NOT NULL,
+    server_ip VARCHAR(64) NOT NULL,
+    os_type VARCHAR(32) NOT NULL DEFAULT 'linux', -- 'linux' | 'windows'
+    os_distro VARCHAR(64),
+    server_environment VARCHAR(64),
+    channel VARCHAR(64) NOT NULL DEFAULT '3DOTS_ACTION', -- 'SSH_SHELL' | 'REMOTE_DESKTOP_RDP' | 'REMOTE_DESKTOP_VNC' | '3DOTS_ACTION' | 'API_DISPATCH'
+    action_module VARCHAR(64) NOT NULL, -- 'FILE_EXPLORER' | 'CRON_MANAGER' | 'FIREWALL_UFW' | 'STORAGE_LVM' | 'NGINX_MANAGEMENT' | etc.
+    action_name VARCHAR(255) NOT NULL,
+    action_name_en VARCHAR(255),
+    command TEXT,
+    parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+    risk_level VARCHAR(32) NOT NULL DEFAULT 'low', -- 'low' | 'medium' | 'high' | 'critical'
+    status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS', -- 'SUCCESS' | 'FAILED' | 'ACCESS_DENIED'
+    output_summary TEXT,
+    output_summary_en TEXT,
+    duration_ms INTEGER DEFAULT 0,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_server_audit_timestamp ON server_command_audit_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_server_audit_server_id ON server_command_audit_logs(server_id);
+CREATE INDEX IF NOT EXISTS idx_server_audit_user_name ON server_command_audit_logs(user_name);
+CREATE INDEX IF NOT EXISTS idx_server_audit_channel ON server_command_audit_logs(channel);
+CREATE INDEX IF NOT EXISTS idx_server_audit_action_module ON server_command_audit_logs(action_module);
+

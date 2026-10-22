@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.356.3';
+export const APP_VERSION = '1.357.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.357.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۱: پاکسازی کامل داده‌های ماک دستورات و پیاده‌سازی زیرساخت دیتابیس لاگ‌های سرورها',
+    title_en: 'Phase 1: Zero-Mock Device Logs Purge & Server Fleet Audit Database Architecture',
+    changes: [
+      'حذف ریشه‌ای و کامل کلیه داده‌های ماک و شبیه‌سازی‌شده (SEED_COMMAND_LOGS) از سرویس ممیزی لاگ‌ها (auditLogger).',
+      'اصلاح متد واکشی لاگ دستورات تجهیزات (loadDeviceCommandLogs) جهت پاکسازی خودکار کلیه سوابق شبیه‌سازی‌شده پیشین از حافظه کلاینت و نمایش انحصاری لاگ‌های واقعی و معتبر ثبت‌شده.',
+      'طراحی و استقرار جدول اختصاصی server_command_audit_logs در پایگاه‌داده رابطه‌ای PostgreSQL با ایندکس‌های بهینه زمانی، سرور، کاربر، کانال ارتباطی و ماژول عملیاتی.',
+      'پیاده‌سازی متدهای ذخیره‌سازی و بازیابی چندبعدی لاگ‌های ناوگان سرورها در لایه سرور (getServerCommandLogs و addServerCommandLog) با پشتیبانی از Fallback Store محلی.',
+      'ایجاد اندپوینت‌های استاندارد REST API شامل GET و POST در مسیر /api/server-audit-logs جهت دریافت و ثبت مستقیم لاگ‌های سرورها.',
+      'تعریف تایپ‌های جامع TypeScript برای کانال‌های اتصال سرور (SSH، RDP، VNC، منوی سه‌نقطه، API) و ماژول‌های ناوگان اتوماسیون.'
+    ],
+    changes_en: [
+      'Completely eliminated all synthetic and simulated mock command logs (SEED_COMMAND_LOGS) from the audit logger service.',
+      'Refactored loadDeviceCommandLogs to actively purge legacy mock records from client storage and strictly return authentic device executions.',
+      'Engineered and deployed the server_command_audit_logs table in the PostgreSQL database with optimized indexes for timestamp, server ID, username, communication channel, and action module.',
+      'Implemented server-side persistence and query methods (getServerCommandLogs and addServerCommandLog) supporting multi-criteria filtering and seamless local fallback.',
+      'Exposed REST API endpoints (GET & POST /api/server-audit-logs) for real-time dispatch and retrieval of server fleet activities.',
+      'Defined strict TypeScript interfaces for server communication channels (SSH_SHELL, REMOTE_DESKTOP_RDP, REMOTE_DESKTOP_VNC, 3DOTS_ACTION, API_DISPATCH) and modular fleet actions.'
+    ]
+  },
   {
     version: '1.356.3',
     releaseDate: '2026-10-22',

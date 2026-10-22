@@ -213,6 +213,7 @@ export interface FallbackStore {
   audit_email_reports?: any[];
   config_templates?: any[];
   system_security_keys?: SystemSecurityKeysRecord[];
+  server_command_audit_logs?: any[];
 }
 
 export interface SystemSecurityKeysRecord {
@@ -5832,6 +5833,251 @@ export async function addAuditLog(log: any): Promise<void> {
       console.error('[DB Query Error]', e);
     }
   }
+}
+
+// -------------------------------------------------------------
+// 11.B. Remote Servers & Automation Fleet Command & Audit Logs
+// -------------------------------------------------------------
+
+export async function getServerCommandLogs(options: {
+  limit?: number;
+  offset?: number;
+  serverId?: string;
+  userName?: string;
+  channel?: string;
+  actionModule?: string;
+  search?: string;
+} = {}): Promise<any[]> {
+  const { limit = 1000, offset = 0, serverId, userName, channel, actionModule, search } = options;
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      const conditions: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+
+      if (serverId) {
+        conditions.push(`server_id = $${idx++}`);
+        values.push(serverId);
+      }
+      if (userName) {
+        conditions.push(`user_name = $${idx++}`);
+        values.push(userName);
+      }
+      if (channel) {
+        conditions.push(`channel = $${idx++}`);
+        values.push(channel);
+      }
+      if (actionModule) {
+        conditions.push(`action_module = $${idx++}`);
+        values.push(actionModule);
+      }
+      if (search) {
+        conditions.push(`(server_name ILIKE $${idx} OR server_ip ILIKE $${idx} OR action_name ILIKE $${idx} OR action_name_en ILIKE $${idx} OR command ILIKE $${idx} OR output_summary ILIKE $${idx})`);
+        values.push(`%${search}%`);
+        idx++;
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      values.push(limit);
+      const limitParam = `$${idx++}`;
+      values.push(offset);
+      const offsetParam = `$${idx++}`;
+
+      const res = await pool.query(
+        `SELECT * FROM server_command_audit_logs ${whereClause} ORDER BY timestamp DESC LIMIT ${limitParam} OFFSET ${offsetParam}`,
+        values
+      );
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        timestamp: r.timestamp ? new Date(r.timestamp).toISOString() : new Date().toISOString(),
+        userId: r.user_id,
+        actor: {
+          username: r.user_name,
+          role: r.user_role || 'Super Administrator',
+          ipAddress: r.client_ip || '127.0.0.1',
+        },
+        serverId: r.server_id,
+        serverName: r.server_name,
+        serverIp: r.server_ip,
+        osType: r.os_type,
+        osDistro: r.os_distro,
+        serverEnvironment: r.server_environment,
+        channel: r.channel,
+        actionModule: r.action_module,
+        actionName: r.action_name,
+        actionNameEn: r.action_name_en,
+        command: r.command,
+        parameters: r.parameters || {},
+        riskLevel: r.risk_level,
+        status: r.status,
+        outputSummary: r.output_summary,
+        outputSummaryEn: r.output_summary_en,
+        durationMs: r.duration_ms,
+        metadata: r.metadata || {},
+      }));
+    } catch (e) {
+      console.error('[DB Query Error in getServerCommandLogs]', e);
+    }
+  }
+
+  // Fallback store
+  const store = loadFallbackStore();
+  let logs = (store.server_command_audit_logs || []).map((r: any) => ({
+    id: r.id,
+    timestamp: r.timestamp || new Date().toISOString(),
+    userId: r.user_id || r.userId,
+    actor: r.actor || {
+      username: r.user_name || 'admin',
+      role: r.user_role || 'Super Administrator',
+      ipAddress: r.client_ip || '127.0.0.1',
+    },
+    serverId: r.server_id || r.serverId,
+    serverName: r.server_name || r.serverName,
+    serverIp: r.server_ip || r.serverIp,
+    osType: r.os_type || r.osType || 'linux',
+    osDistro: r.os_distro || r.osDistro,
+    serverEnvironment: r.server_environment || r.serverEnvironment,
+    channel: r.channel,
+    actionModule: r.action_module || r.actionModule,
+    actionName: r.action_name || r.actionName,
+    actionNameEn: r.action_name_en || r.actionNameEn,
+    command: r.command,
+    parameters: r.parameters || {},
+    riskLevel: r.risk_level || r.riskLevel || 'low',
+    status: r.status || 'SUCCESS',
+    outputSummary: r.output_summary || r.outputSummary,
+    outputSummaryEn: r.output_summary_en || r.outputSummaryEn,
+    durationMs: r.duration_ms || r.durationMs || 0,
+    metadata: r.metadata || {},
+  }));
+
+  if (serverId) logs = logs.filter((l: any) => l.serverId === serverId);
+  if (userName) logs = logs.filter((l: any) => l.actor?.username === userName);
+  if (channel) logs = logs.filter((l: any) => l.channel === channel);
+  if (actionModule) logs = logs.filter((l: any) => l.actionModule === actionModule);
+  if (search) {
+    const q = search.toLowerCase();
+    logs = logs.filter((l: any) =>
+      (l.serverName || '').toLowerCase().includes(q) ||
+      (l.serverIp || '').toLowerCase().includes(q) ||
+      (l.actionName || '').toLowerCase().includes(q) ||
+      (l.command || '').toLowerCase().includes(q)
+    );
+  }
+  return logs.slice(-limit).reverse();
+}
+
+export async function addServerCommandLog(log: any): Promise<any> {
+  const record = {
+    id: log.id || `srv-cmd-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    user_id: log.userId || log.user_id || '',
+    user_name: log.userName || log.user_name || log.actor?.username || 'admin',
+    user_role: log.userRole || log.user_role || log.actor?.role || 'Super Administrator',
+    client_ip: log.clientIp || log.client_ip || log.actor?.ipAddress || '127.0.0.1',
+    server_id: log.serverId || log.server_id || '',
+    server_name: log.serverName || log.server_name || '',
+    server_ip: log.serverIp || log.server_ip || '',
+    os_type: log.osType || log.os_type || 'linux',
+    os_distro: log.osDistro || log.os_distro || '',
+    server_environment: log.serverEnvironment || log.server_environment || '',
+    channel: log.channel || '3DOTS_ACTION',
+    action_module: log.actionModule || log.action_module || 'GENERAL_FLEET_ACTION',
+    action_name: log.actionName || log.action_name || '',
+    action_name_en: log.actionNameEn || log.action_name_en || '',
+    command: log.command || '',
+    parameters: typeof log.parameters === 'object' ? log.parameters : {},
+    risk_level: log.riskLevel || log.risk_level || 'low',
+    status: log.status || 'SUCCESS',
+    output_summary: log.outputSummary || log.output_summary || '',
+    output_summary_en: log.outputSummaryEn || log.output_summary_en || '',
+    duration_ms: Number(log.durationMs || log.duration_ms) || 0,
+    metadata: typeof log.metadata === 'object' ? log.metadata : {},
+    timestamp: log.timestamp || new Date().toISOString(),
+  };
+
+  const store = loadFallbackStore();
+  if (!Array.isArray(store.server_command_audit_logs)) {
+    store.server_command_audit_logs = [];
+  }
+  store.server_command_audit_logs.push(record);
+  if (store.server_command_audit_logs.length > 2000) {
+    store.server_command_audit_logs = store.server_command_audit_logs.slice(-2000);
+  }
+  saveFallbackStore(store);
+
+  await ensurePostgresConnection();
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO server_command_audit_logs (
+          id, user_id, user_name, user_role, client_ip, server_id, server_name, server_ip,
+          os_type, os_distro, server_environment, channel, action_module, action_name,
+          action_name_en, command, parameters, risk_level, status, output_summary,
+          output_summary_en, duration_ms, metadata, timestamp
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+        )`,
+        [
+          record.id,
+          record.user_id,
+          record.user_name,
+          record.user_role,
+          record.client_ip,
+          record.server_id,
+          record.server_name,
+          record.server_ip,
+          record.os_type,
+          record.os_distro,
+          record.server_environment,
+          record.channel,
+          record.action_module,
+          record.action_name,
+          record.action_name_en,
+          record.command,
+          JSON.stringify(record.parameters),
+          record.risk_level,
+          record.status,
+          record.output_summary,
+          record.output_summary_en,
+          record.duration_ms,
+          JSON.stringify(record.metadata),
+          record.timestamp,
+        ]
+      );
+    } catch (e) {
+      console.error('[DB Insert Error in addServerCommandLog]', e);
+    }
+  }
+
+  return {
+    id: record.id,
+    timestamp: record.timestamp,
+    userId: record.user_id,
+    actor: {
+      username: record.user_name,
+      role: record.user_role,
+      ipAddress: record.client_ip,
+    },
+    serverId: record.server_id,
+    serverName: record.server_name,
+    serverIp: record.server_ip,
+    osType: record.os_type,
+    osDistro: record.os_distro,
+    serverEnvironment: record.server_environment,
+    channel: record.channel,
+    actionModule: record.action_module,
+    actionName: record.action_name,
+    actionNameEn: record.action_name_en,
+    command: record.command,
+    parameters: record.parameters,
+    riskLevel: record.risk_level,
+    status: record.status,
+    outputSummary: record.output_summary,
+    outputSummaryEn: record.output_summary_en,
+    durationMs: record.duration_ms,
+    metadata: record.metadata,
+  };
 }
 
 // -------------------------------------------------------------

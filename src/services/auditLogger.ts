@@ -1,6 +1,9 @@
 import {
   PortalAuditLogEntry,
   DeviceCommandLogEntry,
+  ServerCommandAuditLogEntry,
+  ServerCommandChannel,
+  ServerActionModule,
   AuditActor,
   Device,
   CommandRiskLevel,
@@ -12,6 +15,7 @@ import {
 const STORAGE_KEYS = {
   PORTAL_LOGS: 'nettopology_portal_audit_logs_v1',
   COMMAND_LOGS: 'nettopology_device_command_logs_v1',
+  SERVER_COMMAND_LOGS: 'nettopology_server_command_logs_v1',
 };
 
 // Event name for live sync across components
@@ -222,191 +226,8 @@ const SEED_PORTAL_LOGS: PortalAuditLogEntry[] = [
   }
 ];
 
-const SEED_COMMAND_LOGS: DeviceCommandLogEntry[] = [
-  {
-    id: 'cmd-log-201',
-    timestamp: new Date(Date.now() - 1000 * 60 * 8).toISOString(),
-    actor: { username: 'admin', role: 'Super Administrator', ipAddress: '192.168.10.45' },
-    deviceId: '1',
-    deviceName: 'SW-CORE-01',
-    deviceIp: '192.168.10.1',
-    deviceVendor: 'cisco',
-    deviceModel: 'Cisco Catalyst 3850-24P',
-    deviceLocation: 'ساختمان شماره ۱ > طبقه ۲ > اتاق سرور مرکزی > رک Rack-A01',
-    channel: 'terminal_interactive',
-    command: 'show ip interface brief',
-    riskLevel: 'low',
-    status: 'success',
-    outputSummary: 'Interface              IP-Address      OK? Method Status                Protocol\nVlan1                  192.168.10.1    YES NVRAM  up                    up\nGigabitEthernet0/1     unassigned      YES unset  up                    up\nGigabitEthernet0/2     unassigned      YES unset  up                    up',
-    durationMs: 42,
-    notes: 'بررسی وضعیت کلی اینترفیس‌های لایه ۳ و پورت‌های ترانک آپ‌لینک',
-  },
-  {
-    id: 'cmd-log-202',
-    timestamp: new Date(Date.now() - 1000 * 60 * 22).toISOString(),
-    actor: { username: 'admin', role: 'Super Administrator', ipAddress: '192.168.10.45' },
-    deviceId: '1',
-    deviceName: 'SW-CORE-01',
-    deviceIp: '192.168.10.1',
-    deviceVendor: 'cisco',
-    deviceModel: 'Cisco Catalyst 3850-24P',
-    deviceLocation: 'ساختمان شماره ۱ > طبقه ۲ > اتاق سرور مرکزی > رک Rack-A01',
-    channel: 'terminal_interactive',
-    command: 'configure terminal\ninterface GigabitEthernet0/14\nshutdown\nexit\nwrite memory',
-    riskLevel: 'critical',
-    status: 'success',
-    outputSummary: 'Building configuration...\n[OK]\n%LINK-5-CHANGED: Interface GigabitEthernet0/14, changed state to administratively down',
-    durationMs: 310,
-    notes: 'خاموش‌سازی دستی پورت مشکوک طبقه دوم و ذخیره در استارت‌آپ کانفیگ',
-  },
-  {
-    id: 'cmd-log-203',
-    timestamp: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
-    actor: { username: 'm.shahbazi', role: 'Senior Network Architect', ipAddress: '192.168.10.50' },
-    deviceId: '3',
-    deviceName: 'RT-EDGE-01',
-    deviceIp: '192.168.1.1',
-    deviceVendor: 'cisco',
-    deviceModel: 'Cisco ISR 4331',
-    deviceLocation: 'ساختمان شماره ۱ > طبقه ۲ > اتاق سرور مرکزی > رک Rack-A01',
-    channel: 'terminal_interactive',
-    command: 'show ip route summary\nshow bgp summary',
-    riskLevel: 'low',
-    status: 'success',
-    outputSummary: 'IP routing table name is default (0x0)\nTotal prefixes: 142\nBGP router identifier 192.168.1.1, local AS number 65001\nNeighbor 10.200.1.1 AS 65000 State: Established, 42 prefixes accepted',
-    durationMs: 65,
-    notes: 'پایش جدول روتینگ مرزی اینترنت و وضعیت نشست‌های BGP',
-  },
-  {
-    id: 'cmd-log-204',
-    timestamp: new Date(Date.now() - 1000 * 60 * 95).toISOString(),
-    actor: { username: 'admin', role: 'Super Administrator', ipAddress: '192.168.10.45' },
-    deviceId: 'dev-mk-01',
-    deviceName: 'MK-CCR2004-GATEWAY',
-    deviceIp: '192.168.88.1',
-    deviceVendor: 'mikrotik',
-    deviceModel: 'MikroTik CCR2004-16G-2S+',
-    deviceLocation: 'ساختمان شماره ۲ > طبقه ۱ > اتاق دیتا سنتر > رک Rack-M01',
-    channel: 'terminal_interactive',
-    command: '/interface bridge vlan print\n/ip firewall filter print count-only where action="drop"',
-    riskLevel: 'low',
-    status: 'success',
-    outputSummary: '# Flags: X - disabled, I - invalid, D - dynamic\n0   bridge=bridge1 vlan-ids=10,20,30,40 tagged=sfp-sfpplus1,sfp-sfpplus2 current-tagged=sfp-sfpplus1\n1429 dropped packets total',
-    durationMs: 28,
-    notes: 'استعلام بریج ویلن‌ها و بسته‌های فیلترشده فایروال RouterOS',
-  },
-  {
-    id: 'cmd-log-205',
-    timestamp: new Date(Date.now() - 1000 * 60 * 140).toISOString(),
-    actor: { username: 'admin', role: 'Super Administrator', ipAddress: '192.168.10.45' },
-    deviceId: '2',
-    deviceName: 'SW-ACCESS-01',
-    deviceIp: '192.168.10.2',
-    deviceVendor: 'cisco',
-    deviceModel: 'Cisco Catalyst 2960X-24TD-L',
-    deviceLocation: 'ساختمان شماره ۱ > طبقه ۱ > اتاق سوئیچ B > رک Rack-B01',
-    channel: 'port_context_menu',
-    command: 'interface FastEthernet0/5\nswitchport mode access\nswitchport access vlan 20\nswitchport port-security\nswitchport port-security maximum 2\nswitchport port-security violation restrict',
-    riskLevel: 'medium',
-    status: 'success',
-    outputSummary: 'Command accepted. Access VLAN set to 20 (Accounting), Port Security enabled with max 2 MACs.',
-    durationMs: 140,
-    notes: 'تخصیص ویلن دسترسی مالی و فعال‌سازی پورت‌سکیوریتی از منوی راست‌کلیک پورت',
-  },
-  {
-    id: 'cmd-log-206',
-    timestamp: new Date(Date.now() - 1000 * 60 * 210).toISOString(),
-    actor: { username: 'admin', role: 'Super Administrator', ipAddress: '192.168.10.45' },
-    deviceId: 'dev-mk-01',
-    deviceName: 'MK-CCR2004-GATEWAY',
-    deviceIp: '192.168.88.1',
-    deviceVendor: 'mikrotik',
-    deviceModel: 'MikroTik CCR2004-16G-2S+',
-    deviceLocation: 'ساختمان شماره ۲ > طبقه ۱ > اتاق دیتا سنتر > رک Rack-M01',
-    channel: 'template_push',
-    command: '/system backup save name="weekly-auto-dr"\n/export compact file="weekly-cfg-export"',
-    riskLevel: 'medium',
-    status: 'success',
-    outputSummary: 'Saving system configuration to weekly-auto-dr.backup\nConfiguration backup saved successfully.\nExporting configuration to weekly-cfg-export.rsc',
-    durationMs: 450,
-    notes: 'اجرای قالب بکاپ‌گیری دوره‌ای میکروتیک از منوی قالب‌های پیکربندی',
-  },
-  {
-    id: 'cmd-log-207',
-    timestamp: new Date(Date.now() - 1000 * 60 * 300).toISOString(),
-    actor: { username: 'a.rezaei', role: 'Helpdesk Specialist', ipAddress: '192.168.10.65' },
-    deviceId: '1',
-    deviceName: 'SW-CORE-01',
-    deviceIp: '192.168.10.1',
-    deviceVendor: 'cisco',
-    deviceModel: 'Cisco Catalyst 3850-24P',
-    deviceLocation: 'ساختمان شماره ۱ > طبقه ۲ > اتاق سرور مرکزی > رک Rack-A01',
-    channel: 'terminal_interactive',
-    command: 'reload',
-    riskLevel: 'critical',
-    status: 'denied',
-    outputSummary: '% Permission Denied: Policy "policy-helpdesk-l2" prohibits destructive command "reload" on Core Infrastructure.',
-    durationMs: 12,
-    notes: 'تلاش غیرمجاز برای ریبوت سوئیچ مرکزی توسط کاربر هلپ‌دسک با موفقیت توسط RBAC مسدود شد.',
-  },
-  {
-    id: 'cmd-log-208',
-    timestamp: new Date(Date.now() - 1000 * 60 * 380).toISOString(),
-    actor: { username: 's.ahmadi', role: 'Network Support Engineer', ipAddress: '192.168.10.72' },
-    deviceId: '2',
-    deviceName: 'SW-ACCESS-01',
-    deviceIp: '192.168.10.2',
-    deviceVendor: 'cisco',
-    deviceModel: 'Cisco Catalyst 2960X-24TD-L',
-    deviceLocation: 'ساختمان شماره ۱ > طبقه ۱ > اتاق سوئیچ B > رک Rack-B01',
-    channel: 'terminal_interactive',
-    command: 'show mac address-table interface FastEthernet0/12\nshow port-security interface FastEthernet0/12',
-    riskLevel: 'low',
-    status: 'success',
-    outputSummary: 'Mac Address Table\n-------------------------------------------\nVlan    Mac Address       Type        Ports\n----    -----------       --------    -----\n  20    0050.56a1.2c34    DYNAMIC     Fa0/12\nPort Security              : Enabled\nPort Status                : Secure-up',
-    durationMs: 35,
-    notes: 'بررسی وضعیت مک‌آدرس و پورت سکیوریتی کاربر واحد اداری',
-  },
-  {
-    id: 'cmd-log-209',
-    timestamp: new Date(Date.now() - 1000 * 60 * 520).toISOString(),
-    actor: { username: 'm.shahbazi', role: 'Senior Network Architect', ipAddress: '192.168.10.50' },
-    deviceId: '1',
-    deviceName: 'SW-CORE-01',
-    deviceIp: '192.168.10.1',
-    deviceVendor: 'cisco',
-    deviceModel: 'Cisco Catalyst 3850-24P',
-    deviceLocation: 'ساختمان شماره ۱ > طبقه ۲ > اتاق سرور مرکزی > رک Rack-A01',
-    channel: 'terminal_interactive',
-    command: 'configure terminal\nvlan 100\nname MANAGEMENT_INFRA\nexit\nwrite memory',
-    riskLevel: 'medium',
-    status: 'success',
-    outputSummary: 'VLAN 100 created and labeled MANAGEMENT_INFRA.\n[OK] Configuration committed to NVRAM.',
-    durationMs: 240,
-    notes: 'تعریف ویلن مدیریتی جدید روی سوئیچ Core',
-  },
-  {
-    id: 'cmd-log-210',
-    timestamp: new Date(Date.now() - 1000 * 60 * 720).toISOString(),
-    actor: { username: 'm.shahbazi', role: 'Senior Network Architect', ipAddress: '192.168.10.50' },
-    deviceId: 'dev-mk-01',
-    deviceName: 'MK-CCR2004-GATEWAY',
-    deviceIp: '192.168.88.1',
-    deviceVendor: 'mikrotik',
-    deviceModel: 'MikroTik CCR2004-16G-2S+',
-    deviceLocation: 'ساختمان شماره ۲ > طبقه ۱ > اتاق دیتا سنتر > رک Rack-M01',
-    channel: 'terminal_interactive',
-    command: '/ip pool add name=dhcp-pool-it ranges=10.100.1.100-10.100.1.200\n/ip dhcp-server add name=dhcp-it interface=bridge1 address-pool=dhcp-pool-it disabled=no',
-    riskLevel: 'medium',
-    status: 'success',
-    outputSummary: 'Pool dhcp-pool-it added successfully.\nDHCP Server dhcp-it bound to bridge1 and activated.',
-    durationMs: 85,
-    notes: 'پیکربندی پول DHCP جهت بخش فناوری اطلاعات روی روتربورد میکروتیک',
-  }
-];
-
 // ==========================================
-// Storage & Access API
+// Storage & Access API (Zero Mock Data)
 // ==========================================
 
 export function loadPortalAuditLogs(): PortalAuditLogEntry[] {
@@ -445,41 +266,147 @@ export function savePortalAuditLogs(logs: PortalAuditLogEntry[]): void {
   }
 }
 
+/**
+ * Loads authentic device command logs only. Purges any legacy mock/seeded data.
+ */
 export function loadDeviceCommandLogs(): DeviceCommandLogEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.COMMAND_LOGS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const existingIds = new Set(parsed.map((p: DeviceCommandLogEntry) => p.id));
-        let changed = false;
-        for (const seed of SEED_COMMAND_LOGS) {
-          if (!existingIds.has(seed.id)) {
-            parsed.push(seed);
-            changed = true;
-          }
+      if (Array.isArray(parsed)) {
+        // Strictly purge any legacy mock/seeded command logs (cmd-log-201 to cmd-log-210)
+        const authenticLogs = parsed.filter((p: DeviceCommandLogEntry) => {
+          if (!p || !p.id) return false;
+          if (typeof p.id === 'string' && p.id.startsWith('cmd-log-2')) return false;
+          return true;
+        });
+        if (authenticLogs.length !== parsed.length) {
+          saveDeviceCommandLogs(authenticLogs);
         }
-        if (changed) {
-          saveDeviceCommandLogs(parsed);
-        }
-        return parsed;
+        return authenticLogs;
       }
     }
   } catch (e) {
     console.error('Failed to load device command logs', e);
   }
-  saveDeviceCommandLogs(SEED_COMMAND_LOGS);
-  return SEED_COMMAND_LOGS;
+  return [];
 }
 
 export function saveDeviceCommandLogs(logs: DeviceCommandLogEntry[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.COMMAND_LOGS, JSON.stringify(logs));
+    // Ensure no mock seeds leak into storage
+    const cleanLogs = (logs || []).filter(
+      (p) => p && p.id && !(typeof p.id === 'string' && p.id.startsWith('cmd-log-2'))
+    );
+    localStorage.setItem(STORAGE_KEYS.COMMAND_LOGS, JSON.stringify(cleanLogs));
     window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'command' } }));
   } catch (e) {
     console.error('Failed to save device command logs', e);
   }
 }
+
+// ==========================================
+// Server Fleet Command & Activity Logs API
+// ==========================================
+
+export function loadLocalServerCommandLogs(): ServerCommandAuditLogEntry[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.SERVER_COMMAND_LOGS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load local server command logs', e);
+  }
+  return [];
+}
+
+export async function fetchServerCommandLogs(options: {
+  serverId?: string;
+  userName?: string;
+  channel?: string;
+  actionModule?: string;
+  search?: string;
+  limit?: number;
+} = {}): Promise<ServerCommandAuditLogEntry[]> {
+  try {
+    const params = new URLSearchParams();
+    if (options.serverId) params.append('serverId', options.serverId);
+    if (options.userName) params.append('userName', options.userName);
+    if (options.channel) params.append('channel', options.channel);
+    if (options.actionModule) params.append('actionModule', options.actionModule);
+    if (options.search) params.append('search', options.search);
+    if (options.limit) params.append('limit', String(options.limit));
+
+    const res = await fetch(`/api/server-audit-logs?${params.toString()}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.logs)) {
+        saveServerCommandLogs(data.logs);
+        return data.logs;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch server command logs from backend, falling back to local storage', err);
+  }
+  return loadLocalServerCommandLogs();
+}
+
+export function saveServerCommandLogs(logs: ServerCommandAuditLogEntry[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.SERVER_COMMAND_LOGS, JSON.stringify(logs));
+    window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'server_command' } }));
+  } catch (e) {
+    console.error('Failed to save server command logs', e);
+  }
+}
+
+export async function logServerCommandEvent(
+  entry: Omit<ServerCommandAuditLogEntry, 'id' | 'timestamp' | 'actor'> & {
+    id?: string;
+    timestamp?: string;
+    actor?: AuditActor;
+  }
+): Promise<ServerCommandAuditLogEntry> {
+  const currentLogs = loadLocalServerCommandLogs();
+  const actor = entry.actor || getCurrentActor();
+  const newLog: ServerCommandAuditLogEntry = {
+    id: entry.id || `srv-cmd-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    timestamp: entry.timestamp || new Date().toISOString(),
+    actor,
+    ...entry,
+  };
+
+  const updated = [newLog, ...currentLogs].slice(0, 1000);
+  saveServerCommandLogs(updated);
+
+  // Asynchronously dispatch to backend PostgreSQL database
+  try {
+    fetch('/api/server-audit-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newLog),
+    }).catch((err) => console.warn('Background server audit dispatch warning:', err));
+  } catch (err) {
+    console.warn('Failed to dispatch server audit log to API', err);
+  }
+
+  return newLog;
+}
+
+export function clearServerCommandLogs(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.SERVER_COMMAND_LOGS);
+    window.dispatchEvent(new CustomEvent(AUDIT_LOG_UPDATED_EVENT, { detail: { type: 'server_command' } }));
+  } catch (e) {
+    console.error('Failed to clear server command logs', e);
+  }
+}
+
 
 // ==========================================
 // High-Level Logging Functions

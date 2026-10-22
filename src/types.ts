@@ -1151,6 +1151,59 @@ export interface DeviceCommandLogEntry {
 }
 
 // -------------------------------------------------------------
+// Remote Servers & Automation Fleet Command and Audit Logs
+// -------------------------------------------------------------
+
+export type ServerCommandChannel =
+  | 'SSH_SHELL'
+  | 'REMOTE_DESKTOP_RDP'
+  | 'REMOTE_DESKTOP_VNC'
+  | '3DOTS_ACTION'
+  | 'API_DISPATCH';
+
+export type ServerActionModule =
+  | 'FILE_EXPLORER'
+  | 'CRON_MANAGER'
+  | 'FIREWALL_UFW'
+  | 'STORAGE_LVM'
+  | 'NGINX_MANAGEMENT'
+  | 'APACHE_MANAGEMENT'
+  | 'POSTGRESQL_MANAGEMENT'
+  | 'MYSQL_MANAGEMENT'
+  | 'SYSTEM_RESTART'
+  | 'SYSTEM_SHUTDOWN'
+  | 'TERMINAL_SESSION'
+  | 'REMOTE_DESKTOP_SESSION'
+  | 'PACKAGE_MANAGER'
+  | 'MONITORING_WATCHDOG'
+  | 'GENERAL_FLEET_ACTION';
+
+export interface ServerCommandAuditLogEntry {
+  id: string;
+  timestamp: string; // ISO 8601
+  actor: AuditActor;
+  userId?: string;
+  serverId: string;
+  serverName: string;
+  serverIp: string;
+  osType: 'linux' | 'windows';
+  osDistro?: string;
+  serverEnvironment?: string;
+  channel: ServerCommandChannel;
+  actionModule: ServerActionModule;
+  actionName: string;
+  actionNameEn: string;
+  command?: string;
+  parameters?: Record<string, any>;
+  riskLevel: CommandRiskLevel;
+  status: 'SUCCESS' | 'FAILED' | 'ACCESS_DENIED';
+  outputSummary?: string;
+  outputSummaryEn?: string;
+  durationMs?: number;
+  metadata?: Record<string, any>;
+}
+
+// -------------------------------------------------------------
 // Automated Audit & Command Logs Scheduled Reporting
 // -------------------------------------------------------------
 
