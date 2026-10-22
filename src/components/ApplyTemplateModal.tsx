@@ -365,6 +365,9 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
   // Interactive Variables State
   const [showAllDevices, setShowAllDevices] = useState(false);
   const prevDeviceRef = useRef<string | null>(null);
+  const prevIsOpenRef = useRef(false);
+  const prevTargetDeviceIdRef = useRef<string | null>(null);
+  const prevPreselectedTemplateIdRef = useRef<string | null>(null);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [isIpConfirmed, setIsIpConfirmed] = useState<boolean>(true);
   const [copiedScript, setCopiedScript] = useState(false);
@@ -473,15 +476,38 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, isApplying, isBackingUp]);
 
-  // Sync state whenever modal opens or initial target device changes
+  // Sync state strictly on initial modal open or explicit target device/template change
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) {
+      prevIsOpenRef.current = false;
+      prevTargetDeviceIdRef.current = null;
+      prevPreselectedTemplateIdRef.current = null;
+      return;
+    }
+
+    const isFreshOpen = !prevIsOpenRef.current;
+    const isTargetDeviceChanged = Boolean(
+      initialTargetDevice?.id &&
+      prevTargetDeviceIdRef.current &&
+      initialTargetDevice.id !== prevTargetDeviceIdRef.current
+    );
+    const isTemplateExplicitlyChanged = Boolean(
+      preselectedTemplateId &&
+      prevPreselectedTemplateIdRef.current &&
+      preselectedTemplateId !== prevPreselectedTemplateIdRef.current
+    );
+
+    if (isFreshOpen || isTargetDeviceChanged || isTemplateExplicitlyChanged) {
+      prevIsOpenRef.current = true;
+      prevTargetDeviceIdRef.current = initialTargetDevice?.id || null;
+      prevPreselectedTemplateIdRef.current = preselectedTemplateId || null;
+
       if (preselectedTemplateId) {
         setSelectedTemplateId(preselectedTemplateId);
       }
       if (initialTargetDevice) {
         setSelectedDevice(initialTargetDevice);
-      } else if (allDevices.length > 0) {
+      } else if (allDevices.length > 0 && isFreshOpen) {
         const tmpl = (propTemplates || templates).find((t) => t.id === (preselectedTemplateId || selectedTemplateId));
         if (tmpl) {
           const isMikroTikTmpl = tmpl.vendor === 'mikrotik';
@@ -498,6 +524,8 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
           setSelectedDevice(allDevices[0]);
         }
       }
+
+      // Only on initial open or explicit new target device/template do we reset workflow step & confirmations
       setActiveStep('variables');
       setApplyResult(null);
       setApplyError(null);
@@ -511,7 +539,7 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
       setLiveBaselineConfig('');
       setBaselineError(null);
     }
-  }, [isOpen, preselectedTemplateId, initialTargetDevice, allDevices]);
+  }, [isOpen, initialTargetDevice?.id, preselectedTemplateId]);
 
   // Trigger pre-flight connectivity probe when selected device changes
   const runDeviceProbe = async (device: Device | null) => {
@@ -2741,6 +2769,24 @@ export const ApplyTemplateModal: React.FC<ApplyTemplateModalProps> = ({
                   </span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Fallback if Step 2 is active but no template is selected */}
+          {activeStep === 'preview' && !currentTemplate && (
+            <div className={`p-8 text-center rounded-2xl border ${
+              isLightMode ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-900/60 border-white/10 text-slate-300'
+            }`}>
+              <p className="text-sm font-medium">
+                {isEn ? 'No template selected. Please return to Step 1 to select a template.' : 'هیچ الگویی انتخاب نشده است. لطفاً برای انتخاب الگو به مرحله ۱ بازگردید.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveStep('variables')}
+                className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold cursor-pointer transition shadow-md"
+              >
+                {isEn ? '← Back to Variables & Options' : '← بازگشت به تنظیمات و متغیرها'}
+              </button>
             </div>
           )}
 

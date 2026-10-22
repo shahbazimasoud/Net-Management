@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.356.0';
+export const APP_VERSION = '1.356.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.356.1',
+    releaseDate: '2026-10-22',
+    type: 'patch',
+    title: 'رفع باگ بازگشت ناخواسته به تب اول در مودال اعمال قالب کانفیگ تجهیزات',
+    title_en: 'Fix Unintended Step Reset to Variables Tab During Live Diff Review in Template Deployment Modal',
+    changes: [
+      'اصلاح منطق هوک همگام‌سازی (Synchronization Hook) در مودال اعمال قالب کانفیگ تجهیزات (ApplyTemplateModal) جهت جلوگیری از بازنشانی ناخواسته تب فعال (activeStep) به تب اول (Variables & Backup Guard) هنگام رفتن به تب دوم (Live Diff & Strict Approval).',
+      'مهار و مقیدسازی چرخه ریست صرفاً به باز شدن اولیه پنجره مودال یا تغییر صریح شناسه تجهیز هدف/قالب انتخابی، و حذف آرایه کلی تجهیزات (allDevices) از وابستگی‌های ریست استیت.',
+      'تضمین حفظ کامل وضعیت فیلدها، مقایسه تفاوت‌های لایو (Live Baseline Diff)، وضعیت چک‌باکس‌های تاییدیه سخت‌گیرانه و نام هاست تایپ‌شده در صورت فراخوانی دوره‌ای تلمتری پس‌زمینه.',
+      'افزودن پیام فالبک شفاف و استاندارد در صورت عدم انتخاب قالب در تب دوم با قابلیت بازگشت مستقیم به مرحله اول و رعایت ۱۰۰ درصدی اصول چندزبانگی i18n.'
+    ],
+    changes_en: [
+      'Resolved workflow synchronization flaw in Interactive Template Deployment modal (ApplyTemplateModal) that caused premature step resets to tab 1 (Variables & Backup Guard) upon navigating to tab 2 (Live Diff & Strict Approval).',
+      'Restricted step re-initialization strictly to genuine modal open transitions or explicit target device ID and template changes, decoupling generic inventory array references (allDevices) from resetting active workflow state.',
+      'Preserved user-edited variable inputs, fetched live running configuration diffs, strict approval checklist selections, and confirmed hostname entries across background telemetry polling sweeps.',
+      'Added clean defensive fallback and navigation guidance when step 2 is active without a selected template, maintaining strict zero Persian leak in English mode.'
+    ]
+  },
   {
     version: '1.356.0',
     releaseDate: '2026-10-22',
