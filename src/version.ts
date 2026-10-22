@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.356.1';
+export const APP_VERSION = '1.356.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.356.2',
+    releaseDate: '2026-10-22',
+    type: 'patch',
+    title: 'اصلاح چیدمان هدر و جلوگیری از خروج دکمه‌های اکشن از کادر در صفحه الگوهای کانفیگ',
+    title_en: 'Header Layout Restructuring & Action Buttons Container Overflow Fix in Config Templates View',
+    changes: [
+      'اصلاح ساختار چیدمان سربرگ صفحه مدیریت الگوهای کانفیگ (TemplateManagementView) به صورت دو سطحی تفکیک‌شده (Two-tier Flow).',
+      'انتقال عنوان صفحه، بج سیسکو و میکروتیک و توضیحات فنی پارامترها به بخش بالایی با عرض کامل جهت جلوگیری از فشردگی و چسبیدن متن به دکمه‌ها.',
+      'انتقال دکمه‌های عملیاتی (استخراج الگو از تجهیز زنده، تعریف الگوی جدید، کلون از الگوها، برون‌بری، درون‌ریزی و رفرش) به ردیف زیرین همراه با خط جداکننده شکیل و قابلیت شکست خودکار سطر (flex-wrap).',
+      'جلوگیری قطعی از بیرون‌زدگی دکمه‌ها از کادر کارت در تمامی رزولوشن‌ها و ابعاد نمایشگرها همراه با پشتیبانی کامل از تم روشن (Light Mode) و تم تیره.'
+    ],
+    changes_en: [
+      'Restructured header section of the Network Equipment Config Templates & Patterns view (TemplateManagementView) into a dedicated two-tier layout.',
+      'Positioned page title, Cisco & MikroTik vendor badge, icon, and technical description on top across full width to eliminate text crowding and horizontal collision with action buttons.',
+      'Relocated action buttons ("Extract Template from Live Device", "Define New Template", "Clone from Templates", "Export", "Import", and Refresh) to a dedicated lower row with flex-wrap and zero container overflow.',
+      'Enforced strict bounding inside the glass container across all viewport widths with polished light and dark theme contrast.'
+    ]
+  },
   {
     version: '1.356.1',
     releaseDate: '2026-10-22',

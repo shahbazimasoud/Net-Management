@@ -371,79 +371,109 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
         </div>
       )}
 
-      {/* Page Header with Harmonized Button Sizes (Matches DeviceListView) */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl spatial-glass border border-white/10 backdrop-blur-xl shadow-xl">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500/20 to-cyan-500/20 text-cyan-400 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
-              <FileCode2 className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>{t('templates_title')}</span>
-                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                  {t('templates_badge')}
-                </span>
+      {/* Page Header - Two-tier layout: Title on top, action buttons wrapped cleanly below */}
+      <div className={`flex flex-col gap-4 p-5 sm:p-6 rounded-2xl border backdrop-blur-xl shadow-xl transition ${
+        isLightMode
+          ? 'bg-white/80 border-slate-200/80 shadow-slate-200/50 text-slate-800'
+          : 'spatial-glass border-white/10 shadow-xl text-white'
+      }`}>
+        {/* Top Tier: Title, Badge, Icon and Description (Full width across container) */}
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 mt-0.5 border shadow-sm ${
+            isLightMode
+              ? 'bg-indigo-50 text-indigo-600 border-indigo-200'
+              : 'bg-gradient-to-br from-indigo-500/20 to-cyan-500/20 text-cyan-400 border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.25)]'
+          }`}>
+            <FileCode2 className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <h2 className={`text-base sm:text-lg font-bold tracking-tight ${
+                isLightMode ? 'text-slate-900' : 'text-white'
+              }`}>
+                {t('templates_title')}
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5 max-w-2xl leading-relaxed">
-                {t('templates_subtitle')}
-              </p>
+              <span className={`text-xs font-mono px-2.5 py-0.5 rounded-full border font-semibold ${
+                isLightMode
+                  ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                  : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+              }`}>
+                {t('templates_badge')}
+              </span>
             </div>
+            <p className={`text-xs mt-1.5 leading-relaxed max-w-4xl ${
+              isLightMode ? 'text-slate-600' : 'text-slate-400'
+            }`}>
+              {t('templates_subtitle')}
+            </p>
           </div>
         </div>
 
-        {/* Top Action Buttons - Compact side-by-side layout */}
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
+        {/* Bottom Tier: Action Buttons Bar - Fully wrapped, non-colliding and bound strictly inside the container */}
+        <div className={`flex items-center gap-2 flex-wrap pt-3.5 border-t ${
+          isLightMode ? 'border-slate-200/80' : 'border-white/10'
+        }`}>
           {/* Extract Live Config Button */}
           <button
+            type="button"
             onClick={() => setCaptureModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-medium shadow-xs transition active:scale-95 border border-emerald-400/30 cursor-pointer whitespace-nowrap shrink-0"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-medium shadow-sm transition active:scale-95 border border-emerald-400/30 cursor-pointer"
             title={t('templates_btn_extract_live_title')}
           >
-            <DownloadCloud className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
+            <DownloadCloud className="w-4 h-4 text-emerald-100 shrink-0" />
             <span>{t('templates_btn_extract_live')}</span>
           </button>
 
           {/* New Template Button */}
           <button
+            type="button"
             onClick={() => {
               setTemplateToEdit(null);
               setEditorOpen(true);
             }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-[11px] font-medium shadow-xs transition border border-white/10 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-xs font-medium shadow-sm transition border border-white/10 active:scale-95 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <Plus className="w-4 h-4 shrink-0" />
             <span>{t('templates_btn_create_new')}</span>
           </button>
 
           {/* Clone from Templates Button */}
           {templates.length > 0 && (
             <button
+              type="button"
               onClick={() => handleOpenClone(templates[0])}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-medium shadow-xs transition active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium shadow-sm transition active:scale-95 border cursor-pointer ${
+                isLightMode
+                  ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border-cyan-300'
+                  : 'bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border-cyan-500/30'
+              }`}
               title={t('templates_btn_clone_top_title')}
             >
-              <CopyPlus className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <CopyPlus className="w-4 h-4 text-cyan-400 shrink-0" />
               <span>{t('templates_btn_clone_top')}</span>
             </button>
           )}
 
           {/* Export Templates Button */}
           <button
+            type="button"
             onClick={handleExportTemplates}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium shadow-sm transition active:scale-95 border cursor-pointer ${
               canExport
-                ? 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border-purple-500/30'
+                ? isLightMode
+                  ? 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-300'
+                  : 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border-purple-500/30'
                 : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
             }`}
             title={canExport ? (isEn ? 'Export All Config Templates as JSON Package' : 'برون‌بری کلیه الگوهای کانفیگ به صورت بسته JSON') : (isEn ? 'Access Denied: Export Templates prohibited by RBAC' : 'عدم دسترسی: برون‌بری الگوها در سطوح دسترسی غیرفعال است')}
           >
-            <Download className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <Download className="w-4 h-4 text-purple-400 shrink-0" />
             <span>{isEn ? 'Export' : 'برون‌بری'}</span>
           </button>
 
           {/* Import Templates Button */}
           <button
+            type="button"
             onClick={() => {
               if (!canImport) {
                 alert(isEn
@@ -453,14 +483,16 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
               }
               fileInputRef.current?.click();
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium shadow-xs transition active:scale-95 border cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium shadow-sm transition active:scale-95 border cursor-pointer ${
               canImport
-                ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                ? isLightMode
+                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                  : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
                 : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed opacity-60'
             }`}
             title={canImport ? (isEn ? 'Import Config Templates from JSON Package' : 'درون‌ریزی و بارگذاری الگوهای کانفیگ از فایل JSON') : (isEn ? 'Access Denied: Import Templates prohibited by RBAC' : 'عدم دسترسی: درون‌ریزی الگوها در سطوح دسترسی غیرفعال است')}
           >
-            <Upload className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <Upload className="w-4 h-4 text-amber-400 shrink-0" />
             <span>{isEn ? 'Import' : 'درون‌ریزی'}</span>
           </button>
 
@@ -474,11 +506,16 @@ export const TemplateManagementView: React.FC<TemplateManagementViewProps> = ({
 
           {/* Refresh List Button */}
           <button
+            type="button"
             onClick={loadTemplates}
             title={t('action_refresh')}
-            className="flex items-center justify-center p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 transition cursor-pointer shrink-0"
+            className={`flex items-center justify-center p-2 rounded-xl border transition cursor-pointer ${
+              isLightMode
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
+                : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border-white/10'
+            }`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         </div>
       </div>
