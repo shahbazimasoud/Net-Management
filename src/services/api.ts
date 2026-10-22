@@ -7711,6 +7711,7 @@ export async function previewAuditReportApi(payload: {
   config?: Partial<AuditReportScheduleConfig>;
   portalLogs?: any[];
   commandLogs?: any[];
+  serverCommandLogs?: any[];
   isEn?: boolean;
 }): Promise<AuditReportPreviewResult> {
   const res = await fetchWithRetry(`${API_BASE}/audit-reports/preview`, {
@@ -7729,6 +7730,7 @@ export async function sendAuditReportNowApi(payload: {
   config?: Partial<AuditReportScheduleConfig>;
   portalLogs?: any[];
   commandLogs?: any[];
+  serverCommandLogs?: any[];
   isEn?: boolean;
 }): Promise<AuditReportSendResult> {
   const res = await fetchWithRetry(`${API_BASE}/audit-reports/send-now`, {
@@ -7809,6 +7811,7 @@ export async function toggleAuditEmailReportApi(id: string, enabled: boolean): P
 export async function sendAuditEmailReportByIdNowApi(id: string, payload: {
   portalLogs?: any[];
   commandLogs?: any[];
+  serverCommandLogs?: any[];
   isEn?: boolean;
 }): Promise<AuditReportSendResult> {
   const res = await fetchWithRetry(`${API_BASE}/audit-reports/${encodeURIComponent(id)}/send-now`, {

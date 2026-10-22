@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.362.0';
+export const APP_VERSION = '1.363.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.363.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۱: موتور بک‌اند و زمان‌بندی گزارش‌های ایمیلی ممیزی سرورها (Phase 1: Server Fleet Audit Email Reporting Backend Core)',
+    title_en: 'Phase 1: Server Fleet Audit Email Reporting Backend Core, Aggregator & Automation Engine',
+    changes: [
+      'ارتقای اسکیما و تایپ‌های کانفیگ گزارش ایمیل: افزودن فیلدهای includeServerCommands، کانال‌های ارتباطی (selectedServerChannels)، ماژول‌های مدیریتی (selectedServerModules)، سرورهای هدف (selectedServerIds) و سطوح ریسک (serverRiskFilter).',
+      'موتور هوشمند فیلترینگ و محاسبه شاخص‌های آماری (KPIs): پیاده‌سازی تفکیک و محاسبات نشست‌های ریموت (SSH، RDP، VNC)، اقدامات منوی سه‌نقطه، دستورات با ریسک بحرانی و پرخطر، اقدامات بلاک‌شده یا ناموفق، فعال‌ترین کاربران و پرترددترین سرورها.',
+      'یکپارچه‌سازی دیمن زمان‌بندی و اندپوینت‌های پیش‌نمایش و ارسال آنی: اتصال خودکار به پایگاه داده PostgreSQL سرور (server_command_audit_logs) در زمان‌بندی‌های دوره‌ای (ساعتی، روزانه، هفتگی و ماهانه) و پشتیبانی کامل از فایل پیوست CSV.',
+      'تست و اعتبارسنجی عملی لایه بک‌اند: اعتبارسنجی کامل محاسبات آماری، فیلترینگ چندسطحی و ذخیره‌سازی داده‌های پیکربندی با داده‌های زنده و تست جامع.'
+    ],
+    changes_en: [
+      'Audit report configuration schema & type evolution: added includeServerCommands, selectedServerChannels, selectedServerModules, selectedServerIds, and serverRiskFilter fields.',
+      'Intelligent fleet log filtering and KPI analytics engine: implemented metrics extraction for remote sessions (SSH, RDP, VNC), 3-dots actions, suspicious commands, failed/blocked operations, top active operators, and most targeted servers.',
+      'Automated scheduler daemon & API routes integration: continuous background synchronization with PostgreSQL server_command_audit_logs for automated reporting cycles and real-time preview/send-now endpoints.',
+      'Full CSV attachment integration with dedicated SERVER_COMMAND audit records and empirical integration testing of the backend core.'
+    ]
+  },
   {
     version: '1.362.0',
     releaseDate: '2026-10-22',

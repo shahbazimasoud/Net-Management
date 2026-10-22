@@ -564,3 +564,10 @@ CREATE INDEX IF NOT EXISTS idx_server_audit_user_name ON server_command_audit_lo
 CREATE INDEX IF NOT EXISTS idx_server_audit_channel ON server_command_audit_logs(channel);
 CREATE INDEX IF NOT EXISTS idx_server_audit_action_module ON server_command_audit_logs(action_module);
 
+-- Automated Audit & Server Fleet Command Scheduled Email Reporting
+CREATE TABLE IF NOT EXISTS audit_report_schedule (
+    id VARCHAR(64) PRIMARY KEY,
+    config_data JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR(128)
+);

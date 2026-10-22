@@ -1226,6 +1226,12 @@ export interface AuditReportScheduleConfig {
   statusFilter: 'all' | 'failed_only' | 'success_and_failed';
   timeframeHours: number; // e.g. 24
   attachCsv: boolean;
+  // Server Fleet Audit & Command Configuration
+  includeServerCommands?: boolean;
+  selectedServerChannels?: (ServerCommandChannel | string)[];
+  selectedServerModules?: (ServerActionModule | string)[];
+  selectedServerIds?: string[];
+  serverRiskFilter?: 'all' | 'high_critical' | 'critical_only';
   lastSentAt?: string;
   lastSendStatus?: 'success' | 'failed';
   lastSendError?: string;
@@ -1241,10 +1247,22 @@ export interface AuditReportPreviewResult {
     totalEvents: number;
     portalEvents: number;
     commandEvents: number;
+    serverCommandEvents?: number;
     criticalCount: number;
     warningCount: number;
     failedCount: number;
     categoryCounts: Record<string, number>;
+    // Server Fleet Specific Indicators
+    serverRemoteSessionsCount?: number;
+    serverSshSessionsCount?: number;
+    serverRdpVncSessionsCount?: number;
+    server3DotsActionsCount?: number;
+    serverSuspiciousCommandsCount?: number;
+    serverBlockedActionsCount?: number;
+    topServerActors?: { username: string; count: number }[];
+    topTargetServers?: { serverName: string; count: number }[];
+    serverChannelCounts?: Record<string, number>;
+    serverModuleCounts?: Record<string, number>;
   };
 }
 
@@ -1255,6 +1273,7 @@ export interface AuditReportSendResult {
   totalLogs: number;
   portalLogsCount: number;
   commandLogsCount: number;
+  serverCommandLogsCount?: number;
   latencyMs: number;
   timestamp: string;
   error?: string;

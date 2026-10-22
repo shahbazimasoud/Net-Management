@@ -1,11 +1,19 @@
 import nodemailer from 'nodemailer';
-import { getEmailConfig, getAuditReportSchedule, saveAuditReportSchedule, addAuditLog, AuditReportScheduleConfig } from './db';
+import {
+  getEmailConfig,
+  getAuditReportSchedule,
+  saveAuditReportSchedule,
+  addAuditLog,
+  AuditReportScheduleConfig,
+  getServerCommandLogs,
+} from './db';
 import { createMailTransport } from './emailService';
 
 export interface AuditReportDataPayload {
   config?: Partial<AuditReportScheduleConfig>;
   portalLogs?: any[];
   commandLogs?: any[];
+  serverCommandLogs?: any[];
   isEn?: boolean;
 }
 
@@ -27,22 +35,27 @@ const CATEGORY_META: Record<string, { labelEn: string; labelFa: string; color: s
   port_interface: { labelEn: 'Port & Interfaces', labelFa: 'پورت‌ها و اینترفیس‌ها', color: '#ec4899' },
   system_auth: { labelEn: 'System & Security', labelFa: 'امنیت و احراز هویت', color: '#6366f1' },
   device_commands: { labelEn: 'Terminal Commands', labelFa: 'دستورات ترمینال', color: '#ef4444' },
+  server_fleet: { labelEn: 'Server Fleet Audit', labelFa: 'ممیزی ناوگان سرورها', color: '#14b8a6' },
 };
 
 /**
- * Filter logs based on schedule configuration
+ * Filter logs based on schedule configuration (Portal, Device Commands, Server Fleet Commands)
  */
 export function filterLogsForReport(
   portalLogs: any[] = [],
   commandLogs: any[] = [],
-  config: AuditReportScheduleConfig
-): { filteredPortal: any[]; filteredCommands: any[] } {
+  config: AuditReportScheduleConfig,
+  serverCommandLogs: any[] = []
+): { filteredPortal: any[]; filteredCommands: any[]; filteredServerCommands: any[] } {
   const cutoffTime = config.timeframeHours > 0
     ? Date.now() - (config.timeframeHours * 3600 * 1000)
     : 0;
 
+  const safePortalLogs = Array.isArray(portalLogs) ? portalLogs : [];
+  const safeCommandLogs = Array.isArray(commandLogs) ? commandLogs : [];
+
   // Filter Portal logs
-  const filteredPortal = portalLogs.filter((log) => {
+  const filteredPortal = safePortalLogs.filter((log) => {
     // 1. Timeframe
     if (cutoffTime > 0) {
       const logTime = new Date(log.timestamp).getTime();
@@ -77,7 +90,7 @@ export function filterLogsForReport(
   // Filter Command logs
   let filteredCommands: any[] = [];
   if (config.includeCommands) {
-    filteredCommands = commandLogs.filter((cmd) => {
+    filteredCommands = safeCommandLogs.filter((cmd) => {
       if (cutoffTime > 0) {
         const cmdTime = new Date(cmd.timestamp).getTime();
         if (cmdTime < cutoffTime) return false;
@@ -99,14 +112,77 @@ export function filterLogsForReport(
     });
   }
 
-  return { filteredPortal, filteredCommands };
+  // Filter Server Fleet Command logs
+  let filteredServerCommands: any[] = [];
+  if (config.includeServerCommands !== false) {
+    const rawServerLogs = Array.isArray(serverCommandLogs) ? serverCommandLogs : [];
+    filteredServerCommands = rawServerLogs.filter((sc) => {
+      // 1. Timeframe
+      if (cutoffTime > 0) {
+        const scTime = new Date(sc.timestamp).getTime();
+        if (scTime < cutoffTime) return false;
+      }
+
+      // 2. Server IDs filter
+      const srvId = sc.serverId || sc.server_id || '';
+      if (config.selectedServerIds && config.selectedServerIds.length > 0) {
+        if (!config.selectedServerIds.includes(srvId)) {
+          return false;
+        }
+      }
+
+      // 3. Server Channels filter
+      const ch = sc.channel || 'SSH_SHELL';
+      if (config.selectedServerChannels && config.selectedServerChannels.length > 0) {
+        if (!config.selectedServerChannels.includes(ch)) {
+          return false;
+        }
+      }
+
+      // 4. Server Modules filter
+      const actMod = sc.actionModule || sc.action_module || '';
+      if (config.selectedServerModules && config.selectedServerModules.length > 0) {
+        if (!config.selectedServerModules.includes(actMod)) {
+          return false;
+        }
+      }
+
+      // 5. Server Risk filter
+      const rLevel = String(sc.riskLevel || sc.risk_level || 'low').toLowerCase();
+      if (config.serverRiskFilter === 'critical_only') {
+        if (rLevel !== 'critical') return false;
+      } else if (config.serverRiskFilter === 'high_critical') {
+        if (rLevel !== 'critical' && rLevel !== 'high') return false;
+      } else if (config.minSeverity === 'critical') {
+        if (rLevel !== 'critical') return false;
+      } else if (config.minSeverity === 'warning') {
+        if (rLevel !== 'critical' && rLevel !== 'high') return false;
+      } else if (config.minSeverity === 'notice') {
+        if (rLevel === 'low') return false;
+      }
+
+      // 6. Status filter
+      const st = String(sc.status || 'SUCCESS').toUpperCase();
+      if (config.statusFilter === 'failed_only') {
+        if (st === 'SUCCESS') return false;
+      }
+
+      return true;
+    });
+  }
+
+  return { filteredPortal, filteredCommands, filteredServerCommands };
 }
 
 /**
- * Calculates summary metrics
+ * Calculates comprehensive summary metrics across Portal, Devices, and Server Fleet
  */
-export function calculateReportSummary(portalLogs: any[], commandLogs: any[]) {
-  const totalEvents = portalLogs.length + commandLogs.length;
+export function calculateReportSummary(
+  portalLogs: any[],
+  commandLogs: any[],
+  serverCommandLogs: any[] = []
+) {
+  const totalEvents = portalLogs.length + commandLogs.length + serverCommandLogs.length;
   let criticalCount = 0;
   let warningCount = 0;
   let failedCount = 0;
@@ -133,16 +209,93 @@ export function calculateReportSummary(portalLogs: any[], commandLogs: any[]) {
     if (cmd.deviceName) targetAssets.add(cmd.deviceName);
   }
 
+  // Server Fleet Specific Indicators
+  let serverRemoteSessionsCount = 0;
+  let serverSshSessionsCount = 0;
+  let serverRdpVncSessionsCount = 0;
+  let server3DotsActionsCount = 0;
+  let serverSuspiciousCommandsCount = 0;
+  let serverBlockedActionsCount = 0;
+  const serverActorCounts: Record<string, number> = {};
+  const serverTargetCounts: Record<string, number> = {};
+  const serverChannelCounts: Record<string, number> = {};
+  const serverModuleCounts: Record<string, number> = {};
+
+  const rawServerLogs = Array.isArray(serverCommandLogs) ? serverCommandLogs : [];
+  for (const sc of rawServerLogs) {
+    const rLevel = String(sc.riskLevel || sc.risk_level || 'low').toLowerCase();
+    const st = String(sc.status || 'SUCCESS').toUpperCase();
+    const ch = String(sc.channel || 'SSH_SHELL');
+    const mod = String(sc.actionModule || sc.action_module || 'GENERAL_FLEET_ACTION');
+    const uName = sc.actor?.username || sc.userName || sc.user_name || 'admin';
+    const sName = sc.serverName || sc.server_name || sc.serverIp || sc.server_ip || 'Server';
+
+    if (rLevel === 'critical') criticalCount++;
+    if (rLevel === 'high') warningCount++;
+    if (st !== 'SUCCESS') failedCount++;
+
+    categoryCounts['server_fleet'] = (categoryCounts['server_fleet'] || 0) + 1;
+    serverChannelCounts[ch] = (serverChannelCounts[ch] || 0) + 1;
+    serverModuleCounts[mod] = (serverModuleCounts[mod] || 0) + 1;
+
+    serverActorCounts[uName] = (serverActorCounts[uName] || 0) + 1;
+    serverTargetCounts[sName] = (serverTargetCounts[sName] || 0) + 1;
+    activeActors.add(uName);
+    targetAssets.add(sName);
+
+    // Channel specific metrics
+    if (ch === 'SSH_SHELL') {
+      serverSshSessionsCount++;
+      serverRemoteSessionsCount++;
+    } else if (ch === 'REMOTE_DESKTOP_RDP' || ch === 'REMOTE_DESKTOP_VNC') {
+      serverRdpVncSessionsCount++;
+      serverRemoteSessionsCount++;
+    } else if (ch === '3DOTS_ACTION') {
+      server3DotsActionsCount++;
+    }
+
+    // Security flags
+    if (rLevel === 'critical' || rLevel === 'high' || st === 'FAILED' || st === 'ACCESS_DENIED' || st === 'DENIED' || st === 'BLOCKED') {
+      serverSuspiciousCommandsCount++;
+    }
+    if (st === 'ACCESS_DENIED' || st === 'DENIED' || st === 'BLOCKED' || st === 'FAILED') {
+      serverBlockedActionsCount++;
+    }
+  }
+
+  // Rank Top Actors and Target Servers
+  const topServerActors = Object.entries(serverActorCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([username, count]) => ({ username, count }));
+
+  const topTargetServers = Object.entries(serverTargetCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([serverName, count]) => ({ serverName, count }));
+
   return {
     totalEvents,
     portalEvents: portalLogs.length,
     commandEvents: commandLogs.length,
+    serverCommandEvents: serverCommandLogs.length,
     criticalCount,
     warningCount,
     failedCount,
     categoryCounts,
     uniqueActorsCount: activeActors.size,
     targetAssetsCount: targetAssets.size,
+    // Fleet-Specific Indicators
+    serverRemoteSessionsCount,
+    serverSshSessionsCount,
+    serverRdpVncSessionsCount,
+    server3DotsActionsCount,
+    serverSuspiciousCommandsCount,
+    serverBlockedActionsCount,
+    topServerActors,
+    topTargetServers,
+    serverChannelCounts,
+    serverModuleCounts,
   };
 }
 
@@ -153,11 +306,12 @@ export function generateAuditReportHtml(options: {
   config: AuditReportScheduleConfig;
   portalLogs: any[];
   commandLogs: any[];
+  serverCommandLogs?: any[];
   smtpSenderEmail?: string;
   isEn?: boolean;
 }): string {
-  const { config, portalLogs, commandLogs, smtpSenderEmail, isEn = true } = options;
-  const summary = calculateReportSummary(portalLogs, commandLogs);
+  const { config, portalLogs, commandLogs, serverCommandLogs = [], smtpSenderEmail, isEn = true } = options;
+  const summary = calculateReportSummary(portalLogs, commandLogs, serverCommandLogs);
   const nowStr = new Date().toUTCString();
   const reportTitle = config.reportTitle || (isEn ? 'NetTopology Enterprise Audit & Activity Report' : 'گزارش جامع ممیزی، وقایع و دستورات شبکه');
 
@@ -478,9 +632,13 @@ export function generateAuditReportHtml(options: {
 /**
  * Creates CSV export string of logs for attachment
  */
-export function generateAuditReportCsv(portalLogs: any[] = [], commandLogs: any[] = []): string {
+export function generateAuditReportCsv(
+  portalLogs: any[] = [],
+  commandLogs: any[] = [],
+  serverCommandLogs: any[] = []
+): string {
   const lines: string[] = [];
-  lines.push('Type,Timestamp,Severity,Category,Actor,Actor_IP,Target,Action,Details,Status');
+  lines.push('Type,Timestamp,Severity_Or_Risk,Category_Or_Module,Actor,Actor_IP,Target,Action_Or_Channel,Details_Or_Command,Status');
 
   for (const log of portalLogs) {
     const row = [
@@ -507,9 +665,26 @@ export function generateAuditReportCsv(portalLogs: any[] = [], commandLogs: any[
       `"${cmd.actor?.username || ''}"`,
       `"${cmd.actor?.ipAddress || ''}"`,
       `"${(cmd.deviceName || cmd.deviceIp || '').replace(/"/g, '""')}"`,
-      `"${(cmd.command || '').replace(/"/g, '""')}"`,
-      `"${(cmd.outputSummary || cmd.notes || '').replace(/"/g, '""')}"`,
+      `"${(cmd.channel || '').replace(/"/g, '""')}"`,
+      `"${(cmd.command || cmd.outputSummary || cmd.notes || '').replace(/"/g, '""')}"`,
       `"${cmd.status || ''}"`,
+    ];
+    lines.push(row.join(','));
+  }
+
+  const rawServerLogs = Array.isArray(serverCommandLogs) ? serverCommandLogs : [];
+  for (const sc of rawServerLogs) {
+    const row = [
+      'SERVER_COMMAND',
+      `"${sc.timestamp || ''}"`,
+      `"${sc.riskLevel || sc.risk_level || ''}"`,
+      `"${sc.actionModule || sc.action_module || 'SERVER_FLEET'}"`,
+      `"${sc.actor?.username || sc.userName || sc.user_name || ''}"`,
+      `"${sc.actor?.ipAddress || sc.clientIp || sc.client_ip || ''}"`,
+      `"${(sc.serverName || sc.server_name || sc.serverIp || sc.server_ip || '').replace(/"/g, '""')}"`,
+      `"${(sc.channel || sc.actionNameEn || sc.actionName || '').replace(/"/g, '""')}"`,
+      `"${(sc.command || sc.outputSummaryEn || sc.outputSummary || '').replace(/"/g, '""')}"`,
+      `"${sc.status || ''}"`,
     ];
     lines.push(row.join(','));
   }
@@ -527,6 +702,7 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
   totalLogs: number;
   portalLogsCount: number;
   commandLogsCount: number;
+  serverCommandLogsCount: number;
   latencyMs: number;
   timestamp: string;
   error?: string;
@@ -550,6 +726,7 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
       totalLogs: 0,
       portalLogsCount: 0,
       commandLogsCount: 0,
+      serverCommandLogsCount: 0,
       latencyMs: Date.now() - startTime,
       timestamp: new Date().toISOString(),
       error: 'SMTP host is not configured. Please configure SMTP Connection & Account Parameters first in Settings > Email.',
@@ -569,6 +746,7 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
       totalLogs: 0,
       portalLogsCount: 0,
       commandLogsCount: 0,
+      serverCommandLogsCount: 0,
       latencyMs: Date.now() - startTime,
       timestamp: new Date().toISOString(),
       error: 'No valid recipient email addresses configured for this audit report.',
@@ -576,27 +754,39 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
     };
   }
 
-  // 3. Filter Logs
-  const { filteredPortal, filteredCommands } = filterLogsForReport(
+  // 3. Fetch server command logs if not provided and enabled
+  let rawServerCommands = payload.serverCommandLogs || [];
+  if (rawServerCommands.length === 0 && effectiveConfig.includeServerCommands !== false) {
+    try {
+      rawServerCommands = await getServerCommandLogs({ limit: 1000 });
+    } catch (err) {
+      console.warn('[Audit Report] Could not load server command logs from DB:', err);
+    }
+  }
+
+  // 4. Filter Logs
+  const { filteredPortal, filteredCommands, filteredServerCommands } = filterLogsForReport(
     payload.portalLogs || [],
     payload.commandLogs || [],
-    effectiveConfig
+    effectiveConfig,
+    rawServerCommands
   );
 
-  const totalLogs = filteredPortal.length + filteredCommands.length;
+  const totalLogs = filteredPortal.length + filteredCommands.length + filteredServerCommands.length;
 
-  // 4. Generate HTML and optional CSV attachment
+  // 5. Generate HTML and optional CSV attachment
   const htmlContent = generateAuditReportHtml({
     config: effectiveConfig,
     portalLogs: filteredPortal,
     commandLogs: filteredCommands,
+    serverCommandLogs: filteredServerCommands,
     smtpSenderEmail: smtpConfig.from_email || smtpConfig.smtp_user,
     isEn: payload.isEn !== undefined ? payload.isEn : true,
   });
 
   const attachments: any[] = [];
   if (effectiveConfig.attachCsv) {
-    const csvContent = generateAuditReportCsv(filteredPortal, filteredCommands);
+    const csvContent = generateAuditReportCsv(filteredPortal, filteredCommands, filteredServerCommands);
     const dateStr = new Date().toISOString().substring(0, 10);
     attachments.push({
       filename: `nettopology_audit_report_${dateStr}.csv`,
@@ -605,7 +795,7 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
     });
   }
 
-  // 5. Send Email via Mail Transport
+  // 6. Send Email via Mail Transport
   try {
     const transport = createMailTransport(smtpConfig);
     const dateStr = new Date().toISOString().substring(0, 10);
@@ -647,6 +837,7 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
       totalLogs,
       portalLogsCount: filteredPortal.length,
       commandLogsCount: filteredCommands.length,
+      serverCommandLogsCount: filteredServerCommands.length,
       latencyMs,
       timestamp: new Date().toISOString(),
     };
@@ -676,6 +867,7 @@ export async function sendAuditReportEmail(payload: AuditReportDataPayload): Pro
       totalLogs,
       portalLogsCount: filteredPortal.length,
       commandLogsCount: filteredCommands.length,
+      serverCommandLogsCount: filteredServerCommands.length,
       latencyMs,
       timestamp: new Date().toISOString(),
       error: `Failed to send email via SMTP: ${errorMsg}`,

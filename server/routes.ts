@@ -2106,12 +2106,14 @@ apiRouter.post('/audit-reports/:id/send-now', async (req: Request, res: Response
     }
     const portalLogs = req.body?.portalLogs || [];
     const commandLogs = req.body?.commandLogs || [];
+    const serverCommandLogs = req.body?.serverCommandLogs || [];
     const isEn = req.body?.isEn !== undefined ? Boolean(req.body.isEn) : true;
 
     const result = await sendAuditReportEmail({
       config: report,
       portalLogs,
       commandLogs,
+      serverCommandLogs,
       isEn,
     });
 
@@ -2139,15 +2141,30 @@ apiRouter.post('/audit-reports/preview', async (req: Request, res: Response) => 
 
     const portalLogs = req.body?.portalLogs || [];
     const commandLogs = req.body?.commandLogs || [];
+    let serverCommandLogs = req.body?.serverCommandLogs || [];
     const isEn = req.body?.isEn !== undefined ? Boolean(req.body.isEn) : true;
     const smtpConfig = await getEmailConfig();
 
-    const { filteredPortal, filteredCommands } = filterLogsForReport(portalLogs, commandLogs, effectiveConfig);
-    const summary = calculateReportSummary(filteredPortal, filteredCommands);
+    if (serverCommandLogs.length === 0 && effectiveConfig.includeServerCommands !== false) {
+      try {
+        serverCommandLogs = await getServerCommandLogs({ limit: 500 });
+      } catch (e) {
+        console.warn('[Audit Preview] Error loading server command logs:', e);
+      }
+    }
+
+    const { filteredPortal, filteredCommands, filteredServerCommands } = filterLogsForReport(
+      portalLogs,
+      commandLogs,
+      effectiveConfig,
+      serverCommandLogs
+    );
+    const summary = calculateReportSummary(filteredPortal, filteredCommands, filteredServerCommands);
     const html = generateAuditReportHtml({
       config: effectiveConfig,
       portalLogs: filteredPortal,
       commandLogs: filteredCommands,
+      serverCommandLogs: filteredServerCommands,
       smtpSenderEmail: smtpConfig.from_email || smtpConfig.smtp_user,
       isEn,
     });
@@ -2174,12 +2191,14 @@ apiRouter.post('/audit-reports/send-now', async (req: Request, res: Response) =>
     const incomingConfig = req.body?.config || {};
     const portalLogs = req.body?.portalLogs || [];
     const commandLogs = req.body?.commandLogs || [];
+    const serverCommandLogs = req.body?.serverCommandLogs || [];
     const isEn = req.body?.isEn !== undefined ? Boolean(req.body.isEn) : true;
 
     const result = await sendAuditReportEmail({
       config: incomingConfig,
       portalLogs,
       commandLogs,
+      serverCommandLogs,
       isEn,
     });
 

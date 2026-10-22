@@ -5585,6 +5585,12 @@ export interface AuditReportScheduleConfig {
   statusFilter: 'all' | 'failed_only' | 'success_and_failed';
   timeframeHours: number;
   attachCsv: boolean;
+  // Server Fleet Audit & Command Configuration
+  includeServerCommands?: boolean;
+  selectedServerChannels?: string[];
+  selectedServerModules?: string[];
+  selectedServerIds?: string[];
+  serverRiskFilter?: 'all' | 'high_critical' | 'critical_only';
   lastSentAt?: string;
   lastSendStatus?: 'success' | 'failed';
   lastSendError?: string;
@@ -5614,6 +5620,17 @@ export const DEFAULT_AUDIT_REPORT_SCHEDULE: AuditReportScheduleConfig = {
   statusFilter: 'all',
   timeframeHours: 24,
   attachCsv: false,
+  includeServerCommands: true,
+  selectedServerChannels: [
+    'SSH_SHELL',
+    'REMOTE_DESKTOP_RDP',
+    'REMOTE_DESKTOP_VNC',
+    '3DOTS_ACTION',
+    'API_DISPATCH',
+  ],
+  selectedServerModules: [],
+  selectedServerIds: [],
+  serverRiskFilter: 'all',
 };
 
 export async function getAllAuditEmailReports(): Promise<AuditReportScheduleConfig[]> {
@@ -5702,6 +5719,19 @@ export async function saveAuditEmailReport(
     selectedCategories: Array.isArray(config.selectedCategories)
       ? config.selectedCategories
       : existing.selectedCategories,
+    includeServerCommands: config.includeServerCommands !== undefined
+      ? Boolean(config.includeServerCommands)
+      : (existing.includeServerCommands !== undefined ? existing.includeServerCommands : true),
+    selectedServerChannels: Array.isArray(config.selectedServerChannels)
+      ? config.selectedServerChannels.map((c: any) => String(c).trim()).filter(Boolean)
+      : (existing.selectedServerChannels || ['SSH_SHELL', 'REMOTE_DESKTOP_RDP', 'REMOTE_DESKTOP_VNC', '3DOTS_ACTION', 'API_DISPATCH']),
+    selectedServerModules: Array.isArray(config.selectedServerModules)
+      ? config.selectedServerModules.map((m: any) => String(m).trim()).filter(Boolean)
+      : (existing.selectedServerModules || []),
+    selectedServerIds: Array.isArray(config.selectedServerIds)
+      ? config.selectedServerIds.map((s: any) => String(s).trim()).filter(Boolean)
+      : (existing.selectedServerIds || []),
+    serverRiskFilter: config.serverRiskFilter || existing.serverRiskFilter || 'all',
     updated_at: new Date().toISOString(),
     updated_by: updatedBy,
   };

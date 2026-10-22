@@ -1,4 +1,4 @@
-import { getAllAuditEmailReports, getAuditLogs } from './db';
+import { getAllAuditEmailReports, getAuditLogs, getServerCommandLogs } from './db';
 import { sendAuditReportEmail } from './auditReportService';
 
 let schedulerTimer: NodeJS.Timeout | null = null;
@@ -91,10 +91,20 @@ export async function runAuditReportSchedulerCycle(): Promise<void> {
           details_en: l.details || '',
         }));
 
+        let serverCommandLogs: any[] = [];
+        if (schedule.includeServerCommands !== false) {
+          try {
+            serverCommandLogs = await getServerCommandLogs({ limit: 500 });
+          } catch (scErr) {
+            console.warn('[Audit Scheduler] Could not load server command logs:', scErr);
+          }
+        }
+
         const result = await sendAuditReportEmail({
           config: schedule,
           portalLogs,
           commandLogs: [],
+          serverCommandLogs,
           isEn: true,
         });
 
