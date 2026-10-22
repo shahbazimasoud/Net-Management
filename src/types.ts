@@ -1176,6 +1176,7 @@ export type ServerActionModule =
   | 'SYSTEM_RESTART'
   | 'SYSTEM_SHUTDOWN'
   | 'TERMINAL_SESSION'
+  | 'SSH_SESSION'
   | 'REMOTE_DESKTOP_SESSION'
   | 'PACKAGE_MANAGER'
   | 'MONITORING_WATCHDOG'
@@ -1199,7 +1200,7 @@ export interface ServerCommandAuditLogEntry {
   command?: string;
   parameters?: Record<string, any>;
   riskLevel: CommandRiskLevel;
-  status: 'SUCCESS' | 'FAILED' | 'ACCESS_DENIED';
+  status: 'SUCCESS' | 'FAILED' | 'ACCESS_DENIED' | 'TIMEOUT';
   outputSummary?: string;
   outputSummaryEn?: string;
   durationMs?: number;

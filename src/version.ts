@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.360.0';
+export const APP_VERSION = '1.361.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.361.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۵: تب اختصاصی و رابط کاربری دوطرفه ممیزی سرورها (Dual-Perspective Server Audit UI)',
+    title_en: 'Phase 5: Dual-Perspective Server Fleet Command & Activity Audit Logging UI Engine',
+    changes: [
+      'تب اختصاصی Server Fleet Command & Activity Logs: اضافه شدن تب مجزا در سامانه مرکزی AuditLogsView با ساختار حرفه‌ای، تفکیک بج‌های کانال (SSH, RDP, VNC, 3-Dots, API) و ماژول‌ها.',
+      'دیدگاه اول - سرور‌محور (Group by Server): نمایش لیست سرورهای تحت مدیریت در نوار کناری همراه با کارت قهرمان سرور، لیست اپراتورهای وارد شده به سرور، و جریان بلادرنگ کلیه دستورات و اقدامات انجام‌شده روی آن سرور.',
+      'دیدگاه دوم - کاربر‌محور (Group by User): نمایش لیست اپراتورها و مدیران سامانه در نوار کناری همراه با کارت پروفایل کاربر، لیست سرورهای مدیریت‌شده توسط وی، و جریان تمامی اقدامات اجراشده توسط آن کاربر روی سرورها.',
+      'دیدگاه سوم - خط زمانی جامع (All Activity Timeline): نمایش تاریخچه ترتیبی و کامل تمامی اقدامات و نشست‌های ناوگان سرورها با امکان جستجوی عمیق و فیلترهای پیشرفته.',
+      'فیلترهای پیشرفته چندبعدی: فیلتر همزمان بر اساس سرور، کاربر، نوع کانال اتصال، سیستم‌عامل سرور (Linux / Windows)، سطح ریسک (Low, Medium, High, Critical) و وضعیت عملیات (Success, Failed, Timeout, Access Denied).',
+      'مودال جامع بازرسی جزئیات رویداد: منطبق بر استانداردهای ۵‌گانه مودال‌ها (دکمه‌های سه‌گانه بستن/مینیمایز/تمام‌صفحه، فاصله ایمن از فوتر و پشتیبانی کامل تم تیره/روشن) جهت نمایش پارامترهای کامل JSON، متن خام دستور، خلاصه خروجی و طول مدت اتصال.',
+      'خروجی‌های استاندارد CSV و SIEM JSON: امکان استخراج تفکیک‌شده لاگ‌های سرورها در قالب CSV با انکودینگ UTF-8 و یکپارچه‌سازی در خروجی کلی SIEM JSON.'
+    ],
+    changes_en: [
+      'Dedicated Server Fleet Command & Activity Logs Tab: added a specialized section inside AuditLogsView with structured telemetry, channel badges (SSH, RDP, VNC, 3-Dots, API), and server action module badges.',
+      'Server-Centric Perspective (Group by Server): interactive fleet sidebar with server hero cards, operator breakdowns, and full chronological activity and command streams for each target server.',
+      'User-Centric Perspective (Group by User): operator profile cards displaying touched servers, activity breakdown, and complete audit trail of commands executed by that operator across the entire server fleet.',
+      'Unified Chronological Timeline: comprehensive, filterable activity stream displaying all fleet operations with deep search across commands, servers, and outputs.',
+      'Multi-Dimensional Advanced Filtering: simultaneous filtering by server name/IP, operator username, connection channel, operating system (Linux / Windows), risk level, and execution status.',
+      'Full Modal Inspection Dialog: fully compliant with modal standards (3-button header controls with close/minimize/fullscreen, strict footer clearance, and high-contrast dark/light theme adaptability) for viewing raw commands, JSON parameters, and durations.',
+      'Standard CSV & SIEM JSON Export: one-click CSV export with UTF-8 BOM encoding and unified export integration for enterprise SIEM platforms.'
+    ]
+  },
   {
     version: '1.360.0',
     releaseDate: '2026-10-22',

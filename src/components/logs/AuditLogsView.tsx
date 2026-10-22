@@ -50,9 +50,11 @@ import {
   Play,
 } from 'lucide-react';
 import { AuditEmailReportModal } from './AuditEmailReportModal';
+import { ServerCommandLogsSection } from './ServerCommandLogsSection';
 import {
   PortalAuditLogEntry,
   DeviceCommandLogEntry,
+  ServerCommandAuditLogEntry,
   AuditLogCategory,
   AuditLogSeverity,
   CommandRiskLevel,
@@ -62,11 +64,14 @@ import {
 import {
   loadPortalAuditLogs,
   loadDeviceCommandLogs,
+  loadServerCommandLogs,
   exportPortalLogsAsCsv,
   exportCommandLogsAsCsv,
+  exportServerCommandLogsAsCsv,
   exportAllLogsAsJson,
   clearPortalLogs,
   clearCommandLogs,
+  clearServerCommandLogs,
   AUDIT_LOG_UPDATED_EVENT
 } from '../../services/auditLogger';
 import {
@@ -77,7 +82,7 @@ import {
 } from '../../services/api';
 import { useLanguage } from '../../i18n/LanguageContext';
 
-type ActiveLogSection = 'portal' | 'commands' | 'reports';
+type ActiveLogSection = 'commands' | 'server_commands' | 'portal' | 'reports';
 type CommandGroupMode = 'device' | 'user' | 'timeline';
 
 interface WatchLogSession {
@@ -102,6 +107,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
   // Logs state
   const [portalLogs, setPortalLogs] = useState<PortalAuditLogEntry[]>([]);
   const [commandLogs, setCommandLogs] = useState<DeviceCommandLogEntry[]>([]);
+  const [serverLogs, setServerLogs] = useState<ServerCommandAuditLogEntry[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Automated Email Report Modal state
@@ -259,6 +265,9 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
     setIsRefreshing(true);
     setPortalLogs(loadPortalAuditLogs());
     setCommandLogs(loadDeviceCommandLogs());
+    loadServerCommandLogs()
+      .then((logs) => setServerLogs(logs))
+      .catch((err) => console.warn('Failed to load server logs:', err));
     setTimeout(() => setIsRefreshing(false), 400);
   };
 
@@ -269,6 +278,9 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
     const handleUpdate = () => {
       setPortalLogs(loadPortalAuditLogs());
       setCommandLogs(loadDeviceCommandLogs());
+      loadServerCommandLogs()
+        .then((logs) => setServerLogs(logs))
+        .catch((err) => console.warn('Failed to live-update server logs:', err));
     };
 
     window.addEventListener(AUDIT_LOG_UPDATED_EVENT, handleUpdate);
@@ -824,6 +836,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
           <button
             onClick={() => {
               if (activeSection === 'portal') exportPortalLogsAsCsv();
+              else if (activeSection === 'server_commands') exportServerCommandLogsAsCsv();
               else exportCommandLogsAsCsv();
             }}
             className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 text-white border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
@@ -941,6 +954,25 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
             <span>{isEn ? 'Device Command & Execution Logs' : 'لاگ‌های فرامین و عملیات تجهیزات شبکه'}</span>
             <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-black/20 text-white border border-white/10">
               {commandLogs.length}
+            </span>
+          </button>
+
+          {/* Section 4: Server Command & Fleet Activity Logs (Phase 5) */}
+          <button
+            onClick={() => {
+              setActiveSection('server_commands');
+              setSelectedCategory('all');
+            }}
+            className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSection === 'server_commands'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/40'
+                : 'text-slate-300 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+          >
+            <Server className="w-4 h-4 text-amber-400" />
+            <span>{isEn ? 'Server Fleet Command & Activity Logs' : 'دستورات و وقایع سرورها'}</span>
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono bg-black/20 text-white border border-white/10">
+              {serverLogs.length}
             </span>
           </button>
 
@@ -1666,6 +1698,24 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
             </div>
           )}
         </div>
+      )}
+
+      {/* SECTION 4: SERVER COMMAND & FLEET ACTIVITY LOGS (PHASE 5) */}
+      {activeSection === 'server_commands' && (
+        <ServerCommandLogsSection
+          isLightMode={isLightMode}
+          isEn={isEn}
+          isRtl={isRtl}
+          serverLogs={serverLogs}
+          selectedTimeframe={selectedTimeframe}
+          isWithinTimeframe={isWithinTimeframe}
+          formatDateTime={formatDateTime}
+          formatDateOnly={formatDateOnly}
+          onRefresh={refreshData}
+          isRefreshing={isRefreshing}
+          onExportCsv={exportServerCommandLogsAsCsv}
+          onClearLogs={() => setIsConfirmPurgeOpen(true)}
+        />
       )}
 
       {/* SECTION 1: PORTAL & SYSTEM AUDIT LOGS TABLE */}
@@ -2721,6 +2771,7 @@ export const AuditLogsView: React.FC<{ isLightMode?: boolean }> = ({ isLightMode
               <button
                 onClick={() => {
                   if (activeSection === 'portal') clearPortalLogs();
+                  else if (activeSection === 'server_commands') clearServerCommandLogs();
                   else if (activeSection === 'commands') clearCommandLogs();
                   setIsConfirmPurgeOpen(false);
                   refreshData();

@@ -356,6 +356,8 @@ export async function fetchServerCommandLogs(options: {
   return loadLocalServerCommandLogs();
 }
 
+export const loadServerCommandLogs = fetchServerCommandLogs;
+
 export function saveServerCommandLogs(logs: ServerCommandAuditLogEntry[]): void {
   try {
     localStorage.setItem(STORAGE_KEYS.SERVER_COMMAND_LOGS, JSON.stringify(logs));
@@ -690,9 +692,43 @@ export function exportCommandLogsAsCsv(): void {
   downloadBlob(csvContent, `nettopology_device_command_logs_${formatDateForFile(new Date())}.csv`, 'text/csv;charset=utf-8;');
 }
 
+export function exportServerCommandLogsAsCsv(): void {
+  const logs = loadLocalServerCommandLogs();
+  const headers = [
+    'ID', 'Timestamp', 'Actor Username', 'Actor Role', 'Actor IP',
+    'Server Name', 'Server IP', 'OS Type', 'OS Distro', 'Environment',
+    'Channel', 'Action Module', 'Action Name', 'Command',
+    'Risk Level', 'Status', 'Duration (ms)', 'Output Summary'
+  ];
+  const rows = logs.map(s => [
+    s.id,
+    s.timestamp,
+    `"${s.actor.username}"`,
+    `"${s.actor.role}"`,
+    s.actor.ipAddress || '',
+    `"${s.serverName}"`,
+    s.serverIp,
+    s.osType,
+    `"${s.osDistro || ''}"`,
+    `"${s.serverEnvironment || ''}"`,
+    s.channel,
+    s.actionModule,
+    `"${(s.actionNameEn || s.actionName || '').replace(/"/g, '""')}"`,
+    `"${(s.command || '').replace(/"/g, '""')}"`,
+    s.riskLevel,
+    s.status,
+    s.durationMs || 0,
+    `"${(s.outputSummaryEn || s.outputSummary || '').replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  downloadBlob(csvContent, `nettopology_server_command_logs_${formatDateForFile(new Date())}.csv`, 'text/csv;charset=utf-8;');
+}
+
 export function exportAllLogsAsJson(): void {
   const portalLogs = loadPortalAuditLogs();
   const commandLogs = loadDeviceCommandLogs();
+  const serverLogs = loadLocalServerCommandLogs();
   const exportPayload = {
     system: 'NetTopology Enterprise Audit & Activity Log Engine',
     exportedAt: new Date().toISOString(),
@@ -700,9 +736,11 @@ export function exportAllLogsAsJson(): void {
     summary: {
       totalPortalEvents: portalLogs.length,
       totalDeviceCommands: commandLogs.length,
+      totalServerCommands: serverLogs.length,
     },
     portalAuditLogs: portalLogs,
     deviceCommandLogs: commandLogs,
+    serverCommandLogs: serverLogs,
   };
 
   const jsonStr = JSON.stringify(exportPayload, null, 2);
