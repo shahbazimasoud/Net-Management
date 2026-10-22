@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.356.2';
+export const APP_VERSION = '1.356.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.356.3',
+    releaseDate: '2026-10-22',
+    type: 'patch',
+    title: 'حذف تب‌های تجهیزات سیسکو و میکروتیک از مودال Access Policy',
+    title_en: 'Remove Cisco IOS Equipment and MikroTik RouterOS tabs from Access Policy Modal',
+    changes: [
+      'حذف تب‌های اختصاصی Cisco IOS Equipment و MikroTik RouterOS از مودال تعریف و ویرایش پالیسی‌های دسترسی (Access Policy Modal) جهت ساده‌سازی رابط کاربری و یکپارچه‌سازی مدیریت دسترسی تجهیزات در ماتریس تفکیکی شبکه (Network Device & Granular Matrix).',
+      'بهینه‌سازی نوار ناوبری تب‌های مودال پالیسی دسترسی و حذف توابع کمکی بلااستفاده.'
+    ],
+    changes_en: [
+      'Removed dedicated Cisco IOS Equipment and MikroTik RouterOS tabs from the Access Policy Modal to streamline governance and consolidate network device controls within the unified granular matrix.',
+      'Optimized Access Policy modal tab navigation and cleaned up redundant helper functions.'
+    ]
+  },
   {
     version: '1.356.2',
     releaseDate: '2026-10-22',
