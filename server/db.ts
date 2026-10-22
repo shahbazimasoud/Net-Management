@@ -209,6 +209,7 @@ export interface FallbackStore {
   general_settings?: PanelGeneralSettings;
   scheduled_backup_jobs?: ScheduledBackupJob[];
   email_config?: EmailConfig;
+  telegram_config?: TelegramAlertConfig;
   audit_report_schedule?: any;
   audit_email_reports?: any[];
   config_templates?: any[];
@@ -2161,6 +2162,16 @@ export async function initDatabase(): Promise<void> {
       // 16. Outgoing Mail (SMTP) Config
       await client.query(`
         CREATE TABLE IF NOT EXISTS email_config (
+          id VARCHAR(64) PRIMARY KEY,
+          config_data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR(128)
+        )
+      `);
+
+      // 17. Telegram Alert & Incident Notification Config
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS telegram_alert_config (
           id VARCHAR(64) PRIMARY KEY,
           config_data JSONB NOT NULL,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -5560,6 +5571,158 @@ export async function saveEmailConfig(config: Partial<EmailConfig>, updatedBy: s
       );
     } catch (e) {
       console.error('[DB] Error saving email_config to PostgreSQL:', e);
+    }
+  }
+
+  return updated;
+}
+
+// -------------------------------------------------------------
+// Telegram Alert & Incident Notification Configuration
+// -------------------------------------------------------------
+
+export interface TelegramAlertConfig {
+  enabled: boolean;
+  bot_token?: string;
+  has_token?: boolean;
+  chat_id: string; // @channel_username, -100xxx (channel/group), or numeric user id
+  proxy_url?: string; // e.g. socks5://127.0.0.1:1080, http://proxy:8080, or custom reverse proxy URL
+  notify_on_host_down: boolean;
+  notify_on_port_down: boolean;
+  notify_on_high_cpu: boolean;
+  notify_on_backup_failure: boolean;
+  notify_on_security_events: boolean;
+  anti_flap_damping_sec: number; // default: 60 sec
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export const DEFAULT_TELEGRAM_CONFIG: TelegramAlertConfig = {
+  enabled: false,
+  bot_token: '',
+  has_token: false,
+  chat_id: '',
+  proxy_url: '',
+  notify_on_host_down: true,
+  notify_on_port_down: true,
+  notify_on_high_cpu: true,
+  notify_on_backup_failure: true,
+  notify_on_security_events: true,
+  anti_flap_damping_sec: 60,
+  updated_at: '',
+  updated_by: 'system',
+};
+
+export async function getTelegramConfig(): Promise<TelegramAlertConfig> {
+  if (isPostgresReady && pool) {
+    try {
+      const res = await pool.query("SELECT config_data FROM telegram_alert_config WHERE id = 'primary' LIMIT 1");
+      if (res.rows.length > 0 && res.rows[0].config_data) {
+        const raw = res.rows[0].config_data;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        let decryptedToken = '';
+        if (parsed.encrypted_bot_token) {
+          try {
+            decryptedToken = decryptServerSecret(parsed.encrypted_bot_token);
+          } catch {
+            decryptedToken = parsed.encrypted_bot_token;
+          }
+        } else if (parsed.bot_token) {
+          decryptedToken = parsed.bot_token;
+        }
+
+        return {
+          ...DEFAULT_TELEGRAM_CONFIG,
+          ...parsed,
+          bot_token: decryptedToken,
+          has_token: Boolean(decryptedToken && decryptedToken.trim().length > 0),
+        };
+      }
+    } catch (e) {
+      console.warn('[DB] Fallback to file store for telegram_config:', e);
+    }
+  }
+
+  const store = loadFallbackStore();
+  const cfg = store.telegram_config || DEFAULT_TELEGRAM_CONFIG;
+  let decryptedToken = '';
+  if ((cfg as any).encrypted_bot_token) {
+    try {
+      decryptedToken = decryptServerSecret((cfg as any).encrypted_bot_token);
+    } catch {
+      decryptedToken = (cfg as any).encrypted_bot_token;
+    }
+  } else if (cfg.bot_token) {
+    decryptedToken = cfg.bot_token;
+  }
+
+  return {
+    ...DEFAULT_TELEGRAM_CONFIG,
+    ...cfg,
+    bot_token: decryptedToken,
+    has_token: Boolean(decryptedToken && decryptedToken.trim().length > 0),
+  };
+}
+
+export async function saveTelegramConfig(config: Partial<TelegramAlertConfig>, updatedBy: string = 'admin'): Promise<TelegramAlertConfig> {
+  const current = await getTelegramConfig();
+  const store = loadFallbackStore();
+
+  // If new token is not provided or empty string, preserve current token
+  let resolvedToken = current.bot_token || '';
+  if (config.bot_token !== undefined && config.bot_token !== null && config.bot_token.trim().length > 0) {
+    resolvedToken = config.bot_token.trim();
+  }
+
+  // Encrypt token for zero-leak secure persistence at rest
+  let encryptedToken = '';
+  if (resolvedToken) {
+    try {
+      encryptedToken = encryptServerSecret(resolvedToken);
+    } catch {
+      encryptedToken = resolvedToken;
+    }
+  }
+
+  const updated: TelegramAlertConfig = {
+    enabled: config.enabled !== undefined ? Boolean(config.enabled) : current.enabled,
+    bot_token: resolvedToken,
+    has_token: Boolean(resolvedToken && resolvedToken.length > 0),
+    chat_id: config.chat_id !== undefined ? String(config.chat_id).trim() : current.chat_id,
+    proxy_url: config.proxy_url !== undefined ? String(config.proxy_url).trim() : (current.proxy_url || ''),
+    notify_on_host_down: config.notify_on_host_down !== undefined ? Boolean(config.notify_on_host_down) : current.notify_on_host_down,
+    notify_on_port_down: config.notify_on_port_down !== undefined ? Boolean(config.notify_on_port_down) : current.notify_on_port_down,
+    notify_on_high_cpu: config.notify_on_high_cpu !== undefined ? Boolean(config.notify_on_high_cpu) : current.notify_on_high_cpu,
+    notify_on_backup_failure: config.notify_on_backup_failure !== undefined ? Boolean(config.notify_on_backup_failure) : current.notify_on_backup_failure,
+    notify_on_security_events: config.notify_on_security_events !== undefined ? Boolean(config.notify_on_security_events) : current.notify_on_security_events,
+    anti_flap_damping_sec: Number(config.anti_flap_damping_sec) || current.anti_flap_damping_sec || 60,
+    updated_at: new Date().toISOString(),
+    updated_by: updatedBy,
+  };
+
+  // In stored JSON, store encrypted_bot_token and remove plain bot_token
+  const recordToStore: any = {
+    ...updated,
+    encrypted_bot_token: encryptedToken,
+  };
+  delete recordToStore.bot_token;
+
+  store.telegram_config = recordToStore;
+  saveFallbackStore(store);
+
+  if (isPostgresReady && pool) {
+    try {
+      await pool.query(
+        `INSERT INTO telegram_alert_config (id, config_data, updated_at, updated_by)
+         VALUES ('primary', $1, CURRENT_TIMESTAMP, $2)
+         ON CONFLICT (id) DO UPDATE SET
+           config_data = EXCLUDED.config_data,
+           updated_at = CURRENT_TIMESTAMP,
+           updated_by = EXCLUDED.updated_by`,
+        [JSON.stringify(recordToStore), updatedBy]
+      );
+    } catch (e) {
+      console.error('[DB] Error saving telegram_alert_config to PostgreSQL:', e);
     }
   }
 

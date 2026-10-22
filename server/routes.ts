@@ -35,6 +35,7 @@ import {
   calculateNextRunDate,
 } from './backupScheduler';
 import { sendTestEmail } from './emailService';
+import { sendTelegramAlert, sendTelegramTestAlert } from './telegramAlertManager';
 import {
   sendAuditReportEmail,
   generateAuditReportHtml,
@@ -84,6 +85,9 @@ import {
   saveAuditEmailReport,
   deleteAuditEmailReport,
   EmailConfig,
+  getTelegramConfig,
+  saveTelegramConfig,
+  TelegramAlertConfig,
   getHierarchy,
   saveHierarchy,
   getCompleteHierarchy,
@@ -1834,6 +1838,92 @@ apiRouter.post('/settings/email/test', async (req: Request, res: Response) => {
       success: false,
       error: err.message || 'SMTP test execution failed',
       latencyMs: 0,
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// Telegram Alert & Incident Notification Settings & Dispatch Routes
+// -------------------------------------------------------------
+
+apiRouter.get(['/settings/telegram', '/alerts/telegram/config'], async (_req: Request, res: Response) => {
+  try {
+    const config = await getTelegramConfig();
+    res.json({
+      success: true,
+      config: {
+        ...config,
+        bot_token: config.has_token ? '••••••••' : '',
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post(['/settings/telegram', '/alerts/telegram/config'], async (req: Request, res: Response) => {
+  try {
+    let updatedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) updatedBy = decoded.username;
+    }
+    const incomingConfig = req.body?.config || req.body || {};
+    const saved = await saveTelegramConfig(incomingConfig, updatedBy);
+    res.json({
+      success: true,
+      config: {
+        ...saved,
+        bot_token: saved.has_token ? '••••••••' : '',
+      },
+      message: 'Telegram alerting configuration saved successfully',
+      message_fa: 'تنظیمات ارسال هشدارهای تلگرام با موفقیت ذخیره شد.',
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post(['/settings/telegram/test', '/alerts/telegram/test'], async (req: Request, res: Response) => {
+  try {
+    let requestedBy = 'admin';
+    const authHeader = req.headers.authorization || '';
+    if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const decoded = verifyToken(token);
+      if (decoded?.username) requestedBy = decoded.username;
+    }
+
+    const storedConfig = await getTelegramConfig();
+    const incomingConfig = req.body?.config || req.body || {};
+
+    let botToken = (incomingConfig.bot_token || '').trim();
+    if (!botToken || botToken === '••••••••') {
+      botToken = storedConfig.bot_token || '';
+    }
+
+    const chatId = (incomingConfig.chat_id !== undefined ? incomingConfig.chat_id : (storedConfig.chat_id || '')).trim();
+    const proxyUrl = incomingConfig.proxy_url !== undefined ? incomingConfig.proxy_url : (storedConfig.proxy_url || '');
+
+    const result = await sendTelegramTestAlert({
+      botToken,
+      chatId,
+      proxyUrl,
+      requestedBy,
+    });
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Telegram test execution failed',
+      error_fa: `خطا در اجرای تست تلگرام: ${err.message}`,
     });
   }
 });

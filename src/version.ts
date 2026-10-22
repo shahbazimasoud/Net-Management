@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.370.1';
+export const APP_VERSION = '1.371.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.371.0',
+    releaseDate: '2026-10-22',
+    type: 'minor',
+    title: 'فاز ۱: سامانه ارسال هشدارهای فوری چندکاناله - هسته بک‌اند تلگرام و مدیریت رویدادها (Telegram Alert Engine)',
+    title_en: 'Phase 1: Omnichannel Incident Alerting - Telegram Backend Engine, Damping & REST API Suite',
+    changes: [
+      'پیاده‌سازی موتور پردازش و ارسال هشدارهای تلگرام (TelegramAlertManager): معماری ماژولار جهت ارسال رویدادهای NOC به چت‌های خصوصی، گروه‌ها یا کانال‌های تلگرام با فرمت استاندارد HTML و نمادهای مانیتورینگ.',
+      'رمزنگاری امن توکن ربات در دیتابیس (AES-256-GCM Encryption): ذخیره‌سازی امن و رمزنگاری‌شده توکن ربات در پایگاه‌داده/استور پشتیبان با متدهای امن سروری و محافظت در برابر نشت اطلاعات طبق قانون ۱۴.',
+      'ماسک‌سازی امن توکن در پاسخ‌های API: عدم بازگردانی توکن خام در خروجی اندپوینت‌های REST و نمایش کاراکترهای ماسک (••••••••) جهت امنیت کامل در کلاینت.',
+      'مکانیسم فیلتر نوسان و کاهش اسپم پیام‌ها (Flap Damping & Event Deduplication): جلوگیری از ارسال آبشاری پیام‌ها در زمان ناپایداری مکرر پورت‌ها یا تجهیزات (قابلیت Flap Window و Min Notification Interval).',
+      'پشتیبانی جامع از انواع پروکسی و ریورس پروکسی (HTTP CONNECT / Custom Base URL): امکان برقراری ارتباط در شبکه‌های دارای محدودیت یا فیلترینگ با پروکسی محلی و آدرس‌های جایگزین مانند Bale یا سرویس‌های پروکسی معکوس.',
+      'مجموعه اندپوینت‌های RESTful اختصاصی (/api/alerts/telegram): شامل دریافت پیکربندی امن، ذخیره تنظیمات با اعتبارسنجی خودکار و دکمه تست آنلاین اتصال با گزارش خطای شفاف و بدون داده شبیه‌سازی‌شده.'
+    ],
+    changes_en: [
+      'Telegram Alert Engine Core (TelegramAlertManager): modular architecture for dispatching real-time NOC incident alerts to private chats, groups, or channels with standard HTML formatting and severity badges.',
+      'Encrypted-at-Rest Token Security (AES-256-GCM): secure server-side encrypted storage for Telegram bot tokens protecting secrets at rest in compliance with Rule 14.',
+      'Client Token Masking: sanitized API responses that never leak raw bot tokens to the frontend, displaying secure bullet masks (••••••••).',
+      'Flap Damping & Anti-Spam Throttling: smart deduplication and sliding time windows to prevent alert floods during flapping network links or rapid flapping states.',
+      'Comprehensive Proxy & Reverse Proxy Support: native support for HTTP CONNECT proxy agents and alternative base URLs (e.g. domestic proxy gateways or reverse proxies) for restricted network environments.',
+      'Dedicated RESTful Alerting APIs (/api/alerts/telegram): configuration management, encrypted persistence, and live connection test endpoint providing authentic error reporting with zero synthetic data.'
+    ]
+  },
   {
     version: '1.370.1',
     releaseDate: '2026-10-22',
