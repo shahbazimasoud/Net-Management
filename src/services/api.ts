@@ -7934,6 +7934,9 @@ export async function testTelegramConfigApi(payload: {
   botToken?: string;
   chatId?: string;
   proxyUrl?: string;
+  bot_token?: string;
+  chat_id?: string;
+  proxy_url?: string;
 }): Promise<TelegramTestResult> {
   const res = await fetchWithRetry(`${API_BASE}/settings/telegram/test`, {
     method: 'POST',

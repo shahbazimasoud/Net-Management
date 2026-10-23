@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.373.1';
+export const APP_VERSION = '1.373.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.373.2',
+    releaseDate: '2026-10-23',
+    type: 'patch',
+    title: 'اصلاح و همگام‌سازی پارامترهای تست آنی پروکسی تلگرام (Telegram Live Test Proxy Param Alignment)',
+    title_en: 'Telegram Alert Live Test Proxy & Credential Parameter Alignment',
+    changes: [
+      'همگام‌سازی کامل نام پارامترهای ارسالی از فرانت‌اند و دریافت در بک‌اند (پشتیبانی توامان از camelCase و snake_case برای proxy_url, bot_token, chat_id).',
+      'ارسال بلادرنگ آدرس پروکسی ورکر وارد شده در فرم تست بدون نیاز به ذخیره قبلی در پایگاه داده و جلوگیری از افتادن روی api.telegram.org مستقیم.'
+    ],
+    changes_en: [
+      'Seamless alignment of test dispatch parameters between frontend and backend (full dual support for camelCase and snake_case for proxy_url, bot_token, chat_id).',
+      'Instant forwarding of entered worker proxy URL during test dispatch without requiring prior database save, preventing fallback to blocked api.telegram.org.'
+    ]
+  },
   {
     version: '1.373.1',
     releaseDate: '2026-10-23',

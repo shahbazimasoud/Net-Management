@@ -184,13 +184,19 @@ export const TelegramAlertsSettingsView: React.FC<TelegramAlertsSettingsViewProp
         botToken?: string;
         chatId?: string;
         proxyUrl?: string;
+        bot_token?: string;
+        chat_id?: string;
+        proxy_url?: string;
       } = {
         chatId: formData.chat_id.trim(),
+        chat_id: formData.chat_id.trim(),
         proxyUrl: (formData.proxy_url || '').trim(),
+        proxy_url: (formData.proxy_url || '').trim(),
       };
 
       if (formData.bot_token && formData.bot_token !== '••••••••') {
         payload.botToken = formData.bot_token.trim();
+        payload.bot_token = formData.bot_token.trim();
       }
 
       const res = await testTelegramConfigApi(payload);

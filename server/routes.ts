@@ -1919,13 +1919,22 @@ apiRouter.post(['/settings/telegram/test', '/alerts/telegram/test'], async (req:
     const storedConfig = await getTelegramConfig();
     const incomingConfig = req.body?.config || req.body || {};
 
-    let botToken = (incomingConfig.bot_token || '').trim();
+    let botToken = String(incomingConfig.bot_token || incomingConfig.botToken || '').trim();
     if (!botToken || botToken === '••••••••') {
       botToken = storedConfig.bot_token || '';
     }
 
-    const chatId = (incomingConfig.chat_id !== undefined ? incomingConfig.chat_id : (storedConfig.chat_id || '')).trim();
-    const proxyUrl = incomingConfig.proxy_url !== undefined ? incomingConfig.proxy_url : (storedConfig.proxy_url || '');
+    const chatId = String(
+      incomingConfig.chat_id !== undefined
+        ? incomingConfig.chat_id
+        : (incomingConfig.chatId !== undefined ? incomingConfig.chatId : (storedConfig.chat_id || ''))
+    ).trim();
+
+    const proxyUrl = String(
+      incomingConfig.proxy_url !== undefined
+        ? incomingConfig.proxy_url
+        : (incomingConfig.proxyUrl !== undefined ? incomingConfig.proxyUrl : (storedConfig.proxy_url || ''))
+    ).trim();
 
     const result = await sendTelegramTestAlert({
       botToken,
