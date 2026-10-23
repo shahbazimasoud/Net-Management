@@ -24,6 +24,7 @@ import { PanelServicesView } from './components/settings/PanelServicesView';
 import { LdapConnectionSettingsView } from './components/settings/LdapConnectionSettingsView';
 import { PanelUpdateSettingsView } from './components/settings/PanelUpdateSettingsView';
 import { EmailSettingsView } from './components/settings/EmailSettingsView';
+import { TelegramAlertsSettingsView } from './components/settings/TelegramAlertsSettingsView';
 import { AuditLogsView } from './components/logs/AuditLogsView';
 import { RemoteServersView } from './components/servers/RemoteServersView';
 import { NetworkToolsMenu } from './components/tools/NetworkToolsMenu';
@@ -1254,6 +1255,10 @@ export default function App() {
             <EmailSettingsView isLightMode={isLightMode} />
           )}
 
+          {activeTab === 'settings-alerts' && isSuperAdmin && (
+            <TelegramAlertsSettingsView isLightMode={isLightMode} />
+          )}
+
           {(activeTab === 'settings-groups' ||
             activeTab === 'settings-users' ||
             activeTab === 'settings-ad' ||
@@ -1281,6 +1286,7 @@ export default function App() {
                   ad: 'settings-ad',
                   rbac: 'settings-rbac',
                   backup: 'settings-backup',
+                  alerts: 'settings-alerts',
                 };
                 setActiveTab(targetMap[sub] || 'settings-groups');
               }}

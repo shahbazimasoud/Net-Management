@@ -7544,3 +7544,37 @@ export interface CascadeSyncResult {
   totalServersCount: number;
 }
 
+// ==============================================================================
+// Incident Alerting & Telegram Notifications Types
+// ==============================================================================
+
+export interface TelegramAlertConfig {
+  enabled: boolean;
+  bot_token?: string;
+  has_token?: boolean;
+  chat_id: string;
+  proxy_url?: string;
+  notify_on_host_down: boolean;
+  notify_on_port_down: boolean;
+  notify_on_high_cpu: boolean;
+  notify_on_backup_failure: boolean;
+  notify_on_security_events: boolean;
+  anti_flap_damping_sec: number;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface TelegramTestResult {
+  success: boolean;
+  botUsername?: string;
+  botFirstName?: string;
+  chatId?: string;
+  chatTitle?: string;
+  messageId?: number;
+  error?: string;
+  error_fa?: string;
+  statusCode?: number;
+  details?: any;
+}
+
+

@@ -178,6 +178,8 @@ import {
   AuditReportPreviewResult,
   AuditReportSendResult,
   ServerTimeInfo,
+  TelegramAlertConfig,
+  TelegramTestResult,
 } from '../types';
 
 const API_BASE = '/api';
@@ -7893,6 +7895,51 @@ export async function setServerManualTimeApi(targetTime: string | number): Promi
   return data;
 }
 
+// ==============================================================================
+// Incident Alerting & Telegram Notifications API Suite
+// ==============================================================================
 
+export async function fetchTelegramConfigApi(): Promise<{
+  success: boolean;
+  config: TelegramAlertConfig;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/telegram`);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch Telegram alerting settings');
+  }
+  return data;
+}
 
+export async function saveTelegramConfigApi(config: Partial<TelegramAlertConfig>): Promise<{
+  success: boolean;
+  config: TelegramAlertConfig;
+  message?: string;
+  message_fa?: string;
+}> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/telegram`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to save Telegram alerting settings');
+  }
+  return data;
+}
 
+export async function testTelegramConfigApi(payload: {
+  config?: Partial<TelegramAlertConfig>;
+  botToken?: string;
+  chatId?: string;
+  proxyUrl?: string;
+}): Promise<TelegramTestResult> {
+  const res = await fetchWithRetry(`${API_BASE}/settings/telegram/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  return data;
+}

@@ -10,9 +10,38 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.371.0';
+export const APP_VERSION = '1.372.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.372.0',
+    releaseDate: '2026-10-23',
+    type: 'minor',
+    title: 'فاز ۲: رابط کاربری تنظیمات هشدارهای تلگرام، ماتریس رویدادها، تست زنده و راهنمای تعاملی درون پنل (Telegram Alerts Settings UI)',
+    title_en: 'Phase 2: Telegram Incident Alerting Settings UI, Trigger Matrix, Live Dispatch Test & Interactive Help Guide',
+    changes: [
+      'طراحی و پیاده‌سازی تب اختصاصی «اعلان‌ها و هشدارها (Alerting & Telegram)» در بخش Settings با هماهنگی کامل تم روشن/تیره و پشتیبانی دو زبانه فارسی و انگلیسی.',
+      'کلید اصلی فعال‌سازی اطلاع‌رسانی تلگرام (Master Notification Switch) همراه با برچسب وضعیت لحظه‌ای فعال (Active) و سکوت (Muted).',
+      'فیلد امن توکن ربات تلگرام (Bot Token) با قابلیت مخفی‌سازی/نمایش رمز، تشخیص توکن ذخیره شده در والت و جلوگیری از نشت اطلاعات.',
+      'فیلد تعیین مقصد هشدارها (Chat ID / Channel Username) برای پشتیبانی از کانال‌های عمومی/خصوصی، گروه‌های ادمین و چت مستقیم شخصی.',
+      'فیلد تنظیمات پروکسی شبکه (Network Proxy / Reverse Proxy) جهت عبور امن ترافیک در محیط‌های دارای محدودیت اینترنت.',
+      'اسلایدر تنظیم بازه زمانی ضد رگبار و مهار نوسان پورت (Anti-Flap & Flood Damping Window) از ۱۰ تا ۳۰۰ ثانیه با پیش‌فرض ۶۰ ثانیه جهت جلوگیری از اسپم شدن کانال تلگرام.',
+      'ماتریس ۵ گانه انتخاب رویدادها (Trigger Rules Matrix): قطع ارتباط پینگ و SSH سوییچ یا سرور، تغییر وضعیت پورت‌های حیاتی سیسکو/میکروتیک، مصرف بالای ۸۵٪ پردازنده و رم، گزارش وضعیت بکاپ شبانه، و هشدارهای امنیتی ورود ناموفق.',
+      'دکمه و بخش ارسال تست زنده ارتباط (Send Live Test Alert) همراه با نمایش کامل اطلاعات ربات (@botUsername)، نام چت مقصد، شماره شناسه پیام تلگرام و راهنمای خطایابی هوشمند در صورت بروز خطا.',
+      'کادر راهنمای تعاملی و مصور گام‌به‌گام (Interactive Setup Guide) شامل آموزش مرحله‌به‌مرحله ساخت ربات با BotFather@، تعیین آیدی کانال یا گروه با userinfobot@ و دکمه‌های کپی سریع دستورات.'
+    ],
+    changes_en: [
+      'Dedicated "Incident Alerting & Telegram Notifications" settings view within Settings and Sidebar with full Dark/Light theme adaptability and strict English/Persian localization.',
+      'Master Telegram notification toggle switch with real-time operational status badges (Armed / Dispatching vs Muted / Silenced).',
+      'Masked bot token credential input with show/hide toggle, vault detection, and zero credential leakage to client.',
+      'Flexible destination routing supporting public/private channels (@Channel or -100xxx), NOC operator groups, and direct user chat IDs.',
+      'Network and reverse proxy URL configuration allowing domestic gateways and SOCKS/HTTP proxy bypass in restricted data centers.',
+      'Anti-flap & flood damping slider window (10 to 300 seconds, default 60s) preventing message floods and rate-limit penalties during port flapping.',
+      '5-trigger event selection policy matrix: Host Unreachable (Ping/SSH drop), Critical Port Down/Flap, High CPU/RAM Saturation (>85%), Nightly Backup Job Status, and Security Events (failed logins).',
+      'Live test alert dispatch engine (Send Live Test Alert) displaying confirmed bot identity, target chat name, Telegram message ID, and authentic diagnostic hints on failure.',
+      'Built-in step-by-step interactive setup guide with 3 comprehensive steps, BotFather instructions, userinfobot guide, and 1-click command copy buttons.'
+    ]
+  },
   {
     version: '1.371.0',
     releaseDate: '2026-10-22',

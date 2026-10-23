@@ -9,7 +9,8 @@ import {
   Sparkles,
   ArrowRight,
   ArrowLeft,
-  Archive
+  Archive,
+  BellRing
 } from 'lucide-react';
 import {
   Device,
@@ -44,11 +45,12 @@ import { ActiveDirectoryTab } from './ActiveDirectoryTab';
 import { AccessControlTab } from './AccessControlTab';
 import { LocalUsersTab } from './LocalUsersTab';
 import { BackupPortalTab } from './BackupPortalTab';
+import { TelegramAlertsSettingsView } from './TelegramAlertsSettingsView';
 import { useLanguage } from '../../i18n';
 import { useAuth } from '../../context/AuthContext';
 import { isUserSuperAdmin } from '../../utils/rbac';
 
-export type SettingsSubTab = 'groups' | 'users' | 'ad' | 'rbac' | 'backup';
+export type SettingsSubTab = 'groups' | 'users' | 'ad' | 'rbac' | 'backup' | 'alerts';
 
 interface SettingsViewProps {
   devices: Device[];
@@ -215,6 +217,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       icon: Archive,
       badge: isEn ? 'DR Portal' : 'پورتال DR',
       badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+    },
+    alerts: {
+      title: isEn ? 'Incident Alerting & Telegram Notifications' : 'اعلان‌ها و هشدارهای تلگرام (Incident Alerting)',
+      desc: isEn
+        ? 'Automated real-time dispatch of network outages, port state changes, CPU spikes, and backup results to Telegram.'
+        : 'مخابره خودکار و آنی رخدادهای بحرانی شبکه، قطعی پورت‌ها، اخطار پردازنده و نتایج بکاپ به تلگرام.',
+      icon: BellRing,
+      badge: isEn ? 'Telegram' : 'تلگرام',
+      badgeColor: 'bg-sky-500/20 text-sky-300 border-sky-500/30'
     }
   };
 
@@ -361,6 +372,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             DR
           </span>
         </button>
+
+        {/* Sub-menu 6: Incident Alerting & Telegram */}
+        <button
+          type="button"
+          onClick={() => handleSwitchTab('alerts')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 cursor-pointer ${
+            activeTab === 'alerts'
+              ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-lg ring-1 ring-sky-400/30'
+              : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+          }`}
+        >
+          <BellRing className="w-3.5 h-3.5 text-sky-400" />
+          <span>{isEn ? 'Alerting & Telegram' : 'اعلان‌ها و هشدارها'}</span>
+          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
+            NOC
+          </span>
+        </button>
       </div>
 
       {/* Sub-Menu Views */}
@@ -418,6 +446,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onRefreshData={onRefreshAllData}
             isLightMode={isLightMode}
           />
+        )}
+
+        {activeTab === 'alerts' && (
+          <TelegramAlertsSettingsView isLightMode={isLightMode} />
         )}
       </div>
     </div>

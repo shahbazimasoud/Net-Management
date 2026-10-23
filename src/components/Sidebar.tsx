@@ -24,7 +24,8 @@ import {
   Sliders,
   KeyRound,
   ArrowUpCircle,
-  Mail
+  Mail,
+  BellRing
 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { AccessPolicy } from '../types';
@@ -55,7 +56,8 @@ export type ActiveTab =
   | 'settings-services'
   | 'settings-ldap'
   | 'settings-update'
-  | 'settings-email';
+  | 'settings-email'
+  | 'settings-alerts';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -272,6 +274,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           labelKey: 'tab_settings_email',
           icon: Mail,
           badge: 'SMTP',
+        },
+        {
+          id: 'settings-alerts',
+          labelKey: 'tab_settings_alerts',
+          icon: BellRing,
+          badge: 'Telegram',
         },
       ],
     },
