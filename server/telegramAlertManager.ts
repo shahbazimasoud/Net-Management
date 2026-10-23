@@ -128,8 +128,9 @@ function makeHttpRequest(
 
     const proxyStr = (options.proxyUrl || '').trim();
 
-    // Case 1: HTTP CONNECT Proxy (e.g. http://127.0.0.1:8080)
-    if (proxyStr.startsWith('http://') || proxyStr.startsWith('https://')) {
+    // Case 1: HTTP CONNECT Forward Proxy (e.g. http://127.0.0.1:8080 or forward proxy on specific port)
+    // Only use CONNECT tunneling if it is a genuine forward proxy, NOT a reverse proxy (like Cloudflare Workers)
+    if ((proxyStr.startsWith('http://') || proxyStr.startsWith('https://')) && !isReverseProxy(proxyStr)) {
       try {
         const proxyObj = new URL(proxyStr);
         const proxyPort = parseInt(proxyObj.port, 10) || 8080;
@@ -226,13 +227,36 @@ function makeHttpRequest(
 }
 
 /**
+ * Checks if the configured URL is a reverse proxy (e.g. Cloudflare Worker, domain replacing api.telegram.org)
+ * or a forward proxy requiring HTTP CONNECT tunneling (e.g. 127.0.0.1:10809, squid:3128)
+ */
+export function isReverseProxy(proxyUrl?: string): boolean {
+  if (!proxyUrl) return false;
+  const p = proxyUrl.trim().toLowerCase();
+  if (p.includes('workers.dev') || p.includes('pages.dev') || p.includes('vercel.app')) {
+    return true;
+  }
+  // Standard forward proxy ports
+  if (/:\d{4,5}/.test(p)) {
+    return false;
+  }
+  if (p.startsWith('http://') || p.startsWith('https://')) {
+    try {
+      const u = new URL(p);
+      return !u.port || u.port === '80' || u.port === '443';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
  * Resolves the Telegram API base URL (allowing custom reverse proxies)
  */
-function resolveTelegramBaseUrl(proxyUrl?: string): string {
+export function resolveTelegramBaseUrl(proxyUrl?: string): string {
   const p = (proxyUrl || '').trim();
-  // If proxyUrl is a reverse proxy (e.g. https://teleproxy.company.internal or https://tapi.bale.ai)
-  if (p && (p.startsWith('http://') || p.startsWith('https://')) && !p.includes(':1080') && !p.includes(':8080') && !p.includes(':3128')) {
-    // If it looks like a reverse proxy endpoint rather than a forward proxy
+  if (isReverseProxy(p)) {
     return p.replace(/\/+$/, '');
   }
   return 'https://api.telegram.org';
@@ -381,7 +405,7 @@ export async function sendTelegramAlert(
     const res = await makeHttpRequest(targetUrl, {
       method: 'POST',
       body: payload,
-      proxyUrl: config.proxy_url,
+      proxyUrl: isReverseProxy(config.proxy_url) ? undefined : config.proxy_url,
       timeoutMs: 15000,
     });
 
@@ -442,7 +466,7 @@ export async function sendTelegramTestAlert(params: {
     const getMeUrl = `${baseUrl}/bot${token}/getMe`;
     const getMeRes = await makeHttpRequest(getMeUrl, {
       method: 'GET',
-      proxyUrl: proxyUrl,
+      proxyUrl: isReverseProxy(proxyUrl) ? undefined : proxyUrl,
       timeoutMs: 12000,
     });
 
@@ -494,7 +518,7 @@ export async function sendTelegramTestAlert(params: {
     const sendRes = await makeHttpRequest(sendUrl, {
       method: 'POST',
       body: sendPayload,
-      proxyUrl: proxyUrl,
+      proxyUrl: isReverseProxy(proxyUrl) ? undefined : proxyUrl,
       timeoutMs: 15000,
     });
 

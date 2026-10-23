@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.373.0';
+export const APP_VERSION = '1.373.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.373.1',
+    releaseDate: '2026-10-23',
+    type: 'patch',
+    title: 'بهینه‌سازی و پشتیبانی هوشمند از ریورس پروکسی کلودفلر ورکرز برای هشدارهای تلگرام (Cloudflare Workers Reverse Proxy Support)',
+    title_en: 'Smart Cloudflare Workers & Reverse Proxy Engine Optimization for Telegram Alerting',
+    changes: [
+      'تشخیص هوشمند ترافیک ریورس پروکسی (مانند Cloudflare Workers و دامنه‌های جایگزین api.telegram.org) و اتصال مستقیم به ورکر بدون ایجاد تونل نامعتبر CONNECT.',
+      'حل کامل خطای Network connection to Telegram failed در محیط‌های فیلترشده با مسیریابی فوق سریع از طریق ورکر اختصاصی کاربر.'
+    ],
+    changes_en: [
+      'Intelligent reverse proxy traffic detection (e.g. Cloudflare Workers and custom edge domains) with direct HTTP routing bypassing redundant CONNECT tunneling.',
+      'Complete resolution of "Network connection to Telegram failed" in restricted network environments through ultra-fast private Cloudflare edge proxy.'
+    ]
+  },
   {
     version: '1.373.0',
     releaseDate: '2026-10-23',
