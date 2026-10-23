@@ -15,6 +15,7 @@ import {
   deleteScheduledBackupJob,
   addAuditLog,
 } from './db';
+import { sendTelegramAlert } from './telegramAlertManager';
 
 // Server-side backups storage directory
 const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), 'backend', 'server_backups');
@@ -429,6 +430,18 @@ export async function executeScheduledJob(jobId: string, triggeredBy: string = '
       details,
     }).catch(() => {});
 
+    // Dispatch incident/status alert to Telegram
+    sendTelegramAlert({
+      title: `BACKUP SUCCESS: ${job.name}`,
+      level: 'resolved',
+      message: `Automated scheduled backup "${job.name}" completed successfully.`,
+      details: details,
+      eventKey: `backup:${job.id}:success`,
+      source: 'backup_scheduler',
+    }).catch((telegramErr) => {
+      console.warn('[DR Scheduler Daemon] Telegram alert dispatch failed:', telegramErr.message);
+    });
+
     return {
       success: true,
       backupFile: filename,
@@ -465,6 +478,18 @@ export async function executeScheduledJob(jobId: string, triggeredBy: string = '
       status: 'error',
       details: errorDetails,
     }).catch(() => {});
+
+    // Dispatch failure incident alert to Telegram
+    sendTelegramAlert({
+      title: `BACKUP FAILED: ${job.name}`,
+      level: 'critical',
+      message: `Automated scheduled backup "${job.name}" failed: ${err.message}`,
+      details: errorDetails,
+      eventKey: `backup:${job.id}:failed`,
+      source: 'backup_scheduler',
+    }).catch((telegramErr) => {
+      console.warn('[DR Scheduler Daemon] Telegram failure alert dispatch failed:', telegramErr.message);
+    });
 
     throw err;
   }

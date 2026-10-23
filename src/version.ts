@@ -10,9 +10,34 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.372.0';
+export const APP_VERSION = '1.373.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.373.0',
+    releaseDate: '2026-10-23',
+    type: 'minor',
+    title: 'فاز ۳: اتصال به رویدادهای زنده سیستم، پایش تلمتری، هشدارهای خودکار و اعتبارسنجی سرتاسری (Live Incident Hooks & Telemetry Alerting)',
+    title_en: 'Phase 3: Live Incident Hooks, Telemetry Alerting, Automated Event Dispatch & E2E Verification',
+    changes: [
+      'اتصال مستقیم موتور اعلان تلگرام به رویدادهای زنده وضعیت پورت‌های سیسکو و میکروتیک (Port Down / Flap Detection) در تغییرات تکی و گروهی با ارسال بلادرنگ هشدار.',
+      'اتصال پایش قطعی هاست و عدم دسترسی (Host Unreachable & Ping Drop) در تست‌های پینگ تکی، پینگ گروهی و چک پورت سوکت سرورهای ریموت.',
+      'ارسال خودکار اخطار در صورت افزایش مصرف پردازنده (CPU Overload > 85%) و حافظه رم سرورهای لینوکسی و سوییچ‌های سیسکو از طریق SNMP و SSH.',
+      'اتصال سیستم زمان‌بندی بک‌آپ‌های شبانه (Automated Nightly Backup Scheduler) جهت ارسال گزارش موفقیت و هشدارهای بحرانی شکست بک‌آپ به همراه جزئیات خطا.',
+      'اتصال هشدارهای امنیتی (Security Lockout Alerts) در درگاه احراز هویت سرور به هنگام ثبت تلاش‌های متوالی ناموفق برای ورود و قفل شدن موقت آی‌پی یا حساب کاربری.',
+      'پشتیبانی از قالب‌بندی ارگونومیک جزئیات فنی آبجکت‌ها و رشته‌ها با فرمت استاندارد کد HTML تلگرام.',
+      'طراحی و اجرای تست‌های سرتاسری (E2E Integration Tests) جهت راستی‌آزمایی فیلترینگ ماتریس ۵گانه، مهار نوسان پورت (Flap Damping) و ساختار پیام‌ها با موفقیت ۱۰۰٪.'
+    ],
+    changes_en: [
+      'Connected Telegram alert engine directly to Cisco & MikroTik live port state transitions (Port Down / Flap Detection) for both batch and single interface updates.',
+      'Wired host unreachable and ping drop detection into ICMP single-host ping, batch ping-all sweep, and remote server reachability socket probes.',
+      'Automated resource saturation warnings when CPU or RAM exceeds 85% on Linux servers and Cisco switches polled via SNMP or SSH.',
+      'Integrated automated nightly backup scheduler (Backup Scheduler) to transmit success confirmations and critical failure incident alerts with diagnostic details.',
+      'Connected authentication security incident alerts when repeated failed logins trigger rate-limit lockouts or IP restrictions at the auth gateway.',
+      'Enhanced technical details formatter supporting structured JSON objects and raw strings in sanitized Telegram HTML pre blocks.',
+      'Built and executed comprehensive end-to-end integration test suite verifying the 5-trigger filter matrix, anti-flap damping window, and bilingual incident payloads with 100% pass rate.'
+    ]
+  },
   {
     version: '1.372.0',
     releaseDate: '2026-10-23',

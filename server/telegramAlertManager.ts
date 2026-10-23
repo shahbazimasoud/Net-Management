@@ -1,7 +1,11 @@
 import http from 'http';
 import https from 'https';
 import { URL } from 'url';
-import { getTelegramConfig, TelegramAlertConfig } from './db';
+import { getTelegramConfig, saveTelegramConfig, type TelegramAlertConfig } from './db';
+
+export { getTelegramConfig, saveTelegramConfig };
+export type { TelegramAlertConfig };
+export { getTelegramConfig as getTelegramAlertConfig, saveTelegramConfig as saveTelegramAlertConfig };
 
 export type AlertSeverity = 'critical' | 'warning' | 'resolved' | 'info';
 
@@ -9,7 +13,11 @@ export interface TelegramAlertMessage {
   title: string;
   level: AlertSeverity;
   message: string;
-  details?: string;
+  title_fa?: string;
+  message_fa?: string;
+  device_name?: string;
+  target_host?: string;
+  details?: string | Record<string, any>;
   targetDevice?: {
     name?: string;
     ip?: string;
@@ -54,7 +62,7 @@ setInterval(() => {
       flapTracker.delete(key);
     }
   }
-}, 600000);
+}, 600000).unref();
 
 /**
  * Escapes characters for Telegram HTML parse_mode
@@ -260,25 +268,28 @@ export function formatTelegramAlertHtml(msg: TelegramAlertMessage, suppressedCou
 
   const lines: string[] = [
     `${levelIcon} <b>[${levelTitle}]</b>`,
-    `<b>📌 عنوان:</b> <code>${escapeHtml(msg.title)}</code>`,
+    `<b>📌 عنوان:</b> <code>${escapeHtml(msg.title_fa || msg.title)}</code>`,
   ];
 
-  if (msg.targetDevice) {
-    const dev = msg.targetDevice;
-    const devName = escapeHtml(dev.name || 'Unknown');
-    const devIp = escapeHtml(dev.ip || '-');
-    const devType = escapeHtml(dev.type || dev.platform || 'Network Equipment');
-    lines.push(`🏢 <b>تجهیز هدف:</b> <code>${devName}</code> (${devIp}) [${devType}]`);
+  const targetName = msg.targetDevice?.name || msg.device_name;
+  const targetIp = msg.targetDevice?.ip || msg.target_host;
+  const targetType = msg.targetDevice?.type || msg.targetDevice?.platform;
+  if (targetName || targetIp) {
+    const devName = escapeHtml(targetName || 'Unknown');
+    const devIp = escapeHtml(targetIp || '-');
+    const typeStr = targetType ? ` [${escapeHtml(targetType)}]` : '';
+    lines.push(`🏢 <b>تجهیز / میزبان:</b> <code>${devName}</code> (${devIp})${typeStr}`);
   }
 
   lines.push('');
   lines.push(`⚠️ <b>شرح رویداد:</b>`);
-  lines.push(escapeHtml(msg.message));
+  lines.push(escapeHtml(msg.message_fa || msg.message));
 
   if (msg.details) {
     lines.push('');
     lines.push(`🔍 <b>جزئیات فنی:</b>`);
-    lines.push(`<pre>${escapeHtml(msg.details.slice(0, 1000))}</pre>`);
+    const detailsStr = typeof msg.details === 'object' ? JSON.stringify(msg.details, null, 2) : String(msg.details);
+    lines.push(`<pre>${escapeHtml(detailsStr.slice(0, 1500))}</pre>`);
   }
 
   if (suppressedCount > 0) {
@@ -299,34 +310,34 @@ export function formatTelegramAlertHtml(msg: TelegramAlertMessage, suppressedCou
 export async function sendTelegramAlert(
   msg: TelegramAlertMessage,
   explicitConfig?: TelegramAlertConfig
-): Promise<{ success: boolean; dispatched: boolean; messageId?: number; error?: string; suppressed?: boolean }> {
+): Promise<{ success: boolean; dispatched: boolean; messageId?: number; error?: string; reason?: string; suppressed?: boolean }> {
   try {
     const config = explicitConfig || await getTelegramConfig();
 
     if (!config.enabled) {
-      return { success: false, dispatched: false, error: 'Telegram alert engine is disabled in settings.' };
+      return { success: false, dispatched: false, error: 'Alerts disabled in configuration', reason: 'Alerts disabled in configuration' };
     }
 
     if (!config.bot_token || !config.chat_id) {
-      return { success: false, dispatched: false, error: 'Telegram Bot Token or Chat ID is not configured.' };
+      return { success: false, dispatched: false, error: 'Telegram Bot Token or Chat ID is not configured.', reason: 'Telegram Bot Token or Chat ID is not configured.' };
     }
 
     // Check event category filters
     if (msg.eventKey) {
       if (msg.eventKey.includes(':down') && !config.notify_on_host_down) {
-        return { success: true, dispatched: false, error: 'Host down notifications are disabled in filter settings.' };
+        return { success: false, dispatched: false, error: 'Event category suppressed by notification settings', reason: 'Event category suppressed by notification settings' };
       }
-      if (msg.eventKey.includes(':port_') && !config.notify_on_port_down) {
-        return { success: true, dispatched: false, error: 'Port state notifications are disabled in filter settings.' };
+      if ((msg.eventKey.includes(':port_') || msg.eventKey.includes(':port')) && !config.notify_on_port_down) {
+        return { success: false, dispatched: false, error: 'Event category suppressed by notification settings', reason: 'Event category suppressed by notification settings' };
       }
       if (msg.eventKey.includes(':cpu') && !config.notify_on_high_cpu) {
-        return { success: true, dispatched: false, error: 'High CPU notifications are disabled in filter settings.' };
+        return { success: false, dispatched: false, error: 'Event category suppressed by notification settings', reason: 'Event category suppressed by notification settings' };
       }
-      if (msg.eventKey.includes(':backup_failed') && !config.notify_on_backup_failure) {
-        return { success: true, dispatched: false, error: 'Backup failure notifications are disabled in filter settings.' };
+      if ((msg.eventKey.includes(':backup_failed') || msg.eventKey.includes(':backup')) && !config.notify_on_backup_failure) {
+        return { success: false, dispatched: false, error: 'Event category suppressed by notification settings', reason: 'Event category suppressed by notification settings' };
       }
       if (msg.eventKey.includes(':security') && !config.notify_on_security_events) {
-        return { success: true, dispatched: false, error: 'Security event notifications are disabled in filter settings.' };
+        return { success: false, dispatched: false, error: 'Event category suppressed by notification settings', reason: 'Event category suppressed by notification settings' };
       }
     }
 
@@ -342,7 +353,8 @@ export async function sendTelegramAlert(
         // If state hasn't changed and within damping window, suppress
         if (elapsed < dampingSec && existing.lastLevel === msg.level) {
           existing.suppressedCount += 1;
-          return { success: true, dispatched: false, suppressed: true, error: `Flap damped: alert suppressed for ${dampingSec - Math.floor(elapsed)}s.` };
+          const throttledMsg = `Throttled: flap damping active for ${dampingSec - Math.floor(elapsed)}s.`;
+          return { success: false, dispatched: false, suppressed: true, error: throttledMsg, reason: throttledMsg };
         }
         suppressedCount = existing.suppressedCount;
       }

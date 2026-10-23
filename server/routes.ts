@@ -644,6 +644,15 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
         userAgent: req.headers['user-agent'],
       });
 
+      sendTelegramAlert({
+        title: `SECURITY ALERT: Multiple Failed Logins / Rate-Limit Lockout`,
+        level: 'critical',
+        message: `Account or IP address was temporarily locked due to repeated failed login attempts.`,
+        details: `Target Username: ${username}\nClient IP: ${ip}\nLockout Window: ${rateLimitStatus.remainingSec}s`,
+        eventKey: `security:login_locked:${ip}`,
+        source: 'auth_gateway',
+      }).catch(() => {});
+
       return res.status(429).json({
         success: false,
         locked: true,
@@ -701,6 +710,17 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
           ipAddress: ip,
           userAgent: req.headers['user-agent'],
         });
+
+        if (penalty.locked) {
+          sendTelegramAlert({
+            title: `SECURITY ALERT: Account Lockout due to Failed Passwords`,
+            level: 'critical',
+            message: `User "${username}" was locked out after repeated incorrect password attempts from IP ${ip}.`,
+            details: `Target Username: ${username}\nClient IP: ${ip}\nLockout Window: ${penalty.remainingSec}s`,
+            eventKey: `security:login_failed:${username}`,
+            source: 'auth_gateway',
+          }).catch(() => {});
+        }
 
         return res.status(401).json({
           success: false,
@@ -3414,6 +3434,20 @@ const handleCiscoResourcesRequest = async (req: Request, res: Response) => {
     }
 
     if (snmpResult && snmpResult.success && snmpResult.is_live) {
+      const snmpCpu = Number(snmpResult.cpu_utilization ?? snmpResult.cpu_percent ?? 0);
+      if (snmpCpu >= 85) {
+        sendTelegramAlert({
+          level: 'warning',
+          eventKey: `device:${device.id}:cpu`,
+          title: `Cisco Device CPU High (${device.name})`,
+          title_fa: `مصرف بالای پردازنده سوییچ/روتر سیسکو (${device.name})`,
+          message: `Device "${device.name}" (${device.ip || 'N/A'}) reported elevated CPU load: ${snmpCpu}%.`,
+          message_fa: `سوییچ/روتر سیسکو «${device.name}» (${device.ip || 'نامشخص'}) مصرف پردازنده بالایی گزارش کرد: ${snmpCpu}٪.`,
+          device_name: device.name,
+          target_host: device.ip || device.ssh_host,
+          details: { cpu: `${snmpCpu}%`, source: 'snmp' },
+        }).catch(() => {});
+      }
       return res.json(snmpResult);
     }
 
@@ -3466,12 +3500,38 @@ const handleCiscoResourcesRequest = async (req: Request, res: Response) => {
 
     if (sshResult && sshResult.success && sshResult.is_live) {
       sshResult.telemetry_source = 'ssh';
+      const sshCpu = Number(sshResult.cpu_percent ?? sshResult.cpu_utilization ?? 0);
+      if (sshCpu >= 85) {
+        sendTelegramAlert({
+          level: 'warning',
+          eventKey: `device:${device.id}:cpu`,
+          title: `Cisco Device CPU High (${device.name})`,
+          title_fa: `مصرف بالای پردازنده سوییچ/روتر سیسکو (${device.name})`,
+          message: `Device "${device.name}" (${device.ip || 'N/A'}) reported elevated CPU load: ${sshCpu}%.`,
+          message_fa: `دستگاه سیسکو «${device.name}» (${device.ip || 'نامشخص'}) مصرف پردازنده بالایی گزارش کرد: ${sshCpu}٪.`,
+          device_name: device.name,
+          target_host: device.ip || device.ssh_host,
+          details: { cpu: `${sshCpu}%`, source: 'ssh' },
+        }).catch(() => {});
+      }
       return res.json(sshResult);
     }
 
     // Both methods failed: return genuine, non-fabricated error transparency
     const finalError = sshResult?.error || snmpResult?.error || 'Could not establish connection to device';
     const finalErrorFa = snmpResult?.errorFa || (isEn ? finalError : 'ارتباط با تجهیز از طریق SNMP یا SSH میسر نشد (بررسی وضعیت شبکه و دسترسی تجهیز)');
+
+    sendTelegramAlert({
+      level: 'critical',
+      eventKey: `device:${device.id}:down`,
+      title: `Cisco Telemetry Failed (${device.name})`,
+      title_fa: `خطای پایش تلمتری سیسکو (${device.name})`,
+      message: `Unable to poll hardware resources from "${device.name}" (${device.ip || 'N/A'}) via SNMP/SSH: ${finalError}`,
+      message_fa: `پایش منابع سخت‌افزاری «${device.name}» (${device.ip || 'نامشخص'}) از طریق SNMP و SSH با خطا مواجه شد: ${finalErrorFa}`,
+      device_name: device.name,
+      target_host: device.ip || device.ssh_host,
+      details: { error: finalError },
+    }).catch(() => {});
 
     return res.json({
       success: false,
@@ -4185,6 +4245,28 @@ apiRouter.put('/devices/:id/ports/batch', async (req: Request, res: Response) =>
     device.last_modified_time = new Date().toISOString();
     await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
 
+    if ('admin_status' in updates || 'status' in updates) {
+      const isDown = updates.admin_status === 'disabled' || updates.status === 'down';
+      const portNames = matchedPorts.slice(0, 5).map((p: any) => p.port_id || p.name).join(', ') + (matchedPorts.length > 5 ? ` (+${matchedPorts.length - 5} more)` : '');
+      sendTelegramAlert({
+        title: isDown ? `PORTS DOWN: ${device.name} [${matchedPorts.length} ports]` : `PORTS UP: ${device.name} [${matchedPorts.length} ports]`,
+        level: isDown ? 'warning' : 'resolved',
+        message: isDown
+          ? `${matchedPorts.length} interfaces on switch "${device.name}" (${device.ip || 'N/A'}) transitioned to DOWN / DISABLED: ${portNames}`
+          : `${matchedPorts.length} interfaces on switch "${device.name}" (${device.ip || 'N/A'}) transitioned to UP / ENABLED: ${portNames}`,
+        details: `Device: ${device.name}\nIP: ${device.ip || 'N/A'}\nPorts: ${portNames}\nTarget Admin Status: ${updates.admin_status || updates.status}`,
+        targetDevice: {
+          name: device.name,
+          ip: device.ip,
+          platform: device.platform,
+          type: device.type,
+          category: 'switch',
+        },
+        eventKey: `device:${device.id}:batch_port_status`,
+        source: 'port_management',
+      }).catch(() => {});
+    }
+
     return res.json({
       success: true,
       updatedCount,
@@ -4319,6 +4401,27 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
     device.last_modified_time = new Date().toISOString();
     await updateDevice(device.id, { ports: device.ports, has_unsaved_changes: true });
 
+    if ('admin_status' in updates || 'status' in updates) {
+      const isDown = updates.admin_status === 'disabled' || updates.status === 'down' || targetPort.status === 'down';
+      sendTelegramAlert({
+        title: isDown ? `PORT DOWN: ${device.name} [${ifaceName}]` : `PORT UP: ${device.name} [${ifaceName}]`,
+        level: isDown ? 'warning' : 'resolved',
+        message: isDown
+          ? `Interface "${ifaceName}" on switch "${device.name}" (${device.ip || 'N/A'}) transitioned to DOWN / DISABLED.`
+          : `Interface "${ifaceName}" on switch "${device.name}" (${device.ip || 'N/A'}) is now UP / ACTIVE.`,
+        details: `Device: ${device.name}\nIP: ${device.ip || 'N/A'}\nInterface: ${ifaceName}\nVLAN: ${targetPort.vlan || 'Default'}\nAdmin Status: ${targetPort.admin_status}`,
+        targetDevice: {
+          name: device.name,
+          ip: device.ip,
+          platform: device.platform,
+          type: device.type,
+          category: 'switch',
+        },
+        eventKey: `device:${device.id}:port_${ifaceName}`,
+        source: 'port_management',
+      }).catch(() => {});
+    }
+
     return res.json({
       success: true,
       port: targetPort,
@@ -4417,6 +4520,40 @@ apiRouter.post('/ping/:id', async (req: Request, res: Response) => {
       last_seen: pingResult.is_online ? 'هم اکنون (Just now)' : 'آفلاین',
     });
 
+    if (!pingResult.is_online) {
+      sendTelegramAlert({
+        title: `HOST UNREACHABLE: ${device.name} (${device.ip || 'N/A'})`,
+        level: 'critical',
+        message: `Device "${device.name}" failed ICMP keepalive probe (100% packet loss).`,
+        details: `Device: ${device.name}\nIP: ${device.ip || 'N/A'}\nPlatform: ${device.platform || 'Network Device'}`,
+        targetDevice: {
+          name: device.name,
+          ip: device.ip,
+          platform: device.platform,
+          type: device.type,
+          category: 'switch',
+        },
+        eventKey: `device:${device.id}:down`,
+        source: 'ping_keepalive',
+      }).catch(() => {});
+    } else if (device.is_online === false && pingResult.is_online) {
+      sendTelegramAlert({
+        title: `HOST RECOVERED: ${device.name} (${device.ip || 'N/A'})`,
+        level: 'resolved',
+        message: `Device "${device.name}" is back online and responding to ICMP ping (${pingResult.latency_ms}ms).`,
+        details: `Device: ${device.name}\nIP: ${device.ip || 'N/A'}\nLatency: ${pingResult.latency_ms}ms\nPacket Loss: ${pingResult.packet_loss}%`,
+        targetDevice: {
+          name: device.name,
+          ip: device.ip,
+          platform: device.platform,
+          type: device.type,
+          category: 'switch',
+        },
+        eventKey: `device:${device.id}:down`,
+        source: 'ping_keepalive',
+      }).catch(() => {});
+    }
+
     return res.json({
       device: updatedDevice || {
         ...device,
@@ -4457,6 +4594,24 @@ apiRouter.post('/ping-all', async (req: Request, res: Response) => {
           packet_loss: pingRes.packet_loss,
           last_seen: pingRes.is_online ? 'هم اکنون (Just now)' : 'آفلاین',
         }).catch(() => {});
+
+        if (!pingRes.is_online && dev.is_online !== false) {
+          sendTelegramAlert({
+            title: `HOST UNREACHABLE: ${dev.name} (${dev.ip || 'N/A'})`,
+            level: 'critical',
+            message: `Network device "${dev.name}" failed concurrent ICMP health check.`,
+            details: `Device: ${dev.name}\nIP: ${dev.ip || 'N/A'}\nPacket loss: 100%`,
+            targetDevice: {
+              name: dev.name,
+              ip: dev.ip,
+              platform: dev.platform,
+              type: dev.type,
+              category: 'switch',
+            },
+            eventKey: `device:${dev.id}:down`,
+            source: 'ping_all',
+          }).catch(() => {});
+        }
         return {
           id: dev.id,
           name: dev.name,
@@ -11474,6 +11629,21 @@ echo "---END---"`;
       socket.destroy();
       const latency = Date.now() - start;
       updateRemoteServer(server.id, { status: 'offline' }).catch(() => {});
+      sendTelegramAlert({
+        title: `HOST UNREACHABLE: Server ${server.name || server.ip}`,
+        level: 'critical',
+        message: `Remote server "${server.name}" (${server.ip}) port ${targetPort} is unreachable.`,
+        details: `Target: ${targetHost}:${targetPort}\nProtocol: ${server.os_type === 'linux' ? 'SSH' : 'RDP'}\nError: ${err.message}`,
+        targetDevice: {
+          name: server.name,
+          ip: server.ip,
+          platform: server.os_type,
+          type: 'server',
+          category: 'server',
+        },
+        eventKey: `server:${server.id}:down`,
+        source: 'reachability_check',
+      }).catch(() => {});
       res.json({
         success: true,
         reachable: false,
@@ -11521,9 +11691,10 @@ echo "---END---"`;
 
 // GET & POST /api/remote-servers/:id/monitor - Real-time Linux Server Resource & Telemetry Monitoring
 const handleLinuxServerMonitor = async (req: Request, res: Response) => {
+  let server: any = null;
   try {
     const { id } = req.params;
-    const server = await getRemoteServerById(id);
+    server = await getRemoteServerById(id);
     if (!server) {
       return res.status(404).json({ success: false, error: 'Server not found' });
     }
@@ -11568,12 +11739,51 @@ const handleLinuxServerMonitor = async (req: Request, res: Response) => {
       uptime_str: metrics.uptimeFormatted || (metrics as any).uptime?.human || server.uptime_str,
     }).catch(() => {});
 
+    // Hook: Dispatch High Resource Alert if CPU or Memory > 85%
+    const cpuUsage = metrics.cpu?.usagePercent || 0;
+    const memUsage = metrics.memory?.usagePercent || (metrics.memory && metrics.memory.totalBytes > 0 ? (metrics.memory.usedBytes / metrics.memory.totalBytes) * 100 : 0);
+    if (cpuUsage > 85 || memUsage > 85) {
+      sendTelegramAlert({
+        title: `HIGH RESOURCE USAGE: Server ${server.name || server.ip} (${Math.round(Math.max(cpuUsage, memUsage))}%)`,
+        level: 'warning',
+        message: `Remote server "${server.name}" (${server.ip}) resource utilization exceeded 85% threshold.`,
+        details: `Server: ${server.name}\nIP: ${server.ip}\nCPU: ${Math.round(cpuUsage)}%\nRAM: ${Math.round(memUsage)}%\nCores: ${metrics.cpu?.cores || 1}\nUptime: ${metrics.uptimeFormatted || 'N/A'}`,
+        targetDevice: {
+          name: server.name,
+          ip: server.ip,
+          platform: server.os_type || 'linux',
+          type: 'server',
+          category: 'server',
+        },
+        eventKey: `server:${server.id}:cpu`,
+        source: 'server_monitor',
+      }).catch(() => {});
+    }
+
     return res.json({
       success: true,
       metrics,
     });
   } catch (err: any) {
     console.error(`[LinuxMonitor API Error for server ${req.params.id}]:`, err?.message || err);
+    if (server) {
+      sendTelegramAlert({
+        title: `HOST UNREACHABLE: Server ${server.name || server.ip}`,
+        level: 'critical',
+        message: `Failed to connect or collect live telemetry from remote server "${server.name}" (${server.ip}).`,
+        details: `Target: ${server.ip}:${server.ssh_port || 22}\nError: ${err.message || 'SSH connection timed out or refused'}`,
+        targetDevice: {
+          name: server.name,
+          ip: server.ip,
+          platform: server.os_type || 'linux',
+          type: 'server',
+          category: 'server',
+        },
+        eventKey: `server:${server.id}:down`,
+        source: 'server_monitor',
+      }).catch(() => {});
+    }
+
     return res.status(500).json({
       success: false,
       error: err.message || 'Failed to connect or collect live telemetry from remote server',
