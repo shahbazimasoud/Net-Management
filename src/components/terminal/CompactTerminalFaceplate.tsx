@@ -1,5 +1,5 @@
-import React, { useState, useRef, useLayoutEffect, useMemo } from 'react';
-import { ChevronDown, ChevronUp, Layers, CheckCircle2, AlertCircle, Shield, Cable, RefreshCw } from 'lucide-react';
+import React, { useState, useRef, useLayoutEffect, useMemo, useEffect } from 'react';
+import { ChevronDown, ChevronUp, Layers, CheckCircle2, AlertCircle, Shield, Cable, RefreshCw, Radio } from 'lucide-react';
 import { Device, SwitchPort } from '../../types';
 import { NetworkPortSvg } from '../NetworkPortSvg';
 import { MikroTikPortSvg } from '../MikroTikPortSvg';
@@ -36,6 +36,58 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
   const [isWinBoxModalOpen, setIsWinBoxModalOpen] = useState(false);
   const [activeHoverPort, setActiveHoverPort] = useState<SwitchPort | null>(null);
   const [hoverCoords, setHoverCoords] = useState<{ x: number; y: number } | null>(null);
+
+  // Live Terminal Monitor (Cisco terminal monitor / MikroTik link events)
+  const [isLiveActive, setIsLiveActive] = useState<boolean>(false);
+  const liveWsRef = useRef<WebSocket | null>(null);
+
+  const toggleLive = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isLiveActive) {
+      if (liveWsRef.current) {
+        try {
+          liveWsRef.current.send(JSON.stringify({ action: 'STOP_WATCH' }));
+          liveWsRef.current.close();
+        } catch {}
+        liveWsRef.current = null;
+      }
+      setIsLiveActive(false);
+    } else {
+      setIsLiveActive(true);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = localStorage.getItem('token') || '';
+      const wsUrl = `${protocol}//${window.location.host}/ws/ports-monitor?deviceId=${encodeURIComponent(device.id)}&token=${encodeURIComponent(token)}&lang=${isEn ? 'en' : 'fa'}`;
+      try {
+        const ws = new WebSocket(wsUrl);
+        liveWsRef.current = ws;
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'PORT_LIVE_STATUS' && onSyncPorts) {
+              onSyncPorts();
+            }
+          } catch {}
+        };
+        ws.onclose = () => {
+          setIsLiveActive(false);
+        };
+      } catch {
+        setIsLiveActive(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (liveWsRef.current) {
+        try {
+          liveWsRef.current.send(JSON.stringify({ action: 'STOP_WATCH' }));
+          liveWsRef.current.close();
+        } catch {}
+        liveWsRef.current = null;
+      }
+    };
+  }, []);
 
   const isActuallyMikroTik = Boolean(
     isMikroTik ||
@@ -203,6 +255,27 @@ export const CompactTerminalFaceplate: React.FC<CompactTerminalFaceplateProps> =
             <span className="text-[9px] text-cyan-300/90 font-sans border-l border-slate-600 pl-1 group-hover/sync:text-white">
               {isSyncing ? (isEn ? 'Syncing...' : 'بررسی...') : (isEn ? 'Sync' : 'بررسی')}
             </span>
+          </button>
+
+          {/* Live Terminal Monitor Streaming Toggle */}
+          <button
+            type="button"
+            id="faceplate-live-monitor-btn"
+            onClick={toggleLive}
+            className={`flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded transition-all shadow-xs border shrink-0 cursor-pointer ${
+              isLiveActive
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 shadow-emerald-500/20 ring-1 ring-emerald-400/40'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title={
+              isEn
+                ? 'Toggle real-time terminal monitor for live interface status updates'
+                : 'روشن/خاموش کردن پایش زنده وضعیت پورت‌ها (terminal monitor)'
+            }
+          >
+            <Radio className={`w-3 h-3 ${isLiveActive ? 'text-emerald-400 animate-pulse' : 'text-slate-400'}`} />
+            <span>{isLiveActive ? (isEn ? 'Live: ON' : 'زنده: فعال') : (isEn ? 'Live' : 'زنده')}</span>
+            {isLiveActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
           </button>
 
           {/* WinBox Native App Launcher Button (Strictly for MikroTik only) */}

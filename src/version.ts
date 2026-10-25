@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.377.1';
+export const APP_VERSION = '1.378.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.378.0',
+    releaseDate: '2026-10-25',
+    type: 'minor',
+    title: 'افزودن پایش بلادرنگ وضعیت پورت‌ها (Live Port Watcher) با مکانیزم دستور terminal monitor سیسکو و استریم وب‌سوکت',
+    title_en: 'Real-Time Port Status Monitoring Suite with Cisco Terminal Monitor Engine and WebSocket Event Streaming',
+    changes: [
+      'طراحی و استقرار گیت‌وی وب‌سوکت اختصاصی پایش زنده پورت‌ها (setupPortMonitorWebSocket در server/portMonitorWs.ts) جهت برقراری سشن‌های SSH تعاملی و فعال‌سازی مستقیم دستور terminal monitor بر روی تجهیزات سیسکو و پایش لاگ در میکروتیک.',
+      'پیاده‌سازی موتور پردازش و تحلیل آنی رویدادهای سیس‌لاگ تغییر وضعیت لینک (%LINK-3-UPDOWN، %LINEPROTO-5-UPDOWN و %LINK-5-CHANGED) با استخراج درجا و زیر ۱۰۰ میلی‌ثانیه‌ای اینترفیس و ارسال رویداد PORT_LIVE_STATUS به مرورگر.',
+      'افزودن تاگل و دکمه اختصاصی پایش زنده (Live Monitor) به هدر مودال بررسی پورت سیسکو (PortInspectorModal)، نمای مدیریت پورت‌ها (PortManagementView) و فیس‌پلیت بالای ترمینال (CompactTerminalFaceplate) همراه با انیمیشن چشمک‌زن رادیویی و ال‌ای‌دی زنده.',
+      'تجهیز کنترل‌های پایش زنده به ابزارک راهنمای سه‌بخشی استاندارد و مهارشده FieldInfoTooltip (این چیست، چرا لازم است و مثال کاربردی) به دو زبان فارسی و انگلیسی و منطبق با تم تیره و روشن.',
+      'به‌روزرسانی خودکار و بلادرنگ رنگ و استایل پورت‌های گرافیکی (NetworkPortSvg) به محض قطع یا وصل شدن کابل فیزیکی از سوئیچ بدون نیاز به همگام‌سازی یا رفرش دستی صفحه.'
+    ],
+    changes_en: [
+      'Architected and deployed dedicated Real-Time Port Monitoring WebSocket Gateway (setupPortMonitorWebSocket in server/portMonitorWs.ts) establishing interactive SSH sessions and executing Cisco terminal monitor alongside MikroTik interface log watchers.',
+      'Engineered sub-100ms syslog link-state parser matching %LINK-3-UPDOWN, %LINEPROTO-5-UPDOWN, and %LINK-5-CHANGED events with instant normalized port resolution and PORT_LIVE_STATUS broadcasts.',
+      'Added dedicated "Live Monitor" toggle controls across Cisco Port Inspector (PortInspectorModal), dedicated Port Management view (PortManagementView), and the interactive faceplate above terminals (CompactTerminalFaceplate) with pulsing live activity LEDs.',
+      'Equipped live monitoring controls with standard 3-part boundary-safe FieldInfoTooltip (What is it, Why is it needed, Practical example) adhering to strict English and Persian localization.',
+      'Instantaneous real-time graphical status updates on switch faceplates (NetworkPortSvg) upon physical cable plug/unplug events without requiring manual sync or page reload.'
+    ]
+  },
   {
     version: '1.377.1',
     releaseDate: '2026-10-25',

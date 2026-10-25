@@ -568,6 +568,56 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     });
   };
 
+  // Real-time parser for Cisco terminal monitor syslog events (%LINK-3-UPDOWN, %LINEPROTO-5-UPDOWN)
+  const parseAndApplyLinkState = (rawChunk: string) => {
+    if (!rawChunk) return;
+    const match = rawChunk.match(
+      /%(?:LINK|LINEPROTO|ETH_PORT_CHANNEL)-[35]-(?:UPDOWN|CHANGED|PORT_UP|PORT_DOWN):\s+(?:Line\s+protocol\s+on\s+)?Interface\s+([A-Za-z0-9\/\.\-]+),?\s+(?:changed state to\s+)?(administratively down|admin down|up|down)/i
+    );
+    if (!match) return;
+
+    const rawInterface = match[1];
+    const rawState = match[2].toLowerCase();
+    const isUp = rawState === 'up';
+    const isAdminDown = rawState.includes('admin');
+    const newStatus = isUp ? 'up' : 'down';
+    const newAdminStatus = isAdminDown ? 'disabled' : (isUp ? 'enabled' : undefined);
+
+    const normalize = (s: string) =>
+      (s || '')
+        .toLowerCase()
+        .replace(/^gigabitethernet/i, 'gi')
+        .replace(/^tengigabitethernet/i, 'te')
+        .replace(/^fastethernet/i, 'fa')
+        .replace(/^ethernet/i, 'et')
+        .replace(/^port-channel/i, 'po')
+        .replace(/\s+/g, '');
+
+    const normTarget = normalize(rawInterface);
+
+    setPorts((prevPorts) =>
+      prevPorts.map((p) => {
+        const pId = normalize(p.port_id || '');
+        const pName = normalize(p.name || '');
+
+        const isMatch =
+          pId === normTarget ||
+          pName === normTarget ||
+          (normTarget && pId.endsWith(normTarget)) ||
+          (normTarget && normTarget.endsWith(pId));
+
+        if (isMatch) {
+          return {
+            ...p,
+            status: newStatus,
+            ...(newAdminStatus ? { admin_status: newAdminStatus } : {}),
+          };
+        }
+        return p;
+      })
+    );
+  };
+
   // Unified port synchronization over the active SSH tunnel
   const handleSyncPorts = async (silent: boolean = false) => {
     const curDev = deviceRef.current;
@@ -599,10 +649,19 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           return;
         }
         const rawPorts = res.ports || [];
-        const normalizedPorts = rawPorts.map((p: any, idx: number) => ({
-          ...p,
-          port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
-        }));
+        const normalizedPorts = rawPorts.map((p: any, idx: number) => {
+          const rawStat = String(p.status || '').toLowerCase().trim();
+          const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
+          const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
+          const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+          return {
+            ...p,
+            port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+            status: isConn ? 'up' : 'down',
+            admin_status: isDis ? 'disabled' : 'enabled',
+            mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+          };
+        });
         setPorts(normalizedPorts);
         const upCount = normalizedPorts.filter((p) => p.status === 'up').length;
         const downCount = normalizedPorts.filter((p) => p.status !== 'up').length;
@@ -756,6 +815,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
               }
               if (msg.type === 'data' && msg.data) {
                 xtermRef.current?.write(msg.data);
+                parseAndApplyLinkState(msg.data);
                 return;
               } else if (msg.type === 'status') {
                 if (msg.status === 'connected') {
@@ -787,6 +847,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
 
           if (text) {
             xtermRef.current?.write(text);
+            parseAndApplyLinkState(text);
           }
         };
 

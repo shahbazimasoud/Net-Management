@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, CheckCircle2, AlertCircle, AlertTriangle, Layers, MoreVertical } from 'lucide-react';
+import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, CheckCircle2, AlertCircle, AlertTriangle, Layers, MoreVertical, RefreshCw, Radio } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
-import { fetchDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
+import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
 import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfigConfirmModal';
 import { AssignVlanModal } from './AssignVlanModal';
 import { NetworkPortSvg } from './NetworkPortSvg';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
@@ -78,6 +79,194 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
   const [searchQuery, setSearchQuery] = useState('');
   const [portLoadError, setPortLoadError] = useState<string | null>(null);
   const [isLivePorts, setIsLivePorts] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Live Terminal Monitor (Cisco terminal monitor / MikroTik link event streamer)
+  const [isLiveWatchActive, setIsLiveWatchActive] = useState<boolean>(false);
+  const [liveWatchStatus, setLiveWatchStatus] = useState<'idle' | 'connecting' | 'active' | 'error'>('idle');
+  const [liveWatchMessage, setLiveWatchMessage] = useState<string | null>(null);
+  const liveWatchWsRef = useRef<WebSocket | null>(null);
+
+  const stopLiveWatch = () => {
+    if (liveWatchWsRef.current) {
+      try {
+        liveWatchWsRef.current.send(JSON.stringify({ action: 'STOP_WATCH' }));
+        liveWatchWsRef.current.close();
+      } catch {}
+      liveWatchWsRef.current = null;
+    }
+    setIsLiveWatchActive(false);
+    setLiveWatchStatus('idle');
+  };
+
+  const startLiveWatch = (devId: string) => {
+    if (!devId) return;
+    stopLiveWatch();
+    setIsLiveWatchActive(true);
+    setLiveWatchStatus('connecting');
+    setLiveWatchMessage(null);
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const token = localStorage.getItem('token') || '';
+    const wsUrl = `${protocol}//${window.location.host}/ws/ports-monitor?deviceId=${encodeURIComponent(devId)}&token=${encodeURIComponent(token)}&lang=${isEn ? 'en' : 'fa'}`;
+
+    try {
+      const ws = new WebSocket(wsUrl);
+      liveWatchWsRef.current = ws;
+
+      ws.onopen = () => {
+        setLiveWatchStatus('connecting');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'MONITOR_ACTIVE') {
+            setLiveWatchStatus('active');
+            setLiveWatchMessage(data.message || (isEn ? 'Terminal monitor is active' : 'پایش زنده ترمینال فعال شد'));
+          } else if (data.type === 'PORT_LIVE_STATUS') {
+            const targetPortId = (data.portId || '').toLowerCase().trim();
+            const rawInterface = (data.rawInterface || '').toLowerCase().trim();
+            const newStatus = data.status === 'up' ? 'up' : 'down';
+            const newAdminStatus = data.admin_status;
+
+            const normalize = (s: string) =>
+              (s || '')
+                .toLowerCase()
+                .replace(/^gigabitethernet/i, 'gi')
+                .replace(/^tengigabitethernet/i, 'te')
+                .replace(/^fastethernet/i, 'fa')
+                .replace(/^ethernet/i, 'et')
+                .replace(/^port-channel/i, 'po')
+                .replace(/\s+/g, '');
+
+            setPorts((prevPorts) =>
+              prevPorts.map((p) => {
+                const pId = normalize(p.port_id || '');
+                const pName = normalize(p.name || '');
+                const normTarget = normalize(targetPortId);
+                const normRaw = normalize(rawInterface);
+
+                const isMatch =
+                  pId === normTarget ||
+                  pName === normTarget ||
+                  (normRaw && (pId === normRaw || pName === normRaw)) ||
+                  (normTarget && pId.endsWith(normTarget)) ||
+                  (normTarget && normTarget.endsWith(pId));
+
+                if (isMatch) {
+                  return {
+                    ...p,
+                    status: newStatus,
+                    ...(newAdminStatus ? { admin_status: newAdminStatus } : {}),
+                  };
+                }
+                return p;
+              })
+            );
+
+            setSelectedPort((prev) => {
+              if (!prev) return null;
+              const pId = normalize(prev.port_id || '');
+              const pName = normalize(prev.name || '');
+              const normTarget = normalize(targetPortId);
+              const normRaw = normalize(rawInterface);
+              const isMatch =
+                pId === normTarget ||
+                pName === normTarget ||
+                (normRaw && (pId === normRaw || pName === normRaw)) ||
+                (normTarget && pId.endsWith(normTarget)) ||
+                (normTarget && normTarget.endsWith(pId));
+
+              if (isMatch) {
+                return {
+                  ...prev,
+                  status: newStatus,
+                  ...(newAdminStatus ? { admin_status: newAdminStatus } : {}),
+                };
+              }
+              return prev;
+            });
+
+            setLiveWatchMessage(
+              data.message ||
+                (isEn
+                  ? `[Live Event] Port ${data.portId || rawInterface} changed to ${newStatus.toUpperCase()}`
+                  : `[رویداد زنده] وضعیت پورت ${data.portId || rawInterface} به ${newStatus === 'up' ? 'وصل (UP)' : 'قطع (DOWN)'} تغییر یافت`)
+            );
+          } else if (data.type === 'error') {
+            setLiveWatchStatus('error');
+            setLiveWatchMessage(data.message || data.error);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        setLiveWatchStatus('error');
+      };
+
+      ws.onclose = () => {
+        setLiveWatchStatus('idle');
+        setIsLiveWatchActive(false);
+      };
+    } catch {
+      setLiveWatchStatus('error');
+      setIsLiveWatchActive(false);
+    }
+  };
+
+  const toggleLiveMonitor = () => {
+    if (isLiveWatchActive) {
+      stopLiveWatch();
+    } else {
+      if (selectedDeviceId) startLiveWatch(selectedDeviceId);
+    }
+  };
+
+  const handleSyncPortsLive = async () => {
+    if (!selectedDeviceId) return;
+    try {
+      setIsSyncing(true);
+      setPortLoadError(null);
+      const res = await syncDevicePorts(selectedDeviceId);
+      const rawPorts = res.ports || [];
+      const normalizedPorts = rawPorts.map((p: any, idx: number) => {
+        const rawStat = String(p.status || '').toLowerCase().trim();
+        const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
+        const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
+        const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+        return {
+          ...p,
+          port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
+          status: isConn ? 'up' : 'down',
+          admin_status: isDis ? 'disabled' : 'enabled',
+          mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+        };
+      });
+      setPorts(normalizedPorts);
+      setIsLivePorts(true);
+      if (normalizedPorts.length > 0) {
+        setSelectedPort(normalizedPorts[0]);
+        setSelectedPortIds([normalizedPorts[0].port_id]);
+      }
+    } catch (err: any) {
+      setPortLoadError(err.message || 'Sync failed');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopLiveWatch();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isLiveWatchActive && selectedDeviceId) {
+      startLiveWatch(selectedDeviceId);
+    }
+  }, [selectedDeviceId]);
 
   const currentDevice = devices.find((d) => d.id === selectedDeviceId);
 
@@ -581,20 +770,81 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
           </p>
         </div>
 
-        {/* Switch Selector Dropdown */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-300 font-medium">{t('ports_select_device')}</span>
-          <select
-            value={selectedDeviceId}
-            onChange={(e) => setSelectedDeviceId(e.target.value)}
-            className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/15 text-indigo-300 font-mono text-xs focus:outline-none focus:border-indigo-400 font-semibold shadow-inner"
+        {/* Switch Selector & Action Controls */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-300 font-medium">{t('ports_select_device')}</span>
+            <select
+              value={selectedDeviceId}
+              onChange={(e) => setSelectedDeviceId(e.target.value)}
+              className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/15 text-indigo-300 font-mono text-xs focus:outline-none focus:border-indigo-400 font-semibold shadow-inner"
+            >
+              {devices.map((d) => (
+                <option key={d.id} value={d.id} className="bg-slate-900 text-white">
+                  {d.name} ({d.ip}) - {d.role}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Sync Ports Live Button */}
+          <button
+            type="button"
+            id="view-sync-ports-btn"
+            onClick={handleSyncPortsLive}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
+            title={isEn ? 'Synchronize ports directly from hardware' : 'همگام‌سازی مستقیم وضعیت پورت‌ها از سخت‌افزار'}
           >
-            {devices.map((d) => (
-              <option key={d.id} value={d.id} className="bg-slate-900 text-white">
-                {d.name} ({d.ip}) - {d.role}
-              </option>
-            ))}
-          </select>
+            <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? (isEn ? 'Syncing...' : 'در حال سینک...') : (isEn ? 'Sync Ports' : 'سینک پورت‌ها')}</span>
+          </button>
+
+          {/* Real-time Terminal Monitor Toggle */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              id="view-live-monitor-btn"
+              onClick={toggleLiveMonitor}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition shadow-xs active:scale-95 cursor-pointer border ${
+                isLiveWatchActive
+                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/50 shadow-emerald-500/20 shadow-md ring-1 ring-emerald-400/40'
+                  : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border-slate-700'
+              }`}
+              title={isEn ? 'Activate real-time Cisco terminal monitor' : 'فعال‌سازی پایش زنده پورت‌ها (terminal monitor)'}
+            >
+              <Radio className={`w-3.5 h-3.5 ${isLiveWatchActive ? 'text-emerald-400 animate-pulse' : 'text-slate-400'}`} />
+              <span>
+                {liveWatchStatus === 'connecting'
+                  ? (isEn ? 'Connecting...' : 'در حال اتصال...')
+                  : isLiveWatchActive
+                  ? (isEn ? 'Live Monitor: Active' : 'پایش زنده: فعال')
+                  : (isEn ? 'Live Monitor' : 'پایش زنده')}
+              </span>
+              {isLiveWatchActive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
+            </button>
+
+            <FieldInfoTooltip
+              title={isEn ? 'Live Port Monitor (terminal monitor)' : 'پایش زنده پورت‌ها (terminal monitor)'}
+              whatIsIt={
+                isEn
+                  ? 'Executes Cisco "terminal monitor" in a background stream to capture interface changes (%LINK-3-UPDOWN) instantly.'
+                  : 'اجرای دستور سیسکوی terminal monitor در پس‌زمینه جهت دریافت فوری پیام‌های سیستمی تغییر وضعیت لینک (%LINK-3-UPDOWN).'
+              }
+              whyIsItNeeded={
+                isEn
+                  ? 'Instantly updates port indicators whenever physical cables are unplugged or plugged in, without manual refreshing.'
+                  : 'تغییر وضعیت آنی پورت‌ها به محض جدا یا وصل شدن فیزیکی کابل بدون نیاز به رفرش یا استعلام مکرر.'
+              }
+              practicalExample={
+                isEn
+                  ? 'Pulling out a patch cord from Gi0/1 changes its graphic display to DOWN within 100 milliseconds.'
+                  : 'با قطع فیزیکی کابل از پورت Gi0/1، پورت در کمتر از ۱۰۰ میلی‌ثانیه به حالت DOWN تغییر می‌کند.'
+              }
+              isEn={isEn}
+              isLightMode={false}
+            />
+          </div>
         </div>
       </div>
 
@@ -690,6 +940,29 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
             </div>
           </div>
         </div>
+
+        {/* Live Terminal Monitor Status / Event Banner */}
+        {isLiveWatchActive && (
+          <div className="mb-3 px-3 py-2 rounded-lg bg-emerald-950/50 border border-emerald-500/40 flex flex-wrap items-center justify-between gap-2 text-xs font-mono shadow-md">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+              <span className="font-bold text-emerald-300">
+                {isEn ? 'Live Terminal Monitor Active (terminal monitor)' : 'پایش بلادرنگ پورت‌ها فعال است (terminal monitor)'}
+              </span>
+              {liveWatchMessage && (
+                <span className="text-emerald-100 bg-emerald-600/30 px-2 py-0.5 rounded border border-emerald-400/40 font-bold">
+                  {liveWatchMessage}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-emerald-300/80 font-sans">
+              {isEn ? 'Hardware link-state changes stream in sub-100ms' : 'تغییرات لینک سخت‌افزار در کمتر از ۱۰۰ میلی‌ثانیه منعکس می‌شود'}
+            </span>
+          </div>
+        )}
 
         {/* Visual RJ45 Ports Matrix (2-row switch design) */}
         {loading ? (

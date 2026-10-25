@@ -39,6 +39,7 @@ import { initDatabase, findUserById, findUserByUsername, getEffectivePolicyForUs
 import { verifyToken } from './server/auth';
 import { apiRouter } from './server/routes';
 import { setupTerminalWebSocket } from './server/terminalWs';
+import { setupPortMonitorWebSocket } from './server/portMonitorWs';
 import { registerRemoteDesktopRoutes, setupRemoteDesktopWebSocket, ensureGuacdServiceRunning } from './server/remoteDesktopGateway';
 import { registerCertConverterRoutes } from './server/certConverter';
 import { checkSshBackendsOnStartup } from './server/sshBackendResolver';
@@ -1336,6 +1337,9 @@ async function startServer() {
 
   // Setup In-Browser Remote Desktop / Remote Console (RDP & VNC) gateway via Guacamole protocol
   setupRemoteDesktopWebSocket(server, projectRoot);
+
+  // Setup Real-Time Port Monitoring WebSocket (Cisco terminal monitor / MikroTik link watcher)
+  setupPortMonitorWebSocket(server, projectRoot);
 
   server.listen(PORT, HOST, () => {
     console.log(`Node/Express frontend + proxy running on http://${HOST}:${PORT}`);

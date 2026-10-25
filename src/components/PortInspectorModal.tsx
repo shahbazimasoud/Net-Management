@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw } from 'lucide-react';
+import { X, Minus, Maximize2, Minimize2, Cable, Zap, Shield, ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Edit3, Save, Power, Terminal, AlertTriangle, ArrowRight, Check, Lock, Key, Layers, CheckSquare, Square, FileText, Gauge, Activity, MoreVertical, RefreshCw, Radio } from 'lucide-react';
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, writeMemory, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 import { NetworkPortSvg } from './NetworkPortSvg';
+import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
 import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfigConfirmModal';
@@ -552,6 +553,164 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       setLoading(false);
     }
   };
+
+  // Live Port Watch (Cisco terminal monitor / MikroTik link event streamer)
+  const [isLiveWatchActive, setIsLiveWatchActive] = useState<boolean>(false);
+  const [liveWatchStatus, setLiveWatchStatus] = useState<'idle' | 'connecting' | 'active' | 'error'>('idle');
+  const [liveWatchMessage, setLiveWatchMessage] = useState<string | null>(null);
+  const liveWatchWsRef = useRef<WebSocket | null>(null);
+
+  const stopLiveWatch = () => {
+    if (liveWatchWsRef.current) {
+      try {
+        liveWatchWsRef.current.send(JSON.stringify({ action: 'STOP_WATCH' }));
+        liveWatchWsRef.current.close();
+      } catch {}
+      liveWatchWsRef.current = null;
+    }
+    setIsLiveWatchActive(false);
+    setLiveWatchStatus('idle');
+  };
+
+  const startLiveWatch = () => {
+    if (!device) return;
+    stopLiveWatch();
+    setIsLiveWatchActive(true);
+    setLiveWatchStatus('connecting');
+    setLiveWatchMessage(null);
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const token = localStorage.getItem('token') || '';
+    const wsUrl = `${protocol}//${window.location.host}/ws/ports-monitor?deviceId=${encodeURIComponent(device.id)}&token=${encodeURIComponent(token)}&lang=${isEn ? 'en' : 'fa'}`;
+
+    try {
+      const ws = new WebSocket(wsUrl);
+      liveWatchWsRef.current = ws;
+
+      ws.onopen = () => {
+        setLiveWatchStatus('connecting');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'MONITOR_ACTIVE') {
+            setLiveWatchStatus('active');
+            setLiveWatchMessage(data.message || (isEn ? 'Terminal monitor is active' : 'پایش زنده ترمینال فعال شد'));
+          } else if (data.type === 'PORT_LIVE_STATUS') {
+            const targetPortId = (data.portId || '').toLowerCase().trim();
+            const rawInterface = (data.rawInterface || '').toLowerCase().trim();
+            const newStatus = data.status === 'up' ? 'up' : 'down';
+            const newAdminStatus = data.admin_status;
+
+            const normalize = (s: string) =>
+              (s || '')
+                .toLowerCase()
+                .replace(/^gigabitethernet/i, 'gi')
+                .replace(/^tengigabitethernet/i, 'te')
+                .replace(/^fastethernet/i, 'fa')
+                .replace(/^ethernet/i, 'et')
+                .replace(/^port-channel/i, 'po')
+                .replace(/\s+/g, '');
+
+            setPorts((prevPorts) =>
+              prevPorts.map((p) => {
+                const pId = normalize(p.port_id || '');
+                const pName = normalize(p.name || '');
+                const normTarget = normalize(targetPortId);
+                const normRaw = normalize(rawInterface);
+
+                const isMatch =
+                  pId === normTarget ||
+                  pName === normTarget ||
+                  (normRaw && (pId === normRaw || pName === normRaw)) ||
+                  (normTarget && pId.endsWith(normTarget)) ||
+                  (normTarget && normTarget.endsWith(pId));
+
+                if (isMatch) {
+                  return {
+                    ...p,
+                    status: newStatus,
+                    ...(newAdminStatus ? { admin_status: newAdminStatus } : {}),
+                  };
+                }
+                return p;
+              })
+            );
+
+            setSelectedPort((prev) => {
+              if (!prev) return null;
+              const pId = normalize(prev.port_id || '');
+              const pName = normalize(prev.name || '');
+              const normTarget = normalize(targetPortId);
+              const normRaw = normalize(rawInterface);
+              const isMatch =
+                pId === normTarget ||
+                pName === normTarget ||
+                (normRaw && (pId === normRaw || pName === normRaw)) ||
+                (normTarget && pId.endsWith(normTarget)) ||
+                (normTarget && normTarget.endsWith(pId));
+
+              if (isMatch) {
+                return {
+                  ...prev,
+                  status: newStatus,
+                  ...(newAdminStatus ? { admin_status: newAdminStatus } : {}),
+                };
+              }
+              return prev;
+            });
+
+            setLiveWatchMessage(
+              data.message ||
+                (isEn
+                  ? `[Live Event] Port ${data.portId || rawInterface} changed to ${newStatus.toUpperCase()}`
+                  : `[رویداد زنده] وضعیت پورت ${data.portId || rawInterface} به ${newStatus === 'up' ? 'وصل (UP)' : 'قطع (DOWN)'} تغییر کرد`)
+            );
+
+            if (onPortUpdated) {
+              onPortUpdated();
+            }
+          } else if (data.type === 'error') {
+            setLiveWatchStatus('error');
+            setLiveWatchMessage(data.message || data.error);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        setLiveWatchStatus('error');
+      };
+
+      ws.onclose = () => {
+        setLiveWatchStatus('idle');
+        setIsLiveWatchActive(false);
+      };
+    } catch {
+      setLiveWatchStatus('error');
+      setIsLiveWatchActive(false);
+    }
+  };
+
+  const toggleLiveMonitor = () => {
+    if (isLiveWatchActive) {
+      stopLiveWatch();
+    } else {
+      startLiveWatch();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopLiveWatch();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      stopLiveWatch();
+    }
+  }, [isOpen]);
 
   const handleSyncPorts = async () => {
     if (!device) return;
@@ -1124,6 +1283,64 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
               </span>
             </button>
 
+            {/* Real-time Terminal Monitor Toggle (Live Link Watch) */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                id="cisco-live-terminal-monitor-btn"
+                onClick={toggleLiveMonitor}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-xs active:scale-95 cursor-pointer border ${
+                  isLiveWatchActive
+                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/50 shadow-emerald-500/20 shadow-md ring-1 ring-emerald-400/40'
+                    : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border-slate-700'
+                }`}
+                title={
+                  isEn
+                    ? 'Activate real-time link monitoring via Cisco terminal monitor'
+                    : 'فعال‌سازی پایش زنده وضعیت پورت‌ها از طریق terminal monitor'
+                }
+              >
+                <Radio
+                  className={`w-3.5 h-3.5 ${
+                    isLiveWatchActive
+                      ? 'text-emerald-400 animate-pulse'
+                      : 'text-slate-400'
+                  }`}
+                />
+                <span className="font-sans font-medium">
+                  {liveWatchStatus === 'connecting'
+                    ? (isEn ? 'Connecting...' : 'در حال اتصال...')
+                    : isLiveWatchActive
+                    ? (isEn ? 'Live Monitor: Active' : 'پایش زنده: فعال')
+                    : (isEn ? 'Live Monitor' : 'پایش زنده')}
+                </span>
+                {isLiveWatchActive && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                )}
+              </button>
+
+              <FieldInfoTooltip
+                title={isEn ? 'Live Port Monitor (terminal monitor)' : 'پایش زنده پورت‌ها (terminal monitor)'}
+                whatIsIt={
+                  isEn
+                    ? 'Establishes a dedicated live SSH stream executing Cisco "terminal monitor" to capture instantaneous interface syslog notifications (%LINK-3-UPDOWN).'
+                    : 'برقراری یک سشن اختصاصی و بلادرنگ SSH با اجرای دستور سیسکوی terminal monitor جهت دریافت فوری پیام‌های سیستمی تغییر وضعیت اینترفیس‌ها (%LINK-3-UPDOWN).'
+                }
+                whyIsItNeeded={
+                  isEn
+                    ? 'Provides immediate sub-second visual updates whenever a physical network cable is unplugged or connected, without needing manual sync.'
+                    : 'نمایش آنی و زیر ۱۰۰ میلی‌ثانیه تغییرات پورت (قطع یا وصل کابل فیزیکی) روی فیس‌پلیت گرافیکی بدون نیاز به سینک دستی مکرر.'
+                }
+                practicalExample={
+                  isEn
+                    ? 'Unplugging a patch cable from Gi0/1 immediately changes the port LED from Green (UP) to Red/Gray (DOWN) in real time.'
+                    : 'به محض کشیدن کابل شبکه از پورت Gi0/1 سوئیچ، ال‌ای‌دی پورت بلافاصله از سبز (وصل) به قرمز (قطع) تغییر وضعیت می‌دهد.'
+                }
+                isEn={isEn}
+                isLightMode={false}
+              />
+            </div>
+
             {/* Fullscreen / Exit Fullscreen Toggle */}
             <button
               type="button"
@@ -1259,6 +1476,29 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Live Terminal Monitor Status / Event Banner */}
+            {isLiveWatchActive && (
+              <div className="mb-3 px-3 py-2 rounded-lg bg-emerald-950/50 border border-emerald-500/40 flex flex-wrap items-center justify-between gap-2 text-xs font-mono shadow-md">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </span>
+                  <span className="font-bold text-emerald-300">
+                    {isEn ? 'Live Terminal Monitor Active (terminal monitor)' : 'پایش بلادرنگ پورت‌ها فعال است (terminal monitor)'}
+                  </span>
+                  {liveWatchMessage && (
+                    <span className="text-emerald-100 bg-emerald-600/30 px-2 py-0.5 rounded border border-emerald-400/40 font-bold">
+                      {liveWatchMessage}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-emerald-300/80 font-sans">
+                  {isEn ? 'Hardware link-state changes stream in sub-100ms' : 'تغییرات لینک فیزیکی در کمتر از ۱۰۰ میلی‌ثانیه منعکس می‌شود'}
+                </span>
+              </div>
+            )}
 
             {/* Visual RJ45 Ports Matrix (2-row switch design) */}
             {loading ? (
