@@ -52,7 +52,7 @@ export interface MikroTikDeviceManageModalProps {
   onClose: () => void;
   onMinimize?: () => void;
   onPortUpdated?: () => void;
-  onConnectTerminal?: (device: Device) => void;
+  onConnectTerminal?: (device: Device, initialPort?: string) => void;
   onDeviceUpdated?: () => void;
   isLightMode?: boolean;
   userRole?: string;
@@ -1596,7 +1596,7 @@ ${ports.map((p) => `add bridge=bridge1 interface=${p.port_id} pvid=${p.vlan || 1
             }}
             onOpenTerminal={canTerminal && onConnectTerminal ? (portId) => {
               onClose();
-              onConnectTerminal?.(device);
+              onConnectTerminal?.(device, portId);
             } : undefined}
           />
         )}

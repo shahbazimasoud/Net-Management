@@ -17,9 +17,10 @@ import { isDeviceActionPermitted } from '../utils/rbac';
 
 interface PortManagementViewProps {
   devices: Device[];
+  onConnectTerminal?: (device: Device, initialPort?: string) => void;
 }
 
-export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices }) => {
+export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices, onConnectTerminal }) => {
   const { t, isRtl, isEn } = useLanguage();
   const { dockModal, undockModal } = useModalDock();
   const { effectivePolicy } = useAuth();
@@ -1952,6 +1953,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
           policy={effectivePolicy}
           onClose={() => setContextMenu(null)}
           onExecuteAction={handleExecuteContextMenuAction}
+          onOpenTerminal={onConnectTerminal ? (portId: string) => onConnectTerminal(currentDevice, portId) : undefined}
           onOpenPortStats={(p) => setActiveStatsPort(p)}
         />
       )}

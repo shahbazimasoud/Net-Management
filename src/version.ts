@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.4';
+export const APP_VERSION = '1.379.5';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.5',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'رفع باگ انتخاب خودکار پورت و انتقال به مد کانفیگ اینترفیس در ترمینال سیسکو هنگام باز کردن از منوی پورت',
+    title_en: 'Fix automatic port selection and interface configuration mode transition when opening Cisco CLI from port context menu',
+    changes: [
+      'انتقال شناسه پورت کلیک‌شده (port_id) از منوی راست‌کلیک پورت سیسکو (CiscoPortContextMenu) در مودال‌های PortInspectorModal و PortManagementView به متد بازگشایی ترمینال (onConnectTerminal و openTerminal).',
+      'تجهیز کنسول ترمینال سیسکو (CiscoTerminalModal) به قابلیت دریافت initialPort؛ انتخاب و هایلایت بصری خودکار پورت روی فیس‌پلیت گرافیکی سوئیچ (CompactTerminalFaceplate) و تنظیم استیت‌های selectedPort و selectedPortIds.',
+      'انتقال بلافاصله خط فرمان ترمینال به مد پیکربندی اینترفیس (INTERFACE_CONFIG با پرامپت Switch(config-if)#) به جای ماندن در مد ابتدایی دستگاه (USER_EXEC / Switch>) و ارسال خودکار فرامین پیمایش به اینترفیس در نشست تانل SSH سخت‌افزار.'
+    ],
+    changes_en: [
+      'Forwarded target port identifier (port_id) from Cisco port context menu (CiscoPortContextMenu) across PortInspectorModal and PortManagementView into onConnectTerminal and openTerminal handlers.',
+      'Equipped Cisco CLI console (CiscoTerminalModal) with initialPort prop support, automatically selecting and visually highlighting the port on the switch faceplate (CompactTerminalFaceplate) and setting selectedPort / selectedPortIds states.',
+      'Automatically transitioned terminal CLI mode to Interface Configuration (INTERFACE_CONFIG with prompt Switch(config-if)#) instead of defaulting to base user exec mode (USER_EXEC / Switch>), and auto-dispatched interface configuration commands over active hardware SSH tunnels.'
+    ]
+  },
   {
     version: '1.379.4',
     releaseDate: '2026-10-25',

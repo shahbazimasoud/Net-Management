@@ -68,6 +68,7 @@ export interface CiscoTerminalModalProps {
   onChangeDevice?: () => void;
   allDevices?: Device[];
   isLightMode?: boolean;
+  initialPort?: string;
 }
 
 type CliMode = 'USER_EXEC' | 'PRIVILEGED_EXEC' | 'GLOBAL_CONFIG' | 'INTERFACE_CONFIG' | 'VLAN_CONFIG';
@@ -125,6 +126,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   onChangeDevice,
   allDevices,
   isLightMode: propIsLightMode = false,
+  initialPort: propInitialPort,
 }) => {
   const { t, isEn } = useLanguage();
   const [terminalBgColor, setTerminalBgColor] = useState<string>(() => {
@@ -249,6 +251,15 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
   const wsRef = useRef<WebSocket | null>(null);
   const [livePrompt, setLivePrompt] = useState<string>('');
   const lastExecutedCommandRef = useRef<string>('');
+  const initialInterfaceNavigatedRef = useRef<boolean>(false);
+
+  const effectiveInitialPort = (
+    propInitialPort ||
+    device?.initial_port ||
+    (device as any)?.initialPort ||
+    (device as any)?.selected_port_id ||
+    ''
+  ).trim();
 
   // Send raw input keystroke or buffer directly to active WebSocket session
   const sendRawInput = (data: string) => {
@@ -731,19 +742,27 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       ).trim();
 
       setHostname(devHost);
-      setCliMode('USER_EXEC');
-      setCurrentInterface('');
+      initialInterfaceNavigatedRef.current = false;
+      if (effectiveInitialPort) {
+        setCliMode('INTERFACE_CONFIG');
+        setCurrentInterface(effectiveInitialPort);
+        setSelectedPortIds([effectiveInitialPort]);
+        setLivePrompt(`${devHost}(config-if)#`);
+      } else {
+        setCliMode('USER_EXEC');
+        setCurrentInterface('');
+        setSelectedPort(null);
+        setSelectedPortIds([]);
+      }
       setHasUnsavedChanges(!!curDev.has_unsaved_changes);
       setSshSessionMode('connecting');
       setSshLatency(null);
-      setSelectedPort(null);
-      setSelectedPortIds([]);
       lastClickedPortRef.current = null;
-      loadPortsAndVlans(curDev.id);
+      loadPortsAndVlans(curDev.id, effectiveInitialPort);
 
       const hostDisplay = targetHost || (isEn ? 'No IP Configured' : 'بدون آی‌پی');
       const protoUpper = (connProtocol || 'ssh').toUpperCase();
-      setLines([
+      const initialSystemLines: TerminalLine[] = [
         {
           id: 'sys-init-1',
           type: 'system',
@@ -756,7 +775,17 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
           type: 'system',
           text: `[CREDENTIALS] Target User: '${sshUser}' | Target Host: '${targetHost || (isEn ? 'Unassigned' : 'تنظیم نشده')}' | Protocol: ${protoUpper}`,
         },
-      ]);
+      ];
+      if (effectiveInitialPort) {
+        initialSystemLines.push({
+          id: 'sys-init-int',
+          type: 'system',
+          text: isEn
+            ? `[INTERFACE DIRECT ACCESS] Configured session for interface ${effectiveInitialPort}. Interface mode active.`
+            : `[دسترسی مستقیم اینترفیس] محیط کنسول برای پورت ${effectiveInitialPort} آماده شد. مد پیکربندی اینترفیس فعال است.`,
+        });
+      }
+      setLines(initialSystemLines);
 
       // Connect interactive WebSocket tunnel with device parameters
       try {
@@ -822,6 +851,18 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
                   setSshSessionMode('real_ssh');
                   setSshLatency(msg.latency_ms || 2.2);
                   setTimeout(() => sendResize(), 100);
+                  if (effectiveInitialPort && !initialInterfaceNavigatedRef.current) {
+                    initialInterfaceNavigatedRef.current = true;
+                    setTimeout(() => {
+                      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                        console.log(`[CiscoTerminal] Auto-navigating to interface ${effectiveInitialPort}`);
+                        wsRef.current.send(JSON.stringify({
+                          type: 'input',
+                          data: `enable\rconfigure terminal\rinterface ${effectiveInitialPort}\r`,
+                        }));
+                      }
+                    }, 400);
+                  }
                   return;
                 } else if (msg.status === 'failed' || msg.status === 'disconnected') {
                   setSshSessionMode('failed');
@@ -893,7 +934,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
         activeDevIdRef.current = null;
       };
     }
-  }, [isOpen, device?.id]);
+  }, [isOpen, device?.id, propInitialPort, device?.initial_port]);
 
   // Trigger fit and send resize on modal open, restore, or maximize/fullscreen changes
   useEffect(() => {
@@ -914,7 +955,7 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [lines]);
 
-  const loadPortsAndVlans = async (devId: string) => {
+  const loadPortsAndVlans = async (devId: string, targetPortId?: string) => {
     try {
       const [portsRes, vlanRes] = await Promise.all([
         fetchDevicePorts(devId),
@@ -927,6 +968,22 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
       }));
       setPorts(normalizedPorts);
       setVlans(vlanRes.vlans || []);
+
+      const portToMatch = targetPortId || effectiveInitialPort;
+      if (portToMatch) {
+        const found = normalizedPorts.find(
+          (p) =>
+            p.port_id?.toLowerCase() === portToMatch.toLowerCase() ||
+            p.name?.toLowerCase() === portToMatch.toLowerCase()
+        );
+        if (found) {
+          setSelectedPort(found);
+          setSelectedPortIds([found.port_id]);
+          lastClickedPortRef.current = found;
+        } else {
+          setSelectedPortIds([portToMatch]);
+        }
+      }
     } catch (e) {
       console.error('Failed to load device ports/vlans for CLI:', e);
     }
@@ -2153,8 +2210,8 @@ export const CiscoTerminalModal: React.FC<CiscoTerminalModalProps> = ({
             isMikroTik={false}
             isLightMode={isLightMode}
             onPortClick={handlePortClick}
-            selectedPortId={selectedPort ? (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) : undefined}
-            selectedPortIds={selectedPortIds}
+            selectedPortId={selectedPort ? (selectedPort.port_id || (selectedPort as any).port || selectedPort.name) : (effectiveInitialPort || undefined)}
+            selectedPortIds={selectedPortIds.length > 0 ? selectedPortIds : (effectiveInitialPort ? [effectiveInitialPort] : [])}
             onSyncPorts={() => handleSyncPorts(false)}
             isSyncing={isSyncingPorts}
           />

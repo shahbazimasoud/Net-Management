@@ -140,6 +140,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
           isLightMode={isLightMode}
           onSplitScreen={handleSplitScreen}
           allDevices={allDevices}
+          initialPort={singleDevice?.initial_port}
         />
       );
     }
@@ -154,6 +155,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
         onSplitScreen={handleSplitScreen}
         allDevices={allDevices}
         isLightMode={isLightMode}
+        initialPort={singleDevice?.initial_port}
       />
     );
   }
@@ -426,6 +428,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
                     onClosePane={() => handleClosePane(index)}
                     onChangeDevice={() => handleChangeDeviceInSlot(index)}
                     allDevices={allDevices}
+                    initialPort={dev?.initial_port}
                   />
                 ) : (
                   <CiscoTerminalModal
@@ -441,6 +444,7 @@ export const MultiTerminalWorkspace: React.FC<MultiTerminalWorkspaceProps> = ({
                     onClosePane={() => handleClosePane(index)}
                     onChangeDevice={() => handleChangeDeviceInSlot(index)}
                     allDevices={allDevices}
+                    initialPort={dev?.initial_port}
                   />
                 )
               ) : (

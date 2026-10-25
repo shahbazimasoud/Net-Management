@@ -122,7 +122,7 @@ interface PortInspectorModalProps {
   onClose: () => void;
   onMinimize?: () => void;
   onPortUpdated?: () => void;
-  onConnectTerminal?: (device: Device) => void;
+  onConnectTerminal?: (device: Device, initialPort?: string) => void;
   onWriteMemory?: (deviceId: string) => void;
 }
 
@@ -1396,7 +1396,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             {/* Direct Connect to Cisco Terminal */}
             {canTerminal && (
               <button
-                onClick={() => onConnectTerminal && onConnectTerminal(device)}
+                onClick={() => onConnectTerminal && onConnectTerminal(device, selectedPort?.port_id)}
                 className="cisco-terminal-header-btn flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow-sm cursor-pointer"
                 title={isEn ? 'Direct connection to Cisco CLI Terminal' : 'اتصال مستقیم به خط فرمان ترمینال سیسکو (CLI)'}
               >
@@ -2852,7 +2852,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             policy={effectivePolicy}
             onClose={() => setContextMenu(null)}
             onExecuteAction={handleExecuteContextMenuAction}
-            onOpenTerminal={canTerminal && onConnectTerminal ? () => onConnectTerminal(device) : undefined}
+            onOpenTerminal={canTerminal && onConnectTerminal ? (portId: string) => onConnectTerminal(device, portId) : undefined}
             onOpenPortStats={(p) => setActiveStatsPort(p)}
           />
         )}

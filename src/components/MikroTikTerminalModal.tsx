@@ -53,6 +53,7 @@ export interface MikroTikTerminalModalProps {
   onClosePane?: () => void;
   onChangeDevice?: () => void;
   allDevices?: Device[];
+  initialPort?: string;
 }
 
 interface TerminalLine {
@@ -95,6 +96,7 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
   onClosePane,
   onChangeDevice,
   allDevices,
+  initialPort: propInitialPort,
 }) => {
   const { t, isEn } = useLanguage();
   const [lines, setLines] = useState<TerminalLine[]>([]);
@@ -178,8 +180,13 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
 
   useEffect(() => {
     if (!device || !isOpen) return;
-    setSelectedPort(null);
-    setSelectedPortIds([]);
+    const effectiveInitialPort = (propInitialPort || device?.initial_port || (device as any)?.initialPort || '').trim();
+    if (effectiveInitialPort) {
+      setSelectedPortIds([effectiveInitialPort]);
+    } else {
+      setSelectedPort(null);
+      setSelectedPortIds([]);
+    }
     lastClickedPortRef.current = null;
     fetchDevicePorts(device.id)
       .then((res) => {
@@ -190,10 +197,22 @@ export const MikroTikTerminalModal: React.FC<MikroTikTerminalModalProps> = ({
             port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
           }));
           setPorts(normalizedPorts);
+          if (effectiveInitialPort) {
+            const found = normalizedPorts.find(
+              (p) =>
+                p.port_id?.toLowerCase() === effectiveInitialPort.toLowerCase() ||
+                p.name?.toLowerCase() === effectiveInitialPort.toLowerCase()
+            );
+            if (found) {
+              setSelectedPort(found);
+              setSelectedPortIds([found.port_id]);
+              lastClickedPortRef.current = found;
+            }
+          }
         }
       })
       .catch((err) => console.warn('Failed to fetch ports for MikroTik terminal', err));
-  }, [device?.id, isOpen]);
+  }, [device?.id, isOpen, propInitialPort, device?.initial_port]);
 
   const filteredPorts = React.useMemo(() => {
     if (!interfaceSearch.trim()) return ports;

@@ -740,7 +740,7 @@ export default function App() {
     setPortInspectorDevice(dev);
   }, [isModalMinimized, portInspectorDevice, isEn, triggerDockAttention]);
 
-  const openTerminal = useCallback((dev: Device | null) => {
+  const openTerminal = useCallback((dev: Device | null, initialPort?: string) => {
     if (!dev) {
       setActiveTerminals([]);
       return;
@@ -756,15 +756,11 @@ export default function App() {
       return;
     }
     if (isModalMinimized('terminal')) {
-      triggerDockAttention(
-        'terminal',
-        'A Terminal workspace is already minimized in the dock. Click to restore or close it.',
-        'محیط ترمینال در نوار پایین باز است. لطفاً ابتدا روی آن کلیک کنید یا آن را ببندید.'
-      );
-      return;
+      handleRestoreStandardModal('terminal');
     }
-    setActiveTerminals([dev]);
-  }, [isModalMinimized, triggerDockAttention, authEffectivePolicy, isEn, showToast]);
+    const devWithPort = initialPort ? { ...dev, initial_port: initialPort } : dev;
+    setActiveTerminals([devWithPort]);
+  }, [isModalMinimized, handleRestoreStandardModal, authEffectivePolicy, isEn, showToast]);
 
   const handleOpenApplyTemplate = useCallback((dev: Device, templateId?: string) => {
     if (isModalMinimized('apply_template')) {
@@ -1177,7 +1173,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'ports' && <PortManagementView devices={authorizedDevices} />}
+          {activeTab === 'ports' && <PortManagementView devices={authorizedDevices} onConnectTerminal={openTerminal} />}
 
           {activeTab === 'scanner' && (
             <CdpLldpScannerView onNavigateToTopology={() => setActiveTab('schematic')} />
@@ -1460,7 +1456,7 @@ export default function App() {
         onPortUpdated={loadData}
         onConnectTerminal={
           portInspectorDevice && isDeviceActionPermitted(authEffectivePolicy, portInspectorDevice.id, 'terminal')
-            ? (dev) => openTerminal(dev)
+            ? (dev, initPort) => openTerminal(dev, initPort)
             : undefined
         }
         onWriteMemory={handleWriteMemory}
@@ -1483,7 +1479,7 @@ export default function App() {
         onPortUpdated={loadData}
         onConnectTerminal={
           portInspectorDevice && isDeviceActionPermitted(authEffectivePolicy, portInspectorDevice.id, 'terminal')
-            ? (dev) => openTerminal(dev)
+            ? (dev, initPort) => openTerminal(dev, initPort)
             : undefined
         }
         onDeviceUpdated={loadData}
