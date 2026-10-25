@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.1';
+export const APP_VERSION = '1.379.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.2',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'بهبود و روان‌سازی انیمیشن نمودار زنده ترافیک پورت سیسکو، رفع پرش ساختار در هاور و جلوگیری از خروج نقاط تلمتری از کادر',
+    title_en: 'Smooth Live Traffic Flow chart animations, eliminate layout jump on hover, and prevent telemetry dot drift',
+    changes: [
+      'جایگزینی خطوط شکسته‌زاویه با منحنی‌های نرم اسپلاین بزیه (Catmull-Rom Cubic Spline) و ایجاد گرادیان روان در سطوح RX و TX برای نمایش کاملاً یکدست و مدرن جریان ترافیک زنده.',
+      'تثبیت ارتفاع و اختصاص جایگاه رزروشده برای کادر اطلاعات هاور در هدر نمودار با انیمیشن ملایم محوشدگی، که پرش و تکان خوردن کادر نمودار در هنگام حرکت ماوس را به صفر رسانده است.',
+      'اصلاح رفتار نقطه تلمتری و انیمیشن پالس؛ جایگزینی انیمیشن مقیاس‌گذاری CSS با تگ‌های بومی SVG animate و محدودسازی رندر در clipPath اختصاصی جهت جلوگیری قطعی از پرت شدن یا خروج نقاط از کادر نمودار.',
+      'بهبود رفتار اولیه نمودار در هنگام اتصال و نمایش خط پایه گسترده به جای تک‌نقطه ناپایدار در اولین ثانیه دریافت داده.'
+    ],
+    changes_en: [
+      'Replaced jagged polyline segments with smooth Catmull-Rom cubic Bezier splines and fluid RX/TX fill gradients for a modern, fluid telemetry stream visualization.',
+      'Stabilized chart header layout with a dedicated reserved container for hover tooltip details and subtle fade transitions, completely eliminating container layout reflow and jitter when moving the mouse.',
+      'Fixed telemetry dot drift and ping scaling anomalies by using native SVG animate elements and bounded clipPath rendering, preventing points from drifting or scaling out of the chart canvas.',
+      'Improved initial graph plotting behavior to render a stable baseline spanning the full width upon first sample arrival instead of an unstable snapping dot.'
+    ]
+  },
   {
     version: '1.379.1',
     releaseDate: '2026-10-25',

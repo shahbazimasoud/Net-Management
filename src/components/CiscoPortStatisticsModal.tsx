@@ -53,6 +53,61 @@ function formatBps(bps: number): string {
   return `${val} ${sizes[i]}`;
 }
 
+interface Point2D {
+  x: number;
+  y: number;
+}
+
+/**
+ * Builds smooth cubic Bezier path data (d="M ... C ...") and corresponding closed area path
+ */
+function buildSmoothSpline(points: Point2D[], baselineY: number): { pathLine: string; pathArea: string } {
+  if (points.length === 0) {
+    return { pathLine: '', pathArea: '' };
+  }
+  if (points.length === 1) {
+    const p = points[0];
+    const pathLine = `M ${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+    const pathArea = `M ${p.x.toFixed(1)},${baselineY.toFixed(1)} L ${p.x.toFixed(1)},${p.y.toFixed(1)} L ${p.x.toFixed(1)},${baselineY.toFixed(1)} Z`;
+    return { pathLine, pathArea };
+  }
+  if (points.length === 2) {
+    const p0 = points[0];
+    const p1 = points[1];
+    const pathLine = `M ${p0.x.toFixed(1)},${p0.y.toFixed(1)} L ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`;
+    const pathArea = `M ${p0.x.toFixed(1)},${baselineY.toFixed(1)} L ${p0.x.toFixed(1)},${p0.y.toFixed(1)} L ${p1.x.toFixed(1)},${p1.y.toFixed(1)} L ${p1.x.toFixed(1)},${baselineY.toFixed(1)} Z`;
+    return { pathLine, pathArea };
+  }
+
+  // Catmull-Rom to Cubic Bezier conversion with clamped control points
+  const tension = 0.2;
+  let pathLine = `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const pPrev = i > 0 ? points[i - 1] : points[i];
+    const pCurr = points[i];
+    const pNext = points[i + 1];
+    const pNextNext = i + 2 < points.length ? points[i + 2] : pNext;
+
+    let cp1x = pCurr.x + (pNext.x - pPrev.x) * tension;
+    let cp1y = pCurr.y + (pNext.y - pPrev.y) * tension;
+    let cp2x = pNext.x - (pNextNext.x - pCurr.x) * tension;
+    let cp2y = pNext.y - (pNextNext.y - pCurr.y) * tension;
+
+    // Clamp Y to valid plot range [15, baselineY] to avoid overshoot
+    cp1y = Math.max(15, Math.min(baselineY, cp1y));
+    cp2y = Math.max(15, Math.min(baselineY, cp2y));
+
+    pathLine += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${pNext.x.toFixed(1)},${pNext.y.toFixed(1)}`;
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const pathArea = `${pathLine} L ${last.x.toFixed(1)},${baselineY.toFixed(1)} L ${first.x.toFixed(1)},${baselineY.toFixed(1)} Z`;
+
+  return { pathLine, pathArea };
+}
+
 export interface CiscoPortStatisticsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -69,6 +124,13 @@ interface StatsPoint {
   outBps: number;
   inPps: number;
   outPps: number;
+}
+
+interface HoveredPointState {
+  pt: StatsPoint;
+  x: number;
+  yRx: number;
+  yTx: number;
 }
 
 export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> = ({
@@ -103,7 +165,7 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
   const [telemetry, setTelemetry] = useState<any | null>(null);
   const [history, setHistory] = useState<StatsPoint[]>([]);
   const [showRawDrawer, setShowRawDrawer] = useState(false);
-  const [hoveredPoint, setHoveredPoint] = useState<StatsPoint | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<HoveredPointState | null>(null);
 
   const modalId = `cisco_port_stats_${deviceId}_${port.port_id}`;
 
@@ -210,16 +272,17 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
     };
   }, []);
 
-  // Compute graph bounds & SVG coordinates
+  // Compute graph bounds & SVG coordinates with smooth spline interpolation
   const graphMetrics = useMemo(() => {
     if (history.length === 0) {
       return {
         maxRate: 1000000,
-        pointsRx: '',
-        pointsTx: '',
+        pathRx: '',
+        pathTx: '',
         areaRx: '',
         areaTx: '',
         coords: [],
+        latestCoord: null as { x: number; yRx: number; yTx: number; pt: StatsPoint } | null,
         peakRx: 0,
         peakTx: 0,
         avgRx: 0,
@@ -240,26 +303,34 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
     const paddingY = 20;
     const plotW = svgWidth - paddingX * 2;
     const plotH = svgHeight - paddingY * 2;
+    const baselineY = paddingY + plotH;
 
-    const coords = history.map((pt, idx) => {
-      const x =
-        history.length === 1
-          ? svgWidth / 2
-          : paddingX + (idx / (history.length - 1)) * plotW;
-      const yRx = paddingY + plotH - (Math.min(pt.inBps, maxRate) / maxRate) * plotH;
-      const yTx = paddingY + plotH - (Math.min(pt.outBps, maxRate) / maxRate) * plotH;
-      return { x, yRx, yTx, pt };
-    });
+    const getY = (val: number) => {
+      const clamped = Math.max(0, Math.min(val, maxRate));
+      return paddingY + plotH - (clamped / maxRate) * plotH;
+    };
 
-    const pointsRx = coords.map((c) => `${c.x.toFixed(1)},${c.yRx.toFixed(1)}`).join(' ');
-    const pointsTx = coords.map((c) => `${c.x.toFixed(1)},${c.yTx.toFixed(1)}`).join(' ');
+    // If only 1 sample, span across full graph width to avoid jumping
+    const coords =
+      history.length === 1
+        ? [
+            { x: paddingX, yRx: getY(history[0].inBps), yTx: getY(history[0].outBps), pt: history[0] },
+            { x: paddingX + plotW, yRx: getY(history[0].inBps), yTx: getY(history[0].outBps), pt: history[0] },
+          ]
+        : history.map((pt, idx) => {
+            const x = paddingX + (idx / (history.length - 1)) * plotW;
+            const yRx = getY(pt.inBps);
+            const yTx = getY(pt.outBps);
+            return { x, yRx, yTx, pt };
+          });
 
-    const baselineY = (paddingY + plotH).toFixed(1);
-    const firstX = coords[0].x.toFixed(1);
-    const lastX = coords[coords.length - 1].x.toFixed(1);
+    const ptsRx: Point2D[] = coords.map((c) => ({ x: c.x, y: c.yRx }));
+    const ptsTx: Point2D[] = coords.map((c) => ({ x: c.x, y: c.yTx }));
 
-    const areaRx = `${firstX},${baselineY} ${pointsRx} ${lastX},${baselineY}`;
-    const areaTx = `${firstX},${baselineY} ${pointsTx} ${lastX},${baselineY}`;
+    const splineRx = buildSmoothSpline(ptsRx, baselineY);
+    const splineTx = buildSmoothSpline(ptsTx, baselineY);
+
+    const latestCoord = coords.length > 0 ? coords[coords.length - 1] : null;
 
     const peakRx = Math.max(...history.map((h) => h.inBps), 0);
     const peakTx = Math.max(...history.map((h) => h.outBps), 0);
@@ -268,11 +339,12 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
 
     return {
       maxRate,
-      pointsRx,
-      pointsTx,
-      areaRx,
-      areaTx,
+      pathRx: splineRx.pathLine,
+      pathTx: splineTx.pathLine,
+      areaRx: splineRx.pathArea,
+      areaTx: splineTx.pathArea,
       coords,
+      latestCoord,
       peakRx,
       peakTx,
       avgRx,
@@ -614,13 +686,13 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
                 : 'bg-slate-900/90 border-slate-800'
             }`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-2 mb-3 h-8 min-h-[32px] overflow-hidden">
+              <div className="flex items-center gap-3 shrink-0">
                 <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
                   <Radio className="w-4 h-4 text-cyan-400 animate-pulse" />
                   <span>{isEn ? 'Live Traffic Flow (Rolling 60 Seconds)' : 'نمودار زنده ترافیک پورت (بازه ۶۰ ثانیه اخیر)'}</span>
                 </h4>
-                <div className="flex items-center gap-4 text-xs font-mono">
+                <div className="hidden sm:flex items-center gap-4 text-xs font-mono">
                   <span className="flex items-center gap-1.5 text-emerald-400">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
                     <span>RX (Inbound)</span>
@@ -632,14 +704,20 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
                 </div>
               </div>
 
-              {/* Hover Tooltip Info if active */}
-              {hoveredPoint && (
-                <div className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 flex items-center gap-3 animate-fade-in">
-                  <span className="text-slate-400">{hoveredPoint.timeLabel}</span>
-                  <span className="text-emerald-400 font-bold">RX: {formatBps(hoveredPoint.inBps)}</span>
-                  <span className="text-cyan-400 font-bold">TX: {formatBps(hoveredPoint.outBps)}</span>
-                </div>
-              )}
+              {/* Hover Tooltip Info - dedicated slot with fixed height and smooth fade, zero layout shift */}
+              <div
+                className={`h-7 px-2.5 py-1 rounded-lg border font-mono text-[11px] flex items-center gap-2.5 transition-opacity duration-150 shrink-0 select-none ${
+                  hoveredPoint
+                    ? isLightMode
+                      ? 'bg-slate-100 border-slate-300 text-slate-800 opacity-100 shadow-sm'
+                      : 'bg-slate-800/90 border-slate-700 text-slate-200 opacity-100 shadow-sm'
+                    : 'opacity-0 pointer-events-none'
+                }`}
+              >
+                <span className="text-slate-400">{hoveredPoint?.pt.timeLabel || '00:00:00'}</span>
+                <span className="text-emerald-400 font-bold">RX: {formatBps(hoveredPoint?.pt.inBps || 0)}</span>
+                <span className="text-cyan-400 font-bold">TX: {formatBps(hoveredPoint?.pt.outBps || 0)}</span>
+              </div>
             </div>
 
             {/* SVG Visual Canvas */}
@@ -652,8 +730,9 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
               ) : (
                 <svg
                   viewBox="0 0 800 220"
-                  className="w-full h-full overflow-visible"
+                  className="w-full h-full overflow-hidden"
                   preserveAspectRatio="none"
+                  onMouseLeave={() => setHoveredPoint(null)}
                 >
                   <defs>
                     <linearGradient id="rxGradient" x1="0" y1="0" x2="0" y2="1">
@@ -664,6 +743,9 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
                       <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.35" />
                       <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
                     </linearGradient>
+                    <clipPath id="chartAreaClip">
+                      <rect x="20" y="15" width="760" height="190" rx="4" />
+                    </clipPath>
                   </defs>
 
                   {/* Horizontal Grid lines */}
@@ -684,7 +766,7 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
                         <text
                           x="24"
                           y={y - 4}
-                          fill={isLightMode ? '#64748b' : '#64748b'}
+                          fill="#64748b"
                           fontSize="9"
                           fontFamily="monospace"
                         >
@@ -694,61 +776,148 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
                     );
                   })}
 
-                  {/* RX Filled Area & Line */}
-                  {graphMetrics.areaRx && (
-                    <polygon points={graphMetrics.areaRx} fill="url(#rxGradient)" />
-                  )}
-                  {graphMetrics.pointsRx && (
-                    <polyline
-                      points={graphMetrics.pointsRx}
-                      fill="none"
-                      stroke="#10b981"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )}
+                  {/* Clipped Data Paths and Areas */}
+                  <g clipPath="url(#chartAreaClip)">
+                    {/* RX Filled Area & Smooth Curve */}
+                    {graphMetrics.areaRx && (
+                      <path
+                        d={graphMetrics.areaRx}
+                        fill="url(#rxGradient)"
+                        className="transition-all duration-300 ease-out"
+                      />
+                    )}
+                    {graphMetrics.pathRx && (
+                      <path
+                        d={graphMetrics.pathRx}
+                        fill="none"
+                        stroke="#10b981"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="transition-all duration-300 ease-out"
+                      />
+                    )}
 
-                  {/* TX Filled Area & Line */}
-                  {graphMetrics.areaTx && (
-                    <polygon points={graphMetrics.areaTx} fill="url(#txGradient)" />
-                  )}
-                  {graphMetrics.pointsTx && (
-                    <polyline
-                      points={graphMetrics.pointsTx}
-                      fill="none"
-                      stroke="#06b6d4"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )}
+                    {/* TX Filled Area & Smooth Curve */}
+                    {graphMetrics.areaTx && (
+                      <path
+                        d={graphMetrics.areaTx}
+                        fill="url(#txGradient)"
+                        className="transition-all duration-300 ease-out"
+                      />
+                    )}
+                    {graphMetrics.pathTx && (
+                      <path
+                        d={graphMetrics.pathTx}
+                        fill="none"
+                        stroke="#06b6d4"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="transition-all duration-300 ease-out"
+                      />
+                    )}
 
-                  {/* Interactive Crosshair & Pulsing Dots */}
-                  {graphMetrics.coords.map((c, idx) => {
-                    const isLatest = idx === graphMetrics.coords.length - 1;
-                    return (
-                      <g key={idx}>
-                        {isLatest && (
-                          <>
-                            <circle cx={c.x} cy={c.yRx} r="4.5" fill="#10b981" className="animate-ping" opacity="0.75" />
-                            <circle cx={c.x} cy={c.yRx} r="4" fill="#10b981" stroke="#064e3b" strokeWidth="2" />
-                            <circle cx={c.x} cy={c.yTx} r="4.5" fill="#06b6d4" className="animate-ping" opacity="0.75" />
-                            <circle cx={c.x} cy={c.yTx} r="4" fill="#06b6d4" stroke="#083344" strokeWidth="2" />
-                          </>
-                        )}
-                        {/* Hover trigger transparent hit area */}
-                        <rect
-                          x={c.x - 12}
-                          y={0}
-                          width={24}
-                          height={220}
-                          fill="transparent"
-                          className="cursor-crosshair"
-                          onMouseEnter={() => setHoveredPoint(c.pt)}
-                          onMouseLeave={() => setHoveredPoint(null)}
+                    {/* Interactive Pulsing Dots - Native SVG animation without coordinate drift */}
+                    {graphMetrics.latestCoord && (
+                      <g>
+                        {/* RX Pulsing Dot */}
+                        <circle
+                          cx={graphMetrics.latestCoord.x}
+                          cy={graphMetrics.latestCoord.yRx}
+                          r="4"
+                          fill="#10b981"
+                          opacity="0.6"
+                        >
+                          <animate attributeName="r" values="3.5;7.5;3.5" dur="1.8s" repeatCount="indefinite" />
+                          <animate attributeName="opacity" values="0.8;0.15;0.8" dur="1.8s" repeatCount="indefinite" />
+                        </circle>
+                        <circle
+                          cx={graphMetrics.latestCoord.x}
+                          cy={graphMetrics.latestCoord.yRx}
+                          r="3.5"
+                          fill="#10b981"
+                          stroke={isLightMode ? '#ffffff' : '#064e3b'}
+                          strokeWidth="2"
+                        />
+
+                        {/* TX Pulsing Dot */}
+                        <circle
+                          cx={graphMetrics.latestCoord.x}
+                          cy={graphMetrics.latestCoord.yTx}
+                          r="4"
+                          fill="#06b6d4"
+                          opacity="0.6"
+                        >
+                          <animate attributeName="r" values="3.5;7.5;3.5" dur="1.8s" repeatCount="indefinite" />
+                          <animate attributeName="opacity" values="0.8;0.15;0.8" dur="1.8s" repeatCount="indefinite" />
+                        </circle>
+                        <circle
+                          cx={graphMetrics.latestCoord.x}
+                          cy={graphMetrics.latestCoord.yTx}
+                          r="3.5"
+                          fill="#06b6d4"
+                          stroke={isLightMode ? '#ffffff' : '#083344'}
+                          strokeWidth="2"
                         />
                       </g>
+                    )}
+
+                    {/* Interactive Hover Crosshair and Dual Markers */}
+                    {hoveredPoint && (
+                      <g className="pointer-events-none">
+                        <line
+                          x1={hoveredPoint.x}
+                          y1={20}
+                          x2={hoveredPoint.x}
+                          y2={200}
+                          stroke={isLightMode ? '#94a3b8' : '#475569'}
+                          strokeDasharray="3 3"
+                          strokeWidth="1.5"
+                        />
+                        <circle
+                          cx={hoveredPoint.x}
+                          cy={hoveredPoint.yRx}
+                          r="5"
+                          fill="#10b981"
+                          stroke={isLightMode ? '#ffffff' : '#022c22'}
+                          strokeWidth="2"
+                        />
+                        <circle
+                          cx={hoveredPoint.x}
+                          cy={hoveredPoint.yTx}
+                          r="5"
+                          fill="#06b6d4"
+                          stroke={isLightMode ? '#ffffff' : '#082f49'}
+                          strokeWidth="2"
+                        />
+                      </g>
+                    )}
+                  </g>
+
+                  {/* Hover trigger transparent hit areas */}
+                  {graphMetrics.coords.map((c, idx) => {
+                    const stepW = graphMetrics.coords.length > 1
+                      ? 760 / (graphMetrics.coords.length - 1)
+                      : 40;
+                    return (
+                      <rect
+                        key={idx}
+                        x={c.x - stepW / 2}
+                        y={0}
+                        width={stepW}
+                        height={220}
+                        fill="transparent"
+                        className="cursor-crosshair"
+                        onMouseEnter={() =>
+                          setHoveredPoint({
+                            pt: c.pt,
+                            x: c.x,
+                            yRx: c.yRx,
+                            yTx: c.yTx,
+                          })
+                        }
+                      />
                     );
                   })}
                 </svg>
