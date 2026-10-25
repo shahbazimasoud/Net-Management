@@ -10,9 +10,32 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.378.2';
+export const APP_VERSION = '1.379.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.0',
+    releaseDate: '2026-10-25',
+    type: 'minor',
+    title: 'افزودن ماژول و مودال آمار زنده ترافیک پورت سیسکو (Port Statistics) با معماری هوشمند دوگانه SNMP و SSH',
+    title_en: 'Cisco Live Port Statistics & Telemetry Modal with Adaptive Dual-Mode SNMP & SSH Engine',
+    changes: [
+      'تجهیز منوی راست‌کلیک پورت‌های سوئیچ سیسکو (CiscoPortContextMenu) در مدال بازرسی پورت (PortInspectorModal) و مدیریت پورت‌ها (PortManagementView) به گزینه Port Statistics با نشانگر زنده.',
+      'طراحی و پیاده‌سازی مودال پیشرفته CiscoPortStatisticsModal با نمودار بلادرنگ متحرک SVG، نمایش تفکیک‌شده نرخ دریافت (RX) و ارسال (TX) با مقیاس پویا (bps, Kbps, Mbps, Gbps).',
+      'معماری هوشمند دوگانه (Adaptive Dual-Mode Engine): اولویت واکشی سریع از پروتکل SNMP IF-MIB (OIDهای ifHCInOctets و ifHCOutOctets) با فالبک خودکار و بلادرنگ به خط فرمان SSH (دستور show interface) در صورت عدم وجود یا عدم پاسخگویی SNMP.',
+      'محاسبه دقیق دلتای ترافیک واقعی بر ثانیه (ΔBytes / ΔTime) بر روی نمونه‌های پیاپی بدون اتکا به میانگین‌های تأخیری و با رعایت کامل اصل ممنوعیت داده‌های شبیه‌سازی‌شده (Rule 8).',
+      'پشتیبانی جامع از استانداردهای پنج‌گانه مودال‌ها شامل کنترل‌های سه‌گانه هدر (بستن، تمام‌صفحه و مینیمایز به داک ابزارها ToolsDock)، رعایت حریم فوتر (bottom-8)، سازگاری با تم تیره/روشن و چندزبانگی کامل بدون واژه فارسی در مود انگلیسی.',
+      'تعبیه کارت‌های اختصاصی تلمتری سلامت پورت شامل خطاهای CRC، فریم، دراپ‌های صف (Discards)، تصادم‌ها (Collisions)، وضعیت پیوند فیزیکی و کشوی مشاهده دستورات و خروجی خام سوئیچ.'
+    ],
+    changes_en: [
+      'Added "Port Statistics" action to Cisco Switch Port Right-Click Context Menu (CiscoPortContextMenu) in both PortInspectorModal and PortManagementView.',
+      'Built high-performance CiscoPortStatisticsModal featuring real-time rolling SVG throughput line charts with auto-scaling dynamic units (bps, Kbps, Mbps, Gbps) for inbound (RX) and outbound (TX) traffic.',
+      'Implemented Adaptive Dual-Mode Telemetry Engine: high-speed SNMP IF-MIB polling (ifHCInOctets / ifHCOutOctets 64-bit counters) with seamless transparent fallback to authentic Cisco IOS-XE SSH CLI execution (show interface counters).',
+      'Accurate millisecond delta throughput calculation ((ΔBytes * 8) / ΔTime) between consecutive live samples with strict prohibition of fake or synthesized data (Rule 8).',
+      'Enforced universal modal specifications: 3 header control buttons (close, maximize/restore, minimize to ToolsDock), strict footer clearance (bottom-8), dark/light theme ergonomics, and 100% strict bilingual localization.',
+      'Included dedicated telemetry cards for interface health, CRC/frame error counters, queue discards, collision tracking, physical link duplex/speed profile, and an authentic raw CLI command diagnostics drawer.'
+    ]
+  },
   {
     version: '1.378.2',
     releaseDate: '2026-10-25',

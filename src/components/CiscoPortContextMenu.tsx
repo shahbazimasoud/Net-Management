@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Server,
   FileText,
-  Lock
+  Lock,
+  Activity
 } from 'lucide-react';
 import { SwitchPort, VlanInfo, AccessPolicy } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -30,8 +31,9 @@ export interface CiscoPortContextMenuProps {
   vlans?: VlanInfo[];
   policy?: AccessPolicy | null;
   onClose: () => void;
-  onExecuteAction: (action: 'shutdown' | 'no_shutdown' | 'mode_trunk' | 'mode_access' | 'port_sec_enable' | 'port_sec_disable' | 'change_vlan' | 'open_assign_vlan' | 'edit_description', extra?: any) => void;
+  onExecuteAction: (action: 'shutdown' | 'no_shutdown' | 'mode_trunk' | 'mode_access' | 'port_sec_enable' | 'port_sec_disable' | 'change_vlan' | 'open_assign_vlan' | 'edit_description' | 'port_statistics', extra?: any) => void;
   onOpenTerminal?: (portId: string) => void;
+  onOpenPortStats?: (port: SwitchPort) => void;
 }
 
 export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
@@ -45,6 +47,7 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
   onClose,
   onExecuteAction,
   onOpenTerminal,
+  onOpenPortStats,
 }) => {
   const { t, isEn } = useLanguage();
   const { effectivePolicy: authEffectivePolicy } = useAuth();
@@ -222,6 +225,38 @@ export const CiscoPortContextMenu: React.FC<CiscoPortContextMenuProps> = ({
 
       {/* Cisco Quick Actions Menu */}
       <div className="p-1.5 space-y-1">
+        {/* Action 0: Port Statistics (Live TX/RX Traffic & Telemetry) */}
+        <button
+          type="button"
+          onClick={() => {
+            if (onOpenPortStats) {
+              onOpenPortStats(port);
+            } else {
+              onExecuteAction('port_statistics', { port });
+            }
+            onClose();
+          }}
+          className="w-full flex items-center justify-between p-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25 text-cyan-300 hover:text-cyan-200 transition cursor-pointer group"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 group-hover:scale-110 transition-transform">
+              <Activity className="w-4 h-4 animate-pulse" />
+            </div>
+            <div className="text-left rtl:text-right">
+              <div className="font-bold text-xs flex items-center gap-1.5">
+                <span>{isEn ? 'Port Statistics' : 'آمار زنده ترافیک پورت'}</span>
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-500/30 text-cyan-200 uppercase font-semibold">
+                  {isEn ? 'Live' : 'زنده'}
+                </span>
+              </div>
+              <div className="text-[10px] font-mono text-cyan-400/80">
+                {isEn ? 'Real-Time TX/RX Throughput & Drops' : 'نرخ لایو ارسال/دریافت، پکت‌ها و خطاها'}
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-cyan-400/70 group-hover:text-cyan-300 group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 transition-transform" />
+        </button>
+
         {/* Action 1A & 1B: Shutdown / No Shutdown Port (port_power) */}
         {canPower && (
           <>

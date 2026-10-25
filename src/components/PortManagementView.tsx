@@ -3,6 +3,7 @@ import { Server, Cable, Zap, Shield, ShieldCheck, Search, Filter, Edit3, Save, C
 import { Device, SwitchPort, NetworkDeviceActionKey } from '../types';
 import { fetchDevicePorts, syncDevicePorts, updateSwitchPort, batchUpdateSwitchPorts, executeDeviceOperation } from '../services/api';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
+import { CiscoPortStatisticsModal } from './CiscoPortStatisticsModal';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
 import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfigConfirmModal';
 import { AssignVlanModal } from './AssignVlanModal';
@@ -50,6 +51,9 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
     y: number;
     port: SwitchPort;
   } | null>(null);
+
+  // Cisco Port Statistics Modal State
+  const [activeStatsPort, setActiveStatsPort] = useState<SwitchPort | null>(null);
 
   // Edit port state
   const [isEditing, setIsEditing] = useState(false);
@@ -511,6 +515,12 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
   const handleExecuteContextMenuAction = async (action: string, extra?: any) => {
     if (!contextMenu || !currentDevice) return;
     const targetPort = contextMenu.port;
+
+    if (action === 'port_statistics') {
+      setActiveStatsPort(extra?.port || targetPort);
+      setContextMenu(null);
+      return;
+    }
 
     const actionPermissionMap: Record<string, NetworkDeviceActionKey> = {
       port_sec_enable: 'port_security',
@@ -1942,6 +1952,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
           policy={effectivePolicy}
           onClose={() => setContextMenu(null)}
           onExecuteAction={handleExecuteContextMenuAction}
+          onOpenPortStats={(p) => setActiveStatsPort(p)}
         />
       )}
 
@@ -2013,6 +2024,17 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
           targetPortIds={portConfigConfirmModal.targetPortIds}
           updates={portConfigConfirmModal.updates}
           isLoading={isExecutingPortConfig}
+        />
+      )}
+
+      {/* Cisco Live Port Statistics & Telemetry Modal */}
+      {activeStatsPort && currentDevice && (
+        <CiscoPortStatisticsModal
+          isOpen={!!activeStatsPort}
+          onClose={() => setActiveStatsPort(null)}
+          port={activeStatsPort}
+          deviceName={currentDevice.name}
+          deviceId={currentDevice.id}
         />
       )}
     </div>

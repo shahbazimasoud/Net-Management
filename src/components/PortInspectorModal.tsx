@@ -6,6 +6,7 @@ import { NetworkSocketLoader } from './common/NetworkSocketLoader';
 import { NetworkPortSvg } from './NetworkPortSvg';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
 import { CiscoPortContextMenu } from './CiscoPortContextMenu';
+import { CiscoPortStatisticsModal } from './CiscoPortStatisticsModal';
 import { CiscoCommandConfirmModal } from './CiscoCommandConfirmModal';
 import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfigConfirmModal';
 import { AssignVlanModal } from './AssignVlanModal';
@@ -169,6 +170,9 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     port: SwitchPort;
   } | null>(null);
 
+  // Cisco Port Statistics Modal State
+  const [activeStatsPort, setActiveStatsPort] = useState<SwitchPort | null>(null);
+
   // Editing state
   const [isEditing, setIsEditing] = useState(false);
   const [editAdminStatus, setEditAdminStatus] = useState<'enabled' | 'disabled'>('enabled');
@@ -238,6 +242,12 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const handleExecuteContextMenuAction = async (action: string, extra?: any) => {
     if (!contextMenu || !device) return;
     const targetPort = contextMenu.port;
+
+    if (action === 'port_statistics') {
+      setActiveStatsPort(extra?.port || targetPort);
+      setContextMenu(null);
+      return;
+    }
 
     const actionPermissionMap: Record<string, NetworkDeviceActionKey> = {
       port_sec_enable: 'port_security',
@@ -2843,6 +2853,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             onClose={() => setContextMenu(null)}
             onExecuteAction={handleExecuteContextMenuAction}
             onOpenTerminal={canTerminal && onConnectTerminal ? () => onConnectTerminal(device) : undefined}
+            onOpenPortStats={(p) => setActiveStatsPort(p)}
           />
         )}
 
@@ -2930,6 +2941,17 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
             isWriting={isWritingMem}
             sessionChanges={sessionChanges}
             onMinimize={onMinimize}
+          />
+        )}
+
+        {/* Cisco Live Port Statistics & Telemetry Modal */}
+        {activeStatsPort && device && (
+          <CiscoPortStatisticsModal
+            isOpen={!!activeStatsPort}
+            onClose={() => setActiveStatsPort(null)}
+            port={activeStatsPort}
+            deviceName={device.name}
+            deviceId={device.id}
           />
         )}
       </div>

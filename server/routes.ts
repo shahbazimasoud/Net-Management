@@ -285,6 +285,7 @@ import {
 } from './postgresManager';
 import * as net from 'net';
 import { resolveSshBackend, executeSshBridgeAction } from './sshBackendResolver';
+import { fetchCiscoPortStatistics } from './ciscoPortStatsService';
 import {
   createTwoFactorChallenge,
   verifyTwoFactorChallenge,
@@ -4456,6 +4457,37 @@ apiRouter.put('/devices/:id/ports/:portId', async (req: Request, res: Response) 
       success: false,
       error: err.message,
       message: err.message,
+    });
+  }
+});
+
+// GET /api/devices/:id/cisco-ports/:portId/stats - Adaptive Dual-Mode Cisco Port Statistics (SNMP with SSH Fallback)
+apiRouter.get('/devices/:id/cisco-ports/:portId/stats', async (req: Request, res: Response) => {
+  const isEn = (req.headers['accept-language'] || '').toLowerCase().includes('en');
+  const devId = req.params.id;
+  const rawPortId = req.params.portId || '';
+  const portId = decodeURIComponent(rawPortId).trim();
+
+  try {
+    const allDevs = await getAllDevices();
+    const device = allDevs.find((d: any) => d.id === devId || d.name === devId);
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        connected: false,
+        error: 'Device not found',
+        message: isEn ? 'Device not found' : 'دستگاه مورد نظر یافت نشد',
+      });
+    }
+
+    const stats = await fetchCiscoPortStatistics(device, portId);
+    return res.json(stats);
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      connected: false,
+      error: err.message || 'Error querying Cisco port statistics',
+      message: isEn ? (err.message || 'Error querying Cisco port statistics') : 'خطا در دریافت آمار ترافیک پورت سیسکو',
     });
   }
 });
