@@ -70,6 +70,7 @@ import { ServerImportModal } from './ServerImportModal';
 import { FieldInfoTooltip } from '../common/FieldInfoTooltip';
 import { useModalDock } from '../../context/ModalDockContext';
 import { logServerCommandEvent } from '../../services/auditLogger';
+import { loadDeviceGroups } from '../../services/settingsStorage';
 
 export interface RemoteServersViewProps {
   initialFilter?: 'all' | 'linux' | 'windows' | 'tags';
@@ -682,12 +683,35 @@ export const RemoteServersView: React.FC<RemoteServersViewProps> = ({
   // Filtered servers calculation
   const filteredServers = useMemo(() => {
     return servers.filter((server) => {
-      // Server Fleet Scope / Permitted Server IDs Filter
-      const targetIds =
-        (effectivePolicy as any)?.allowedServerIds ??
-        (effectivePolicy?.targetServerScope === 'specific'
-          ? (effectivePolicy as any)?.targetServerIds
-          : null);
+      // Server Fleet Scope / Permitted Server IDs Filter (Unified Target Scope Resolution)
+      let targetIds: string[] | null = null;
+      if (effectivePolicy) {
+        if (effectivePolicy.targetScope === 'all') {
+          targetIds = null;
+        } else if (Array.isArray((effectivePolicy as any)?.allowedServerIds)) {
+          targetIds = (effectivePolicy as any).allowedServerIds;
+        } else if (effectivePolicy.targetScope === 'specific') {
+          targetIds = effectivePolicy.targetServerIds || [];
+        } else if (effectivePolicy.targetScope === 'groups') {
+          const grps = loadDeviceGroups();
+          const targetGroupSet = new Set(
+            (effectivePolicy.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase())
+          );
+          const srvSet = new Set<string>();
+          for (const g of grps) {
+            const gid = (g.id || '').trim().toLowerCase();
+            const gname = (g.name || '').trim().toLowerCase();
+            if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+              const sIds: string[] = Array.isArray(g.serverIds) ? g.serverIds : (Array.isArray((g as any).server_ids) ? (g as any).server_ids : []);
+              sIds.forEach((s) => srvSet.add(s));
+            }
+          }
+          targetIds = Array.from(srvSet);
+        } else if (effectivePolicy.targetServerScope === 'specific') {
+          targetIds = (effectivePolicy as any)?.targetServerIds || [];
+        }
+      }
+
       if (Array.isArray(targetIds)) {
         const allowedSet = new Set(
           targetIds.map((id: string) => (id || '').trim().toLowerCase())

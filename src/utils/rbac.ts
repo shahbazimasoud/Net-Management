@@ -880,6 +880,9 @@ export function isServerActionPermitted(
   if (Array.isArray(policy.allowedServerIds) && serverId && !policy.allowedServerIds.includes(serverId)) {
     return false;
   }
+  if (policy.targetScope === 'specific' && Array.isArray(policy.targetServerIds) && serverId && !policy.targetServerIds.includes(serverId)) {
+    return false;
+  }
 
   // 3. Highest Priority: Granular Per-Server Override Matrix
   if (policy.perServerPermissions && typeof policy.perServerPermissions === 'object') {
@@ -932,6 +935,57 @@ export function isServerActionPermitted(
 }
 
 /**
+ * Universally evaluates whether a target remote server is in the authorized scope of an AccessPolicy.
+ * Evaluates targetScope ('all' | 'groups' | 'specific'), targetGroupIds, targetServerIds, and allowedServerIds.
+ */
+export function canAccessServer(
+  policy: AccessPolicy | any | null | undefined,
+  serverId: string,
+  deviceGroups?: Array<{ id: string; name?: string; serverIds?: string[]; server_ids?: string[] }>
+): boolean {
+  if (!policy) return true;
+  if (policy.canViewServers === false) return false;
+  if (isUserSuperAdmin(null, policy)) return true;
+
+  // 1. Authoritative pre-computed allowedServerIds
+  if (Array.isArray(policy.allowedServerIds)) {
+    return policy.allowedServerIds.includes(serverId);
+  }
+
+  // 2. Unrestricted scope
+  if (policy.targetScope === 'all') {
+    return true;
+  }
+
+  // 3. Specific servers selection
+  if (policy.targetScope === 'specific') {
+    return Array.isArray(policy.targetServerIds) && policy.targetServerIds.includes(serverId);
+  }
+
+  // 4. Group-scoped fleet: check if server belongs to any of the policy's target groups
+  if (policy.targetScope === 'groups') {
+    if (!Array.isArray(deviceGroups) || deviceGroups.length === 0) {
+      // If groups are not passed or empty, default to false under least-privilege
+      return false;
+    }
+    const targetGroupSet = new Set(
+      (policy.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase())
+    );
+    for (const g of deviceGroups) {
+      const gid = (g.id || '').trim().toLowerCase();
+      const gname = (g.name || '').trim().toLowerCase();
+      if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+        const sIds = g.serverIds || g.server_ids || [];
+        if (sIds.includes(serverId)) return true;
+      }
+    }
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Client-side evaluation helper to test whether a given action is permitted on a target server.
  * Accepts either the RemoteServer object or its string ID, along with the action key and effective policy.
  */
@@ -975,6 +1029,9 @@ export function isDeviceActionPermitted(
 
   // 2. If policy targets specific groups or devices, ensure target device is in allowed scope
   if (Array.isArray(policy.allowedDeviceIds) && !policy.allowedDeviceIds.includes(deviceId)) {
+    return false;
+  }
+  if (policy.targetScope === 'specific' && Array.isArray(policy.targetDeviceIds) && !policy.targetDeviceIds.includes(deviceId)) {
     return false;
   }
 
@@ -1086,6 +1143,57 @@ export function isDeviceActionPermitted(
   }
 
   // Operational telemetry and memos are enabled by default for authorized equipment
+  return true;
+}
+
+/**
+ * Universally evaluates whether a target network device is in the authorized scope of an AccessPolicy.
+ * Evaluates targetScope ('all' | 'groups' | 'specific'), targetGroupIds, targetDeviceIds, and allowedDeviceIds.
+ */
+export function canAccessDevice(
+  policy: AccessPolicy | any | null | undefined,
+  deviceId: string,
+  deviceGroups?: Array<{ id: string; name?: string; deviceIds?: string[]; device_ids?: string[] }>
+): boolean {
+  if (!policy) return true;
+  if (policy.canViewDevices === false) return false;
+  if (isUserSuperAdmin(null, policy)) return true;
+
+  // 1. Authoritative pre-computed allowedDeviceIds
+  if (Array.isArray(policy.allowedDeviceIds)) {
+    return policy.allowedDeviceIds.includes(deviceId);
+  }
+
+  // 2. Unrestricted scope
+  if (policy.targetScope === 'all') {
+    return true;
+  }
+
+  // 3. Specific devices selection
+  if (policy.targetScope === 'specific') {
+    return Array.isArray(policy.targetDeviceIds) && policy.targetDeviceIds.includes(deviceId);
+  }
+
+  // 4. Group-scoped equipment: check if device belongs to any of the policy's target groups
+  if (policy.targetScope === 'groups') {
+    if (!Array.isArray(deviceGroups) || deviceGroups.length === 0) {
+      // If groups are not passed or empty, default to false under least-privilege
+      return false;
+    }
+    const targetGroupSet = new Set(
+      (policy.targetGroupIds || []).map((id: string) => (id || '').trim().toLowerCase())
+    );
+    for (const g of deviceGroups) {
+      const gid = (g.id || '').trim().toLowerCase();
+      const gname = (g.name || '').trim().toLowerCase();
+      if (targetGroupSet.has(gid) || targetGroupSet.has(gname)) {
+        const dIds = g.deviceIds || g.device_ids || [];
+        if (dIds.includes(deviceId)) return true;
+      }
+    }
+    return false;
+  }
+
   return true;
 }
 

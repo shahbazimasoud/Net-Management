@@ -10,9 +10,95 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.373.2';
+export const APP_VERSION = '1.377.0';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.377.0',
+    releaseDate: '2026-10-24',
+    type: 'minor',
+    title: 'فاز ۴: تثبیت نهایی انطباق هسته RBAC، ارزیابی هوشمند و تفکیکی اسکوپ و اعمال معتبر اختیارات در کل سیستم (Authoritative RBAC Core Enforcement & Cascading Scope Resolution)',
+    title_en: 'Phase 4: Authoritative RBAC Core Enforcement, Target Scope Resolution & Universal Permissions Verification',
+    changes: [
+      'توسعه و استقرار توابع ارزیابی هسته canAccessDevice و canAccessServer در src/utils/rbac.ts جهت سنجش قطعی و استاندارد اسکوپ مجاز (سراسری، گروه‌بندی‌شده و تفکیکی).',
+      'اعمال بررسی دقیق و چندلایه‌ای targetScope === specific در توابع هسته isDeviceActionPermitted و isServerActionPermitted علاوه بر allowedDeviceIds و allowedServerIds.',
+      'بازنویسی و یکپارچه‌سازی متد enrichClientPolicyScope در settingsStorage.ts جهت محاسبه معتبر و خودکار نودهای مجاز سروری و تجهیزاتی از روی targetGroupIds و deviceGroups بدون تداخل با فیلدهای منسوخ.',
+      'هماهنگ‌سازی فیلتر ناوگان سرورها در RemoteServersView.tsx جهت اعمال صددرصدی و بلادرنگ اسکوپ پالیسی فعال بر مبنای گروه‌ها، شناسه‌های خاص یا کل زیرساخت.',
+      'اجرای تست‌های اعتبارسنجی جامع صحت عملکرد ماتریس دسترسی‌ها، تفکیک اسکوپ و جلوگیری از نشت اختیارات.'
+    ],
+    changes_en: [
+      'Architected and deployed authoritative core evaluation functions canAccessDevice and canAccessServer in src/utils/rbac.ts supporting all scope modes (all, groups, specific).',
+      'Enforced rigorous multi-tier targetScope === specific validation in isDeviceActionPermitted and isServerActionPermitted alongside allowedDeviceIds and allowedServerIds.',
+      'Consolidated enrichClientPolicyScope in settingsStorage.ts for authentic dynamic resolution of permitted servers and devices from targetGroupIds and deviceGroups.',
+      'Synchronized RemoteServersView.tsx to enforce real-time authoritative policy scoping across groups, specific selections, and unrestricted fleets.',
+      'Executed comprehensive E2E validation tests verifying access boundaries, granular overrides, and zero authorization leakage.'
+    ]
+  },
+  {
+    version: '1.376.0',
+    releaseDate: '2026-10-24',
+    type: 'minor',
+    title: 'فاز ۳: تجمیع استثنائات سرورها در تب ۵ و پاکسازی ماتریس تجهیزات شبکه در تب ۷ (Consolidated Server Overrides & Pure Equipment Matrix)',
+    title_en: 'Phase 3: Consolidated Server Overrides in Linux Tab & Dedicated Network Equipment Matrix',
+    changes: [
+      'تجمیع کامل و هوشمند اختیارات و استثنائات ناوگان سرورها در تب ۵ (Linux & Servers) و حذف کامل تکرار و سردرگمی بین تب‌های پالیسی.',
+      'افزودن دراور بازشونده درون‌خطی (Inline Expandable Drawer) برای هر سرور مجاز جهت تنظیم اختصاصی ۱۱ دسترسی و عملیات سروری (شامل ترمینال، کاوشگر فایل، تلمتری، وب، دیتابیس، پاور، ویرایش، حذف، اکسپورت، ایمپورت، افزودن سرور).',
+      'تعبیه کلیدهای عملیات سریع «مجاز همه (Allow All)»، «مسدود همه (Deny All)» و «ریست به پیش‌فرض (Reset to Defaults)» به ازای هر سرور مجزا.',
+      'افزودن نوار فیلتر وضعیت استثنائات سرورها (همه، دارای استثنا، پیش‌فرض) در کنار جستجوی چندفیلدی نام، IP و سیستم‌عامل.',
+      'پاکسازی کامل تب ۷ (تجهیزات شبکه) از زیرتب سرورها و اختصاص ۱۰۰٪ آن به ماتریس اختیارات و پورت‌های سوییچ‌ها و روترها.',
+      'به‌روزرسانی نام تب ۷ در ناوبری مودال به Equipment Overrides (استثنائات تجهیزات شبکه).'
+    ],
+    changes_en: [
+      'Complete consolidation of server fleet permissions and granular overrides directly inside Tab 5 (Linux & Servers), eliminating all duplicate settings across modal tabs.',
+      'Integrated inline expandable drawer on each permitted server card allowing granular toggles for all 11 server action capabilities (Terminal, File Explorer, Telemetry/Management, Web, Database, Power Control, Edit, Delete, Export, Import, Add Server).',
+      'Added rapid one-click actions: "Allow All", "Deny All", and "Reset to Defaults" on per-server override panels.',
+      'Introduced override status filter pills (All, Custom Overrides, Default) alongside multi-attribute search across server name, IP, and OS.',
+      'Removed duplicate Remote Server Fleet subtab from Tab 7, turning it into a dedicated, focused Network Equipment Overrides matrix.',
+      'Renamed Tab 7 in policy modal navigation to "Equipment Overrides" / "استثنائات تجهیزات شبکه".'
+    ]
+  },
+  {
+    version: '1.375.0',
+    releaseDate: '2026-10-24',
+    type: 'minor',
+    title: 'فاز ۲: اعمال فیلتر آبشاری هوشمند محدوده زیرساخت در تب‌های سرورها و ماتریس اختیارات (Cascading Infrastructure Scope Filtering)',
+    title_en: 'Phase 2: Intelligent Cascading Infrastructure Scope Filtering Across Server Fleet & Override Matrix',
+    changes: [
+      'پیاده‌سازی موتور فیلتر آبشاری (Cascading Scope Resolution) جهت محاسبه خودکار و بلادرنگ تجهیزات مجاز (permittedDevices) و سرورهای مجاز (permittedServers) بر مبنای اسکوپ تعیین‌شده در تب اول (Identity & Scope).',
+      'بازطراحی و بهینه‌سازی بخش سرورهای ناوگان در تب ۵ (Linux & Servers) با بنر وضعیت اسکوپ هوشمند، نمایش سرورهای مجاز، همگام‌سازی دوطرفه در حالت تفکیکی و تعبیه دکمه ناوبری سریع به تب اول (Configure Scope in Tab 1).',
+      'نمایش بج‌های گروه والد روی کارت هر سرور در حالت گروه‌بندی (Group-Scoped) جهت شفافیت منبع اعطای مجوز به سرور.',
+      'اعمال فیلتر آبشاری در تب ۷ (Network Device & Granular Matrix) به تفکیک تجهیزات شبکه و ناوگان سرورها با بنر نشانگر اسکوپ و وضعیت خالی ارگونومیک (Empty State) در صورت عدم وجود نود در اسکوپ انتخابی.',
+      'انطباق صددرصدی رابط کاربری با تم تیره و روشن، زبان انتخابی و استاندارد تولتیپ‌های سه‌گانه اطلاعات فیلد.'
+    ],
+    changes_en: [
+      'Implemented Cascading Scope Resolution engine dynamically deriving permittedDevices and permittedServers based on the authoritative Target Infrastructure Scope configured in Tab 1 (Identity & Scope).',
+      'Redesigned the Remote Server Fleet block in Tab 5 (Linux & Servers) featuring a dynamic cascading scope status banner, permitted server list filtering, bidirectional sync for specific selections, and quick navigation button to Tab 1.',
+      'Parent group identity badges rendered directly on server fleet cards under group-scoped mode providing complete transparency into authorization origins.',
+      'Cascading scope enforcement across Tab 7 (Network Device & Granular Matrix) for both network switches/routers and server fleet with informative status banners and dedicated empty-state notices.',
+      'Strict adherence to bilingual localization (en/fa), dark and light theme contrast, and boundary-safe 3-part field info tooltips.'
+    ]
+  },
+  {
+    version: '1.374.0',
+    releaseDate: '2026-10-24',
+    type: 'minor',
+    title: 'فاز ۱: انتقال و یکپارچه‌سازی محدوده تجهیزات و گروه‌بندی به تب اول هویت پالیسی (Unified Infrastructure Scope in Identity Tab)',
+    title_en: 'Phase 1: Unified Infrastructure & Device Grouping Scope Architecture in Policy Identity Tab',
+    changes: [
+      'انتقال و استقرار بخش جامع «محدوده پوشش زیرساخت، تجهیزات هدف و گروه‌بندی (Target Infrastructure Scope)» در تب اول پالیسی (Identity & Scope) دقیقاً زیر بخش تعیین هویت کاربر/گروه.',
+      'پشتیبانی از ۳ حالت جامع محدوده پوشش: دسترسی سراسری (All Infrastructure)، محدودسازی به گروه‌های تجهیزات و سرورها (Device & Server Groups) و انتخاب تفکیکی تکی دیوایس‌ها و سرورها (Specific Devices & Servers).',
+      'نمایش کارت‌های تعاملی گروه‌های ساخته‌شده در بخش Device Grouping & Tagging با نمایش نام، توضیحات، برچسب‌ها، پالت رنگ و شمارنده تعداد سوییچ‌ها و سرورهای عضو هر گروه.',
+      'تجهیز حالت تفکیکی (Specific) به دو پنل جستجو و انتخاب همزمان برای سوییچ‌های شبکه (targetDeviceIds) و سرورهای ناوگان (targetServerIds).',
+      'حذف بلوک تکراری و نابهنجار محدوده تجهیزات از تب ماتریس (Tab 7) جهت رفع سردرگمی ادمین و یکدست‌سازی ساختار کنترل دسترسی.'
+    ],
+    changes_en: [
+      'Consolidated and embedded the comprehensive "Target Infrastructure Scope & Device Grouping" block directly into Tab 1 (Identity & Scope) below the Subject Identity Picker.',
+      'Full support for 3 granular scope modes: All Infrastructure (global access), Specific Device & Server Groups (bound to groups defined in Device Grouping & Tagging), and Individual Specific Devices & Servers.',
+      'Interactive group cards showcasing group name, description, tags, color identity, and real-time device & server member counts with bulk select/deselect controls.',
+      'Dual-panel search and selection engine for specific mode supporting simultaneous network switch/router filtering and remote compute node assignment.',
+      'Removed the misplaced and redundant Target Equipment Scope block from Tab 7 (Matrix) to streamline UX and eliminate administrative confusion.'
+    ]
+  },
   {
     version: '1.373.2',
     releaseDate: '2026-10-23',

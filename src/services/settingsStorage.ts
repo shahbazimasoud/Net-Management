@@ -1008,7 +1008,7 @@ export async function syncDeviceGroupsFromDatabase(): Promise<DeviceGroup[]> {
   return loadDeviceGroups();
 }
 
-function enrichClientPolicyScope(pol: AccessPolicy): AccessPolicy {
+export function enrichClientPolicyScope(pol: AccessPolicy): AccessPolicy {
   if (!pol) return pol;
   if (pol.allowedDeviceIds !== undefined && pol.allowedServerIds !== undefined) return pol;
 
@@ -1041,15 +1041,8 @@ function enrichClientPolicyScope(pol: AccessPolicy): AccessPolicy {
     allowedDeviceIds = [];
   }
 
-  // 2. Server Fleet Scope
-  if (
-    pol.targetServerScope === 'specific' ||
-    (Array.isArray(pol.targetServerIds) && pol.targetServerIds.length > 0 && pol.targetServerScope !== 'all')
-  ) {
-    allowedServerIds = Array.isArray(pol.targetServerIds) ? pol.targetServerIds : [];
-  } else if (pol.targetServerScope === 'all') {
-    allowedServerIds = null;
-  } else if (pol.targetScope === 'all') {
+  // 2. Server Fleet Scope (Unified Target Scope Architecture)
+  if (pol.targetScope === 'all') {
     allowedServerIds = null;
   } else if (pol.targetScope === 'groups') {
     const grps = loadDeviceGroups();
@@ -1065,6 +1058,10 @@ function enrichClientPolicyScope(pol: AccessPolicy): AccessPolicy {
     }
     allowedServerIds = Array.from(srvSet);
   } else if (pol.targetScope === 'specific') {
+    allowedServerIds = Array.isArray(pol.targetServerIds) ? pol.targetServerIds : [];
+  } else if (pol.targetServerScope === 'all') {
+    allowedServerIds = null;
+  } else if (pol.targetServerScope === 'specific' || Array.isArray(pol.targetServerIds)) {
     allowedServerIds = Array.isArray(pol.targetServerIds) ? pol.targetServerIds : [];
   } else {
     allowedServerIds = [];
