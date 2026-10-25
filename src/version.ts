@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.2';
+export const APP_VERSION = '1.379.3';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.3',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'رفع مشکل بسته‌شدن مودال آمار ترافیک پورت سیسکو هنگام بازیابی از نوار داک (Dock Restore Bugfix)',
+    title_en: 'Fix Cisco Port Statistics modal closing bug upon restoring from ToolsDock',
+    changes: [
+      'اصلاح چرخه حیات مینیمایز مودال آمار ترافیک پورت سیسکو با افزودن استیت پایدار isMinimized؛ جلوگیری از فراخوانی اشتباه onClose در هنگام کوچک‌سازی و باقی‌ماندن کامپوننت در درخت ری‌اکت جهت حفظ کامل تاریخچه تلمتری.',
+      'پیاده‌سازی دقیق تابع onRestore در ثبت نوار داک (ToolsDock) جهت بازگرداندن بدون نقص مودال به صفحه با کلیک روی تب مربوطه.',
+      'تفکیک متد handleClose برای بستن قطعی پنجره و حذف ایمن تب از نوار داک به همراه به‌روزرسانی پویای نشانگر نرخ ترافیک روی تب در حالت مینیمایز.'
+    ],
+    changes_en: [
+      'Refactored Cisco Port Statistics modal minimization lifecycle by introducing an internal isMinimized state, preventing erroneous unmounting via onClose and keeping continuous telemetry polling and history active.',
+      'Fixed onRestore callback in ModalDock registration so clicking the minimized dock tab reliably restores the modal onto the screen.',
+      'Segregated handleClose logic for permanent window dismissal and dock cleanup, while keeping the live throughput badge dynamically updated on the dock pill while minimized.'
+    ]
+  },
   {
     version: '1.379.2',
     releaseDate: '2026-10-25',

@@ -154,6 +154,7 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
   }, [propIsLightMode]);
 
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshIntervalSec, setRefreshIntervalSec] = useState<number>(2);
   const [isLoading, setIsLoading] = useState(true);
@@ -169,8 +170,16 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
 
   const modalId = `cisco_port_stats_${deviceId}_${port.port_id}`;
 
-  // Docking registration
+  // Complete close handler that also undocks
+  const handleClose = useCallback(() => {
+    setIsMinimized(false);
+    undockModal(modalId);
+    onClose();
+  }, [undockModal, modalId, onClose]);
+
+  // Docking registration - preserves state and stays mounted
   const handleMinimize = useCallback(() => {
+    setIsMinimized(true);
     dockModal({
       id: modalId,
       labelEn: `Port Stats: ${deviceName} [${port.port_id}]`,
@@ -178,15 +187,41 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
       badge: telemetry ? (telemetry.in_rate_formatted || 'Live') : 'Stats',
       category: 'device',
       onRestore: () => {
-        undockModal(modalId);
+        setIsMinimized(false);
       },
       onClose: () => {
+        setIsMinimized(false);
         undockModal(modalId);
         onClose();
       },
     });
-    onClose();
   }, [dockModal, undockModal, modalId, deviceName, port.port_id, telemetry, onClose]);
+
+  // Reset minimized state when target port or device changes
+  useEffect(() => {
+    setIsMinimized(false);
+  }, [port.port_id, deviceId]);
+
+  // Update badge dynamically while minimized if telemetry changes
+  useEffect(() => {
+    if (isMinimized && telemetry?.in_rate_formatted) {
+      dockModal({
+        id: modalId,
+        labelEn: `Port Stats: ${deviceName} [${port.port_id}]`,
+        labelFa: `آمار پورت: ${deviceName} [${port.port_id}]`,
+        badge: telemetry.in_rate_formatted,
+        category: 'device',
+        onRestore: () => {
+          setIsMinimized(false);
+        },
+        onClose: () => {
+          setIsMinimized(false);
+          undockModal(modalId);
+          onClose();
+        },
+      });
+    }
+  }, [isMinimized, telemetry?.in_rate_formatted, dockModal, undockModal, modalId, deviceName, port.port_id, onClose]);
 
   // Fetch telemetry from server
   const fetchStats = useCallback(async (isInitial = false) => {
@@ -265,12 +300,12 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
     return () => clearInterval(timer);
   }, [isOpen, autoRefresh, refreshIntervalSec, fetchStats]);
 
-  // Clean dock entry on unmount/close
+  // Clean dock entry on unmount
   useEffect(() => {
     return () => {
-      // Keep dock item if minimized, otherwise clean
+      undockModal(modalId);
     };
-  }, []);
+  }, [modalId, undockModal]);
 
   // Compute graph bounds & SVG coordinates with smooth spline interpolation
   const graphMetrics = useMemo(() => {
@@ -352,7 +387,7 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
     };
   }, [history]);
 
-  if (!isOpen) return null;
+  if (!isOpen || isMinimized) return null;
 
   return createPortal(
     <div
@@ -521,7 +556,7 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
               title={isEn ? 'Close' : 'بستن'}
             >
@@ -1080,7 +1115,7 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
             </button>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="px-3.5 py-1 rounded-xl text-xs font-medium bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 transition cursor-pointer"
             >
               {isEn ? 'Close' : 'بستن'}
