@@ -188,6 +188,7 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
       category: 'device',
       onRestore: () => {
         setIsMinimized(false);
+        undockModal(modalId);
       },
       onClose: () => {
         setIsMinimized(false);
@@ -201,27 +202,6 @@ export const CiscoPortStatisticsModal: React.FC<CiscoPortStatisticsModalProps> =
   useEffect(() => {
     setIsMinimized(false);
   }, [port.port_id, deviceId]);
-
-  // Update badge dynamically while minimized if telemetry changes
-  useEffect(() => {
-    if (isMinimized && telemetry?.in_rate_formatted) {
-      dockModal({
-        id: modalId,
-        labelEn: `Port Stats: ${deviceName} [${port.port_id}]`,
-        labelFa: `آمار پورت: ${deviceName} [${port.port_id}]`,
-        badge: telemetry.in_rate_formatted,
-        category: 'device',
-        onRestore: () => {
-          setIsMinimized(false);
-        },
-        onClose: () => {
-          setIsMinimized(false);
-          undockModal(modalId);
-          onClose();
-        },
-      });
-    }
-  }, [isMinimized, telemetry?.in_rate_formatted, dockModal, undockModal, modalId, deviceName, port.port_id, onClose]);
 
   // Fetch telemetry from server
   const fetchStats = useCallback(async (isInitial = false) => {

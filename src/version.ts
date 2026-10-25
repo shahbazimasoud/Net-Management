@@ -10,9 +10,24 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.379.3';
+export const APP_VERSION = '1.379.4';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.379.4',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'رفع باگ باقی‌ماندن تب در نوار داک هنگام بازیابی مودال آمار پورت سیسکو با یک کلیک',
+    title_en: 'Fix persistent dock tab bug upon Cisco Port Statistics modal restoration with single click',
+    changes: [
+      'فراخوانی صریح و بلادرنگ undockModal در رویداد onRestore مودال آمار پورت سیسکو جهت پاکسازی فوری و قطعی تب از نوار داک پایین (ToolsDock) در اولین کلیک.',
+      'حذف افکت تکرارشونده ثبت داک ناشی از به‌روزرسانی‌های دوره‌ای تلمتری در پس‌زمینه که سبب ایجاد رقابت (Race Condition) و بازگشت مجدد تب به نوار داک می‌شد.'
+    ],
+    changes_en: [
+      'Explicitly invoked undockModal within the onRestore callback of CiscoPortStatisticsModal to guarantee immediate tab removal from ToolsDock upon single click.',
+      'Eliminated re-docking race condition previously caused by background telemetry update effects re-registering the modal into the dock.'
+    ]
+  },
   {
     version: '1.379.3',
     releaseDate: '2026-10-25',
