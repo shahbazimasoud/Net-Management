@@ -17,6 +17,95 @@ import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
 import { isDeviceActionPermitted } from '../utils/rbac';
 
+export interface ResolvedPortSecurity {
+  enabled: boolean;
+  mode: 'sticky' | 'configured' | 'dynamic';
+  maxMac: number;
+  violation: 'shutdown' | 'restrict' | 'protect';
+  configuredMac: string;
+  learnedMacs: string[];
+  statusText: string;
+}
+
+export function extractPortSecurityState(port: SwitchPort | any | null | undefined): ResolvedPortSecurity {
+  if (!port) {
+    return {
+      enabled: false,
+      mode: 'sticky',
+      maxMac: 1,
+      violation: 'shutdown',
+      configuredMac: '',
+      learnedMacs: [],
+      statusText: 'disabled',
+    };
+  }
+
+  const rawEnabled =
+    port.port_security_enabled ??
+    port.port_security ??
+    port.security_enabled ??
+    port.portSecurityEnabled ??
+    port.portSecurity;
+  const rawStatus = String(port.port_security_status || port.security_status || '').toLowerCase().trim();
+
+  const isEnabled = Boolean(
+    rawEnabled === true ||
+    rawEnabled === 'true' ||
+    rawEnabled === 'enabled' ||
+    rawEnabled === 1 ||
+    rawEnabled === '1' ||
+    (rawStatus && rawStatus !== 'disabled' && rawStatus !== 'off' && rawStatus !== 'none')
+  );
+
+  const rawMode = String(port.port_security_mode || port.security_mode || port.mode_security || '').toLowerCase().trim();
+  let mode: 'sticky' | 'configured' | 'dynamic' = 'sticky';
+  if (rawMode === 'configured' || rawMode === 'manual' || rawMode === 'static') {
+    mode = 'configured';
+  } else if (rawMode === 'dynamic') {
+    mode = 'dynamic';
+  } else {
+    mode = 'sticky';
+  }
+
+  const rawMax = port.port_security_max_mac ?? port.max_mac ?? port.maximum_macs ?? port.max_macs ?? 1;
+  const numMax = parseInt(String(rawMax), 10);
+  const maxMac = !isNaN(numMax) && numMax >= 1 && numMax <= 1024 ? numMax : 1;
+
+  const rawViolation = String(port.port_security_violation || port.violation || port.violation_action || '').toLowerCase().trim();
+  let violation: 'shutdown' | 'restrict' | 'protect' = 'shutdown';
+  if (rawViolation === 'restrict') {
+    violation = 'restrict';
+  } else if (rawViolation === 'protect') {
+    violation = 'protect';
+  } else {
+    violation = 'shutdown';
+  }
+
+  const configuredMac = String(
+    port.port_security_configured_mac ||
+    port.configured_mac ||
+    port.static_mac ||
+    port.port_security_mac ||
+    ''
+  ).trim();
+
+  const learnedMacs: string[] = Array.isArray(port.port_security_learned_macs)
+    ? port.port_security_learned_macs
+    : Array.isArray(port.learned_macs)
+    ? port.learned_macs
+    : [];
+
+  return {
+    enabled: isEnabled,
+    mode,
+    maxMac,
+    violation,
+    configuredMac,
+    learnedMacs,
+    statusText: isEnabled ? (rawStatus || 'secure-up') : 'disabled',
+  };
+}
+
 interface PortInspectorModalProps {
   device: Device | null;
   isOpen: boolean;
@@ -166,9 +255,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     // 1. If user chose "Enable Port Security"
     // Requirement: "اگر فعال کردن پورت سکوریتی رو انتخاب شد از این منو باید بره تو همین مودال قسمت ویرایش پورت و تیک فعال شدن پورت سکوریتی رو بزنه تا از اینجا طرف خودش کانفیگ کنه"
     if (action === 'port_sec_enable') {
+      const sec = extractPortSecurityState(targetPort);
       setSelectedPort(targetPort);
       setIsEditing(true);
       setEditPortSecEnabled(true);
+      setEditPortSecMode(sec.mode);
+      setEditPortSecMaxMac(sec.maxMac);
+      setEditPortSecConfiguredMac(sec.configuredMac);
+      setEditPortSecViolation(sec.violation);
       setEditMode('access');
       setContextMenu(null);
       setTimeout(() => {
@@ -518,12 +612,19 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         const rawAdmin = String(p.admin_status || '').toLowerCase().trim();
         const isDis = rawAdmin === 'disabled' || rawAdmin === 'shutdown' || rawStat === 'disabled' || rawStat === 'err-disabled' || rawStat === 'administratively down';
         const isConn = !isDis && (rawStat === 'up' || rawStat === 'connected' || rawStat === 'active' || rawStat === 'running');
+        const sec = extractPortSecurityState(p);
         return {
           ...p,
           port_id: p.port_id || p.port || p.name || `port-${idx + 1}`,
           status: isConn ? 'up' : 'down',
           admin_status: isDis ? 'disabled' : 'enabled',
           mode: String(p.mode || 'access').toLowerCase().trim() === 'trunk' ? 'trunk' : 'access',
+          port_security_enabled: sec.enabled,
+          port_security_mode: sec.mode,
+          port_security_max_mac: sec.maxMac,
+          port_security_violation: sec.violation,
+          port_security_configured_mac: sec.configuredMac,
+          port_security_status: sec.statusText,
         };
       });
       setPorts(normalizedPorts);
@@ -819,6 +920,26 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     return ports[0] || null;
   }, [ports, selectedPort, selectedPortIds]);
 
+  const activePortSec = useMemo(() => extractPortSecurityState(activeSelectedPort), [activeSelectedPort]);
+
+  // Keep edit form fields automatically pre-populated with the currently inspected port whenever selection changes
+  useEffect(() => {
+    if (activeSelectedPort && !isEditing) {
+      const sec = extractPortSecurityState(activeSelectedPort);
+      setEditAdminStatus(activeSelectedPort.admin_status);
+      setEditMode(activeSelectedPort.mode);
+      setEditVlan(activeSelectedPort.vlan);
+      setEditAllowedVlans(activeSelectedPort.allowed_vlans || '');
+      setEditConnected(activeSelectedPort.connected_device || '');
+      setEditDesc(activeSelectedPort.description || '');
+      setEditPortSecEnabled(sec.enabled);
+      setEditPortSecMaxMac(sec.maxMac);
+      setEditPortSecMode(sec.mode);
+      setEditPortSecConfiguredMac(sec.configuredMac);
+      setEditPortSecViolation(sec.violation);
+    }
+  }, [activeSelectedPort, isEditing]);
+
   const getMaxSpeed = (p?: SwitchPort | null) => {
     if (!p) return '1 Gbps';
     if ((p as any).max_speed) return String((p as any).max_speed);
@@ -940,6 +1061,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
       return;
     }
 
+    const sec = extractPortSecurityState(port);
     setSelectedPort(port);
     setEditAdminStatus(port.admin_status);
     setEditMode(port.mode);
@@ -947,11 +1069,11 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     setEditAllowedVlans(port.allowed_vlans || '');
     setEditConnected(port.connected_device || '');
     setEditDesc(port.description || '');
-    setEditPortSecEnabled(!!port.port_security_enabled);
-    setEditPortSecMaxMac(port.port_security_max_mac || 1);
-    setEditPortSecMode(port.port_security_mode || 'sticky');
-    setEditPortSecConfiguredMac(port.port_security_configured_mac || '');
-    setEditPortSecViolation(port.port_security_violation || 'shutdown');
+    setEditPortSecEnabled(sec.enabled);
+    setEditPortSecMaxMac(sec.maxMac);
+    setEditPortSecMode(sec.mode);
+    setEditPortSecConfiguredMac(sec.configuredMac);
+    setEditPortSecViolation(sec.violation);
     setIsEditing(true);
 
     setTimeout(() => {
@@ -1150,7 +1272,8 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
     if (filterMode === 'down' && p.status !== 'down') return false;
     if (filterMode === 'trunk' && p.mode !== 'trunk') return false;
     if (filterMode === 'access' && p.mode !== 'access') return false;
-    if (filterMode === 'port-sec' && !p.port_security_enabled) return false;
+    const pSec = extractPortSecurityState(p);
+    if (filterMode === 'port-sec' && !pSec.enabled) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
@@ -1158,7 +1281,8 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
         p.connected_device.toLowerCase().includes(q) ||
         String(p.vlan).includes(q) ||
         p.mode.toLowerCase().includes(q) ||
-        (p.port_security_mode && p.port_security_mode.toLowerCase().includes(q))
+        pSec.mode.toLowerCase().includes(q) ||
+        pSec.configuredMac.toLowerCase().includes(q)
       );
     }
     return true;
@@ -1167,7 +1291,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
   const activeCount = ports.filter((p) => p.status === 'up').length;
   const inactiveCount = ports.filter((p) => p.status === 'down').length;
   const trunkCount = ports.filter((p) => p.mode === 'trunk').length;
-  const portSecCount = ports.filter((p) => p.port_security_enabled).length;
+  const portSecCount = ports.filter((p) => extractPortSecurityState(p).enabled).length;
 
   return (
     <div
@@ -1947,14 +2071,14 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                   {/* Cisco Port Security Status */}
                   <div
                     className={`port-sub-card p-3 rounded-xl border transition ${
-                      activeSelectedPort.port_security_enabled
+                      activePortSec.enabled
                         ? 'bg-emerald-950/30 border-emerald-500/40 shadow-sm'
                         : 'bg-white/5 border-white/10'
                     }`}
                   >
                     <div className="flex items-center justify-between text-[11px] mb-0.5">
                       <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">{isEn ? 'Port Security:' : 'پورت سکیوریتی:'}</span>
-                      {activeSelectedPort.port_security_enabled ? (
+                      {activePortSec.enabled ? (
                         <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                       ) : (
                         <Shield className="w-3.5 h-3.5 text-slate-500" />
@@ -1963,31 +2087,36 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                     <div className="flex items-center gap-1">
                       <span
                         className={`font-bold font-mono text-xs ${
-                          activeSelectedPort.port_security_enabled ? 'text-emerald-300' : 'text-slate-400'
+                          activePortSec.enabled ? 'text-emerald-300' : 'text-slate-400'
                         }`}
                       >
-                        {activeSelectedPort.port_security_enabled ? (isEn ? 'Secure' : 'فعال (Secure)') : (isEn ? 'Disabled' : 'غیرفعال (Disabled)')}
+                        {activePortSec.enabled ? (isEn ? 'Secure (Enabled)' : 'فعال (Secure)') : (isEn ? 'Disabled' : 'غیرفعال (Disabled)')}
                       </span>
                     </div>
-                    {activeSelectedPort.port_security_enabled ? (
-                      <div className="text-[10px] text-emerald-300 mt-1 font-mono space-y-0.5">
+                    {activePortSec.enabled ? (
+                      <div className="text-[10px] text-emerald-300 mt-1 font-mono space-y-1">
                         <div className="flex items-center justify-between">
                           <span>
-                            {isEn ? 'Mode' : 'مود'}: {activeSelectedPort.port_security_mode === 'sticky' ? (isEn ? 'Sticky' : 'استیکی') : activeSelectedPort.port_security_mode === 'configured' ? (isEn ? 'Configured' : 'کانفیگور') : (isEn ? 'Dynamic' : 'داینامیک')}
+                            {isEn ? 'Mode' : 'مود'}: {activePortSec.mode === 'sticky' ? (isEn ? 'Sticky' : 'استیکی') : activePortSec.mode === 'configured' ? (isEn ? 'Configured' : 'کانفیگور') : (isEn ? 'Dynamic' : 'داینامیک')}
                           </span>
-                          <span className="font-bold bg-emerald-500/20 text-emerald-300 px-1 rounded text-[9px] border border-emerald-500/30">
-                            Max: {activeSelectedPort.port_security_max_mac || 1}
+                          <span className="font-bold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded text-[9px] border border-emerald-500/30">
+                            Max: {activePortSec.maxMac}
                           </span>
                         </div>
-                        <div className="text-[9px] text-slate-400 truncate" title={activeSelectedPort.port_security_configured_mac || activeSelectedPort.port_security_learned_macs?.join(', ')}>
-                          MAC: {activeSelectedPort.port_security_mode === 'configured'
-                            ? (activeSelectedPort.port_security_configured_mac || (isEn ? 'Static' : 'دستی'))
-                            : (activeSelectedPort.port_security_learned_macs?.[0] || (isEn ? 'Sticky learned' : 'Sticky کشف‌شده'))}
+                        <div className="flex items-center justify-between text-slate-300 text-[9px]">
+                          <span>
+                            {isEn ? 'Violation' : 'واکنش تخلف'}: <b className="text-amber-300 font-mono uppercase">{activePortSec.violation}</b>
+                          </span>
+                        </div>
+                        <div className="text-[9px] text-slate-400 truncate" title={activePortSec.configuredMac || activePortSec.learnedMacs?.join(', ')}>
+                          MAC: {activePortSec.mode === 'configured'
+                            ? (activePortSec.configuredMac || (isEn ? 'Static' : 'دستی'))
+                            : (activePortSec.learnedMacs?.[0] || activePortSec.configuredMac || (isEn ? 'Sticky learned' : 'Sticky کشف‌شده'))}
                         </div>
                       </div>
                     ) : (
                       <div className="text-slate-500 text-[10px] mt-1 font-sans">
-                        {isEn ? 'No MAC limit applied' : 'محدودیت مک‌ اعمال نشده'}
+                        {isEn ? 'No MAC limit applied (Disabled)' : 'غیرفعال - بدون محدودیت مک'}
                       </div>
                     )}
                   </div>
@@ -2608,25 +2737,28 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                         </td>
                         <td className="px-3 py-2.5 font-bold text-indigo-300">VLAN {port.vlan}</td>
                         <td className="px-3 py-2.5">
-                          {port.port_security_enabled ? (
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-sans bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium"
-                              title={`Port Security Active\nMode: ${port.port_security_mode || 'sticky'}\nMax MACs: ${port.port_security_max_mac || 1}\nViolation: ${port.port_security_violation || 'shutdown'}`}
-                            >
-                              <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
-                              <span className="font-mono">
-                                {port.port_security_mode === 'sticky' ? 'Sticky' : port.port_security_mode === 'configured' ? 'Config' : 'Dynamic'}
+                          {(() => {
+                            const pSec = extractPortSecurityState(port);
+                            return pSec.enabled ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-sans bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium"
+                                title={`Port Security Active\nMode: ${pSec.mode}\nMax MACs: ${pSec.maxMac}\nViolation: ${pSec.violation}`}
+                              >
+                                <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
+                                <span className="font-mono">
+                                  {pSec.mode === 'sticky' ? 'Sticky' : pSec.mode === 'configured' ? 'Config' : 'Dynamic'}
+                                </span>
+                                <span className="bg-emerald-500/30 text-emerald-200 px-1 rounded text-[9px] font-mono font-bold border border-emerald-500/40">
+                                  {pSec.maxMac}
+                                </span>
                               </span>
-                              <span className="bg-emerald-500/30 text-emerald-200 px-1 rounded text-[9px] font-mono font-bold border border-emerald-500/40">
-                                {port.port_security_max_mac || 1}
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans text-slate-500">
+                                <Shield className="w-3 h-3 text-slate-500 shrink-0" />
+                                <span>Off</span>
                               </span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans text-slate-500">
-                              <Shield className="w-3 h-3 text-slate-500 shrink-0" />
-                              <span>Off</span>
-                            </span>
-                          )}
+                            );
+                          })()}
                         </td>
                         <td className="px-3 py-2.5 text-slate-200 font-sans text-xs">
                           <div>{port.connected_device || '-'}</div>

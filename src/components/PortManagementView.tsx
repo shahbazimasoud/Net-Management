@@ -8,6 +8,7 @@ import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfi
 import { AssignVlanModal } from './AssignVlanModal';
 import { NetworkPortSvg } from './NetworkPortSvg';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
+import { extractPortSecurityState } from './PortInspectorModal';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
@@ -703,7 +704,26 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
     }
   };
 
+  // Auto pre-populate edit form whenever a port is selected and not currently in active editing mode
+  useEffect(() => {
+    if (selectedPort && !isEditing) {
+      const sec = extractPortSecurityState(selectedPort);
+      setEditAdminStatus(selectedPort.admin_status);
+      setEditMode(selectedPort.mode);
+      setEditVlan(selectedPort.vlan);
+      setEditAllowedVlans(selectedPort.allowed_vlans || '');
+      setEditConnected(selectedPort.connected_device || '');
+      setEditDesc(selectedPort.description || '');
+      setEditPortSecEnabled(sec.enabled);
+      setEditPortSecMaxMac(sec.maxMac);
+      setEditPortSecMode(sec.mode);
+      setEditPortSecConfiguredMac(sec.configuredMac);
+      setEditPortSecViolation(sec.violation);
+    }
+  }, [selectedPort, isEditing]);
+
   const startEdit = (port: SwitchPort) => {
+    const sec = extractPortSecurityState(port);
     setSelectedPort(port);
     setEditAdminStatus(port.admin_status);
     setEditMode(port.mode);
@@ -711,11 +731,11 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
     setEditAllowedVlans(port.allowed_vlans || '');
     setEditConnected(port.connected_device || '');
     setEditDesc(port.description || '');
-    setEditPortSecEnabled(!!port.port_security_enabled);
-    setEditPortSecMaxMac(port.port_security_max_mac || 1);
-    setEditPortSecMode(port.port_security_mode || 'sticky');
-    setEditPortSecConfiguredMac(port.port_security_configured_mac || '');
-    setEditPortSecViolation(port.port_security_violation || 'shutdown');
+    setEditPortSecEnabled(sec.enabled);
+    setEditPortSecMaxMac(sec.maxMac);
+    setEditPortSecMode(sec.mode);
+    setEditPortSecConfiguredMac(sec.configuredMac);
+    setEditPortSecViolation(sec.violation);
     setIsEditing(true);
 
     setTimeout(() => {
@@ -1289,57 +1309,67 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
               </div>
 
               {/* Cisco Port Security Status */}
-              <div
-                className={`port-sub-card p-3 rounded-xl border transition ${
-                  selectedPort.port_security_enabled
-                    ? 'bg-emerald-950/30 border-emerald-500/40 shadow-sm'
-                    : 'bg-white/5 border-white/10'
-                }`}
-              >
-                <div className="flex items-center justify-between text-[11px] mb-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">{isEn ? 'Port Security:' : 'پورت سکیوریتی:'}</span>
-                    <span className="layer2-security-badge text-[9px] font-mono px-1.5 py-0.2 rounded font-bold" data-badge="layer2-security">
-                      Layer 2 Security
-                    </span>
-                  </div>
-                  {selectedPort.port_security_enabled ? (
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <Shield className="w-3.5 h-3.5 text-slate-500" />
-                  )}
-                </div>
-                <div className="flex items-center gap-1">
-                  <span
-                    className={`font-bold font-mono text-xs ${
-                      selectedPort.port_security_enabled ? 'text-emerald-300' : 'text-slate-400'
+              {(() => {
+                const sec = extractPortSecurityState(selectedPort);
+                return (
+                  <div
+                    className={`port-sub-card p-3 rounded-xl border transition ${
+                      sec.enabled
+                        ? 'bg-emerald-950/30 border-emerald-500/40 shadow-sm'
+                        : 'bg-white/5 border-white/10'
                     }`}
                   >
-                    {selectedPort.port_security_enabled ? (isEn ? 'Secure' : 'فعال (Secure)') : (isEn ? 'Disabled' : 'غیرفعال (Disabled)')}
-                  </span>
-                </div>
-                {selectedPort.port_security_enabled ? (
-                  <div className="text-[10px] text-emerald-300 mt-1 font-mono space-y-0.5">
-                    <div className="flex items-center justify-between">
-                      <span>
-                        {isEn ? 'Mode' : 'مود'}: {selectedPort.port_security_mode === 'sticky' ? (isEn ? 'Sticky' : 'استیکی') : selectedPort.port_security_mode === 'configured' ? (isEn ? 'Configured' : 'کانفیگور') : (isEn ? 'Dynamic' : 'داینامیک')}
-                      </span>
-                      <span className="font-bold bg-emerald-500/20 text-emerald-300 px-1 rounded text-[9px] border border-emerald-500/30">
-                        Max: {selectedPort.port_security_max_mac || 1}
+                    <div className="flex items-center justify-between text-[11px] mb-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">{isEn ? 'Port Security:' : 'پورت سکیوریتی:'}</span>
+                        <span className="layer2-security-badge text-[9px] font-mono px-1.5 py-0.2 rounded font-bold" data-badge="layer2-security">
+                          Layer 2 Security
+                        </span>
+                      </div>
+                      {sec.enabled ? (
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Shield className="w-3.5 h-3.5 text-slate-500" />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`font-bold font-mono text-xs ${
+                          sec.enabled ? 'text-emerald-300' : 'text-slate-400'
+                        }`}
+                      >
+                        {sec.enabled ? (isEn ? 'Secure (Enabled)' : 'فعال (Secure)') : (isEn ? 'Disabled' : 'غیرفعال (Disabled)')}
                       </span>
                     </div>
-                    <div className="text-[9px] text-slate-400 truncate" title={selectedPort.port_security_configured_mac || selectedPort.port_security_learned_macs?.join(', ')}>
-                      MAC: {selectedPort.port_security_mode === 'configured'
-                        ? (selectedPort.port_security_configured_mac || (isEn ? 'Static' : 'دستی'))
-                        : (selectedPort.port_security_learned_macs?.[0] || (isEn ? 'Sticky learned' : 'Sticky کشف‌شده'))}
-                    </div>
+                    {sec.enabled ? (
+                      <div className="text-[10px] text-emerald-300 mt-1 font-mono space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span>
+                            {isEn ? 'Mode' : 'مود'}: {sec.mode === 'sticky' ? (isEn ? 'Sticky' : 'استیکی') : sec.mode === 'configured' ? (isEn ? 'Configured' : 'کانفیگور') : (isEn ? 'Dynamic' : 'داینامیک')}
+                          </span>
+                          <span className="font-bold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded text-[9px] border border-emerald-500/30">
+                            Max: {sec.maxMac}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-300 text-[9px]">
+                          <span>
+                            {isEn ? 'Violation' : 'واکنش تخلف'}: <b className="text-amber-300 font-mono uppercase">{sec.violation}</b>
+                          </span>
+                        </div>
+                        <div className="text-[9px] text-slate-400 truncate" title={sec.configuredMac || sec.learnedMacs?.join(', ')}>
+                          MAC: {sec.mode === 'configured'
+                            ? (sec.configuredMac || (isEn ? 'Static' : 'دستی'))
+                            : (sec.learnedMacs?.[0] || sec.configuredMac || (isEn ? 'Sticky learned' : 'Sticky کشف‌شده'))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-slate-500 text-[10px] mt-1 font-sans">
+                        {isEn ? 'No MAC limit applied (Disabled)' : 'غیرفعال - بدون محدودیت مک'}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-[10px] text-slate-400 mt-1 font-mono">
-                    {isEn ? 'Violation: Default' : 'بدون محدودیت مک'}
-                  </div>
-                )}
-              </div>
+                );
+              })()}
 
               <div className="port-sub-card p-3 rounded-xl bg-white/5 border border-white/10">
                 <div className="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">{isEn ? 'PoE Status:' : 'توان برق (PoE Status):'}</div>

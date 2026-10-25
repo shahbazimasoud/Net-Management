@@ -10,9 +10,28 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.378.0';
+export const APP_VERSION = '1.378.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.378.1',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'انطباق دقیق و نمایش بلادرنگ وضعیت پورت سکیوریتی (Port Security) در فرم ادیت و کارت بازرسی پورت سیسکو',
+    title_en: 'Accurate Real-Time Cisco Port Security Synchronization in Edit Form and Inspection Mode Cards',
+    changes: [
+      'طراحی تابع نرمال‌سازی و استخراج عمیق اطلاعات امنیت پورت (extractPortSecurityState) جهت پوشش جامع انواع وضعیت‌های فعال بودن، مود تعریف مک (Sticky / Configured / Dynamic)، سقف مک آدرس‌ها و سیاست برخورد (Violation Action).',
+      'پیش‌بارگذاری خودکار و بی‌درنگ تمامی تنظیمات و پارامترهای پورت سکیوریتی در فرم Edit Port Settings به محض انتخاب هر پورت از جدول یا فیس‌پلیت گرافیکی.',
+      'تجهیز کارت بازرسی Port Security در حالت بسته بودن ادیت به نمایش شفاف وضعیت فعال بودن، مود تعریف مک، سقف مجاز، اکشن تخلف (Violation Action) و مک‌های ثبت‌شده با رعایت کامل تم تیره/روشن و چندزبانگی.',
+      'به‌روزرسانی تولید دستورات واقعی سیسکو در سمت سرور (server/routes.ts) منطبق با مود انتخابی پورت سکیوریتی، مک آدرس استاتیک و اکشن برخورد.'
+    ],
+    changes_en: [
+      'Engineered comprehensive port security extraction helper (extractPortSecurityState) supporting all variant representations of enabled status, MAC definition mode, maximum MAC limits, violation actions, and configured MACs.',
+      'Implemented automatic instantaneous pre-population of Port Security parameters inside "Edit Port Settings" upon selecting any port from the faceplate or table.',
+      'Enhanced the Port Security inspection card with complete indicators for status, MAC definition mode, maximum MAC limit, violation action (Shutdown/Restrict/Protect), and learned/configured MAC addresses.',
+      'Aligned backend Cisco CLI command generation in server/routes.ts to respect selected port security mode, configured static MACs, and violation policies.'
+    ]
+  },
   {
     version: '1.378.0',
     releaseDate: '2026-10-25',

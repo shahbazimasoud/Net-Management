@@ -4117,12 +4117,17 @@ function buildPortCliCommand(platform: string, iface: string, updates: any): str
       hasCommands = true;
       if (updates.port_security_enabled) {
         const maxMac = Number(updates.port_security_max_mac || 1);
-        const violation = String(updates.port_security_violation || 'restrict');
+        const violation = String(updates.port_security_violation || 'shutdown').toLowerCase();
+        const mode = String(updates.port_security_mode || 'sticky').toLowerCase();
         lines.push(' switchport mode access');
         lines.push(' switchport port-security');
         lines.push(` switchport port-security maximum ${maxMac}`);
         lines.push(` switchport port-security violation ${violation}`);
-        lines.push(' switchport port-security mac-address sticky');
+        if (mode === 'configured' && updates.port_security_configured_mac) {
+          lines.push(` switchport port-security mac-address ${String(updates.port_security_configured_mac).trim()}`);
+        } else if (mode === 'sticky') {
+          lines.push(' switchport port-security mac-address sticky');
+        }
       } else {
         lines.push(' no switchport port-security');
       }
