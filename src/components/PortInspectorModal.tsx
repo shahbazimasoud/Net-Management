@@ -106,6 +106,15 @@ export function extractPortSecurityState(port: SwitchPort | any | null | undefin
   };
 }
 
+/**
+ * Generates sample Cisco-formatted MAC in format 0000.0000.0xxx
+ * where the last 3 hexadecimal digits are randomized.
+ */
+export function generateSamplePortSecurityMac(): string {
+  const randHex = Math.floor(Math.random() * 0x1000).toString(16).padStart(3, '0');
+  return `0000.0000.0${randHex}`;
+}
+
 interface PortInspectorModalProps {
   device: Device | null;
   isOpen: boolean;
@@ -2490,7 +2499,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                                 value={editPortSecConfiguredMac}
                                 disabled={!canPortSecurity}
                                 onChange={(e) => setEditPortSecConfiguredMac(e.target.value)}
-                                placeholder={isEn ? 'e.g. 0050.56a1.2b3c or 00:50:56:A1:2B:3C' : 'مثال: 0050.56a1.2b3c یا 00:50:56:A1:2B:3C'}
+                                placeholder={isEn ? 'e.g. 0000.0000.0a1b or 00:00:00:00:0A:1B' : 'مثال: 0000.0000.0a1b یا 00:00:00:00:0A:1B'}
                                 className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono text-left font-semibold focus:border-indigo-400 ${
                                   !canPortSecurity
                                     ? 'bg-slate-900/80 border-white/5 text-slate-500 cursor-not-allowed'
@@ -2503,7 +2512,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                               <button
                                 type="button"
                                 disabled={!canPortSecurity}
-                                onClick={() => setEditPortSecConfiguredMac('0050.56a1.2b3c')}
+                                onClick={() => setEditPortSecConfiguredMac(generateSamplePortSecurityMac())}
                                 className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {isEn ? 'Insert Sample MAC' : 'درج مک آدرس نمونه'}
@@ -2535,7 +2544,7 @@ export const PortInspectorModal: React.FC<PortInspectorModalProps> = ({
                             <div className="text-amber-300">{device.name}(config-if)# switchport port-security mac-address sticky</div>
                           ) : editPortSecMode === 'configured' ? (
                             <div className="text-cyan-300">
-                              {device.name}(config-if)# switchport port-security mac-address {editPortSecConfiguredMac || '0050.56a1.2b3c'}
+                              {device.name}(config-if)# switchport port-security mac-address {editPortSecConfiguredMac || '0000.0000.0001'}
                             </div>
                           ) : null}
                           <div>{device.name}(config-if)# switchport port-security violation {editPortSecViolation}</div>

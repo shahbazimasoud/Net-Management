@@ -10,9 +10,26 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.378.1';
+export const APP_VERSION = '1.378.2';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.378.2',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'تولید مک آدرس نمونه استاندارد سیسکو با ۳ رقم انتهایی تصادفی در مود کانفیگور پورت سکیوریتی',
+    title_en: 'Cisco-Formatted Sample MAC Address Generator with Randomized 3-Digit Hex Suffix for Configured Port Security',
+    changes: [
+      'پیاده‌سازی تابع اختصاصی generateSamplePortSecurityMac جهت تولید مک آدرس بر پایه ساختار استاندارد سیسکو به فرمت 0000.0000.0xxx با ۳ رقم هگزادسیمال تصادفی.',
+      'به‌روزرسانی دکمه درج مک آدرس نمونه (Insert Sample MAC) در مودال بررسی پورت (PortInspectorModal) و مدیریت پورت‌ها (PortManagementView) جهت تولید مقادیر تصادفی یکتا در هر بار کلیک کاربر.',
+      'هماهنگ‌سازی پلیس‌هولدر ورودی مک آدرس استاتیک و پیش‌نمایش بلادرنگ دستورات Cisco IOS-XE مطابق ساختار سه‌بخشی نقطه‌دار سیسکو.'
+    ],
+    changes_en: [
+      'Implemented dedicated generator generateSamplePortSecurityMac generating standard Cisco 3-group format 0000.0000.0xxx with 3 randomized hexadecimal digits.',
+      'Updated "Insert Sample MAC" button across PortInspectorModal and PortManagementView to produce a fresh unique sample MAC on every user interaction.',
+      'Synchronized static MAC address input placeholders and real-time Cisco IOS-XE CLI running-config previews to match standard dotted hexadecimal syntax.'
+    ]
+  },
   {
     version: '1.378.1',
     releaseDate: '2026-10-25',

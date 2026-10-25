@@ -8,7 +8,7 @@ import { CiscoPortConfigConfirmModal, PortConfigUpdates } from './CiscoPortConfi
 import { AssignVlanModal } from './AssignVlanModal';
 import { NetworkPortSvg } from './NetworkPortSvg';
 import { FieldInfoTooltip } from './common/FieldInfoTooltip';
-import { extractPortSecurityState } from './PortInspectorModal';
+import { extractPortSecurityState, generateSamplePortSecurityMac } from './PortInspectorModal';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useModalDock } from '../context/ModalDockContext';
 import { useAuth } from '../context/AuthContext';
@@ -1634,7 +1634,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
                           type="text"
                           value={editPortSecConfiguredMac}
                           onChange={(e) => setEditPortSecConfiguredMac(e.target.value)}
-                          placeholder={isEn ? 'e.g. 0050.56a1.2b3c or 00:50:56:A1:2B:3C' : 'مثال: 0050.56a1.2b3c یا 00:50:56:A1:2B:3C'}
+                          placeholder={isEn ? 'e.g. 0000.0000.0a1b or 00:00:00:00:0A:1B' : 'مثال: 0000.0000.0a1b یا 00:00:00:00:0A:1B'}
                           className="w-full px-2.5 py-1.5 rounded-lg bg-black/40 border border-white/15 text-white text-xs font-mono text-left font-semibold focus:border-indigo-400"
                           dir="ltr"
                         />
@@ -1642,7 +1642,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
                       <div className="pt-4 flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setEditPortSecConfiguredMac('0050.56a1.2b3c')}
+                          onClick={() => setEditPortSecConfiguredMac(generateSamplePortSecurityMac())}
                           className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-[11px] font-mono transition cursor-pointer"
                         >
                           {isEn ? 'Sample MAC' : 'مک نمونه'}
@@ -1671,7 +1671,7 @@ export const PortManagementView: React.FC<PortManagementViewProps> = ({ devices 
                       <div className="text-amber-300">{currentDevice?.name || 'Switch'}(config-if)# switchport port-security mac-address sticky</div>
                     ) : editPortSecMode === 'configured' ? (
                       <div className="text-cyan-300">
-                        {currentDevice?.name || 'Switch'}(config-if)# switchport port-security mac-address {editPortSecConfiguredMac || '0050.56a1.2b3c'}
+                        {currentDevice?.name || 'Switch'}(config-if)# switchport port-security mac-address {editPortSecConfiguredMac || '0000.0000.0001'}
                       </div>
                     ) : null}
                     <div>{currentDevice?.name || 'Switch'}(config-if)# switchport port-security violation {editPortSecViolation}</div>
