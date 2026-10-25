@@ -182,21 +182,54 @@ def handle_ports_sync(args):
         full_output = ""
         for cmd in commands:
             channel.send(f"{cmd}\n")
-            time.sleep(0.7)
-            deadline = time.time() + 3.0
+            time.sleep(0.5)
+            deadline = time.time() + 4.0
+            cmd_received = False
+            last_recv_time = time.time()
             while time.time() < deadline:
                 if channel.recv_ready():
                     chunk = channel.recv(8192).decode("utf-8", errors="ignore")
-                    full_output += chunk
-                    if len(chunk) < 8192:
-                        break
+                    if chunk:
+                        full_output += chunk
+                        cmd_received = True
+                        last_recv_time = time.time()
                 else:
-                    time.sleep(0.1)
+                    if cmd_received and (time.time() - last_recv_time > 0.4):
+                        break
+                    time.sleep(0.08)
 
         p_client.close()
 
-        from backend.connections.hardware_discovery import parse_cisco_show_interface_status, normalize_port_list
-        ports = parse_cisco_show_interface_status(full_output)
+        try:
+            from backend.connections.hardware_discovery import (
+                parse_cisco_show_interface_status,
+                parse_mikrotik_output,
+                normalize_port_list
+            )
+        except ImportError:
+            try:
+                from connections.hardware_discovery import (
+                    parse_cisco_show_interface_status,
+                    parse_mikrotik_output,
+                    normalize_port_list
+                )
+            except ImportError:
+                def normalize_port_list(plist):
+                    return plist or []
+                def parse_cisco_show_interface_status(txt):
+                    return []
+                def parse_mikrotik_output(txt):
+                    return ({}, [])
+
+        if "mikrotik" in platform.lower():
+            _, ports = parse_mikrotik_output(full_output)
+        else:
+            ports = parse_cisco_show_interface_status(full_output)
+            if not ports:
+                _, mt_ports = parse_mikrotik_output(full_output)
+                if mt_ports:
+                    ports = mt_ports
+
         normalized = normalize_port_list(ports)
 
         print(json.dumps({

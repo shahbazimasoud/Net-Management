@@ -10,9 +10,30 @@ export interface ReleaseNote {
   changes_en?: string[];
 }
 
-export const APP_VERSION = '1.377.0';
+export const APP_VERSION = '1.377.1';
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.377.1',
+    releaseDate: '2026-10-25',
+    type: 'patch',
+    title: 'رفع باگ استعلام زنده وضعیت پورت‌ها، اصلاح ایمپورت normalize_port_list و ذخیره‌سازی داده‌های به‌روز در پایگاه‌داده (Live Port Synchronization & Database Persistence Fix)',
+    title_en: 'Fix Live Port Synchronization, Resolve normalize_port_list Import Error & Persist Live Ports to PostgreSQL',
+    changes: [
+      'اصلاح خطای ایمپورت تابع normalize_port_list در backend/ssh_bridge.py و اضافه کردن پیاده‌سازی رسمی آن در backend/connections/hardware_discovery.py.',
+      'بهبود حلقه دریافت بافر SSH در پل ارتباطی پایتون جهت خواندن کامل و بدون قطعی خروجی چند تکه‌ای فرامین show interfaces status و RouterOS print.',
+      'پشتیبانی چندسکویی در استخراج پورت‌های زنده جهت سوییچ‌ها و روترهای سیسکو و میکروتیک در handle_ports_sync.',
+      'ذخیره‌سازی و پایداری وضعیت به‌روز پورت‌ها در پایگاه‌داده PostgreSQL در روت POST /api/devices/:id/ports/sync سرور.',
+      'شفاف‌سازی خطاهای همگام‌سازی در متد کلاینت syncDevicePorts و جلوگیری از پنهان‌سازی خطا یا نمایش فریبنده کش قدیمی (مطابق با قانون عدم استفاده از داده شبیه‌سازی‌شده).'
+    ],
+    changes_en: [
+      'Resolved ImportError for normalize_port_list in backend/ssh_bridge.py and defined standard implementation in backend/connections/hardware_discovery.py.',
+      'Enhanced SSH socket reading loop in Python bridge to reliably capture multi-chunk output from show interfaces status and RouterOS print without premature truncation.',
+      'Added cross-platform support for Cisco and MikroTik port status extraction in handle_ports_sync.',
+      'Persisted live synchronized ports to the authoritative PostgreSQL database upon POST /api/devices/:id/ports/sync.',
+      'Enhanced client-side syncDevicePorts with transparent authentic error handling, eliminating stale cache masking per live data mandates.'
+    ]
+  },
   {
     version: '1.377.0',
     releaseDate: '2026-10-24',

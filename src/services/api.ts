@@ -373,7 +373,10 @@ export async function executeDeviceTerminal(
   return res.json();
 }
 
-export async function fetchDevicePorts(deviceId: string): Promise<{
+export async function fetchDevicePorts(
+  deviceId: string,
+  live = false
+): Promise<{
   device: Device;
   ports: SwitchPort[];
   active_count: number;
@@ -388,7 +391,8 @@ export async function fetchDevicePorts(deviceId: string): Promise<{
   const token = getAuthToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports`, { headers });
+  const url = live ? `${API_BASE}/devices/${deviceId}/ports?live=true` : `${API_BASE}/devices/${deviceId}/ports`;
+  const res = await fetch(url, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || err.error || 'Failed to fetch ports');
@@ -410,21 +414,20 @@ export async function syncDevicePorts(deviceId: string): Promise<{
   const token = getAuthToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  try {
-    const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/sync`, {
-      method: 'POST',
-      headers,
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.ports)) {
-        return data;
-      }
+  
+  const res = await fetch(`${API_BASE}/devices/${deviceId}/ports/sync`, {
+    method: 'POST',
+    headers,
+  });
+  if (res.ok) {
+    const data = await res.json();
+    if (data && Array.isArray(data.ports)) {
+      return data;
     }
-  } catch (e) {
-    console.warn('[syncDevicePorts] SSH sync attempt failed, fallback to live query:', e);
   }
-  return fetchDevicePorts(deviceId) as any;
+
+  const errData = await res.json().catch(() => ({}));
+  throw new Error(errData.message || errData.error || 'Port synchronization failed');
 }
 
 export async function updateSwitchPort(

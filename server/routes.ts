@@ -3955,6 +3955,12 @@ apiRouter.post('/devices/:id/ports/sync', async (req: Request, res: Response) =>
 
     const result = await executeSshBridgeAction('ports-sync', device, backend.version, 25000);
     if (result && result.success && Array.isArray(result.ports)) {
+      device.ports = result.ports;
+      try {
+        await updateDevice(device.id, { ports: result.ports });
+      } catch (dbErr: any) {
+        console.warn(`[PortSync DB Persist Warning] Could not persist ports to database: ${dbErr.message}`);
+      }
       return res.json({
         success: true,
         device,

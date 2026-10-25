@@ -363,6 +363,45 @@ def parse_cisco_show_interface_status(raw_text: str) -> List[Dict[str, Any]]:
     return ports
 
 
+def normalize_port_list(port_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Standardizes a list of switch/router ports with consistent keys,
+    canonical IDs, status ('up' / 'down'), admin_status ('enabled' / 'disabled'),
+    and eliminates duplicate port entries.
+    """
+    if not isinstance(port_list, list):
+        return []
+    normalized = []
+    seen = set()
+    for idx, p in enumerate(port_list):
+        if not isinstance(p, dict):
+            continue
+        p_copy = dict(p)
+        if not p_copy.get("port_id"):
+            p_copy["port_id"] = p_copy.get("port") or p_copy.get("name") or f"port-{idx+1}"
+        if not p_copy.get("port"):
+            p_copy["port"] = p_copy["port_id"]
+        if not p_copy.get("name"):
+            p_copy["name"] = p_copy["port_id"]
+        if not p_copy.get("mode"):
+            p_copy["mode"] = "access"
+
+        stat = str(p_copy.get("status", "down")).strip().lower()
+        admin_stat = str(p_copy.get("admin_status", "")).strip().lower()
+        is_disabled = admin_stat in ("disabled", "shutdown") or stat in ("disabled", "err-disabled", "administratively down", "shutdown")
+        is_up = not is_disabled and stat in ("up", "connected", "active", "running")
+
+        p_copy["status"] = "up" if is_up else "down"
+        p_copy["admin_status"] = "disabled" if is_disabled else "enabled"
+
+        canon_id = str(p_copy["port_id"]).strip().lower().replace("gigabitethernet", "gi").replace("fastethernet", "fa").replace("tengigabitethernet", "te")
+        if canon_id in seen:
+            continue
+        seen.add(canon_id)
+        normalized.append(p_copy)
+    return normalized
+
+
 def parse_mikrotik_output(raw_text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
     Parses 100% authentic telemetry from RouterOS CLI queries without simulated fallbacks.
